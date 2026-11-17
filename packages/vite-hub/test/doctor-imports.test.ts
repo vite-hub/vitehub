@@ -33,6 +33,28 @@ describe("vitehub/prefer-vite-hub-imports", () => {
       .map(path => `Import \`vite-hub/${path}\` instead of \`@vite-hub/${path}\`.`))
   })
 
+  it("names the vite-hub path of the UI, docs site, Comments, and WebContainer imports", async () => {
+    const suggestions = await report({
+      "package.json": app,
+      "src/chat.ts": "import { Markdown } from \"@vite-hub/ui\"\nimport { useMessageScroller } from \"@vite-hub/ui/headless\"\nexport { Markdown, useMessageScroller }\n",
+      "app/app.config.ts": "import { vitehubTheme } from \"@vite-hub/ui/theme\"\nexport default { ui: vitehubTheme }\n",
+      "scripts/manifest.ts": "import { createDocsManifest } from \"@vite-hub/docs/server\"\nexport { createDocsManifest }\n",
+      "server/comments.ts": "import { defineComments } from \"@vite-hub/comments\"\nexport const comments = defineComments({})\n",
+      "src/comments-demo.ts": "import { createMemoryTransport } from \"@vite-hub/comments/testing\"\nexport { createMemoryTransport }\n",
+      "scripts/snapshot.ts": "import { createNodeModulesSnapshot } from \"@vite-hub/web-container/snapshot\"\nexport { createNodeModulesSnapshot }\n",
+      "server/utils/limiter.ts": "import { kvRateLimitDriver } from \"@vite-hub/rate-limit/drivers/kv\"\nexport { kvRateLimitDriver }\n",
+    })
+    expect(suggestions.sort()).toEqual(["comments", "comments/testing", "docs/server", "rate-limit/drivers/kv", "ui", "ui/headless", "ui/theme", "web-container/snapshot"]
+      .map(path => `Import \`vite-hub/${path}\` instead of \`@vite-hub/${path}\`.`).sort())
+  })
+
+  it("accepts the comment marks stylesheet, which pages read as text", async () => {
+    expect(await report({
+      "package.json": app,
+      "src/marks.ts": "import marks from \"@vite-hub/ui/comment-marks.css?raw\"\nexport { marks }\n",
+    })).toEqual([])
+  })
+
   it("accepts owner paths that have no vite-hub path", async () => {
     expect(await report({
       "package.json": app,

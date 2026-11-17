@@ -23,6 +23,7 @@ icon: i-lucide-code-2
 | `withAuth` from `vite-hub/auth/server` | Run a handler only when a session exists. |
 | `withAuthorization` from `vite-hub/auth/server` | Run a handler only after `true` or an `authorize` callback accepts the request. Never redirects to sign-in. |
 | `requireAuth`, `requireAuthorization` from `vite-hub/auth/server` | Check the session inside a handler. They return the checked session or throw an HTTP error. |
+| `requireServiceToken`, `checkServiceToken` from `vite-hub/env` | Check the bearer token of a route that a script or a runner calls. No session and no Auth setup. See [Service tokens](/docs/env/service-tokens). |
 | `defineAbilities`, `deny`, `guest` from `vite-hub/auth/abilities` | Write the rules of `shared/abilities.ts`. See [Abilities](/docs/auth/abilities). |
 | `requireAbility`, `can`, `AbilityError` from `vite-hub/auth/server` | Check a rule of `shared/abilities.ts` in server code. |
 | `useAbility`, `Can`, `Cannot` from `vite-hub/auth/vue` | Check a rule of `shared/abilities.ts` in Vue. `useAbility()` returns `can()`, `cannot()`, `authorize()`, and `ready`. |
@@ -70,6 +71,20 @@ const { loggedIn, user, signOut } = useUserSession()
 - Without `redirectTo`, in Nuxt, a page with `definePageMeta({ auth: 'user' })` sends the visitor to its login page, as the page guard does. Other pages stay open.
 - Better Auth gets the other options, such as `fetchOptions`, and `signOut()` returns its result. When the sign-out fails, the session and the page stay.
 - When Better Auth sends the visitor to the provider's sign-out page, such as with OpenID Connect logout, `signOut()` opens no other page. Better Auth's `callbackURL` option sets the page after that.
+
+To sign out from a link or from server code, call `signOut(event)` from `vite-hub/auth/server`. It ends the session and returns the response that clears the session cookies:
+
+```ts [server/routes/logout.get.ts]
+import { signOut } from 'vite-hub/auth/server'
+import { defineHandler } from 'h3'
+
+export default defineHandler(event => signOut(event, { redirectTo: '/login' }))
+```
+
+- With `redirectTo`, the response is a `303` redirect to that page. Without it, the response is `204`. Return it from the route, so the browser gets the cookies.
+- If Better Auth returns a provider logout URL, the response redirects there first and passes `redirectTo` as the return URL.
+- `redirectTo` must be a path of the app, such as `/login`. Another site fails with `AUTH_SIGN_OUT_REDIRECT_INVALID`.
+- A request without a session gets the same response.
 
 ### Client plugins
 
@@ -156,6 +171,7 @@ export default defineHandler(async (event) => {
 | `useAuth(event)` | Returns the Better Auth instance of the app's Auth Definition for a request event or a Web `Request`. |
 | `handleAuth(input)` | Handles an Auth HTTP request. `input` is a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 2 event in a ViteHub app. Auth reads the client address and the Cloudflare bindings from the Standard Context of the Request. A Request that Nitro did not create gets one that reads srvx `ip` and `runtime.cloudflare`. |
 | `handleAuthRequest(definition, input, event?)` | Handles an Auth request for an explicit Auth Definition. |
+| `signOut(event, { redirectTo }?)` | Ends the session of the request. Returns a `303` redirect to `redirectTo`, or `204`, with the cookies that clear the session. |
 | `toAuthRequest(input)` | Returns a Web `Request` itself, or `event['~standard'].req` of a request event. |
 | `createAuthHandler(definition)` | Creates a handler called as `handler(request, { clientAddress }?)`. Manual hosts pass the peer address for rate limiting and session IPs. |
 | `createAuthAccessHandler(routes, definition?)` | Creates a handler that matches route metadata, checks the session, and runs every matching authorization rule. |
@@ -166,6 +182,7 @@ export default defineHandler(async (event) => {
 | `requireAuthorization(event, authorize, definition?)` | Returns the checked `authorization` when allowed. Otherwise it throws an `HTTPError` with the status and headers of the `withAuthorization()` response. |
 | `requireAbility(event, name, ...args)` | Returns `authorization` when the [ability](/docs/auth/abilities) allows the caller. Else throws `AbilityError`, which H3 sends with status `401`, `403`, or the status of `deny()`, and `{ code, details }` in `data`. |
 | `can(event, name, ...args)` | Returns `true` when the ability allows the caller, else `false`. |
+| `checkAuthMember(userId, event?)` | Checks [`VITEHUB_MEMBERS`](/docs/auth/configure#choose-who-can-sign-in) for a user without a session. See [Check a member without a session](#check-a-member-without-a-session). |
 
 `useAuth()`, `auth`, `getAuth()`, and `assertAuthOrigin()` return the instance typed from your Auth Definition, with the endpoints and fields of its plugins. The Vite plugin registers the type of `server/auth.ts` in `.vitehub/types/auth.d.ts`, so `useAuth(event).api.listUsers` type-checks when the definition uses the `admin()` plugin, without a cast. For another definition, `getAuthForDefinition(definition)` infers the type from its argument, and `AuthFor<typeof definition>` from `vite-hub/auth` names it.
 
@@ -214,6 +231,33 @@ export async function requireTeamMember(token: string | null | undefined) {
 }
 ```
 
+### Check a member without a session
+
+Sign-in and every session already check [`VITEHUB_MEMBERS`](/docs/auth/configure#choose-who-can-sign-in). Some requests carry a user id but no session, such as an upload link or a signed review token. Check them with `checkAuthMember()`:
+
+```ts [server/api/uploads/[ticket].put.ts]
+import { checkAuthMember } from 'vite-hub/auth/server'
+import { kv } from 'vite-hub/kv'
+import { defineHandler, getRouterParam, HTTPError } from 'h3'
+
+export default defineHandler(async (event) => {
+  // The upload page stored the uploader's user id under the ticket.
+  const [, userId] = await kv.get(`upload-tickets:${getRouterParam(event, 'ticket')}`)
+  if (typeof userId !== 'string') throw new HTTPError({ status: 404 })
+  const [error] = await checkAuthMember(userId, event)
+  // During a GitHub outage, ask the uploader to try again.
+  if (error?.code === 'AUTH_GITHUB_UNAVAILABLE') throw new HTTPError({ status: 503 })
+  if (error) throw new HTTPError({ status: 403 })
+  return { ok: true }
+})
+```
+
+- It uses the rules of sign-in: a verified email or domain, a listed account, the accounts in `VITEHUB_ADMINS`, the admin role, or an active GitHub organization membership.
+- It returns `[undefined, undefined]` when the list lets the user in, or when `VITEHUB_MEMBERS` is not set.
+- It returns `AUTH_NOT_MEMBER` for a refused or unknown user, and `AUTH_GITHUB_UNAVAILABLE` when GitHub cannot confirm a membership.
+- It reuses a confirmed organization membership for five minutes, from the token that the user's GitHub account stores.
+- Pass the request event when you have one. On Cloudflare, Auth reads `VITEHUB_MEMBERS` from its bindings.
+
 ### Authorize access routes
 
 Add `authorize` when a session alone is not enough. ViteHub calls it only after authentication.
@@ -241,7 +285,7 @@ export default defineAuth({
 })
 ```
 
-The callback receives the signed-in `user`, `session`, and request. ViteHub defines no admin role, so check your own roles or permissions here.
+The callback receives the signed-in `user`, `session`, `request`, and `event`: the input of the guard. For access routes and in a Nitro route it is the H3 event, so `event.context` and functions that take the event, such as `useAuth(event)`, work in the callback. `withAuthorization()` types `event` as the input of the handler it returns, and a direct Fetchable call passes the Request. ViteHub defines no admin role, so check your own roles or permissions here.
 
 The same callback protects [Blob serve routes](/docs/blob/configure#protect-served-objects) and [Collections](/docs/source/server-api#protect-a-collection). Their generated routes wrap the read with `withAuthorization(authorize, handler)`. Unlike `withAuth()`, it never redirects to sign-in, so image and fetch requests get a status code.
 
@@ -272,19 +316,23 @@ export default defineAuth({
 
 ### Decide who can stay signed in
 
-`access.policy` decides who can use the app. Auth calls `allow` when it creates a session, so a refused person cannot sign in. It calls `allow` again when `recheck` milliseconds have passed for a session, on the next Better Auth request with that session cookie. Every guard and every `getSession()` call is such a request.
+`access.policy` decides in code who can use the app. For a list of accounts, emails, domains, or GitHub organizations, set [`VITEHUB_MEMBERS`](/docs/auth/configure#choose-who-can-sign-in) instead. Auth calls `allow` when it creates a session, so a refused person cannot sign in. It calls `allow` again when `recheck` milliseconds have passed for a session, on the next Better Auth request with that session cookie. Every guard and every `getSession()` call is such a request.
 
 ```ts [server/auth.ts]
-import { defineAuth, isGitHubOrgMember } from 'vite-hub/auth'
+import { checkGitHubOrgMember, defineAuth } from 'vite-hub/auth'
 
 const members = ['ada@example.com', 'grace@example.com']
 
 export default defineAuth({
   access: {
     policy: {
-      allow: async ({ user, accessToken }) =>
-        (user.emailVerified && members.includes(user.email))
-        || await isGitHubOrgMember(await accessToken('github'), 'acme', { cacheMs: 300_000 }),
+      allow: async ({ user, accessToken }) => {
+        if (user.emailVerified && members.includes(user.email)) return true
+        const [error] = await checkGitHubOrgMember(await accessToken('github'), 'acme', { cacheMs: 300_000 })
+        // During a GitHub outage, fail the request and keep the session.
+        if (error?.code === 'AUTH_GITHUB_UNAVAILABLE') throw error
+        return !error
+      },
       recheck: 300_000,
     },
   },
@@ -298,6 +346,7 @@ export default defineAuth({
 | Throws | The request fails. The session stays, and Auth asks again on the next request. |
 
 - `allow` gets the `user` and `accessToken(providerId)`, which returns the access token of the user's account with that provider, or `null`.
+- Use [`checkGitHubOrgMember()`](#github-organization-membership), which tells a refusal from a GitHub outage. `isGitHubOrgMember()` returns `false` for both, so a recheck while GitHub is down ends every session.
 - `recheck` defaults to `300000`, five minutes. With `0`, Auth asks on each request. The answers are in memory, so each server process or Worker isolate keeps its own.
 - [`verifyMcpRequest()`](/docs/auth/configure#check-the-token-of-an-mcp-request) also asks `allow`, so an MCP client loses access with its person.
 - The policy needs stored sessions: a Better Auth `database` or `secondaryStorage` adapter. With `stateless()`, Auth fails with `AUTH_C0066`.

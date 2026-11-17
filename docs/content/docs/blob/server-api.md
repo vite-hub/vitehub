@@ -112,15 +112,16 @@ Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: 
 | `blob.list(options?)` | Lists files with optional `prefix`, `limit`, `cursor`, and folded folders. |
 | `blob.copy(from, to, options?)` | Copies a file in the same store, with its content type and custom metadata. Read [Copy a file](#copy-a-file). |
 | `blob.delete(pathnames)` | Deletes one or more files. |
+| `blob.delete({ prefix })` | Deletes every file under a prefix and returns `{ deleted }`. Read [Delete a folder](#delete-a-folder). |
 | `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one file. |
-| `blob.serve(request, pathname, options?)` | Answers a `GET` or `HEAD` `Request` for one object with a `Response`: `200`, `206` or `416` for a range, `304`, `400` for an unsafe pathname, or `404`. |
+| `blob.serve(request, pathname, options?)` | Answers a `GET` or `HEAD` `Request` for one object with a `Response`: `200`, `206` or `416` for a range, `304`, `400` for an unsafe pathname, `404`, or `405` for another method. |
 | `blob.handleUpload(event, options?)` | Stores the files of a `multipart/form-data` request. Read [Upload files](#upload-files). |
 | `blob.createMultipartUpload(pathname, options?)` | Starts a multipart upload. Read [Multipart uploads](#multipart-uploads). |
 | `blob.resumeMultipartUpload(pathname, uploadId)` | Continues a multipart upload in a later request. |
 | `blob.handleMultipartUpload(event, options?)` | Serves the requests that the multipart client sends. |
 | `blob.store(name, options?)` | Selects a named store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 
-Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` with `statusCode: 400`. `serve()` returns a `400` response for it instead. The decoded pathname also must not contain `%` followed by two hex digits, such as `x%41.txt`. A second decode would change it, so this rule makes sure that each pathname that `put()` or `list()` returns targets the same object when you pass it back. `50% off.txt` is valid. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
+Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` as an H3 `HTTPError` with status `400`, so a route that lets it through answers `400`. `serve()` returns a `400` response for it instead. `get()` and `head()` read a pathname under `.vitehub/` as a missing file. A write under `.vitehub/`, `_vitehub/derived/`, or `_vitehub/media/` throws `BLOB_R0033` with status `403`. The decoded pathname also must not contain `%` followed by two hex digits, such as `x%41.txt`. A second decode would change it, so this rule makes sure that each pathname that `put()` or `list()` returns targets the same object when you pass it back. `50% off.txt` is valid. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
 
 ### Copy a file
 
@@ -150,14 +151,26 @@ With a partial prefix such as `docs/re`, a page can be empty while `hasMore` is 
 
 The `fs` driver sorts keys by UTF-16 code unit, so `B.txt` comes before `a.txt`. Its cursor holds the last listed key, so a key added between pages does not repeat or skip another key. It reads only the directories on the `prefix` path and the directories that the page reaches.
 
+### Delete a folder
+
+`blob.delete({ prefix })` deletes every file whose pathname starts with `prefix` and returns `{ deleted }`, the number of files it removed. It reads every `list()` page first, then deletes in batches of 100, so it works the same on every driver.
+
+```ts [server/api/runs/[id].delete.ts] fragment
+const [error, result] = await blob.delete({ prefix: `runs/${id}/` })
+if (error) throw error
+return { deleted: result.deleted }
+```
+
+The prefix matches as in `list()`: `runs/1` also matches `runs/10/`. End it with `/` to delete one folder. An empty prefix throws `BLOB_R0034` with status `400`, so a missing value never empties a store. Files under `.vitehub/` always stay. Files under `_vitehub/derived/` and `_vitehub/media/` stay unless the prefix starts with one of these folders. Each deleted file also loses its cached variants, as with `blob.delete(pathname)`. The delete is not atomic: a failure returns `BLOB_OPERATION_FAILED` and leaves the files that it did not reach, so call it again. A file written under the prefix during the call can stay.
+
 ## Serve a transformed object
 
-Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. Pass the `Request`: the `request` of a Fetchable route, or `event.req` in an H3 or Nitro handler. It returns a `Response` with the final status and headers, so the route returns it as it is. It handles conditional GET and HEAD requests. Responses default to `private, no-cache`; set `cacheControl` to choose another policy. `headers` adds more headers to a response that serves the object, including `206`, `304`, and `416`. Error responses do not get them.
+Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. Pass the `Request`: the `request` of a Fetchable route, or `event.req` in an H3 or Nitro handler. It returns a `Response` with the final status and headers, so the route returns it as it is. It handles conditional GET and HEAD requests. Responses default to `private, no-cache`; set `cacheControl` to choose another policy. `headers` adds more headers to a response that serves the object, including `206`, `304`, and `416`. Error responses (`400`, `404`, `405`) get only its CORS headers, the ones that start with `Access-Control-`, so a player on another origin can read a `404`. Other headers, such as an immutable `Cache-Control`, would describe a file that does not exist, so they stay off.
 
 In a Nitro 3 or H3 2 handler:
 
 ```ts [server/routes/files/[...pathname].get.ts]
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 import { defineEventHandler, getRouterParam } from 'h3'
 
 export default defineEventHandler((event) => {
@@ -167,16 +180,16 @@ export default defineEventHandler((event) => {
 })
 ```
 
-`serve()` answers `400` with a JSON body `{ error }` when the decoded pathname is unsafe or malformed: empty, a control character, a `%XX` sequence, a `.` or `..` segment such as `dir/..%2F..%2Fpackage.json`, or a key above the store limit. It answers `404` with `{ "error": "Blob not found." }` for a missing object and for a path that ViteHub reserves on every driver: `_vitehub`, `_vitehub/derived/`, `_vitehub/media/`, and `.vitehub/`, where the `fs` driver keeps its metadata. A storage failure throws its `ViteHubError`.
+`serve()` answers `400` with a JSON body `{ error }` when the decoded pathname is unsafe or malformed: empty, a control character, a `%XX` sequence, a `.` or `..` segment such as `dir/..%2F..%2Fpackage.json`, or a key above the store limit. It answers `404` with `{ "error": "Blob not found." }` for a missing object and for a path that ViteHub reserves on every driver: `_vitehub`, `_vitehub/derived/`, `_vitehub/media/`, and `.vitehub/`, where the `fs` driver keeps its metadata. It answers `405` with `Allow: GET, HEAD` for every other method, such as a `POST` to the file URL, and does not read the object. A storage failure throws its `ViteHubError`.
 
-HEAD responses keep the same status and headers as GET, with no body.
+HEAD responses keep the same status and headers as GET, with no body. The one difference is `Range`: a HEAD request always gets `200` with the size of the whole file.
 
 Every response that serves an object sends `X-Content-Type-Options: nosniff`. A browser opens some types as a page that can run script: `text/html`, `application/xhtml+xml`, `image/svg+xml`, `text/xml`, `application/xml`, `text/xsl`, `text/rdf`, every other `+xml` type, and every `multipart/*` type. For these types, and for a content type that names one of them in a list, `serve()` also sends `Content-Security-Policy: sandbox`. The browser then shows the file but runs no script and gives it no access to the app origin. An `<img>` tag still shows an SVG. When the `headers` option has a `Content-Security-Policy`, `serve()` adds `sandbox` to it as a second policy. A `304` for a `transform` always sends the sandbox, because the type of the result is not known before the transform runs.
 
 Set `download` to send `Content-Disposition: attachment`, so the browser saves the file and does not open it. `download: true` uses the last segment of the pathname as the file name. A string sets the file name. ViteHub keeps only the last path segment of the name and removes control characters.
 
 ```ts [server/routes/exports/[...pathname].get.ts]
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 import { defineEventHandler, getRouterParam } from 'h3'
 
 export default defineEventHandler((event) => {
@@ -193,7 +206,8 @@ In an H3 app, headers that middleware set on `event.res.headers` before the rout
 
 `blob.serve()` answers byte-range requests, so `<video>` and `<audio>` can seek and Safari can play the file. Responses without a `transform` send `Accept-Ranges: bytes`.
 
-- One `Range: bytes=start-end`, `bytes=start-`, or `bytes=-length` on GET or HEAD gets `206` with `Content-Range` and only those bytes.
+- One `Range: bytes=start-end`, `bytes=start-`, or `bytes=-length` on GET gets `206` with `Content-Range` and only those bytes.
+- HEAD ignores `Range`, as [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110#section-14.2) requires, and gets `200` with the size of the whole file.
 - A range that starts past the end gets `416` with `Content-Range: bytes */<size>` and an empty body.
 - Several ranges, a malformed header, or an `If-Range` that is not the current `ETag` get the whole file.
 - Transformed responses ignore `Range`.
@@ -239,7 +253,7 @@ Across runtimes, the cache is best effort. Source updates at the same time can r
 On Cloudflare, each `serve()` reads the object from R2. When the bucket is far from the Worker, each read adds a round trip, and a page that loads dozens of files waits for them. Set `edgeCache` to keep each object in the cache of the Cloudflare location that runs the Worker. The next `GET` for it in that location gets the cached copy without reading R2. `maxAge` is how long the copy stays, in seconds.
 
 ```ts [server/routes/builds/[...pathname].get.ts]
-import { blob } from '@vite-hub/blob'
+import { blob } from 'vite-hub/blob'
 import { defineEventHandler, getRouterParam } from 'h3'
 
 export default defineEventHandler((event) => {
@@ -280,10 +294,14 @@ It returns `[error, objects]`. No files, too many files, or a file that fails
 `ensure` throws an H3 400 error before anything is stored. Each file keeps the
 content type that the client sent. Use `ensure.types` to limit it.
 
-With `multiple: false` and `ensure.maxSize`, a request whose `Content-Length`
-is more than `maxSize` plus 64 KB for the form framing gets a 413 error before
-the body is read. With more than one file, the total has no limit, so the body
-is read before `ensure` runs. Limit the request body on your host too.
+Set `maxFiles` to limit the number of files. A request with more files gets a
+400 error when the next file starts, before ViteHub reads that file.
+`multiple: false` is the same as `maxFiles: 1`.
+
+With `maxFiles` and `ensure.maxSize`, a request whose `Content-Length` is more
+than `maxFiles` times `maxSize` plus 64 KB for each file's form framing gets a
+413 error before the body is read. Without `maxFiles`, the total has no limit,
+so the body is read before `ensure` runs. Limit the request body on your host too.
 
 `event` is the event of a Nitro, H3, or `nuxt/server` handler, or a web
 `Request`. `handleMultipartUpload()` also reads `context.params`, so it needs
@@ -309,6 +327,7 @@ export default defineEventHandler(async (event) => {
 | --- | --- | --- |
 | `formKey` | `"files"` | Form field that holds the files. |
 | `multiple` | `true` | Set `false` to accept one file. |
+| `maxFiles` | none | The most files that `formKey` accepts. |
 | `ensure` | none | Options for [`ensureBlob()`](#ensureblobblob-options), checked for each file. |
 | `put` | none | [Write options](#write-options) for each `put()`. |
 | `onBeforeUpload` | none | Runs for each file before anything is stored, with `{ pathname, contentType, size, request }`. Throw to reject the file. Return `{ pathname }` to store it under another pathname. `put.prefix` and `put.addRandomSuffix` still apply. |

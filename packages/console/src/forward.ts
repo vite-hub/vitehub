@@ -31,8 +31,25 @@ export interface ForwardTarget {
   caller: ConsoleCaller
 }
 
-function problem(status: number, code: string, message: string): Response {
-  return Response.json({ code, message, ok: false, status }, { headers: { "cache-control": "no-store" }, status })
+function problem(status: number, code: string, message: string, fix?: string): Response {
+  return Response.json({ code, ...(fix ? { fix } : {}), message, ok: false, status }, { headers: { "cache-control": "no-store" }, status })
+}
+
+/**
+ * Why a project answered the Console with a redirect. A Cloudflare Access application in front of the app sends every
+ * call without an Access session to its sign-in page, often left over from an older Console that used Access.
+ */
+function redirectProblem(response: Response, upstream: URL): Response {
+  const route = `${upstream.host}${upstream.pathname}`
+  const header = response.headers.get("location")
+  const location = header ? URL.parse(header, upstream.href) : null
+  const access = response.headers.get("www-authenticate")?.startsWith("Cloudflare-Access") || location?.hostname.endsWith(".cloudflareaccess.com")
+  if (access) {
+    return problem(502, "CONSOLE_FORWARD_REDIRECT", `Cloudflare Access protects ${route}, so it sent the Console's call to its sign-in page.`, `In Cloudflare Zero Trust, delete the Access application that covers ${route}, or add an Access application for that path with a Bypass policy. The Console signs each call, so the app checks it without Access.`)
+  }
+  // The query can hold a token, so the message names only the address.
+  const target = location ? ` to ${location.origin}${location.pathname}` : ""
+  return problem(502, "CONSOLE_FORWARD_REDIRECT", `${upstream.host} answered with a redirect${target}.`, "Link the project with the URL that serves it, such as the address after the redirect.")
 }
 
 /**
@@ -73,9 +90,7 @@ export async function forwardProjectRequest(request: Request, target: ForwardTar
     return problem(502, "CONSOLE_FORWARD_UNREACHABLE", `The Console could not reach ${base.host}.`)
   }
   // A redirect could send the signed request to another address, so the Console stops there.
-  if (response.status >= 300 && response.status < 400) {
-    return problem(502, "CONSOLE_FORWARD_REDIRECT", `${base.host} answered with a redirect. Link the project with the URL that serves it.`)
-  }
+  if (response.status >= 300 && response.status < 400) return redirectProblem(response, upstream)
 
   // Fetch clients can still read JSON and binary bodies. Documents get no Console origin or script access,
   // and an inert media type with nosniff also prevents execution when loaded as a script or other resource.

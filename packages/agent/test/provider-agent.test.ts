@@ -1188,6 +1188,37 @@ describe("Provider Agent Driver", () => {
     }
   })
 
+  it.skipIf(process.platform !== "linux")("stops tool processes that left the provider process group when the pass ends", async () => {
+    const threadId = "thread-pass-setsid-leftover"
+    let leftover: number | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onSendTurn() {
+        // A tool command that starts a new session, like a hung `pnpm exec` that Codex gave up on.
+        const environment = createProviderRuntime.mock.lastCall?.[0].environment
+        const tool = spawn("sh", ["-c", "setsid sh -c 'echo $$; exec sleep 600 >/dev/null' &"], { env: environment, stdio: ["ignore", "pipe", "ignore"] })
+        let output = ""
+        for await (const chunk of tool.stdout) output += chunk
+        leftover = Number(output.trim())
+      },
+    })
+    // A killed orphan can stay a zombie until its new parent reaps it.
+    const running = (pid: number) => readFile(`/proc/${pid}/stat`, "utf8").then(stat => !/\) Z /.test(stat), () => false)
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+      expect(leftover).toBeGreaterThan(0)
+      await expect.poll(() => running(leftover!)).toBe(false)
+    }
+    finally {
+      if (leftover) {
+        try {
+          process.kill(leftover, "SIGKILL")
+        }
+        catch {}
+      }
+    }
+  })
+
   it.each([false, true])("captures provider files before cleanup (callback failure: %s)", async (fail) => {
     const threadId = `thread-exit-evidence-${fail}`
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
@@ -6400,7 +6431,7 @@ cli_auth_credentials_store = "keyring"
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toMatchObject({ code: "AGENT_R0712" })
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toMatchObject({ code: "INTERNAL_INVARIANT_FAILED", message: expect.stringContaining("colocated Skill under .agents/skills/<name>") })
     expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCount)
   })
 
@@ -7023,18 +7054,32 @@ cli_auth_credentials_store = "keyring"
   })
 
   it("times out a provider turn and releases its resources", async () => {
-    const threadId = "thread-timeout"
-    const provider = runtime(threadId, [], { afterEvents: () => new Promise(() => {}) })
-    const adapter = createProviderAgentAdapter({ provider: "codex" })
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    const result = adapter.generate(context(threadId, {
-      input: { prompt: "hello", timeout: 250 },
-    }) as never)
+    vi.useFakeTimers()
+    try {
+      const threadId = "thread-timeout"
+      let reportTurnStarted!: () => void
+      const turnStarted = new Promise<void>((resolve) => { reportTurnStarted = resolve })
+      const provider = runtime(threadId, [], {
+        afterEvents: () => new Promise(() => {}),
+        onSendTurn: async () => { reportTurnStarted() },
+      })
+      const adapter = createProviderAgentAdapter({ provider: "codex" })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      const result = adapter.generate(context(threadId, {
+        input: { prompt: "hello", timeout: 250 },
+      }) as never)
 
-    await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
-    await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
-    expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-1")
-    expect(provider.close).toHaveBeenCalledOnce()
+      const rejected = expect(result).rejects.toMatchObject({ name: "TimeoutError" })
+      // Finish filesystem setup before advancing the turn's deadline.
+      await turnStarted
+      await vi.advanceTimersByTimeAsync(250)
+      await rejected
+      expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-1")
+      expect(provider.close).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("keeps a completed turn successful when provider cleanup stalls", async () => {

@@ -19,6 +19,7 @@ describe("@vite-hub/email package contract", () => {
     expect(Object.keys(packageExports).sort()).toEqual([
       ".",
       "./drivers/cloudflare-email",
+      "./drivers/log",
       "./drivers/resend",
       "./markdown",
       "./package.json",

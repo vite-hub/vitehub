@@ -1,21 +1,29 @@
 import { afterEach, describe, expect, it } from "vitest"
 
 import { installViteHubSiteVisitor } from "@vite-hub/internal/runtime/page-tools"
+import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { defineComments } from "../src/index.ts"
 import { resolveCommentsIdentity } from "../src/runtime/session.ts"
 
+import type { CommentsRequestEvent } from "../src/types.ts"
+
 const ada = { id: "console-ada", name: "Ada", roles: ["console", "comments-write"] }
-const request = () => new Request("https://docs.example.com/guide")
+const request = () => {
+  const req = new Request("https://docs.example.com/guide")
+  installRequestStandardContext(req)
+  // SAFETY: The installer adds the Standard Context required by CommentsRequestEvent.
+  return req as Request & CommentsRequestEvent
+}
 
 afterEach(() => {
   installViteHubSiteVisitor(async () => undefined)
 })
 
 describe("the user of a Comments request", () => {
-  it("keeps a visitor that identify returns null for anonymous, even with a Site access cookie", async () => {
+  it.each([null, undefined])("keeps a visitor that identify returns %s for anonymous, even with a Site access cookie", async (identity) => {
     installViteHubSiteVisitor(async () => ada)
-    const comments = defineComments({ identify: () => null })
+    const comments = defineComments({ identify: () => identity })
     expect((await resolveCommentsIdentity(comments, request())).user).toBeNull()
   })
 

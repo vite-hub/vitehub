@@ -9,8 +9,7 @@ icon: i-lucide-sliders-horizontal
 Comments works without configuration. Add `server/comments.ts` to change who may comment, notify people, or post to pull requests. It exports `comments` from `defineComments()`. All options are optional and listed in the [Server API](/docs/comments/server-api#definecomments-options).
 
 ```ts [server/comments.ts]
-// With the comments() plugin. In a ViteHub app, import from 'vite-hub/comments'.
-import { defineComments } from '@vite-hub/comments'
+import { defineComments } from 'vite-hub/comments'
 
 export const comments = defineComments({
   authorize: ({ user }) => user?.github?.login !== 'a-bot',
@@ -648,7 +647,7 @@ The Comments segment works like the one in Drop. **Comments** shows the number o
 | Arrow | An arrow from where the drag starts to where it ends. Its shaft bows a little, and <kbd>Shift</kbd> draws it straight. |
 | Text | A click types a label there. A click on a label edits it, a drag moves it, and a label with no words goes. <kbd>Cmd</kbd> <kbd>Enter</kbd> or <kbd>Ctrl</kbd> <kbd>Enter</kbd> puts the label down and comments on the ink. |
 
-Every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=14">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
+When Comments or the [Console link](/docs/development/console#open-the-console-from-your-pages) is on, every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=14">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
 
 - Nitro 3 apps, including Nuxt 5, get the script from the server response.
 - A single-page app whose `index.html` Vite serves or builds gets the bootstrap in `index.html`.

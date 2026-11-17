@@ -122,7 +122,7 @@ describe("Site access without Auth", () => {
     const url = await link("site.link", { path: "/guide" })
     const { response, cookie } = await open(url)
     expect(response.status).toBe(303)
-    expect(response.headers.get("location")).toBe(`${origin}/guide`)
+    expect(response.headers.get("location")).toBe(`${origin}/guide?vitehub`)
     expect(response.headers.getSetCookie()).toEqual([
       expect.stringMatching(/^vitehub_site=[a-f0-9]{24}:[a-f0-9]+; Path=\/; Max-Age=604800; HttpOnly; SameSite=Lax; Secure$/),
       "vitehub_session=1; Path=/; SameSite=Lax; Max-Age=604800",

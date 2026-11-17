@@ -11,9 +11,10 @@ import { viteHubBasePath } from "@vite-hub/internal/runtime/page-tools-shared"
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
+import type { DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import type { OperationContributingPlugin, OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Environment, Plugin, ViteDevServer } from "vite"
-import { insertConsoleSection, type ConsoleSectionId } from "./runtime/sections.ts"
+import { insertConsoleSection, isConsoleMcpClientEnabled, type ConsoleSectionId } from "./runtime/sections.ts"
 
 import { discoverConsoleBuildCatalog } from "./build.ts"
 import { consoleRuntimeRoot, consoleSkillsRoot, writeConsoleNitroPlugin, type ConsoleAccessBuild, type ConsoleNitroPluginOptions } from "./plugin.ts"
@@ -26,9 +27,15 @@ import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
 const generatedConsolePlugin = ".vitehub/nitro/console/plugin.mjs"
+const generatedDevelopmentConsolePlugin = ".vitehub/nitro/console/plugin-dev.mjs"
 
-export function resolveGeneratedConsolePlugin(root: string): string {
-  return resolve(root, generatedConsolePlugin)
+/**
+ * The generated Console plugin of a project. A development server writes its own file: it installs the local access
+ * mode and development routes, and it rewrites the file when the project changes. A build that runs while the dev
+ * server is up would otherwise bundle that file and ship development access to production.
+ */
+export function resolveGeneratedConsolePlugin(root: string, development = false): string {
+  return resolve(root, development ? generatedDevelopmentConsolePlugin : generatedConsolePlugin)
 }
 
 type ConsoleNitroConfig = {
@@ -66,6 +73,11 @@ export interface ConsoleOptions {
    * no Console routes. It does not change the primitive itself: the app still reads and writes its content.
    */
   sections?: Readonly<Record<string, false>>
+  /**
+   * `false` leaves the **Console** link out of the page tools pill. Then HTML pages get no page tools script, unless
+   * another page tool, such as Comments, is on. Site access needs the pill, so the Console has no Site access section.
+   */
+  pill?: false
   /**
    * Show the MCP client section: it connects to MCP servers as the person who signed in to the Console, with OAuth or a
    * token. It lists the servers that the app announces in its RFC 9728 metadata, such as its own `/mcp`.
@@ -124,15 +136,21 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
   if (impersonation !== undefined && impersonation !== true && impersonation !== false) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console.impersonation must be true or false." })
   }
+  const pill: unknown = Reflect.get(value, "pill")
+  if (pill !== undefined && pill !== false) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console.pill must be false, to leave the Console link out of the page tools pill, or left out." })
+  }
   const sections: unknown = Reflect.get(value, "sections")
   if (sections !== undefined && (!(sections instanceof Object) || Array.isArray(sections) || Object.values(sections).some(entry => entry !== false))) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console.sections maps a section id to false, such as { content: false }." })
   }
-  // SAFETY: `auth`, `impersonation`, and `sections` are checked above. The other fields keep their documented types and are checked where they are read.
+  // SAFETY: `auth`, `impersonation`, `pill`, and `sections` are checked above. The other fields keep their documented types and are checked where they are read.
   return value as ConsoleOptions
 }
 
 export interface ConsoleVitePluginOptions {
+  /** The `name` option of `vitehub()`, which `project.get` reports. */
+  name?: string
   /** Serve the development RPC and Setup without the full Console. */
   rpcOnly?: boolean
   contentImportBase?: string
@@ -214,6 +232,18 @@ function consoleMountPath(base: string | undefined, path: string): string {
   return `${viteHubBasePath(base)}${path}`
 }
 
+/**
+ * The variables that a deployed Console reads: a `VITEHUB_CONSOLE_KEY_<NAME>` public key for each linked Console, and
+ * `VITEHUB_CONSOLE_MCP_KEY`, which seals MCP connections when `mcpClient` is on. Without `console`, it reads none.
+ */
+export function consoleDeploymentEnv(configured: ConsoleOptions | undefined): DeploymentEnvEntry[] {
+  if (!configured) return []
+  return [
+    { names: [], prefix: "VITEHUB_CONSOLE_KEY_", required: true, secret: false, hasDefault: false, owners: ["console"] },
+    ...isConsoleMcpClientEnabled(configured) ? [{ names: ["VITEHUB_CONSOLE_MCP_KEY"], required: false, secret: true, hasDefault: false, owners: ["console"] }] : [],
+  ]
+}
+
 /** Reject a production build that takes Console calls without a signature. */
 export function assertConsoleProductionAuth(configured: ConsoleOptions): void {
   if (configured.auth !== false) return
@@ -223,9 +253,9 @@ export function assertConsoleProductionAuth(configured: ConsoleOptions): void {
 /** Resolve the `console.authorize` file. A configured path must exist. */
 export function resolveConsoleAuthorizeFile(root: string, authorize: unknown): string | undefined {
   if (authorize === undefined) return
-  if (typeof authorize !== "string" || !authorize.trim()) throw new TypeError("[vitehub] console.authorize must be a path to a server file.")
+  if (typeof authorize !== "string" || !authorize.trim()) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_AUTHORIZE_PATH_INVALID()
   const file = resolve(root, authorize)
-  if (!existsSync(file)) throw new TypeError(`[vitehub] console.authorize file does not exist: ${file}`)
+  if (!existsSync(file)) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_AUTHORIZE_FILE_MISSING({ file })
   return file
 }
 
@@ -293,10 +323,11 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       blobStores,
       development,
       invoke,
+      name: options.name,
       runtimeCapabilityImports: options.runtimeCapabilityImports,
       sections,
       navigationSections: options.rpcOnly ? sections.filter(section => section === "setup") : undefined,
-      ...(options.rpcOnly ? {} : { pageTool: { base: applicationBase } }),
+      ...(options.rpcOnly || resolvedConsoleConfiguration?.pill === false ? {} : { pageTool: { base: applicationBase } }),
     }
   }
 
@@ -401,7 +432,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       projectRoot = resolveViteHubProjectRoot(root)
       const build = environment.command === "build"
       invoke = configured.invoke ?? !build
-      generatedPlugin = resolveGeneratedConsolePlugin(projectRoot)
+      generatedPlugin = resolveGeneratedConsolePlugin(projectRoot, development)
       if (!cliDiscovery) {
         const resolvedOnlySections = new Set<ConsoleSectionId>(["databases", "sandbox-tasks", "workflows", "workspaces"])
         const initialSections = sections.filter(section => !resolvedOnlySections.has(section))
@@ -428,7 +459,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       baseURL = viteHubPageToolsBase(config).base || "/"
       applicationBase = baseURL
       projectRoot ||= resolveViteHubProjectRoot(config.root)
-      generatedPlugin ||= resolve(projectRoot, generatedConsolePlugin)
+      generatedPlugin ||= resolveGeneratedConsolePlugin(projectRoot, development)
       // SAFETY: Nitro extends the resolved Vite config with this documented key.
       const viteConfig = config as typeof config & { nitro?: ConsoleNitroConfig }
       const database = getResolvedFeatureOptions<unknown>(config, "database")
@@ -459,7 +490,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       }
       const { kit, publicAssets } = configureConsoleNitroRoutes(viteConfig.nitro ??= {}, viteHubPageToolsBase(config).base, sections, options.rpcOnly)
       viteConfig.nitro = { ...kit.config, publicAssets }
-      generatedPlugin = resolveGeneratedConsolePlugin(projectRoot)
+      generatedPlugin = resolveGeneratedConsolePlugin(projectRoot, development)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
       if (!cliDiscovery) await refreshConsoleCatalog()

@@ -152,7 +152,7 @@ describe("channelDelivery()", () => {
       }),
       capabilities: [channelDelivery({ channel, options: { recipient: "user:1" } })],
       channels: { mailbox: channelAdapter("mailbox", {
-        history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
+        history: { collection: defineCollection(async () => [{ id: "m1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
         triggers: { received: defineChannelTrigger({ invoke: () => ({ input: { prompt: "Write" } }) }) },
       }) },
       invocations,

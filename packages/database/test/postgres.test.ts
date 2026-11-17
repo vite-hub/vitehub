@@ -12,7 +12,7 @@ import { resolveDBViteConfig } from "../src/config.ts"
 import { inspectDatabaseDefinitions } from "../src/inspect.ts"
 import { mergeCloudflareHyperdriveBindings, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "../src/internal/cloudflare.ts"
 import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
-import { writeHostedDatabaseRuntimeModules } from "../src/internal/vite-build.ts"
+import { supportsHostedDatabaseRuntime, writeHostedDatabaseRuntimeModules } from "../src/internal/vite-build.ts"
 import { hubDatabase } from "../src/vite.ts"
 import { createAgentDatabase } from "../src/runtime/agent.ts"
 
@@ -359,6 +359,19 @@ describe("Postgres build configuration", () => {
     expect(JSON.stringify(definitions)).not.toContain("secret")
   })
 
+  it.each([
+    { name: "no connection", lines: [], providers: ["vercel"] },
+    { name: "a connection URL", lines: ["  connection: { url: process.env.DATABASE_URL },"], providers: ["cloudflare", "vercel"] },
+    { name: "a Hyperdrive ID", lines: ["  cloudflare: { hyperdriveId: 'hyperdrive-id' },"], providers: ["cloudflare", "vercel"] },
+  ])("supports the hosted runtime on the expected hosts for a Postgres Database with $name", async ({ lines, providers }) => {
+    const rootDir = await createTempProject()
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", ["  dialect: 'postgresql',", ...lines])
+    const config = resolveDBViteConfig(undefined, rootDir)!
+
+    // A Vercel Function reads the PG* variables. A Worker does not, so Cloudflare needs Hyperdrive or a URL.
+    expect((["cloudflare", "vercel"] as const).filter(provider => supportsHostedDatabaseRuntime(provider, config, {}))).toEqual(providers)
+  })
+
   it("writes hosted runtime modules that create Postgres clients without the SQLite runtime", async () => {
     const rootDir = await createTempProject()
     await writePostgresDefinition(rootDir, "server/databases/default.ts", [
@@ -377,6 +390,9 @@ describe("Postgres build configuration", () => {
       expect(code).toContain("runtime/postgres")
       expect(code).toContain("db: createPostgresDatabase({ ...definition_0, relations: relations_0, schema: schema_0 }, {\"binding\":\"HYPERDRIVE\",\"url\":{\"kind\":\"env-variable\"")
       expect(code).not.toContain("createHostedDrizzleDb")
+      // The module stands in for `@vite-hub/database`, so it has the export that OpenWorkflow imports.
+      expect(code).toContain("export function getPostgresConnectionUrl(name = \"default\") { return readPostgresConnectionUrl(databases, name) }")
+      expect(code).toContain("runtime/postgres-connection")
     }
   })
 
@@ -398,6 +414,26 @@ describe("Postgres runtime", () => {
     relations: defineRelations({ notes }),
     schema: { notes },
   }
+
+  it("tells another package its connection URL without opening a client", async () => {
+    const { createPostgresDatabase } = await loadPostgresRuntime()
+    const { postgresConnectionUrl } = await import("../src/runtime/postgres-connection.ts")
+    const db = createPostgresDatabase(definition, { binding: "HYPERDRIVE", url: "postgres://fallback/app" })
+    const read = Reflect.get(db, postgresConnectionUrl) as () => string | undefined
+
+    expect(read()).toBe("postgres://fallback/app")
+    expect(driver.clients).toHaveLength(0)
+    expect(Reflect.get(createPostgresDatabase(definition, { binding: "HYPERDRIVE" }), postgresConnectionUrl)).toBeTypeOf("function")
+  })
+
+  it("reports a missing connection when another package reads its URL without opening a client", async () => {
+    const { createPostgresDatabase } = await loadPostgresRuntime()
+    const { readPostgresConnectionUrl } = await import("../src/runtime/postgres-connection.ts")
+    const db = createPostgresDatabase(definition, { binding: "HYPERDRIVE" })
+
+    expect(() => readPostgresConnectionUrl({ default: { db } }, "default")).toThrowError(expect.objectContaining({ code: "DATABASE_MISSING_CONNECTION" }))
+    expect(driver.clients).toHaveLength(0)
+  })
 
   it("creates one client per Cloudflare request from the Hyperdrive binding", async () => {
     const { createPostgresDatabase } = await loadPostgresRuntime()

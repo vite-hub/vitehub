@@ -1,5 +1,6 @@
-import { AgentHttpError } from "../http-error.ts"
+import { agentHttpError, type AgentHttpError } from "../http-error.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { keepStandardContext } from "../internal/webhook-request.ts"
 
 const defaultAgentInboundBodyBytes = 1024 * 1024
 export const maximumAgentInboundBodyBytes = 10 * 1024 * 1024
@@ -11,7 +12,7 @@ export interface CapturedAgentInboundBody {
 }
 
 function bodyTooLarge(): AgentHttpError {
-  return new AgentHttpError(413, "Agent request body exceeds the configured byte limit.")
+  return agentHttpError(413, "Agent request body exceeds the configured byte limit.")
 }
 
 function resolveBodyLimit(value: number | undefined): number {
@@ -43,7 +44,7 @@ function requestWithBody(request: Request, bytes: Uint8Array): Request {
     const descriptor = Reflect.getOwnPropertyDescriptor(request, key)
     if (descriptor) Reflect.defineProperty(replayable, key, descriptor)
   }
-  return replayable
+  return keepStandardContext(request, replayable)
 }
 
 export async function captureAgentInboundBody(request: Request, configuredLimit?: number): Promise<CapturedAgentInboundBody> {

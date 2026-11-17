@@ -27,6 +27,7 @@ vi.mock("#vitehub-sandbox-task-provider-loader", () => ({
 import { resolveSandboxTaskRunner, runSandboxTaskRuntime } from "../../src/task/runtime/runtime.ts"
 import { createCloudflareExecutionSandboxId } from "../../src/task/runtime/provider-resolution.ts"
 import { sandboxTaskError } from "../../src/task/sandbox-task/errors.ts"
+import { sandboxErrorDiagnostics } from "../../src/error-diagnostics.ts"
 import { resetSandboxTaskRuntimeState, setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeRegistry } from "../../src/task/runtime/state.ts"
 
 const definition = {
@@ -34,6 +35,28 @@ const definition = {
     entry: "index.mjs",
     modules: { "index.mjs": "export default async () => ({ ok: true })" },
   },
+}
+
+/** The error the Cloudflare transport throws when a Durable Object request fails. */
+function cloudflareRequestError(operation: string, cause: unknown) {
+  const message = cause instanceof Error ? cause.message : String(cause)
+  return sandboxErrorDiagnostics.SANDBOX_R0088({ message: `[vitehub] Cloudflare Sandbox ${operation} failed: ${message}`, cause, retryable: undefined })
+}
+
+function cloudflareDeadlineError(operation: string, timeout: number) {
+  return cloudflareRequestError(operation, sandboxErrorDiagnostics.SANDBOX_R0090({ message: `[vitehub] Cloudflare Sandbox ${operation} timed out after ${timeout}ms.` }))
+}
+
+function hostError(message: string, flags: { overloaded?: boolean, retryable?: boolean }) {
+  return Object.assign(new Error(message), flags)
+}
+
+function startCommandThenThrow(error: unknown) {
+  return async (...args: unknown[]) => {
+    const lifecycle = args[6] as { onCommandStart?: () => void }
+    lifecycle.onCommandStart?.()
+    throw error
+  }
 }
 
 function createSession() {
@@ -65,7 +88,6 @@ beforeEach(() => {
   runtimeMocks.resolveTaskSandbox.mockReset()
   runtimeMocks.sleep.mockClear()
   runtimeMocks.resolveTaskSandbox.mockImplementation(async ({ provider }) => ({
-    closeAfterRun: provider.provider === "cloudflare" ? provider.keepAlive === true : true,
     provider: provider.provider,
     resolveSandbox: runtimeMocks.resolveProviderSandbox,
     sandboxId: provider.sandboxId,
@@ -190,7 +212,7 @@ describe("Sandbox runtime lifecycle", () => {
       definition.bundle,
       undefined,
       undefined,
-      expect.objectContaining({ onHandlerStart: expect.any(Function) }),
+      expect.objectContaining({ onCommandStart: expect.any(Function) }),
       signal,
     )
   })
@@ -256,14 +278,11 @@ describe("Sandbox runtime lifecycle", () => {
     await expect(third).resolves.toEqual({ ok: true })
   })
 
-  it("holds an actively cancelled shared Sandbox until execution and destruction settle", async () => {
+  it("holds an actively cancelled shared Sandbox until execution settles, and keeps it open", async () => {
     setSandboxTaskRuntimeConfig({ provider: "cloudflare", sandboxId: "active-cancellation" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     let finishExecution!: () => void
     const execution = new Promise<void>(resolve => { finishExecution = resolve })
-    let finishDestruction!: () => void
-    const destruction = new Promise<void>(resolve => { finishDestruction = resolve })
-    runtimeMocks.close.mockImplementationOnce(async () => await destruction)
     runtimeMocks.executeSandboxTaskDefinition
       .mockImplementationOnce(async (...args) => {
         const lifecycle = args[6] as { onExecution: (execution: Promise<unknown>) => void }
@@ -288,11 +307,9 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.open).toHaveBeenCalledOnce()
     expect(runtimeMocks.close).not.toHaveBeenCalled()
     finishExecution()
-    await vi.waitFor(() => expect(runtimeMocks.close).toHaveBeenCalledOnce())
-    expect(runtimeMocks.open).toHaveBeenCalledOnce()
-    finishDestruction()
     await expect(next).resolves.toEqual({ ok: true })
     expect(runtimeMocks.open).toHaveBeenCalledTimes(2)
+    expect(runtimeMocks.close).not.toHaveBeenCalled()
   })
 
   it("closes the Sandbox session after failed definitions", async () => {
@@ -324,13 +341,13 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
-  it("does not replay Cloudflare definitions whose handler errors look transient", async () => {
+  it.each(["container is starting", "Network connection lost."])("does not replay handler errors containing %s", async (message) => {
     setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition.mockImplementation(async (...args) => {
-      const lifecycle = args[6] as { onHandlerStart?: () => void }
-      lifecycle.onHandlerStart?.()
-      throw sandboxTaskError("[vitehub] Cloudflare Sandbox exists timed out after 15000ms.", {
+      const lifecycle = args[6] as { onCommandStart?: () => void }
+      lifecycle.onCommandStart?.()
+      throw sandboxTaskError(message, {
         code: "SANDBOX_TASK_HANDLER_ERROR",
         provider: "cloudflare",
       })
@@ -350,10 +367,10 @@ describe("Sandbox runtime lifecycle", () => {
     setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition
-      .mockRejectedValueOnce(new Error("[vitehub] Cloudflare Sandbox exists failed: [vitehub] Cloudflare Sandbox exists timed out after 15000ms."))
+      .mockRejectedValueOnce(cloudflareDeadlineError("exists", 15000))
       .mockImplementationOnce(async (...args) => {
-        const lifecycle = args[6] as { onHandlerStart?: () => void }
-        lifecycle.onHandlerStart?.()
+        const lifecycle = args[6] as { onCommandStart?: () => void }
+        lifecycle.onCommandStart?.()
         return { ok: true }
       })
 
@@ -373,8 +390,8 @@ describe("Sandbox runtime lifecycle", () => {
     runtimeMocks.open
       .mockRejectedValueOnce(new AggregateError(
         [
-          new Error("[vitehub] Cloudflare Sandbox exists timed out after 15000ms."),
-          new Error("[vitehub] Cloudflare Sandbox destroy timed out after 10000ms."),
+          cloudflareDeadlineError("exists", 15000),
+          cloudflareDeadlineError("destroy", 10000),
         ],
         "[vitehub] cloudflare Sandbox initialization failed: [vitehub] Cloudflare Sandbox exists timed out after 15000ms. Cleanup failed: [vitehub] Cloudflare Sandbox destroy timed out after 10000ms.",
       ))
@@ -389,6 +406,103 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledOnce()
     expect(runtimeMocks.sleep).toHaveBeenCalledWith(1000)
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
+  })
+
+  it("does not retry a Cloudflare command that reached its exec deadline before the handler started", async () => {
+    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeRegistry({ example: definition })
+    // The transport error of a package install that ran past the exec deadline.
+    runtimeMocks.executeSandboxTaskDefinition.mockImplementation(startCommandThenThrow(cloudflareDeadlineError("exec", 180000)))
+
+    const result = await runSandboxTaskRuntime("example")
+
+    expect(result.ok).toBe(false)
+    expect(await result.json()).toMatchObject({ error: { message: expect.stringContaining("exec timed out after 180000ms") } })
+    expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledOnce()
+    expect(runtimeMocks.sleep).not.toHaveBeenCalled()
+  })
+
+  it("does not rerun the Task when the connection is lost after a command started", async () => {
+    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeRegistry({ example: definition })
+    // The package install reached the Container, then Cloudflare lost the response. The host marks it retryable.
+    runtimeMocks.executeSandboxTaskDefinition.mockImplementation(startCommandThenThrow(
+      cloudflareRequestError("exec", hostError("Network connection lost.", { retryable: true })),
+    ))
+
+    const result = await runSandboxTaskRuntime("example")
+
+    expect(result.ok).toBe(false)
+    expect(await result.json()).toMatchObject({ error: { message: expect.stringContaining("Network connection lost.") } })
+    expect(runtimeMocks.open).toHaveBeenCalledOnce()
+    expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledOnce()
+    expect(runtimeMocks.sleep).not.toHaveBeenCalled()
+  })
+
+  it("does not rerun the Task after command cold-start retries are exhausted", async () => {
+    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeRegistry({ example: definition })
+    runtimeMocks.executeSandboxTaskDefinition
+      .mockImplementationOnce(startCommandThenThrow(
+        cloudflareRequestError("exec", new Error("The container is starting. Please retry in a moment.")),
+      ))
+      .mockResolvedValueOnce({ ok: true })
+
+    const result = await runSandboxTaskRuntime("example")
+
+    expect(result.ok).toBe(false)
+    expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledOnce()
+    expect(runtimeMocks.sleep).not.toHaveBeenCalled()
+  })
+
+  it("does not repeat a successful install when a later command gets a cold start", async () => {
+    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeRegistry({ example: definition })
+    const install = vi.fn()
+    runtimeMocks.executeSandboxTaskDefinition.mockImplementation(async (...args) => {
+      const lifecycle = args[6] as { onCommandStart: () => void }
+      lifecycle.onCommandStart()
+      install()
+      lifecycle.onCommandStart()
+      throw cloudflareRequestError("exec", new Error("container is starting"))
+    })
+
+    const result = await runSandboxTaskRuntime("example")
+
+    expect(result.ok).toBe(false)
+    expect(install).toHaveBeenCalledOnce()
+    expect(runtimeMocks.open).toHaveBeenCalledOnce()
+    expect(runtimeMocks.sleep).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { flags: { overloaded: true, retryable: true }, name: "an overloaded Durable Object" },
+    { flags: { retryable: false }, name: "a non-retryable failure" },
+  ])("does not rerun the Task before any command for $name", async ({ flags }) => {
+    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeRegistry({ example: definition })
+    runtimeMocks.executeSandboxTaskDefinition.mockRejectedValue(
+      cloudflareRequestError("writeFile", hostError("Network connection lost.", flags)),
+    )
+
+    const result = await runSandboxTaskRuntime("example")
+
+    expect(result.ok).toBe(false)
+    expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledOnce()
+    expect(runtimeMocks.sleep).not.toHaveBeenCalled()
+  })
+
+  it("reruns the Task when the host marks a failure before any command retryable", async () => {
+    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeRegistry({ example: definition })
+    runtimeMocks.executeSandboxTaskDefinition
+      .mockRejectedValueOnce(cloudflareRequestError("writeFile", hostError("Internal error in Durable Object storage.", { retryable: true })))
+      .mockResolvedValueOnce({ ok: true })
+
+    const result = await runSandboxTaskRuntime("example")
+
+    expect(result.ok).toBe(true)
+    expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledTimes(2)
   })
 
   it("retries transient Cloudflare failures before Definition execution starts", async () => {
@@ -409,7 +523,7 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
-  it("closes Cloudflare when keepAlive disables idle shutdown", async () => {
+  it("closes a Cloudflare Sandbox without an ID after the run, also with keepAlive", async () => {
     setSandboxTaskRuntimeConfig({ provider: "cloudflare", keepAlive: true })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition.mockResolvedValue({ ok: true })
@@ -477,7 +591,7 @@ describe("Sandbox runtime lifecycle", () => {
       packageDefinition.bundle,
       undefined,
       undefined,
-      expect.objectContaining({ onHandlerStart: expect.any(Function) }),
+      expect.objectContaining({ onCommandStart: expect.any(Function) }),
     )
   })
 })

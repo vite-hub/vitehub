@@ -30,8 +30,8 @@ export function isAuthAdmin(plugins: readonly unknown[] | undefined, user: { id:
 
 /**
  * The ViteHub Auth user of a page request, for the Console page tool: an admin of `admin()`, or a user with the
- * `console` role, which Site access gives to Console members, gets the link. Generated Console output loads it for apps
- * with Auth.
+ * `console` role, which Site access gives to Console members, gets the link. `signOut` is Better Auth's sign-out route
+ * below the app's Auth `basePath`, for the account menu of the pill. Generated Console output loads it for apps with Auth.
  */
 export async function consolePageAuthUser(request: Request): Promise<ConsolePageUser | undefined> {
   const auth = useAuth(request)
@@ -39,5 +39,10 @@ export async function consolePageAuthUser(request: Request): Promise<ConsolePage
   const user: unknown = session?.user
   if (user === null || typeof user !== "object" || !("id" in user) || typeof user.id !== "string") return undefined
   const person: ConsoleUser = { ...user, id: user.id }
-  return { user: person, console: isAuthAdmin(auth.options.plugins, person) || strings(person.role).includes("console") }
+  return {
+    user: person,
+    console: isAuthAdmin(auth.options.plugins, person) || strings(person.role).includes("console"),
+    // ViteHub Auth resolves `basePath` below the app base, such as `/portal/api/auth`.
+    signOut: `${auth.options.basePath ?? "/api/auth"}/sign-out`,
+  }
 }

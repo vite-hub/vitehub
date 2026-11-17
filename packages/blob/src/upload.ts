@@ -1,4 +1,4 @@
-import { createError } from "h3"
+import { createError } from "nitro/h3"
 
 import { isPlainObject } from "@vite-hub/internal/object"
 
@@ -97,8 +97,103 @@ async function readBody(request: Request): Promise<Request> {
   return new Request(request.url, { body, headers: request.headers, method: request.method })
 }
 
-async function readForm(input: Request): Promise<FormData> {
-  const request = await readBody(input)
+const maxPartHeaderBytes = 16 * 1024
+const multipartBoundary = /;\s*boundary=(?:"([^"]+)"|([^\s;]+))/i
+
+/** True when a part header block is a file of form field `formKey`, as `FormData` reads it. `formKey` is in Latin-1, like `headers`. */
+function isFilePart(headers: string, formKey: string): boolean {
+  const disposition = /^content-disposition:(.*)$/im.exec(headers)?.[1]
+  if (!disposition) return false
+  const name = /;\s*name="([^"]*)"/i.exec(disposition)?.[1] ?? /;\s*name=([^\s;"]+)/i.exec(disposition)?.[1]
+  return name === formKey && /;\s*filename\*?=/i.test(disposition)
+}
+
+/**
+ * Reads a `multipart/form-data` body and counts the file parts of `formKey` as their headers arrive. It stops and throws
+ * an H3 400 error at the first file over `maxFiles`, so the extra files are never read. It releases the body instead of
+ * canceling it: canceling the body of a `Request` built from `FormData` in the same process crashes Node.js 24 with an
+ * unhandled ERR_INVALID_STATE in undici.
+ */
+async function readFilesUpTo(request: Request, formKey: string, maxFiles: number): Promise<Request> {
+  const match = multipartBoundary.exec(request.headers.get("content-type") ?? "")
+  if (!match || !request.body) return request
+  const limit = getBlobRequestBodyLimit()
+  const declared = declaredLength(request)
+  if (limit !== undefined && declared !== undefined && declared > limit) throw payloadTooLarge(declared, limit)
+  const delimiter = `\r\n--${match[1] ?? match[2]}`
+  // Browsers send the field name in UTF-8, and the headers are read as Latin-1.
+  const fieldName = String.fromCharCode(...new TextEncoder().encode(formKey))
+  // Latin-1 keeps one character per byte, so the delimiter search works on binary file content.
+  const decoder = new TextDecoder("latin1")
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  let files = 0
+  let state: "body" | "done" | "headers" = "body"
+  // The first delimiter has no line break before it.
+  let pending = "\r\n"
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+    size += value.byteLength
+    if (limit !== undefined && size > limit) {
+      reader.releaseLock()
+      throw payloadTooLarge(size, limit)
+    }
+    if (state === "done") continue
+    pending += decoder.decode(value, { stream: true })
+    for (;;) {
+      if (state === "body") {
+        const at = pending.indexOf(delimiter)
+        if (at === -1) {
+          pending = pending.slice(Math.max(0, pending.length - delimiter.length + 1))
+          break
+        }
+        pending = pending.slice(at + delimiter.length)
+        state = "headers"
+      }
+      if (pending.length < 2) break
+      if (pending.startsWith("--")) {
+        state = "done"
+        break
+      }
+      const end = pending.indexOf("\r\n\r\n")
+      if (end === -1) {
+        // Part headers are short. Without this limit, a body with no header end costs a search per chunk.
+        if (pending.length > maxPartHeaderBytes) {
+          reader.releaseLock()
+          throw badRequest("Expected a multipart/form-data request body.")
+        }
+        break
+      }
+      if (isFilePart(pending.slice(0, end), fieldName) && ++files > maxFiles) {
+        reader.releaseLock()
+        throw tooManyFiles(formKey, maxFiles)
+      }
+      pending = pending.slice(end + 4)
+      state = "body"
+    }
+  }
+  return new Request(request.url, { body: concatBytes(chunks, size), headers: request.headers, method: request.method })
+}
+
+function concatBytes(chunks: Uint8Array[], size: number): Uint8Array<ArrayBuffer> {
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
+
+function tooManyFiles(formKey: string, maxFiles: number): Error {
+  return badRequest(maxFiles === 1 ? `Form field "${formKey}" accepts one file.` : `Form field "${formKey}" accepts at most ${maxFiles} files.`)
+}
+
+async function readForm(input: Request, formKey: string, maxFiles: number | undefined): Promise<FormData> {
+  const request = maxFiles === undefined ? await readBody(input) : await readFilesUpTo(input, formKey, maxFiles)
   try {
     return await request.formData()
   }
@@ -183,15 +278,17 @@ export async function handleBlobUpload(
     return handleDirectUploadStep(storage, request, options, store)
   }
   const formKey = options.formKey ?? "files"
-  // With one file, the body is the file plus its framing. Without a file count, the total has no bound.
-  if (options.ensure && options.multiple === false) {
+  const maxFiles = options.multiple === false ? 1 : options.maxFiles
+  if (maxFiles !== undefined && (!Number.isInteger(maxFiles) || maxFiles < 1)) throw blobErrorDiagnostics.BLOB_UPLOAD_MAX_FILES_INVALID({ maxFiles })
+  // With a file count, the body is at most that many files plus their framing. Without one, the total has no bound.
+  if (options.ensure && maxFiles !== undefined) {
     const maxBytes = ensureMaxBytes(options.ensure)
-    rejectDeclaredLength(request, maxBytes === undefined ? undefined : maxBytes + formFramingBytes)
+    rejectDeclaredLength(request, maxBytes === undefined ? undefined : maxFiles * (maxBytes + formFramingBytes))
   }
-  const form = await readForm(request)
+  const form = await readForm(request, formKey, maxFiles)
   const files = form.getAll(formKey).filter((value): value is File => value instanceof File)
   if (!files.length) throw badRequest(`No files in form field "${formKey}".`)
-  if (options.multiple === false && files.length > 1) throw badRequest(`Form field "${formKey}" accepts one file.`)
+  if (maxFiles !== undefined && files.length > maxFiles) throw tooManyFiles(formKey, maxFiles)
   if (options.ensure) {
     for (const file of files) ensureBlob(file, options.ensure)
   }
