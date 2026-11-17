@@ -219,5 +219,9 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Pass `message` and `code` of `requireRateLimit()` as non-empty strings, such as `message: \"Too many tries. Wait a minute.\"`, or remove them to use the default `429` error.",
     },
+    RATE_LIMIT_RENAMED_PROVIDER_KEY: {
+      why: ({ value }: { value: string }) => `\`rateLimit.provider\` is ${value}. ViteHub renamed this key to \`driver\`, and it does not read \`provider\`, so Rate Limit would not use the driver you chose.`,
+      fix: ({ value }: { value: string }) => `Set \`rateLimit: { driver: ${value} }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
+    },
   },
 })

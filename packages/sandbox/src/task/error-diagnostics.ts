@@ -140,6 +140,10 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ className, configured, requested }: { className: string, configured: number, requested: number }) => `[vitehub] The Cloudflare containers entry of class ${className} sets max_instances ${configured}, but the Sandbox Task option maxInstances is ${requested}.`,
       fix: "Set the instance limit in one place: remove `maxInstances` from the Sandbox Task options, or remove `max_instances` from your `containers` entry.",
     },
+    SANDBOX_TASK_RENAMED_PROVIDER_KEY: {
+      why: ({ value }: { value: string }) => `\`sandboxTask.provider\` is ${value}. ViteHub renamed this key to \`driver\`, and it does not read \`provider\`, so the Sandbox Task would not use the driver you chose.`,
+      fix: ({ value }: { value: string }) => `Set \`sandboxTask: { driver: ${value} }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
+    },
     SANDBOX_TASK_SIZE_INVALID: {
       why: ({ key, value }: { key: string, value: string }) => `[vitehub] Sandbox Task option ${key} must be a positive number${key === 'maxInstances' ? ' and a whole number' : ''}. Received ${value}.`,
       fix: "Set `cpu` to a number of vCPUs, such as `2` or `0.5`, `memory` to a number of MiB, such as `4096`, and `maxInstances` to a whole number, such as `20`.",

@@ -83,6 +83,14 @@ describe("types", () => {
     env.boolean({ schema: {} })
     // @ts-expect-error enum values are public metadata, so an enum cannot be secret
     env.enum(["draft", "send"], { secret: true })
+    expectTypeOf(env.list({ default: ["a.example"] })).toMatchTypeOf<EnvVariableDeclaration>()
+    expectTypeOf(env.list(env.number(), { default: [80], secret: true })).toMatchTypeOf<EnvVariableDeclaration>()
+    expectTypeOf(env.json(env.schemaFrom("./server/env.schema.ts", "settings"), { optional: true })).toMatchTypeOf<EnvVariableDeclaration>()
+    expectTypeOf(env.json({ default: { enabled: true } })).toMatchTypeOf<EnvVariableDeclaration>()
+    // @ts-expect-error a list default is an array
+    env.list({ default: "a.example" })
+    // @ts-expect-error env.json() owns its parser
+    env.json({ schema: {} })
 
     const provider = defineEnvProvider({
       async read({ env: localEnv, keys, signal }) {
