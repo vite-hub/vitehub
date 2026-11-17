@@ -380,6 +380,19 @@ describe("docs Nuxt setup", () => {
     expect(() => compiled[0]!()).toThrow(/\/mcp, which has no page or file/)
   })
 
+  it("tells the link checker module that indexed pages exist, but still checks them in the compiled output", async () => {
+    const options = await setupDocs({})
+    // A build that prerenders some routes must not fetch a new page from the live site.
+    expect(Reflect.get(options, "linkChecker")).toMatchObject({ excludeLinks: expect.arrayContaining(["/docs/kv/configure"]) })
+    const publicDir = join(options.buildDir, "public")
+    mkdirSync(publicDir)
+    writeFileSync(join(publicDir, "index.html"), `<a href="/docs/kv/configure">Configure</a>`)
+    const compiled: Array<() => void> = []
+    const nitro = { options: { routeRules: {}, output: { publicDir } }, hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) } }
+    for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
+    expect(() => compiled[0]!()).toThrow(/\/docs\/kv\/configure, which has no page or file/)
+  })
+
   it.each(["/", "/portal/"])("combines Docs and app link exclusions in the compiled output under %s", async (appBase) => {
     const options = await setupDocs({ linkChecker: { excludeLinks: [`${appBase}blog/**`, new RegExp(`^${appBase}media/`)] } }, appBase)
     Object.assign(options, { linkChecker: { excludeLinks: [`${appBase}badge.svg`] } })
