@@ -435,7 +435,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_B0009: {
       ...dynamicError,
-      fix: "Remove `nitro.preset` from nuxt.config.ts. ViteHub sets the Nitro preset from the `vitehub.host` option.",
+      fix: "Remove `nitro.preset` or `vitehub.host` from nuxt.config.ts, or make them name the same host. Without `vitehub.host`, ViteHub takes the host from `nitro.preset`.",
     },
     VITE_HUB_B0011: {
       ...dynamicError,
@@ -586,6 +586,14 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_SANDBOX_DRIVER_HOST_UNSUPPORTED: {
       ...dynamicError,
       fix: "Use `sandboxTask: { driver: \"vercel\" }` with Vercel credentials, or use the `cloudflare` host.",
+    },
+    VITE_HUB_SECURITY_HEADER_INVALID: {
+      why: ({ name }: { name: string }) => `\`security.headers\` sets ${name}, which is not a valid header name, or its value has a line break or a character that a header cannot hold.`,
+      fix: "Use a header name such as `X-Robots-Tag`, and a value on one line. Use `false` to remove a default header.",
+    },
+    VITE_HUB_SECURITY_MAX_BODY_SIZE_INVALID: {
+      why: ({ value }: { value: string }) => `\`security.maxBodySize\` is ${value}, which is not a size.`,
+      fix: "Set `security.maxBodySize` to a whole number of bytes greater than 0, or to a size such as `\"500kb\"`, `\"1mb\"`, or `\"2gb\"`.",
     },
     VITE_HUB_TEST_MODULE_NOT_LOADED: {
       why: ({ id }: { id: string }) => `The Vite server of vite-hub/test resolved "${id}", but no plugin loads it.`,

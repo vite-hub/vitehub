@@ -367,6 +367,8 @@ have it. See [Source configuration](/docs/source/configure) for the loader optio
 | `skills` | `false` | Keeps the Skills in this Source out of a Provider Agent's skill roots. See [Give the provider its Skills](/docs/agents/agent-drivers#give-the-provider-its-skills). |
 | `probeKeys` | `string[]` | Known item keys. ViteHub uses them to check that a bundled Source is complete and to match path-scoped access without listing the whole Source. File helpers infer them when possible. |
 
+The build does not read `lazy` and `startup` Sources, but it checks that a GitHub Source can reach its repository when the build has a GitHub token. A revoked token, or a token that cannot read a private repository, fails the build with `WORKSPACE_SOURCE_ACCESS_FAILED`. A build without a token skips the check, so a token that only the deployed app has still works. A Custom Source can do the same check in `checkAccess(ctx)`.
+
 ### Prepare startup Sources
 
 Use `createWorkspacePreparation()` when a process must copy in required Sources before it reports ready:

@@ -1,7 +1,7 @@
 import { defu } from "defu"
 import { resolve } from "node:path"
 
-import { forgeEnv, readForgeEnv } from "@vite-hub/forge"
+import { forgeEnv, readForgeEnv } from "@vite-hub/internal/forge"
 import { readEnv, trimmed } from "@vite-hub/internal/env"
 
 import { workspaceError } from "../core/errors.ts"

@@ -1,11 +1,13 @@
 import { getViteHubErrorShape } from "@vite-hub/runtime"
+import type { InferDiagnosticCodes } from "nostics"
 
+import type { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { isQueueError, normalizePublicQueueIdentifier } from "../errors.ts"
 
 import type { QueueDeliveryErrorDetails, QueueDriver } from "../types.ts"
 
 // A provider failure can pass on the next delivery. Every other Queue error needs a code or deployment change.
-const retryableQueueCodes = new Set<string>(["QUEUE_PROVIDER_FAILED", "QUEUE_PROVIDER_INVALID_RESPONSE"])
+const retryableQueueCodes: ReadonlySet<InferDiagnosticCodes<typeof queueErrorDiagnostics>> = new Set(["QUEUE_PROVIDER_FAILED", "QUEUE_PROVIDER_INVALID_RESPONSE"])
 
 interface QueueDeliveryErrorContext {
   attempts: number

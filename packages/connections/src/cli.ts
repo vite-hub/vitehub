@@ -541,8 +541,8 @@ export async function runConnectionsCli(command: string, args: string[], context
     return (await entry.run(parsed, context, options)) ?? 0
   }
   catch (error) {
-    const fix: unknown = error instanceof Error && String(Reflect.get(error, "code")).startsWith("CONNECTIONS_CLI_") ? Reflect.get(error, "fix") : undefined
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${typeof fix === "string" ? `Fix: ${fix}\n` : ""}`)
+    const fix = connectionsErrorDiagnostics.is(error) && error.code.startsWith("CONNECTIONS_CLI_") ? error.fix : undefined
+    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${fix ? `Fix: ${fix}\n` : ""}`)
     return 1
   }
 }

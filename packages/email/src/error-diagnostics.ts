@@ -110,8 +110,8 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Read the value with `env.source()`, for example `env({ secret: true, source: env.source('RESEND_API_KEY') })`.",
     },
     EMAIL_UNKNOWN_DRIVER: {
-      why: "The Email `driver` must be \"resend\" or \"cloudflare\".",
-      fix: "Set `email: { driver: 'resend' }` or `email: { driver: 'cloudflare' }`.",
+      why: "The Email `driver` must be \"resend\", \"cloudflare\", or \"log\".",
+      fix: "Set `email: { driver: 'resend' }` or `email: { driver: 'cloudflare' }`. Set `email: { driver: 'log' }` to print messages and send nothing.",
     },
 
     // Tool errors.

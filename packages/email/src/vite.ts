@@ -57,7 +57,7 @@ const normalizeTemplateModulePath = (id: string) => {
   return /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("/") ? normalized : `/${normalized}`
 }
 const normalizeWatchedPath = (file: string) => file.replaceAll("\\", "/")
-export type EmailDriverName = "cloudflare" | "resend"
+export type EmailDriverName = "cloudflare" | "log" | "resend"
 
 interface GeneratedEmailDefinition {
   driver: EmailDriverName
@@ -165,7 +165,7 @@ function renderResolvedOptions(value: unknown, reference: string): string {
 }
 
 function resolveDriverImport(driver: string): string {
-  if (driver !== "resend" && driver !== "cloudflare") {
+  if (driver !== "resend" && driver !== "cloudflare" && driver !== "log") {
     throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER()
   }
   const extension = import.meta.url.endsWith(".ts") ? "ts" : "js"
@@ -272,7 +272,8 @@ function renderConfiguredEmailDefinitionModule(
   const outbox = dev?.outbox
   const remote = dev?.remote === true
   // A remote dev driver prints the notice on its first send. Factories resolve on each send, so a flag keeps it once.
-  const remoteDriver = remote
+  // The log driver sends no real email, so it needs no notice.
+  const remoteDriver = remote && definition.driver !== "log"
     ? [
         "let remoteNoticeShown = false",
         "const createRemoteDriver = () => {",
@@ -281,7 +282,7 @@ function renderConfiguredEmailDefinitionModule(
         "}",
       ]
     : []
-  const devDriver = remote ? "createRemoteDriver" : "createProviderDriver"
+  const devDriver = remoteDriver.length ? "createRemoteDriver" : "createProviderDriver"
   return [
     `import createDriver from ${JSON.stringify(driverImport)}`,
     `import { resolveServerEnv${cloudflare ? ", runWithCloudflareEnv" : ""} } from ${JSON.stringify(runtimeEnvImport)}`,
@@ -306,6 +307,8 @@ function renderConfiguredEmailDefinitionModule(
     outbox
       ? `  driver: () => createEmailDevOutboxDriver({ deliver: ${remote}, driver: ${devDriver}, limit: ${outbox.limit}, provider: ${JSON.stringify(definition.driver)}, runtimeId: ${JSON.stringify(outbox.runtimeId)} }),`
       : `  driver: ${devDriver},`,
+    // `email.canSend` reads it. It follows the driver, so the outbox of `vite dev` does not change it.
+    `  canSend: ${definition.driver !== "log"},`,
     "}",
     "export default definition",
     "",
@@ -624,7 +627,8 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
       }
       const entry = definition.handler.replace(/\.mjs$/, ".entry.mjs")
       // The outbox and `remote` apply only to `vite dev`. A build never imports the outbox module.
-      if (command === "serve" && !outbox && !remote) throw emailErrorDiagnostics.EMAIL_REMOTE_REQUIRED()
+      // The log driver sends nothing, so `vite dev` can run it without the outbox.
+      if (command === "serve" && !outbox && !remote && configured.driver !== "log") throw emailErrorDiagnostics.EMAIL_REMOTE_REQUIRED()
       const dev = command === "serve"
         ? { outbox: outbox && { ...outbox, import: resolveOutboxImport(), runtimeId: outboxRuntimeId }, remote }
         : undefined

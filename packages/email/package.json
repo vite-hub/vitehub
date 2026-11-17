@@ -44,6 +44,11 @@
       "import": "./dist/drivers/cloudflare.js",
       "default": "./dist/drivers/cloudflare.js"
     },
+    "./drivers/log": {
+      "types": "./dist/drivers/log.d.ts",
+      "import": "./dist/drivers/log.js",
+      "default": "./dist/drivers/log.js"
+    },
     "./drivers/resend": {
       "types": "./dist/drivers/resend.d.ts",
       "import": "./dist/drivers/resend.js",

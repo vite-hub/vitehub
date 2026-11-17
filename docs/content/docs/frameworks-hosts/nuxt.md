@@ -50,8 +50,9 @@ export default defineNuxtConfig({
 ## Build the application
 
 Run Nuxt's normal commands. The module sets Nitro's preset from the ViteHub
-host, so do not add `nitro()` or set another `nitro.preset`. A conflicting
-`nitro.preset` fails module setup.
+host, so do not add `nitro()`. Without `host`, the module takes the host from
+`nitro.preset`, such as `cloudflare-module`. A `nitro.preset` for a different
+host than `host` fails module setup.
 
 ```bash [Terminal]
 pnpm nuxt dev

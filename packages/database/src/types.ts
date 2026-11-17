@@ -69,10 +69,12 @@ export interface MigrationBackupOptions {
 
 export interface DatabaseIntegrationOptions {
   cli?: false | {
+    drop?: false
     export?: false
     generate?: false
     migrate?: false
     seed?: false
+    sql?: false
     up?: false
   }
   /**

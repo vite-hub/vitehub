@@ -783,7 +783,8 @@ function renderNitroWorkspacePlugin(
     "setWorkspaceRuntimeRegistry(registry)",
     "",
     "export default function vitehubWorkspacePlugin() {",
-    ...(cloudflareRuntime ? ["  setActiveCloudflareEnv(vitehubEnv)"] : []),
+    // `Cloudflare.Env` from `cloudflare:workers` has no index signature.
+    ...(cloudflareRuntime ? ["  setActiveCloudflareEnv(vitehubEnv as unknown as Record<string, unknown>)"] : []),
     ...runtimeSetup,
     "}",
     "",

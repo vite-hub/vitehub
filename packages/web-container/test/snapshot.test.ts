@@ -135,7 +135,9 @@ describe("snapshots", () => {
     const sha256 = createHash("sha256").update(parts[0]!).digest("hex")
     const other = packSnapshot(new Uint8Array(randomBytes(1000)))
     vi.stubGlobal("fetch", vi.fn(async () => new Response(other[0])))
-    await expect(fetchSnapshot(["https://docs.test/a.0.bin"], { cache: "app", sha256 })).rejects.toThrow(`not ${sha256}`)
+    const damaged = await fetchSnapshot(["https://docs.test/a.0.bin"], { cache: "app", sha256 }).catch((error: unknown) => error)
+    // The SHA-256 diagnostic is thrown as it is, not wrapped as the cause of a second one.
+    expect(damaged).toMatchObject({ code: "WEB_CONTAINER_SNAPSHOT_DAMAGED", cause: undefined, message: expect.stringContaining(`not ${sha256}`) })
     expect(stored.size).toBe(0)
     vi.stubGlobal("fetch", vi.fn(async () => new Response(parts[0])))
     await expect(fetchSnapshot(["https://docs.test/a.0.bin"], { cache: "app", sha256 })).resolves.toBeInstanceOf(Uint8Array)
