@@ -161,7 +161,8 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
         const stream = acceptExec()
         stream.allowHalfOpen = true
         const marker = randomUUID()
-        const child = spawn("/bin/sh", ["-lc", info.command], {
+        // Not a login shell: a profile, such as Debian's /etc/profile, would set PATH again and drop the forwarded one.
+        const child = spawn("/bin/sh", ["-c", info.command], {
           cwd: options.cwd,
           detached: true,
           env: { ...process.env, ...environment, [commandEnvironmentKey]: marker },
