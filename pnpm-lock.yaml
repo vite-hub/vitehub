@@ -696,7 +696,7 @@ catalogs:
 overrides:
   mdast-util-from-markdown>micromark: 4.0.2
   mdast-util-to-markdown: 2.1.2
-  '@vercel/blob>undici': ^6.28.0
+  '@vercel/blob>undici': ^6.29.1
   '@voidzero-dev/vite-plus-core': 0.3.3
   ai@>=7.0.0 <8.0.0: 7.0.130
   glob: ^13.0.6
@@ -1140,11 +1140,11 @@ importers:
         specifier: catalog:chat
         version: 4.44.0(ai@7.0.130(zod@4.6.7))(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0)(supports-color@10.2.2))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(supports-color@10.2.2)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
       '@json-render/core':
-        specifier: 0.21.0
-        version: 0.21.0(zod@4.6.7)
+        specifier: 0.22.0
+        version: 0.22.0(zod@4.6.7)
       '@json-render/vue':
-        specifier: 0.21.0
-        version: 0.21.0(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
+        specifier: 0.22.0
+        version: 0.22.0(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
       '@t3tools/provider-runtime':
         specifier: 'catalog:'
         version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@2a519db9ccb4227091f0d8a839d7121af9d6aed5
@@ -4050,11 +4050,11 @@ importers:
         specifier: ^3.12.4
         version: 3.12.4
       '@json-render/core':
-        specifier: 0.21.0
-        version: 0.21.0(zod@4.6.7)
+        specifier: 0.22.0
+        version: 0.22.0(zod@4.6.7)
       '@json-render/vue':
-        specifier: 0.21.0
-        version: 0.21.0(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
+        specifier: 0.22.0
+        version: 0.22.0(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
@@ -7050,13 +7050,13 @@ packages:
   '@jridgewell/trace-mapping@0.3.9':
     resolution: {integrity: sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ==}
 
-  '@json-render/core@0.21.0':
-    resolution: {integrity: sha512-vysEbTjO1y8mEgAsp0tztRyaWCkNsBrG8MhAqbndGK3qmMXjMRdCNtk21+AQRNKdRelFGVAwBgtUNW8tfjQlsw==}
+  '@json-render/core@0.22.0':
+    resolution: {integrity: sha512-BIfJ2V3bLYETetBu2KWoxxRPU5cSAf77dDTBgqaV54kEAfyHta1psPJgNk0fDcB3FCrnCZ5KO/X41VDkrNSYgw==}
     peerDependencies:
       zod: ^4.0.0
 
-  '@json-render/vue@0.21.0':
-    resolution: {integrity: sha512-6tG6A5mYX4QP2lvh51R/Y83dTUWVHK0RTxK0YN5bRNpj2QrN3Qy/yDD/XNtjlAGdWeHjhLsuEILJVEM1VMWcQw==}
+  '@json-render/vue@0.22.0':
+    resolution: {integrity: sha512-HS7/JJ7sP5jkVccbCvcdv0uyaWI0WEfb/VEZ3qx65YYdspc5KpoQaKxeCSWwBuk456Y4YrGDUMu1dF6aJc4QQA==}
     peerDependencies:
       vue: 3.5.44
       zod: ^4.0.0
@@ -18654,6 +18654,10 @@ packages:
     resolution: {integrity: sha512-R+RODBqp6i2pPflGdq+xIOUkl+RNfGgHwoinecKu/JCuf2uO06cOKoDbI2P7Dn6KcswdKwrczbU6IYJ6K8X+wg==}
     engines: {node: '>=18.17'}
 
+  undici@6.29.1:
+    resolution: {integrity: sha512-EvRlUt/QqAEvXdQeRMYUfwOQsfzpDztykrG2owGEE/rBOBoYv9uF39ZzsNDh4lTFHhTr2XOZjKkYgueD12ZmGA==}
+    engines: {node: '>=18.17'}
+
   undici@7.28.0:
     resolution: {integrity: sha512-cRZYrTDwWznlnRiPjggAGxZXanty6M8RV1ff8Wm4LWXBp7/IG8v5DnOm74DtUBp9OONpK75YlPnIjQqX0dBDtA==}
     engines: {node: '>=20.18.1'}
@@ -22380,13 +22384,13 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@json-render/core@0.21.0(zod@4.6.7)':
+  '@json-render/core@0.22.0(zod@4.6.7)':
     dependencies:
       zod: 4.6.7
 
-  '@json-render/vue@0.21.0(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)':
+  '@json-render/vue@0.22.0(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)':
     dependencies:
-      '@json-render/core': 0.21.0(zod@4.6.7)
+      '@json-render/core': 0.22.0(zod@4.6.7)
       vue: 3.5.44(typescript@6.0.3)
       zod: 4.6.7
 
@@ -29582,7 +29586,7 @@ snapshots:
       is-buffer: 2.0.5
       is-node-process: 1.2.0
       throttleit: 2.1.0
-      undici: 6.29.0
+      undici: 6.29.1
 
   '@vercel/cli-auth@0.0.1':
     dependencies:
@@ -40811,6 +40815,8 @@ snapshots:
   undici-types@8.9.0: {}
 
   undici@6.29.0: {}
+
+  undici@6.29.1: {}
 
   undici@7.28.0: {}
 

@@ -108,6 +108,12 @@ export interface RunViteHubCliOptions {
    * Other features of a project namespace with the same name still load the config.
    */
   runtimeFeatures?: ViteHubCliCommandNamespace[]
+  /**
+   * Project namespaces whose help needs no project, by name. `vitehub <namespace> --help` and
+   * `vitehub <namespace> <feature> --help` answer from them without loading the config, which takes seconds in a Nuxt
+   * app. Every feature of such a namespace must print its help for `-h` or `--help` before it reads the project.
+   */
+  helpNamespaces?: Record<string, () => Promise<ViteHubCliCommandNamespace | undefined>>
   /** Optional guard for runtime features that have a project-level opt-out. */
   runtimeFeatureGuard?: (namespace: string, feature: string, cwd: string) => boolean | Promise<boolean>
   /** Replaces `fetch` in commands that call a running app or a host API. */
@@ -260,6 +266,20 @@ function isRootHelp(args: string[]): boolean {
   return args[0] === "-h" || args[0] === "--help"
 }
 
+function isHelpFlag(arg: string | undefined): boolean {
+  return arg === "-h" || arg === "--help"
+}
+
+/** The namespace that answers `vitehub <namespace> [<feature>] --help` without the project, if one does. */
+async function loadHelpNamespace(args: string[], helpNamespaces: RunViteHubCliOptions["helpNamespaces"]): Promise<ViteHubCliCommandNamespace | undefined> {
+  const [name, feature, ...rest] = args
+  if (!name || !helpNamespaces || !Object.hasOwn(helpNamespaces, name) || BUILTIN_NAMESPACE_NAMES.has(name)) return
+  if (!isHelpFlag(feature) && !rest.some(isHelpFlag)) return
+  const namespace = await helpNamespaces[name]!()
+  // Another argument, such as an unknown feature, gets the answer of the project namespace.
+  if (namespace && (isHelpFlag(feature) || namespace.features.some(item => item.name === feature))) return namespace
+}
+
 function readPackageVersion(): string {
   const manifest = readFileSync(new URL("../package.json", import.meta.url), "utf8")
   const version = /"version"\s*:\s*"([^"\\]+)"/u.exec(manifest)?.[1]
@@ -327,6 +347,9 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   if (runtimeFeatures && (await options.runtimeFeatureGuard?.(args[0]!, args[1]!, cwd) ?? true)) {
     return await runNamespace(runtimeFeatures, args, { cwd, env, ...(options.fetch ? { fetch: options.fetch } : {}), rootDir: cwd, ...(options.runHostCli ? { runHostCli: options.runHostCli } : {}), spawn, stderr, stdout })
   }
+
+  const helpNamespace = await loadHelpNamespace(args, options.helpNamespaces)
+  if (helpNamespace) return await runNamespace(helpNamespace, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
 
   // Provider Output and host resources must match what a production build deploys.
   const command = args[0] === "inspect" && (args[1] === "output" || args[1] === "resources") ? "build" : "serve"
