@@ -191,5 +191,9 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "Cloudflare returned an invalid queue list during provisioning.",
       fix: "Run `vitehub provision run --host cloudflare --dry-run` again, and check the Cloudflare token permissions.",
     },
+    QUEUE_RENAMED_PROVIDER_KEY: {
+      why: ({ value }: { value: string }) => `\`queue.provider\` is ${value}. ViteHub renamed this key to \`driver\`, and it does not read \`provider\`, so Queue would not use the driver you chose.`,
+      fix: ({ value }: { value: string }) => `Set \`queue: { driver: ${value} }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
+    },
   },
 })

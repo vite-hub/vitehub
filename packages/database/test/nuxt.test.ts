@@ -185,11 +185,11 @@ describe("Database Nuxt integration", () => {
       exportConditions: ["vitehub-hosted", "workerd"],
       handlers: [
         {
-          handler: ".vitehub/nitro/database/request-stats.ts",
+          handler: `${tmp}/vitehub-db-nuxt/.vitehub/nitro/database/request-stats.ts`,
           middleware: true,
         },
         {
-          handler: ".vitehub/nitro/database/middleware.ts",
+          handler: `${tmp}/vitehub-db-nuxt/.vitehub/nitro/database/middleware.ts`,
           middleware: true,
         },
       ],
@@ -363,6 +363,26 @@ describe("Database Nuxt integration", () => {
         "@vite-hub/database/runtime/registry": `${tmp}/vitehub-db-nuxt/.vitehub/database/vercel-runtime.mjs`,
       },
     })
+  })
+
+  it("registers Nitro middleware that resolves to the written files when projectRoot is not the Nuxt rootDir", async () => {
+    const rootDir = await mkdtemp(join(tmp, "project-root-handlers-"))
+    const projectRoot = join(rootDir, "service")
+    await mkdir(projectRoot)
+    await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+    const { hooks, nuxt } = createNuxt({ dev: false, nitro: { preset: "cloudflare_module" }, rootDir, vite: {} })
+    await hubDatabase({ driver: "cloudflare", databaseId: "id", databaseName: "db", projectRoot: "service" })(undefined, nuxt)
+
+    const nitroConfig: { handlers?: Array<{ handler: string }> } = {}
+    await callHook(hooks, "nitro:config", nitroConfig)
+
+    // Nitro resolves a relative handler against its own rootDir, which Nuxt sets to its rootDir.
+    const resolvedByNitro = nitroConfig.handlers!.map(({ handler }) => resolve(rootDir, handler))
+    expect(resolvedByNitro).toEqual([
+      join(projectRoot, ".vitehub/nitro/database/request-stats.ts"),
+      join(projectRoot, ".vitehub/nitro/database/middleware.ts"),
+    ])
+    for (const file of resolvedByNitro) await expect(readFile(file, "utf8")).resolves.toContain("export default")
   })
 
   it("uses local sqlite for Nuxt Content during dev without changing the D1 provider binding", async () => {
