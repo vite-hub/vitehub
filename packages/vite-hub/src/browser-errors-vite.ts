@@ -11,31 +11,40 @@ import type { HtmlTagDescriptor, Plugin } from "vite"
 export const browserErrorsRoute = "/api/_vitehub/browser-errors"
 
 /**
- * The browser code that reports uncaught errors to `endpoint`, a JavaScript expression. It defines `report(kind, error)`
- * and listens to the window `error` and `unhandledrejection` events. It sends each message once and at most 10 reports
- * per page load, with the page path but never its query, and it never throws.
+ * The browser code that reports errors to `endpoint`, a JavaScript expression. It defines `report(kind, error, options)`,
+ * puts it on `globalThis` for `reportBrowserError()` of `vite-hub/logs/client`, and listens to the window `error`,
+ * `unhandledrejection`, and `vite:preloadError` events. It sends each action and message once and at most 10 reports per
+ * page load, with the page path but never its query, and it never throws.
  */
 export function browserErrorsReporterSource(endpoint: string): string {
   return [
     `const endpoint = ${endpoint}`,
     `const sent = new Set()`,
-    `const report = (kind, error) => {`,
+    `const report = (kind, error, options) => {`,
     `  try {`,
     `    const failure = error instanceof Error ? error : new Error(typeof error === "string" ? error : String(error?.message ?? error))`,
     // Leaving a page aborts its requests. That is not a failure.
     `    if (failure.name === "AbortError") return`,
-    `    const key = failure.name + ":" + failure.message`,
+    `    const action = typeof options?.action === "string" ? options.action.slice(0, 100) : undefined`,
+    // Not the name: Nuxt sends a Vue error to `vue:error`, then as a NuxtError with the same message to `app:error`.
+    `    const key = (action ?? "") + "\\n" + failure.message`,
     `    if (sent.has(key) || sent.size >= 10) return`,
     `    sent.add(key)`,
-    `    const body = { kind, path: location.pathname, name: failure.name, message: failure.message.slice(0, 1000), stack: failure.stack?.slice(0, 4000) }`,
+    // A string has no stack of its own: `new Error()` above would only point here.
+    `    const stack = error instanceof Error ? failure.stack?.slice(0, 4000) : undefined`,
+    `    const level = options?.level === "warn" ? "warn" : undefined`,
+    `    const body = { kind, path: location.pathname, name: failure.name, message: failure.message.slice(0, 1000), stack, action, level, fields: options?.fields }`,
     `    fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), keepalive: true }).catch(() => {})`,
     `  }`,
     // A report must not cause a second error.
     `  catch {}`,
     `}`,
+    `globalThis[Symbol.for("vite-hub.browserErrors")] = report`,
     // A failed <img> or <script> load has no error object, and a script of another origin shows only "Script error.".
     `addEventListener("error", event => { if (event.error) report("error", event.error) })`,
     `addEventListener("unhandledrejection", event => report("unhandledrejection", event.reason))`,
+    // Vite fires it when a lazy chunk or its CSS fails to load, often because a deploy removed the old files.
+    `addEventListener("vite:preloadError", event => report("chunk", event.payload))`,
   ].join("\n")
 }
 
@@ -51,6 +60,7 @@ export function browserErrorsNuxtPluginSource(): string {
     browserErrorsReporterSource(`useRuntimeConfig().app.baseURL.replace(/\\/$/, "") + ${JSON.stringify(browserErrorsRoute)}`).replace(/^/gm, "    "),
     `    nuxtApp.hook("vue:error", error => report("vue", error))`,
     `    nuxtApp.hook("app:error", error => report("nuxt", error))`,
+    `    nuxtApp.hook("app:chunkError", ({ error }) => report("chunk", error))`,
     `  },`,
     `})`,
     ``,

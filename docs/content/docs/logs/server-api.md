@@ -19,7 +19,7 @@ With the evlog Nitro module, ViteHub primitives add their own fields to the wide
 | `database` | Each request that calls a database | [Database](/docs/database/server-api#see-database-work-on-each-request) |
 | `auth` | A sign-in, a Better Auth error, or a refusal of an Auth guard | [Auth](/docs/auth/server-api#see-auth-outcomes-on-each-request) |
 | `rateLimit` | A request that a Rate Limit refuses | [Rate Limit](/docs/rate-limit/server-api#see-refusals-on-each-request) |
-| `browserError` | A browser error report, with `observability.browserErrors` | [Configure](/docs/logs/configure) |
+| `browserError` | A browser error or warning, with `observability.browserErrors`: an uncaught error or a call to `reportBrowserError()` | [Configure](/docs/logs/configure#log-browser-errors) |
 
 ## Source contract
 
