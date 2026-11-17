@@ -8,6 +8,7 @@ import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
 import { createWorkspaceMetadataTarget, workspaceInternalMetadataCapability, attachWorkspaceMetadataTarget } from "../storage/metadata-target.ts"
 import { assertPublicWorkspaceMetaKey } from "../storage/metadata-keys.ts"
 import { getCachedWorkspaceStore } from "./workspace-cache.ts"
+import { noteWorkspaceSnapshot, noteWorkspaceWrite } from "./request-scope.ts"
 import { createWorkspaceHistory } from "./history.ts"
 import type {
   Workspace,
@@ -38,6 +39,7 @@ export function createWorkspace(definition: WorkspaceDefinition, options: { reus
       return { conditionalWrites: typeof store.writeFileConditional === "function", retainedHistory: Boolean(store.history) }
     },
     async sync(options) {
+      noteWorkspaceWrite(definition, store)
       const { syncWorkspaceSources } = await import("../sources/sync.ts")
       return await syncWorkspaceSources(definition, store, options)
     },
@@ -50,12 +52,14 @@ export function createWorkspace(definition: WorkspaceDefinition, options: { reus
     async setMeta(key, value, capability?: typeof workspaceInternalMetadataCapability) {
       // Internal writers use the Store. Public callers cannot forge their records.
       const metadataKey = capability === workspaceInternalMetadataCapability ? key : assertPublicWorkspaceMetaKey(key)
+      noteWorkspaceWrite(definition, store)
       await store.setMeta?.(metadataKey, value)
     },
     async readFile(path, options) {
       return await files.readFile(path, options)
     },
     async writeFile(path, content, options) {
+      noteWorkspaceWrite(definition, store)
       return await files.writeFile(path, content, options)
     },
     async list(path, options) {
@@ -74,13 +78,17 @@ export function createWorkspace(definition: WorkspaceDefinition, options: { reus
       return await files.exists(path)
     },
     async mkdir(path, options) {
+      noteWorkspaceWrite(definition, store)
       await files.mkdir(path, options)
     },
     async rm(path, options) {
+      noteWorkspaceWrite(definition, store)
       await files.rm(path, options)
     },
     async snapshot(options) {
-      return await store.snapshot(options)
+      const snapshot = await store.snapshot(options)
+      noteWorkspaceSnapshot(store)
+      return snapshot
     },
     async rebase(options) {
       if (!store.rebase) throw workspaceErrorDiagnostics.WORKSPACE_R0026({ message: "[vitehub] Workspace Store does not support rebasing." })

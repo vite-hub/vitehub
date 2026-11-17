@@ -8,6 +8,7 @@ import { resolveGitHubWorkspaceRoot, splitGitHubRepository } from "../src/provid
 import { workspaceRevisionMaterializer } from "../src/storage/materialization.ts";
 
 import type { WorkspaceRevisionMaterializerCarrier } from "../src/storage/materialization.ts";
+import type { WorkspaceDefinition } from "../src/core/types.ts";
 
 const requests: Array<{ body?: Record<string, unknown>; headers: Headers; method: string; operation?: string; path: string; rawPath: string }> = []
 let fake: ReturnType<typeof createFakeGitHub>
@@ -1265,6 +1266,60 @@ describe("GitHub workspace store", () => {
     await expect(second.readFile("first.md")).resolves.toMatchObject({ content: textBytes("first\n") });
     await second.writeFile("second.md", { path: "second.md", content: "second edit\n" });
     expect((await second.snapshot({ name: "second edit" })).id).toBe(fake.head("main"));
+  });
+
+  it("drops the staged writes of a failed request from the cached Store", async () => {
+    seedRemote(".vitehub/workspaces/docs/index.md", "# Index\n");
+    const { createWorkspace } = await import("../src/core/workspace.ts");
+    const { runWorkspaceRequest } = await import("../src/core/request-scope.ts");
+    const definition: WorkspaceDefinition = {
+      name: "docs",
+      store: { driver: "github", repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
+    };
+
+    // The first request writes, then fails before its snapshot.
+    await expect(runWorkspaceRequest(async () => {
+      await createWorkspace(definition).writeFile("draft.md", "half done\n");
+      throw new Error("The form is not valid.");
+    })).rejects.toThrow("The form is not valid.");
+    await runWorkspaceRequest(async () => {
+      const workspace = createWorkspace(definition);
+      await expect(workspace.exists("draft.md")).resolves.toBe(false);
+      await workspace.writeFile("saved.md", "saved\n");
+      await workspace.snapshot({ name: "save" });
+    });
+
+    expect(fake.tree("main").map(entry => entry.path).sort()).toEqual([
+      ".vitehub/workspaces/docs/index.md",
+      ".vitehub/workspaces/docs/saved.md",
+    ]);
+  });
+
+  it("keeps staged writes that another request also made when a request fails", async () => {
+    seedRemote(".vitehub/workspaces/docs/index.md", "# Index\n");
+    const { createWorkspace } = await import("../src/core/workspace.ts");
+    const { runWorkspaceRequest } = await import("../src/core/request-scope.ts");
+    const definition: WorkspaceDefinition = {
+      name: "docs",
+      store: { driver: "github", repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
+    };
+    let release!: () => void;
+    const written = new Promise<void>(resolve => { release = resolve; });
+    // Two requests that overlap share the Store, so the failed one cannot drop writes that the other one still needs.
+    const other = runWorkspaceRequest(async () => {
+      await createWorkspace(definition).writeFile("other.md", "other\n");
+      release();
+      await new Promise(resolve => setTimeout(resolve, 20));
+      await createWorkspace(definition).snapshot({ name: "other" });
+    });
+    await expect(runWorkspaceRequest(async () => {
+      await written;
+      await createWorkspace(definition).writeFile("draft.md", "half done\n");
+      throw new Error("failed");
+    })).rejects.toThrow("failed");
+    await other;
+
+    expect(fake.tree("main").map(entry => entry.path)).toContain(".vitehub/workspaces/docs/other.md");
   });
 
   it("reads commits from other writers once the loaded head is older than the head cache time", async () => {
