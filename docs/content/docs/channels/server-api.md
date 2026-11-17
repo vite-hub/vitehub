@@ -213,6 +213,8 @@ const [error] = await useChannel('teams').send({ card, fallbackText: `Build ${bu
 if (error) throw error
 ```
 
+On Teams, `send()` also takes a raw Adaptive Card, `{ adaptiveCard, fallbackText }`, for card features that Chat SDK cards do not cover, such as `Badge`. The Teams adapter sends it as is. `TeamsChatMessage` from `vite-hub/agent/channels` is the message type of a Teams Channel.
+
 Use `update` to keep one message current, such as a status card:
 
 ```ts fragment
