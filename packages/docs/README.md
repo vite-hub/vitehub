@@ -163,7 +163,7 @@ navigation.panel: true
 - `article` is prose with the outline on the right.
 - `tutorial` numbers each `::tutorial-step` block. With `codePanel: true`, a sticky panel on wide screens shows the file tree and the file that the reader is on. Code blocks named `commands/...` or `output/...`, and shell blocks, stay in the prose.
 - `landing` is a wide Overview page without the outline. A section Overview ends with the catalog of every section.
-- `home` is the page's own blocks at full width under the site header, with no title, actions, sidebar, or outline. Use it for a product home page built from your `components/content/` blocks; it keeps its search entry, Markdown copy, and share image.
+- `home` is a product home page under the site header, with no title, actions, sidebar, or outline. Your `components/content/` blocks, such as a `::product-hero`, take the full width. The Markdown between them, such as a heading, a list, or a code group, gets the prose styles and the width of a docs page. The page keeps its search entry, Markdown copy, and share image.
 
 The left navigation (the section rail and the page sidebar) and the right outline show on every docs page. Turn them off for one page with `sidebar: false` or `toc: false`. A page that needs the width, such as a playground, sets `sidebar: collapsed`: wide screens show a narrow column with the logo, a button that opens the navigation, search, and the site links, or the rail on a site that has one. An app page in the docs layout sets it with `definePageMeta({ layout: "docs", sidebar: "collapsed" })`. A code panel tutorial starts collapsed too.
 
