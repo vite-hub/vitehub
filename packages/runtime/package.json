@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/runtime",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shared runtime context, capability, policy, approval, and tracing primitives for ViteHub.",
   "keywords": [
     "approvals",
@@ -66,6 +66,11 @@
       "types": "./dist/internal/public-url.d.ts",
       "import": "./dist/internal/public-url.js",
       "default": "./dist/internal/public-url.js"
+    },
+    "./internal/run-scope": {
+      "types": "./dist/internal/run-scope.d.ts",
+      "import": "./dist/internal/run-scope.js",
+      "default": "./dist/internal/run-scope.js"
     },
     "./internal/runtime-type": {
       "types": "./dist/internal/runtime-type.d.ts",

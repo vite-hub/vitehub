@@ -26,6 +26,8 @@ const units: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000,
 export function clientRateLimitIssue(policy: ClientRateLimitPolicy): string | undefined {
   if (!Number.isInteger(policy.limit) || policy.limit < 1) return "`rateLimit.limit` must be a whole number of 1 or more."
   if (!windowPattern.test(policy.window)) return "`rateLimit.window` must be a duration such as `30s`, `1m`, or `1h`."
+  const duration = windowMs(policy.window)
+  if (!Number.isFinite(duration) || duration <= 0 || duration > 8.64e15) return "`rateLimit.window` must resolve to finite milliseconds greater than zero and at most 8640000000000000."
   return undefined
 }
 

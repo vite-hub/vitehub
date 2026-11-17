@@ -156,6 +156,8 @@ export default defineNitroPlugin((nitroApp) => {
 
 `hubKV()` contributes the `vitehub kv` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `get <key>`, `has <key>`, `set <key> <value|@file> [--ttl <seconds>] [--json-value]`, and `delete <key>`. Each command accepts `--store <name>` and `--json`. `get` writes stored strings unchanged, without adding a newline. JSON input rejects underflow and decimal values that change magnitude during parsing; use strings to preserve them. Write commands print what they changed. There is no `clear` command.
 
+`vitehub seed` writes each file in `server/seed/kv/` to the default store: `habits.json` is the JSON value of the key `habits`, and any other extension is a string.
+
 Each command runs a `kv.*` operation of the app through the Console RPC. On the dev server it needs no sign-in. With `--url` it calls a deployed app. The same operations serve the Console KV page, which edits and deletes keys, and agents.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

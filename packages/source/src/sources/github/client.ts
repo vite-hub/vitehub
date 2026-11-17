@@ -266,7 +266,8 @@ export function createGitHubClient(repo: string): GitHubClient {
         return { content: file.content, sha: file.sha }
       }
       catch (error) {
-        // contents.getFile() reads a directory listing as a blob without a sha, and GitHub answers 422.
+        // contents.getFile() reads a directory listing as a blob without a sha, and GitHub answers 422
+        // (https://github.com/danielroe/forges/issues/292).
         if (githubErrorStatus(error) !== 422) throw error
         throw sourceError(`[vitehub] github(${JSON.stringify(repo)}) expected ${JSON.stringify(path)} to be a file, but GitHub returned a directory or another entry type.`, { cause: error })
       }

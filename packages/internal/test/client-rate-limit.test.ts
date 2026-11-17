@@ -23,9 +23,15 @@ describe("addressKey", () => {
 
 it("clientRateLimitIssue accepts whole limits and durations only", () => {
   expect(clientRateLimitIssue({ limit: 5, window: "1m" })).toBeUndefined()
+  expect(clientRateLimitIssue({ limit: 1, window: "1ms" })).toBeUndefined()
+  expect(clientRateLimitIssue({ limit: 1, window: "100000000d" })).toBeUndefined()
   expect(clientRateLimitIssue({ limit: 0, window: "1m" })).toContain("rateLimit.limit")
   expect(clientRateLimitIssue({ limit: 1.5, window: "1m" })).toContain("rateLimit.limit")
   expect(clientRateLimitIssue({ limit: 5, window: "1 minute" })).toContain("rateLimit.window")
+})
+
+it.each(["0ms", "0s", "0m", "0h", "0d", "100000001d", `${"9".repeat(310)}d`])("rejects an ineffective or out-of-range window %s", (window) => {
+  expect(clientRateLimitIssue({ limit: 1, window })).toContain("rateLimit.window")
 })
 
 it("memoryClientRateLimit opens a new window after the old one ends", () => {

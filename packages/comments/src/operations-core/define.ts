@@ -46,6 +46,13 @@ export interface CommentsAuthorizeContext {
    * that a `list` filters by. Not set for a `list` with no filter and for `users`.
    */
   subject?: CommentSubject
+  /**
+   * The Console admitted the caller to its Comments section before Comments ran: the comment operations of the
+   * Console, the CLI, and ViteHub MCP, and `commentsMcpTools(comments, { console: true })`. Not set for the overlay.
+   * With `identify`, such a call often has no app user, so allow it here:
+   * `authorize: ({ console, user }) => console === true || user?.role === "editor"`.
+   */
+  console?: boolean
 }
 
 /** Decides whether a person or an Agent may take an action. Return `true` to allow. */
