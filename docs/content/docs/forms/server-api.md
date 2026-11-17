@@ -42,9 +42,16 @@ The route takes JSON, URL-encoded, or multipart bodies. Two fields are not form 
 | `201 { id }` | A JSON response: the message is stored, or sent with `store: false`. |
 | `202` | A JSON response: the honeypot is filled. |
 | `303` | A URL-encoded or multipart form that accepts HTML: back to the page with `?form=<name>.sent` after success or a filled honeypot, or `?form=<name>.error` after a size, access, rate-limit, parsing, or validation failure. |
-| `400 { message, issues }` | A JSON response: the body does not match the schema. Each issue has `message` and `path`. |
+| `400 { message, issues }` | A JSON response: the body does not match the schema. Each issue has `message` and `path`. `400 { message }` when the `Idempotency-Key` is not a UUID. |
 | `401`, `403` | A JSON response: `authorize` refused. A rejected `Origin` always gets `403` JSON. Requests without `Origin` may pass. |
 | `413`, `415`, `429` | A JSON response: too large, not a form body, or over the rate limit. An unsupported content type always gets `415` JSON. |
+| `422` | A JSON response: the `Idempotency-Key` belongs to a stored message with other values, or of another form. |
+
+### Retries
+
+A retry after a network error must not store the message twice. `submitForm()`, `useFormAction()`, `AutoForm`, and `useFormSubmit()` send an `Idempotency-Key` header: a UUID for each message. After a failure, a retry with the same values sends the same key. The route stores the message with the key as its id. A second request with that key gets the same `201 { id }`, and `onSubmit` and the email do not run again. A form with `store: false` keeps no message, so it cannot find a retry.
+
+Pass `idempotencyKey` to `submitForm()` to choose the key, such as one key for each time a dialog opens.
 
 The method, content type, and origin checks run before HTML redirects are enabled. A response returned by `onSubmit` is sent as it is.
 

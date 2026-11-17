@@ -155,7 +155,8 @@ export interface ListFormSubmissionsOptions {
 
 /** Where submissions live. */
 export interface FormsStore {
-  insert(submission: FormSubmission): Promise<void>
+  /** Stores a new submission. False when a submission with its id exists: the store keeps the first one. */
+  insert(submission: FormSubmission): Promise<boolean>
   list(options?: ListFormSubmissionsOptions): Promise<FormSubmission[]>
   get(id: string): Promise<FormSubmission | undefined>
   setStatus(id: string, status: FormStatus, now: number): Promise<FormSubmission | undefined>

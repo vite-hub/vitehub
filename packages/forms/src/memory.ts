@@ -6,7 +6,9 @@ export function createMemoryFormsStore(): FormsStore {
   const copy = (submission: FormSubmission): FormSubmission => structuredClone(submission)
   return {
     async insert(submission) {
+      if (rows.has(submission.id)) return false
       rows.set(submission.id, copy(submission))
+      return true
     },
     async list(options = {}) {
       const limit = Math.min(Math.max(options.limit ?? 100, 1), 500)

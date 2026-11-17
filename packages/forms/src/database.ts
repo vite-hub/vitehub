@@ -88,7 +88,7 @@ export function createDrizzleFormsStore(database: FormsDatabase | (() => FormsDa
   const db = typeof database === "function" ? database : () => database
   return {
     insert: submission => guarded("store a submission", async () => {
-      await db().insert(formSubmissions).values({
+      const rows = await db().insert(formSubmissions).values({
         id: submission.id,
         form: submission.form,
         data: JSON.stringify(submission.data),
@@ -98,7 +98,8 @@ export function createDrizzleFormsStore(database: FormsDatabase | (() => FormsDa
         status: submission.status,
         createdAt: submission.createdAt,
         updatedAt: submission.updatedAt,
-      })
+      }).onConflictDoNothing().returning({ id: formSubmissions.id })
+      return rows.length > 0
     }),
     list: (options: ListFormSubmissionsOptions = {}) => guarded("list submissions", async () => {
       const limit = Math.min(Math.max(options.limit ?? 100, 1), 500)

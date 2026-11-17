@@ -81,6 +81,13 @@ describe.each([
     expect(await store.get("missing")).toBeUndefined()
   })
 
+  it("keeps the first submission of an id and says so", async () => {
+    const store = await create()
+    expect(await store.insert(submission("a", "contact", 1))).toBe(true)
+    expect(await store.insert({ ...submission("a", "contact", 2), data: { message: "again" } })).toBe(false)
+    expect(await store.list()).toEqual([submission("a", "contact", 1)])
+  })
+
   it("changes the status through the inbox", async () => {
     const store = await create()
     await store.insert(submission("a", "contact", 1))

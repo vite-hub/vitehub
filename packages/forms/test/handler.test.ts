@@ -111,6 +111,43 @@ describe("handleFormRequest", () => {
     expect((await store.list())[0]?.page).toBeNull()
   })
 
+  it("stores a message once for its Idempotency-Key, and runs onSubmit and the email once", async () => {
+    const { store, email, all } = services()
+    const onSubmit = vi.fn()
+    const form = defineForm({ ...contact.options, onSubmit })
+    const key = "0b5c2a8e-1d4f-4e7a-9c3b-2f6d8e1a7b90"
+    const send = (message: string) => handleFormRequest("contact", form, post({ email: "ada@example.com", message }, { headers: { "idempotency-key": key } }), all)
+    for (const response of [await send("Hello"), await send("Hello")]) {
+      expect(response.status).toBe(201)
+      expect(await response.json()).toEqual({ id: key })
+    }
+    expect((await store.list()).map(row => row.id)).toEqual([key])
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    expect(email).toHaveBeenCalledTimes(1)
+    // The key of another message must not drop this one.
+    const other = await send("Something else")
+    expect(other.status).toBe(422)
+    expect(await store.list()).toHaveLength(1)
+  })
+
+  it("answers the first message when two sends of one key race", async () => {
+    const { store, email, all } = services()
+    const key = "0b5c2a8e-1d4f-4e7a-9c3b-2f6d8e1a7b90"
+    const send = () => handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hello" }, { headers: { "idempotency-key": key } }), all)
+    const responses = await Promise.all([send(), send()])
+    expect(responses.map(response => response.status)).toEqual([201, 201])
+    expect(await store.list()).toHaveLength(1)
+    expect(email).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects an Idempotency-Key that is not a UUID", async () => {
+    const { store, all } = services()
+    const response = await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hello" }, { headers: { "idempotency-key": "retry-1" } }), all)
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ message: "The Idempotency-Key header must be a UUID." })
+    expect(await store.list()).toEqual([])
+  })
+
   it("pretends success for a filled honeypot and stores nothing", async () => {
     const { store, email, all } = services()
     const response = await handleFormRequest("contact", contact, post({ email: "bot@example.com", message: "Buy", website: "https://spam.test" }), all)
