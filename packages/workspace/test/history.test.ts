@@ -382,6 +382,13 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     expect(await (await store.history.open(revision!.id)).readFile("keep.txt")).toBe("accepted")
   })
 
+  it("keeps the author of a snapshot in the revision metadata", async () => {
+    const { store } = await setup(driver)
+    await store.writeFile("posts/a.md", { path: "posts/a.md", content: "a" })
+    await store.snapshot({ name: "docs: add a", author: { name: "Ada Lovelace", email: "ada@example.com" } })
+    expect(await store.history.head()).toMatchObject({ message: "docs: add a", metadata: { author: { name: "Ada Lovelace", email: "ada@example.com" } } })
+  })
+
   it("accepts cross-realm binary content through both history entry points", async () => {
     const { store, facade, uploads } = await setup(driver)
     // SAFETY: This fixed VM expression creates exactly the declared byte array.
