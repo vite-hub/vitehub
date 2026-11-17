@@ -11,6 +11,17 @@ export interface DataLossStatement {
 /** Columns of each table before a migration, from the previous Drizzle snapshot. `undefined` when the snapshot is missing. */
 export type TableColumns = ReadonlyMap<string, readonly string[]>
 
+/** A foreign key whose ON DELETE action changes rows of `table` when the table it references is dropped. */
+export interface ReferencingKey {
+  table: string
+  columns: readonly string[]
+  /** `CASCADE`, `SET NULL`, or `SET DEFAULT`. */
+  onDelete: string
+}
+
+/** The foreign keys that reference each table before a migration, by referenced table in lower case. */
+export type TableReferences = ReadonlyMap<string, readonly ReferencingKey[]>
+
 const identifier = String.raw`(?:"(?:[^"]|"")+"|\x60(?:[^\x60]|\x60\x60)+\x60|\[[^\]]+\]|[\w$]+)`
 const qualifiedName = String.raw`(?:${identifier}\s*\.\s*)?${identifier}`
 const schemaQualifiedTable = new RegExp(String.raw`^${identifier}\.${identifier}$`)
@@ -135,30 +146,47 @@ function describeRebuild(table: string, rebuild: Rebuild, before: TableColumns |
 }
 
 /**
+ * A rebuild drops the old table. D1 always enforces foreign keys, and ViteHub runs SQLite and libSQL migrations in one
+ * transaction, where `PRAGMA foreign_keys=OFF` does nothing, so the drop runs the ON DELETE action of each table that
+ * references the rebuilt one.
+ */
+function describeReferencingRows(table: string, references: TableReferences | undefined): { reason: string, tables: string[] } | undefined {
+  const keys = references?.get(table.toLowerCase())?.filter(key => key.table.toLowerCase() !== table.toLowerCase())
+  if (!keys?.length) return
+  const actions = keys.map(key => `${key.onDelete === "CASCADE" ? "deletes the rows of" : "clears"} "${key.table}"."${key.columns.join(`", "`)}" (ON DELETE ${key.onDelete})`)
+  return { reason: `rebuilds table "${table}", and dropping the old table ${actions.join(", ")}`, tables: [...new Set(keys.map(key => tableKey(key.table)))] }
+}
+
+/**
  * Lists the statements of one migration that remove rows, columns, or tables.
  * `before` holds the columns of each table before the migration, so a SQLite table rebuild that keeps every column is safe.
  */
-export function findDataLoss(statements: readonly string[], before?: TableColumns): DataLossStatement[] {
+export function findDataLoss(statements: readonly string[], before?: TableColumns, references?: TableReferences): DataLossStatement[] {
   const split = statements.flatMap(splitSqlStatements)
   const rebuilds = findRebuilds(split)
   const found: DataLossStatement[] = []
   for (const statement of split) {
-    const loss = classifyStatement(statement, rebuilds, before)
+    const loss = classifyStatement(statement, rebuilds, before, references)
     if (loss) found.push({ ...loss, statement })
   }
   return found
 }
 
-function classifyStatement(statement: string, rebuilds: ReadonlyMap<string, Rebuild>, before: TableColumns | undefined): Omit<DataLossStatement, "statement"> | undefined {
+function classifyStatement(statement: string, rebuilds: ReadonlyMap<string, Rebuild>, before: TableColumns | undefined, references: TableReferences | undefined): Omit<DataLossStatement, "statement"> | undefined {
   let match = statement.match(dropTable)
   if (match) {
     const losses = [...match[1]!.matchAll(new RegExp(qualifiedName, "g"))].flatMap(([name]) => {
       const table = unquote(name)
       const rebuild = rebuilds.get(table.toLowerCase())
-      const reason = rebuild ? describeRebuild(table, rebuild, before) : `drops table "${table}"`
-      return reason ? [{ reason, table: tableKey(name) }] : []
+      if (!rebuild) return [{ reason: `drops table "${table}"`, tables: [tableKey(name)] }]
+      const reason = describeRebuild(table, rebuild, before)
+      const referencing = describeReferencingRows(table, references)
+      return [
+        ...(reason ? [{ reason, tables: [tableKey(name)] }] : []),
+        ...(referencing ? [referencing] : []),
+      ]
     })
-    return losses.length ? { reason: losses.map(loss => loss.reason).join("; "), tables: losses.map(loss => loss.table) } : undefined
+    return losses.length ? { reason: losses.map(loss => loss.reason).join("; "), tables: losses.flatMap(loss => loss.tables) } : undefined
   }
   if ((match = statement.match(alterDrop))) return { reason: `drops column "${unquote(match[2]!)}" from "${unquote(match[1]!)}"`, tables: [tableKey(match[1]!)] }
   if ((match = statement.match(truncate))) {
