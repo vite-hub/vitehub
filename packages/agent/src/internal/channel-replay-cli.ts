@@ -1,4 +1,5 @@
 import { callOperation, operationCredentialHint } from "@vite-hub/internal/operations"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
@@ -296,7 +297,7 @@ export async function runAgentChannelReplayCli(
     return totals.failed ? 1 : 0
   }
   catch (error) {
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     return 1
   }
 }

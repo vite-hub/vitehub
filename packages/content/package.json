@@ -91,7 +91,6 @@
     "test": "vp run --cache -t @vite-hub/content#build && vp test"
   },
   "dependencies": {
-    "@comark/html": "catalog:markdown-ui",
     "@mdream/js": "catalog:markdown",
     "@sqlite.org/sqlite-wasm": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
@@ -107,7 +106,6 @@
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "birpc": "catalog:runtime",
-    "comark": "catalog:markdown-ui",
     "comark-content": "catalog:markdown-ui",
     "comark-ui": "catalog:markdown-ui",
     "diff": "catalog:runtime",
@@ -115,12 +113,14 @@
     "yaml": "catalog:tooling"
   },
   "devDependencies": {
+    "@comark/html": "catalog:markdown-ui",
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
+    "comark": "catalog:markdown-ui",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
     "publint": "catalog:tooling",
@@ -132,9 +132,11 @@
     "zod": "catalog:runtime"
   },
   "peerDependencies": {
+    "@comark/html": "catalog:markdown-ui",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
+    "comark": "catalog:markdown-ui",
     "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
     "vite": "catalog:vite-compat"
   },

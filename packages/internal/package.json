@@ -273,6 +273,11 @@
       "import": "./dist/secret.js",
       "default": "./dist/secret.js"
     },
+    "./sitemap": {
+      "types": "./dist/sitemap.d.ts",
+      "import": "./dist/sitemap.js",
+      "default": "./dist/sitemap.js"
+    },
     "./runtime/time-zone": {
       "types": "./dist/runtime/time-zone.d.ts",
       "import": "./dist/runtime/time-zone.js",
