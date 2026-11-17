@@ -292,6 +292,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   seen.subscribe(() => seenChanges.value++);
   watch(visibility, value => seen.set(value), { flush: "sync" });
   watch(openId, id => seen.open(id), { flush: "sync" });
+  watch(hoverId, id => seen.hover(id), { flush: "sync" });
   // Open panels and active flashes keep their marks even when a filter would hide them.
   const marked = computed(() => {
     void seenChanges.value;

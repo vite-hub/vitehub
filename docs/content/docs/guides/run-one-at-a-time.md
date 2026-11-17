@@ -11,7 +11,7 @@ icon: i-lucide-lock
 When an app runs on more than one server, or a client sends the same request twice, the same work can start twice at the same time. Two syncs write the same rows. Two reports send the same email. A lock or a lease lets one runner do the work while the others skip it or wait.
 
 - A **lock** is a key that one runner holds for a fixed time. [`kv.lock()`](/docs/kv/server-api#locks) keeps it in KV.
-- A **lease** is a lock that its holder can extend and that you can inspect. `createSqlLeaseStore()` from `vite-hub/runtime` keeps it in a SQL Database.
+- A **lease** is a lock that its holder can extend and that you can inspect. [`useLeases()`](#hold-a-lease-for-long-work) from `vite-hub/database` keeps it in the app's Database.
 
 Both end at a release or when their time passes, so a server that crashes blocks the key only until then.
 
@@ -56,25 +56,11 @@ export default defineEventHandler(async () => {
 
 ## Hold a lease for long work
 
-A lease lives in the `vitehub_leases` table of a Postgres or SQLite Database, which every server of the app shares. Create the store once:
-
-```ts [server/utils/leases.ts]
-import postgres from 'postgres'
-import { createSqlLeaseStore } from 'vite-hub/runtime'
-
-const sql = postgres(process.env.DATABASE_URL!)
-
-export const leases = createSqlLeaseStore({
-  dialect: 'postgresql',
-  query: (text, params) => sql.unsafe(text, params),
-})
-```
-
-Then acquire the lease, renew it while the work runs, and release it at the end:
+`useLeases()` returns the leases of the app. They live in the `vitehub_leases` table of the default Database, which every server of the app shares. The first call creates the table. Acquire the lease, renew it while the work runs, and release it at the end:
 
 ```ts [server/api/reindex.post.ts]
 import { defineEventHandler, HTTPError } from 'h3'
-import { leases } from '../utils/leases'
+import { useLeases } from 'vite-hub/database'
 
 async function reindexSearch(signal: AbortSignal) {
   for (const page of ['getting-started', 'guides', 'reference']) {
@@ -84,7 +70,7 @@ async function reindexSearch(signal: AbortSignal) {
 }
 
 export default defineEventHandler(async () => {
-  const [error, lease] = await leases.acquire('search:reindex', { ttl: 30, owner: process.env.HOSTNAME ?? 'local' })
+  const [error, lease] = await useLeases().acquire('search:reindex', { ttl: 30, owner: process.env.HOSTNAME ?? 'local' })
   if (error) throw new HTTPError({ status: 503, message: error.why })
   if (!lease) return { skipped: true }
 
@@ -114,8 +100,11 @@ export default defineEventHandler(async () => {
 - `get(key)` returns `[error, lease]` with the live lease, its `owner` and `expiresAt`, or `null`. Use it to show who runs a job.
 - `owner` is a label for inspection, such as the server name. `acquire()` does not compare it.
 - Expiry uses the clock of the Database, not the clocks of the servers.
+- `useLeases({ database: 'jobs' })` keeps the leases in another Database of the app.
 
-On libSQL, pass `{ dialect: 'sqlite', query: async (sql, args) => (await client.execute({ sql, args })).rows }`. On `node:sqlite`, pass `{ dialect: 'sqlite', query: async (sql, params) => db.prepare(sql).all(...params) }`. Do not share a local libSQL `file:` client between several processes: it can lose writes after `SQLITE_BUSY`. For one process and for tests, use `createMemoryLeaseStore()`.
+Leases work on every Database driver: Postgres, PGlite, libSQL, local SQLite, and D1. Each operation is one SQL statement, so D1 needs no transaction. Do not run several server processes on one local SQLite file: `@libsql/client` can lose writes after `SQLITE_BUSY`, and ViteHub prints a warning. Read the leases with `vitehub database sql "SELECT * FROM vitehub_leases"`.
+
+Without a ViteHub Database, pass your own SQL client to `createSqlLeaseStore()` from `vite-hub/runtime`. For one process and for tests, use `createMemoryLeaseStore()`.
 
 The [runtime README](https://github.com/vite-hub/vitehub/tree/main/packages/runtime#leases) shows the SQL that creates the table, for a Database where the app role cannot run `CREATE TABLE`.
 
@@ -123,7 +112,7 @@ The [runtime README](https://github.com/vite-hub/vitehub/tree/main/packages/runt
 
 | | `kv.lock()` | Lease |
 | --- | --- | --- |
-| Store | KV on `redis`, `upstash`, or `database` | Postgres, or SQLite 3.35 or later |
+| Store | KV on `redis`, `upstash`, or `database` | The app's Database, on every driver |
 | Extend while the work runs | No | `renew()` |
 | See who holds the key | No | `get()` |
 | Release after a crash | After `ttl` | After `ttl` |

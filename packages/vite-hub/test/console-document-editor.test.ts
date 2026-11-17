@@ -439,6 +439,13 @@ describe("Apply local edits while the person keeps typing", () => {
     expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
   })
 
+  it("grows the title with its text through CSS, not a script that sets its height", async () => {
+    const { wrapper } = await openLocal()
+    const title = wrapper.get("textarea")
+    expect(title.classes()).toContain("field-sizing-content")
+    expect(title.element.style.height).toBe("")
+  })
+
   it("keeps every edit local after a failed save", async () => {
     const { client, request, wrapper } = await openLocal()
     request.reject(new ConsoleRequestError(500, "Server Error", { code: "INTERNAL" }))

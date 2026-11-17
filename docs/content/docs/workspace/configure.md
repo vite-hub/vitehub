@@ -88,7 +88,7 @@ GitHub Stores also keep other answers, so a read asks GitHub only for what chang
 - History pages, commits, and trees are read by commit sha, so their answers never change. Each Store keeps up to 12 MiB of them in memory. When the app enables [KV](/docs/kv) and uses Content, they also go to KV for 7 days, and a new isolate reads them there instead of from GitHub.
 - `history.open(id).preload(paths)` reads many files of one commit from one archive of the commit instead of one request per file. It reads 8 files or fewer one by one. The archive of a commit also goes to KV.
 
-One GitHub Store serves every request of an instance, and it keeps writes until `workspace.snapshot()`. When a request throws before its snapshot, the Store forgets that request's writes, so the next snapshot does not commit them. Two requests that run at the same time share their writes until one of them snapshots.
+One GitHub Store serves every request of an instance, and it keeps writes until `workspace.snapshot()`. When a request, a Schedule run, or a Queue job throws before its snapshot, the Store forgets its writes, so the next snapshot does not commit them. Two requests that run at the same time share their writes until one of them snapshots.
 
 Without a `store`, development uses Local. In production:
 
