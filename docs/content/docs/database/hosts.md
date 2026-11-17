@@ -309,6 +309,8 @@ export default defineConfig({
 
 Run `vitehub provision run --host cloudflare` to write the D1 id to `.vitehub/provision.json`. A Cloudflare production build fails before deployment when it finds no id in provision state, `database.databaseId`, or a complete matching Nitro Wrangler binding.
 
+`driver` takes only `'cloudflare'`. Any other value, such as the former `'d1'`, fails with [`DATABASE_UNKNOWN_DRIVER`](/docs/database/diagnostics/database_unknown_driver). Run `npx @vite-hub/codemods driver-key` to rename `'d1'`.
+
 ::note
 In Nuxt, `vitehub.database` declares one D1 Database Host Resource. It keeps Nuxt Content and Cloudflare `wrangler.d1_databases` in sync. Discovered Database Definitions still own the Drizzle Runtime Surface. For Cloudflare and Vercel builds, `vite-hub/nuxt` writes the hosted runtime, schema modules, and Definition defaults before Nitro resolves their imports. Explicit Nitro aliases take precedence.
 ::

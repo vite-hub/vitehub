@@ -382,6 +382,14 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ problem, source }: { problem: string, source: string }) => `${source} could not load: ${problem}`,
       fix: "Read `error.cause` for the import error, and fix the module. `vitehub database generate` needs every schema module to load.",
     },
+    DATABASE_UNKNOWN_DRIVER: {
+      why: ({ driver }: { driver: string }) => driver === "\"d1\""
+        ? "`database.driver` is \"d1\". ViteHub renamed this driver to \"cloudflare\", and it does not read \"d1\"."
+        : `\`database.driver\` ${driver} is not a Database driver. The only driver of the \`database\` option is "cloudflare".`,
+      fix: ({ driver }: { driver: string }) => driver === "\"d1\""
+        ? "Set `database: { driver: \"cloudflare\" }`, or run `npx @vite-hub/codemods driver-key` to rename it in every config file."
+        : "Set `database.driver` to \"cloudflare\" for Cloudflare D1, or remove it. On `host: \"cloudflare\"`, ViteHub uses D1 without it. Set Postgres drivers in the Database Definition.",
+    },
     DATABASE_WRANGLER_BINDING_CONFLICT: {
       why: ({ binding, field, generated, project, scope }: { binding: string, field: string, generated: string, project: string, scope: string }) => `The D1 binding "${binding}"${scope} is declared by ViteHub and by the project's Wrangler config with a different ${field}: ${JSON.stringify(generated)} and ${JSON.stringify(project)}.`,
       fix: "Remove the binding from the project's Wrangler config, since ViteHub writes it, or give one of them another binding name.",
