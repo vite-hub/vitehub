@@ -116,6 +116,7 @@ const bundledInternal: Record<string, string[]> = {
   // Operation definitions are bundled from the private owner into Runtime.
   runtime: ["@valibot/to-json-schema", "valibot"],
   schedule: ["@valibot/to-json-schema"],
+  sync: ["birpc"],
   "vite-hub": ["@valibot/to-json-schema", "birpc"],
   workflow: ["@valibot/to-json-schema", "h3", "semver"],
   workspace: ["@valibot/to-json-schema", "@vercel/nft", "birpc"],
