@@ -15,12 +15,14 @@ export const viteHubServerImports = {
   auth: { "vite-hub/auth/server": ["auth", "can", "getAuth", "requireAbility", "requireAuth", "requireAuthorization", "useAuth", "withAnonymousAuthorization", "withAuth", "withAuthorization"] },
   blob: { "vite-hub/blob": ["blob"] },
   browser: { "vite-hub/browser": ["defineBrowser", "runBrowser"] },
+  // `defineCachedFunction` and `defineCachedHandler` keep Nitro's auto-imports. Import the tagged ones from `vite-hub/cache`.
+  cache: { "vite-hub/cache": ["invalidateTag"] },
   channels: { "vite-hub/channels": ["defineChannel", "useChannel"] },
   connections: { "vite-hub/connections": ["defineConnection"], "vite-hub/connections/server": ["useConnection"] },
   database: { "vite-hub/database": ["db", "schema", "useDatabase"] },
   email: { "vite-hub/email": ["email"] },
   // Generated Env declarations type the primitive root for each app.
-  env: { "vite-hub/env": ["checkServiceToken", "requireServiceToken", "useServerEnv"] },
+  env: { "vite-hub/env": ["checkServiceToken", "requireServiceToken", "useServerEnv", "verifyWebhook"] },
   i18n: { "vite-hub/i18n/server": ["getRequestI18n", "useTranslations"] },
   kv: { "vite-hub/kv": ["kv"] },
   queue: { "vite-hub/queue": ["defineQueue", "deferQueue", "useQueue", "sendQueue"] },
@@ -28,6 +30,7 @@ export const viteHubServerImports = {
   realtime: { "vite-hub/realtime": ["defineRealtime"], "vite-hub/realtime/server": ["isRealtimeAvailable", "refreshRealtimeDocument"] },
   sandboxTask: { "vite-hub/sandbox/task": ["runSandboxTask"] },
   schedule: { "vite-hub/schedule": ["cancelSchedule", "getSchedule", "listSchedules", "startSchedule"] },
+  seo: { "vite-hub/seo": ["defineSitemap"] },
   workflow: { "vite-hub/workflow": ["cancelWorkflow", "deferWorkflow", "getWorkflowRun", "resumeWorkflow", "startWorkflow"] },
   workspace: { "vite-hub/workspace": ["useWorkspace"] },
 } as const satisfies Record<string, { [From in keyof ServerImportEntries]?: readonly (keyof ServerImportEntries[From] & string)[] }>
@@ -38,6 +41,7 @@ interface ServerImportEntries {
   "vite-hub/auth/server": typeof import("./auth/server.ts")
   "vite-hub/blob": typeof import("./blob.ts")
   "vite-hub/browser": typeof import("./browser.ts")
+  "vite-hub/cache": typeof import("./cache.ts")
   "vite-hub/channels": typeof import("./channels.ts")
   "vite-hub/connections": typeof import("./connections.ts")
   "vite-hub/connections/server": typeof import("./connections/server.ts")
@@ -52,6 +56,7 @@ interface ServerImportEntries {
   "vite-hub/realtime/server": typeof import("./realtime/server.ts")
   "vite-hub/sandbox/task": typeof import("./sandbox/task.ts")
   "vite-hub/schedule": typeof import("./schedule.ts")
+  "vite-hub/seo": typeof import("./seo.ts")
   "vite-hub/workflow": typeof import("./workflow.ts")
   "vite-hub/workspace": typeof import("./workspace.ts")
 }

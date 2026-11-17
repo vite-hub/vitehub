@@ -3,7 +3,7 @@ import { analyzeShellCommand } from "../command/analyze.ts"
 import type {
   CreateShellRuntimeOptions,
   CreateShellSessionOptions,
-  ShellExecutionProvider,
+  ShellDriver,
   ShellObservation,
   ShellProcess,
   ShellRuntime,
@@ -90,19 +90,19 @@ function createTimeoutObservation(command: string, cwd: string | undefined, time
   }
 }
 
-/** Race the provider against the timeout, then abort the provider work. */
+/** Race the driver against the timeout, then abort the driver work. */
 async function execWithRuntimeTimeout(
-  provider: ShellExecutionProvider,
+  driver: ShellDriver,
   command: string,
   options: ShellRuntimeExecOptions,
   timeout: number,
 ): Promise<ShellObservation> {
   const controller = new AbortController()
-  const running = provider.exec(command, {
+  const running = driver.exec(command, {
     ...options,
     signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal,
   })
-  // The provider may reject after the timeout aborts it. That late result is not observed.
+  // The driver may reject after the timeout aborts it. That late result is not observed.
   running.catch(() => {})
   let timer: ReturnType<typeof setTimeout> | undefined
   const timedOut = new Promise<ShellObservation>((resolve) => {
@@ -143,16 +143,16 @@ class RuntimeShellSession implements ShellSession {
   #shellCalls = 0
 
   constructor(
-    private readonly provider: ShellExecutionProvider,
+    private readonly driver: ShellDriver,
     policy: ShellSessionPolicy,
     private readonly env?: Record<string, string>,
   ) {
-    this.boundary = provider.boundary
+    this.boundary = driver.boundary
     this.policy = policy
   }
 
   async analyze(command: string, options?: Parameters<ShellSession["analyze"]>[1]) {
-    return await (this.provider.analyze ?? analyzeShellCommand).call(this.provider, command, options)
+    return await (this.driver.analyze ?? analyzeShellCommand).call(this.driver, command, options)
   }
 
   async exec(command: string, options: ShellRuntimeExecOptions = {}) {
@@ -184,8 +184,8 @@ class RuntimeShellSession implements ShellSession {
       signal,
     }
     const result = this.boundary.timeout.enforcedBy === "runtime" && options.timeout !== undefined
-      ? await execWithRuntimeTimeout(this.provider, command, execOptions, options.timeout)
-      : await this.provider.exec(command, execOptions)
+      ? await execWithRuntimeTimeout(this.driver, command, execOptions, options.timeout)
+      : await this.driver.exec(command, execOptions)
     options.budget?.recordOutputBytes(new TextEncoder().encode(result.stdout).byteLength + new TextEncoder().encode(result.stderr).byteLength)
 
     const timedOut = result.timedOut
@@ -206,8 +206,8 @@ class RuntimeShellSession implements ShellSession {
 
   async startProcess(command: string, options: ShellRuntimeExecOptions = {}) {
     if (this.#disposed) throw shellErrorDiagnostics.SHELL_R0008({ message: shellSessionDisposedMessage })
-    if (!this.provider.startProcess || !this.boundary.processes.background) {
-      throw shellErrorDiagnostics.SHELL_R0009({ message: "[vitehub] Shell provider does not support long-running processes." })
+    if (!this.driver.startProcess || !this.boundary.processes.background) {
+      throw shellErrorDiagnostics.SHELL_R0009({ message: "[vitehub] Shell driver does not support long-running processes." })
     }
     if (!options.budgetCharged) options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
     const maxProcesses = this.policy.maxProcesses
@@ -225,7 +225,7 @@ class RuntimeShellSession implements ShellSession {
     this.#starts.add(start)
     void start.finally(() => this.#starts.delete(start))
 
-    // A runtime timeout counts from the start call, so a slow or stuck provider startup is bounded too.
+    // A runtime timeout counts from the start call, so a slow or stuck driver startup is bounded too.
     const timeout = this.boundary.timeout.enforcedBy === "runtime" ? options.timeout : undefined
     const controller = timeout === undefined ? undefined : new AbortController()
     let stop: (() => Promise<ShellObservation>) | undefined
@@ -247,7 +247,7 @@ class RuntimeShellSession implements ShellSession {
     let starting: Promise<ShellProcess> | undefined
     let started: ShellProcess
     try {
-      starting = this.provider.startProcess(command, {
+      starting = this.driver.startProcess(command, {
         ...options,
         signal: controller ? (signal ? AbortSignal.any([signal, controller.signal]) : controller.signal) : signal,
         env: { ...this.env, ...options.env },
@@ -257,7 +257,7 @@ class RuntimeShellSession implements ShellSession {
     catch (error) {
       clearTimeout(timer)
       finishStart()
-      // The provider may still return a handle after the runtime gave up on it. Stop that late process.
+      // The driver may still return a handle after the runtime gave up on it. Stop that late process.
       if (controller?.signal.aborted) void starting?.then(late => late.stop()).catch(() => {})
       throw error
     }
@@ -313,7 +313,7 @@ class RuntimeShellSession implements ShellSession {
     this.#disposed = true
     if (this.#disposeTask) return this.#disposeTask
     this.#disposeTask = (async () => {
-      // A runtime-timed start stops waiting for its provider now. Its late handle is stopped when it arrives.
+      // A runtime-timed start stops waiting for its driver now. Its late handle is stopped when it arrives.
       for (const cancel of this.#cancelStarts) cancel(shellErrorDiagnostics.SHELL_R0012({ message: shellSessionDisposedMessage }))
       await Promise.all(this.#starts)
       const failures: unknown[] = []
@@ -347,15 +347,15 @@ class RuntimeShellSession implements ShellSession {
 }
 
 export function createShellRuntime(options: CreateShellRuntimeOptions): ShellRuntime {
-  const { provider } = options
+  const { driver } = options
   const policy = { ...(options.policy ?? {}) }
   return {
-    boundary: provider.boundary,
+    boundary: driver.boundary,
     createSession(sessionOptions: CreateShellSessionOptions = {}) {
-      return new RuntimeShellSession(provider, { ...policy, ...sessionOptions.policy }, sessionOptions.env)
+      return new RuntimeShellSession(driver, { ...policy, ...sessionOptions.policy }, sessionOptions.env)
     },
     async exec(command: string, execOptions: ShellRuntimeExecOptions = {}) {
-      const session = new RuntimeShellSession(provider, policy)
+      const session = new RuntimeShellSession(driver, policy)
       try {
         return await session.exec(command, execOptions)
       }
