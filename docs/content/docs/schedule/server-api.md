@@ -181,7 +181,7 @@ With the evlog Nitro module, added through `vitehub({ observability })` or by ha
 | `scheduledAt`, `ms` | The time of the occurrence, and how long the handler ran. |
 | `outcome` | `success`, or `failure` with level `error` and the error in the event's `error` field. |
 
-The tick that runs started Schedules each minute gets no event. A failure of the runtime itself, such as a lost lease store, is an event with `schedule: { op: "runtime" }`, or `{ op: "started", name, id }` for a started Schedule that could not run. Without evlog, Schedule logs failures to the server console as before, and successful runs only in the run history.
+A Schedule with the cron `* * * * *` makes 1,440 `info` events a day. To keep fewer, sample them with evlog's `sampling: { rates: { info: 10 } }`. evlog keeps every `error`. The tick that runs started Schedules each minute gets no event. A failure of the runtime itself, such as a lost lease store, is an event with `schedule: { op: "runtime" }`, or `{ op: "started", name, id }` for a started Schedule that could not run. A started Schedule that fails at each tick logs once, until the cause changes. When the handler finishes but the run store fails, the run event says `success` and a second event says `{ op: "record-run" }`. Without evlog, Schedule logs failures to the server console as before, and successful runs only in the run history.
 
 ## Read Schedule Runs
 

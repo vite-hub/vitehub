@@ -5,7 +5,9 @@ import { defineSchedule } from "../src/definition.ts"
 import { scheduleIdempotencyKey } from "../src/runtime/date.ts"
 import { resetScheduleRuntime } from "../src/runtime/state.ts"
 import { createMemoryStartedScheduleStore, installStartedSchedules, runStartedSchedules } from "../src/runtime/started.ts"
-import { executeMatchingStaticSchedules } from "../src/runtime/static.ts"
+import { executeSchedule } from "../src/runtime/execute.ts"
+import { executeMatchingStaticSchedules, logScheduleRuntimeError, markLoggedScheduleError, normalizeScheduleRuntimeError } from "../src/runtime/static.ts"
+import { createMemoryScheduleRunStore } from "../src/runtime/store.ts"
 import { startSchedule } from "../src/started.ts"
 
 import type { ScheduleDefinitionRegistry } from "../src/types.ts"
@@ -114,5 +116,72 @@ describe("Schedule runs in logs", () => {
     expect(finished).toEqual(["digest"])
     expect(console).toHaveBeenCalledOnce()
     expect(console.mock.calls[0]?.[0]).toBe(`[vitehub:schedule] Schedule "broken" failed (cron "0 8 * * *").`)
+  })
+
+  it("logs a thrown string once, and keeps evlog's drain alive with waitUntil", async () => {
+    const events = evlogStub()
+    const console = vi.spyOn(globalThis.console, "error").mockImplementation(() => {})
+    const kept: unknown[] = []
+    const registry: ScheduleDefinitionRegistry = {
+      // eslint-disable-next-line no-throw-literal -- An app can throw a string, and it must be logged once.
+      broken: async () => ({ cron: "0 8 * * *", handler: async () => { throw "quota exceeded" } }),
+    }
+    setEvlogBridge({ createLogger: fields => ({ info() {}, warn() {}, error() {}, emit: () => { events.push({ fields, info: [], warn: [], error: [] }); return fields } }), drain: () => {} })
+
+    await expect(executeMatchingStaticSchedules({ cron: "0 8 * * *", registry, waitUntil: promise => kept.push(promise) })).rejects.toBe("quota exceeded")
+
+    expect(events).toHaveLength(1)
+    expect(kept).toHaveLength(1)
+    expect(console).not.toHaveBeenCalled()
+  })
+
+  it("reports a handler that finished and a run store that failed as two events", async () => {
+    const events = evlogStub()
+    const store = createMemoryScheduleRunStore()
+    const updateRun = store.updateRun.bind(store)
+    vi.spyOn(store, "updateRun").mockImplementation(async (id, patch) => {
+      if (patch.status === "succeeded") throw Object.assign(new Error("KV write to srun_direct_digest failed"), { code: "KV_OPERATION_FAILED" })
+      return updateRun(id, patch)
+    })
+
+    const run = await executeSchedule({ captureHandlerFailure: true, definition: { handler: () => "sent" }, runStore: store, scheduleId: "digest", scheduledAt: new Date("2026-11-17T08:00:00Z"), target: "digest" })
+
+    expect(run.status).toBe("failed")
+    expect(events.map(event => event.fields)).toEqual([
+      { action: "schedule", message: "Schedule run succeeded", schedule: expect.objectContaining({ name: "digest", outcome: "success" }) },
+      { action: "schedule", message: "Schedule could not record a finished run", schedule: { op: "record-run", name: "digest", runId: run.id, code: "KV_OPERATION_FAILED" } },
+    ])
+  })
+
+  it("logs a started Schedule that keeps failing at each tick once, until the cause changes", async () => {
+    const events = evlogStub()
+    let load: ScheduleDefinitionRegistry[string] = async () => defineSchedule({ handler: () => {} })
+    installStartedSchedules({ registry: { reminder: () => load() }, store: createMemoryStartedScheduleStore() })
+    await startSchedule("reminder", { at: "2026-11-08T09:00:00Z" })
+    load = async () => { throw Object.assign(new Error("The module failed to load."), { code: "ERR_MODULE_NOT_FOUND" }) }
+    const tick = (minute: number) => {
+      const scheduledAt = new Date(Date.UTC(2026, 10, 8, 9, minute))
+      return runStartedSchedules({ id: "tick", idempotencyKey: scheduleIdempotencyKey("vitehub/started-schedules", scheduledAt), scheduledAt, waitUntil: () => {} })
+    }
+
+    for (const minute of [0, 1, 2]) await tick(minute)
+    expect(events.map(event => event.fields.schedule)).toEqual([{ op: "started", name: "reminder", id: expect.any(String), code: "ERR_MODULE_NOT_FOUND" }])
+
+    load = async () => { throw new TypeError("registry entry is not a function") }
+    await tick(3)
+    expect(events).toHaveLength(2)
+  })
+
+  it("does not log a runtime failure again when a run event has it", () => {
+    const events = evlogStub()
+    const failure = new Error("sync failed")
+
+    logScheduleRuntimeError(markLoggedScheduleError(failure), normalizeScheduleRuntimeError(failure))
+    const marked = markLoggedScheduleError("quota exceeded")
+    logScheduleRuntimeError(marked, normalizeScheduleRuntimeError(marked))
+    expect(events).toHaveLength(0)
+
+    logScheduleRuntimeError(new Error("lease store down"), normalizeScheduleRuntimeError(new Error("lease store down")))
+    expect(events).toHaveLength(1)
   })
 })

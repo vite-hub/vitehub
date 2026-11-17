@@ -13,6 +13,7 @@ import { createOccurrenceClaims } from "./claims.ts"
 import { scheduleIdempotencyKey } from "./date.ts"
 import { isScheduleDue } from "./due.ts"
 import { executeStaticSchedule, toRunId } from "./execute.ts"
+import { markLoggedScheduleError } from "./static.ts"
 import { runStartedSchedules } from "./started.ts"
 import { getScheduleOccurrenceClaims, getScheduleRunStore, getScheduleRuntimeRegistry, registerProcessScheduleDefinitions, setScheduleOccurrenceClaims, setScheduleRunStore, setScheduleRuntimeRegistry } from "./state.ts"
 
@@ -238,6 +239,7 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
           return
         }
         const runId = toRunId("static", entry.name, input.scheduledAt)
+        let logged = false
         try {
           const result = await claims.run(runId, onExecution => executeStaticSchedule({
             claimed: true,
@@ -245,6 +247,7 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
             definition,
             name: entry.name,
             onExecution,
+            onRunLogged: () => { logged = true },
             scheduledAt: input.scheduledAt,
             waitUntil,
           }))
@@ -253,7 +256,8 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
         }
         catch (error) {
           held.set(runId, { scheduleId: input.scheduleId, scheduledAt: input.scheduledAt })
-          throw error
+          // The run's evlog event has the failure, so `onError` gets it marked and does not log it again.
+          throw logged ? markLoggedScheduleError(error) : error
         }
       })()
       activeWakes.add(wake)

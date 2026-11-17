@@ -9,7 +9,7 @@ import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 import { isScheduleDate, scheduleIdempotencyKey, validateScheduledAt } from "./date.ts"
 import { isScheduleDue, latestCronMinute } from "./due.ts"
-import { isLoggedScheduleError, logScheduleRun } from "./log.ts"
+import { isLoggedScheduleError, logScheduleRun, rememberLoggedScheduleError } from "./log.ts"
 import { startedSchedulesTickName } from "./started-name.ts"
 
 export interface ExecuteStaticScheduleOptions {
@@ -18,6 +18,8 @@ export interface ExecuteStaticScheduleOptions {
   name: string
   scheduledAt?: Date
   waitUntil?: (promise: PromiseLike<unknown>) => void
+  /** Called when the run's evlog event has the failure, so the caller does not log it again. */
+  onRunLogged?: () => void
 }
 
 export interface ExecuteMatchingStaticSchedulesOptions {
@@ -100,6 +102,16 @@ export function normalizeCron(cron: string): string {
 export function logScheduleRuntimeError(error: unknown, runtimeError: Error): void {
   if (isLoggedScheduleError(error)) return
   logFailure({ field: "schedule", fields: { op: "runtime" }, level: "error", message: "Schedule runtime failed", error: runtimeError }, () => console.error("[vitehub:schedule]", runtimeError))
+}
+
+/**
+ * Notes that a log event has `error`, and returns it to throw on. A thrown value that is not an object cannot be
+ * noted, so it becomes the Error that `normalizeScheduleRuntimeError()` makes of it anyway.
+ */
+export function markLoggedScheduleError(error: unknown): unknown {
+  const marked = typeof error === "object" && error !== null ? error : normalizeScheduleRuntimeError(error)
+  rememberLoggedScheduleError(marked)
+  return marked
 }
 
 export function normalizeScheduleRuntimeError(error: unknown): Error {
@@ -187,14 +199,15 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
   // The tick of started Schedules runs each minute. Each started Schedule logs its own run.
   if (options.name === startedSchedulesTickName) return await execute()
   const run = { name: options.name, source: "static" as const, scheduledAt }
+  const waitUntil = options.waitUntil ? { waitUntil: (promise: Promise<unknown>) => options.waitUntil?.(promise) } : {}
   const startedAt = performance.now()
   try {
     const value = await execute()
-    logScheduleRun(run, startedAt, "success")
+    logScheduleRun(run, startedAt, "success", waitUntil)
     return value
   }
   catch (error) {
-    logScheduleRun(run, startedAt, "failure", error)
+    if (logScheduleRun(run, startedAt, "failure", { error, ...waitUntil })) options.onRunLogged?.()
     throw error
   }
 }
@@ -207,7 +220,7 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
   }
   const cron = normalizeCron(options.cron)
   const scheduledAt = validateScheduledAt(options.scheduledAt)
-  const runs: Array<{ name: string, run: Promise<unknown> }> = []
+  const runs: Array<{ logged: () => boolean, name: string, run: Promise<unknown> }> = []
   for (const [name, load] of Object.entries(options.registry)) {
     const definition = unwrapScheduleDefinition(await load())
     if (!definition) continue
@@ -215,7 +228,9 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
     const timeZoneCron = override === undefined && options.timeZoneCrons && Object.hasOwn(options.timeZoneCrons, name) ? options.timeZoneCrons[name] : undefined
     if (normalizeCron(override ?? timeZoneCron ?? definition.cron) !== cron) continue
     if (timeZoneCron !== undefined && !isTimeZoneWakeDue(definition, name, scheduledAt)) continue
-    runs.push({ name, run: executeStaticSchedule({ cron: options.cron, definition, name, scheduledAt, waitUntil: options.waitUntil }) })
+    let logged = false
+    const run = executeStaticSchedule({ cron: options.cron, definition, name, onRunLogged: () => { logged = true }, scheduledAt, waitUntil: options.waitUntil })
+    runs.push({ logged: () => logged, name, run })
   }
   // One failed schedule must not hide the result of the others. Hosts log only the rejection, without its cause.
   const results = await Promise.allSettled(runs.map(({ run }) => run))
@@ -223,7 +238,8 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
   results.forEach((result, index) => {
     if (result.status === "fulfilled") return
     failures.push(result.reason)
-    if (!isLoggedScheduleError(result.reason)) console.error(`[vitehub:schedule] Schedule "${runs[index]!.name}" failed (cron "${options.cron}").`, normalizeRuntimeDiagnosticError(result.reason, { includeStack: true }))
+    // The run's evlog event has the failure. A thrown string has no identity, so the flag of the run tells.
+    if (!runs[index]!.logged()) console.error(`[vitehub:schedule] Schedule "${runs[index]!.name}" failed (cron "${options.cron}").`, normalizeRuntimeDiagnosticError(result.reason, { includeStack: true }))
   })
   if (failures.length === 1) throw failures[0]
   if (failures.length) throw new AggregateError(failures, `[vitehub:schedule] ${failures.length} schedules failed for cron "${options.cron}".`)

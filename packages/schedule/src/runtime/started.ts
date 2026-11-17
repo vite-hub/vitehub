@@ -6,7 +6,7 @@ import { getScheduleOccurrenceClaims, getStartedScheduleRuntime, setStartedSched
 import { joinKey, keySegments } from "./store.ts"
 import { startedScheduleErrors } from "../started-errors.ts"
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
-import { logFailure } from "@vite-hub/internal/runtime/request-log"
+import { errorCode, logFailure } from "@vite-hub/internal/runtime/request-log"
 
 import type { ScheduleKVStorage } from "./kv-storage.ts"
 import type { StartedScheduleRuntime } from "./state.ts"
@@ -217,17 +217,23 @@ export async function runStartedSchedules(context: ScheduleRunContext): Promise<
     }
   }
   const results = await Promise.allSettled(occurrences.map(({ schedule, scheduledAt }) => runOccurrence(runtime, schedule, scheduledAt, context.waitUntil)))
+  const failing = runtime.failing ??= new Map()
   results.forEach((result, index) => {
     const { schedule, scheduledAt } = occurrences[index]!
     const runId = toRunId("started", schedule.id, scheduledAt)
     if (result.status === "fulfilled") {
       if (result.value) held.delete(runId)
       else held.set(runId, { scheduleId: schedule.id, scheduledAt })
+      failing.delete(schedule.id)
       return
     }
     // A first tick can fail before checkedThrough is set. Keep that occurrence for the next tick as well.
     held.set(runId, { scheduleId: schedule.id, scheduledAt })
-    logFailure({ field: "schedule", fields: { op: "started", name: schedule.name, id: schedule.id }, level: "error", message: "Started Schedule failed", error: result.reason }, () => {
+    // The held occurrence fails again at each tick. Log it once, until the cause changes or a run succeeds.
+    const cause = errorCode(result.reason) ?? (result.reason instanceof Error ? result.reason.message : String(result.reason))
+    if (failing.get(schedule.id) === cause) return
+    failing.set(schedule.id, cause)
+    logFailure({ field: "schedule", fields: { op: "started", name: schedule.name, id: schedule.id }, level: "error", message: "Started Schedule failed", error: result.reason, waitUntil: promise => context.waitUntil(promise) }, () => {
       console.error(`[vitehub:schedule] Started Schedule "${schedule.id}" of "${schedule.name}" failed.`, normalizeRuntimeDiagnosticError(result.reason, { includeStack: true }))
     })
   })
