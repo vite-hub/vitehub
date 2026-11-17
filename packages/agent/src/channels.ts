@@ -3148,7 +3148,7 @@ function chatPostable(message: TeamsChatMessage): AdapterPostableMessage {
  * An outbound connector that sends through one Chat SDK adapter.
  * Thread roots and idempotent receipts are stored in `@vite-hub/kv` under `<channel>:`.
  */
-function chatConnector<TMessage extends TeamsChatMessage = ChatMessage>(platform: ChatConnectorPlatform, createAdapter: () => MaybePromise<Adapter>): ChatConnector<TMessage> {
+function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => MaybePromise<Adapter>): ChatConnector<TeamsChatMessage> {
   const { label, name } = platform
   let adapter: Promise<Adapter> | undefined
   const useAdapter = (): Promise<Adapter> => {
@@ -3312,7 +3312,7 @@ const teamsConnectorPlatform: ChatConnectorPlatform = {
 
 /** Sends Markdown to Microsoft Teams. It builds one adapter like `teams()`. Roots and receipts live in KV under `teams:`. */
 function teamsConnector(options: TeamsConnectorOptions = {}): ChatConnector<TeamsChatMessage> {
-  return chatConnector<TeamsChatMessage>(teamsConnectorPlatform, connectorAdapter(options.adapter, input => createTeamsConnectorAdapterFromEnv(input ?? {})))
+  return chatConnector(teamsConnectorPlatform, connectorAdapter(options.adapter, input => createTeamsConnectorAdapterFromEnv(input ?? {})))
 }
 
 function decodeSlackThread(adapter: Adapter, threadId: string): { channel: string, threadTs: string } {
