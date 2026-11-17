@@ -1,6 +1,8 @@
 import type { AnyExtension, JSONContent } from "@tiptap/core"
 import type { WorkspaceSnapshot } from "@vite-hub/workspace"
-import type { ViteHubContext } from "@vite-hub/runtime"
+import type { H3Event } from "h3"
+// Adds `~standard` to the H3Event type. The ViteHub Nitro plugin sets it at runtime.
+import type {} from "@vite-hub/runtime/internal/h3"
 
 /** JSON value stored in one field of a structured Realtime document. */
 export type RealtimeFieldValue = null | boolean | number | string | RealtimeFieldValue[] | { [key: string]: RealtimeFieldValue }
@@ -147,10 +149,11 @@ export interface RealtimeVerifyResult {
 export type RealtimeReadOnlyReason = "access" | "document" | "version"
 
 /**
- * The request event of a WebSocket upgrade or HTTP request. Read the request, its cookies, and the platform bindings
- * from `event["~standard"]`. `context` is the H3 event context, such as the session that a middleware set.
+ * The H3 event of a WebSocket upgrade or HTTP request, so helpers that take an `H3Event` accept it. Read the request,
+ * its cookies, and the platform bindings from `event["~standard"]`. `context` holds what a middleware set, such as the
+ * session.
  */
-export type RealtimeRequestEvent = ViteHubContext<{ context: Record<string, unknown> }>
+export type RealtimeRequestEvent = H3Event
 
 export interface RealtimeRequestContext {
   definition: string

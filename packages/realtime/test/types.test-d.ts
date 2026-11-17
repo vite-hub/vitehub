@@ -72,11 +72,19 @@ describe("realtime caret types", () => {
 })
 
 describe("realtime definition types", () => {
-  it("gives identify() and authorize() a request event with Standard Context and its H3 context", () => {
-    expectTypeOf<RealtimeRequestContext["event"]>().toEqualTypeOf<ViteHubContext<{ context: Record<string, unknown> }>>()
+  it("gives identify(), origins(), and authorize() the H3 event of the request, with Standard Context", () => {
+    expectTypeOf<RealtimeRequestContext["event"]>().toEqualTypeOf<H3Event>()
     expectTypeOf<RealtimeAuthorizeContext["event"]>().toEqualTypeOf<RealtimeRequestEvent>()
     expectTypeOf<RealtimeRequestEvent["~standard"]["req"]>().toEqualTypeOf<Request>()
-    expectTypeOf<H3Event>().toExtend<RealtimeRequestEvent>()
+    expectTypeOf<RealtimeRequestEvent>().toExtend<ViteHubContext>()
+    // An app's access helpers take the H3 event, as Drop's presence checks do.
+    const findMember = (event: H3Event, request: Request) => event.context.member === request.headers.get("x-member")
+    defineRealtime({
+      document: false,
+      origins: ({ event, request }) => findMember(event, request),
+      identify: ({ event, request }) => findMember(event, request) ? { id: "maxi" } : null,
+      authorize: ({ event, request }) => findMember(event, request),
+    })
   })
 
   it("leaves document options out of a definition without a document", () => {
