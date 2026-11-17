@@ -612,7 +612,7 @@ describe("host-owned repair operations", () => {
       code: "PRESETS_REVIEW_REASON_REQUIRED",
       why: "A disproved review thread needs a one-sentence reason.",
       fix: expect.stringContaining("non-empty reason"),
-      docs: "https://vitehub.dev/docs/agents/diagnostics/presets_review_reason_required",
+      docs: "https://vitehub.dev/docs/presets/diagnostics/presets_review_reason_required",
     })
     expect(f.mutations()).toHaveLength(0)
     await f.operations.resolveThread("THREAD_1", { outcome: "fixed" })
