@@ -121,6 +121,23 @@ for (const [name, type] of [["chromium", chromium], ["firefox", firefox], ["webk
       await page.close()
     })
 
+    test("an open card moves to the left of its pin when the screen gets narrower, and its corner follows", async () => {
+      const { page } = await open("comments")
+      await page.waitForFunction(() => window.comments)
+      const wide = await openThread(page, 700, 160)
+      near(wide.card.left, wide.spot.x + 8, "left at 1280px")
+      assert.equal(wide.flip, "none")
+      await page.setViewportSize({ width: 900, height: 800 })
+      const opened = "[data-slot=comment-layer-item]:has(> [data-slot=comment-layer-popover]:not([data-preview]))"
+      await page.waitForFunction(opened => document.querySelector(opened)?.getAttribute("data-flip-x") === "true", opened)
+      const narrow = await page.evaluate((opened) => {
+        const item = document.querySelector(opened)
+        return { right: item.querySelector(":scope > [data-slot=comment-layer-popover]").getBoundingClientRect().right, spot: item.getBoundingClientRect().left }
+      }, opened)
+      near(narrow.right, narrow.spot - 8, "right at 900px")
+      await page.close()
+    })
+
     test("on a phone, the card stays inside the screen", async () => {
       const { page } = await open("comments", { width: 375, height: 700 })
       await page.waitForFunction(() => window.comments)
@@ -157,6 +174,26 @@ for (const [name, type] of [["chromium", chromium], ["firefox", firefox], ["webk
       await page.waitForFunction(() => document.querySelector("[data-slot=agent-session-details]").matches(":popover-open"))
       await toggle.click()
       await page.waitForFunction(() => !document.querySelector("[data-slot=agent-session-details]").matches(":popover-open"))
+      assert.deepEqual(errors, [])
+      await page.close()
+    })
+
+    test("in a translated container, the session details card stays on the body's top end corner", async () => {
+      const { page, errors } = await open("session&moved")
+      await page.locator("[data-slot=agent-session-details-toggle]").click()
+      await page.waitForFunction(() => document.querySelector("[data-slot=agent-session-details]")?.matches(":popover-open"))
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+      const place = () => Promise.all([page.locator("[data-slot=agent-session-details]").boundingBox(), page.locator("[data-slot=agent-session-body]").boundingBox()])
+      let [card, body] = await place()
+      near(card.y, body.y, "top")
+      near(card.x + card.width, body.x + body.width - 12, "right")
+      await shot(page, "session-details-moved")
+      // It follows the session when the container moves while it is open.
+      await page.evaluate(() => { document.querySelector(".session").style.translate = "40px 20px"; window.dispatchEvent(new Event("resize")) })
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      [card, body] = await place()
+      near(card.y, body.y, "top after the move")
+      near(card.x + card.width, body.x + body.width - 12, "right after the move")
       assert.deepEqual(errors, [])
       await page.close()
     })

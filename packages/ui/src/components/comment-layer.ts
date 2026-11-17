@@ -300,11 +300,27 @@ export const CommentLayer = defineComponent({
         if (now?.x !== next.x || now?.y !== next.y) picked.set(key, next);
       }
     };
-    // A card that grows, such as with a reply, can move to another side.
+    // A card that grows, such as with a reply, can move to another side, and so can a card when the screen gets smaller.
     const cardSizes = typeof ResizeObserver === "function" ? new ResizeObserver(readSides) : undefined;
-    onMounted(readSides);
+    let sideFrame = 0;
+    const readSidesSoon = () => {
+      if (!sideFrame) sideFrame = requestAnimationFrame(() => {
+        sideFrame = 0;
+        readSides();
+      });
+    };
+    onMounted(() => {
+      readSides();
+      window.addEventListener("resize", readSidesSoon, { passive: true });
+      window.visualViewport?.addEventListener("resize", readSidesSoon, { passive: true });
+    });
     onUpdated(readSides);
-    onBeforeUnmount(() => cardSizes?.disconnect());
+    onBeforeUnmount(() => {
+      cardSizes?.disconnect();
+      cancelAnimationFrame(sideFrame);
+      window.removeEventListener("resize", readSidesSoon);
+      window.visualViewport?.removeEventListener("resize", readSidesSoon);
+    });
     const placedItem = (key: string) => (element: unknown) => {
       if (element instanceof HTMLElement) placedItems.set(key, element);
       else placedItems.delete(key);

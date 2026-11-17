@@ -3879,7 +3879,7 @@
     z-index: 20;
   }
   /* On a narrow column the card is a native popover in the top layer. CSS anchor positioning puts it where the inline
-     card goes, over the top end corner of the body. Without anchor positioning it shows in the middle of the screen. */
+     card goes, over the top end corner of the body. Where that fails, AgentSession places it from the body's box. */
   .vh-agent-session__details[popover] {
     background: none;
     border: 0;

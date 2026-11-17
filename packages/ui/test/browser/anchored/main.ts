@@ -33,7 +33,9 @@ const Comments = defineComponent({
 
 const Session = defineComponent({
   setup() {
-    return () => h("div", { class: "session" }, h(AgentSession, { title: "Fix the pricing table", subtitle: "3 min ago" }, {
+    // `?moved` puts the session in a translated container, as in a sliding panel.
+    const moved = new URLSearchParams(location.search).has("moved");
+    return () => h("div", { class: "session", style: moved ? { translate: "120px 60px" } : undefined }, h(AgentSession, { title: "Fix the pricing table", subtitle: "3 min ago" }, {
       default: () => h("p", "The agent read pricing.vue and changed the yearly price."),
       details: () => h(AgentSessionDetailsSection, { title: "Session" }, () => [
         h(AgentSessionDetailsRow, { label: "Status", value: "Completed" }),

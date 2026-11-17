@@ -175,7 +175,64 @@ export const AgentSession = defineComponent({
     // The popover goes away when the column gets room for the inline card, so it starts closed when the column narrows again.
     watch(detailsInline, (inline) => {
       if (inline) popoverOpen.value = false;
+      stopFollowing();
     });
+
+    // CSS anchor positioning puts the floating card on the body's top end corner. Firefox ignores the transforms of an
+    // anchor (https://webstatus.dev/features/anchor-positioning-transforms), and an older browser cannot anchor at all,
+    // so the card can land elsewhere, such as away from a session in a translated container. Then script places it from
+    // the body's box on screen while it stays open.
+    const details = ref<HTMLElement>();
+    let following = false;
+    let followFrame = 0;
+    // The card's 0.75rem inset from the body's end, as in styles.css.
+    const detailsInset = () => 0.75 * (Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
+    const detailsPlace = () => {
+      const card = details.value;
+      const box = body.value?.getBoundingClientRect();
+      if (!card || !box) return;
+      const end = getComputedStyle(card).direction === "rtl" ? box.left : document.documentElement.clientWidth - box.right;
+      Object.assign(card.style, {
+        insetBlockEnd: "auto",
+        insetBlockStart: `${box.top}px`,
+        insetInlineEnd: `${end + detailsInset()}px`,
+        insetInlineStart: "auto",
+        margin: "0",
+        maxHeight: `${box.height - detailsInset()}px`,
+      });
+    };
+    const followSoon = () => {
+      if (!followFrame) followFrame = requestAnimationFrame(() => {
+        followFrame = 0;
+        detailsPlace();
+      });
+    };
+    function stopFollowing() {
+      if (!following) return;
+      following = false;
+      cancelAnimationFrame(followFrame);
+      followFrame = 0;
+      window.removeEventListener("scroll", followSoon, true);
+      window.removeEventListener("resize", followSoon);
+      for (const name of ["inset-block-end", "inset-block-start", "inset-inline-end", "inset-inline-start", "margin", "max-height"]) details.value?.style.removeProperty(name);
+    }
+    const checkDetailsPlace = () => {
+      const card = details.value;
+      const box = body.value?.getBoundingClientRect();
+      if (following || !card || !box || !card.matches(":popover-open")) return;
+      const at = card.getBoundingClientRect();
+      const endGap = getComputedStyle(card).direction === "rtl" ? at.left - box.left : box.right - at.right;
+      if (Math.abs(at.top - box.top) < 1 && Math.abs(endGap - detailsInset()) < 1) return;
+      following = true;
+      detailsPlace();
+      window.addEventListener("scroll", followSoon, { capture: true, passive: true });
+      window.addEventListener("resize", followSoon, { passive: true });
+    };
+    const detailsToggled = (event: ToggleEvent) => {
+      popoverOpen.value = event.newState === "open";
+      if (event.newState === "open") requestAnimationFrame(checkDetailsPlace);
+      else stopFollowing();
+    };
 
     watch([panelOpen, detailsOpen, width, tabs, active, maximized], () => {
       if (!props.storageKey || typeof localStorage === "undefined") return;
@@ -209,11 +266,15 @@ export const AgentSession = defineComponent({
       observer = new ResizeObserver(() => {
         bodyWidth.value = body.value?.clientWidth ?? 0;
         rootWidth.value = root.value?.clientWidth ?? 0;
+        if (following) followSoon();
       });
       if (body.value) observer.observe(body.value);
       if (root.value) observer.observe(root.value);
     });
-    onBeforeUnmount(() => observer?.disconnect());
+    onBeforeUnmount(() => {
+      observer?.disconnect();
+      stopFollowing();
+    });
 
     function openSurface(id: string) {
       if (!tabs.value.includes(id)) tabs.value = [...tabs.value, id];
@@ -461,7 +522,8 @@ export const AgentSession = defineComponent({
                   class: "vh-agent-session__details",
                   "data-slot": "agent-session-details",
                   "aria-label": "Session details",
-                  onBeforetoggle: (event: ToggleEvent) => (popoverOpen.value = event.newState === "open"),
+                  onBeforetoggle: detailsToggled,
+                  ref: details,
                 }, popoverOpen.value ? [h("div", { class: "vh-agent-session__details-card" }, slots.details())] : [])
               : null,
           ]),
