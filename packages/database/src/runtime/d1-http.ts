@@ -102,6 +102,8 @@ export function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>
   request: typeof fetch,
 ) {
   async function execute(queries: SqlQuery[]): Promise<SqlResult[]> {
+    // An empty batch sends no request, as libSQL runs nothing.
+    if (!queries.length) return []
     for (const { params, sql } of queries) assertD1Statement(sql, params)
     const requestQueries = queries.map(({ params, sql }) => ({ params, sql }))
     // One HTTP request per call, so a batch is one call.

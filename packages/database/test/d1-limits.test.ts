@@ -12,6 +12,7 @@ import { createDrizzleSqliteAdapter } from "../src/runtime/drizzle-adapter.ts"
 import { localLibsql } from "../src/runtime/local-client.ts"
 import { hubDatabase } from "../src/vite.ts"
 
+import type { BatchItem } from "drizzle-orm/batch"
 import type { RuntimeDrizzleDatabaseConfig } from "../src/types.ts"
 
 const schema = {
@@ -100,6 +101,26 @@ describe("D1 limits on a D1 binding", () => {
     expect(error).toMatchObject({ code: "DATABASE_D1_TOO_MANY_PARAMETERS" })
     await expect(runWithActiveCloudflareEnv({ DB: binding }, () => db.select().from(schema.notes).where(inArray(schema.notes.id, ids(100))))).resolves.toEqual([])
   })
+
+  it("resolves an empty batch without the binding, which rejects it", async () => {
+    const statement = { all: async () => ({ results: [] }), bind: () => statement, raw: async () => [], run: async () => ({}) }
+    const batch = vi.fn(async (statements: unknown[]) => {
+      if (!statements.length) throw new Error("D1_ERROR: No SQL statements detected.")
+      return statements.map(() => ({ results: [] }))
+    })
+    const binding = { batch, prepare: () => statement }
+    const db = createDrizzleSqliteAdapter({ cloudflare: { binding: "DB" }, name: "default" }, defineRelations(schema), { missingConnection: "a D1 binding", requireRemoteUrl: true })
+    const deleteNotes = (count: number) => runWithActiveCloudflareEnv({ DB: binding }, () => {
+      const writes: BatchItem<"sqlite">[] = []
+      for (let index = 0; index < count; index++) writes.push(db.delete(schema.notes))
+      return db.batch(writes)
+    })
+
+    await expect(deleteNotes(0)).resolves.toEqual([])
+    expect(batch).not.toHaveBeenCalled()
+    await expect(deleteNotes(1)).resolves.toHaveLength(1)
+    expect(batch).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe("D1 limits on D1 HTTP", () => {
@@ -114,6 +135,17 @@ describe("D1 limits on D1 HTTP", () => {
     expect(request).not.toHaveBeenCalled()
     await expect(getDatabase().select().from(schema.notes).where(inArray(schema.notes.id, ids(100)))).resolves.toEqual([])
     expect(request).toHaveBeenCalledTimes(1)
+  })
+
+  it("resolves an empty batch without a request", async () => {
+    const request = vi.fn(async () => Response.json({ success: false }))
+    const getDatabase = createCloudflareD1HttpResolver({
+      cloudflare: { databaseId: "notes-id", http: { authToken: "token", url: "https://d1.example.com/raw" } },
+      name: "default",
+    }, defineRelations(schema), request)
+
+    await expect(getDatabase().batch([])).resolves.toEqual([])
+    expect(request).not.toHaveBeenCalled()
   })
 })
 
