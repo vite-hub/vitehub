@@ -353,7 +353,7 @@ For production, use `observability: { logs: { source: './server/logs.ts' } }`. T
 
 Explorer and Stream keep selected event data in the right inspector. Search includes structured fields. Follow refreshes the newest page every two seconds and is a polling view, not guaranteed delivery of every event. The browser retains at most 1,000 loaded events. The Console shows local retention limits and dropped or evicted counts. The same read operation is available as `vitehub logs list --level error --limit 50 --json` and through Console RPC `logs.list`, under the same section access policy.
 
-With the Cloudflare host and `observability.logs` set, ViteHub defaults the generated Wrangler configuration to `observability: { enabled: true }`. An explicit Wrangler observability configuration is preserved, including `enabled: false`. This enables Cloudflare's native collection. It does not create an exporter, configure a destination, or connect that history to the Console. Those remain owned by the existing backend and its source adapter.
+With the Cloudflare host, ViteHub defaults the generated Wrangler configuration to `observability: { enabled: true }`, with or without `observability.logs`. An `observability` key in the project `wrangler.json` or in `nitro.cloudflare.wrangler` is preserved, including `enabled: false`. This enables Cloudflare's native collection. It does not create an exporter, configure a destination, or connect that history to the Console. Those remain owned by the existing backend and its source adapter.
 
 ## Agent Skills
 

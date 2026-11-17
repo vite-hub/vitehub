@@ -65,6 +65,13 @@ for (const chunk of chunkParameters(ids, { reserved: 1 })) {
 }
 ```
 
+`withIdempotency(key, fn, { ttl, timeout, database })` from `@vite-hub/database` runs `fn` once for each key, such as a webhook delivery id or a queue message id, on every instance of the app. A repeat gets the stored JSON result without running `fn`, and a repeat while the first call runs gets `DATABASE_IDEMPOTENCY_IN_PROGRESS` in the `[error, data]` tuple. When `fn` throws, the key is free again. The keys live in the table `vitehub_idempotency_keys` of the Database, which the first call creates.
+
+```ts fragment
+const [error] = await withIdempotency(`rsvp-confirmation:${rsvpId}`, () => sendConfirmation(rsvpId))
+if (error) return // Another delivery of this job is sending the mail.
+```
+
 ## Vite Integration
 
 Database instances expose Drizzle's `batch()` method on D1, D1 HTTP, and libSQL.
