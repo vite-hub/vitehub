@@ -1236,32 +1236,94 @@ describe("GitHub workspace store", () => {
     ]));
   });
 
-  it("fails dirty snapshots when the branch moved after load", async () => {
+  it("commits a second writer's snapshot after another writer moved the branch", async () => {
+    seedRemote(".vitehub/workspaces/docs/index.md", "# Index\n");
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
-    const store = createGitHubWorkspaceStore(
-      {
-        driver: "github",
-        repository: "onmax/repo",
-        root: ".vitehub/workspaces/<workspace>",
-        token: "token",
-      },
-      "docs",
-    );
+    const options = {
+      driver: "github" as const,
+      repository: "onmax/repo",
+      root: ".vitehub/workspaces/<workspace>",
+      token: "token",
+    };
+    // Two isolates, each with its own cached Store for one Workspace Definition.
+    const first = createGitHubWorkspaceStore(options, "docs");
+    const second = createGitHubWorkspaceStore(options, "docs");
+    await first.list();
+    await second.list();
 
-    await store.writeFile("README.md", { path: "README.md", content: "# Docs\n" });
-    refSha = "other-commit";
+    await first.writeFile("first.md", { path: "first.md", content: "first\n" });
+    await first.snapshot({ name: "first" });
+    await second.writeFile("second.md", { path: "second.md", content: "second\n" });
+    const snapshot = await second.snapshot({ name: "second" });
 
-    await expect(store.snapshot({ name: "conflict" })).rejects.toThrow(
-      "GitHub Workspace Store conflict",
-    );
-    expect(
-      requests.filter((request) =>
-        (request.method !== "GET" && request.operation !== "RepositoryId")
-      ),
-    ).toEqual([]);
+    expect(snapshot.id).toBe(fake.head("main"));
+    expect(fake.tree("main").map(entry => entry.path).sort()).toEqual([
+      ".vitehub/workspaces/docs/first.md",
+      ".vitehub/workspaces/docs/index.md",
+      ".vitehub/workspaces/docs/second.md",
+    ]);
+    await expect(second.readFile("first.md")).resolves.toMatchObject({ content: textBytes("first\n") });
+    await second.writeFile("second.md", { path: "second.md", content: "second edit\n" });
+    expect((await second.snapshot({ name: "second edit" })).id).toBe(fake.head("main"));
   });
 
-  it("maps a GitHub non-fast-forward update (409) to a structured conflict", async () => {
+  it("reads commits from other writers once the loaded head is older than the head cache time", async () => {
+    seedRemote(".vitehub/workspaces/docs/page.md", "# Base\n");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const { githubHeadCacheMs } = await import("../src/providers/github/history.ts");
+    const store = createGitHubWorkspaceStore({
+      driver: "github",
+      repository: "onmax/repo",
+      root: ".vitehub/workspaces/<workspace>",
+      token: "token",
+    }, "docs");
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    await expect(store.readFile("page.md")).resolves.toMatchObject({ content: textBytes("# Base\n") });
+
+    fake.commit("main", { ".vitehub/workspaces/docs/page.md": "# Remote\n" });
+    const before = requests.length;
+    await expect(store.readFile("page.md")).resolves.toMatchObject({ content: textBytes("# Base\n") });
+    expect(requests.length).toBe(before);
+
+    now += githubHeadCacheMs + 1;
+    await expect(store.readFile("page.md")).resolves.toMatchObject({ content: textBytes("# Remote\n") });
+    await store.writeFile("other.md", { path: "other.md", content: "other\n" });
+    expect((await store.snapshot({ name: "after refresh" })).id).toBe(fake.head("main"));
+    vi.restoreAllMocks();
+  });
+
+  it("names the paths that changed on both sides and recovers after taking the remote version", async () => {
+    seedRemote(".vitehub/workspaces/docs/page.md", "# Base\n");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const options = {
+      driver: "github" as const,
+      repository: "onmax/repo",
+      root: ".vitehub/workspaces/<workspace>",
+      token: "token",
+    };
+    const first = createGitHubWorkspaceStore(options, "docs");
+    const second = createGitHubWorkspaceStore(options, "docs");
+    await first.list();
+    await second.list();
+
+    await first.writeFile("page.md", { path: "page.md", content: "# First\n" });
+    await first.snapshot({ name: "first" });
+    await second.writeFile("page.md", { path: "page.md", content: "# Second\n" });
+    await second.writeFile("other.md", { path: "other.md", content: "other\n" });
+    const error = await second.snapshot({ name: "second" }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ code: "WORKSPACE_CONFLICT", details: { paths: ["page.md"] } });
+    await second.rebase?.({ takeRemote: (error as { details: { paths: string[] } }).details.paths });
+    await second.snapshot({ name: "second" });
+    await expect(second.readFile("page.md")).resolves.toMatchObject({ content: textBytes("# First\n") });
+    expect(fake.tree("main")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ".vitehub/workspaces/docs/other.md", sha: textSha("other\n") }),
+      expect.objectContaining({ path: ".vitehub/workspaces/docs/page.md", sha: textSha("# First\n") }),
+    ]));
+  });
+
+  it("retries once when the branch moves while the commit is sent", async () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
       {
@@ -1277,14 +1339,12 @@ describe("GitHub workspace store", () => {
     mainRefUpdateStatus = 409;
     mainRefUpdateMessage = undefined;
 
-    await expect(store.snapshot({ name: "raced conflict" })).rejects.toMatchObject({
-      code: "WORKSPACE_CONFLICT",
-      details: {
-        branch: "main",
-        expectedHead: fakeSha("base-sha"),
-        repository: "onmax/repo",
-      },
-    });
+    // The branch moves once while the commit is sent; the Store replays its change on the new head.
+    expect((await store.snapshot({ name: "raced conflict" })).id).toBe(fake.head("main"));
+    expect(fake.commits.get(fake.head("main")!)?.parents).toEqual([fakeSha("remote-move")]);
+    expect(fake.tree("main")).toEqual([
+      expect.objectContaining({ path: ".vitehub/workspaces/docs/README.md", sha: textSha("# Docs\n") }),
+    ]);
   });
 
   it("preserves a generic GitHub 422 ref-update failure", async () => {

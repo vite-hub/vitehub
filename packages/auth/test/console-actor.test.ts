@@ -205,9 +205,32 @@ describe("users and sessions that a host signs in", () => {
     expect(user).toEqual({ id: fixture.member.id, roles: ["user", "console", "comments-read"] });
     const [, headers] = await api.hostSession(fixture.member.id, browser());
     const cookie = headers!.get("set-cookie")!;
-    expect(cookie).toMatch(/^better-auth\.session_token=[^;]+; Path=\/; Max-Age=\d+; HttpOnly; SameSite=Lax/);
+    expect(cookie).toMatch(/^better-auth\.session_token=[^;]+; Max-Age=\d+; Path=\/; HttpOnly; SameSite=Lax/);
     const session = await fixture.auth.api.getSession({ headers: new Headers({ cookie: cookie.split(";")[0]! }) });
     expect(session?.user).toMatchObject({ id: fixture.member.id, role: "user,console,comments-read" });
+  });
+
+  // The name and the attributes of each Better Auth cookie, without the values, which differ for each session. The
+  // ViteHub cookies of a sign-in, such as the session marker, are the Site access route's own.
+  const cookieShape = (cookies: string[]) => cookies.filter((cookie) => /^(__Secure-)?better-auth\./.test(cookie)).map((cookie) => {
+    const [pair, ...attributes] = cookie.split("; ");
+    return [pair!.slice(0, pair!.indexOf("=")), ...attributes.map((attribute) => attribute.startsWith("Expires=") ? "Expires" : attribute).sort()].join("; ");
+  }).sort();
+
+  it.each(["http://localhost:5173", "https://app.example.com"])("sets the cookies of a normal sign-in on %s, with the cookie cache", async (origin) => {
+    const fixture = await app({ origin, session: { cookieCache: { enabled: true } } });
+    fixture.database.sqlite.prepare("UPDATE user SET emailVerified = 1 WHERE id = ?").run(fixture.member.id);
+    const signIn = await fixture.request("sign-in/email", { email: "ada@example.com", password: "passwordpassword" });
+    expect(signIn.status).toBe(200);
+    const api = createAuthConsole(fixture.auth, {}, fixture.store);
+    const [error, headers] = await api.hostSession(fixture.member.id, new Request(`${origin}/_vitehub/rpc?ticket=t`, { headers: { "user-agent": "Mozilla/5.0 (iPhone) Safari/605.1.15" } }));
+    expect(error).toBeUndefined();
+    const cookies = headers!.getSetCookie();
+    expect(cookieShape(cookies)).toEqual(cookieShape(signIn.headers.getSetCookie()));
+    expect(cookies.every((cookie) => cookie.startsWith("__Secure-") === origin.startsWith("https:"))).toBe(true);
+    expect(cookies.every((cookie) => cookie.includes("; Secure") === origin.startsWith("https:"))).toBe(true);
+    const session = await fixture.auth.api.getSession({ headers: new Headers({ cookie: cookies.map((cookie) => cookie.split(";")[0]).join("; ") }) });
+    expect(session?.user.id).toBe(fixture.member.id);
   });
 
   it("refuses to adopt an account whose email is not verified, so a sign-up with someone else's email gets no roles", async () => {

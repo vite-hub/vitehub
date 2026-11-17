@@ -47,6 +47,7 @@ import { viteHubSeoPlugin, type SeoOptions } from "./seo/vite.ts"
 import { requestPolicyVitePlugin, type SameOriginWritesOptions } from "./request-policy-vite.ts"
 import type { SecurityOptions } from "./security-vite.ts"
 import { redirectsVitePlugin, resolveRedirectsPolicy, type RedirectsOptions } from "./redirects-vite.ts"
+import { staleChunkReloadVitePlugin } from "./stale-chunk-reload.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { cloudflarePkceChallengePlugin } from "./cloudflare-pkce-challenge.ts"
@@ -918,7 +919,6 @@ function deploymentPlugins(
   options: ViteHubOptions,
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
-  const observabilityLogs = options.observability && options.observability !== true && options.observability.logs
   let deployCommandOwned = false
   const resolvedBuildConfigs = new WeakMap<object, { current: ResolvedBuildConfig }>()
   let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
@@ -1068,10 +1068,11 @@ function deploymentPlugins(
             const cloudflare = cloneRecord(nitro.cloudflare)
             const wrangler = cloneRecord(cloudflare.wrangler)
             if (typeof wrangler.name !== "string") wrangler.name = cloudflareResourceScope(name)
-            if (observabilityLogs && wrangler.observability === undefined) wrangler.observability = { enabled: true }
+            // Nitro reads the project wrangler file from its root, which is the Vite root. Its keys lose to this config.
+            const project = readProjectWranglerConfig(resolve(config.root ?? process.cwd()))
+            // Workers keep no logs without `observability`. An explicit value in either config wins, also `enabled: false`.
+            if (wrangler.observability === undefined && project?.observability === undefined) wrangler.observability = { enabled: true }
             if (building && typeof options.publicUrl === "string") {
-              // Nitro reads the project wrangler file from its root, which is the Vite root.
-              const project = readProjectWranglerConfig(resolve(config.root ?? process.cwd()))
               Object.assign(wrangler, cloudflareCustomDomainConfig(normalizePublicUrl(options.publicUrl), wrangler, project))
             }
             if (options.realtime) {
@@ -1320,7 +1321,9 @@ const addRuntimeNoExternal = createNoExternalAddition("@vite-hub/runtime")
 function agentOptionMissingPlugin(): Plugin {
   return {
     name: "vite-hub/agent-option-missing",
-    configResolved(config) {
+    // Async, so the error is a rejection. Vite starts every configResolved hook in one map(), and a synchronous throw
+    // there leaves the hooks that already started, such as Markdown Template's type file write, without a handler.
+    async configResolved(config) {
       // An app can add hubAgent() itself. Vitest can use any Vite mode.
       if (process.env.VITEST || config.plugins.some(plugin => plugin.name === "@vite-hub/agent/vite")) return
       const root = resolveViteHubProjectRoot(config.root)
@@ -1557,6 +1560,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (envPlugin) plugins.push(envPlugin)
   const redirects = resolveRedirectsPolicy(options.redirects)
   if (redirects) plugins.push(redirectsVitePlugin(redirects))
+  plugins.push(staleChunkReloadVitePlugin())
 
   const runtimeCapabilityImports = {
     blob: blobEnabled ? "vite-hub/blob" : false,
