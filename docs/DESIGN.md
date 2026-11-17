@@ -34,4 +34,5 @@ export default defineAppConfig({ ui: { ...vitehubTheme, dashboardNavbar: { /* Co
 
 - [Tokens](design/tokens.md): which background, text, border, radius, and shadow to use.
 - [Components](design/components.md): which component and which variant for each job.
+- [Motion](design/motion.md): how a control reacts to a press, a drag, and a change of state, and which effect each component gets.
 - [Brand](design/brand.md): the logo, its assets, and the tone of UI copy.
