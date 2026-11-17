@@ -2,7 +2,7 @@
 title: Logs configuration
 navigation.title: Configure
 navigation.order: 3
-description: "Pass Evlog options through the ViteHub logs option, or read an existing log backend with a LogSource module for the Console and the CLI."
+description: "Pass Evlog options through the ViteHub logs option, log browser errors, or read an existing log backend with a LogSource module for the Console and the CLI."
 icon: i-lucide-logs
 ---
 
@@ -22,6 +22,24 @@ observability: {
 ```
 
 Read the [Evlog documentation](https://evlog.dev) for its options and drains. If your app already registers the Evlog Nitro module, keep its options there. ViteHub reuses it.
+
+## Log browser errors
+
+An error in the browser does not reach your server logs. Set `browserErrors: true` to send uncaught browser errors to the server:
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { host: 'node', observability: { browserErrors: true } },
+})
+```
+
+- The page sends each error to `POST /api/_vitehub/browser-errors`. The server adds it to the Evlog event of that request, at error level, with `browserError: { kind, path }`. Your `redact`, sampling, and drains apply to it, as to your server errors.
+- The page reports window `error` and `unhandledrejection` events. In Nuxt, it also reports the errors of the `vue:error` and `app:error` hooks.
+- The page sends the path without the query. The server removes the query from each URL in the message and the stack, and cuts the message to 1,000 characters and the stack to 4,000.
+- The route accepts only requests from pages of the same origin, bodies of 16 KiB or less, and 20 reports a minute from one address in each server process. A page sends at most 10 reports, one for each message.
+
+It is off by default. If your `evlog.exclude` excludes `/api/_vitehub/**`, the reports go to the server console.
 
 ## Read an existing backend
 
