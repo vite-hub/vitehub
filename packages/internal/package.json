@@ -78,6 +78,11 @@
       "import": "./dist/deployment.js",
       "default": "./dist/deployment.js"
     },
+    "./forge": {
+      "types": "./dist/forge.d.ts",
+      "import": "./dist/forge.js",
+      "default": "./dist/forge.js"
+    },
     "./features": {
       "types": "./dist/features.d.ts",
       "import": "./dist/features.js",

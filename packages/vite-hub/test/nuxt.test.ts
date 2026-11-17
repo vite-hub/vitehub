@@ -3125,6 +3125,18 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(nitroOptions(nuxt)).toMatchObject({ preset: "vercel" })
   })
 
+  it.each(["cloudflare-module", "cloudflare_module"])("builds for the host of nitro.preset %s when host is omitted", async (preset) => {
+    for (const name of ["VITEHUB_HOST", "NITRO_PRESET", "SERVER_PRESET", "WORKERS_CI", "NETLIFY", "NOW_BUILDER", "VERCEL_ENV", "DENO_DEPLOY", "DENO_DEPLOYMENT_ID"]) vi.stubEnv(name, "")
+    // Nitro uses its configured preset before the provider variables, so ViteHub does the same.
+    vi.stubEnv("VERCEL", "1")
+    const { nuxt } = createNuxt()
+    Object.assign(nuxt.options, { nitro: { preset } })
+
+    await viteHubNuxtModule({}, nuxt)
+
+    expect(nitroOptions(nuxt)).toMatchObject({ preset: "cloudflare-module", wasm: { lazy: true } })
+  })
+
   it("rejects a conflicting Nitro preset during Nuxt module setup", async () => {
     const { nuxt } = createNuxt()
     Object.assign(nuxt.options, { nitro: { preset: "vercel" } })
