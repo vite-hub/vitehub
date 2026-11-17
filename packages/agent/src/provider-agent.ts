@@ -1,4 +1,5 @@
 import { invariant } from "@vite-hub/internal/invariant"
+import { stopMarkedProcesses } from "@vite-hub/internal/process-sweep"
 import { isChatGPTGateway } from "@vite-hub/gateways/internal"
 import { chatgptCodexLaunchArgs, chatgptProviderError, chatgptTokenEnvironment, inspectChatGPTGateway } from "./internal/chatgpt-gateway.ts"
 import { withProviderStatusError } from "./internal/provider-status-error.ts"
@@ -366,9 +367,14 @@ function providerEnvironment(env: Record<string, string | undefined> | undefined
   return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
 }
 
+// Every process of a host pass starts with this variable. Commands that leave the provider's
+// process group still have it, so the pass stops them when it ends.
+const providerPassEnvironmentKey = "VITEHUB_PROVIDER_PASS"
+
 // Credential-bearing Node and native processes must not accept startup loaders from driver.env.
 const chatgptLaunchEnvironmentKeys = new Set<string>([
   ...providerHostEnvironmentKeys,
+  providerPassEnvironmentKey,
   "CODEX_HOME",
   chatgptTokenEnvironment,
   "T3_MCP_BEARER_TOKEN",
@@ -2859,6 +2865,8 @@ async function* runProvider<
   let root: string
   let launchRoot: string | undefined
   let temporaryRoot: { root: string, path: string } | undefined
+  // A Sandbox stops its own processes when it closes.
+  const providerPass = options.sandbox ? undefined : crypto.randomUUID()
   let releaseCwdLock: (() => void) | undefined
   // driver.cwd is owned by the application. Title and progress summary runs keep a disposable root.
   let ownsRoot = true
@@ -2983,7 +2991,8 @@ async function* runProvider<
     removeTemporaryRoot(),
     launchRoot ? rm(launchRoot, { force: true, recursive: true }) : undefined,
   ]).then(() => undefined)
-  const cleanupRoot = () => rootCleanup ??= closeProviderSandbox().then(removeRoots, async (error: unknown) => {
+  const stopPassProcesses = () => providerPass ? stopMarkedProcesses(providerPassEnvironmentKey, providerPass) : Promise.resolve()
+  const cleanupRoot = () => rootCleanup ??= closeProviderSandbox().then(stopPassProcesses).then(removeRoots, async (error: unknown) => {
     await removeRoots().catch(() => undefined)
     throw error
   })
@@ -3242,6 +3251,7 @@ async function* runProvider<
       ...providerEnvironmentOverrides,
       ...capabilityEnvironment,
       VITEHUB_BROWSER_ACTIVE: capabilityEnvironment?.VITEHUB_BROWSER_ACTIVE || "0",
+      ...(providerPass ? { [providerPassEnvironmentKey]: providerPass } : {}),
       ...(capabilityEnvironment?.LD_LIBRARY_PATH
         ? { LD_LIBRARY_PATH: [capabilityEnvironment.LD_LIBRARY_PATH, providerEnvironmentOverrides?.LD_LIBRARY_PATH].filter(Boolean).join(delimiter) }
         : {}),

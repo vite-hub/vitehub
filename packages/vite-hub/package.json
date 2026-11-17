@@ -697,6 +697,11 @@
       "import": "./dist/test.js",
       "default": "./dist/test.js"
     },
+    "./test/register": {
+      "types": "./dist/test/register.d.ts",
+      "import": "./dist/test/register.js",
+      "default": "./dist/test/register.js"
+    },
     "./seo": {
       "types": "./dist/seo.d.ts",
       "import": "./dist/seo.js",
@@ -941,6 +946,7 @@
     "ocache": "catalog:runtime",
     "pkg-types": "^2.3.3",
     "semver": "^7.8.5",
+    "srvx": "catalog:unjs",
     "valibot": "catalog:runtime"
   },
   "devDependencies": {

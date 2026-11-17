@@ -143,6 +143,8 @@ Available namespaces:
 | `vitehub database migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
 | `vitehub database up` | Available | Database Package | Convert migrations folders of Drizzle Kit 0.x to the Drizzle Kit 1.0 layout. |
 | `vitehub database export` | Available | Database Package | Write a SQL dump of the local SQLite file, or of the deployed database with `--remote`. |
+| `vitehub database sql` | Available | Database Package | Run SQL from an argument or stdin on the local database, or on the deployed one with `--remote`, and print the rows. |
+| `vitehub database drop` | Available | Database Package | Drop every table of a database and its migrations table, after a confirmation or with `--force`. |
 | `vitehub database seed` | Available | Database Package | Run the seed file of each database on the local database, or on the deployed database with `--remote`. |
 | `vitehub database tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
 | `vitehub database rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
@@ -474,6 +476,8 @@ pnpm vitehub deploy --temporary --yes --json
 - `--no-build`: deploy the build output that is there.
 - `--no-provision`: do not create the missing host resources first.
 - `--no-push`: do not check or push the checkout folders of `vitehub.lock`.
+- `--no-check`: do not request the `deploy.check` paths after the deploy. See [Check the deployed app](#check-the-deployed-app).
+- `--no-index-now`: do not send the sitemap URLs to IndexNow.
 - `--temporary`: deploy without an account. Only Cloudflare and Vercel have it, and only when no credentials are found.
 - `--yes`: deploy and create resources without the questions, and generate a missing `VITEHUB_SECRET`. Without a terminal, the command needs it and exits with `2` and a `rerun`.
 
@@ -584,6 +588,148 @@ A `--preview` deploy does not push, so a preview never writes the shared Workspa
   }
 }
 ```
+
+### Check the deployed app
+
+Set `deploy.check` in `vitehub()` to the paths that must work after each deploy. With `health`, deploy checks the health route first.
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: {
+    health: true,
+    deploy: { check: ["/", "/api/products"] },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from "vite"
+import { nitro } from "nitro/vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [vitehub({
+    health: true,
+    deploy: { check: ["/", "/api/products"] },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [vitehub({
+    health: true,
+    deploy: { check: ["/", "/api/products"] },
+  })],
+})
+```
+:::
+::
+
+After the upload, deploy requests each path on the deployed URL. A path must answer with a `2xx` status, after redirects. Deploy tries each path 4 times in 7 seconds, because a new version can take a few seconds to reach every location.
+
+```txt [vitehub deploy]
+Deployed my-app to cloudflare: https://my-app.example.workers.dev
+Version: 6b1f2c84-0d3e-4a52-9a77-3c1e5f0b2d19
+Checked /api/_vitehub/health: 200
+Checked /: 200
+Checked /api/products: 200
+```
+
+When a path fails, the new version already serves production. Deploy exits with `1` and `SETUP_DEPLOY_CHECK_FAILED`, and prints the command that puts the deployment that it replaced back on production. It does not run that command for you. It does not push the checkout folders and does not send URLs to IndexNow.
+
+| Host | Rollback |
+| --- | --- |
+| Cloudflare | `npx wrangler rollback <version-id> --name <worker> --yes` |
+| Vercel | `npx vercel rollback <deployment-id> --yes` |
+| Netlify | `npx netlify api restoreSiteDeploy --data '{"deploy_id":"<id>","site_id":"<site>"}'` |
+| Deno | No CLI command. Promote the revision that the error names in the Deno Deploy dashboard. |
+
+Deploy reads the deployment that serves production before it uploads, with the credentials of the deploy. It needs a link in `.vitehub/link.json`. On a first deploy, or with a saved `vercel login` and no `VERCEL_TOKEN`, the error says that the previous deployment is not known: run `vitehub deployments` to find it. A failed `--preview` check does not change production, so it prints no rollback.
+
+`--json` returns the checks in `checks`, and on a failure the rollback in `rollback`:
+
+```json [vitehub deploy --json]
+{
+  "schemaVersion": 1,
+  "host": "cloudflare",
+  "url": "https://my-app.example.workers.dev",
+  "checks": [
+    { "path": "/api/_vitehub/health", "url": "https://my-app.example.workers.dev/api/_vitehub/health", "ok": false, "status": 503 }
+  ],
+  "rollback": {
+    "previous": { "deploymentId": "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e", "version": "bcf48806-b317-4351-9ee7-36e7d557d4de" },
+    "command": "npx wrangler rollback bcf48806-b317-4351-9ee7-36e7d557d4de --name my-app --yes"
+  },
+  "error": { "code": "SETUP_DEPLOY_CHECK_FAILED" }
+}
+```
+
+### Tell search engines about new pages
+
+`deploy: { indexNow: true }` sends the URLs of your sitemap to [IndexNow](https://www.indexnow.org) after each production deploy that passes its checks. Bing, Yandex, Seznam, Naver, and Yep then crawl the pages again. It needs a string `publicUrl`, and a `/sitemap.xml` on that site: [`seo: { sitemap: true }`](/docs/frameworks-hosts/sitemap) serves one.
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: {
+    publicUrl: "https://shop.example.com",
+    deploy: { indexNow: true },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from "vite"
+import { nitro } from "nitro/vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [vitehub({
+    publicUrl: "https://shop.example.com",
+    deploy: { indexNow: true },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [vitehub({
+    publicUrl: "https://shop.example.com",
+    deploy: { indexNow: true },
+  })],
+})
+```
+:::
+::
+
+- The build serves the IndexNow key at `/<key>.txt`. The key comes from `publicUrl`, so each build serves the same key and you keep no file. The key is public: it only lets a sender submit URLs of your site.
+- Deploy reads `<publicUrl>/sitemap.xml`, and the sitemaps of a sitemap index on the same site. It sends each URL of the site once, at most 10,000 in one request.
+- A failed submission prints one line and does not fail the deploy. `--json` returns `indexNow: { submitted, status }`, or `indexNow: { error }`.
+- A `--preview` or `--temporary` deploy sends nothing. `--no-index-now` skips it for one deploy.
+
+### `SETUP_DEPLOY_CHECK_FAILED`
+
+The app is deployed, and it serves production, but a `deploy.check` path did not answer with a `2xx` status. The `why` lists each failed path with its status or error. Run the rollback command in the `fix`, then fix the app and deploy again. `rollback` has the previous deployment. Pass `--no-check` only when the check itself is wrong. The command exits with `1`.
 
 ### `SETUP_DEPLOY_HOST_UNSUPPORTED`
 
@@ -1162,6 +1308,26 @@ pnpm vitehub database export --remote --stage production --output backups/databa
 | `--output <file>` | Write this file. Defaults to `.vitehub/exports/database/<name>-<local\|remote>-<time>.sql`. |
 
 See [Export a database](/docs/database/configure#export-a-database) for each driver and the dump format.
+
+## Run SQL on a Database
+
+`database sql` runs SQL on one database and prints the rows of each statement as a table. Without a SQL argument, it reads stdin. `database drop` drops every table of one database and its migrations table. It asks first, and needs `--force` without a terminal. Both use the local SQLite file or PGlite folder by default. Any other database needs `--remote`.
+
+```bash [Terminal]
+pnpm vitehub database sql "select id, email from users limit 5"
+pnpm vitehub database sql --json < report.sql
+pnpm vitehub database drop --force
+```
+
+| Option | Description |
+| --- | --- |
+| `--remote` | Use the remote database. Needed for a database that is not a local file or folder. |
+| `--stage <name>` | Load the Vite env files of this mode. Process variables win. |
+| `--database <name>` | The database to use. Needed when the app has several. |
+| `--json` | `sql` only. Print one JSON array with `{ columns, rows, rowsAffected }` for each statement. |
+| `--force` | `drop` only. Drop without asking. |
+
+See [Run SQL and drop tables](/docs/database/configure#run-sql-and-drop-tables) for what `drop` drops on each driver.
 
 ## Seed a Database
 
