@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { readdir } from "node:fs/promises"
+import { dirname, join, relative } from "node:path"
 import { createInterface } from "node:readline/promises"
 
 import { redactInspectionText, redactInspectionValue } from "./inspect.ts"
@@ -86,9 +87,35 @@ export interface ViteHubCliCommandNamespace {
   name: string
 }
 
+/** The flags of `vitehub seed` that every seed gets. */
+export interface ViteHubCliSeedOptions {
+  /** `--database <name>`: seed only this Database. Only the Database seed runs. */
+  database?: string
+  /** The process environment with the env files of `--stage`. */
+  env: NodeJS.ProcessEnv
+  /** `--remote`: write the deployed stores. Without it, a seed writes only local data. */
+  remote: boolean
+  /** `--timeout <ms>` of each call to the app. */
+  timeout?: number
+  /** The deployed app with `--remote`: `--url`, or `vitehub({ publicUrl })`. */
+  url?: string
+}
+
+/** The seed files of one primitive, which `vitehub seed` writes. */
+export interface ViteHubCliSeed {
+  /** Where the seed files are, such as `server/seed/kv/`. `vitehub seed` names it when it finds no seed files. */
+  files: string
+  /** The primitive, such as `database` or `kv`. `vitehub seed <name>` runs only this seed. */
+  name: string
+  /** Writes the seed files and returns the exit code, or `undefined` when the project has no seed files for this primitive. */
+  run: (options: ViteHubCliSeedOptions, context: ViteHubCliContext) => Promise<number | undefined>
+}
+
 export interface ViteHubCliContributor {
   namespaces: ViteHubCliCommandNamespace[]
   provision?: ProvisionStep[]
+  /** The seed files that `vitehub seed` writes. */
+  seeds?: ViteHubCliSeed[]
   /** The deployed app's public origin. Commands receive it as `context.publicUrl`. */
   publicUrl?: string
 }
@@ -213,10 +240,28 @@ async function resolveContributor(value: ViteHubCliPluginMetadata["cli"]): Promi
   return typeof value === "function" ? await value() : value
 }
 
+/**
+ * The seed files in `dir` and its subfolders, as sorted paths relative to `dir` with `/`. Files and folders whose name
+ * starts with `.`, such as `.gitkeep`, are not seed files. Returns `undefined` when `dir` does not exist.
+ */
+export async function listSeedFiles(dir: string): Promise<string[] | undefined> {
+  const entries = await readdir(dir, { recursive: true, withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined
+    throw error
+  })
+  if (!entries) return
+  return entries
+    .filter(entry => entry.isFile())
+    .map(entry => relative(dir, join(entry.parentPath, entry.name)).replaceAll("\\", "/"))
+    .filter(file => !file.split("/").some(segment => segment.startsWith(".")))
+    .sort()
+}
+
 /** Resolves command namespaces and Provision Steps from one contribution per plugin. */
 export async function collectViteHubCliContribution(plugins: readonly unknown[]): Promise<Required<Omit<ViteHubCliContributor, "publicUrl">> & Pick<ViteHubCliContributor, "publicUrl">> {
   const namespaces = new Map<string, ViteHubCliCommandNamespace>()
   const steps = new Map<string, ProvisionStep>()
+  const seeds = new Map<string, ViteHubCliSeed>()
   let publicUrl: string | undefined
 
   for (const plugin of plugins) {
@@ -242,9 +287,12 @@ export async function collectViteHubCliContribution(plugins: readonly unknown[])
     for (const step of contributor.provision ?? []) {
       steps.set(step.id, step)
     }
+    for (const seed of contributor.seeds ?? []) {
+      seeds.set(seed.name, seed)
+    }
   }
 
-  return { namespaces: [...namespaces.values()], provision: [...steps.values()], ...(publicUrl ? { publicUrl } : {}) }
+  return { namespaces: [...namespaces.values()], provision: [...steps.values()], seeds: [...seeds.values()], ...(publicUrl ? { publicUrl } : {}) }
 }
 
 /**

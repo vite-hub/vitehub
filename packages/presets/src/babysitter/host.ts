@@ -12,6 +12,7 @@ import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { registerAgentProcessHostIntake, type AgentProcessHostContext, type AgentProcessHostInstance } from "@vite-hub/agent/process";
 import { createProcessAgentCapacity, createProcessAgentHost } from "@vite-hub/agent/process";
 import { createGitHubAppCredentials, createGitHubHost, type GitHubAppEnvironment, type GitHubHost } from "../github/index.ts";
+import { pullRequestThreadId } from "../github/pull-requests.ts";
 import { forgeErrorStatus, githubInstallationRouting } from "@vite-hub/forge";
 import { resolveBabysitterLifecycleFilter } from "../babysitter.ts";
 import { createBabysitterPreflight } from "./preflight.ts";
@@ -189,15 +190,21 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     check: async () => (await preflight()).pause ?? await agent.options.admission?.check?.(),
   });
   let admissionPrerequisiteSample: string | undefined;
+  // One kept workspace per open PR. The TMPDIR sweep and the legacy checkout cleanup never reach this root.
+  const warmWorkspaces = agent.options.warmWorkspaces;
+  // Each pass runs in its own provider thread, and only `resumeThreads` continues one. Without it, no pass reads a stored session.
+  const resumeThreads = typeof warmWorkspaces === "object" && warmWorkspaces.resumeThreads === true;
+  const workspaces = warmWorkspaces ? createPullRequestWorkspaces({
+    root: join(context.dataDir, "pr-workspaces"),
+    ...(warmWorkspaces === true ? {} : warmWorkspaces),
+    ...(resumeThreads ? { deleteSession: (repository: string, number: number, session: string) => host.deleteProviderSession(`${pullRequestThreadId(repository, number)}:${session}`) } : {}),
+  }) : undefined;
   // Workers share the assigned journal and keep provider sessions in the host directory.
   const worker = defineAgent({
     extends: agent,
     invocations: host.invocations,
-    driver: { capacity: host.capacity, sessionStorePath: host.providerSessionStorePath },
+    driver: { capacity: host.capacity, ...(resumeThreads ? { sessionStorePath: host.providerSessionStorePath } : {}) },
   });
-  // One kept workspace per open PR. The TMPDIR sweep and the legacy checkout cleanup never reach this root.
-  const warmWorkspaces = agent.options.warmWorkspaces;
-  const workspaces = warmWorkspaces ? createPullRequestWorkspaces({ root: join(context.dataDir, "pr-workspaces"), ...(warmWorkspaces === true ? {} : warmWorkspaces) }) : undefined;
   runtime = createBabysitterRuntime({
     workspaces,
     agent: worker,
