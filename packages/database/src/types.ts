@@ -52,7 +52,7 @@ export interface DatabaseRuntimeD1Options {
   databaseId?: DatabaseConfigValue
   databaseName?: DatabaseConfigValue
   cloudflare?: Pick<CloudflareD1BindingConfig, "http">
-  driver: "d1"
+  driver: "cloudflare"
   local?: DatabaseLocalRuntimeOptions
   migrationsTable?: string
   previewDatabaseId?: DatabaseConfigValue

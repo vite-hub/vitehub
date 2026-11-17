@@ -294,12 +294,12 @@ export interface DiscoveredRealtimeDefinition {
 
 export interface RealtimeOptions {
   /**
-   * Where rooms live. `auto` (default) picks Durable Objects on Cloudflare and memory on the dev server. A Node build
-   * picks when the server starts: Redis with `REDIS_URL`, else Postgres on the connection of the Default Database when it
-   * is on Postgres (`REALTIME_POSTGRES_URL` overrides it), else memory. `postgres` and `redis` require their connection.
-   * `memory` keeps rooms in one process.
+   * The driver that runs the rooms. `auto` (default) picks Durable Objects on Cloudflare and memory on the dev server. A
+   * Node build picks when the server starts: Redis with `REDIS_URL`, else Postgres on the connection of the Default
+   * Database when it is on Postgres (`REALTIME_POSTGRES_URL` overrides it), else memory. `postgres` and `redis` require
+   * their connection. `memory` keeps rooms in one process.
    */
-  authority?: "auto" | "cloudflare" | "memory" | "postgres" | "redis"
+  driver?: "auto" | "cloudflare" | "memory" | "postgres" | "redis"
   /**
    * Keeps the rooms of this app apart from other apps on the same Redis or Postgres. Defaults to the `name` of
    * `vitehub()`, else the `name` in the root `package.json`, else the root folder name. `REALTIME_NAMESPACE` replaces
@@ -346,7 +346,7 @@ export type RealtimeRequestErrorCode =
   | "REALTIME_REQUEST_FAILED"
 
 /**
- * Whether this build has a Realtime room authority. ViteHub generates it for each build; an unavailable build says why
+ * Whether this build has a Realtime room driver. ViteHub generates it for each build; an unavailable build says why
  * and how to enable Realtime.
  */
 export type RealtimeAvailability =

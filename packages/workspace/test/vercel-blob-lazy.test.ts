@@ -28,7 +28,7 @@ it("loads @vercel/blob with the first Vercel Blob Workspace call, not with the h
     const { installHostedVercelBlobWorkspaceRuntime } = await import("@vite-hub/workspace/internal/runtime/hosted-vercel-blob")
     const { getWorkspaceHostedStoreLoader } = await import("@vite-hub/workspace/runtime")
     installHostedVercelBlobWorkspaceRuntime()
-    const store = getWorkspaceHostedStoreLoader()({ provider: "vercel-blob" }, "docs")
+    const store = getWorkspaceHostedStoreLoader()({ driver: "vercel" }, "docs")
     const atInstall = vercelBlobLoaded()
     const file = await store.readFile("README.md")
     console.log(JSON.stringify({ atInstall, afterRead: vercelBlobLoaded(), file: file ?? null, requests: requests.length > 0 }))

@@ -4,7 +4,7 @@ import type { SandboxTaskSizeOptions } from './size'
 
 export type { SandboxTaskSizeOptions } from './size'
 
-export type SandboxTaskProvider = 'cloudflare' | 'vercel'
+export type SandboxTaskDriver = 'cloudflare' | 'vercel'
 
 export interface CloudflareSandboxTaskOptions {
   sleepAfter?: string | number
@@ -12,8 +12,8 @@ export interface CloudflareSandboxTaskOptions {
   normalizeId?: boolean
 }
 
-export interface VercelSandboxTaskProviderOptions extends SandboxTaskSizeOptions {
-  provider: 'vercel'
+export interface VercelSandboxTaskDriverOptions extends SandboxTaskSizeOptions {
+  driver: 'vercel'
   runtime?: string
   timeout?: number
   ports?: number[]
@@ -25,8 +25,8 @@ export interface VercelSandboxTaskProviderOptions extends SandboxTaskSizeOptions
   projectId?: string
 }
 
-export interface CloudflareSandboxTaskDefinitionProviderOptions extends SandboxTaskSizeOptions {
-  provider: 'cloudflare'
+export interface CloudflareSandboxTaskDefinitionDriverOptions extends SandboxTaskSizeOptions {
+  driver: 'cloudflare'
   /** Maximum number of Containers that run at once. Defaults to 12. */
   maxInstances?: number
   binding?: string
@@ -41,13 +41,13 @@ export interface CloudflareSandboxTaskDefinitionProviderOptions extends SandboxT
   networkPolicy?: SandboxNetworkPolicy
 }
 
-export type SandboxTaskDefinitionProviderOptions
-  = VercelSandboxTaskProviderOptions
-    | CloudflareSandboxTaskDefinitionProviderOptions
+export type SandboxTaskDefinitionDriverOptions
+  = VercelSandboxTaskDriverOptions
+    | CloudflareSandboxTaskDefinitionDriverOptions
 
 export type AgentSandboxTaskConfig =
-  | SandboxTaskDefinitionProviderOptions
-  | ({ provider?: undefined, name?: string } & SandboxTaskSizeOptions)
+  | SandboxTaskDefinitionDriverOptions
+  | ({ driver?: undefined, name?: string } & SandboxTaskSizeOptions)
 
 export interface SandboxTaskDefinitionBundle {
   entry: string
@@ -110,9 +110,9 @@ export type SandboxTaskDefinitionFromHandler<THandler extends (...args: any[]) =
  * successful values and failures. */
 export type SandboxTaskRunResult = Response
 
-export function getSandboxTaskFeatureProvider(config?: AgentSandboxTaskConfig | false): SandboxTaskDefinitionProviderOptions | undefined {
-  if (!config || typeof config !== 'object' || typeof config.provider !== 'string')
+export function getSandboxTaskFeatureDriver(config?: AgentSandboxTaskConfig | false): SandboxTaskDefinitionDriverOptions | undefined {
+  if (!config || typeof config !== 'object' || typeof config.driver !== 'string')
     return undefined
 
-  return config as SandboxTaskDefinitionProviderOptions
+  return config as SandboxTaskDefinitionDriverOptions
 }

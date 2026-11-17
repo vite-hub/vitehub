@@ -279,7 +279,7 @@ describe("nuxthub", () => {
     const run = await runCodemod("nuxthub", { cwd: directory, dryRun: true })
     const config = run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after
     expect(config).toContain("host: 'cloudflare'")
-    expect(config).toContain("kv: { driver: 'cloudflare-kv-binding', binding: 'KV', namespaceId: 'abcdef1234567890abcdef1234567890' }")
+    expect(config).toContain("kv: { driver: 'cloudflare', binding: 'KV', namespaceId: 'abcdef1234567890abcdef1234567890' }")
     expect(run.result.followUps.some(followUp => followUp.message.includes("To keep this namespace"))).toBe(false)
   })
 

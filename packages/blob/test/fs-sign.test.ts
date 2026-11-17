@@ -237,7 +237,7 @@ describe("signed requests of the fs driver", () => {
       accessKeyId: "access-key",
       binding: "BLOB",
       bucketName: "private-audio",
-      driver: "cloudflare-r2",
+      driver: "cloudflare",
       secretAccessKey: "secret-key",
     }))
     const [error] = await storage.sign("audio.mp3", { expiresIn: 60, maxSize: "8MB", method: "PUT" })

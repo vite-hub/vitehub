@@ -25,7 +25,7 @@ function cloudflareBinding(statuses: Record<string, string>, options: { terminat
       return { id, status: async () => ({ status: statuses[id] }), terminate: () => terminate(id) }
     }),
   }
-  setWorkflowRuntimeConfig({ provider: "cloudflare" })
+  setWorkflowRuntimeConfig({ driver: "cloudflare" })
   setWorkflowRuntimeRegistry({ checkout: async () => ({ default: { handler: async () => ({ ok: true }) } }) })
   enterWorkflowRuntimeEvent({ req: { runtime: { cloudflare: { env: { [getCloudflareWorkflowBindingName("checkout")]: binding } } } } })
   return { binding, statuses, terminate }
@@ -96,7 +96,7 @@ it("cancels through the workflow.cancel operation that `vitehub workflow cancel`
 
 it("reports inline cancellation as unsupported when the dev server has no binding", async () => {
   vi.stubEnv("NODE_ENV", "development")
-  setWorkflowRuntimeConfig({ provider: "cloudflare" })
+  setWorkflowRuntimeConfig({ driver: "cloudflare" })
   setWorkflowRuntimeRegistry({ checkout: async () => ({ default: { handler: async () => ({ ok: true }) } }) })
 
   await expect(cancelWorkflow("checkout", "checkout-1")).rejects.toMatchObject({

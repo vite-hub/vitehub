@@ -588,7 +588,7 @@ describe("Agent invocation console", () => {
       const candidates = (plugins as unknown[]).flat(Infinity)
       const plugin = candidates.find((candidate): candidate is Plugin => Boolean(candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console"))
       if (!plugin) throw new TypeError("Expected the ViteHub Console plugin.")
-      const kvPlugin = hubKV(enabled ? { driver: host === "cloudflare" ? "cloudflare-kv-binding" : "fs-lite" } : false)
+      const kvPlugin = hubKV(enabled ? { driver: host === "cloudflare" ? "cloudflare" : "fs-lite" } : false)
       const configuredPlugins: unknown[] = [kvPlugin]
       if (order === "before") configuredPlugins.push(plugin)
       else configuredPlugins.unshift(plugin)
@@ -680,7 +680,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(
         join(root, "server/workspaces/docs/config.ts"),
-        `export default defineWorkspace({ store: { provider: "memory" } })\nthrow new Error("The Console must not initialize Workspace Definitions during discovery.")\n`,
+        `export default defineWorkspace({ store: { driver: "memory" } })\nthrow new Error("The Console must not initialize Workspace Definitions during discovery.")\n`,
       )
       const plugin = consoleVitePlugin({
         console: productionConsole,
@@ -943,7 +943,7 @@ describe("Agent invocation console", () => {
       await mkdir(join(root, "packages/schedule/server/schedules"), { recursive: true })
       await writeFile(join(root, "packages/database/server/databases/default.ts"), "export default defineDatabase({ schema: {} })\n")
       await writeFile(join(root, "packages/rate-limit/policies/api.ts"), 'requireRateLimit(event, "api", { limit: 100, window: "1m" })\n')
-      await writeFile(join(root, "packages/workspace/server/workspaces/docs/config.ts"), "export default defineWorkspace({ store: { provider: 'memory' } })\n")
+      await writeFile(join(root, "packages/workspace/server/workspaces/docs/config.ts"), "export default defineWorkspace({ store: { driver: 'memory' } })\n")
       await writeFile(join(root, "packages/schedule/server/schedules/adhoc.ts"), "export default defineSchedule({ cron: \"0 9 * * *\", handler() {} })\n")
       const plugins = vitehub({
         console: productionConsole,

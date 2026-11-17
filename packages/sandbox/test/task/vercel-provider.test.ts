@@ -29,7 +29,7 @@ describe("resolveTaskSandbox", () => {
     const provider = await resolveVercelTaskSandbox({
       local: {},
       provider: {
-        provider: "vercel",
+        driver: "vercel",
         token: "token-from-config",
       },
     })
@@ -51,7 +51,7 @@ describe("resolveTaskSandbox", () => {
   ])("passes networkPolicy %j to the Vercel runtime", async (networkPolicy) => {
     const provider = await resolveVercelTaskSandbox({
       local: {},
-      provider: { provider: "vercel", networkPolicy },
+      provider: { driver: "vercel", networkPolicy },
     })
     await provider.resolveSandbox(["node"])
     expect(resolveVercelSandbox).toHaveBeenLastCalledWith(expect.objectContaining({ networkPolicy }), ["node"])
@@ -63,7 +63,7 @@ describe("resolveTaskSandbox", () => {
     const provider = await resolveVercelTaskSandbox({
       local: {},
       provider: {
-        provider: "vercel",
+        driver: "vercel",
         token: "token-from-config",
         teamId: "team-from-config",
         projectId: "project-from-config",
@@ -84,7 +84,7 @@ describe("resolveTaskSandbox", () => {
   it("leaves the runtime to the Sandbox runtime, which omits it for a snapshot source", async () => {
     const provider = await resolveVercelTaskSandbox({
       local: {},
-      provider: { provider: "vercel", source: { snapshotId: "snap_123", type: "snapshot" } },
+      provider: { driver: "vercel", source: { snapshotId: "snap_123", type: "snapshot" } },
     })
     await provider.resolveSandbox(["node"])
     expect(resolveVercelSandbox).toHaveBeenLastCalledWith(

@@ -58,7 +58,7 @@ afterEach(() => {
 describe("Vercel Sandbox Task timeout", () => {
   it("reports a task timeout as SANDBOX_TASK_TIMEOUT when Sandbox setup takes time", async () => {
     vercel.setupLatency = 60
-    setSandboxTaskRuntimeConfig({ provider: "vercel", token: "token", teamId: "team", projectId: "project" })
+    setSandboxTaskRuntimeConfig({ driver: "vercel", token: "token", teamId: "team", projectId: "project" })
     setSandboxTaskRuntimeRegistry({
       slow: {
         bundle: { entry: "index.mjs", modules: { "index.mjs": "export default () => new Promise(() => {})" } },

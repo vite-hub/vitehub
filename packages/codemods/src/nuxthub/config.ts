@@ -185,7 +185,7 @@ export function readHub(config: NuxtConfigFile, redisSource?: RedisKVSource): Hu
       else if (options) {
         const binding = findProperty(options, "binding")
         const driver = findProperty(options, "driver")
-        const expectedDriver = feature === "blob" ? "cloudflare-r2" : "cloudflare-kv-binding"
+        const expectedDriver = "cloudflare"
         if (!driver || literalValue(driver.value) === expectedDriver) {
           const value = binding ? literalValue(binding.value) : feature.toUpperCase()
           if (typeof value === "string" && value) bindings[feature] = value

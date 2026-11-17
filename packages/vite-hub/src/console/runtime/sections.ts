@@ -207,7 +207,7 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("sandbox-tasks", "Sandbox Tasks", "i-vitehub-sandbox", "sandbox", "Run named package projects as Sandbox Tasks in an isolated Cloudflare or Vercel Sandbox.", { feature: "sandboxTask" }),
   primitive("workspaces", "Workspaces", "i-vitehub-workspace", "workspace", "Build persistent file-tree state with rules, Source Bindings, snapshots, and diffs.", { feature: "workspace" }),
   primitive("workflows", "Workflows", "i-vitehub-workflow", "workflows", "Start provider-tracked long-running work with run ids, durable state, and steps.", { feature: "workflow" }),
-  primitive("queues", "Queues", "i-vitehub-queue", "queue", "Define Queue Definitions, enqueue jobs, and choose a Cloudflare or Vercel provider.", { feature: "queue" }),
+  primitive("queues", "Queues", "i-vitehub-queue", "queue", "Define Queue Definitions, enqueue jobs, and choose a Cloudflare or Vercel driver.", { feature: "queue" }),
   primitive("schedules", "Schedules", "i-vitehub-schedule", "schedule", "Declare cron schedules and inspect the schedules that code starts.", { feature: "schedule" }),
 ]
 

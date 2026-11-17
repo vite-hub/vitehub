@@ -4,9 +4,9 @@ import { sandboxTaskError } from '../sandbox-task/errors'
 
 import type {
   SandboxTaskDefinitionOptions,
-  SandboxTaskDefinitionProviderOptions,
+  SandboxTaskDefinitionDriverOptions,
 } from '../module-types'
-import type { SandboxTaskProvider } from '../module-types'
+import type { SandboxTaskDriver } from '../module-types'
 import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
 
 const allowedDefinitionKeys = new Set(['timeout', 'env'])
@@ -46,7 +46,7 @@ function canResolvePackageSync(specifier: string) {
   }
 }
 
-export function isSandboxAvailable(provider?: SandboxTaskProvider): boolean {
+export function isSandboxAvailable(provider?: SandboxTaskDriver): boolean {
   if (provider === 'cloudflare')
     return canResolvePackageSync('@cloudflare/sandbox')
   if (provider === 'vercel')
@@ -74,9 +74,9 @@ export function createCloudflareExecutionSandboxId(name: string, sandboxId?: str
   return `${prefix}${slug}${suffix}`
 }
 
-export function resolveRuntimeProvider(provider?: SandboxTaskDefinitionProviderOptions) {
-  if (provider?.provider)
-    return provider.provider
+export function resolveRuntimeProvider(options?: SandboxTaskDefinitionDriverOptions) {
+  if (options?.driver)
+    return options.driver
 
   const envProvider = typeof process !== 'undefined' ? process.env?.SANDBOX_PROVIDER : undefined
   if (envProvider === 'cloudflare' || envProvider === 'vercel')
@@ -89,7 +89,7 @@ export function resolveRuntimeProvider(provider?: SandboxTaskDefinitionProviderO
   if (detected.type === 'cloudflare' || detected.type === 'vercel')
     return detected.type
 
-  throw sandboxTaskError('Sandbox provider could not be inferred. Configure `sandbox.provider` as `cloudflare` or `vercel`.', {
+  throw sandboxTaskError('Sandbox provider could not be inferred. Configure `sandboxTask.driver` as `cloudflare` or `vercel`.', {
     code: 'SANDBOX_TASK_PROVIDER_REQUIRED',
   })
 }
@@ -109,8 +109,8 @@ export function assertSandboxTaskDefinitionOptions(local: SandboxTaskDefinitionO
 }
 
 export async function resolveTaskSandbox(
-  provider: SandboxTaskProvider,
-  providerOptions: SandboxTaskDefinitionProviderOptions & { provider: SandboxTaskProvider },
+  provider: SandboxTaskDriver,
+  providerOptions: SandboxTaskDefinitionDriverOptions & { driver: SandboxTaskDriver },
   local: SandboxTaskDefinitionOptions,
 ) {
   // The Sandbox Task plugin aliases this package import to the generated loader; without the plugin it resolves to the generic loader.
@@ -123,12 +123,12 @@ export async function resolveTaskSandbox(
 }
 
 export function withSandboxTaskProvider(
-  provider: SandboxTaskProvider,
-  options?: SandboxTaskDefinitionProviderOptions,
+  provider: SandboxTaskDriver,
+  options?: SandboxTaskDefinitionDriverOptions,
 ) {
   return {
     ...options,
-    provider,
-  } as SandboxTaskDefinitionProviderOptions & { provider: SandboxTaskProvider }
+    driver: provider,
+  } as SandboxTaskDefinitionDriverOptions & { driver: SandboxTaskDriver }
 }
 

@@ -37,7 +37,7 @@ it.each([
     }
     const socket = new Socket()
     const attached = await cdp({ connect: async () => socket }).attach({ kind: 'cdp', endpoint: 'ws://localhost' }, {
-      provider: { features: { liveHandoff: false }, isolation: 'trusted-host', name: 'local' }, sessionId: 'test',
+      driver: { features: { liveHandoff: false }, isolation: 'trusted-host', name: 'local' }, sessionId: 'test',
     })
     // Keep the connection alive while collecting objects from rejected requests.
     globalThis.retainedClient = attached

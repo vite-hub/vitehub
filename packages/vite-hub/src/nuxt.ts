@@ -30,7 +30,7 @@ import { mergeGeneratedSourceNitroConfig, type GeneratedSourceHandler } from "@v
 import { mergeConfig } from "vite"
 
 import { isIncludedNitroPlugin } from "@vite-hub/internal/build/included-nitro-registry"
-import { resolveSandboxTaskProvider, viteHubPlugins, type ViteHubOptions } from "./plugins.ts"
+import { resolveSandboxTaskDriver, viteHubPlugins, type ViteHubOptions } from "./plugins.ts"
 import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
 import { disabledKVConfigModule, disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { consoleDevAccessNotice } from "./console/dev-access-notice.ts"
@@ -1061,7 +1061,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     kv: effectiveKV,
     host: plan.host,
     queue: effectiveQueue,
-    sandboxTask: resolveSandboxTaskProvider(options.sandboxTask, plan) !== undefined,
+    sandboxTask: resolveSandboxTaskDriver(options.sandboxTask, plan) !== undefined,
   })
   if (nuxt.options.dev) consoleSections.splice(0, consoleSections.length, ...insertConsoleSection(consoleSections, "setup"))
   const runtimeCapabilityImports = {
@@ -1089,7 +1089,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     env: options.env !== false,
     kv: effectiveKV,
     queue: effectiveQueue && plan.services.queue.supported,
-    sandboxTask: resolveSandboxTaskProvider(options.sandboxTask, plan) !== undefined,
+    sandboxTask: resolveSandboxTaskDriver(options.sandboxTask, plan) !== undefined,
     seo: Boolean(options.seo?.sitemap),
     // Match the Workflow owner's implicit enablement through Agent, including the Netlify exception.
     workflow: options.workflow !== false && Boolean(options.workflow || (options.agent && plan.host !== "netlify")),
@@ -1165,7 +1165,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       databaseOptions.projectRoot === undefined && nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
     )
     const { hubDatabase: hubDatabaseNuxt } = requireOptionalOwner(await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/nuxt")), options.connections ? "connections" : "database")
-    await hubDatabaseNuxt(defaultD1 ? { driver: "d1", ...databaseOptions } : databaseOptions)(undefined, nuxt)
+    await hubDatabaseNuxt(defaultD1 ? { driver: "cloudflare", ...databaseOptions } : databaseOptions)(undefined, nuxt)
   }
 
   const installedPlugins = flattenPlugins(viteHubPlugins(markCmsPresetFeaturesResolved({
@@ -1448,7 +1448,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           : effectiveQueue === undefined
             ? undefined
             : getResolvedFeatureOptions(replayConfig, "queue") ?? effectiveQueue,
-        sandboxTask: Boolean(getResolvedFeatureOptions(replayConfig, "sandboxTask") ?? options.sandboxTask) && resolveSandboxTaskProvider(options.sandboxTask, plan) !== undefined,
+        sandboxTask: Boolean(getResolvedFeatureOptions(replayConfig, "sandboxTask") ?? options.sandboxTask) && resolveSandboxTaskDriver(options.sandboxTask, plan) !== undefined,
         workspace: options.workspace,
         workflow: options.workflow,
       })

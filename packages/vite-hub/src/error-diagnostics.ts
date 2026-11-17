@@ -151,7 +151,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0141: {
       ...dynamicError,
-      fix: "Remove `queue.provider` from `vitehub()`, or set `host: \"node\"`.",
+      fix: "Remove `queue.driver` from `vitehub()`, or set `host: \"node\"`.",
     },
     VITE_HUB_R0142: {
       ...dynamicError,
@@ -163,7 +163,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0144: {
       ...dynamicError,
-      fix: "Remove `rateLimit.provider` to use the preset's supported provider, or use the `node` preset to count in KV.",
+      fix: "Remove `rateLimit.driver` to use the driver of the host, or use the `node` host to count in KV.",
     },
     VITE_HUB_R0116: {
       ...dynamicError,
@@ -299,7 +299,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_C0004: {
       ...dynamicError,
-      fix: "Set `cache.driver` to \"cloudflare-kv-binding\", \"deno-kv\", \"fs-lite\", \"kv\", or \"vercel-runtime-cache\".",
+      fix: "Set `cache.driver` to \"cloudflare\", \"deno-kv\", \"fs-lite\", \"kv\", or \"vercel\".",
     },
     VITE_HUB_R0052: {
       ...dynamicError,
@@ -583,9 +583,9 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "[vitehub] --timeout must be a positive number of milliseconds.",
       fix: "Pass `--timeout` to `vitehub sandbox check` as a whole number of milliseconds greater than 0, such as `--timeout 25000`.",
     },
-    VITE_HUB_SANDBOX_PROVIDER_HOST_UNSUPPORTED: {
+    VITE_HUB_SANDBOX_DRIVER_HOST_UNSUPPORTED: {
       ...dynamicError,
-      fix: "Use `sandboxTask: { provider: \"vercel\" }` with Vercel credentials, or use the `cloudflare` host.",
+      fix: "Use `sandboxTask: { driver: \"vercel\" }` with Vercel credentials, or use the `cloudflare` host.",
     },
     VITE_HUB_SECURITY_HEADER_INVALID: {
       why: ({ name }: { name: string }) => `\`security.headers\` sets ${name}, which is not a valid header name, or its value has a line break or a character that a header cannot hold.`,

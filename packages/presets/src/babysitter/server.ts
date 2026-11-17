@@ -2734,7 +2734,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                     ...baseWorkspace,
                     commit: false,
                     mode: "write",
-                    store: { provider: "local", root: providerWork ?? checkout, locks: "process" },
+                    store: { driver: "local", root: providerWork ?? checkout, locks: "process" },
                   } });
               const repairCandidate = mainRepair && mainRepairPrefix && mainRepairWatches(repository)
                 && pullRequest.headRepository?.nameWithOwner.toLowerCase() === repository.toLowerCase()

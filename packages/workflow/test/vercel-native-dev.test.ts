@@ -26,7 +26,7 @@ function registerNativeWorkflow() {
     }),
   }
   setVercelWorkflowRuntimeLoader(async () => runtime)
-  setWorkflowRuntimeConfig({ provider: "vercel" })
+  setWorkflowRuntimeConfig({ driver: "vercel" })
   setWorkflowRuntimeRegistry({
     onboard: async () => ({ default: { handler, options: { native } } }),
   })

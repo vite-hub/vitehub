@@ -240,7 +240,7 @@ A Cloudflare direct client needs a binding object, here `binding` from the Worke
 import { createQueueClient } from 'vite-hub/queue'
 
 await createQueueClient({
-  provider: 'cloudflare',
+  driver: 'cloudflare',
   binding,
 })
 ```
@@ -251,7 +251,7 @@ A Vercel direct client needs an existing topic. Use your own topic and region.
 import { createQueueClient } from 'vite-hub/queue'
 
 await createQueueClient({
-  provider: 'vercel',
+  driver: 'vercel',
   topic: 'topic--77656c636f6d65',
   region: 'iad1',
 })
