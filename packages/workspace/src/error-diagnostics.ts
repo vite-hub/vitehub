@@ -109,6 +109,12 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Read `error.cause` for the first error. Make sure that the module of the Workspace loads without errors and exports its Definition: the default export of a file in `server/workspaces/`, or the export that the Vite plugin names in its Workspace contribution. Then restart the dev server or build again.",
     },
 
+    // Source errors. The build checks the Sources that the app reads after deploy.
+    WORKSPACE_SOURCE_ACCESS_FAILED: {
+      why: ({ source, workspace }: { source: string, workspace: string }) => `Source "${source}" of Workspace "${workspace}" cannot reach its data with the credentials of the build. The deployed app would fail on its first read.`,
+      fix: "Read `error.cause` for the response of the provider. For a GitHub Source, check that `repo` and `ref` exist and that the token of the build (`auth`, `VITEHUB_GITHUB_TOKEN`, or `gh auth token`) can read the repository. Then build again.",
+    },
+
     // Published numbered errors.
     WORKSPACE_R0069: withFix("Use a Store with retained history: `createBlobDatabaseWorkspaceStore()` or the `github` Store. Open the Workspace with a scope that grants the complete Workspace, not selected paths."),
     WORKSPACE_R0070: withFix("Pass a `limit` from 1 to 100, and pass a `cursor` only with the `ref` of the `history.list()` call that returned it."),

@@ -14,6 +14,7 @@ import { describeServerEnv } from "@vite-hub/env/server"
 import { hubEnv } from "@vite-hub/env/vite"
 import { hubBundle } from "@vite-hub/bundle/vite"
 import { hubSource } from "@vite-hub/source/vite"
+import { viteHubHintsPlugin } from "@vite-hub/internal/hints"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { collapseWranglerConfigFile } from "@vite-hub/internal/build/cloudflare"
 import { collectDeploymentEnv, describeDeploymentPlanOutput, finalizeDeploymentPlanOutput, mergeDeploymentEnv } from "@vite-hub/internal/build/deployment-plan-output"
@@ -44,6 +45,7 @@ import { healthVitePlugin, type HealthOptions } from "./health-vite.ts"
 import { resolveDeployManifest, writeIndexNowKeyFile, type DeployOptions } from "./deploy-options.ts"
 import { viteHubSeoPlugin, type SeoOptions } from "./seo/vite.ts"
 import { requestPolicyVitePlugin, type SameOriginWritesOptions } from "./request-policy-vite.ts"
+import type { SecurityOptions } from "./security-vite.ts"
 import { redirectsVitePlugin, resolveRedirectsPolicy, type RedirectsOptions } from "./redirects-vite.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
@@ -103,6 +105,7 @@ export type { HealthOptions } from "./health-vite.ts"
 export type { DeployOptions } from "./deploy-options.ts"
 export type { SeoOptions } from "./seo/vite.ts"
 export type { SameOriginWritesOptions } from "./request-policy-vite.ts"
+export type { SecurityHeaders, SecurityOptions } from "./security-vite.ts"
 export type { SystemdOptions } from "./systemd.ts"
 export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal } from "@vite-hub/agent"
 export type { AuthOptions } from "@vite-hub/auth"
@@ -456,6 +459,10 @@ export interface ViteHubOptions {
    * Without any of them, ViteHub builds for `"node"`. `vitehub deploy --host` overrides it for its build.
    */
   host?: ViteHubHost
+  /**
+   * The name of the app. Host resources, such as the Cloudflare Worker, use it in lower case with dashes, and the
+   * Console shows it as written. Default: the `name` in `package.json`.
+   */
   name?: string
   /**
    * Public origin of the deployed application, such as `https://agents.example.com`.
@@ -489,6 +496,13 @@ export interface ViteHubOptions {
    * Default: `false`.
    */
   sameOriginWrites?: boolean | SameOriginWritesOptions
+  /**
+   * Response headers and a request body limit for every route. `{ headers: true }` adds `Strict-Transport-Security`
+   * (built output only), `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, and `Permissions-Policy` to each
+   * response that does not set them itself, and to static files on Cloudflare, Netlify, and Vercel. `{ maxBodySize: "1mb" }`
+   * answers 413 to a larger request body. It adds no Content Security Policy. Default: off.
+   */
+  security?: SecurityOptions
   agent?: boolean | AgentOptions
   auth?: boolean | AuthOptions
   blob?: boolean | BlobOptions
@@ -1288,14 +1302,15 @@ const addRuntimeNoExternal = createNoExternalAddition("@vite-hub/runtime")
 
 /**
  * Fails when the app defines Agents under `server/agents/` but leaves `agent` unset. Without the option, ViteHub
- * generates no Agent routes or Agent State, and the app fails only when it first uses an Agent.
+ * generates no Agent routes or Agent State, and the app fails only when it first uses an Agent. A Vitest config runs no
+ * routes: its tests import the Agent Definitions that they check.
  */
 function agentOptionMissingPlugin(): Plugin {
   return {
     name: "vite-hub/agent-option-missing",
     configResolved(config) {
-      // An app can add hubAgent() itself.
-      if (config.plugins.some(plugin => plugin.name === "@vite-hub/agent/vite")) return
+      // An app can add hubAgent() itself. Vitest can use any Vite mode.
+      if (process.env.VITEST || config.plugins.some(plugin => plugin.name === "@vite-hub/agent/vite")) return
       const root = resolveViteHubProjectRoot(config.root)
       // SAFETY: ViteHub hosts add this private server-directory key before plugins read the config.
       const serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? [resolve(root, "server")]
@@ -1443,7 +1458,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     : []
   const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, host: plan.host, sandboxTask: sandboxTaskEnabled })
   // `.template.md` imports work when the app installed `@vite-hub/markdown-template`.
-  const plugins: unknown[] = [doctorPlugin(), ...markdownTemplateVite ? [markdownTemplateVite.hubMarkdownTemplate()] : []]
+  const plugins: unknown[] = [doctorPlugin(), viteHubHintsPlugin(), ...markdownTemplateVite ? [markdownTemplateVite.hubMarkdownTemplate()] : []]
   const requestedServices: HostSelectedService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
   if (options.queue) requestedServices.push("queue")
@@ -1524,7 +1539,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   if (observabilityLogs) plugins.push(logsVitePlugin(observabilityLogs))
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
-  if (options.trustProxy || options.sameOriginWrites) plugins.push(requestPolicyVitePlugin(options))
+  if (options.trustProxy || options.sameOriginWrites || options.security) plugins.push(requestPolicyVitePlugin(options))
   if (options.health) plugins.push(healthVitePlugin(options.health === true ? {} : options.health, { database: Boolean(options.database) }))
   if (envPlugin) plugins.push(envPlugin)
   const redirects = resolveRedirectsPolicy(options.redirects)
@@ -1551,6 +1566,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (configuredConsole || devOperationsOnly) {
     const invocationRootState = {}
     const consolePlugin = consoleVitePlugin({
+      name: options.name,
       contentImportBase: "vite-hub/content",
       blobStores: consoleBlobStores,
       console: configuredConsole || undefined,

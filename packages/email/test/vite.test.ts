@@ -796,7 +796,7 @@ describe("hubEmail", () => {
 
   it("rejects unknown built-in driver names", () => {
     // SAFETY: this deliberately bypasses the public union to cover runtime validation.
-    expect(() => hubEmail({ driver: "smtp" as "resend" })).toThrow('"resend" or "cloudflare-email"')
+    expect(() => hubEmail({ driver: "smtp" as "resend" })).toThrow('"resend", "cloudflare-email", or "log"')
   })
 
   it("rejects secret defaults that would be included in build output", () => {

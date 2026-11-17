@@ -8,7 +8,7 @@ import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 import { createConsoleInvocationsIdentity } from "./internal.ts"
 import { consoleBuildOf } from "./build-info.ts"
-import { resolveConsoleProjectNameFromRoot } from "./project.ts"
+import { resolveConsoleProjectName } from "./project.ts"
 import { describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
 import { withConsoleDocumentEditorSections } from "./build.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -16,6 +16,7 @@ import { requireOptionalOwner } from "../internal/optional-owners.ts"
 import { generatedModules } from "../internal/generated-modules.ts"
 import { ownerModules } from "../internal/owner-modules.ts"
 import { setupDevRoute } from "../setup-dev.ts"
+import { readViteHubVersion } from "../version.ts"
 
 function resolveConsoleRuntimeRoot(): string {
   const root = [
@@ -93,6 +94,8 @@ export interface ConsoleNitroPluginOptions {
   /** The generated plugin file. */
   file: string
   projectRoot: string
+  /** The `name` option of `vitehub()`. `project.get` reports it, or the `package.json` name without it. */
+  name?: string
   sections: readonly ConsoleSectionId[]
   /** Visible navigation, when it differs from the sections whose operations need runtime state. */
   navigationSections?: readonly ConsoleSectionId[]
@@ -125,6 +128,7 @@ function renderConsolePageTool(pageTool: ConsoleNitroPluginOptions["pageTool"], 
 function renderConsoleNitroPlugin(
   {
     projectRoot,
+    name,
     sections: configuredSections,
     navigationSections,
     catalog,
@@ -198,7 +202,7 @@ function renderConsoleNitroPlugin(
       : []),
   ]
   return [
-    `import { ${access ? "installConsoleAccess, " : ""}${development ? "" : "installConsoleBuild, "}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from ${JSON.stringify(generatedModules.consoleSetup)}`,
+    `import { ${access ? "installConsoleAccess, " : ""}${development ? "" : "installConsoleBuild, "}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections, installConsoleVersion } from ${JSON.stringify(generatedModules.consoleSetup)}`,
     ...accessCode.imports,
     // The page tools wrap the app's `fetch` when the server starts, so this one loads at startup.
     ...(pageTool ? [`import { installConsolePageTool } from ${JSON.stringify(generatedModules.consolePageTool)}`] : []),
@@ -214,7 +218,9 @@ function renderConsoleNitroPlugin(
     ...runtimeInstall.map(line => `    ${line}`),
     "  }",
     "})",
-    `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectNameFromRoot(projectRoot))})`,
+    `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectName(projectRoot, name))})`,
+    // `project.get` names the installed `vite-hub`, also a pkg.pr.new preview, whose version the app's server output lacks.
+    `installConsoleVersion(${JSON.stringify(readViteHubVersion())})`,
     // A production build records its time and commit for `project.get`. A development server has no build to name.
     ...(development ? [] : [`installConsoleBuild(${JSON.stringify(consoleBuildOf(projectRoot))})`]),
     // The application module loads on the first document request, so the Console does not start Content at boot.

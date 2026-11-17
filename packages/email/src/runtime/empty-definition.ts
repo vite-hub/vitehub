@@ -1,6 +1,7 @@
 import type { EmailDefinition } from "../types.ts"
 
-const definition: EmailDefinition | undefined = undefined
+/** `canSend` is `false` when the generated definition uses the log driver. */
+const definition: (EmailDefinition & { canSend?: boolean }) | undefined = undefined
 
 export const outboxRuntimeId: string = "disabled"
 
