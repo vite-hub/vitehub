@@ -58,6 +58,8 @@ const dir = "/workspace"
 const fileMetadataPath = ".vitehub/files.json"
 const fileMetadataJournalPath = ".vitehub/files.pending.json"
 const tokenRefreshWindow = 60_000
+/** How long a Store without staged writes trusts the branch head that it loaded, in milliseconds. */
+const remoteHeadCacheMs = 5_000
 
 type FileMetadata = Pick<WorkspaceFile, "mediaType" | "metadata">
 
@@ -146,7 +148,12 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   #files = new Map<string, FileMetadata>()
   #fs: MemoryFS | undefined
   #head: string | undefined
+  #loadedAt = 0
   #pendingCommit: string | undefined
+  /** Whether files or metadata changed since the last load or push. */
+  #staged = false
+  /** Metadata written since the last load or push, by absolute path. A rebase writes it again on the new head. */
+  #stagedMeta = new Map<string, Uint8Array>()
   #remote: string | undefined
   #ready: Promise<void> | undefined
   #mutationQueue: Promise<void> = Promise.resolve()
@@ -292,6 +299,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
       }
       const removed = this.#fs!.deleteTree(absolute)
       if (!removed && !options.force) throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
+      if (removed) this.#staged = true
       for (const key of this.#files.keys()) {
         if (key === normalized || key.startsWith(`${normalized}/`)) this.#files.delete(key)
       }
@@ -306,75 +314,94 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
 
   async rebase(options: WorkspaceRebaseOptions = {}): Promise<void> {
     await this.#ensure()
-    await this.#mutate(async () => {
-      const baseline = this.#baseline
-      const current = await createSnapshotFromEntries(
-        await this.#listEntries("", { recursive: true }),
-      )
-      const changes = diffSnapshots(baseline, current).entries.filter(
-        change => change.before?.type === "file" || change.after?.type === "file",
-      )
-
-      const local = new Map<string, WorkspaceFile | undefined>()
-      for (const change of changes)
-        local.set(change.path, change.after ? await this.#readFile(change.path) : undefined)
-      const previous = {
-        baseline: this.#baseline,
-        branch: this.#branch,
-        files: this.#files,
-        fs: this.#fs,
-        head: this.#head,
-        pendingCommit: this.#pendingCommit,
-        remote: this.#remote,
-      }
-      const restore = () => {
-        this.#baseline = previous.baseline
-        this.#branch = previous.branch
-        this.#files = previous.files
-        this.#fs = previous.fs
-        this.#head = previous.head
-        this.#pendingCommit = previous.pendingCommit
-        this.#remote = previous.remote
-      }
-
-      try {
-        this.#files = new Map()
-        this.#pendingCommit = undefined
-        await this.#load()
-        const remoteChanges = new Map(
-          diffSnapshots(baseline, this.#baseline!).entries.map(change => [change.path, change]),
-        )
-        const takeRemote = new Set(options.takeRemote || [])
-        for (const change of changes) {
-          if (
-            remoteChanges.has(change.path) &&
-            !takeRemote.has(change.path) &&
-            !sameSnapshotEntry(current.entries[change.path], this.#baseline?.entries[change.path])
-          ) {
-            throw workspaceConflict(
-              `[vitehub] Cloudflare Artifacts Workspace Store rebase conflict: ${change.path} changed locally and remotely.`,
-            )
-          }
-        }
-        for (const change of changes) {
-          if (remoteChanges.has(change.path) && takeRemote.has(change.path)) continue
-          const file = local.get(change.path)
-          if (file) await this.#writeFile(change.path, file)
-          else {
-            this.#fs!.deleteTree(this.#absolute(change.path))
-            this.#files.delete(change.path)
-            await this.#writeFileMetadata()
-          }
-        }
-      }
-      catch (error) {
-        restore()
-        throw error
-      }
-    })
+    await this.#mutate(async () => await this.#rebase(options))
   }
 
-  async #createSnapshot(options: SnapshotOptions): Promise<WorkspaceSnapshot> {
+  /** Load the current branch head and write the staged changes on it again. A path that changed on both sides fails with its name in `details.paths`. */
+  async #rebase(options: WorkspaceRebaseOptions): Promise<void> {
+    const baseline = this.#baseline
+    const current = await createSnapshotFromEntries(
+      await this.#listEntries("", { recursive: true }),
+    )
+    const changes = diffSnapshots(baseline, current).entries.filter(
+      change => change.before?.type === "file" || change.after?.type === "file",
+    )
+
+    const local = new Map<string, WorkspaceFile | undefined>()
+    for (const change of changes)
+      local.set(change.path, change.after ? await this.#readFile(change.path) : undefined)
+    const previous = {
+      baseline: this.#baseline,
+      branch: this.#branch,
+      files: this.#files,
+      fs: this.#fs,
+      head: this.#head,
+      pendingCommit: this.#pendingCommit,
+      remote: this.#remote,
+      staged: this.#staged,
+      stagedMeta: this.#stagedMeta,
+    }
+    const restore = () => {
+      this.#baseline = previous.baseline
+      this.#branch = previous.branch
+      this.#files = previous.files
+      this.#fs = previous.fs
+      this.#head = previous.head
+      this.#pendingCommit = previous.pendingCommit
+      this.#remote = previous.remote
+      this.#staged = previous.staged
+      this.#stagedMeta = previous.stagedMeta
+    }
+
+    try {
+      this.#files = new Map()
+      this.#pendingCommit = undefined
+      await this.#load()
+      const remoteChanges = new Map(
+        diffSnapshots(baseline, this.#baseline!).entries.map(change => [change.path, change]),
+      )
+      const takeRemote = new Set(options.takeRemote || [])
+      const conflicts = changes
+        .filter(change =>
+          remoteChanges.has(change.path) &&
+          !takeRemote.has(change.path) &&
+          !sameSnapshotEntry(current.entries[change.path], this.#baseline?.entries[change.path]))
+        .map(change => change.path)
+        .sort()
+      if (conflicts.length) {
+        throw workspaceConflict(
+          `[vitehub] Cloudflare Artifacts Workspace Store rebase conflict: ${conflicts.join(", ")} changed locally and remotely.`,
+          { details: { branch: this.#branch, paths: conflicts } },
+        )
+      }
+      let replayed = 0
+      for (const change of changes) {
+        if (remoteChanges.has(change.path) && takeRemote.has(change.path)) continue
+        replayed++
+        const file = local.get(change.path)
+        if (file) await this.#writeFile(change.path, file)
+        else {
+          this.#fs!.deleteTree(this.#absolute(change.path))
+          this.#files.delete(change.path)
+          await this.#writeFileMetadata()
+        }
+      }
+      for (const [path, bytes] of previous.stagedMeta) await this.#fs!.promises.writeFile(path, bytes)
+      this.#stagedMeta = new Map(previous.stagedMeta)
+      this.#staged = replayed > 0 || previous.stagedMeta.size > 0
+    }
+    catch (error) {
+      restore()
+      throw error
+    }
+  }
+
+  /**
+   * Commit and push the staged changes. When the branch moved since the Store loaded, for example because another
+   * isolate pushed, the Store loads the new head, writes the staged changes on it again, and pushes once more. A path
+   * that changed on both sides, or a second move, fails with `WORKSPACE_CONFLICT`.
+   */
+  async #createSnapshot(options: SnapshotOptions, retry = true): Promise<WorkspaceSnapshot> {
     const git = await import("isomorphic-git")
     const http = await import("isomorphic-git/http/web")
     const matrix = await git.statusMatrix({ dir, fs: this.#fs! as never, ignored: true })
@@ -414,6 +441,10 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
       }
       catch (error) {
         if (isNonFastForward(error)) {
+          if (retry) {
+            await this.#rebase({})
+            return await this.#createSnapshot(options, false)
+          }
           throw workspaceConflict(
             `[vitehub] Workspace "${this.workspaceName}" changed remotely while snapshotting branch "${this.#branch}". Reload the Workspace before retrying.`,
             { cause: error },
@@ -424,6 +455,9 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
       this.#head = id
       this.#pendingCommit = undefined
     }
+    this.#staged = false
+    this.#stagedMeta = new Map()
+    this.#loadedAt = Date.now()
 
     const snapshot = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }), options.name)
     this.#baseline = { ...snapshot, id: id || this.#head || snapshot.id }
@@ -452,7 +486,12 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   async setMeta(key: string, value: unknown): Promise<void> {
     const path = this.#metaAbsolute(key)
     await this.#ensure()
-    await this.#mutate(() => this.#fs!.promises.writeFile(path, contentToBytes(JSON.stringify(value))))
+    await this.#mutate(async () => {
+      const bytes = contentToBytes(JSON.stringify(value))
+      await this.#fs!.promises.writeFile(path, bytes)
+      this.#stagedMeta.set(path, bytes)
+      this.#staged = true
+    })
   }
 
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
@@ -462,6 +501,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     const digest = await sha256(content)
     await this.#fs!.promises.writeFile(this.#internalAbsolute(fileMetadataJournalPath), JSON.stringify({ path, existed, digest, metadata: { mediaType: file.mediaType, metadata: file.metadata } }))
     await this.#fs!.promises.writeFile(this.#absolute(path), content)
+    this.#staged = true
     if (file.mediaType !== undefined || file.metadata !== undefined) {
       this.#files.set(path, { mediaType: file.mediaType, metadata: file.metadata })
     }
@@ -553,13 +593,42 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     return binding
   }
 
+  /**
+   * Load the branch once. A Store without staged changes that loaded more than `remoteHeadCacheMs` ago asks for the
+   * branch head again and loads it when it moved, so a Store that one isolate keeps for many requests sees pushes from
+   * other writers before it stages new changes.
+   */
   async #ensure(): Promise<void> {
+    const wasReady = !!this.#ready
     // A failed load, such as a network error, lets the next call try again.
     this.#ready ||= this.#load().catch((error: unknown) => {
       this.#ready = undefined
       throw error
     })
     await this.#ready
+    if (!wasReady) return
+    await this.#mutate(async () => {
+      if (this.#staged || this.#pendingCommit || Date.now() - this.#loadedAt < remoteHeadCacheMs) return
+      const head = await this.#remoteHead()
+      this.#loadedAt = Date.now()
+      if (head === this.#head) return
+      this.#files = new Map()
+      await this.#load()
+    })
+  }
+
+  async #remoteHead(): Promise<string | undefined> {
+    const git = await import("isomorphic-git")
+    const http = await import("isomorphic-git/http/web")
+    const token = await this.#writeToken()
+    const branchRef = `refs/heads/${this.#branch}`
+    const refs = await git.listServerRefs({
+      http,
+      onAuth: () => ({ password: token, username: "x" }),
+      prefix: branchRef,
+      url: this.#remote!,
+    })
+    return refs.find(ref => ref.ref === branchRef)?.oid
   }
 
   #mutate<T>(operation: () => Promise<T>): Promise<T> {
@@ -643,6 +712,9 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     await this.#loadFileMetadata()
     const baseline = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }))
     this.#baseline = this.#head ? { ...baseline, id: this.#head } : baseline
+    this.#loadedAt = Date.now()
+    this.#staged = false
+    this.#stagedMeta = new Map()
   }
 }
 
