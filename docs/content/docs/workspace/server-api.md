@@ -66,8 +66,8 @@ When the model turn is cancelled, AI SDK tool cancellation reaches the Shell dri
 | `rm(path, options?)` | `recursive?: boolean`, `force?: boolean` | Removes a file or directory if the write rules allow it. |
 | `movePath(from, to, options?)` | `overwrite?: boolean` | Moves a path. An existing destination fails without `overwrite`. |
 | `copyPath(from, to, options?)` | `overwrite?: boolean` | Copies a path. An existing destination fails without `overwrite`. |
-| `snapshot(options?)` | `name?: string` | Saves the current tree, with an optional name. |
-| `history.rebase(options?)` | `takeRemote?: string[]` | Reloads a remote Store and keeps staged paths. A listed path takes the remote version only when both sides changed. Other overlapping changes stay conflicts. Listed paths must be writable, so a Source path fails. |
+| `snapshot(options?)` | `name?: string` | Saves the current tree, with an optional name. On the GitHub and Cloudflare Artifacts Stores, when another writer moved the branch, it moves your changes onto the new head and tries once more. A path that both sides changed fails with `WORKSPACE_CONFLICT` and `details.paths`. |
+| `history.rebase(options?)` | `takeRemote?: string[]` | Reloads a remote Store and keeps staged paths. A listed path takes the remote version only when both sides changed. Other overlapping changes stay conflicts, listed in `details.paths`. Listed paths must be writable, so a Source path fails. |
 | `diff(options?)` | `from?: WorkspaceSnapshot` | Compares the current tree with the given snapshot or the Store baseline. |
 | `materializeSources(options?)` | `abortSignal?`, `details?: 'paths'`, `onProgress?`, `sources?`, `path?` | Copies in every Source, or selected Sources or paths, with cancellation and progress. |
 | `getMeta(key)` / `setMeta(key, value)` | Store-defined | Reads or writes Store metadata, if the Store supports it. Workspace reserves keys that start with `source:`, `workspace:`, `workspace-file-`, or `loader:`, and `setMeta` rejects them. |
