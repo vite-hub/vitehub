@@ -797,6 +797,21 @@
       "import": "./dist/web-container/snapshot.js",
       "default": "./dist/web-container/snapshot.js"
     },
+    "./webhooks": {
+      "types": "./dist/webhooks.d.ts",
+      "import": "./dist/webhooks.js",
+      "default": "./dist/webhooks.js"
+    },
+    "./webhooks/database": {
+      "types": "./dist/webhooks/database.d.ts",
+      "import": "./dist/webhooks/database.js",
+      "default": "./dist/webhooks/database.js"
+    },
+    "./webhooks/runtime": {
+      "types": "./dist/webhooks/runtime.d.ts",
+      "import": "./dist/webhooks/runtime.js",
+      "default": "./dist/webhooks/runtime.js"
+    },
     "./workflow": {
       "types": "./dist/workflow.d.ts",
       "import": "./dist/workflow.js",
@@ -1021,6 +1036,7 @@
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
+    "@vite-hub/webhooks": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vitejs/plugin-vue": "^6.0.9",
@@ -1104,6 +1120,7 @@
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
+    "@vite-hub/webhooks": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vueuse/core": "catalog:ui",
@@ -1259,6 +1276,9 @@
       "optional": true
     },
     "@vite-hub/web-container": {
+      "optional": true
+    },
+    "@vite-hub/webhooks": {
       "optional": true
     },
     "@vite-hub/workflow": {

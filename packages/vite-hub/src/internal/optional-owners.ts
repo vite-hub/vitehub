@@ -45,6 +45,7 @@ export type OptionalOwnerPackage
     | "@vite-hub/schedule"
     | "@vite-hub/shell"
     | "@vite-hub/ui"
+    | "@vite-hub/webhooks"
     | "@vite-hub/workflow"
     | "@vite-hub/workspace"
 
@@ -94,6 +95,8 @@ export const optionalFeaturePackages = {
   "schedule": features.schedule.packages,
   "shell": ["@vite-hub/shell"],
   "ui": ["@vite-hub/ui"],
+  // `server/webhooks/` turns Webhooks on. It needs `queue` and `database`.
+  "webhooks": ["@vite-hub/webhooks"],
   // An Agent turns Workflow on unless the app sets `workflow: false`.
   "workflow": features.workflow.packages,
   "workspace": features.workspace.packages,
