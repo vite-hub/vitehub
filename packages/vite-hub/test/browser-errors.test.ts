@@ -58,6 +58,32 @@ describe("browser error ingest", () => {
     expect(response.status).toBe(413)
   })
 
+  it("stops reading a streamed body at 16 KiB", async () => {
+    let pulled = 0
+    let cancelled = false
+    const chunk = new Uint8Array(4 * 1024).fill(97)
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++
+        controller.enqueue(chunk)
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+    const request = new Request(`${origin}/api/_vitehub/browser-errors`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin, "sec-fetch-site": "same-origin" },
+      body,
+      duplex: "half",
+    })
+    expect(request.headers.get("content-length")).toBeNull()
+    expect((await createBrowserErrorsHandler().fetch(request)).status).toBe(413)
+    expect(cancelled).toBe(true)
+    // Five 4 KiB chunks pass the limit; the stream may pull one more ahead.
+    expect(pulled).toBeLessThanOrEqual(6)
+  })
+
   it("refuses a body that is not a report", async () => {
     const handler = createBrowserErrorsHandler()
     expect((await handler.fetch(post("{"))).status).toBe(400)

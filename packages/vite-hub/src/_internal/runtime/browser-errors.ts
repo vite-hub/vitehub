@@ -108,6 +108,34 @@ function logReport(request: Request, report: BrowserErrorReport): void {
   log.error(error, { browserError: { kind, path } })
 }
 
+/**
+ * The body as text, or `undefined` when it passes `maxBytes`. It stops reading and cancels the body at the limit, so a
+ * body without `Content-Length` cannot make the server hold more than that.
+ */
+async function readBoundedText(request: Request): Promise<string | undefined> {
+  if (!request.body) return ""
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > maxBytes) {
+      await reader.cancel()
+      return undefined
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(bytes)
+}
+
 function reply(status: number, headers: Record<string, string> = {}): Response {
   return new Response(null, { status, headers: { "cache-control": "no-store", ...headers } })
 }
@@ -121,8 +149,8 @@ export function createBrowserErrorsHandler(now: () => number = Date.now): { fetc
       const retryAfter = limit(clientAddress(request))
       if (retryAfter !== undefined) return reply(429, { "retry-after": String(retryAfter) })
       if (Number(request.headers.get("content-length")) > maxBytes) return reply(413)
-      const body = await request.text()
-      if (new TextEncoder().encode(body).byteLength > maxBytes) return reply(413)
+      const body = await readBoundedText(request)
+      if (body === undefined) return reply(413)
       let json: unknown
       try {
         json = JSON.parse(body)
