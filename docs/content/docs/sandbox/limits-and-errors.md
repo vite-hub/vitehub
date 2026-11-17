@@ -13,6 +13,7 @@ icon: i-lucide-circle-alert
 - To cancel a run, pass an `AbortSignal` to `runSandboxTask()`. Cancellation stops provider work that can stop and keeps your abort reason. The task timeout still applies to each attempt on its own.
 - Vercel closes each Sandbox session after success or failure. Cloudflare creates and closes a new Sandbox for each run unless you set `sandboxId`.
 - A Cloudflare `sandboxId` shares one Sandbox. ViteHub deletes the run's files after each attempt, caches prepared projects by digest, and runs calls with the same ID one at a time in one isolate. Separate Worker isolates can still enter the Sandbox at the same time.
+- ViteHub does not stop a shared Sandbox. After a success, a failure, a timeout, or an abort, the Sandbox stays until it is idle for `sleepAfter`. A timeout or an abort stops only the command of that run, so other runs in the Sandbox continue. A new run does not delete the files that other runs keep in `HOME` or `/workspace`.
 
 ## SANDBOX_R0165
 
