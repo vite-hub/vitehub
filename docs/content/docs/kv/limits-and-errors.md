@@ -122,7 +122,7 @@ The runtime has no KV config. Set `kv` in `vitehub()` to `true` or to a KV confi
 
 ### KV_INVALID_DRIVER
 
-`kv.driver` is not `cloudflare`, `database`, `deno-kv`, `fs-lite`, `redis`, or `upstash`.
+`kv.driver` is not `cloudflare`, `database`, `deno-kv`, `fs-lite`, `redis`, or `upstash`. The former `cloudflare-kv-binding` is now `cloudflare`; `npx @vite-hub/codemods driver-key` renames it.
 
 ### KV_INVALID_REMOTE
 

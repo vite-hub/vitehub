@@ -210,6 +210,8 @@ function settlesWithin(task: Promise<unknown>, ms: number): Promise<boolean> {
  *   stops with `WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE` before the setup starts.
  * - Then it holds the lock until OpenWorkflow finished the setup.
  * A transaction lock also works through a pooler in transaction mode, such as PgBouncer.
+ * OpenWorkflow 0.11.0 locks its setup with a session lock
+ * (https://github.com/openworkflowdev/openworkflow/commit/eb544db), which such a pooler does not keep, so this lock stays.
  */
 async function withPostgresSetupLock<T>(postgres: PostgresModule, url: string, schema: string, setup: () => Promise<T>): Promise<T> {
   // `idle_timeout` closes the connection between attempts, so a waiting server holds none.

@@ -6,7 +6,8 @@ import { pathToFileURL } from "node:url"
  * The source of a module whose default export is comark-ui's block components by tag, each one loaded on first use.
  * `comark-ui/vue` imports every block package, so a page that rendered with it downloaded all of them. Each tag imports
  * the package that defines its component. The tags that comark-ui defines itself, such as the Mermaid wrapper, import
- * `comark-ui/vue`.
+ * `comark-ui/vue`. comark-ui 0.12.2 has `comark-ui/vue/lazy` (https://github.com/onmax/comark-ui/pull/434), but its block
+ * packages change the spacing of callouts, so the switch waits for that decision.
  */
 export async function comarkBlocksSource(): Promise<string> {
   let ui: string

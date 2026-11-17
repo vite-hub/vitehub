@@ -164,9 +164,12 @@ function renderResolvedOptions(value: unknown, reference: string): string {
   ).join(", ")} }`
 }
 
+/** Driver names that ViteHub renamed to the host name. `npx @vite-hub/codemods driver-key` moves them. */
+const renamedEmailDrivers = new Map([["cloudflare-email", "cloudflare"]])
+
 function resolveDriverImport(driver: string): string {
   if (driver !== "resend" && driver !== "cloudflare" && driver !== "log") {
-    throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER()
+    throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER({ driver: JSON.stringify(driver) ?? String(driver), renamed: renamedEmailDrivers.get(String(driver)) })
   }
   const extension = import.meta.url.endsWith(".ts") ? "ts" : "js"
   return fileURLToPath(new URL(`./drivers/${driver}.${extension}`, import.meta.url))
@@ -467,7 +470,7 @@ async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot:
 
 export function hubEmail(options: EmailOptions): EmailVitePlugin {
   if (!options || typeof options !== "object") {
-    throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER()
+    throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER({ driver: "missing" })
   }
   const internalOptions = options as EmailOptions & InternalEmailVitePluginOptions
   const configured = configuredDefinition(options)

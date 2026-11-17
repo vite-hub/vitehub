@@ -70,7 +70,10 @@ export interface RuntimeDiagnosticErrorOptions {
   maxStringLength?: number
 }
 
-/** Recognizes a live Nostics error across bundled copies. This does not make its fields safe for public responses. */
+/**
+ * Recognizes a live Nostics error across bundled copies. This does not make its fields safe for public responses.
+ * nostics' own check matches only its own copy (https://github.com/vercel-labs/nostics/pull/40).
+ */
 export function isRuntimeDiagnostic(error: unknown): error is Diagnostic<unknown> | ResultError {
   if (!isRuntimeObject(error)) return false
   try {
@@ -201,6 +204,7 @@ function normalizeDetails(
   return normalized as Readonly<Record<string, unknown>>
 }
 
+// nostics' JSON drops Error causes (https://github.com/vercel-labs/nostics/pull/39).
 function normalizeError(value: unknown, state: ErrorNormalizationState, depth: number): RuntimeDiagnosticError | undefined {
   if (state.remainingNodes <= 0) return
   state.remainingNodes -= 1

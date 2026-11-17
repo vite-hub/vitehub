@@ -10,7 +10,10 @@ import type { ResolvedDrizzleDatabaseConfig, RuntimeDrizzleDatabase } from "../t
 export type { RuntimeDrizzleDatabase }
 export { resolveRuntimeCloudflareConfig } from "../internal/cloudflare.ts"
 
-/** The libSQL factory for a remote libSQL URL. It loads `@libsql/client/http` on the first query, so a D1 app never loads it. */
+/**
+ * The libSQL factory for a remote libSQL URL. It loads `@libsql/client/http` on the first query, so a D1 app never loads it.
+ * In a WebContainer, npm installs `@libsql/client-wasm`, which has no `./http` (https://github.com/stackblitz/webcontainer-core/issues/2185).
+ */
 export const hostedLibsql: LibsqlClientFactory = {
   createClient: (config: Config) => deferLibsqlClient("http", async () => (await import("@libsql/client/http")).createClient(config)),
   drizzle: createLibsqlDrizzle,
