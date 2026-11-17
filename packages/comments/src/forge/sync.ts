@@ -1,5 +1,7 @@
 import { and, eq, inArray, isNotNull, isNull, like } from "drizzle-orm"
 
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
+
 import { commentForge } from "../operations-core/database.ts"
 import { createGitHubClient, GitHubRequestError } from "./github.ts"
 import { commentMarker, renderComment, renderSummary, summaryMarker } from "./render.ts"
@@ -35,6 +37,14 @@ function digest(text: string): string {
 
 function message(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 500)
+}
+
+/**
+ * Logs a pull request sync failure that the sync survives. The sync runs after the answer, so the failure gets an
+ * evlog event of its own: `{ comments: { hook: "forgeSync", step, thread } }`.
+ */
+export function logSyncFailure(step: string, message: string, error: unknown, fallback: () => void, thread?: string): void {
+  logFailure({ field: "comments", fields: { hook: "forgeSync", step, ...(thread ? { thread } : {}) }, message, error }, fallback)
 }
 
 function linkOf(thread: CommentThread, byId: ReadonlyMap<string, LinkRow>): CommentForgeLink | null {
@@ -150,7 +160,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
       }
       catch (error) {
         await save(existing.id, { error: message(error) })
-        console.warn("[vitehub] Comments could not delete a pull request comment:", error)
+        logSyncFailure("delete-comment", "Comments could not delete a pull request comment", error, () => console.warn("[vitehub] Comments could not delete a pull request comment:", error))
       }
     }
   }
@@ -204,7 +214,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
       return await options.token(comment.author) || undefined
     }
     catch (error) {
-      console.warn(`[vitehub] Comments forge token for ${comment.author.id} failed:`, error)
+      logSyncFailure("author-token", "Comments could not get the forge token of an author", error, () => console.warn(`[vitehub] Comments forge token for ${comment.author.id} failed:`, error))
       return
     }
   }
@@ -361,7 +371,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
       if (first) {
         await database.insert(links).values({ id: first.id, threadId, ...at, error: message(error), updatedAt: Date.now() }).onConflictDoNothing()
       }
-      console.warn("[vitehub] Comments could not post the pull request summary:", error)
+      logSyncFailure("summary", "Comments could not post the pull request summary", error, () => console.warn("[vitehub] Comments could not post the pull request summary:", error), threadId)
       return
     }
 
@@ -390,7 +400,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
         }
         catch (error) {
           await save(first.id, { error: message(error) })
-          console.warn(`[vitehub] Comments could not ${resolved ? "hide" : "show"} the comment of thread ${thread.id}:`, error)
+          logSyncFailure(resolved ? "hide-comment" : "show-comment", `Comments could not ${resolved ? "hide" : "show"} a pull request comment`, error, () => console.warn(`[vitehub] Comments could not ${resolved ? "hide" : "show"} the comment of thread ${thread.id}:`, error), thread.id)
           break
         }
       }

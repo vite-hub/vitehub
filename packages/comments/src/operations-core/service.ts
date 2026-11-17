@@ -1,5 +1,7 @@
 import * as v from "valibot"
 
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
+
 import type { SharedRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
 
 import { builtinCommentSubjects, defaultPolicy, deniedForMissingPolicy } from "./define.ts"
@@ -310,7 +312,7 @@ function newId(prefix: string): string {
  * Runs `onComment` before the answer and `onMention` after it, for one saved message. A failure is logged and never
  * fails the comment.
  */
-async function announce(runtime: CommentsRuntime, thread: CommentThread, message: CommentMessage | undefined, mentions: CommentUser[], fresh: CommentUser[], options: { comment: boolean, waitUntil?: (task: Promise<unknown>) => void }): Promise<void> {
+async function announce(runtime: CommentsRuntime, thread: CommentThread, message: CommentMessage | undefined, mentions: CommentUser[], fresh: CommentUser[], options: { comment: boolean, request?: Request, waitUntil?: (task: Promise<unknown>) => void }): Promise<void> {
   if (!message) return
   const { onComment, onMention } = runtime.definition
   if (options.comment && onComment) {
@@ -318,7 +320,8 @@ async function announce(runtime: CommentsRuntime, thread: CommentThread, message
       await onComment({ mentions, message, thread })
     }
     catch (error) {
-      globalThis.console.error("[vitehub] Comments onComment failed:", error)
+      // The answer waits for onComment, so the failure goes on the wide event of the request.
+      logFailure({ field: "comments", fields: { hook: "onComment", thread: thread.id }, message: "Comments onComment failed", error, ...(options.request ? { request: options.request } : {}) }, () => globalThis.console.error("[vitehub] Comments onComment failed:", error))
     }
   }
   if (!onMention || !fresh.length) return
@@ -328,7 +331,8 @@ async function announce(runtime: CommentsRuntime, thread: CommentThread, message
       await onMention({ message, thread, users: fresh, ...(link ? { link } : {}) })
     }
     catch (error) {
-      globalThis.console.error("[vitehub] Comments onMention failed:", error)
+      // onMention runs after the answer, when the wide event of the request is gone. It gets an event of its own.
+      logFailure({ field: "comments", fields: { hook: "onMention", thread: thread.id }, message: "Comments onMention failed", error }, () => globalThis.console.error("[vitehub] Comments onMention failed:", error))
     }
   })()
   options.waitUntil?.(task)
@@ -358,6 +362,8 @@ export interface WriteOptions {
   /** Console admission of the calling reader, never of a mentioned recipient. */
   console?: boolean
   waitUntil?: (task: Promise<unknown>) => void
+  /** The request of the call. A failed `onComment` goes on its evlog wide event. */
+  request?: Request
   /** Whether the caller may read the thread that a retry of `createThread` gets back. Default: yes. */
   canRead?: (thread: CommentThread) => Promise<boolean>
 }
@@ -409,7 +415,7 @@ export async function createThread(runtime: CommentsRuntime, input: CreateThread
   })
   // A retry won the race: the first call stored the thread and sent its notifications.
   if (created.id !== threadId) return retried(created, input, options.canRead)
-  await announce(runtime, created, created.messages[0], mentioned, mentioned, { comment: true, ...(options.waitUntil ? { waitUntil: options.waitUntil } : {}) })
+  await announce(runtime, created, created.messages[0], mentioned, mentioned, { comment: true, ...(options.request ? { request: options.request } : {}), ...(options.waitUntil ? { waitUntil: options.waitUntil } : {}) })
   runtime.forge?.changed(created.id)
   return created
 }
@@ -448,7 +454,7 @@ export async function replyToThread(runtime: CommentsRuntime, thread: CommentThr
     throw error
   }
   const message = next.messages.find(entry => entry.id === id)!
-  await announce(runtime, next, message, mentioned, mentioned, { comment: true, ...(options.waitUntil ? { waitUntil: options.waitUntil } : {}) })
+  await announce(runtime, next, message, mentioned, mentioned, { comment: true, ...(options.request ? { request: options.request } : {}), ...(options.waitUntil ? { waitUntil: options.waitUntil } : {}) })
   runtime.forge?.changed(next.id)
   return { message, thread: next }
 }

@@ -4,7 +4,7 @@ import { installCommentsRuntime } from "./operations-core/server.ts"
 import { createCommentsStore } from "./operations-core/store.ts"
 import { commentsSchemaGate } from "./migrate.ts"
 import { commentsSchema } from "./operations-core/database.ts"
-import { createForgeSync } from "./forge/sync.ts"
+import { createForgeSync, logSyncFailure } from "./forge/sync.ts"
 import { pendingKey, runtimes } from "./installed.ts"
 
 import type { SharedRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
@@ -94,7 +94,9 @@ export function installComments(comments: Comments, install: InstallCommentsOpti
     runtime.forge = {
       attach: forge.attach,
       changed(threadId) {
-        track(forge.sync(threadId).catch(error => console.error(`[vitehub] Comments could not sync thread ${threadId} to its pull request:`, error)))
+        track(forge.sync(threadId).catch((error: unknown) => {
+          logSyncFailure("sync", "Comments could not sync a thread to its pull request", error, () => console.error(`[vitehub] Comments could not sync thread ${threadId} to its pull request:`, error), threadId)
+        }))
       },
     }
   }
