@@ -5792,6 +5792,8 @@ interface InlineChatTurn {
 
 const chatWrapUpBeforeMs = 120_000
 const chatWrapUpMinimumTimeoutMs = 300_000
+const chatWrapUpFirstRetryMs = 50
+const chatWrapUpMaximumRetryMs = 5_000
 
 /** Steers a running chat Invocation to answer with what it has, `beforeMs` before its timeout cancels it. */
 interface ChatWrapUpTimer {
@@ -5813,15 +5815,18 @@ function scheduleChatWrapUp(
     : `Time check from the host: this run is stopped in about ${minutes} minute${minutes === 1 ? "" : "s"}. Stop investigating and send your final reply now with what you found, what is still unverified, and what to check next.`
   let timer: ReturnType<typeof setTimeout> | undefined
   let cancelled = false
+  let retryMs = chatWrapUpFirstRetryMs
   const deadline = Date.now() + timeout
   const steer = async (): Promise<void> => {
     if (cancelled) return
     // Driver setup can register its input handler just after this timer fires.
     // Retry that transient state, while leaving unsupported Drivers alone.
+    // A Driver that never registers one would otherwise be polled until the timeout, so back off.
     const outcome = await sendAgentInvocationInput(runId, { prompt }, { mode: "steer" }).catch(() => "unavailable" as const)
     if (!cancelled && outcome === "unavailable" && Date.now() < deadline) {
-      timer = setTimeout(() => void steer(), Math.min(50, Math.max(1, deadline - Date.now())))
+      timer = setTimeout(() => void steer(), Math.min(retryMs, Math.max(1, deadline - Date.now())))
       timer.unref?.()
+      retryMs = Math.min(retryMs * 2, chatWrapUpMaximumRetryMs)
     }
   }
   timer = setTimeout(() => void steer(), timeout - beforeMs)

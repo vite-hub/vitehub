@@ -32,7 +32,7 @@ function readStatelessPreset(value: unknown): AuthStatelessPreset {
   if (isPlainObject(value) && value.name === "stateless" && typeof value.maxAge === "number" && Number.isSafeInteger(value.maxAge) && value.maxAge > 0) {
     return { name: "stateless", maxAge: value.maxAge }
   }
-  throw authErrorDiagnostics.AUTH_C0043({ message: "`defineAuth()` preset must be a preset such as `stateless()` from `@vite-hub/auth/presets`." })
+  throw authErrorDiagnostics.AUTH_C0043({ message: "`defineAuth()` preset must be a preset such as `stateless()` from `vite-hub/auth/presets`." })
 }
 
 function storedPluginId(plugin: unknown): string | undefined {
