@@ -76,7 +76,7 @@ export default defineWorkspace({
 })
 ```
 
-- `provider: 'memory'` keeps the files in memory. A server restart loses them.
+- `driver: 'memory'` keeps the files in memory. A server restart loses them.
 - `write: true` lets your route write Markdown files to the Workspace.
 
 ::
