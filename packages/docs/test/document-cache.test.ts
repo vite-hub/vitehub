@@ -231,6 +231,6 @@ it("searches unloaded panel pages while excluding hidden pages on the server", a
   const response = await server.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
   expect(response.status).toBe(200)
   const records = await response.json()
-  expect(createDocsSearch(records)("KV_INVALID_CURSOR").map(record => record.id)).toContain("/docs/kv/diagnostics/kv_invalid_cursor")
+  expect(createDocsSearch(records)("KV_INVALID_CURSOR", 12).map(record => record.id)).toContain("/docs/kv/diagnostics/kv_invalid_cursor")
   expect(records.some((record: { id: string }) => record.id.startsWith("/docs/kv/hidden"))).toBe(false)
 })
