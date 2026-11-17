@@ -64,6 +64,7 @@ import { viteHubTaskPlugin } from "./task/vite.ts"
 import { viteHubCachePlugin } from "./cache/vite.ts"
 import { viteHubServedSkillsPlugin } from "./skills/vite.ts"
 import { viteHubDurabilityPlugin } from "./durability/vite.ts"
+import { browserErrorsVitePlugin } from "./browser-errors-vite.ts"
 import { logsVitePlugin } from "./logs-vite.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
 import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "./console/runtime/sections.ts"
@@ -1428,7 +1429,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const configuredQueue = options.queue && options.queue !== true ? options.queue : undefined
   assertNodeQueueDriver(options.queue, plan.host)
   const observability = options.observability === true ? {} : options.observability || undefined
-  const { logs: logsOption, ...observabilityOptions } = observability ?? {}
+  const { logs: logsOption, browserErrors, ...observabilityOptions } = observability ?? {}
   const observabilityLogs = logsOption === true ? {} : logsOption || undefined
   const telemetry = Boolean(observabilityOptions.service)
   const workflowEnabled = options.workflow !== false
@@ -1553,6 +1554,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     if (evlogRegistered) plugins.push(observabilityVitePlugin(observabilityOptions, { agent: options.agent, hosting: plan.nitroPreset }))
   }
   if (observabilityLogs) plugins.push(logsVitePlugin(observabilityLogs))
+  if (browserErrors) plugins.push(browserErrorsVitePlugin())
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
   if (options.trustProxy || options.sameOriginWrites || options.security) plugins.push(requestPolicyVitePlugin(options))
   if (options.health) plugins.push(healthVitePlugin(options.health === true ? {} : options.health, { database: Boolean(options.database) }))
