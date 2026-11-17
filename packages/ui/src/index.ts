@@ -27,6 +27,7 @@ export * from "./components/trace.ts";
 export {
   PlaygroundRender,
   type PlaygroundIssue,
+  type PlaygroundOpenEvent,
   type PlaygroundPane,
   type PlaygroundPaneSlotProps,
   type PlaygroundPreset,
