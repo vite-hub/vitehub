@@ -476,7 +476,9 @@ function insertBelow(instance: Editor | undefined, onClick: () => { pos: number 
   handlers.value.suggestion.execute(instance, { pos: node?.pos }).run();
 }
 
-function lockHandle(instance: Editor, open: boolean): void {
+// Enter opens the block menu without a click, so opening it selects the block under the handle, as a press does.
+function toggleBlockMenu(instance: Editor, open: boolean, select: () => unknown): void {
+  if (open) select();
   instance.chain().setMeta("lockDragHandle", open).run();
 }
 
@@ -551,7 +553,7 @@ watch(editor, (instance) => {
           :items="blockItems(editor)"
           :content="{ side: 'left', align: 'start' }"
           :ui="{ content: 'w-52' }"
-          @update:open="lockHandle(editor, $event)"
+          @update:open="toggleBlockMenu(editor, $event, onClick)"
         >
           <UButton
             icon="i-lucide-grip-vertical"
@@ -561,7 +563,6 @@ watch(editor, (instance) => {
             aria-label="Block actions. Drag to move."
             :active="open"
             :class="ui.handle()"
-            @click="onClick"
           />
         </UDropdownMenu>
       </UEditorDragHandle>

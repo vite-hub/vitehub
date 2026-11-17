@@ -79,7 +79,7 @@ describe("types", () => {
 
   it("types the sandboxTask plugin options", () => {
     const options: SandboxTaskOptions = {
-      provider: "cloudflare",
+      driver: "cloudflare",
       binding: "SANDBOX",
       name: "custom-sandbox",
     }
@@ -106,6 +106,6 @@ describe("types", () => {
   it("returns a Vite plugin", () => {
     const plugin = hubSandboxTask()
 
-    expectTypeOf(hubSandboxTask({ provider: "cloudflare" })).toMatchTypeOf<typeof plugin>()
+    expectTypeOf(hubSandboxTask({ driver: "cloudflare" })).toMatchTypeOf<typeof plugin>()
   })
 })

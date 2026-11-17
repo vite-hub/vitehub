@@ -1,4 +1,4 @@
-import { githubHmacSignatureFormat, verifyViteHubHmacSignature, verifyViteHubStripeSignature } from "@vite-hub/internal/secret"
+import { githubHmacSignatureFormat, verifyViteHubHmacSignature, verifyViteHubStripeSignature, viteHubHmacSha256 } from "@vite-hub/internal/secret"
 import { defineErrors } from "@vite-hub/runtime"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
@@ -13,8 +13,8 @@ const webhookErrors = /*#__PURE__*/ defineErrors({
     // Runtime errors. `verifyWebhook()` returns them as `[error, undefined]`.
     ENV_WEBHOOK_BODY_INVALID: {
       docs: "https://vitehub.dev/docs/env/diagnostics/env_webhook_body_invalid",
-      why: "The webhook has a valid signature, but its body is not JSON.",
-      fix: "Set the provider to send JSON. In GitHub webhook settings, set Content type to `application/json`.",
+      why: "The webhook has a valid signature, but its body is not JSON, or a GitHub form delivery has no JSON `payload` field.",
+      fix: "Set the provider to send JSON. GitHub can send `application/json` or `application/x-www-form-urlencoded`, and `verifyWebhook()` reads both.",
     },
     ENV_WEBHOOK_SECRET_UNSET: {
       docs: "https://vitehub.dev/docs/env/diagnostics/env_webhook_secret_unset",
@@ -79,9 +79,16 @@ function verifySignature(options: VerifyWebhookOptions, secret: string, header: 
   return verifyViteHubHmacSignature(secret, header, body, options)
 }
 
+// GitHub signs the raw form body and puts the JSON in its `payload` field when the webhook content type is form.
+function webhookJson(options: VerifyWebhookOptions, headers: Headers, text: string): string | null {
+  if (options.provider !== "github" || !headers.get("content-type")?.toLowerCase().startsWith("application/x-www-form-urlencoded")) return text
+  return new URLSearchParams(text).get("payload")
+}
+
 /**
  * Checks the signature of a webhook that Stripe, GitHub, or another provider sends to a route, and returns
- * `[error, body]` with the parsed JSON body. It reads the raw body once, so do not read the body before you call it.
+ * `[error, body]` with the parsed JSON body. For a GitHub delivery with the form content type, `body` is the JSON
+ * of its `payload` field. It reads the raw body once, so do not read the body before you call it.
  * It reads the secret from the server variable `secret` on each request. The variable holds one secret, or a
  * comma-separated list while you rotate. It compares in constant time and runs on every host.
  *
@@ -110,10 +117,53 @@ export async function verifyWebhook<TBody = unknown>(event: RequestEvent, option
   let valid = false
   for (const secret of secrets) valid = await verifySignature(options, secret, header, body) || valid
   if (!valid) return [webhookErrors.ENV_WEBHOOK_SIGNATURE_INVALID({ header: headerName, name }), undefined]
+  const json = webhookJson(options, request.headers, new TextDecoder().decode(body))
+  if (json === null) return [webhookErrors.ENV_WEBHOOK_BODY_INVALID(), undefined]
   try {
-    return [undefined, JSON.parse(new TextDecoder().decode(body)) as TBody]
+    // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- The signature proves the provider sent this body; the caller names its shape with TBody.
+    return [undefined, JSON.parse(json) as TBody]
   }
   catch (cause) {
     return [webhookErrors.ENV_WEBHOOK_BODY_INVALID({ cause }), undefined]
   }
+}
+
+/** How `signWebhook()` signs an outgoing body. */
+export interface SignWebhookOptions {
+  /** `"github"` sets `x-hub-signature-256`. `"stripe"` sets `stripe-signature` with the time. */
+  provider: "github" | "stripe"
+  /** The signing secret itself, not the name of a variable. The receiver must have the same secret. */
+  secret: string
+  /** The signed time for `"stripe"`, in Unix seconds. Default: now. */
+  timestamp?: number
+}
+
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("")
+}
+
+/**
+ * Signs the raw body of an outgoing webhook with HMAC-SHA256 and returns the headers to send with it. The receiver
+ * checks them with `verifyWebhook()` or the provider's own SDK. Send the exact `body` that you signed. It uses Web
+ * Crypto only, so it runs on every host.
+ *
+ * ```ts
+ * import { signWebhook } from "vite-hub/env"
+ *
+ * const body = JSON.stringify({ type: "deploy.finished" })
+ * const headers = await signWebhook(body, { provider: "github", secret: process.env.HOOK_SECRET! })
+ * await fetch("https://example.com/hook", { method: "POST", body, headers: { ...headers, "content-type": "application/json" } })
+ * ```
+ */
+export async function signWebhook(body: string | Uint8Array<ArrayBuffer>, options: SignWebhookOptions): Promise<Record<string, string>> {
+  const bytes = typeof body === "string" ? new TextEncoder().encode(body) : body
+  if (options.provider === "github") {
+    return { "x-hub-signature-256": `sha256=${toHex(await viteHubHmacSha256(options.secret, bytes))}` }
+  }
+  const timestamp = options.timestamp ?? Math.floor(Date.now() / 1000)
+  const prefix = new TextEncoder().encode(`${timestamp}.`)
+  const payload = new Uint8Array(prefix.length + bytes.length)
+  payload.set(prefix)
+  payload.set(bytes, prefix.length)
+  return { "stripe-signature": `t=${timestamp},v1=${toHex(await viteHubHmacSha256(options.secret, payload))}` }
 }

@@ -1203,6 +1203,37 @@ it("retries a lazy import and honors the editor exit guard", async () => {
 
 describe("the account item", () => {
   const ada = { name: "Ada Lovelace", email: "ada@example.com", via: "console", signOut: "/api/auth/sign-out" }
+  // happy-dom has no popover API. This stands in for the part that the menu uses: a `popovertarget` button toggles its
+  // popover, `beforetoggle` comes first, and `toggle` comes in a later task, as in a browser.
+  const shown = new Set<Element>()
+  function toggle(element: HTMLElement, open = !shown.has(element)) {
+    if (open === shown.has(element)) return
+    const states = { newState: open ? "open" : "closed", oldState: open ? "closed" : "open" }
+    element.dispatchEvent(Object.assign(new Event("beforetoggle"), states))
+    if (open) shown.add(element)
+    else shown.delete(element)
+    setTimeout(() => element.dispatchEvent(Object.assign(new Event("toggle"), states)))
+  }
+  function invoke(event: Event) {
+    const invoker = event.composedPath().find((target): target is HTMLButtonElement => target instanceof HTMLButtonElement && target.hasAttribute("popovertarget"))
+    const root = invoker?.getRootNode()
+    const target = root instanceof ShadowRoot ? root.getElementById(invoker!.getAttribute("popovertarget")!) : null
+    if (target) toggle(target)
+  }
+  beforeEach(() => {
+    shown.clear()
+    for (const [name, open] of [["showPopover", true], ["hidePopover", false]] as const) {
+      Object.defineProperty(HTMLElement.prototype, name, { configurable: true, value(this: HTMLElement) { toggle(this, open) } })
+    }
+    document.addEventListener("click", invoke)
+  })
+  afterEach(() => {
+    // The tools close the menu as they stop, so they stop while the stand-in is there.
+    stopViteHubPageTools()
+    document.removeEventListener("click", invoke)
+    for (const name of ["showPopover", "hidePopover"]) Reflect.deleteProperty(HTMLElement.prototype, name)
+  })
+  const settled = () => new Promise(resolve => setTimeout(resolve))
 
   function account() {
     const host = document.querySelector("vitehub-pill vitehub-account")!
@@ -1232,10 +1263,11 @@ describe("the account item", () => {
     vi.spyOn(document.querySelector("vitehub-pill")!, "getBoundingClientRect").mockReturnValue({ top: edge === "bottom" ? 740 : 20, bottom: edge === "bottom" ? 780 : 60 } as DOMRect)
     vi.spyOn(button, "getBoundingClientRect").mockReturnValue({ right: at === 0 ? 155 : width - 12 } as DOMRect)
     vi.spyOn(menu, "getBoundingClientRect").mockImplementation(() => {
-      expect(menu.hidden).toBe(false)
+      expect(shown.has(menu)).toBe(true)
       return { width: 220 } as DOMRect
     })
     button.click()
+    await new Promise(requestAnimationFrame)
     expect(menu.style.left).toBe(`${at === 0 ? 8 : width - 232}px`)
     expect(menu.style.right).toBe("auto")
     expect(edge === "bottom" ? menu.style.bottom : menu.style.top).toBe("68px")
@@ -1258,28 +1290,51 @@ describe("the account item", () => {
     expect(button.textContent).toBe("AL")
     expect(button.getAttribute("aria-label")).toBe("Account: Ada Lovelace")
     expect([button.getAttribute("aria-haspopup"), button.getAttribute("aria-expanded"), button.getAttribute("aria-controls")]).toEqual(["menu", "false", menu.id])
+    // An auto popover that the button opens: the browser closes it on Escape and on a press outside.
+    expect([menu.getAttribute("popover"), button.getAttribute("popovertarget")]).toEqual(["auto", menu.id])
     expect(menu.querySelector(".me")?.textContent).toBe("ALAda Lovelaceada@example.com")
     expect(menu.querySelector(".via")?.textContent).toBe("Signed in with ViteHub Console")
     expect(items()).toEqual(["Open in the Console", `Sign out of ${location.host}`])
   })
 
-  it("opens with the focus on the first item, and Escape closes it and gives the focus back", async () => {
+  it("opens with the focus on the first item, moves with the arrow keys, keeps Escape from the page, and gives the focus back", async () => {
     page("/?vitehub")
     session({ tools: [consoleTool], account: ada })
     await loadViteHubPageTools({ load: modules().load })
     const { button, menu, shadow } = account()
     button.click()
-    await new Promise(resolve => setTimeout(resolve))
-    expect(menu.hidden).toBe(false)
+    await settled()
+    expect(shown.has(menu)).toBe(true)
     expect(button.getAttribute("aria-expanded")).toBe("true")
     expect(shadow.activeElement?.textContent).toBe("Open in the Console")
     menu.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }))
     expect(shadow.activeElement?.textContent).toBe(`Sign out of ${location.host}`)
-    menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
-    await new Promise(resolve => setTimeout(resolve))
-    expect(menu.hidden).toBe(true)
+    const pageKeys = vi.fn()
+    document.addEventListener("keydown", pageKeys)
+    menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }))
+    document.removeEventListener("keydown", pageKeys)
+    expect(pageKeys).not.toHaveBeenCalled()
+    menu.hidePopover()
+    await settled()
+    expect(shown.has(menu)).toBe(false)
     expect(button.getAttribute("aria-expanded")).toBe("false")
     expect(shadow.activeElement).toBe(button)
+  })
+
+  it("closes when the pill moves to another edge", async () => {
+    page("/?vitehub")
+    session({ tools: [comments], account: ada })
+    await loadViteHubPageTools({ load: modules().load })
+    const { button, menu } = account()
+    button.click()
+    await settled()
+    expect(shown.has(menu)).toBe(true)
+    pill().element.setAttribute("edge", "top")
+    // The pill's observer runs in a microtask, and the close sends its toggle event in a task after that.
+    await settled()
+    await settled()
+    expect(shown.has(menu)).toBe(false)
+    expect(button.getAttribute("aria-expanded")).toBe("false")
   })
 
   it("leaves out the Console item and the line for a guest", async () => {
@@ -1288,7 +1343,7 @@ describe("the account item", () => {
     await loadViteHubPageTools({ load: modules().load })
     const { menu, items } = account()
     account().button.click()
-    await new Promise(resolve => setTimeout(resolve))
+    await settled()
     expect(menu.querySelector(".via")).toBeNull()
     expect(items()).toEqual([`Sign out of ${location.host}`])
   })

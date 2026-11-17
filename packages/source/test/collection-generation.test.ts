@@ -223,7 +223,7 @@ it("keeps preview interception, RSS, and LLMs routes together, then removes both
     const plugin = join(projectRoot, ".vitehub/content/preview-routes.mjs")
     const llms = join(projectRoot, ".vitehub/content/llms.mjs")
     expect(mergeGeneratedSourceNitroConfig({ plugins: ["async.mjs"] }, handlers).plugins![0]).toBe(plugin)
-    expect(handlers.filter(handler => handler.handler === llms).map(handler => handler.route)).toEqual(["/llms-full.txt", "/llms.txt", "/sitemap.md"])
+    expect(handlers.filter(handler => handler.handler === llms).map(handler => handler.route)).toEqual(["/:locale/llms-full.txt", "/llms-full.txt", "/llms.txt", "/sitemap.md"])
     expect(handlers.some(handler => handler.handler === join(projectRoot, ".vitehub/content/markdown.mjs"))).toBe(true)
     await access(plugin)
     await access(llms)

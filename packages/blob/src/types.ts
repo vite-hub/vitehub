@@ -6,13 +6,13 @@ import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, M
 
 export type BlobDriver =
   | "azure"
-  | "cloudflare-r2"
+  | "cloudflare"
   | "fs"
   | "gcs"
   | "minio"
   | "netlify-blobs"
   | "s3"
-  | "vercel-blob"
+  | "vercel"
 export type BlobType = "audio" | "blob" | "image" | "pdf" | "text" | "video" | `${string}/${string}`
 export type SizeUnit = "B" | "GB" | "KB" | "MB"
 type PowOf2 = 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 | 256 | 512 | 1024
@@ -70,7 +70,7 @@ export type BlobSignOptions =
     contentType?: string
     createOnly?: boolean
     expiresIn: number
-    /** The largest body that the upload accepts, such as `"8MB"`. Only the `fs` and `vercel-blob` drivers bind it. */
+    /** The largest body that the upload accepts, such as `"8MB"`. Only the `fs` and `vercel` drivers bind it. */
     maxSize?: BlobSize
     method: "PUT"
   }
@@ -379,7 +379,7 @@ export interface BlobStorage {
    * the `fs` driver copies the file. R2 streams the object from the binding. Netlify Blobs reads and writes it.
    */
   copy(from: string, to: string, options?: BlobCopyOptions): Promise<Result<BlobObject, BlobErrorCode>>
-  /** Start a multipart upload. Supported by the `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers. */
+  /** Start a multipart upload. Supported by the `fs`, `cloudflare` (binding), and `vercel` drivers. */
   createMultipartUpload(pathname: string, options?: BlobMultipartOptions): Promise<Result<BlobMultipartUpload, BlobErrorCode>>
   /** Delete one or more objects. A missing object is not an error. */
   delete(pathnames: string | string[]): Promise<Result<void, BlobErrorCode>>
@@ -462,7 +462,7 @@ export interface CloudflareR2BlobStoreConfig extends HostedBlobStoreConfig {
   binding?: string
   bucketName?: string
   defaultUrlExpiresIn?: number
-  driver: "cloudflare-r2"
+  driver: "cloudflare"
   /** Jurisdiction of the bucket. Sets the wrangler binding, the provisioning request, and the S3 API host. */
   jurisdiction?: CloudflareR2Jurisdiction
   publicBaseUrl?: string
@@ -485,7 +485,7 @@ export interface VercelBlobStoreConfig extends HostedBlobStoreConfig {
   access?: "private" | "public"
   allowOverwrite?: boolean
   downloadTimeoutMs?: number
-  driver: "vercel-blob"
+  driver: "vercel"
   token?: string
 }
 

@@ -289,6 +289,12 @@ const registries = [
     type: "collections",
   },
   {
+    // @vite-hub/webhooks: `renderWebhooksTypes()` in src/vite.ts. One file of `server/webhooks/` is one webhook.
+    definitions: label => [/^server\/webhooks\/([a-z0-9][a-z0-9-]*)\.[cm]?ts$/.exec(label)?.[1]].filter(Boolean),
+    render: entries => [`import "@vite-hub/webhooks"`, `declare module "@vite-hub/webhooks" {`, "  interface WebhookRegistry {", ...entries.map(([key, path]) => `    ${key}: typeof import(${path}).default`), "  }", "}"],
+    type: "webhooks",
+  },
+  {
     // @vite-hub/database: src/internal/generated.ts. `src/database.ts` defines the `default` Database.
     // Server Definitions use `server/databases/<name>.ts` or `server/databases/<name>/index.ts`.
     definitions: (label) => {

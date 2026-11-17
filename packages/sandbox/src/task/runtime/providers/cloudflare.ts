@@ -1,12 +1,12 @@
 import type { CloudflareSandboxOptions } from '../../../index.ts'
 import { resolveCloudflareSandbox } from '../../../internal/cloudflare.ts'
 import { getActiveCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'
-import type { CloudflareSandboxTaskDefinitionProviderOptions, SandboxTaskDefinitionOptions } from '../../module-types'
+import type { CloudflareSandboxTaskDefinitionDriverOptions, SandboxTaskDefinitionOptions } from '../../module-types'
 import { sandboxTaskErrorDiagnostics } from "../../error-diagnostics.ts"
 
 type SandboxTaskOptions = {
   local: SandboxTaskDefinitionOptions
-  provider: CloudflareSandboxTaskDefinitionProviderOptions
+  provider: CloudflareSandboxTaskDefinitionDriverOptions
 }
 
 /** Resolve the Sandbox namespace from the bindings of the active Cloudflare request. */

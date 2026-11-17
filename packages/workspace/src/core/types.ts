@@ -141,8 +141,19 @@ export interface WorkspacePlugin {
   hooks?: WorkspaceHooks
 }
 
+/** The person that a snapshot or a history commit records as its author. */
+export interface WorkspaceAuthor {
+  name: string
+  email: string
+}
+
 export interface SnapshotOptions {
   name?: string
+  /**
+   * Who made the change, such as the signed-in user. The GitHub and Cloudflare Artifacts Stores write it as the Git
+   * commit author. Stores with retained history keep it as `metadata.author` of the revision.
+   */
+  author?: WorkspaceAuthor
 }
 
 export interface DiffOptions {
@@ -869,16 +880,16 @@ export interface LocalWorkspaceStoreOptions {
    * write locks in memory. Use it only when one process owns the root.
    */
   locks?: "filesystem" | "process"
-  provider?: "local"
+  driver?: "local"
   root?: string
 }
 
 export interface MemoryWorkspaceStoreOptions {
-  provider: "memory"
+  driver: "memory"
 }
 
 export interface CloudflareArtifactsWorkspaceStoreOptions {
-  provider: "cloudflare-artifacts"
+  driver: "cloudflare"
   binding?: string
   namespace?: string
   repo?: string
@@ -887,7 +898,7 @@ export interface CloudflareArtifactsWorkspaceStoreOptions {
 }
 
 export interface VercelBlobWorkspaceStoreOptions {
-  provider: "vercel-blob"
+  driver: "vercel"
   token?: string
   /**
    * A namespace under `_vitehub/workspaces/`. For example, `handbook`
@@ -909,7 +920,7 @@ export interface GitHubWorkspaceRefs {
 }
 
 export interface GitHubWorkspaceStoreOptions {
-  provider: "github"
+  driver: "github"
   branch?: GitHubWorkspaceOption
   /**
    * An opaque value that the store target carries for consumers that keep their own rows next to the Workspace, such as a

@@ -5,21 +5,30 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 /** Storage for Nitro's `cache` mount, used by `defineCachedFunction()` and `defineCachedEventHandler()`. */
 export type CacheOptions =
-  | { driver: "cloudflare-kv-binding", binding?: string, namespaceId?: string }
+  /** Workers KV on the Cloudflare preset. */
+  | { driver: "cloudflare", binding?: string, namespaceId?: string }
   /** The app's default KV store, on every host where `kv` is enabled. `base` prefixes the cache keys (default `nitro-cache`). */
   | { driver: "kv", base?: string }
   | { driver: "deno-kv", base?: string }
   | { driver: "fs-lite", base?: string }
-  | { driver: "vercel-runtime-cache" }
+  /** Vercel Runtime Cache on the Vercel preset. */
+  | { driver: "vercel" }
 
 type CacheDriver = Exclude<CacheOptions["driver"], "kv">
 
 /** `{ driver: "kv" }` mounts the KV package's unstorage driver by file path. It runs over `kv` from `vite-hub/kv`. */
 type KVCacheMount = { driver: string, base: string }
 
+/** A Nitro storage mount. `driver` is the unstorage driver name. */
+type CacheMount =
+  | { driver: "cloudflare-kv-binding", binding: string }
+  | { driver: "deno-kv", base: string }
+  | { driver: "fs-lite", base: string }
+  | { driver: "vercel-runtime-cache" }
+
 export interface ResolvedCacheStorage {
   /** Nitro cache mount for production output. */
-  storage: Exclude<CacheOptions, { driver: "kv" }> | KVCacheMount
+  storage: CacheMount | KVCacheMount
   /** Development and prerendering use the local filesystem, or the app's dev KV store. */
   devStorage: { driver: "fs-lite", base: string } | KVCacheMount
   /** Wrangler KV namespace that backs the Cloudflare mount. */
@@ -31,18 +40,21 @@ const defaultCloudflareCacheBinding = "CACHE"
 
 // Each driver needs a runtime that only one host provides.
 const cacheDriverHosts: Record<CacheDriver, ViteHubHost> = {
-  "cloudflare-kv-binding": "cloudflare",
+  cloudflare: "cloudflare",
   "deno-kv": "deno",
   "fs-lite": "node",
-  "vercel-runtime-cache": "vercel",
+  vercel: "vercel",
 }
 
 const hostCacheDrivers: Partial<Record<ViteHubHost, CacheDriver>> = {
-  cloudflare: "cloudflare-kv-binding",
+  cloudflare: "cloudflare",
   deno: "deno-kv",
   node: "fs-lite",
-  vercel: "vercel-runtime-cache",
+  vercel: "vercel",
 }
+
+/** Unstorage driver names that ViteHub renamed to the host name. `npx @vite-hub/codemods driver-key` moves them. */
+const renamedCacheDrivers = new Map([["cloudflare-kv-binding", "cloudflare"], ["vercel-runtime-cache", "vercel"]])
 
 function trimmed(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined
@@ -61,7 +73,8 @@ function readCacheDriver(cache: true | CacheOptions, host: ViteHubHost): CacheDr
     return driver
   }
   if (!isPlainObject(cache) || !isCacheDriver(cache.driver)) {
-    throw viteHubErrorDiagnostics.VITE_HUB_C0004({ message: `[vitehub] \`cache.driver\` must be "cloudflare-kv-binding", "deno-kv", "fs-lite", "kv", or "vercel-runtime-cache".` })
+    const driver: unknown = isPlainObject(cache) ? cache.driver : undefined
+    throw viteHubErrorDiagnostics.VITE_HUB_C0004({ driver: JSON.stringify(driver) ?? "missing", renamed: renamedCacheDrivers.get(String(driver)) })
   }
   if (cacheDriverHosts[cache.driver] !== host) {
     throw viteHubErrorDiagnostics.CACHE_DRIVER_WRONG_HOST({ driver: cache.driver, host, required: cacheDriverHosts[cache.driver] })
@@ -85,21 +98,21 @@ export function resolveCacheStorage(cache: true | CacheOptions, host: ViteHubHos
   const devStorage = { driver: "fs-lite" as const, base: localBase }
 
   switch (driver) {
-    case "cloudflare-kv-binding": {
+    case "cloudflare": {
       const binding = (explicit?.driver === driver ? trimmed(explicit.binding) : undefined) ?? defaultCloudflareCacheBinding
       const id = explicit?.driver === driver ? trimmed(explicit.namespaceId) : undefined
       return {
         cloudflareNamespace: id ? { binding, id } : { binding },
         devStorage,
-        storage: { binding, driver },
+        storage: { binding, driver: "cloudflare-kv-binding" },
       }
     }
     case "deno-kv":
       return { devStorage, storage: { base: (explicit?.driver === driver ? trimmed(explicit.base) : undefined) ?? "cache", driver } }
     case "fs-lite":
       return { devStorage, storage: { base: localBase, driver } }
-    case "vercel-runtime-cache":
-      return { devStorage, storage: { driver } }
+    case "vercel":
+      return { devStorage, storage: { driver: "vercel-runtime-cache" } }
   }
 }
 

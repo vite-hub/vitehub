@@ -5,6 +5,7 @@ import { forgeDiagnostics } from "../error-diagnostics.ts"
 import { isRecord, repositoryPath, requireGitHub } from "./github.ts"
 
 // Gap: forges `threads.merge()` cannot bypass branch rules. GitHub's asynchronous merge takes `bypass_rules`.
+// Remove when forges releases it (https://github.com/danielroe/forges/issues/297).
 
 export interface ForgeMergeOptions extends MergeOptions {
   /**

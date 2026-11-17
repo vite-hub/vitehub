@@ -38,7 +38,7 @@ it("reports missing D1 HTTP credentials of `vitehub database migrate` with the c
   const root = await mkdtemp(join(tmpdir(), "vitehub-database-d1-http-"))
   try {
     const database = { ...d1Http, migrationsDir: join(root, "migrations") }
-    await expect(migrateD1Http(database, { env: {}, projectRoot: root }, () => {})).resolves.toMatchObject({
+    await expect(migrateD1Http(database, { env: {}, projectRoot: root }, () => {}, () => {})).resolves.toMatchObject({
       code: "DATABASE_D1_MIGRATION_FAILED",
       fix: expect.stringContaining("CLOUDFLARE_API_TOKEN"),
       message: expect.stringContaining("needs `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`"),

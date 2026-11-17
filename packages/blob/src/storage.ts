@@ -50,7 +50,7 @@ export function toBlobMultipartUpload(upload: BlobDriverMultipartUpload, store: 
 }
 
 function unsupportedMultipart(driver: BlobDriverAdapter<unknown>): Error {
-  return blobErrorDiagnostics.BLOB_R0030({ message: `Blob driver "${driver.name}" does not support multipart uploads. Use the fs, cloudflare-r2, or vercel-blob driver.` })
+  return blobErrorDiagnostics.BLOB_R0030({ message: `Blob driver "${driver.name}" does not support multipart uploads. Use the fs, cloudflare, or vercel driver.` })
 }
 
 
@@ -150,17 +150,28 @@ function guessContentType(pathname: string): string {
   const dotIndex = filename.lastIndexOf(".")
   const extension = dotIndex > 0 ? filename.slice(dotIndex).toLowerCase() : ""
   const known: Record<string, string> = {
+    ".avif": "image/avif",
+    ".css": "text/css; charset=utf-8",
+    ".csv": "text/csv; charset=utf-8",
     ".gif": "image/gif",
     ".html": "text/html; charset=utf-8",
+    ".ico": "image/x-icon",
     ".jpeg": "image/jpeg",
     ".jpg": "image/jpeg",
     ".js": "text/javascript; charset=utf-8",
     ".json": "application/json; charset=utf-8",
+    ".md": "text/markdown; charset=utf-8",
+    ".mp3": "audio/mpeg",
+    ".mp4": "video/mp4",
     ".pdf": "application/pdf",
     ".png": "image/png",
     ".svg": "image/svg+xml",
     ".txt": "text/plain; charset=utf-8",
+    ".vtt": "text/vtt; charset=utf-8",
+    ".wav": "audio/wav",
+    ".webm": "video/webm",
     ".webp": "image/webp",
+    ".woff2": "font/woff2",
   }
   return known[extension] || "application/octet-stream"
 }
@@ -183,9 +194,9 @@ export interface BlobStorageOptions {
 function warnRemoteStore(options: { bucketName?: unknown, driver?: unknown, remote?: unknown } | undefined, store: string): void {
   if (options?.remote !== true) return
   const bucket = typeof options.bucketName === "string" && options.bucketName ? ` ${options.bucketName}` : ""
-  const target = options.driver === "vercel-blob"
+  const target = options.driver === "vercel"
     ? "Vercel Blob store"
-    : options.driver === "cloudflare-r2" ? `R2 bucket${bucket}` : `\`${String(options.driver)}\` store`
+    : options.driver === "cloudflare" ? `R2 bucket${bucket}` : `\`${String(options.driver)}\` store`
   console.warn(`[vitehub] Blob store "${store}" is remote: \`vite dev\` uses the real ${target}. Writes change real data.`)
 }
 

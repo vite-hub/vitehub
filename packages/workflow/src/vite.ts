@@ -263,7 +263,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
     invariant(config, "the Schedule plugin prepares the Workflow runtime during the build, after configResolved() sets the Vite config")
     const build = scheduledBuildConfig(config)
     const workflowOptions = build?.workflow ?? workflow
-    if (resolveWorkflow(workflowOptions)?.provider !== "vercel") return
+    if (resolveWorkflow(workflowOptions)?.driver !== "vercel") return
     const rootDir = resolveViteHubProjectRoot(config.root)
     const aliases = await providerImportAliases(config)
     // SAFETY: The framework adds optional forwarded server directories to the active Vite configuration.
@@ -353,7 +353,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
   }
 
   function postgresDatabaseImportFor(postgres: boolean | undefined): string | undefined {
-    return devWorkflow?.provider === "openworkflow" && postgres ? internalOptions.databaseImport ?? "@vite-hub/database" : undefined
+    return devWorkflow?.driver === "openworkflow" && postgres ? internalOptions.databaseImport ?? "@vite-hub/database" : undefined
   }
   let devStartupPlugin: string | undefined
   let devWorkflow: ResolvedWorkflowOptions | undefined
@@ -579,10 +579,10 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
         const options = resolveWorkflow(workflow)
         if (!options) return []
         const input = {
-          provider: options.provider,
-          defaultDatabase: options.provider === "openworkflow" && readPostgresDefaultDatabase(databasePlugin) === true,
-          ...(options.provider === "openworkflow" && options.postgres?.url !== undefined ? { postgresUrl: workflowDurabilityUrl(options.postgres.url) } : {}),
-          ...(options.provider === "openworkflow" && options.sqlite?.path !== undefined ? { sqlitePath: options.sqlite.path } : {}),
+          driver: options.driver,
+          defaultDatabase: options.driver === "openworkflow" && readPostgresDefaultDatabase(databasePlugin) === true,
+          ...(options.driver === "openworkflow" && options.postgres?.url !== undefined ? { postgresUrl: workflowDurabilityUrl(options.postgres.url) } : {}),
+          ...(options.driver === "openworkflow" && options.sqlite?.path !== undefined ? { sqlitePath: options.sqlite.path } : {}),
         }
         return [{ export: "workflowDurability", input, module: durabilityModuleFile(import.meta.url), primitive: "workflow" }]
       },
@@ -823,4 +823,3 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
     },
   }
 }
-

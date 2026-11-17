@@ -6,13 +6,13 @@ navigation.order: 6
 icon: i-lucide-cloud-cog
 ---
 
-## Providers
+## Drivers
 
-| Host | Provider without `provider` |
+| Host | Driver without `driver` |
 | --- | --- |
 | Cloudflare | Cloudflare |
 | Vercel | Vercel |
-| Netlify | None. Set `provider`. |
+| Netlify | None. Set `driver`. |
 | Node and Docker, including `vite dev` with the Node host | OpenWorkflow, with an automatic worker |
 | Deno and other hosts | OpenWorkflow when you set `postgres.url` or `sqlite.path`. Else the build fails with `WORKFLOW_C0020`. |
 | `vite dev` on a host without a provider | Inline runs in the dev server |
@@ -20,11 +20,11 @@ icon: i-lucide-cloud-cog
 ViteHub infers Vercel only on Vercel. On Node and Docker, Agent turns are OpenWorkflow runs, so they survive a restart. On a host where only the Agent turns on Workflow, such as Deno, Agent Workflows run inline, and a restart loses their runs. On Node and Docker, an app without discovered Workflows or Agents starts no worker. `vitehub durability list` shows the store that the app uses.
 
 
-| Provider | Configure with | Provider output | Nuance |
+| Driver | Configure with | Driver output | Nuance |
 | --- | --- | --- | --- |
-| Cloudflare | `workflow: { provider: 'cloudflare' }` | Workflow class, binding, and runtime entry. | Runs through Cloudflare Workflow bindings. Set `binding` and `name` to match existing resources. Without the binding, only `vite dev` runs the Workflow inline. A deployed Worker fails with `WORKFLOW_R0036`. |
-| Vercel | `workflow: { provider: 'vercel' }` | Workflow runtime in the build output, on Vercel only. Other hosts get none. With Nitro or Nuxt, Nitro's server function installs the Workflows, so routes can start them. Native entries also get the Workflow DevKit functions. | A `native` entry uses Workflow DevKit for durable execution. The normal handler runs inline and stops if the function restarts. |
-| OpenWorkflow | Inferred on Node and Docker, or `workflow: { provider: 'openworkflow' }` | A Nitro plugin that loads OpenWorkflow and starts its worker. | Uses the Postgres Default Database or `OPENWORKFLOW_POSTGRES_URL`, else a SQLite file. Set `postgres.url` or `sqlite.path`, not both. |
+| Cloudflare | `workflow: { driver: 'cloudflare' }` | Workflow class, binding, and runtime entry. | Runs through Cloudflare Workflow bindings. Set `binding` and `name` to match existing resources. Without the binding, only `vite dev` runs the Workflow inline. A deployed Worker fails with `WORKFLOW_R0036`. |
+| Vercel | `workflow: { driver: 'vercel' }` | Workflow runtime in the build output, on Vercel only. Other hosts get none. With Nitro or Nuxt, Nitro's server function installs the Workflows, so routes can start them. Native entries also get the Workflow DevKit functions. | A `native` entry uses Workflow DevKit for durable execution. The normal handler runs inline and stops if the function restarts. |
+| OpenWorkflow | Inferred on Node and Docker, or `workflow: { driver: 'openworkflow' }` | A Nitro plugin that loads OpenWorkflow and starts its worker. | Uses the Postgres Default Database or `OPENWORKFLOW_POSTGRES_URL`, else a SQLite file. Set `postgres.url` or `sqlite.path`, not both. |
 
 ### Install Vercel dependencies
 
@@ -70,18 +70,16 @@ OpenWorkflow resolves storage at runtime in this order:
 2. With neither set, `OPENWORKFLOW_SQLITE_PATH` selects SQLite.
 3. Else `OPENWORKFLOW_POSTGRES_URL` selects Postgres.
 4. Else, when the app has a Postgres Default Database (`server/databases/config.ts` with `dialect: 'postgresql'`), OpenWorkflow uses that Database's connection URL. A Database that connects through PG* variables only fails startup with `WORKFLOW_OPENWORKFLOW_DATABASE_URL_MISSING`, so runs never go to a SQLite file by accident. `DATABASE_URL` alone is not used.
-5. Else it uses `.vitehub/data/openworkflow.sqlite.db` in the process working directory, unless `DATABASE_URL` contains a Postgres URL (see the upgrade step below).
+5. Else it uses `.vitehub/data/openworkflow.sqlite.db` in the process working directory, unless `DATABASE_URL` contains a Postgres URL (see below).
 
-### Upgrade from DATABASE_URL storage
+### `DATABASE_URL` is not read
 
-OpenWorkflow no longer selects Postgres from `DATABASE_URL` alone. Before upgrading an app that uses it, set `OPENWORKFLOW_POSTGRES_URL` or `workflow.postgres.url` to the **same Postgres URL**, or add a Postgres Default Database pointing to that database. Keep the existing schema and namespace so queued and sleeping runs remain visible to every server.
-
-When `DATABASE_URL` starts with `postgres://` or `postgresql://` and no storage was selected above, storage resolution fails with `WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED` before either dispatch or the worker opens SQLite. Set the Postgres storage explicitly to resume those runs. To select local storage intentionally, set `workflow.sqlite.path` or `OPENWORKFLOW_SQLITE_PATH`. Other `DATABASE_URL` schemes, such as `libsql://`, do not trigger this diagnostic. `vite dev` still pins its local SQLite file unless `workflow.remote` is `true`.
+OpenWorkflow does not select Postgres from `DATABASE_URL`. When `DATABASE_URL` starts with `postgres://` or `postgresql://` and no step above selected storage, startup fails with `WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED` before dispatch or the worker opens SQLite. To keep runs in that database, set `OPENWORKFLOW_POSTGRES_URL` or `workflow.postgres.url` to the same URL, or add a Postgres Default Database for it. To use SQLite, set `workflow.sqlite.path` or `OPENWORKFLOW_SQLITE_PATH`. Other `DATABASE_URL` schemes, such as `libsql://`, do not cause this error. `vite dev` still uses its local SQLite file unless `workflow.remote` is `true`.
 
 > [!WARNING]
 > The SQLite default needs a writable filesystem. Its state lives only as long as that file. A new container or a temporary function filesystem can lose it. Set up persistent storage before production. Keep staging and production storage or namespaces apart.
 
-`workflow.database` is not supported and fails the config. It used to accept a Named Database without connecting OpenWorkflow to it. Use `workflow.postgres.url` or `workflow.sqlite.path` instead. Check where the old runtime really stored runs before you move them.
+`workflow.database` is not an option, and the config fails with it. Use `workflow.postgres.url` or `workflow.sqlite.path`.
 
 ## Run Workflows on Node
 

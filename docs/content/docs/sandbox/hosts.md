@@ -6,18 +6,18 @@ navigation.order: 7
 icon: i-lucide-cloud-cog
 ---
 
-## Providers
+## Drivers
 
 Choose the provider in app or host config, not in the task.
 
-| Provider | Configure with | Host support |
+| Driver | Configure with | Host support |
 | --- | --- | --- |
-| Vercel Sandbox | The `vercel` host, or `sandboxTask: { provider: 'vercel' }` | Vercel. Other hosts, such as Node and Netlify, with Vercel credentials set. |
+| Vercel Sandbox | The `vercel` host, or `sandboxTask: { driver: 'vercel' }` | Vercel. Other hosts, such as Node and Netlify, with Vercel credentials set. |
 | Cloudflare Sandbox | The `cloudflare` host | Cloudflare Workers with the generated Container and Durable Object binding. |
 
-`sandboxTask: true` uses the Sandbox of the host. The `deno`, `netlify`, and `node` hosts have no built-in Sandbox provider, so `sandboxTask: true` fails at config time there. Set `sandboxTask: { provider: 'vercel' }` to use Vercel Sandbox on the `node` or `netlify` host. `provider: 'cloudflare'` works only on the `cloudflare` host. Both providers run remote machines that may bill you. There is no local provider.
+`sandboxTask: true` uses the Sandbox of the host. The `deno`, `netlify`, and `node` hosts have no built-in Sandbox provider, so `sandboxTask: true` fails at config time there. Set `sandboxTask: { driver: 'vercel' }` to use Vercel Sandbox on the `node` or `netlify` host. `driver: 'cloudflare'` works only on the `cloudflare` host. Both providers run remote machines that may bill you. There is no local provider.
 
-To set provider options, give `sandboxTask` an object with the `provider` and the options from the tables below. The Nuxt module takes the same object in its `vitehub` options.
+To set provider options, give `sandboxTask` an object with the `driver` and the options from the tables below. The Nuxt module takes the same object in its `vitehub` options.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -26,7 +26,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     host: 'cloudflare',
-    sandboxTask: { provider: 'cloudflare', keepAlive: true, sleepAfter: '30m' },
+    sandboxTask: { driver: 'cloudflare', keepAlive: true, sleepAfter: '30m' },
   },
 })
 ```
@@ -42,7 +42,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       host: 'cloudflare',
-      sandboxTask: { provider: 'cloudflare', keepAlive: true, sleepAfter: '30m' },
+      sandboxTask: { driver: 'cloudflare', keepAlive: true, sleepAfter: '30m' },
     }),
     nitro(),
   ],
@@ -58,7 +58,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     host: 'cloudflare',
-    sandboxTask: { provider: 'cloudflare', keepAlive: true, sleepAfter: '30m' },
+    sandboxTask: { driver: 'cloudflare', keepAlive: true, sleepAfter: '30m' },
   })],
 })
 ```
@@ -71,10 +71,10 @@ The Vercel provider works in the Vite or Nuxt dev server when Vercel credentials
 
 ### Size
 
-Set the size of the machine that runs every Sandbox Task with `cpu` and `memory` in `hubSandboxTask()`. The two options work the same on both providers.
+Set the size of the machine that runs every Sandbox Task with `cpu` and `memory` in `sandboxTask`. The two options work the same on both providers.
 
 ```ts fragment
-hubSandboxTask({ provider: 'cloudflare', cpu: 1, memory: 4096 })
+sandboxTask: { driver: 'cloudflare', cpu: 1, memory: 4096 }
 ```
 
 | Option | Type | Description |
@@ -100,7 +100,6 @@ On Cloudflare, `vitehub inspect resources` shows the instance type and the insta
 | Option | Default | Description |
 | --- | --- | --- |
 | `runtime` | `'node24'` | Runtime image. With a `snapshot` source, the snapshot sets the runtime, so ViteHub sends none unless you set one. |
-| `timeout` | - | Session timeout in milliseconds. A task timeout wins: the session then gets the task timeout plus 30 seconds for Sandbox setup and cleanup. |
 | `ports` | - | Ports to expose. |
 | `source` | - | Source to load. |
 | `networkPolicy` | `'allow-all'` | Outbound traffic. See [Network policy](#network-policy). Vercel also takes `subnets`. |
@@ -138,7 +137,7 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [
     hubSandboxTask({
-      provider: 'cloudflare',
+      driver: 'cloudflare',
       networkPolicy: { allow: ['registry.npmjs.org', '*.github.com'] },
     }),
   ],

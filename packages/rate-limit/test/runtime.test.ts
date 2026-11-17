@@ -1,5 +1,5 @@
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { HTTPError, mockEvent } from "h3"
+import { H3, HTTPError, mockEvent } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { checkRateLimit, peekRateLimit, requireRateLimit, resetRateLimit } from "../src/index.ts"
@@ -9,7 +9,7 @@ import { setRateLimitRuntimeConfig } from "../src/runtime.ts"
 import type { H3Event } from "h3"
 
 afterEach(() => {
-  setRateLimitRuntimeConfig({ provider: "memory" })
+  setRateLimitRuntimeConfig({ driver: "memory" })
   vi.restoreAllMocks()
 })
 
@@ -51,6 +51,20 @@ describe("managed Rate Limit guard", () => {
       expect(error).toMatchObject({ status: 429, statusText: "Too Many Requests" })
       expect(error.headers?.get("Retry-After")).toBe("30")
     }
+  })
+
+  it("sends Retry-After on the 429 response of an H3 app", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(30_000)
+    const app = new H3().post("/api/demo/session", async (event) => {
+      await requireRateLimit(event, "demo-session", { key: "visitor", limit: 1, window: "1m" })
+      return { started: true }
+    })
+    const post = () => app.fetch(new Request("https://joxi.test/api/demo/session", { method: "POST" }))
+
+    expect((await post()).status).toBe(200)
+    const limited = await post()
+    expect(limited.status).toBe(429)
+    expect(limited.headers.get("retry-after")).toBe("30")
   })
 
   it("throws the 429 with the message and code of the call", async () => {
@@ -156,14 +170,14 @@ describe("managed Rate Limit guard", () => {
   it("clears guard and inspection state when runtime configuration is replaced", async () => {
     const event = requestEvent("192.0.2.21")
     await requireRateLimit(event, "uploads", { key: "user", limit: 1, window: "1m" })
-    setRateLimitRuntimeConfig({ provider: "memory" })
+    setRateLimitRuntimeConfig({ driver: "memory" })
     await expect(peekRateLimit("uploads", "user")).resolves.toMatchObject({ status: "unused" })
     await expect(requireRateLimit(event, "uploads", { key: "user", limit: 1, window: "1m" })).resolves.toBeUndefined()
     await expect(peekRateLimit("uploads", "user")).resolves.toMatchObject({ counters: [{ used: 1 }] })
   })
 
   it("passes the request event binding and Cloudflare identity directly", async () => {
-    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    setRateLimitRuntimeConfig({ driver: "cloudflare" })
     const limit = vi.fn(async () => ({ success: true }))
     const event = cloudflareEvent("cloudflare-uploads", { limit }, { "cf-connecting-ip": "198.51.100.9" })
 
@@ -173,7 +187,7 @@ describe("managed Rate Limit guard", () => {
   })
 
   it("reads only the Standard Context that the host set", async () => {
-    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    setRateLimitRuntimeConfig({ driver: "cloudflare" })
     const limit = vi.fn(async () => ({ success: true }))
     const event = {
       "~standard": {
@@ -206,7 +220,7 @@ describe("managed Rate Limit guard", () => {
   })
 
   it("reads the Cloudflare address header and the active bindings for a Web Request", async () => {
-    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    setRateLimitRuntimeConfig({ driver: "cloudflare" })
     const limit = vi.fn(async () => ({ success: true }))
     const request = new Request("https://example.com/upload", { headers: { "cf-connecting-ip": "203.0.113.9" } })
 
@@ -233,7 +247,7 @@ describe("managed Rate Limit guard", () => {
   })
 
   it("uses request headers and active Cloudflare bindings despite event-named metadata", async () => {
-    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    setRateLimitRuntimeConfig({ driver: "cloudflare" })
     const limit = vi.fn(async () => ({ success: true }))
     const request = {
       headers: new Headers({ "cf-connecting-ip": "203.0.113.10" }),
@@ -263,7 +277,7 @@ describe("managed Rate Limit guard", () => {
   })
 
   it("ignores inherited Cloudflare environment carriers", async () => {
-    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    setRateLimitRuntimeConfig({ driver: "cloudflare" })
     const limit = vi.fn(async () => ({ success: true }))
     const inherited = Object.create({ env: { [getCloudflareRateLimitBindingName("inherited-uploads")]: { limit } } })
     const { req, res } = requestEvent("192.0.2.30")
@@ -275,7 +289,7 @@ describe("managed Rate Limit guard", () => {
   })
 
   it("throws 503 with the provider cause when fail-closed enforcement is unavailable", async () => {
-    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    setRateLimitRuntimeConfig({ driver: "cloudflare" })
     const cause = new Error("provider unavailable")
     const event = cloudflareEvent("unavailable-uploads", {
       limit: async () => { throw cause },
@@ -295,7 +309,7 @@ describe("managed Rate Limit guard", () => {
   })
 
   it("does not invent retry metadata for Cloudflare", async () => {
-    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    setRateLimitRuntimeConfig({ driver: "cloudflare" })
     const event = cloudflareEvent("metadata-free-uploads", {
       limit: async () => ({ success: false }),
     })
@@ -311,7 +325,7 @@ describe("managed Rate Limit guard", () => {
   })
 
   it("allows provider unavailability when the policy fails open", async () => {
-    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    setRateLimitRuntimeConfig({ driver: "cloudflare" })
     const event = cloudflareEvent("fail-open-uploads", {
       limit: async () => { throw new Error("provider unavailable") },
     })
@@ -325,7 +339,7 @@ describe("managed Rate Limit guard", () => {
   })
 
   it("does not translate a missing binding into an H3 response", async () => {
-    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    setRateLimitRuntimeConfig({ driver: "cloudflare" })
 
     await expect(requireRateLimit(Object.assign(requestEvent("192.0.2.5"), { env: {} }), "missing-binding", {
       key: "user",
@@ -351,7 +365,7 @@ describe("non-throwing Rate Limit check", () => {
   })
 
   it("returns a missing Cloudflare binding as an error", async () => {
-    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    setRateLimitRuntimeConfig({ driver: "cloudflare" })
     const [error, decision] = await checkRateLimit(cloudflareEvent("other-binding", { limit: async () => ({ success: true }) }), "missing-binding", { key: "user", limit: 1, window: "1m" })
     expect(decision).toBeUndefined()
     expect(error).toMatchObject({ code: "RATE_LIMIT_R0009", name: "RATE_LIMIT_R0009" })
@@ -369,7 +383,7 @@ describe("non-throwing Rate Limit check", () => {
   })
 
   it("reports provider unavailability as a decision", async () => {
-    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    setRateLimitRuntimeConfig({ driver: "cloudflare" })
     const cause = new Error("provider unavailable")
     const event = cloudflareEvent("unavailable-previews", { limit: async () => { throw cause } })
 

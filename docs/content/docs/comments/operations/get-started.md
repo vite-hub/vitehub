@@ -20,7 +20,7 @@ Install Comments and the Database packages:
 
 ```bash pm [commands/install]
 pnpm add @vite-hub/comments @vite-hub/database drizzle-orm@1.0.0-rc.5
-pnpm add -D drizzle-kit
+pnpm add -D drizzle-kit@1.0.0-rc.5
 ```
 
 Add the Console to the ViteHub options of your app:

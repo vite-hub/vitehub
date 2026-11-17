@@ -24,17 +24,17 @@ class UnknownBlobStoreError extends Diagnostic {
 
 const driverModules = {
   azure: "azure",
-  "cloudflare-r2": "cloudflare",
+  cloudflare: "cloudflare",
   fs: "fs",
   gcs: "gcs",
   minio: "minio",
   "netlify-blobs": "netlify-blobs",
   s3: "s3",
-  "vercel-blob": "vercel",
+  vercel: "vercel",
 } satisfies Record<ResolvedBlobStoreConfig["driver"], string>
 
 async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
-  if (config.driver === "cloudflare-r2") {
+  if (config.driver === "cloudflare") {
     // In `vite dev`, a store that the Cloudflare preset picks uses its local `fs` store when the dev runner has no R2 binding.
     if (config.localFallback && !getOptionalBucket(config)) return importRuntimeDriverModule(config.localFallback)
     const nativeDriver = createCloudflareR2NativeDriver(config)
@@ -93,7 +93,7 @@ function resolveRuntimeBlobStore(configured: ResolvedBlobStoreConfig): ResolvedB
   if (store.driver === "minio") {
     return resolveRuntimeMinioBlobStore(store, process.env)
   }
-  if (store.driver === "vercel-blob") {
+  if (store.driver === "vercel") {
     return resolveRuntimeVercelBlobStore(store, process.env)
   }
   return store

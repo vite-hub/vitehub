@@ -5,8 +5,8 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import type { ConsoleBuildCatalog } from "./build.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
+import type { ConsoleProjectBuild } from "./runtime/server/project.ts"
 
-import { createConsoleInvocationsIdentity } from "./internal.ts"
 import { consoleBuildOf } from "./build-info.ts"
 import { resolveConsoleProjectName } from "./project.ts"
 import { describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
@@ -121,7 +121,10 @@ export const consolePageToolScript = "/_vitehub/console/assets/page-tool.js?v=2"
 
 function renderConsolePageTool(pageTool: ConsoleNitroPluginOptions["pageTool"], auth: boolean): string {
   if (!pageTool) return "export default function viteHubConsolePlugin() {}"
-  const user = auth ? `, user: async request => (await import(${JSON.stringify(generatedModules.consolePageAuth)})).consolePageAuthUser(request)` : ""
+  // Without Auth, Site access signs browsers in with its own cookie, which the page tools read too.
+  const user = auth
+    ? `, user: async request => (await import(${JSON.stringify(generatedModules.consolePageAuth)})).consolePageAuthUser(request)`
+    : `, site: async request => (await import(${JSON.stringify(generatedModules.consoleSiteSession)})).readConsoleSiteVisitor(request)`
   return `export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: ${JSON.stringify(pageTool.base)}, script: ${JSON.stringify(consolePageToolScript)}${user} }) }`
 }
 
@@ -139,12 +142,13 @@ function renderConsoleNitroPlugin(
     development = false,
     pageTool,
   }: ConsoleNitroPluginOptions,
+  build: ConsoleProjectBuild | undefined,
 ): string {
   const agents = catalog.agents
   const accessCode = renderConsoleAccess(access)
   const operations = catalog.operations ?? []
-  // With Auth, the page tools pill comes with Site access: the Console signs members and guests in to the app.
-  const sections = withConsoleDocumentEditorSections(pageTool && configuredSections.includes("auth") ? [...configuredSections, "site"] : configuredSections, catalog)
+  // The page tools pill comes with Site access: the Console signs members and guests in to the app.
+  const sections = withConsoleDocumentEditorSections(pageTool ? [...configuredSections, "site"] : configuredSections, catalog)
     .filter(section => !access?.hiddenSections?.includes(section))
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
@@ -202,7 +206,7 @@ function renderConsoleNitroPlugin(
       : []),
   ]
   return [
-    `import { ${access ? "installConsoleAccess, " : ""}${development ? "" : "installConsoleBuild, "}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections, installConsoleVersion } from ${JSON.stringify(generatedModules.consoleSetup)}`,
+    `import { ${access ? "installConsoleAccess, " : ""}${build ? "installConsoleBuild, " : ""}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections, installConsoleVersion } from ${JSON.stringify(generatedModules.consoleSetup)}`,
     ...accessCode.imports,
     // The page tools wrap the app's `fetch` when the server starts, so this one loads at startup.
     ...(pageTool ? [`import { installConsolePageTool } from ${JSON.stringify(generatedModules.consolePageTool)}`] : []),
@@ -222,7 +226,7 @@ function renderConsoleNitroPlugin(
     // `project.get` names the installed `vite-hub`, also a pkg.pr.new preview, whose version the app's server output lacks.
     `installConsoleVersion(${JSON.stringify(readViteHubVersion())})`,
     // A production build records its time and commit for `project.get`. A development server has no build to name.
-    ...(development ? [] : [`installConsoleBuild(${JSON.stringify(consoleBuildOf(projectRoot))})`]),
+    ...(build ? [`installConsoleBuild(${JSON.stringify(build)})`] : []),
     // The application module loads on the first document request, so the Console does not start Content at boot.
     ...(documentEditors.length
       ? [`installConsoleDocuments(${JSON.stringify(projectRoot)}, { ${documentEditors.map((editor, index) => `${JSON.stringify(editor.section)}: { actions: vitehubConsoleDocumentActions${index}, load: () => import(${JSON.stringify(pathToFileURL(editor.entry).href)}) }`).join(", ")} })`]
@@ -233,15 +237,13 @@ function renderConsoleNitroPlugin(
   ].join("\n")
 }
 
-/** Write the generated Console Nitro plugin and return the invocation journal identity of the project. */
-export async function writeConsoleNitroPlugin(options: ConsoleNitroPluginOptions): Promise<string> {
-  const { file, projectRoot, active = () => true } = options
-  const identity = createConsoleInvocationsIdentity(projectRoot)
-  if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(options)
+/** Write the generated Console Nitro plugin. */
+export async function writeConsoleNitroPlugin(options: ConsoleNitroPluginOptions): Promise<void> {
+  const { file, active = () => true } = options
+  if (!active()) return
+  const contents = renderConsoleNitroPlugin(options, options.development ? undefined : await consoleBuildOf(options.projectRoot))
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
   }
-  return identity
 }

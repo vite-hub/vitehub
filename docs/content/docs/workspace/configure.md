@@ -1,6 +1,6 @@
 ---
 title: Workspace configuration
-description: Configure the Workspace Vite integration, Store providers, Workspace Definitions, and Source Bindings.
+description: Configure the Workspace Vite integration, Store drivers, Workspace Definitions, and Source Bindings.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
@@ -54,17 +54,19 @@ export default defineConfig({
 | `assets` | `WorkspaceOptions['assets']` | package default | Which Workspace assets the build writes. `false`, `true`, or a list of asset paths. |
 | `store` | `WorkspaceStoreOptions` | inferred from dev mode, host, and environment | Store for definitions that do not choose one. |
 
-## Store providers
+## Store drivers
 
 | Store | Configure with | Nuance |
 | --- | --- | --- |
-| Local | `{ provider: 'local', root?: string, locks?: 'filesystem' \| 'process' }` | Files on disk. Default in development and on hosts with no better match. |
-| Memory | `{ provider: 'memory' }` | Temporary storage for tests or short-lived runtimes. |
-| Cloudflare Artifacts | `{ provider: 'cloudflare-artifacts', binding?, namespace?, repo?, repoPrefix?, branch? }` | Opt-in, versioned Git storage. Defaults: binding `WORKSPACE_ARTIFACTS`, namespace `vitehub`, repo prefix `vitehub-workspace-`. |
-| Vercel Blob | `{ provider: 'vercel-blob', token?, prefix?, access? }` | Files live under `_vitehub/workspaces/<workspace>/`. `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, adds a namespace below `_vitehub/workspaces/` (letters, numbers, underscores, dashes, single slashes). The Console Blob section hides these files by default. Access defaults to `private`. On Vercel, it uses OIDC when the project has `BLOB_STORE_ID`. Elsewhere, it uses `BLOB_READ_WRITE_TOKEN`. |
-| GitHub | `{ provider: 'github', repo?, repository?, branch?, root?, token?, refs?, database? }` | Files in a repository, with branches as history refs. Defaults: branch `main`, root `.vitehub/workspaces/<workspace>`. See [GitHub Store](#github-store). |
+| Local | `{ driver: 'local', root?: string, locks?: 'filesystem' \| 'process' }` | Files on disk. Default in development and on hosts with no better match. |
+| Memory | `{ driver: 'memory' }` | Temporary storage for tests or short-lived runtimes. |
+| Cloudflare Artifacts | `{ driver: 'cloudflare', binding?, namespace?, repo?, repoPrefix?, branch? }` | Opt-in, versioned Git storage. Defaults: binding `WORKSPACE_ARTIFACTS`, namespace `vitehub`, repo prefix `vitehub-workspace-`. |
+| Vercel Blob | `{ driver: 'vercel', token?, prefix?, access? }` | Files live under `_vitehub/workspaces/<workspace>/`. `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, adds a namespace below `_vitehub/workspaces/` (letters, numbers, underscores, dashes, single slashes). The Console Blob section hides these files by default. Access defaults to `private`. On Vercel, it uses OIDC when the project has `BLOB_STORE_ID`. Elsewhere, it uses `BLOB_READ_WRITE_TOKEN`. |
+| GitHub | `{ driver: 'github', repo?, repository?, branch?, root?, token?, refs?, database? }` | Files in a repository, with branches as history refs. Defaults: branch `main`, root `.vitehub/workspaces/<workspace>`. See [GitHub Store](#github-store). |
 | Custom | `WorkspaceStore` | Your own implementation of the Store contract. |
 | Blob + Database | `createBlobDatabaseWorkspaceStore({ blob, database, workspace, prefix? })` | Folder history that works on any host. Pass the returned Store to a Workspace Definition. |
+
+Any other `driver` fails with `WORKSPACE_UNKNOWN_STORE_DRIVER`. The former `cloudflare-artifacts` and `vercel-blob` are now `cloudflare` and `vercel`, and the former `provider` key fails with `WORKSPACE_RENAMED_STORE_PROVIDER_KEY` instead of making a local Store; `npx @vite-hub/codemods driver-key` renames them.
 
 Vercel Blob keeps file bytes and JSON attributes in separate objects. In one process, writes and removals on the same path run one at a time across Store instances, including failed-write recovery. Readers can see writes in progress.
 
@@ -85,6 +87,8 @@ GitHub Stores also keep other answers, so a read asks GitHub only for what chang
 - A branch head is one request. The Store keeps it for 5 seconds, then asks again with its ETag. GitHub answers `304 Not Modified` when the branch did not move, and a `304` does not count against the GitHub rate limit.
 - History pages, commits, and trees are read by commit sha, so their answers never change. Each Store keeps up to 12 MiB of them in memory. When the app enables [KV](/docs/kv) and uses Content, they also go to KV for 7 days, and a new isolate reads them there instead of from GitHub.
 - `history.open(id).preload(paths)` reads many files of one commit from one archive of the commit instead of one request per file. It reads 8 files or fewer one by one. The archive of a commit also goes to KV.
+
+One GitHub Store serves every request of an instance, and it keeps writes until `workspace.snapshot()`. When a request, a Schedule run, or a Queue job throws before its snapshot, the Store forgets its writes, so the next snapshot does not commit them. Two requests that run at the same time share their writes until one of them snapshots.
 
 Without a `store`, development uses Local. In production:
 
@@ -181,7 +185,7 @@ import { defineWorkspace } from 'vite-hub/workspace'
 
 export default defineWorkspace({
   store: {
-    provider: 'github',
+    driver: 'github',
     repository: 'onmax/docs',
     branch: 'main',
     root: '',

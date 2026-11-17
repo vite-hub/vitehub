@@ -256,13 +256,13 @@ export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobOpti
     id: "blob:cloudflare-r2",
     provider: "cloudflare",
     recordedState(context) {
-      const stores = new Map(resolvedStoreEntries(resolveOptions(), context.env).filter(([, store]) => store.driver === "cloudflare-r2"))
+      const stores = new Map(resolvedStoreEntries(resolveOptions(), context.env).filter(([, store]) => store.driver === "cloudflare"))
       return [{
         category: BLOB_R2_PROVISION_CATEGORY,
         declared: [...stores.keys()],
         declaredResourceIdentity: key => {
           const store = stores.get(key)
-          return store?.driver === "cloudflare-r2" && store.bucketName ? `r2:${store.jurisdiction ?? "default"}/${store.bucketName}` : undefined
+          return store?.driver === "cloudflare" && store.bucketName ? `r2:${store.jurisdiction ?? "default"}/${store.bucketName}` : undefined
         },
         // Older state recorded only the name, which cannot establish whether two buckets share a jurisdiction.
         resourceIdentity: ({ id }) => parseRecordedR2Bucket(id) ? `r2:${id}` : undefined,
@@ -279,7 +279,7 @@ export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobOpti
       // A bucket name is unique only inside its jurisdiction.
       const buckets = new Map<string, CloudflareR2BucketTarget>()
       for (const [storeName, store] of resolvedStoreEntries(resolveOptions(), context.env)) {
-        if (store.driver !== "cloudflare-r2" || !store.bucketName) continue
+        if (store.driver !== "cloudflare" || !store.bucketName) continue
         const key = `${store.jurisdiction ?? "default"}/${store.bucketName}`
         const bucket = buckets.get(key)
         if (bucket) bucket.stores.push(storeName)
@@ -321,8 +321,8 @@ export function createBlobVercelProvisionStep(resolveOptions: () => BlobOptions 
     id: "blob:vercel-blob",
     provider: "vercel",
     async plan(context) {
-      const requested = resolvedStores(resolveOptions(), context.env).find(store => store.driver === "vercel-blob")
-      if (!requested || requested.driver !== "vercel-blob") return []
+      const requested = resolvedStores(resolveOptions(), context.env).find(store => store.driver === "vercel")
+      if (!requested || requested.driver !== "vercel") return []
 
       const config = resolveVercelProvisionConfig(context.env)
       const projectId = readEnv(context.env, "VERCEL_PROJECT_ID")

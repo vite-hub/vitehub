@@ -1,3 +1,8 @@
+import { execFile } from "node:child_process"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createWorkspaceTools, type WorkspaceShellResult } from "../src/ai.ts"
@@ -21,10 +26,22 @@ async function runShell(tools: ReturnType<typeof createWorkspaceTools>, command:
   return await tools.shell.execute!({ command }, { abortSignal, toolCallId: "test", messages: [] } as never) as WorkspaceShellResult
 }
 
+/** A Session host that runs the real command, with a HOME whose `.profile` sets PATH as Debian's /etc/profile does. */
+async function profileResettingHost() {
+  const home = await mkdtemp(join(tmpdir(), "vitehub-workspace-profile-"))
+  await writeFile(join(home, ".profile"), "export PATH=/from/profile\n")
+  const exec = async (command: string, args: string[] = []) => await new Promise<{ args: string[], command: string, exitCode: number, stderr: string, stdout: string }>((resolve) => {
+    execFile(command, args, { env: { ...process.env, HOME: home } }, (error, stdout, stderr) => {
+      resolve({ args, command, exitCode: error ? Number(error.code ?? 1) : 0, stderr, stdout })
+    })
+  })
+  return { cleanup: () => rm(home, { force: true, recursive: true }), exec }
+}
+
 function createMutableWorkspace() {
   return createWorkspace({
     name: "mutable",
-    store: { provider: "memory" },
+    store: { driver: "memory" },
   })
 }
 
@@ -231,6 +248,20 @@ describe("createWorkspaceTools", () => {
     expect(budget.snapshot().usage.toolCalls).toBe(1)
   })
 
+  // A login shell reads the profiles, and Debian's /etc/profile sets PATH again, so commands on the app's PATH were gone.
+  it("runs Workspace Session commands without a login shell, so a profile keeps the PATH", async () => {
+    const host = await profileResettingHost()
+    try {
+      const workspace = createMutableWorkspace()
+      workspace.startSession = vi.fn(async () => ({ close: vi.fn(), exec: host.exec } as unknown as WorkspaceSession))
+      // `ls` is found on PATH. The profile sets PATH to a folder without it.
+      await expect(runShell(createWorkspaceTools(workspace), "ls")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    }
+    finally {
+      await host.cleanup()
+    }
+  })
+
   it("prefers executable Workspace Session shell execution", async () => {
     const workspace = createMutableWorkspace()
     await workspace.mkdir("models")
@@ -252,10 +283,10 @@ describe("createWorkspaceTools", () => {
 
     await expect(runShell(tools, "rg orders models")).resolves.toMatchObject({
       exitCode: 0,
-      stdout: "session:sh -lc rg orders models /workspace\n",
+      stdout: "session:sh -c rg orders models /workspace\n",
     })
     expect(workspace.startSession).toHaveBeenCalledWith({ abortSignal: budget.signal, paths: ["models"] })
-    expect(exec).toHaveBeenCalledWith("sh", ["-lc", "rg orders models"], expect.objectContaining({ abortSignal: budget.signal, cwd: "/workspace" }))
+    expect(exec).toHaveBeenCalledWith("sh", ["-c", "rg orders models"], expect.objectContaining({ abortSignal: budget.signal, cwd: "/workspace" }))
     await expect(runShell(tools, "cat $(python -c 'print(\"models/orders.sql\")')")).resolves.toMatchObject({
       event: "policy_denied",
       exitCode: 126,
@@ -424,7 +455,7 @@ describe("createWorkspaceTools", () => {
           url: "https://portal.example.com/runtime/inventory-health",
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
     await workspace.writeFile("README.md", "# Docs\n")
     workspace.startSession = vi.fn(async () => ({
@@ -501,7 +532,7 @@ describe("createWorkspaceTools", () => {
           url: "https://portal.example.com/runtime/inventory-health",
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
 
     await expect(runShell(createWorkspaceTools(workspace, { sourceRequests: true }), "curl -d '{\"region\":\"eu\"}' https://portal.example.com/runtime/inventory-health")).resolves.toMatchObject({
@@ -522,7 +553,7 @@ describe("createWorkspaceTools", () => {
         pageTwo: fetch({ query: { page: 2 }, url: "https://portal.example.com/runtime/items" }),
         pageThree: fetch({ query: { page: 3 }, url: "https://portal.example.com/runtime/items" }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
 
     const tools = createWorkspaceTools(workspace, { operations: { list: false, read: false, search: true } })

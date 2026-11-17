@@ -82,7 +82,7 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Rename or remove one of the two Markdown files under `server/emails`.",
     },
     EMAIL_HOST_UNSUPPORTED: {
-      why: "The \"cloudflare-email\" driver needs a Cloudflare host.",
+      why: "The \"cloudflare\" driver needs a Cloudflare host.",
       fix: "Deploy to Cloudflare, or use the \"resend\" driver.",
     },
     EMAIL_INVALID_OUTBOX: {
@@ -110,8 +110,12 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Read the value with `env.source()`, for example `env({ secret: true, source: env.source('RESEND_API_KEY') })`.",
     },
     EMAIL_UNKNOWN_DRIVER: {
-      why: "The Email `driver` must be \"resend\", \"cloudflare-email\", or \"log\".",
-      fix: "Set `email: { driver: 'resend' }` or `email: { driver: 'cloudflare-email' }`. Set `email: { driver: 'log' }` to print messages and send nothing.",
+      why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
+        ? `\`email.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`
+        : `The Email \`driver\` is ${driver}. It must be "resend", "cloudflare", or "log".`,
+      fix: ({ renamed }: { driver: string, renamed?: string }) => renamed
+        ? `Set \`email: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
+        : "Set `email: { driver: 'resend' }` or `email: { driver: 'cloudflare' }`. Set `email: { driver: 'log' }` to print messages and send nothing.",
     },
 
     // Tool errors.

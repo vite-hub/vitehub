@@ -4031,8 +4031,8 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Set secretToken with secretHeader, signature: \"bearer\", or signature: { verify }. To accept unsigned requests on purpose, set secretToken: false.",
     },
     AGENT_R1045: {
-      why: "[vitehub] page() reaches the page over Realtime, and this build has no Realtime room authority.",
-      fix: "Set `realtime: true` in the vite-hub options. A Node build needs `realtime: { authority: \"memory\" }` for one process, or Redis or Postgres for more.",
+      why: "[vitehub] page() reaches the page over Realtime, and this build has no Realtime driver.",
+      fix: "Set `realtime: true` in the vite-hub options. A Node build needs `realtime: { driver: \"memory\" }` for one process, or Redis or Postgres for more.",
     },
     AGENT_R1046: {
       why: "[vitehub] connectPage() has no `join`, so the page cannot join its Realtime room.",
@@ -4341,8 +4341,8 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Pass the channel, not a message thread, as `recipient` when you send with `thread`.",
     },
     AGENT_CONNECTOR_THREAD_UNSUPPORTED: {
-      why: ({ name }: { name: string }) => `[vitehub] ${name}.connector() does not support thread.`,
-      fix: "Remove `thread` from `send()` for this connector. The Slack and Teams connectors support `thread`.",
+      why: ({ name }: { name: string }) => `[vitehub] The ${name}() Channel does not support thread in send().`,
+      fix: "Remove `thread` from `send()` for this Channel. Only the `slack()` and `teams()` Channels support `thread`.",
     },
     AGENT_CONSOLE_DELIVERY_INCOMPLETE: {
       why: "Console delivery requires both url and token.",
@@ -4676,8 +4676,8 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Name each Skill in `agentWithSkills(agent, skills)` with letters, digits, `.`, `_`, or `-`.",
     },
     AGENT_SLACK_CONNECTOR_ADAPTER_MISSING: {
-      why: "[vitehub] slack.connector() requires an adapter, such as createSlackAdapter() from @chat-adapter/slack.",
-      fix: "Pass the Slack adapter of the app to `slack.connector({ adapter })`, or a function that returns it.",
+      why: "[vitehub] Sending with slack() requires an adapter, such as createSlackAdapter() from @chat-adapter/slack.",
+      fix: "Pass the Slack adapter of the app to `slack({ adapter })`, such as `slack({ adapter: createSlackAdapter() })`.",
     },
     AGENT_STATE_ATOMIC_LOCK_MISSING: {
       why: "[vitehub] This operation requires State with atomic lease-fenced cache mutations (mutateWithLock).",

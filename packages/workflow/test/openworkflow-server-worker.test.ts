@@ -79,7 +79,7 @@ async function flush(): Promise<void> {
   for (let index = 0; index < 10; index++) await new Promise(resolve => setTimeout(resolve, 0))
 }
 
-const config: ResolvedWorkflowOptions = { provider: "openworkflow", sqlite: { path: ":memory:" }, worker: { concurrency: 4 } }
+const config: ResolvedWorkflowOptions = { driver: "openworkflow", sqlite: { path: ":memory:" }, worker: { concurrency: 4 } }
 
 beforeEach(async () => {
   fake.state.backendStops = 0
@@ -178,7 +178,7 @@ describe("installOpenWorkflow", () => {
     const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const databaseUrl = vi.fn(() => { throw new Error("No Postgres connection URL") })
     // Execute the generated startup plugin against the real worker installer and an empty registry.
-    const code = createWorkflowDevPluginModule({ provider: "openworkflow" }, false, databaseImport)
+    const code = createWorkflowDevPluginModule({ driver: "openworkflow" }, false, databaseImport)
       .replace(/^import .+$/gm, "").replace("export default ", "return ")
     const startup = new Function("definePlugin", "setWorkflowRuntimeConfig", "setWorkflowRuntimeRegistry", "registry", "installOpenWorkflow", "getPostgresConnectionUrl", code)(
       (setup: unknown) => setup, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, {}, installOpenWorkflow, databaseUrl,
@@ -263,7 +263,7 @@ describe("installOpenWorkflow", () => {
 
   it("says at boot when runs stay in the SQLite file of this host", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    for (const workflow of [{ provider: "openworkflow", worker: false }, config] satisfies ResolvedWorkflowOptions[]) {
+    for (const workflow of [{ driver: "openworkflow", worker: false }, config] satisfies ResolvedWorkflowOptions[]) {
       setWorkflowRuntimeConfig(workflow)
       setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "ok" } }) })
       const app = createApp()
@@ -278,7 +278,7 @@ describe("installOpenWorkflow", () => {
   })
 
   it("does not start a worker with worker: false or another provider", async () => {
-    for (const workflow of [{ ...config, worker: false }, { provider: "vercel" }] satisfies ResolvedWorkflowOptions[]) {
+    for (const workflow of [{ ...config, worker: false }, { driver: "vercel" }] satisfies ResolvedWorkflowOptions[]) {
       setWorkflowRuntimeConfig(workflow)
       setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "ok" } }) })
       await expect(installOpenWorkflow(createApp())).resolves.toBe(false)

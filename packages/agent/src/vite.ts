@@ -672,7 +672,9 @@ function resolveAgentHosting(config: unknown): "cloudflare" | "netlify" | "verce
 }
 
 // pkce-challenge, a dependency of @ai-sdk/mcp, exports only "browser" and "node" conditions, so Worker
-// conditions cannot resolve it. Its browser build uses only Web Crypto, which Workers provide.
+// conditions cannot resolve it. Its browser build uses only Web Crypto, which Workers provide. pkce-challenge 6.0.1
+// has the fix, but @ai-sdk/mcp allows only ^5.0.1. Remove when @ai-sdk/mcp allows 6.0.1 or a 5.x release has the fix
+// (https://github.com/crouchcd/pkce-challenge/pull/50#issuecomment-6941517852).
 function resolveWorkerPackageAliases(): Record<string, string> {
   try {
     const requireFromMcp = createRequire(createRequire(import.meta.url).resolve("@ai-sdk/mcp/package.json"))
@@ -1515,6 +1517,8 @@ function generatedChannelsConsoleHost(routeCapabilities: { requestOption: string
   ]
 }
 
+// Nitro's Netlify presets do not pass `context.waitUntil` (https://github.com/nitrojs/nitro/issues/5143, fix in
+// https://github.com/nitrojs/nitro/pull/5144), so the generated Agent function reads it from the Netlify context.
 function generatedNetlifyRuntimeHelpers(): string[] {
   return [
     "function waitUntilFromContext(context) {",
@@ -1552,7 +1556,7 @@ function generatedHostedWorkspaceRuntimeSetup(
       `  const agent = resolveAgentModule(module)${typescript ? " as WorkspaceAgentDefinition" : ""}`,
       "  const workspace = agent?.__vitehubWorkspaceAgentOptions?.workspace",
       "  const store = workspace && typeof workspace === 'object' ? workspace.store : undefined",
-      "  return store && typeof store === 'object' && 'provider' in store && typeof store.provider === 'string' && ['cloudflare-artifacts', 'github'].includes(store.provider)",
+      "  return store && typeof store === 'object' && 'driver' in store && typeof store.driver === 'string' && ['cloudflare', 'github'].includes(store.driver)",
       "}",
       "",
       // Same env names as `hasVercelWorkspaceBlobEnv` in @vite-hub/workspace storage/provider.ts.
@@ -1561,7 +1565,7 @@ function generatedHostedWorkspaceRuntimeSetup(
       "  const workspace = agent?.__vitehubWorkspaceAgentOptions?.workspace",
       "  const store = workspace && typeof workspace === 'object' ? workspace.store : undefined",
       "  if (workspace && !store && typeof process === 'object' && (process?.env?.BLOB_STORE_ID || process?.env?.BLOB_READ_WRITE_TOKEN)) return true",
-      "  return store && typeof store === 'object' && 'provider' in store && store.provider === 'vercel-blob'",
+      "  return store && typeof store === 'object' && 'driver' in store && store.driver === 'vercel'",
       "}",
       "",
       `if ([${modules.join(", ")}].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()`,

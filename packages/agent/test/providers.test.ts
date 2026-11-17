@@ -1677,8 +1677,8 @@ describe("agent Vite plugin", () => {
       await mkdir(platformPackageDir, { recursive: true })
       await mkdir(claudePackageDir, { recursive: true })
       await mkdir(claudePlatformPackageDir, { recursive: true })
-      await writeFile(join(codexPackageDir, "package.json"), JSON.stringify({ name: "@openai/codex", version: "0.149.1" }))
-      await writeFile(join(platformPackageDir, "package.json"), JSON.stringify({ name: "@openai/codex", version: `0.149.1-${process.platform}-${process.arch}` }))
+      await writeFile(join(codexPackageDir, "package.json"), JSON.stringify({ name: "@openai/codex", version: "0.169.0" }))
+      await writeFile(join(platformPackageDir, "package.json"), JSON.stringify({ name: "@openai/codex", version: `0.169.0-${process.platform}-${process.arch}` }))
       await writeFile(join(claudePackageDir, "package.json"), JSON.stringify({ name: "@anthropic-ai/claude-agent-sdk", version: "0.3.246" }))
       await writeFile(join(claudePlatformPackageDir, "package.json"), JSON.stringify({ name: claudePlatformPackage, version: "0.3.246" }))
       const plugin = hubAgent()
@@ -2294,7 +2294,7 @@ describe("agent Vite plugin", () => {
           "export default defineAgent({",
           "  driver: { async run() { return 'ok' } },",
           "  workspace: {",
-          "    store: { provider: 'github', repository: 'onmax/bitacora-de-vida', root: '/' },",
+          "    store: { driver: 'github', repository: 'onmax/bitacora-de-vida', root: '/' },",
           "  },",
           "})",
           "",
@@ -2660,7 +2660,6 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("createChannelChatRouteHandler")
       expect(webhookRoute).toContain("withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule")
       expect(webhookRoute).toContain('agentWithColocatedInstructions(resolveAgentModule(agent0), "Use support instructions.\\n")')
-      expect(webhookRoute).not.toContain("withAgentDefaults")
       expect(webhookRoute).toContain("const agentIdentities")
       expect(webhookRoute).toContain('["support"]: {"name":"support"}')
       expect(webhookRoute).not.toContain(`import { createCloudflareAgentState } from ${JSON.stringify(agentRuntimeModule("cloudflare"))}`)
@@ -3113,7 +3112,7 @@ export default defineAgent({
           "    mode: 'write',",
           "    store: {",
           "      branch: 'main',",
-          "      provider: 'github',",
+          "      driver: 'github',",
           "      repository: 'onmax/bitacora-de-vida',",
           "      root: '/',",
           "    },",
@@ -3140,7 +3139,6 @@ export default defineAgent({
       expect(webhookRoute).not.toContain("setWorkspaceRuntimeRegistry")
       expect(webhookRoute).toContain('agentWorkspaceEntry("audio-bitacora", agent0')
       expect(webhookRoute).toContain('["audio-bitacora"]: {"name":"audio-bitacora","workspace":"audio-bitacora"}')
-      expect(webhookRoute).not.toContain("withAgentDefaults")
       expect(webhookRoute).not.toContain("@vite-hub/workspace/internal/stores/github")
       expect(webhookRoute).not.toContain("configureCloudflareWorkspaceRuntime")
     } finally {
@@ -3387,7 +3385,7 @@ describe("server helpers", () => {
           },
         },
         workspace: defineWorkspace({
-          store: { provider: "memory" },
+          store: { driver: "memory" },
           sources: {
             instructions: file("AGENTS.md"),
           },
@@ -3401,7 +3399,6 @@ describe("server helpers", () => {
       const workspace = useWorkspace("support-runtime")
 
       expect(preparedAgent).toBe(agent)
-      expect(preparedAgent).not.toHaveProperty("__vitehubWorkspaceAgentDefaults")
       expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Support\n")
       await expect(
         runAgentInline(
@@ -3436,7 +3433,7 @@ describe("server helpers", () => {
         workspaceName,
         defineWorkspace({
           sourceRootDir: sourceRoot,
-          store: { provider: "memory" },
+          store: { driver: "memory" },
           sources: {
             instructions: file("AGENTS.md"),
           },
@@ -3479,7 +3476,7 @@ describe("server helpers", () => {
         workspaceName,
         defineWorkspace({
           sourceRootDir: sourceRoot,
-          store: { provider: "memory" },
+          store: { driver: "memory" },
           sources: {
             instructions: file("AGENTS.md"),
           },
@@ -9286,7 +9283,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
     const waitUntilTasks: Promise<unknown>[] = []
     const body = JSON.stringify({ action: "opened" })
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     try {
       const responsePromise = handler(
@@ -12566,7 +12563,7 @@ describe("server helpers", () => {
       driver: { run },
     })
     const waitUntilTasks: Promise<unknown>[] = []
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     try {
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -15565,7 +15562,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     try {
       await state.connect()
@@ -15636,7 +15633,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     try {
       await state.connect()
@@ -15707,7 +15704,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
     try {
       await state.connect()
@@ -15779,7 +15776,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
     try {
       await state.connect()
@@ -15888,7 +15885,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
     try {
       await state.connect()
@@ -15981,7 +15978,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
     const cloudflareEnv = {
       [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() },
     }
@@ -16074,7 +16071,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
     try {
       await state.connect()
@@ -16138,7 +16135,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     try {
       await state.connect()
@@ -16235,7 +16232,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     try {
       await state.connect()
@@ -16333,7 +16330,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     const request = (messageId: number, deliveryId: string, text: string) => {
       const webhook = chatWebhookRequest(messageId, 456, text)
       webhook.headers.set("x-vitehub-delivery-id", deliveryId)
@@ -16412,7 +16409,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     setAgentWorkflowCapabilityLoaders({ blob: () => blobPrimitive })
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     try {
       await state.connect()
@@ -16475,7 +16472,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
     const request = (messageId: number, invoker: string) => {
       const webhook = chatWebhookRequest(messageId)
       webhook.headers.set("x-invoker", invoker)
@@ -16557,7 +16554,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
     const request = (messageId: number, invoker: string, origin: string) => {
       const webhook = new Request(`${origin}/api/agent/calories/channels/telegram`, chatWebhookRequest(messageId))
       webhook.headers.set("x-invoker", invoker)
@@ -16656,7 +16653,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const env = { [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() } }
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
     try {
       await state.connect()
@@ -16756,7 +16753,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const env = { [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() } }
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
     try {
       await state.connect()
@@ -16834,7 +16831,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
     try {
       await state.connect()
@@ -16973,7 +16970,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
     const executionError = new Error("Agent execution failed")
     const sideEffect = vi.fn(async () => {
       if (settlementStatus === "failed") throw executionError
@@ -17095,7 +17092,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
     try {
       await state.connect()
@@ -17199,7 +17196,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
     try {
       await state.connect()
@@ -17399,7 +17396,7 @@ describe("server helpers", () => {
       })
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const handler = createChannelWebhookRouteHandler(agent as never)
-      setWorkflowRuntimeConfig({ provider: "cloudflare" })
+      setWorkflowRuntimeConfig({ driver: "cloudflare" })
       const request = (messageId: number, invoker: string, origin = "https://reclaimer.example") => {
         const webhook = new Request(`${origin}/api/agent/calories/channels/telegram`, chatWebhookRequest(messageId))
         webhook.headers.set("x-invoker", invoker)
@@ -17590,7 +17587,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const env = { [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() } }
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
     try {
       await state.connect()
@@ -17983,7 +17980,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
     const request = (messageId: number, invoker: string) => {
       const webhook = chatWebhookRequest(messageId)
       webhook.headers.set("x-invoker", invoker)
@@ -18057,7 +18054,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
     try {
       await state.connect()
@@ -18138,7 +18135,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     try {
       await expect(
@@ -18177,7 +18174,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     try {
       await state.connect()
@@ -18239,7 +18236,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
     let replacementHandler: Promise<Response> | undefined
 
     try {
@@ -18441,7 +18438,7 @@ describe("server helpers", () => {
     setAgentWorkflowCapabilityLoaders({ blob: () => blobPrimitive })
     const bindingName = getCloudflareWorkflowBindingName("calories")
     const env = { [bindingName]: { createBatch, get: vi.fn() } }
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
     try {
       await state.connect()
@@ -18593,7 +18590,7 @@ describe("server helpers", () => {
     const env = {
       [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() },
     }
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"] })
 
     try {
@@ -18801,7 +18798,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
     setAgentWorkflowCapabilityLoaders({ blob: () => blobPrimitive })
     const env = { [getCloudflareWorkflowBindingName("calories")]: { createBatch, get: vi.fn() } }
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
     try {
       await state.connect()
@@ -19014,7 +19011,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     try {
       const response = await handler(chatWebhookRequest(91_103), "telegram", {
@@ -19064,7 +19061,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     try {
       const response = await handler(chatWebhookRequest(91_101), "telegram", {
@@ -20400,7 +20397,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     try {
       await state.connect()
@@ -20442,7 +20439,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     try {
       const response = await handler(chatWebhookRequest(91_105), "telegram", {
@@ -23871,7 +23868,7 @@ describe("server helpers", () => {
     }
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
 
     try {
       const response = await handler(
@@ -24386,7 +24383,7 @@ describe("server helpers", () => {
           return "agent answer"
         },
       },
-      workspace: { mode: "write", store: { provider: "memory" } },
+      workspace: { mode: "write", store: { driver: "memory" } },
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)

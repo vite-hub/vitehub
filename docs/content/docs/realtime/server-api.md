@@ -19,7 +19,7 @@ icon: i-lucide-code-2
 | `@vite-hub/realtime/client/browser.js` | The same client as one prebuilt ES module, for a script on [another site](#from-another-site) that has no bundler. |
 | `refreshRealtimeDocument` from `vite-hub/realtime/server` | Tell a document's open room that its stored copy changed. |
 | `requestRealtimeRoom` from `vite-hub/realtime/server` | Ask the one browser in a room and wait for its answer ([Requests to a browser](#requests-to-a-browser)). |
-| `isRealtimeAvailable` from `vite-hub/realtime/server` | Check if this build has a room authority ([Builds without Realtime](/docs/realtime/configure#builds-without-realtime)). |
+| `isRealtimeAvailable` from `vite-hub/realtime/server` | Check if this build has a room driver ([Builds without Realtime](/docs/realtime/configure#builds-without-realtime)). |
 | `workspaceDocument` from `vite-hub/realtime/server` | The Workspace document adapter, to wrap or combine. |
 | `blobDocument` from `vite-hub/realtime/server` | A document adapter that stores each document as one Blob file ([Blob documents](#blob-documents)). |
 | `createRealtimeHandler` from `vite-hub/realtime/server` | Build a handler for a manual server setup. ViteHub generates this route for normal apps. |
@@ -118,7 +118,7 @@ last save of any instance. `options` is `{ ifDigest, reason, user, editors }`:
 - `editors` lists every identified user who changed the room since the last
   save.
 
-Adapters run inside the room authority. On Cloudflare that is the Durable
+Adapters run where the driver holds the room. On Cloudflare that is the Durable
 Object, so bindings come from its environment.
 
 ### Interrupted normalizing saves
@@ -402,9 +402,19 @@ room.onChange(change => reload(change))
 | `states()` | The fields that each other client set with `setLocal()`, by client id. |
 | `setLocal(field, value)` | Sets one field of this browser's awareness state. `null` removes it. |
 | `status()` | `connecting`, `connected`, or `disconnected`. |
+| `saveStatus()` | The save status of the room document: `digest`, `savedAt`, `savedBy`, `error`, and `issues`. `undefined` until the room syncs. |
 | `notify(change)`, `onChange(listener)` | Send and receive change hints through the workspace events room. Both need `changes: true`. |
-| `onUpdate(listener)` | Runs when people, their fields, or the status change. Returns a function that removes it. |
+| `onUpdate(listener)` | Runs when people, their fields, the status, or the save status change. Returns a function that removes it. |
 | `destroy()` | Leaves the room. |
+
+`saveStatus()` lets a page follow a room document without the editor. For example, a page can show a "new version" notice when the `digest` changes after `refreshRealtimeDocument()`:
+
+```ts fragment
+import { connectRealtimeRoom } from 'vite-hub/realtime/client'
+
+const room = connectRealtimeRoom('latest', docId)
+room.onUpdate(() => showVersion(room.saveStatus()?.digest))
+```
 
 `identity` sets who this browser shows as. A definition with `identify` or `auth: true` replaces it with the server's identity. When the room re-seeds, the client joins the new seed on its own.
 

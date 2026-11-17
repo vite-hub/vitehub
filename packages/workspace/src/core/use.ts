@@ -54,6 +54,7 @@ import type {
   WorkspaceSyncOptions,
   WriteFileOptions,
   SnapshotOptions,
+  WorkspaceAuthor,
 } from "./types.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -159,6 +160,8 @@ export interface HistoryCheckpoint {
 
 export interface HistoryCheckpointOptions {
   message?: string
+  /** Who made the change. See `SnapshotOptions.author`. */
+  author?: WorkspaceAuthor
 }
 
 export interface History<TCheckpoint extends HistoryCheckpoint = HistoryCheckpoint> {
@@ -610,7 +613,7 @@ export function createWorkspaceFileRuntime<Name extends WorkspaceName>(name: Nam
       fs: createWritableFs(name, workspace),
       history: {
         ...workspace.history,
-        checkpoint: async options => await workspace.snapshot({ name: options?.message }),
+        checkpoint: async options => await workspace.snapshot({ name: options?.message, ...(options?.author ? { author: options.author } : {}) }),
         rebase: async options => await workspace.rebase(options),
       },
       getMeta: async key => await workspace.getMeta?.(key),

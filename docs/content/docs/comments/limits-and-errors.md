@@ -46,6 +46,7 @@ Build errors throw when Vite reads the config. When the build cannot pick the Da
 | Threads in the Console section | The 500 with the newest activity |
 | Page path | 1,024 characters, starting with `/` |
 | Guest name | 64 characters |
+| Guest writes | None by default. `defineComments({ rateLimit: { limit, window } })` limits each guest address |
 | GitHub sign-in session | 7 days from sign-in |
 | GitHub push access | Checked again every 5 minutes |
 | GitHub App callback URLs | 10, so one App serves 10 sites |
@@ -53,7 +54,7 @@ Build errors throw when Vite reads the config. When the build cannot pick the Da
 | Edited field value | 20,000 characters |
 | Thread refresh without presence | On tab focus, and every 30 seconds while visible |
 | Cursor updates | One every 80 ms per person |
-| Presence rooms with `authority: 'memory'` | One process. See [Realtime limits](/docs/realtime/limits-and-errors#limits). |
+| Presence rooms with `driver: 'memory'` | One process. See [Realtime limits](/docs/realtime/limits-and-errors#limits). |
 
 ## Runtime errors
 

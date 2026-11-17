@@ -55,7 +55,7 @@ async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ 
       kv: true,
       host: "node",
       schedule: { providerOutput: false },
-      workflow: { provider: "vercel" },
+      workflow: { driver: "vercel" },
     }),
     root,
   }, "build", "production")

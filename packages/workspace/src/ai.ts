@@ -292,7 +292,8 @@ function createWorkspaceSessionShellDriver(starter: WorkspaceSessionStarter): Sh
       })
       let observation: ShellObservation
       try {
-        const result = await session.exec("sh", ["-lc", command], {
+        // Not a login shell: a profile, such as Debian's /etc/profile, would set PATH again and drop the one in `env`.
+        const result = await session.exec("sh", ["-c", command], {
           cwd: execOptions.cwd || workspaceMountPoint,
           env: execOptions.env,
           ...(execOptions.signal ? { abortSignal: execOptions.signal } : {}),

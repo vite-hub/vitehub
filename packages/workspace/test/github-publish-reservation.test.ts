@@ -77,7 +77,7 @@ it("does not reclaim a reservation while GitHub is still creating the pull reque
   fake.commit(head, { "posts/a.md": "first" })
   fake.setBranch(other, baseSha)
   fake.commit(other, { "posts/a.md": "second" })
-  const history = () => createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "" }, "content").history!
+  const history = () => createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: "" }, "content").history!
   const reservation = { headPrefix: "vitehub/publish/", paths: ["posts/a.md"] }
   let dispatch!: () => void
   let complete!: () => void
@@ -113,7 +113,7 @@ it.each(["timeout", "server error", "malformed response"])("retains an ambiguous
   fake.commit(head, { "posts/a.md": "first", "posts/b.md": "first" })
   fake.setBranch(other, baseSha)
   fake.commit(other, { "posts/a.md": "second", "posts/b.md": "second" })
-  const history = () => createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "" }, "content").history!
+  const history = () => createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: "" }, "content").history!
   const reservation = { headPrefix: "vitehub/publish/", paths: ["posts/a.md", "posts/b.md"] }
   fake.respond(request => {
     if (request.method !== "POST" || !request.path.endsWith("/pulls") || request.body?.head !== head) return undefined
@@ -140,7 +140,7 @@ it("releases reservations and deletes the branch after a definitive PR rejection
   const head = "vitehub/publish/rejected"
   fake.setBranch(head, baseSha)
   fake.commit(head, { "posts/a.md": "first" })
-  const target = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "" }, "content").history!
+  const target = createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: "" }, "content").history!
   fake.respond(request => request.method === "POST" && request.path.endsWith("/pulls")
     ? Response.json({ message: "Validation Failed" }, { status: 422 }) : undefined)
   await expect(target.openPullRequest!({ head, base: "main", title: "Rejected", reservation: { headPrefix: "vitehub/publish/", paths: ["posts/a.md"] }, deleteHeadOnFailure: true })).rejects.toThrow("422")
