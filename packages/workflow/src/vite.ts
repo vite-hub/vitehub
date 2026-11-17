@@ -20,7 +20,7 @@ import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deploym
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import { inspectWorkflowDefinitions } from "./inspect.ts"
-import { discoverWorkflowDevDefinitions, workflowDevGeneratedDir, workflowTestSetupFile, writeWorkflowDevRegistryFiles } from "./internal/dev-registry.ts"
+import { discoverWorkflowDevDefinitions, registersAgentWorkflows, workflowDevGeneratedDir, workflowTestSetupFile, writeWorkflowDevRegistryFiles } from "./internal/dev-registry.ts"
 import { writeWorkflowTypes } from "./internal/registry-types.ts"
 import { addVercelWorkflowNitroRoutes, createCloudflareWorkflowNitroConfig, createOptionalPackagesPlugin, createVercelWorkflowModuleTransform, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, resolveWorkflowProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
@@ -83,6 +83,15 @@ function agentWorkflowModules(plugins: unknown): AgentWorkflowModules | undefine
     // SAFETY: Vite plugin objects may expose ViteHub's optional agent extension, which this reads defensively.
     const modules = (plugin as AgentWorkflowRegistryPlugin | null | undefined)?.vitehub?.agent?.workflowModules
     if (modules) return modules
+  }
+}
+
+/** The same Agent setup transform is used by provider builds and Node startup registries. */
+function agentWorkflowRegistryTransform(plugins: unknown): ((code: string, id: string) => string | Promise<string>) | undefined {
+  for (const plugin of [plugins].flat(Infinity)) {
+    // SAFETY: Vite plugin objects may expose this optional ViteHub Agent extension.
+    const transform = (plugin as AgentWorkflowRegistryPlugin | null | undefined)?.vitehub?.agent?.transformWorkflowRegistry
+    if (transform) return transform
   }
 }
 
@@ -260,9 +269,12 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
     // SAFETY: The framework adds optional forwarded server directories to the active Vite configuration.
     const workflowServerDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? build?.serverDirs
     const providerSources = discoverWorkflowProviderSources(config.root, workflowServerDirs)
+    // The flow function holds the native Workflow IDs of the published `.vitehub/workflow/sources` copy, relative to the
+    // project root. This copy has the same layout under `artifactDir`, and its IDs are relative to `artifactDir`, so a
+    // Schedule starts IDs that the flow function knows on every build.
     const retainedSources = artifactDir
       ? await retainProviderOutputSources({
-          artifactDir: resolve(artifactDir, "sources"),
+          artifactDir: resolve(artifactDir, ".vitehub", "workflow", "sources"),
           paths: [
             ...providerOutputAliasSources(aliases, [config.root]),
             ...providerSources.paths,
@@ -299,7 +311,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
       },
       bundlePlugins: [
         createOptionalPackagesPlugin(rootDir),
-        ...(native ? [await createVercelWorkflowTransformPlugin(rootDir)] : []),
+        ...(native ? [await createVercelWorkflowTransformPlugin(rootDir, artifactDir)] : []),
       ].filter((plugin): plugin is EsbuildPlugin => Boolean(plugin)),
       native,
       registryFile: artifacts.registryFile,
@@ -356,10 +368,15 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
     }
   }
 
+  /** The plugins of the latest Vite config. The Agent plugin gives the Agent files that Agent Workflow entries import. */
+  let configPlugins: unknown
+
   async function writeDevRegistry(rootDir: string, workflow: false | ResolvedWorkflowOptions | undefined, vercel?: WorkflowVercelNitroRegistry) {
     return await writeWorkflowDevRegistryFiles({
+      agentModules: agentWorkflowModules(configPlugins),
+      transformRegistry: agentWorkflowRegistryTransform(configPlugins),
       databaseImport: postgresDatabaseImport,
-      definitions: workflow ? discoverWorkflowDevDefinitions(rootDir, serverDirs) : [],
+      definitions: workflow ? discoverWorkflowDevDefinitions(rootDir, serverDirs, registersAgentWorkflows(workflow)) : [],
       dev: !startupBuild,
       importBase: internalOptions.importBase,
       projectRoot: rootDir,
@@ -414,6 +431,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
         const buildConfig = config as typeof config & { __vitehubWorkflowServerDirs?: string[] }
         buildConfig.__vitehubWorkflowServerDirs = serverDirs
         startupBuild = env.command === "build"
+        configPlugins = config.plugins
         // A build reports a provider that it cannot use before it starts. Development keeps the app running.
         if (startupBuild && internalOptions.hosting) resolveWorkflow(workflow)
         devWorkflow = resolveDevWorkflow()
@@ -461,7 +479,8 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
           }
           modules.push(...module.importers)
         }
-        const definitionFile = /\.(?:c|m)?[jt]s$/i.test(file) && /(?:\/workflows\/|\.workflow\.)/i.test(file)
+        // Agent files add Agent Workflows to the registry of OpenWorkflow.
+        const definitionFile = /\.(?:c|m)?[jt]s$/i.test(file) && /(?:\/workflows\/|\.workflow\.|\/agents\/|\.agent\.)/i.test(file)
         if (!definitionFile && !registryDependency) return
         const { changed } = await writeDevRegistry(rootDir, workflowConfig)
         await writeWorkflowTypes(rootDir, discoverWorkflowDevDefinitions(rootDir, serverDirs), internalOptions.importBase)
@@ -489,6 +508,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
     },
     async configResolved(config) {
       resolved = config
+      configPlugins = config.plugins
       providerOutput = useProviderOutputCatalog(config)
       // SAFETY: The framework adds optional forwarded server directories to resolved Vite configuration.
       const buildConfig = config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[], __vitehubWorkflowServerDirs?: string[] }
