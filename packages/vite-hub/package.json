@@ -933,6 +933,11 @@
       "types": "./dist/logs/host.d.ts",
       "import": "./dist/logs/host.js",
       "default": "./dist/logs/host.js"
+    },
+    "./logs/client": {
+      "types": "./dist/logs/client.d.ts",
+      "import": "./dist/logs/client.js",
+      "default": "./dist/logs/client.js"
     }
   },
   "scripts": {
