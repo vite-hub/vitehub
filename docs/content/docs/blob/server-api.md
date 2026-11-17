@@ -121,7 +121,7 @@ Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: 
 | `blob.handleMultipartUpload(event, options?)` | Serves the requests that the multipart client sends. |
 | `blob.store(name, options?)` | Selects a named store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 
-Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` as an H3 `HTTPError` with status `400`, so a route that lets it through answers `400`. `serve()` returns a `400` response for it instead. `get()` and `head()` read a pathname under `.vitehub/` as a missing file. A write under `.vitehub/`, `_vitehub/derived/`, or `_vitehub/media/` throws `BLOB_R0033` with status `403`. The decoded pathname also must not contain `%` followed by two hex digits, such as `x%41.txt`. A second decode would change it, so this rule makes sure that each pathname that `put()` or `list()` returns targets the same object when you pass it back. `50% off.txt` is valid. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
+Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathname that is empty, has a control character, or has a `.` or `..` segment (split on `/` or `\`) throws `BLOB_R0034` as an H3 `HTTPError` with status `400`, so a route that lets it through answers `400`. `serve()` returns a `400` response for it instead. `get()` and `head()` read a pathname under `.vitehub/` as a missing file. A write under `.vitehub/`, `_vitehub/derived/`, or `_vitehub/media/` throws `BLOB_R0033` with status `403`. The decoded pathname also must not contain `%` followed by two hex digits, such as `x%41.txt`. A second decode would change it, so this rule makes sure that each pathname that `put()` or `list()` returns targets the same object when you pass it back. `50% off.txt` is valid. `put()` and `createMultipartUpload()` check the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare` store returns [`BLOB_PATHNAME_TOO_LONG`](/docs/blob/limits-and-errors#blob_pathname_too_long) for a pathname above 1,024 bytes. `list()` checks `prefix` the same way and accepts a trailing slash.
 
 ### Copy a file
 
@@ -138,9 +138,9 @@ A missing source returns [`BLOB_NOT_FOUND`](/docs/blob/limits-and-errors#blob_no
 | Driver | How it copies |
 | --- | --- |
 | `fs` | Copies the file and writes the metadata of the source for it. |
-| `cloudflare-r2` | Reads the object from the binding and streams it into the new key. Without a binding, R2 copies on the server through the S3 API. |
+| `cloudflare` | Reads the object from the binding and streams it into the new key. Without a binding, R2 copies on the server through the S3 API. |
 | `s3`, `minio`, `gcs`, `azure` | The provider copies the object on the server. |
-| `vercel-blob` | Vercel copies the object on the server. ViteHub reads the source first to keep its content type. |
+| `vercel` | Vercel copies the object on the server. ViteHub reads the source first to keep its content type. |
 | `netlify-blobs` | Reads the object and writes it again. |
 
 Pass the cursor from `blob.list()` unchanged to the next call on the same store, with the same `prefix` and `folded`. Netlify Blobs listings fail if they cannot decode the cursor.
@@ -439,9 +439,9 @@ ticket. A direct upload cannot set `put.access`, `put.contentLength`, or
 | Driver | Direct upload | Notes |
 | --- | --- | --- |
 | `fs` | Signed link to the app | The link binds `ensure.maxSize`, so the route answers `413` for a larger body. The file still goes through the app. |
-| `cloudflare-r2` | R2 presigned URL | Needs the S3 HTTP credentials. R2 cannot bind `maxSize`, so `complete` checks the size. |
+| `cloudflare` | R2 presigned URL | Needs the S3 HTTP credentials. R2 cannot bind `maxSize`, so `complete` checks the size. |
 | `s3`, `minio`, `gcs`, `azure` | Provider presigned URL | Through files-sdk. The provider cannot bind `maxSize`, so `complete` checks the size. |
-| `vercel-blob` | Vercel client token | Vercel checks the pathname, the type, and `ensure.maxSize`. Needs `BLOB_READ_WRITE_TOKEN`. A store that only uses Vercel OIDC cannot sign. |
+| `vercel` | Vercel client token | Vercel checks the pathname, the type, and `ensure.maxSize`. Needs `BLOB_READ_WRITE_TOKEN`. A store that only uses Vercel OIDC cannot sign. |
 | `netlify-blobs` | No | Netlify Blobs has no presigned upload. The route answers `{ action: 'form' }`, and the client sends the files as a form, through the app. |
 
 A browser sends a `PUT` to another origin only when the bucket allows it. Add
@@ -470,7 +470,7 @@ from `@vite-hub/blob/client`. Pass `onProgress` to get the progress of the
 
 Use multipart uploads for files too large for one request. The client splits
 the file into parts. The server stores each part until `complete()` joins them.
-The `fs`, `cloudflare-r2` (with the R2 binding), and `vercel-blob` drivers
+The `fs`, `cloudflare` (with the R2 binding), and `vercel` drivers
 support it. Other drivers throw `BLOB_R0030`.
 
 Create one route with `action` and `pathname` params:
@@ -566,8 +566,8 @@ if (completeError) throw completeError
 | Driver | Upload state | Notes |
 | --- | --- | --- |
 | `fs` | Parts under `<base>/.vitehub/multipart/<uploadId>/` | `complete()` checks each part's etag while it copies the parts into the final file one after another, so it does not hold the whole file in memory. `abort()` deletes the parts. |
-| `cloudflare-r2` | R2 multipart upload | Requires the R2 binding. The HTTP fallback has no multipart support. |
-| `vercel-blob` | Vercel multipart upload | The upload ID encodes the Vercel key. Access always comes from the store config. `abort()` does nothing. Vercel discards unfinished uploads. |
+| `cloudflare` | R2 multipart upload | Requires the R2 binding. The HTTP fallback has no multipart support. |
+| `vercel` | Vercel multipart upload | The upload ID encodes the Vercel key. Access always comes from the store config. `abort()` does nothing. Vercel discards unfinished uploads. |
 
 The client for any framework is `@vite-hub/blob/client`, with `uploadFiles()`
 and `createMultipartUploader()`. The Vue composables use it. Pass `onProgress`
@@ -598,9 +598,9 @@ const [uploadError, upload] = await blob.sign('users/user/jobs/job/source.mp3', 
 if (uploadError) throw uploadError
 ```
 
-Send `upload.headers` unchanged with the `PUT` body. `contentType` locks the MIME type into the signed request. `createOnly` makes the provider reject the upload when the file already exists. Drivers that cannot enforce it throw, so they never allow an overwrite silently. `maxSize`, such as `'8MB'`, limits the size of the body. Only the `fs` and `vercel-blob` drivers bind it, and the other drivers fail the request.
+Send `upload.headers` unchanged with the `PUT` body. `contentType` locks the MIME type into the signed request. `createOnly` makes the provider reject the upload when the file already exists. Drivers that cannot enforce it throw, so they never allow an overwrite silently. `maxSize`, such as `'8MB'`, limits the size of the body. Only the `fs` and `vercel` drivers bind it, and the other drivers fail the request.
 
-The `fs` driver, the `cloudflare-r2` driver, the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the others that use files-sdk), and the `vercel-blob` driver sign requests. The `vercel-blob` driver signs a `PUT` only. It returns a request to the Vercel Blob API with a client token, as `@vercel/blob/client` uploads a file. The token binds the pathname, `contentType`, `maxSize`, `createOnly`, and the expiry, and it needs `BLOB_READ_WRITE_TOKEN`. A files-sdk driver signs a `GET` only when its provider gives a URL that expires after exactly `expiresIn` seconds. It signs a `PUT` only when its provider gives a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign, `blob.sign()` returns `BLOB_OPERATION_FAILED`, and `cause` says why. It never returns a permanent public link instead.
+The `fs` driver, the `cloudflare` driver, the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the others that use files-sdk), and the `vercel` driver sign requests. The `vercel` driver signs a `PUT` only. It returns a request to the Vercel Blob API with a client token, as `@vercel/blob/client` uploads a file. The token binds the pathname, `contentType`, `maxSize`, `createOnly`, and the expiry, and it needs `BLOB_READ_WRITE_TOKEN`. A files-sdk driver signs a `GET` only when its provider gives a URL that expires after exactly `expiresIn` seconds. It signs a `PUT` only when its provider gives a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign, `blob.sign()` returns `BLOB_OPERATION_FAILED`, and `cause` says why. It never returns a permanent public link instead.
 
 Cloudflare R2 signs with its S3-compatible HTTP credentials, even when reads and writes use a Workers binding. A binding alone cannot make a presigned URL, so set `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` in runtime env. [R2 presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/) expire after 1 second to 7 days. The [S3 compatibility contract](https://developers.cloudflare.com/r2/api/s3/api/) supports `If-None-Match` on `PutObject`.
 

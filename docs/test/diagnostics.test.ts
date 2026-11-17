@@ -26,7 +26,7 @@ describe("diagnostic catalogs", () => {
   })
 
   it("reads `why` and `fix`, with each template expression as a placeholder", () => {
-    expect(code("QUEUE_DISABLED")).toMatchObject({ pkg: "queue", why: "Queue is disabled in this runtime.", fix: "In `vitehub()`, set `queue.provider` to the provider of the host, or remove `provider`. With `@vite-hub/queue` alone, do not pass `false` to `hubQueue()`, and set a `provider` that matches the host." })
+    expect(code("QUEUE_DISABLED")).toMatchObject({ pkg: "queue", why: "Queue is disabled in this runtime.", fix: "In `vitehub()`, set `queue.driver` to the driver of the host, or remove `driver`. With `@vite-hub/queue` alone, do not pass `false` to `hubQueue()`, and set a `driver` that matches the host." })
     // A function `why` shows the most detailed text that it can return.
     expect(code("QUEUE_BINDING_NOT_FOUND").why).toBe("The Cloudflare queue binding \"<binding>\" is not in the Worker env.")
     expect(code("QUEUE_PROVIDER_FAILED").group).toBe("Runtime errors")

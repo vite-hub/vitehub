@@ -101,6 +101,21 @@ async function runRealDrizzleKit(rootDir: string, feature: "generate" | "migrate
 }
 
 describe("DB CLI contributor", () => {
+  it("prints the help of every command without the project config", async () => {
+    // `vitehub database <feature> --help` runs this contributor without loading the project.
+    const getConfig = vi.fn(() => {
+      throw new Error("loaded the project")
+    })
+    const spawn = vi.fn()
+    for (const feature of createDbCliContributor(undefined, getConfig)!.namespaces[0]!.features) {
+      const stdout = { write: vi.fn() }
+      await expect(feature.run(["--help"], { env: {}, rootDir: "/app", spawn, stderr: process.stderr, stdout } as never)).resolves.toBe(0)
+      expect(stdout.write.mock.calls.join("")).toContain(`Usage: vitehub database ${feature.name}`)
+    }
+    expect(getConfig).not.toHaveBeenCalled()
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
   it.each([
     { viteRoot: ".", databaseFile: ".vitehub/data/database/sqlite.db", connection: "" },
     { viteRoot: "app", databaseFile: ".vitehub/data/database/sqlite.db", connection: "" },

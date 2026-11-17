@@ -166,6 +166,8 @@ Nitro output includes `.vitehub/nitro/error-log.mjs`. It logs each unhandled req
 
 `vitehub({ security: { headers: true } })` adds `Strict-Transport-Security` (built output only), `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, and `Permissions-Policy` to each response that does not set them itself, and to static files through `_headers` on Cloudflare and Netlify and a static-file route on Vercel. An object changes, adds, or removes (`false`) one header. `security: { maxBodySize: "1mb" }` answers `413` with `data.code: "VITE_HUB_REQUEST_BODY_TOO_LARGE"` to a larger request body, on every route. It adds no Content Security Policy. See [Add security headers and a body limit](https://vitehub.dev/docs/frameworks-hosts/production#add-security-headers-and-a-body-limit).
 
+A tab that is open during a deploy asks for files of the old build when it loads a lazy page or component. `vitehub()` and `vite-hub/nuxt` reload the page once when such a file is missing, and not again within 10 seconds. Call `preventDefault()` on the `vite:preloadError` event to handle it yourself. See [Open tabs after a deploy](https://vitehub.dev/docs/frameworks-hosts/production#open-tabs-after-a-deploy).
+
 `vitehub()` and `vite-hub/nuxt` register ViteHub rules with [Vite Doctor](https://github.com/onmax/vite-doctor) when the app runs it. The rules report misuse of every Server Primitive, for example internal or server-only imports, unchecked `[error, value]` results, secret Server Env values used as strings, unknown Definition names, and removed APIs. Read [Doctor rules](https://vitehub.dev/docs/reference/doctor-rules).
 
 ## Run tasks
@@ -349,11 +351,13 @@ Console image uploads require invocation to be enabled. The Console fixes the Ag
 
 Logs are part of `observability`. Turn them on with `vitehub({ console: { auth: false }, observability: { logs: true } })` during local development. It attaches a bounded buffer to Evlog's existing drain and reuses an installed Evlog Nitro module. Pass `observability: { evlog: { redact: true }, logs: { maxEntries: 256 } }` to configure Evlog when ViteHub owns its setup. If another integration already installed Evlog, configure the options there.
 
+`observability: { browserErrors: true }` sends uncaught browser errors to `POST /api/_vitehub/browser-errors`, and the server logs each one as an error on the Evlog event of that request. A Vite app gets a script in `index.html`, and a Nuxt app a client plugin that also reports `vue:error` and `app:error`. Report an error that the app catches with the browser's `reportError(error)`. The route takes same-origin requests only, 16 KiB at most, and 20 reports a minute from one address. It is off by default. See [Log browser errors](https://vitehub.dev/docs/logs/configure#log-browser-errors).
+
 For production, use `observability: { logs: { source: './server/logs.ts' } }`. That server module must default-export a `LogSource` from `vite-hub/logs/source` that reads the existing backend. Without `observability.service`, this form starts no logger, buffer, SDK, or exporter. `logs: true` fails a production build because a temporary process buffer cannot provide shared production history. The source owns retention and cursor semantics and must apply each advertised filter.
 
 Explorer and Stream keep selected event data in the right inspector. Search includes structured fields. Follow refreshes the newest page every two seconds and is a polling view, not guaranteed delivery of every event. The browser retains at most 1,000 loaded events. The Console shows local retention limits and dropped or evicted counts. The same read operation is available as `vitehub logs list --level error --limit 50 --json` and through Console RPC `logs.list`, under the same section access policy.
 
-With the Cloudflare host and `observability.logs` set, ViteHub defaults the generated Wrangler configuration to `observability: { enabled: true }`. An explicit Wrangler observability configuration is preserved, including `enabled: false`. This enables Cloudflare's native collection. It does not create an exporter, configure a destination, or connect that history to the Console. Those remain owned by the existing backend and its source adapter.
+With the Cloudflare host, ViteHub defaults the generated Wrangler configuration to `observability: { enabled: true }`, with or without `observability.logs`. An `observability` key in the project `wrangler.json` or in `nitro.cloudflare.wrangler` is preserved, including `enabled: false`. This enables Cloudflare's native collection. It does not create an exporter, configure a destination, or connect that history to the Console. Those remain owned by the existing backend and its source adapter.
 
 ## Agent Skills
 

@@ -110,7 +110,7 @@ describe("Cloudflare", () => {
     const createNonRetryableError = vi.fn((error: Error) => new CloudflareNonRetryableError(error.message))
 
     await expect(runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       createNonRetryableError,
       env: {},
       event: { instanceId: "run-1" },
@@ -129,7 +129,7 @@ describe("Cloudflare", () => {
     const createNonRetryableError = vi.fn((error: Error) => new CloudflareNonRetryableError(error.message))
 
     await expect(runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       createNonRetryableError,
       env: {},
       event: { instanceId: "run-1" },
@@ -147,7 +147,7 @@ describe("Inline runs", () => {
     ["a step file", declineInStepFile],
     ["a root step", declineInRootStep],
   ])("fail at once from %s and report the message", async (_label, definition) => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({ decline: async () => ({ default: definition }) })
 
     const started = await startWorkflow("decline")
@@ -164,7 +164,7 @@ describe("Inline runs", () => {
 
 describe("OpenWorkflow (SQLite)", () => {
   beforeEach(() => {
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     setWorkflowRuntimeRegistry({
       decline: async () => ({ default: declineInRootStep }),
       declineInStep: async () => ({ default: declineInStepFile }),

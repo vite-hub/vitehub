@@ -9,7 +9,7 @@ import { registerWorkspace } from "../src/test.ts"
 describe("Workspace Shell root directories", () => {
   it.each(["/workspace", "/workspace/", "/"])("recognizes and preserves the virtual root at %s", async (path) => {
     const name = `shell-root-directory-${path}`
-    registerWorkspace(name, defineWorkspace({ store: { provider: "memory" } }))
+    registerWorkspace(name, defineWorkspace({ store: { driver: "memory" } }))
     const workspace = useWorkspace(name, { mode: "write" })
     await workspace.fs.writeFile("notes.md", "saved content")
     const exists = vi.spyOn(workspace.fs, "exists")

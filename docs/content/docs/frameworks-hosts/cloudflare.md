@@ -22,10 +22,25 @@ host-neutral. Cloudflare details stay in the config and generated output.
 | Workflow | Cloudflare Workflows |
 | Workspace | `memory` Store unless you select Cloudflare Artifacts |
 | Browser and `email: true` | Browser Run and Cloudflare Email. Both require this host. |
+| Workers Logs | `observability: { enabled: true }` in `wrangler.json` |
 
 The app name comes from `vitehub({ name })`, then `WRANGLER_CI_OVERRIDE_NAME`
 in Workers Builds, then the `package.json` name. It is also the Worker name
 unless `nitro.cloudflare.wrangler.name` is set.
+
+## Workers Logs
+
+Cloudflare keeps no Worker logs unless `wrangler.json` turns on
+`observability`. ViteHub turns it on in the generated `wrangler.json`, so
+`console.log` output and request logs show in the Cloudflare dashboard after
+the first deploy.
+
+To turn it off, or to set a sampling rate, put your own `observability` in
+the project `wrangler.json`. ViteHub then leaves the key as you wrote it.
+
+```json [wrangler.json]
+{ "observability": { "enabled": false } }
+```
 
 ## Cloudflare boundaries
 
@@ -108,7 +123,7 @@ export default defineDatabase({
 })
 ```
 
-The Nuxt-only `database.driver: 'd1'` option sets up one host resource for Nuxt Content and Nitro. It is not a shortcut for a Vite Database Definition.
+The Nuxt-only `database.driver: 'cloudflare'` option sets up one host resource for Nuxt Content and Nitro. It is not a shortcut for a Vite Database Definition.
 
 With the Console and Agents on, a Cloudflare build stores the Console run journal in this D1 binding. The journal creates its `vitehub_agent_invocations` table on first use. See [Cloudflare journal](/docs/development/console#know-what-the-console-stores).
 
@@ -288,7 +303,7 @@ See [Deploy from your machine](/docs/development/cli#deploy-from-your-machine) f
 
 ### Rate Limiting bindings
 
-With `vitehub({ host: 'cloudflare', rateLimit: true })`, ViteHub selects the Cloudflare provider and uses the app name as the namespace. Each `requireRateLimit()` policy in a handler adds one `ratelimits` entry to Nitro's Wrangler config. Do not repeat those bindings in `nitro.cloudflare.wrangler`.
+With `vitehub({ host: 'cloudflare', rateLimit: true })`, ViteHub selects the Cloudflare driver and uses the app name as the namespace. Each `requireRateLimit()` policy in a handler adds one `ratelimits` entry to Nitro's Wrangler config. Do not repeat those bindings in `nitro.cloudflare.wrangler`.
 
 To use the Rate Limit integration directly, add the Nitro plugin with a Cloudflare preset and set the namespace yourself. The preset selects the Cloudflare provider, and Nitro writes the bindings to `wrangler.json`.
 
@@ -325,7 +340,7 @@ export default defineNuxtConfig({
     host: 'cloudflare',
     workspace: {
       store: {
-        provider: 'cloudflare-artifacts',
+        driver: 'cloudflare',
         binding: 'WORKSPACE_ARTIFACTS',
         namespace: 'vitehub',
       },
@@ -347,7 +362,7 @@ export default defineConfig({
       host: 'cloudflare',
       workspace: {
         store: {
-          provider: 'cloudflare-artifacts',
+          driver: 'cloudflare',
           binding: 'WORKSPACE_ARTIFACTS',
           namespace: 'vitehub',
         },
@@ -370,7 +385,7 @@ export default defineConfig({
       host: 'cloudflare',
       workspace: {
         store: {
-          provider: 'cloudflare-artifacts',
+          driver: 'cloudflare',
           binding: 'WORKSPACE_ARTIFACTS',
           namespace: 'vitehub',
         },

@@ -63,6 +63,19 @@ corepack pnpm exec vp run verify
 
 Use the affected package name in vp targets and its directory in pnpm --dir commands. For example, use @vite-hub/agent#build as the vp target and packages/agent as the --dir path. The verify command is the full local gate and needs the Deno version in .deno-version.
 
+### Doctor
+
+[Doctor](https://vite-doctor.onmax.me) checks the lines that your branch changes. `doctor.config.json` selects the rules. The `doctor` CI job runs the same check on each pull request and fails if Doctor reports a finding. Run it before you push:
+
+```sh
+git fetch origin main
+corepack pnpm exec vp run doctor:typescript
+```
+
+The task compares with the merge base of `origin/main`. Set `VITE_DOCTOR_SINCE` to compare with a different Git ref.
+
+Fix each finding in the code. Each finding gives a fix and a link to its Diagnostic Code page. Do not suppress a finding to make the check pass. If the code is correct and the finding is wrong for one line, add a `doctor-disable-next-line <rule> -- <reason>` or a `// SAFETY:` comment. Write a reason that is true only for that line. Do not copy a reason from a different line. Doctor's instructions for agents are in [`node_modules/vite-doctor/docs/skills/doctor/SKILL.md`](node_modules/vite-doctor/docs/skills/doctor/SKILL.md).
+
 Report what changed, why, what you verified, and any remaining uncertainty. Keep the response in normal prose. Return JSON, HTML, or other machine formats only when the user explicitly asks for that format.
 
 ## Pull requests

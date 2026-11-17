@@ -32,7 +32,7 @@ function cloudflareBinding(name: string, existingIds: string[] = []) {
       return { id, status: async () => ({ status: "running" }) }
     }),
   }
-  setWorkflowRuntimeConfig({ provider: "cloudflare" })
+  setWorkflowRuntimeConfig({ driver: "cloudflare" })
   setWorkflowRuntimeRegistry({ [name]: async () => ({ default: { handler: async () => ({ ok: true }) } }) })
   enterWorkflowRuntimeEvent({ req: { runtime: { cloudflare: { env: { [getCloudflareWorkflowBindingName(name)]: binding } } } } })
   return binding
@@ -82,7 +82,7 @@ it("reports a missing instance as unknown after querying the binding", async () 
 it("rejects the id in vite dev, where the run is inline", async () => {
   vi.stubEnv("NODE_ENV", "production")
   enableWorkflowDevRuns()
-  setWorkflowRuntimeConfig({ provider: "cloudflare" })
+  setWorkflowRuntimeConfig({ driver: "cloudflare" })
   setWorkflowRuntimeRegistry({ checkout: async () => ({ default: { handler: async () => ({ ok: true }) } }) })
   enterWorkflowRuntimeEvent({ req: { runtime: { cloudflare: { env: {} } } } })
 

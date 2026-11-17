@@ -30,7 +30,16 @@ export interface FormsRuntimeOptions {
   session?: (request: Request) => Promise<FormUser | null>
   /** The Standard Context of a request, from `getStandardContext()`: the client address in `runtime`, and `waitUntil`. */
   context?: (request: Request) => { runtime?: { clientAddress?: string, cloudflare?: object }, waitUntil?: (promise: Promise<unknown>) => void }
+  /**
+   * `checkRateLimit` of ViteHub Rate Limit. The generated handler passes it when Rate Limit counts in a KV store that
+   * every server process shares. Forms then counts each form and address under the Rate Limit name `forms`. Without
+   * it, or when the store does not answer, Forms counts in the memory of this process.
+   */
+  rateLimit?: FormsSharedRateLimit
 }
+
+/** The part of `checkRateLimit()` from `vite-hub/rate-limit` that Forms calls. */
+export type FormsSharedRateLimit = (request: Request, name: string, options: { key: string, limit: number, window: `${number}${"ms" | "s" | "m" | "h" | "d"}` }) => Promise<[unknown, { allowed: boolean, reason?: string, retryAfter?: number, cause?: unknown } | undefined]>
 
 const units: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }
 
@@ -118,14 +127,24 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
     : options.memory ? createMemoryFormsStore() : undefined
   Reflect.set(globalThis, installedKey, { names: [...forms.keys()].sort(), inbox: createFormsInbox(store ?? emptyFormsStore) } satisfies InstalledForms)
   const memoryLimit = memoryFormRateLimit()
-  const { sendEmail, session, context } = options
+  const { sendEmail, session, context, rateLimit: shared } = options
   const services = (request: Request): FormServices => {
     const host = context?.(request)
     const address = addressKey(host?.runtime?.clientAddress ?? (host?.runtime?.cloudflare ? request.headers.get("cf-connecting-ip") : undefined) ?? "unknown")
     return {
       ...(store ? { store } : {}),
-      // Counts in this server process. Rate Limit on Cloudflare needs each limit name at build time.
-      rateLimit: async (_, key, policy) => memoryLimit(`${key}:${address}`, policy),
+      // Rate Limit on Cloudflare needs each limit name at build time, so a Worker counts in the memory of its isolate.
+      rateLimit: async (_, key, policy) => {
+        const counter = `${key}:${address}`
+        if (shared) {
+          // SAFETY: defineForm() accepts only windows such as `30s` or `1m`, and Rate Limit checks the window again.
+          const window = policy.window as `${number}m`
+          const [error, decision] = await shared(request, "forms", { key: counter, limit: policy.limit, window })
+          if (decision && decision.reason !== "unavailable") return decision.allowed || decision.retryAfter === undefined ? { allowed: decision.allowed } : { allowed: false, retryAfter: decision.retryAfter }
+          console.error("[vitehub] Forms could not count this message in Rate Limit, so it counts it in the memory of this process.", error ?? decision?.cause)
+        }
+        return memoryLimit(counter, policy)
+      },
       ...(sendEmail ? { email: async (message: FormEmailMessage) => {
         const [error] = await sendEmail(message)
         if (error) throw error

@@ -67,13 +67,13 @@ const optionChoices: Partial<Record<string, { values: readonly [string, ...strin
   "cache.driver": { requires: "kv", values: ["kv"] },
   "email.driver": { values: ["resend"] },
   "kv.driver": { values: ["upstash"] },
-  "realtime.authority": { values: ["memory"] },
-  "sandboxTask.provider": { values: ["vercel"] },
-  "workflow.provider": { values: ["openworkflow"] },
+  "realtime.driver": { values: ["memory"] },
+  "sandboxTask.driver": { values: ["vercel"] },
+  "workflow.driver": { values: ["openworkflow"] },
 }
 
 /** Option keys that select a provider or a store. A feature that sets one does not use the host default. */
-const providerKeys = ["authority", "driver", "provider", "store"]
+const providerKeys = ["driver", "store"]
 
 function selectsProvider(id: FeatureId, value: JsonValue | undefined, host?: ViteHubHost): boolean {
   if (!isRecord(value)) return false
@@ -285,8 +285,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const support = featureSupport(id, host)
     const current = project.config?.ok ? project.config.site.keys[id] : undefined
     const driver = args.options[id]?.driver ?? (current?.kind === "literal" && isRecord(current.value) ? current.value.driver : undefined)
-    if (id === "email" && driver === "cloudflare-email" && host !== "cloudflare") {
-      throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The cloudflare-email driver requires Cloudflare. Choose email.driver=resend on this host.", feature: id, host }), setupExitCodes.conflict)
+    if (id === "email" && driver === "cloudflare" && host !== "cloudflare") {
+      throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The cloudflare driver requires Cloudflare. Choose email.driver=resend on this host.", feature: id, host }), setupExitCodes.conflict)
     }
     if (support.level === "unsupported") {
       throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: support.detail, feature: id, host }), setupExitCodes.conflict)
@@ -330,14 +330,14 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     if (id === "agent" && host === "deno" && isRecord(value) && value.runtime === "deno") {
       throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The Deno host cannot deploy the Agent Deno runtime outside its Nitro entrypoint. Use the host's Nitro runtime instead.", feature: id, host }), setupExitCodes.conflict)
     }
-    if (id === "realtime" && isRecord(value) && value.authority !== undefined) {
+    if (id === "realtime" && isRecord(value) && value.driver !== undefined) {
       const choices = host === "cloudflare" ? ["cloudflare", "auto"] : host === "node" ? ["auto", "postgres", "redis", "memory"] : ["memory"]
-      if (typeof value.authority !== "string" || !choices.includes(value.authority)) {
-        throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `realtime.authority must be ${choices.join(" or ")} on this host. ${support.detail}`, feature: id, host }), setupExitCodes.conflict)
+      if (typeof value.driver !== "string" || !choices.includes(value.driver)) {
+        throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `realtime.driver must be ${choices.join(" or ")} on this host. ${support.detail}`, feature: id, host }), setupExitCodes.conflict)
       }
     }
     if (id === "cache" && isRecord(value) && value.driver !== undefined) {
-      const nativeDriver = { cloudflare: "cloudflare-kv-binding", deno: "deno-kv", netlify: undefined, node: "fs-lite", vercel: "vercel-runtime-cache" }[host]
+      const nativeDriver = { cloudflare: "cloudflare", deno: "deno-kv", netlify: undefined, node: "fs-lite", vercel: "vercel" }[host]
       if (value.driver !== "kv" && value.driver !== nativeDriver) {
         throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `cache.driver must be ${nativeDriver ? `${nativeDriver} or ` : ""}kv on this host. ${support.detail}`, feature: id, host }), setupExitCodes.conflict)
       }
@@ -351,7 +351,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     }
     // A feature that only an implication turns on can run inline, such as the Workflow of an Agent on Node.
     const inlineOnly = !args.features.includes(id) && !requires.includes(id) && impliedInline(id, inputFeatures, host)
-    // Outside Netlify, Workflow storage options select OpenWorkflow without `workflow.provider`.
+    // Outside Netlify, Workflow storage options select OpenWorkflow without `workflow.driver`.
     const storageSelected = id === "workflow" && host !== "netlify" && selectsProvider(id, value, host)
     if (support.level === "explicit" && !inlineOnly && !storageSelected) {
       const key = support.option.slice(id.length + 1)

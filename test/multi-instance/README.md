@@ -76,7 +76,7 @@ starts in its own working directory, and only these stores are shared:
 - KV, through Redis at `REDIS_URL`, or the Postgres Default Database with `--no-redis`.
 - Blob, set by hand in `app/nuxt.config.ts` to one `fs` directory, as a volume
   that every instance mounts.
-- Workflow, set by hand to `provider: 'openworkflow'`. ViteHub does not start
+- Workflow, set by hand to `driver: 'openworkflow'`. ViteHub does not start
   an OpenWorkflow worker on Node yet, so `app/server/plugins/openworkflow-worker.ts`
   starts one. Remove that plugin when #3839 lands, because then ViteHub starts
   the worker.

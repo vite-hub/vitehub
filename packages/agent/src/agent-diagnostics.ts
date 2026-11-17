@@ -4031,8 +4031,8 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Set secretToken with secretHeader, signature: \"bearer\", or signature: { verify }. To accept unsigned requests on purpose, set secretToken: false.",
     },
     AGENT_R1045: {
-      why: "[vitehub] page() reaches the page over Realtime, and this build has no Realtime room authority.",
-      fix: "Set `realtime: true` in the vite-hub options. A Node build needs `realtime: { authority: \"memory\" }` for one process, or Redis or Postgres for more.",
+      why: "[vitehub] page() reaches the page over Realtime, and this build has no Realtime driver.",
+      fix: "Set `realtime: true` in the vite-hub options. A Node build needs `realtime: { driver: \"memory\" }` for one process, or Redis or Postgres for more.",
     },
     AGENT_R1046: {
       why: "[vitehub] connectPage() has no `join`, so the page cannot join its Realtime room.",

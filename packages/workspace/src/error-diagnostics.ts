@@ -103,6 +103,15 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Fix the conflict in `vitehub.lock`, or delete the entry and pull again.",
     },
 
+    // Config errors. The Vite plugin and the runtime throw them because the `store` option must change.
+    WORKSPACE_UNKNOWN_STORE_DRIVER: {
+      why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
+        ? `The Workspace \`store.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`
+        : `The Workspace \`store.driver\` ${driver} is not a Workspace Store driver.`,
+      fix: ({ renamed }: { driver: string, renamed?: string }) => renamed
+        ? `Set \`store: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
+        : "Set `store.driver` to \"local\", \"memory\", \"github\", \"cloudflare\", or \"vercel\", or pass a Store object.",
+    },
     // Registry errors. The generated Workspace registry loads each Definition module when the app first uses it.
     WORKSPACE_REGISTRY_LOAD_FAILED: {
       why: ({ reason, workspace }: { reason: string, workspace: string }) => `The module of Workspace "${workspace}" did not load: ${reason}`,
@@ -128,14 +137,14 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_B0002: withFix("Use `defineWorkspace()` in `server/workspaces/<name>.ts`. Move the `defineAgent()` call to `server/agents/<name>/agent.ts`."),
     WORKSPACE_B0003: withFix("Rename or remove one of the definitions that the message lists. Each Workspace name has one definition."),
     WORKSPACE_B0004: withFix("Set `vitehub.workspaces` in the plugin to an array of `{ name, definition: { module, export? }, reason? }` entries, or to a function that returns one. Set `module` to an absolute path, a `file:` URL, or a package specifier."),
-    WORKSPACE_B0005: withFix("Set the Cloudflare Artifacts Store in the `workspace` config, for example `vitehub({ workspace: { store: { provider: \"cloudflare-artifacts\", binding: \"WORKSPACE_ARTIFACTS\", namespace: \"vitehub\" } } })`, and remove `store` from the Workspace Definition. Or remove the import that the build cannot load from the Definition file, so that the build can read its `store`."),
+    WORKSPACE_B0005: withFix("Set the Cloudflare Artifacts Store in the `workspace` config, for example `vitehub({ workspace: { store: { driver: \"cloudflare\", binding: \"WORKSPACE_ARTIFACTS\", namespace: \"vitehub\" } } })`, and remove `store` from the Workspace Definition. Or remove the import that the build cannot load from the Definition file, so that the build can read its `store`."),
     WORKSPACE_R0004: withFix("Put a value after the option, for example `--timeout 30000` or `--url http://localhost:5173`."),
     WORKSPACE_R0005: withFix("Pass a whole number of milliseconds from 1 to 2147483647, for example `--timeout 30000`."),
     WORKSPACE_R0006: withFix("Pass a whole number of milliseconds from 1 to 2147483647, for example `--timeout 30000`."),
     WORKSPACE_R0007: withFix("Remove the option. `vitehub workspace dev --help` lists the options."),
     WORKSPACE_R0008: withFix("Put a command after `exec`, for example `vitehub workspace dev docs exec ls`."),
     WORKSPACE_R0009: withFix("Put `exec` before the command, for example `vitehub workspace dev docs exec ls -la`. Or omit the command to open the interactive command loop."),
-    WORKSPACE_C0001: withFix("Set `workspace` to an object, for example `workspace: { store: { provider: \"memory\" } }`, or to `false`."),
+    WORKSPACE_C0001: withFix("Set `workspace` to an object, for example `workspace: { store: { driver: \"memory\" } }`, or to `false`."),
     WORKSPACE_C0002: withFix("Remove the option. The `workspace` config accepts `assets`, `projectRoot`, `root`, and `store`."),
     WORKSPACE_R0015: withFix("Remove the option. `defineWorkspace()` accepts `bindings`, `commit`, `hooks`, `loaders`, `plugins`, `rootDir`, `rules`, `sourceRootDir`, `sources`, and `store`."),
     WORKSPACE_R0016: withFix("Pass an object to `defineWorkspace()`, for example `defineWorkspace({ sources: {} })`."),

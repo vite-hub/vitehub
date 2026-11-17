@@ -131,7 +131,7 @@ describe("blob.copy() on Cloudflare R2", () => {
       put: vi.fn(async (key: string, _value: unknown, options: { customMetadata?: Record<string, string>, httpMetadata?: { contentType?: string } }) => ({ ...options, key, size: 5 })),
     }
     vi.stubGlobal("BUCKET", bucket)
-    const storage = createBlobStorage(createCloudflareDriver({ binding: "BUCKET", driver: "cloudflare-r2" }), "default", { images: false })
+    const storage = createBlobStorage(createCloudflareDriver({ binding: "BUCKET", driver: "cloudflare" }), "default", { images: false })
 
     const [error, object] = await storage.copy("a.png", "b.png")
     expect(error).toBeUndefined()
@@ -144,7 +144,7 @@ describe("blob.copy() on Cloudflare R2", () => {
 
   it("returns BLOB_PATHNAME_TOO_LONG for a destination above 1024 bytes", async () => {
     vi.stubGlobal("BUCKET", { get: vi.fn(), head: vi.fn(async () => null), put: vi.fn() })
-    const storage = createBlobStorage(createCloudflareDriver({ binding: "BUCKET", driver: "cloudflare-r2" }), "default", { images: false })
+    const storage = createBlobStorage(createCloudflareDriver({ binding: "BUCKET", driver: "cloudflare" }), "default", { images: false })
     const [error] = await storage.copy("a.png", "b".repeat(1025))
     expect(error?.code).toBe("BLOB_PATHNAME_TOO_LONG")
   })
@@ -199,7 +199,7 @@ describe("blob.copy() on Vercel Blob", () => {
       return { contentType: "text/plain", pathname: key, size: 3, uploadedAt, url: `https://store.private.blob.vercel-storage.com/${key}` }
     })
     vercel.copy.mockResolvedValue({ contentType: "text/plain", pathname: "b.txt", url: "https://store.private.blob.vercel-storage.com/b.txt" })
-    const storage = createBlobStorage(createVercelDriver({ access: "private", driver: "vercel-blob", token: "token" }), "default", { images: false })
+    const storage = createBlobStorage(createVercelDriver({ access: "private", driver: "vercel", token: "token" }), "default", { images: false })
 
     const [error, object] = await storage.copy("a.txt", "b.txt")
     expect(error).toBeUndefined()

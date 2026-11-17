@@ -41,6 +41,9 @@
         </div>
       </main>
     </div></div>
+    <!-- The Console loads the page tools after it mounts (runtime/client/page-tools.ts). This marker tells the server
+    that the page has them, so it adds no loader of its own. A data block runs no code. -->
+    <script type="application/json" data-vitehub-page-tools></script>
     <script type="module" src="../runtime/client/main.js"></script>
   </body>
 </html>

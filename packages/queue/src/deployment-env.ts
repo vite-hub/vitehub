@@ -13,10 +13,10 @@ const owners = ["queue"]
  */
 export function queueDeploymentEnv(queue: false | ResolvedQueueOptions | undefined): DeploymentEnvEntry[] {
   if (!queue) return []
-  if (queue.provider === "postgres") {
+  if (queue.driver === "postgres") {
     return [{ names: [postgresQueueUrlVariable], required: !queue.database, secret: true, hasDefault: Boolean(queue.database), owners }]
   }
-  if (queue.provider === "vercel") {
+  if (queue.driver === "vercel") {
     return [{ names: ["QUEUE_REGION"], required: false, secret: false, hasDefault: false, owners }]
   }
   return []

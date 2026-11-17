@@ -122,7 +122,7 @@ describe("Database types in a Nuxt app", () => {
   it("typechecks the generated Cloudflare middleware without @cloudflare/workers-types", async () => {
     const root = await createApp()
     const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
-    await hubDatabase({ driver: "d1" })(undefined, {
+    await hubDatabase({ driver: "cloudflare" })(undefined, {
       hook: (name: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
         if (name === "nitro:config") hooks.push(callback)
       },

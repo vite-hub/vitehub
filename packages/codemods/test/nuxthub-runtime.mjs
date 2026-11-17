@@ -27,9 +27,9 @@ export function blobBindings(options) {
 }
 
 export async function readLocalKV(directory, binding) {
-  const config = normalizeKVOptions({ driver: "cloudflare-kv-binding", binding, namespaceId: "namespace" }, { dev: true, hosting: "cloudflare", env: {} })
+  const config = normalizeKVOptions({ driver: "cloudflare", binding, namespaceId: "namespace" }, { dev: true, hosting: "cloudflare", env: {} })
   const store = config?.store
-  if (store?.driver !== "cloudflare-kv-binding" || !store.localBase) throw new Error("Expected a local Cloudflare KV store")
+  if (store?.driver !== "cloudflare" || !store.localBase) throw new Error("Expected a local Cloudflare KV store")
   const driver = createCloudflareKVLocalDriver({ ...store, localBase: join(directory, store.localBase) })
   try {
     return await driver.getItem("theme")
