@@ -1,6 +1,6 @@
 ---
 title: Forms in Vue
-description: Draw a whole form from its schema with AutoForm, send your own native form with useFormAction(), or a Formisch form with useFormSubmit().
+description: Draw a whole form from its schema with AutoForm, send your own native form with useFormAction(), or a Formisch form with useFormSubmit(). FormHoneypot adds the spam trap to your own markup.
 navigation.title: Vue
 navigation.order: 8
 icon: i-lucide-panels-top-left
@@ -80,7 +80,7 @@ With [ui-sdk](https://ui-sdk.dev), a `Field` shows the error of its control. `:i
 <script setup lang="ts">
 import { Field, FieldError, FieldLabel } from '@ui-sdk/vue/field'
 import { Input } from '@ui-sdk/vue/input'
-import { formRoute, useFormAction } from 'vite-hub/forms/vue'
+import { FormHoneypot, formRoute, useFormAction } from 'vite-hub/forms/vue'
 
 const { submit, errors, sent, error, pending, clear } = useFormAction('contact')
 </script>
@@ -88,6 +88,7 @@ const { submit, errors, sent, error, pending, clear } = useFormAction('contact')
 <template>
   <!-- `method` and `action` post the form before the app loads, or without JavaScript -->
   <form method="post" :action="formRoute('contact')" @submit="submit">
+    <FormHoneypot />
     <Field name="email" :invalid="errors.email ? true : undefined">
       <FieldLabel>Email</FieldLabel>
       <Input type="email" required @value-change="clear('email')" />
@@ -109,6 +110,40 @@ const { submit, errors, sent, error, pending, clear } = useFormAction('contact')
 | `error` | The last failure. `error.message` is the message for the whole form. |
 | `pending` | `true` while the form sends. |
 | `clear(name?)` | Removes the error of one field, or of every field. |
+
+## `FormHoneypot`
+
+`defineForm()` drops a message when its honeypot field, `website` by default, is filled. People do not see the field, but many bots fill every input. `AutoForm` draws the field for you. In your own markup, put `<FormHoneypot />` inside the form. Pass `name` when `defineForm()` uses another `honeypot`.
+
+A native form sends the field by its name. When you send an object with `submitForm()`, such as from a Nuxt UI `UForm`, bind the field with `v-model` and send its value:
+
+```vue [app/components/ContactForm.vue] fragment
+<script setup lang="ts">
+import type { FormSubmitEvent } from '@nuxt/ui'
+import { submitForm } from 'vite-hub/forms/client'
+import { FormHoneypot } from 'vite-hub/forms/vue'
+
+const state = reactive({ email: '', message: '' })
+const website = ref('')
+
+async function onSubmit(event: FormSubmitEvent<ContactInput>) {
+  const [error] = await submitForm('contact', { ...event.data, website: website.value })
+  if (!error) state.message = ''
+}
+</script>
+
+<template>
+  <UForm :schema="ContactSchema" :state="state" @submit="onSubmit">
+    <FormHoneypot v-model="website" />
+    <!-- Your fields -->
+  </UForm>
+</template>
+```
+
+| Prop | Default | What it does |
+| --- | --- | --- |
+| `name` | `website` | The `honeypot` of `defineForm()`. |
+| `v-model` | | The value of the field, for a form that sends an object. |
 
 ## `useFormSubmit()`
 

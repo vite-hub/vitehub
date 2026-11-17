@@ -3,10 +3,10 @@ import { Field, FieldError, FieldLabel } from "@ui-sdk/vue/field"
 import { Input } from "@ui-sdk/vue/input"
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createApp, defineComponent, h, nextTick } from "vue"
+import { createApp, defineComponent, h, nextTick, ref } from "vue"
 
 import { createMemoryFormsStore, defineForm, handleFormRequest } from "../src/index.ts"
-import { formRoute, useFormAction } from "../src/vue.ts"
+import { FormHoneypot, formRoute, useFormAction } from "../src/vue.ts"
 
 import type { FormsStore } from "../src/index.ts"
 
@@ -29,6 +29,7 @@ const ContactForm = defineComponent({
       field("email", "Email", "text"),
       field("seats", "Seats", "number"),
       field("message", "Message", "text"),
+      h(FormHoneypot),
       h("p", { role: "status" }, sent.value ? "Sent." : error.value && !Object.keys(errors.value).length ? error.value.message : ""),
       h("button", { type: "submit", "aria-busy": pending.value ? "true" : undefined }, "Send"),
     ])
@@ -123,5 +124,35 @@ describe("useFormAction", () => {
     host.querySelector("form")!.requestSubmit()
     await submit()
     expect(requests).toHaveLength(1)
+  })
+
+  it("sends the FormHoneypot field, so a bot that fills it gets a success and nothing is stored", async () => {
+    const { host, input, fill, submit, requests, store } = mount()
+    expect([input("website").tabIndex, input("website").getAttribute("aria-hidden"), input("website").autocomplete]).toEqual([-1, "true", "off"])
+    await fill({ email: "ada@example.com", seats: "3", message: "Hello there", website: "https://spam.example" })
+    await submit()
+    expect(new URLSearchParams(await requests[0]!.text()).get("website")).toBe("https://spam.example")
+    expect(await store.list()).toEqual([])
+    expect(host.querySelector("[role=status]")?.textContent).toBe("Sent.")
+  })
+})
+
+describe("FormHoneypot", () => {
+  it("takes the honeypot name of defineForm() and binds with v-model, for a form that sends an object", async () => {
+    const trap = ref("")
+    const host = document.body.appendChild(document.createElement("div"))
+    const app = createApp(() => h(FormHoneypot, { name: "fax", modelValue: trap.value, "onUpdate:modelValue": (value: string) => { trap.value = value } }))
+    app.mount(host)
+    unmount = () => {
+      app.unmount()
+      host.remove()
+    }
+    const input = host.querySelector<HTMLInputElement>("input[name=fax]")!
+    input.value = "bot"
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }))
+    expect(trap.value).toBe("bot")
+    trap.value = ""
+    await nextTick()
+    expect(input.value).toBe("")
   })
 })
