@@ -105,3 +105,33 @@ it("keeps another Babysitter host's live work when a shared-journal host restart
     await rm(dataDir, { recursive: true, force: true });
   }
 });
+
+// The provider runtime bundle takes several seconds to load.
+it("deletes the stored provider sessions of one thread for every invoker", { timeout: 60_000 }, async () => {
+  const { createSqliteProviderRuntimeSessionStore } = await import("@t3tools/provider-runtime");
+  const dataDir = await mkdtemp(join(tmpdir(), "vitehub-process-host-sessions-"));
+  const host = await createProcessAgentHost({ dataDir, capacity: { concurrency: 1 }, run: () => {} });
+  try {
+    // No store yet: nothing to delete, and no file appears.
+    await host.deleteProviderSession("github:acme/app:pull-request:7:run-1");
+    await expect(stat(host.providerSessionStorePath)).rejects.toMatchObject({ code: "ENOENT" });
+
+    const store = await createSqliteProviderRuntimeSessionStore(host.providerSessionStorePath);
+    // The provider Driver keys a session by origin, invoker kind, invoker id and thread.
+    const key = (invoker: string, thread: string) => JSON.stringify(["unknown", "anonymous", invoker, thread]) as Parameters<typeof store.get>[0];
+    try {
+      await store.set(key("anonymous:unknown", "github:acme/app:pull-request:7:run-1"), { thread: "a" });
+      await store.set(key("anonymous:github", "github:acme/app:pull-request:7:run-1"), { thread: "b" });
+      await store.set(key("anonymous:unknown", "github:acme/app:pull-request:7:run-2"), { thread: "c" });
+      await host.deleteProviderSession("github:acme/app:pull-request:7:run-1");
+      expect(await store.get(key("anonymous:unknown", "github:acme/app:pull-request:7:run-1"))).toBeUndefined();
+      expect(await store.get(key("anonymous:github", "github:acme/app:pull-request:7:run-1"))).toBeUndefined();
+      expect(await store.get(key("anonymous:unknown", "github:acme/app:pull-request:7:run-2"))).toEqual({ thread: "c" });
+    } finally {
+      store.close();
+    }
+  } finally {
+    await host.close();
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});

@@ -6,7 +6,6 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import type { ConsoleBuildCatalog } from "./build.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
-import { createConsoleInvocationsIdentity } from "./internal.ts"
 import { consoleBuildOf } from "./build-info.ts"
 import { resolveConsoleProjectName } from "./project.ts"
 import { describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
@@ -236,15 +235,13 @@ function renderConsoleNitroPlugin(
   ].join("\n")
 }
 
-/** Write the generated Console Nitro plugin and return the invocation journal identity of the project. */
-export async function writeConsoleNitroPlugin(options: ConsoleNitroPluginOptions): Promise<string> {
-  const { file, projectRoot, active = () => true } = options
-  const identity = createConsoleInvocationsIdentity(projectRoot)
-  if (!active()) return identity
+/** Write the generated Console Nitro plugin. */
+export async function writeConsoleNitroPlugin(options: ConsoleNitroPluginOptions): Promise<void> {
+  const { file, active = () => true } = options
+  if (!active()) return
   const contents = renderConsoleNitroPlugin(options)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")
   }
-  return identity
 }

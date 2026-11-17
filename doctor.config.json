@@ -1,0 +1,15 @@
+{
+  "extends": ["vite-doctor/typescript/strict"],
+  "exclude": ["docs/**", "playground/**"],
+  "rules": {
+    "typescript/boundaries/no-cross-realm-web-instanceof": "off",
+    "typescript/evidence/no-known-value-widening": "off",
+    "typescript/evidence/no-object-parameters": "off",
+    "typescript/evidence/no-unknown-type-aliases": "off",
+    "typescript/performance/no-array-filter-map": "off",
+    "typescript/performance/no-reduce-accumulator-copy": "off",
+    "typescript/strict/no-runtime-typeof": "off",
+    "typescript/strict/require-safety-comment-for-type-assertion": "off",
+    "typescript/style/no-conditional-empty-object-spread": "off"
+  }
+}

@@ -2,7 +2,7 @@ import { createRule } from "vite-doctor/extension"
 import type { DoctorRule, RuleContext } from "vite-doctor/extension"
 
 import frameworkPackageManifest from "../../../package.json" with { type: "json" }
-import { moduleSpecifier, vitehubModule } from "../ast.ts"
+import { moduleSourceVisitors, vitehubModule } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
 import { dependsOn } from "./integrations.ts"
 
@@ -24,31 +24,27 @@ export const noInternalImports: DoctorRule = createRule({
   },
   create(ctx) {
     if (generatedFile.test(ctx.file.relativePath)) return
-    return {
-      ScriptNode(node) {
-        const specifier = moduleSpecifier(node)?.specifier
-        if (!specifier) return
-        // A declaration file never runs, and the docs load generated types such as `.vitehub/queue.d.ts` this way.
-        if (generatedImport.test(specifier) && !ctx.file.relativePath.endsWith(".d.ts")) {
-          ctx.report(diagnostics.VHUB0001({
-            why: `\`${specifier}\` imports a file that ViteHub generates. ViteHub can replace or remove generated files on the next build.`,
-            fix: "Import the stable `#vitehub/*` alias or the `vite-hub/*` path that the ViteHub import paths reference lists.",
-          }), { range: ctx.range(node) })
-        }
-        else if (internalImport.test(specifier)) {
-          ctx.report(diagnostics.VHUB0001({
-            why: `\`${specifier}\` is an internal ViteHub path. Only generated ViteHub code and package implementations use it, and it can change in any release.`,
-            fix: "Import the public `vite-hub/*` path for this feature. The ViteHub import paths reference lists each one.",
-          }), { range: ctx.range(node) })
-        }
-        else if (specifier.startsWith("#vitehub/") && !publicAliases.test(specifier) && !movedAliases.test(specifier)) {
-          ctx.report(diagnostics.VHUB0001({
-            why: `\`${specifier}\` is a module that ViteHub generates for its own runtime code. Its exports can change in any release.`,
-            fix: "Import the public `vite-hub/*` path for this feature. The public aliases are `#vitehub/env/public` for browser code, `#vitehub/auth/server`, `#vitehub/emails/<name>`, and `#vitehub/schedule/registry`.",
-          }), { range: ctx.range(node) })
-        }
-      },
-    }
+    return moduleSourceVisitors((node, { specifier }) => {
+      // A declaration file never runs, and the docs load generated types such as `.vitehub/queue.d.ts` this way.
+      if (generatedImport.test(specifier) && !ctx.file.relativePath.endsWith(".d.ts")) {
+        ctx.report(diagnostics.VHUB0001({
+          why: `\`${specifier}\` imports a file that ViteHub generates. ViteHub can replace or remove generated files on the next build.`,
+          fix: "Import the stable `#vitehub/*` alias or the `vite-hub/*` path that the ViteHub import paths reference lists.",
+        }), { range: ctx.range(node) })
+      }
+      else if (internalImport.test(specifier)) {
+        ctx.report(diagnostics.VHUB0001({
+          why: `\`${specifier}\` is an internal ViteHub path. Only generated ViteHub code and package implementations use it, and it can change in any release.`,
+          fix: "Import the public `vite-hub/*` path for this feature. The ViteHub import paths reference lists each one.",
+        }), { range: ctx.range(node) })
+      }
+      else if (specifier.startsWith("#vitehub/") && !publicAliases.test(specifier) && !movedAliases.test(specifier)) {
+        ctx.report(diagnostics.VHUB0001({
+          why: `\`${specifier}\` is a module that ViteHub generates for its own runtime code. Its exports can change in any release.`,
+          fix: "Import the public `vite-hub/*` path for this feature. The public aliases are `#vitehub/env/public` for browser code, `#vitehub/auth/server`, `#vitehub/emails/<name>`, and `#vitehub/schedule/registry`.",
+        }), { range: ctx.range(node) })
+      }
+    })
   },
 })
 
@@ -93,16 +89,13 @@ export const noServerImportsInClient: DoctorRule = createRule({
   },
   create(ctx) {
     if (!isClientFile(ctx)) return
-    return {
-      ScriptNode(node) {
-        const source = moduleSpecifier(node)
-        if (!source || source.typeOnly || !isServerOnly(source.specifier)) return
-        ctx.report(diagnostics.VHUB0002({
-          why: `\`${source.specifier}\` is server-only, and \`${ctx.file.relativePath}\` runs in the browser. ViteHub does not block this import, so the client bundle can include server code and Server Env values.`,
-          fix: "Move this code to a server route under `server/` and call that route from the client. Use `#vitehub/env/public` for values that the browser can read.",
-        }), { range: ctx.range(node) })
-      },
-    }
+    return moduleSourceVisitors((node, source) => {
+      if (source.typeOnly || !isServerOnly(source.specifier)) return
+      ctx.report(diagnostics.VHUB0002({
+        why: `\`${source.specifier}\` is server-only, and \`${ctx.file.relativePath}\` runs in the browser. ViteHub does not block this import, so the client bundle can include server code and Server Env values.`,
+        fix: "Move this code to a server route under `server/` and call that route from the client. Use `#vitehub/env/public` for values that the browser can read.",
+      }), { range: ctx.range(node) })
+    })
   },
 })
 
@@ -126,17 +119,14 @@ export const preferViteHubImports: DoctorRule = createRule({
   create(ctx) {
     if (generatedFile.test(ctx.file.relativePath)) return
     if (viteHubPackage.test(ctx.project.packageName ?? "") || !dependsOn(ctx, "vite-hub")) return
-    return {
-      ScriptNode(node) {
-        const specifier = moduleSpecifier(node)?.specifier
-        const path = specifier?.startsWith("@vite-hub/") ? vitehubModule(specifier) : undefined
-        if (!path || !facadePaths.has(path)) return
-        ctx.report(diagnostics.VHUB0036({
-          why: `This app uses \`vite-hub\`, but imports \`${specifier}\` from the owner package. Apps import ViteHub features from \`vite-hub/*\`, and \`vite-hub/${path}\` re-exports \`${specifier}\`.`,
-          fix: `Import \`vite-hub/${path}\` instead of \`${specifier}\`.`,
-        }), { range: ctx.range(node) })
-      },
-    }
+    return moduleSourceVisitors((node, { specifier }) => {
+      const path = specifier.startsWith("@vite-hub/") ? vitehubModule(specifier) : undefined
+      if (!path || !facadePaths.has(path)) return
+      ctx.report(diagnostics.VHUB0036({
+        why: `This app uses \`vite-hub\`, but imports \`${specifier}\` from the owner package. Apps import ViteHub features from \`vite-hub/*\`, and \`vite-hub/${path}\` re-exports \`${specifier}\`.`,
+        fix: `Import \`vite-hub/${path}\` instead of \`${specifier}\`.`,
+      }), { range: ctx.range(node) })
+    })
   },
 })
 

@@ -365,9 +365,13 @@ export interface QueueDefinitionRegistry {
 }
 
 export interface DiscoveredQueueDefinition {
+  /** Plugin that contributed this Definition through `vitehub.queues`, when it was not found in the app. */
+  contributor?: string
   handler: string
   name: string
-  source?: "server-queues" | "vite-suffix"
+  /** Why the contributing plugin adds this Definition. */
+  reason?: string
+  source?: "server-queues" | "vite-plugin-contribution" | "vite-suffix"
 }
 
 /** The last delivery error of a stored job, as `vitehub queue jobs` shows it. */
