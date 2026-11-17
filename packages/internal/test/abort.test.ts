@@ -18,10 +18,11 @@ describe("abortable", () => {
     expect(task).not.toHaveBeenCalled()
   })
 
-  it("rejects with an AbortError diagnostic when the signal has no reason", async () => {
+  it("rejects with an AbortError DOMException when the signal has no reason", async () => {
     const signal = Object.defineProperty(AbortSignal.abort(), "reason", { value: undefined })
-    await expect(abortable(signal, "interrupted", () => "value")).rejects.toMatchObject({
-      code: "INTERNAL_R0003",
+    const result = abortable(signal, "interrupted", () => "value")
+    await expect(result).rejects.toBeInstanceOf(DOMException)
+    await expect(result).rejects.toMatchObject({
       message: "interrupted",
       name: "AbortError",
     })

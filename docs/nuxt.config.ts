@@ -169,11 +169,6 @@ export default defineNuxtConfig({
   vite: {
     resolve: {
       alias: [
-        // Keep Shiki's WebAssembly in the Worker bundle; Cloudflare deployments do not ship node_modules.
-        // `shiki/wasm` resolves to onig.wasm under the `unwasm` condition of the Cloudflare server build.
-        { find: /^shiki\/wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
-        { find: /^shiki\/dist\/onig\.wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
-        { find: /(?:^|[/\\])shiki[/\\]dist[/\\]onig\.wasm$/, replacement: "@shikijs/engine-oniguruma/wasm-inlined" },
         { find: "debug", replacement: fileURLToPath(new URL("./app/shims/debug.ts", import.meta.url)) },
         { find: "extend", replacement: fileURLToPath(new URL("./app/shims/extend.ts", import.meta.url)) },
       ],

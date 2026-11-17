@@ -4,10 +4,12 @@ import {
   defineNuxtModule,
   runWithNuxtContext,
 } from "@nuxt/kit";
+import { createRequire } from "node:module";
 import { icons as viteHubIcons } from "@vite-hub/icons";
 import type { ViteHubUIIconOptions, ViteHubUIOptions } from "./config.ts";
 import { componentNames } from "./component-names.ts";
 import { viteHubUIIcons } from "./icons.ts";
+import type { AliasOptions } from "vite";
 
 // Components are not serializable, so the module takes the defaults only. Pass components to `createViteHubUI()` in a plugin.
 // Icons come from the app config, below.
@@ -30,14 +32,15 @@ declare module "@nuxt/schema" {
 
 /** The parts of a Nuxt instance that `addViteHubUIRuntime()` uses. */
 export interface ViteHubUIRuntimeNuxt {
-  options: { plugins: Array<string | { src: string }> };
+  options: { plugins: Array<string | { src: string }>; vite: { resolve?: { alias?: AliasOptions } } };
   hook: (name: "icon:clientBundleIcons", callback: (icons: Set<string>) => void) => unknown;
 }
 
 /**
- * Adds what the styled parts need at runtime in a Nuxt app: the plugin that gives them Nuxt UI's Nuxt icon, and their
- * icons in the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. The module calls it, and so
- * does `vite-hub/nuxt` when the app installed this package. It is safe to call twice.
+ * Adds what the styled parts need at runtime in a Nuxt app: the plugin that gives them Nuxt UI's Nuxt icon, their
+ * icons in the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies, and Shiki's WebAssembly as a
+ * module the server build can bundle. The module calls it, and so does `vite-hub/nuxt` when the app installed this
+ * package. It is safe to call twice.
  */
 export function addViteHubUIRuntime(nuxt: ViteHubUIRuntimeNuxt): void {
   const plugin = createResolver(import.meta.url).resolve("./runtime/nuxt-plugin.js");
@@ -45,6 +48,25 @@ export function addViteHubUIRuntime(nuxt: ViteHubUIRuntimeNuxt): void {
   nuxt.hook("icon:clientBundleIcons", (icons) => {
     for (const icon of viteHubUIIcons) icons.add(icon);
   });
+  inlineShikiWasm(nuxt.options.vite);
+}
+
+/**
+ * Comark highlights code with the `shiki` root, which loads `shiki/wasm` on demand. Nitro builds the server with Shiki's
+ * `unwasm` export condition, which points at the raw `onig.wasm`, and that file imports its JavaScript glue as `env`, so
+ * Rolldown stops with `failed to resolve import "env"`. Resolve `shiki/wasm` to the base64 module of the `default`
+ * condition, from this package's Shiki so that the app needs no direct dependency.
+ */
+function inlineShikiWasm(vite: ViteHubUIRuntimeNuxt["options"]["vite"]): void {
+  const shiki = createRequire(import.meta.url).resolve("shiki/package.json");
+  const wasm = createRequire(shiki).resolve("@shikijs/engine-oniguruma/wasm-inlined");
+  const resolve = (vite.resolve ??= {});
+  const alias = resolve.alias ?? [];
+  if (!Array.isArray(alias)) {
+    resolve.alias = { "shiki/wasm": wasm, ...alias };
+    return;
+  }
+  if (!alias.some(({ find }) => find === "shiki/wasm")) resolve.alias = [...alias, { find: "shiki/wasm", replacement: wasm }];
 }
 
 export { viteHubUIIcons };

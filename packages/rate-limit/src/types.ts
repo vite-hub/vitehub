@@ -26,7 +26,9 @@ export interface CheckRateLimitOptions extends RateLimitPolicy {
 }
 
 export interface RequireRateLimitOptions extends CheckRateLimitOptions {
-  /** The message of the `429` error when the limit is reached. Default: `Rate limit exceeded.` */
+  /** `data.code` of the `429` error, such as a translation key that the client reads. */
+  code?: string
+  /** Message of the `429` error, which the client can show. Defaults to `"Rate limit exceeded."`. */
   message?: string
 }
 
