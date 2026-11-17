@@ -265,23 +265,31 @@ Some hosts and providers add an SDK, and the build names it in the same error. O
 Move `vite-hub` and every `@vite-hub/*` package to the latest release together:
 
 ```bash [commands/update]
-pnpm update --latest vite-hub "@vite-hub/*"
+pnpm vitehub update
 ```
 
-To try a [pkg.pr.new](https://pkg.pr.new) preview, put its URLs in `package.json`, such as `https://pkg.pr.new/vite-hub/vitehub/vite-hub@<commit>`, for every ViteHub package. Then run:
+The command sets the new version in every `package.json` of the workspace, in the `overrides` and `catalog` of `pnpm-workspace.yaml`, and in npm, Yarn, and Bun overrides. Then it installs. With pnpm, it also adds `vite-hub` and `@vite-hub/*` to `minimumReleaseAgeExclude`, so a new ViteHub release installs on the day it is published, and removes the old ViteHub versions from that list.
+
+To try a [pkg.pr.new](https://pkg.pr.new) preview, pass its commit:
 
 ```bash [commands/update-preview]
-pnpm update vite-hub "@vite-hub/*"
+pnpm vitehub update --preview 01898b8
 ```
 
-A preview also accepts the npm release of each ViteHub package that it uses, so `pnpm install` can keep the npm packages from `pnpm-lock.yaml` next to the preview. `pnpm update` resolves them again and keeps the URLs. To check, run `pnpm why @vite-hub/env`. With a stale lockfile, it lists two versions:
+Each ViteHub package then points at `https://pkg.pr.new/vite-hub/vitehub/<package>@<commit>`. With pnpm, the command also sets `blockExoticSubdeps: false`, because preview packages depend on each other by URL. Run `pnpm vitehub update` again to go back to the npm release.
+
+`--dry-run` prints the changes and writes nothing. `--no-install` writes the files and prints the install command.
+
+::details{summary="Why does pnpm run `pnpm update` and not `pnpm install`?"}
+A preview also accepts the npm release of each ViteHub package that it uses, so `pnpm install` can keep the npm packages from `pnpm-lock.yaml` next to the preview. `pnpm update vite-hub "@vite-hub/*"` resolves them again and keeps the URLs. To check, run `pnpm why @vite-hub/env`. With a stale lockfile, it lists two versions:
 
 ```text [output/pnpm-why-stale.txt]
 @vite-hub/env@0.0.0-preview-156a885
 @vite-hub/env@0.1.0 peer#1f85 (2 variations)
 ```
 
-After the update command, it lists only the preview.
+After `vitehub update`, it lists only the preview.
+::
 
 ## Build for production
 
