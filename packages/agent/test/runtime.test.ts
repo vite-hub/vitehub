@@ -12453,14 +12453,14 @@ describe("agent message protocol", () => {
       }],
     })
 
-    const resolved = await agent.resolve({
+    const resolved = asUnknownBoundary(await agent.resolve({
       capabilities: { sandbox: { kind: "sandbox", value: { id: "sb_1" } } },
       memo: vi.fn(),
       runtime: "unknown",
       waitUntil: vi.fn(),
-    })
+    })) as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
 
-    expect(resolved).toEqual(expect.any(Object))
+    await expect(resolved.tools.inspect!.execute({})).resolves.toEqual({ kind: "sandbox", value: { id: "sb_1" } })
   })
 
   it("converts static capability tool execution results to JSON-compatible values", async () => {
@@ -14876,7 +14876,8 @@ describe("agent message protocol", () => {
         return value
       })
 
-      await vi.waitFor(() => expect(completed).toBe(false))
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(completed).toBe(false)
       recovery.resolve()
       await expect(result).resolves.toBe("done")
     })
@@ -15096,7 +15097,8 @@ describe("agent message protocol", () => {
         throw failure
       }).finally(() => { completed = true })
 
-      await vi.waitFor(() => expect(completed).toBe(false))
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(completed).toBe(false)
       recovery.resolve()
       await expect(result).rejects.toBe(failure)
     })
@@ -15117,7 +15119,8 @@ describe("agent message protocol", () => {
         return "done"
       }).finally(() => { completed = true })
 
-      await vi.waitFor(() => expect(completed).toBe(false))
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(completed).toBe(false)
       background.resolve()
       await expect(result).resolves.toBe("done")
     })
@@ -15151,6 +15154,7 @@ describe("agent message protocol", () => {
       }, runAgentWithContext as never).finally(() => { completed = true })
 
       await telemetryStarted.promise
+      await new Promise(resolve => setTimeout(resolve, 10))
       expect(completed).toBe(false)
       telemetry.resolve()
       await expect(result).resolves.toBe("done")
@@ -15173,7 +15177,8 @@ describe("agent message protocol", () => {
         return "done"
       }).finally(() => { completed = true })
 
-      await vi.waitFor(() => expect(completed).toBe(false))
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(completed).toBe(false)
       recovery.resolve()
       await expect(result).resolves.toBe("done")
     })

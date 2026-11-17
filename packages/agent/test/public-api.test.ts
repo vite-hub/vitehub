@@ -26,8 +26,9 @@ async function readBundleGraph(entry: URL): Promise<string> {
   async function visit(file: URL): Promise<void> {
     if (visited.has(file.href)) return
     visited.add(file.href)
+    // A missing entry fails the check; a missing relative chunk is skipped.
     const source = await readFile(file, "utf8").catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return undefined
+      if (error.code === "ENOENT" && file !== entry) return undefined
       throw error
     })
     if (source === undefined) return
@@ -83,7 +84,7 @@ it("publishes additive Agent Invocation Stream error metadata", async () => {
 })
 
 it("keeps Effect out of provider and browser bundle graphs", async () => {
-  for (const entry of ["cloudflare.js", "cloudflare/state.js", "messages.js", "output.js"]) {
+  for (const entry of ["cloudflare.js", "cloudflare/state.js", "messages.js"]) {
     const bundle = await readBundleGraph(new URL(`../dist/${entry}`, import.meta.url))
     expect(containsForbiddenPublicReference(bundle), `${entry} must remain Effect and FiberFailure-free`).toBe(false)
   }

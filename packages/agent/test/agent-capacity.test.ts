@@ -1255,6 +1255,7 @@ describe("Agent Driver capacity", () => {
     const secondResult = runAgentInline(agent, runtime(), { prompt: "second" })
     const firstIterator = first[Symbol.asyncIterator]()
     await expect(firstIterator.next()).resolves.toEqual({ done: false, value: "first" })
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(starts).toEqual(["first"])
 
     gates.first.resolve()
@@ -1289,6 +1290,7 @@ describe("Agent Driver capacity", () => {
     const secondResult = runAgentInline(agent, runtime(), { prompt: "second" })
     const firstIterator = first.stream[Symbol.asyncIterator]()
     await firstIterator.next()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(starts).toEqual(["first"])
 
     gates.first.resolve()
@@ -1320,6 +1322,7 @@ describe("Agent Driver capacity", () => {
     const secondResult = streamAgentInline(agent, runtime(), { prompt: "second" }, { output: "ui-message-stream" })
     const firstStream = first.toUIMessageStream()
     expect(() => first.toUIMessageStream()).toThrow("UI-message stream has already been created")
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(starts).toEqual(["first"])
 
     gates.first.resolve()
@@ -1674,6 +1677,7 @@ describe("Agent Driver capacity", () => {
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { textStream: AsyncIterable<string> }
     const second = runAgentInline(agent, runtime(), { prompt: "second" })
     const consumption = (async () => { for await (const _chunk of first.textStream) {} })()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(starts).toEqual(["first"])
     gate.resolve()
     await consumption
@@ -1897,7 +1901,7 @@ describe("Agent Driver capacity", () => {
     controller.abort(new DOMException("stop", "AbortError"))
     await vi.waitFor(() => expect(returned).toEqual([true, true]))
     gates[0].resolve()
-    await Promise.resolve()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(starts).toEqual(["first"])
 
     gates[1].resolve()
@@ -2134,7 +2138,8 @@ describe("Agent Driver capacity", () => {
     expect(first.textStream).toBe("metadata")
     const second = runAgentInline(agent, runtime(), { prompt: "second" })
     const consumption = (async () => { for await (const _chunk of first.fullStream) {} })()
-    await vi.waitFor(() => expect(starts).toEqual(["first"]))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(starts).toEqual(["first"])
     gate.resolve()
     await consumption
     await second
@@ -2604,6 +2609,7 @@ describe("Agent Driver capacity", () => {
 
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as Response
     const secondResult = runAgentInline(agent, runtime(), { prompt: "second" })
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(starts).toEqual(["first"])
 
     gates.first.resolve()
