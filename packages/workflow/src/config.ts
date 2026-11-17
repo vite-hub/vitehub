@@ -11,7 +11,7 @@ interface WorkflowResolutionInput {
   inline?: boolean
 }
 
-const knownProviders = new Set(["cloudflare", "openworkflow", "vercel"])
+const knownDrivers = new Set(["cloudflare", "openworkflow", "vercel"])
 
 function readString(value: unknown, label: string): string | undefined {
   if (typeof value === "undefined") {
@@ -131,14 +131,14 @@ function isDefinedRuntimeConfigValue(value: unknown): boolean {
   return typeof value === "string" && !!value.trim() || isRuntimeEnvDeclaration(value)
 }
 
-function inferProvider(options: Record<string, unknown>, hosting: string, inline: boolean): "cloudflare" | "openworkflow" | "vercel" {
-  const provider = options.provider
-  if (provider === "cloudflare" || provider === "openworkflow" || provider === "vercel") {
-    return provider
+function inferDriver(options: Record<string, unknown>, hosting: string, inline: boolean): "cloudflare" | "openworkflow" | "vercel" {
+  const driver = options.driver
+  if (driver === "cloudflare" || driver === "openworkflow" || driver === "vercel") {
+    return driver
   }
   const host = getHostingProvider(hosting)
   if (host === "netlify") {
-    throw workflowErrorDiagnostics.WORKFLOW_C0008({ message: "`workflow.provider` cannot be inferred for Netlify hosting. Set `workflow.provider` explicitly or disable `workflow`." })
+    throw workflowErrorDiagnostics.WORKFLOW_C0008({ message: "`workflow.driver` cannot be inferred for Netlify hosting. Set `workflow.driver` explicitly or disable `workflow`." })
   }
   if (host === "cloudflare") return "cloudflare"
   if (host === "vercel") return "vercel"
@@ -147,25 +147,25 @@ function inferProvider(options: Record<string, unknown>, hosting: string, inline
   // Without a host target, or when inline runs are allowed, the Vercel adapter runs each Workflow inline.
   if (!hosting || inline) return "vercel"
   throw workflowErrorDiagnostics.WORKFLOW_C0020({
-    message: `\`workflow.provider\` cannot be inferred for ${JSON.stringify(hosting)} hosting. ViteHub infers Vercel Workflow only on Vercel. For durable runs, set \`workflow: { provider: "openworkflow", sqlite: { path: ".vitehub/data/workflow.sqlite" } }\`, or \`postgres: { url }\` instead of \`sqlite\`, and call \`startOpenWorkflowWorker()\` from \`@vite-hub/workflow/openworkflow\` in a long-lived process.`,
+    message: `\`workflow.driver\` cannot be inferred for ${JSON.stringify(hosting)} hosting. ViteHub infers Vercel Workflow only on Vercel. For durable runs, set \`workflow: { driver: "openworkflow", sqlite: { path: ".vitehub/data/workflow.sqlite" } }\`, or \`postgres: { url }\` instead of \`sqlite\`, and call \`startOpenWorkflowWorker()\` from \`@vite-hub/workflow/openworkflow\` in a long-lived process.`,
   })
 }
 
-function resolveProvider(options: Record<string, unknown>, hosting: string, inline: boolean): ResolvedWorkflowOptions {
+function resolveDriver(options: Record<string, unknown>, hosting: string, inline: boolean): ResolvedWorkflowOptions {
   const shared: WorkflowSharedOptions = {
     ...(typeof options.binding === "string" ? { binding: options.binding } : {}),
     ...(typeof options.name === "string" ? { name: options.name } : {}),
   }
-  const provider = options.provider
+  const driver = options.driver
 
-  if (typeof provider === "string" && !knownProviders.has(provider)) {
-    throw workflowErrorDiagnostics.WORKFLOW_C0009({ message: `Unknown \`workflow.provider\`: ${JSON.stringify(provider)}. Expected "cloudflare", "openworkflow", or "vercel".` })
+  if (typeof driver === "string" && !knownDrivers.has(driver)) {
+    throw workflowErrorDiagnostics.WORKFLOW_C0009({ message: `Unknown \`workflow.driver\`: ${JSON.stringify(driver)}. Expected "cloudflare", "openworkflow", or "vercel".` })
   }
 
-  const resolved = inferProvider(options, hosting, inline)
+  const resolved = inferDriver(options, hosting, inline)
 
   if (resolved === "cloudflare") {
-    return defu(shared, { provider: "cloudflare" as const })
+    return defu(shared, { driver: "cloudflare" as const })
   }
 
   if (resolved === "openworkflow") {
@@ -186,11 +186,11 @@ function resolveProvider(options: Record<string, unknown>, hosting: string, inli
         ...(remote === true ? { remote } : {}),
       },
       shared,
-      { provider: "openworkflow" as const },
+      { driver: "openworkflow" as const },
     )
   }
 
-  return defu(shared, { provider: "vercel" as const })
+  return defu(shared, { driver: "vercel" as const })
 }
 
 export function normalizeWorkflowOptions(options: WorkflowOptions | undefined, input: WorkflowResolutionInput = {}): ResolvedWorkflowOptions | undefined {
@@ -201,5 +201,5 @@ export function normalizeWorkflowOptions(options: WorkflowOptions | undefined, i
   if (options && Object.hasOwn(options, "database") && options.database !== undefined) {
     throw workflowErrorDiagnostics.WORKFLOW_C0017({ message: "`workflow.database` is not supported. Set `workflow.sqlite.path` or `workflow.postgres.url` explicitly." })
   }
-  return resolveProvider(options || {}, normalizeHosting(input.hosting), input.inline === true)
+  return resolveDriver(options || {}, normalizeHosting(input.hosting), input.inline === true)
 }

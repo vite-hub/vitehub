@@ -10,6 +10,9 @@ import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 import { createViteHubDevToken, removeViteHubDevToken, viteHubDevTokenHeader } from "@vite-hub/internal/dev-token"
 import { callOperationRpc, operationRpcPath } from "@vite-hub/internal/operation-rpc"
+import { isRuntimeDiagnostic } from "@vite-hub/runtime"
+
+import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { SetupCommandRunner, SetupSession, SetupSessionResult } from "@vite-hub/cli/setup"
@@ -172,8 +175,7 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   for await (const chunk of req) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))
     size += buffer.length
-    // Internal invariant: the guarded endpoint catches this size sentinel and returns a 400 CLI_R0003 document.
-    if (size > maxBodyBytes) throw new RangeError("The request body is too large.")
+    if (size > maxBodyBytes) throw viteHubErrorDiagnostics.VITE_HUB_SETUP_BODY_TOO_LARGE({ limit: maxBodyBytes })
     chunks.push(buffer)
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}")
@@ -220,7 +222,8 @@ function register(server: ViteDevServer, state: SetupDevState): void {
     handle: (req, res) => {
       void (async () => await handle(req, res))().catch((error: unknown) => {
         if (res.headersSent) return res.destroy()
-        writeJson(res, error instanceof SyntaxError || error instanceof RangeError ? 400 : 500, { error: { code: "CLI_R0003", message: error instanceof Error ? error.message : String(error) }, schemaVersion: 1 })
+        const badRequest = error instanceof SyntaxError || (isRuntimeDiagnostic(error) && error.code === "VITE_HUB_SETUP_BODY_TOO_LARGE")
+        writeJson(res, badRequest ? 400 : 500, { error: { code: "CLI_R0003", message: error instanceof Error ? error.message : String(error) }, schemaVersion: 1 })
       })
     },
     header: viteHubDevTokenHeader,

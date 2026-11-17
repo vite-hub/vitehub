@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
+import { readdir, readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
+import { invariantError } from "@vite-hub/internal/invariant"
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -21,6 +23,7 @@ import {
 } from "@nuxt/kit"
 import { findContentEntry } from "@vite-hub/source/vite"
 import { vitehubTheme } from "@vite-hub/ui/theme"
+import { sizeOf } from "comark-zoom/size"
 import { defu } from "defu"
 import { addRoute, createRouter, findAllRoutes, routeToRegExp } from "rou3"
 
@@ -44,6 +47,7 @@ import type { Nuxt, PublicRuntimeConfig } from "nuxt/schema"
 
 import type { DocsContentSnapshot, DocsSourceInput } from "./manifest.ts"
 import type { DocsSectionFile } from "./schema.ts"
+import type { DocsImageSizes } from "./markdown.ts"
 import type { DocsPage } from "./types.ts"
 
 export { DocsAssistantSetupError } from "./assistant-nuxt.ts"
@@ -566,6 +570,17 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       getContents: () => `${parserEntry ? `export { default } from ${JSON.stringify(parserEntry)}` : "export default {}"}\nexport const githubRepo = ${JSON.stringify(options.github ? options.github.repo : null)}\n`,
     }).dst
 
+    // comark-ui cannot measure an image of the site, such as `/screenshots/console.png`, from its path, so the picture
+    // took its room only once it loaded and pushed the page down. The build measures the pictures of every public
+    // folder, and the parser gives each image its size. The app's own file wins over a layer's. The Worker that parses
+    // drafts has no files, so it reads the sizes from this module too.
+    const publicDirs = () => nuxt.options._layers.map(layer => resolve(layer.cwd, layer.config.dir?.public ?? "public"))
+    const imageSizesFile = addTemplate({
+      filename: "docs/image-sizes.mjs",
+      write: true,
+      getContents: async () => `export default ${JSON.stringify(await publicImageSizes(publicDirs()))}\n`,
+    }).dst
+
     const componentsEntry = options.components ? resolve(nuxt.options.rootDir, options.components) : null
     nuxt.options.alias["#docs/custom-components"] = addTemplate({ filename: "docs/custom-components.mjs", write: true, getContents: () => componentsEntry ? `export { default } from ${JSON.stringify(componentsEntry)}\n` : "export default {}\n" }).dst
     addTemplate({ filename: "docs/custom-components.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const components: Record<string, Component>\nexport default components\n` })
@@ -768,6 +783,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     addServerHandler({ route: "/api/_docs/page/**", handler: resolver.resolve("./runtime/server/page.js") })
     addServerHandler({ route: "/api/_docs/search.json", handler: resolver.resolve("./runtime/server/search.js") })
     addServerHandler({ route: "/sitemap.xml", handler: resolver.resolve("./runtime/server/sitemap.js") })
+    // One URL per page: the canonical link and the sitemap name `/docs/kv`, so `/docs/kv/` redirects there.
+    addServerHandler({ middleware: true, handler: resolver.resolve("./runtime/server/trailing-slash.js") })
     // Content serves the agent files. HEAD too: link checkers probe with it, and a GET-only route answers it with a 404.
     for (const method of ["get", "head"] as const) {
       for (const route of ["/llms.txt", "/llms-full.txt", "/sitemap.md"]) addServerHandler({ route, method, handler: resolver.resolve("./runtime/server/llms.js") })
@@ -856,7 +873,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // The `/raw/**` route goes to Nitro directly: nuxt-agent-discovery skips the prerender of raw copies that an app
       // route of Nuxt serves, and the build prerenders them.
       nitro.handlers = [...nitro.handlers ?? [], ...(["get", "head"] as const).map(method => ({ route: "/raw/**", method, handler: resolver.resolve("./runtime/server/raw.js") }))]
-      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile, "#docs/agent": agentFile }
+      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile, "#docs/image-sizes": imageSizesFile, "#docs/agent": agentFile }
       // Pack production files into one module to stay below Cloudflare's module limit. Development imports each file
       // through Vite: Nitro server assets read the folders from disk, and the Cloudflare dev server runs in workerd.
       const stores = [...sourceDirs ? sourceDirs.map((dir, index) => ({ name: `docs-${index}`, dir })) : [{ name: "docs", dir: contentDir }], { name: "docs-agent", dir: agentDir }]
@@ -947,6 +964,23 @@ function setDocsHead(head: Nuxt["options"]["app"]["head"], siteName: string): vo
   head.titleTemplate ??= `%s · ${siteName}`
 }
 
+const pictures = /\.(?:avif|gif|jpe?g|png|svg|webp)$/i
+
+/** The size of each picture in the folders, by its URL path, such as `/screenshots/console.png`. The first folder wins. */
+async function publicImageSizes(dirs: string[]): Promise<DocsImageSizes> {
+  const sizes: Record<string, [number, number]> = {}
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue
+    for (const file of await readdir(dir, { recursive: true })) {
+      const path = encodeURI(`/${file.split(sep).join("/")}`)
+      if (!pictures.test(file) || sizes[path]) continue
+      const size = await sizeOf(await readFile(join(dir, file)))
+      if (size) sizes[path] = [size.width, size.height]
+    }
+  }
+  return sizes
+}
+
 /** Whether a layer has an `app.vue`, as Nuxt looks for it: `app` or `App` with any Nuxt extension. */
 function hasAppComponent(srcDirs: string[], extensions: string[]): boolean {
   return srcDirs.some(dir => ["app", "App"].some(name => extensions.some(extension => existsSync(join(dir, `${name}${extension}`)))))
@@ -981,8 +1015,7 @@ function stylesheet(name: string): string {
   // `@nuxt/ui` does not export its package.json, so walk up from its entry.
   let root = dirname(fileURLToPath(import.meta.resolve(name)))
   while (!existsSync(join(root, "package.json")) || JSON.parse(readFileSync(join(root, "package.json"), "utf8")).name !== name) {
-    // Internal invariant: a package that resolved has a package.json above its entry.
-    if (dirname(root) === root) throw new Error(`Cannot find the package.json of ${name}.`)
+    if (dirname(root) === root) throw invariantError(`a resolved package has a package.json above its entry, but ${name} has none`)
     root = dirname(root)
   }
   const { exports } = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { exports: { ".": { style: string } } }

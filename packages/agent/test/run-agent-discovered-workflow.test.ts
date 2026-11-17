@@ -19,7 +19,7 @@ function discoveredWorkflowHost() {
   setAgentWorkflowRuntimeLoaders({
     state: async () => ({
       ...await import("@vite-hub/workflow/runtime/state"),
-      getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" as const }),
+      getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" as const }),
       getWorkflowRuntimeRegistry: () => ({ hello: async () => ({ handler: () => undefined }) }),
       loadWorkflowDefinition: async () => ({ handler: () => undefined }),
     }),

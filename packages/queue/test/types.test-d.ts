@@ -4,18 +4,18 @@ import type { Plugin } from "vite"
 import { deferQueue, dynamicQueue, sendQueue, useQueue } from "../src/runtime/client.ts"
 import { defineQueue } from "../src/definition.ts"
 import type { Result } from "@vite-hub/runtime"
-import type { CloudflareQueueClient, CloudflareQueueErrorCode, LocalQueueProviderOptions, QueueErrorCode, QueueSendResult, ResolvedLocalQueueOptions, VercelQueueClient, VercelQueueErrorCode } from "../src/index.ts"
+import type { CloudflareQueueClient, CloudflareQueueErrorCode, LocalQueueDriverOptions, QueueErrorCode, QueueSendResult, ResolvedLocalQueueOptions, VercelQueueClient, VercelQueueErrorCode } from "../src/index.ts"
 import { hubQueue } from "../src/vite.ts"
 
 it("keeps development disclosure out of public local provider options", () => {
-  expectTypeOf<LocalQueueProviderOptions>().not.toHaveProperty("development")
+  expectTypeOf<LocalQueueDriverOptions>().not.toHaveProperty("development")
   expectTypeOf<ResolvedLocalQueueOptions>().not.toHaveProperty("development")
 })
 
 it("returns a vite plugin", () => {
   expectTypeOf(hubQueue()).toMatchTypeOf<Plugin>()
-  expectTypeOf(hubQueue({ provider: "cloudflare" })).toMatchTypeOf<Plugin>()
-  expectTypeOf(hubQueue({ provider: "vercel" }, { importBase: "vite-hub/queue" })).toMatchTypeOf<Plugin>()
+  expectTypeOf(hubQueue({ driver: "cloudflare" })).toMatchTypeOf<Plugin>()
+  expectTypeOf(hubQueue({ driver: "vercel" }, { importBase: "vite-hub/queue" })).toMatchTypeOf<Plugin>()
   // @ts-expect-error The import base is an internal option, not a public Queue option.
   hubQueue({ importBase: "vite-hub/queue" })
 })

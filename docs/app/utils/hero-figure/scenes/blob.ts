@@ -103,7 +103,7 @@ export default defineScene<BlobPlan>({
   summary: "blob.handleUpload() checks each file before it saves it. The image is saved under avatars/, and blob.serve() shows it at its URL, with the same code on every storage service.",
   plan(k) {
     const r = rng(k + 401);
-    const driver = pick<Driver>(r, [{ id: "fs", name: "a local folder" }, { id: "cloudflare-r2", name: "Cloudflare R2" }, { id: "vercel-blob", name: "Vercel Blob" }, { id: "s3", name: "S3" }, { id: "netlify-blobs", name: "Netlify Blobs" }]);
+    const driver = pick<Driver>(r, [{ id: "fs", name: "a local folder" }, { id: "cloudflare", name: "Cloudflare R2" }, { id: "vercel", name: "Vercel Blob" }, { id: "s3", name: "S3" }, { id: "netlify-blobs", name: "Netlify Blobs" }]);
     const bad = pick<BadFile>(r, [
       { name: "resume.pdf", size: "2.1 MB", err: "not an image", why: "A PDF is not an image" },
       { name: "holiday.png", size: "12 MB", err: "over 8MB", why: "This image is over 8MB" },

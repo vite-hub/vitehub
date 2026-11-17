@@ -51,6 +51,7 @@ describe("@vite-hub/auth package contract", () => {
       "requireAbility",
       "requireAuth",
       "requireAuthorization",
+      "signOut",
       "useAuth",
       "withAnonymousAuthorization",
       "withAuth",

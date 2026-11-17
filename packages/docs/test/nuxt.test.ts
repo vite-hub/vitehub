@@ -101,7 +101,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false, layers: Array<{ config: Record<string, unknown> }> = []) {
+async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false, layers: Array<{ cwd?: string, config: Record<string, unknown> }> = []) {
   const buildDir = mkdtempSync(join(tmpdir(), "docs-nuxt-"))
   templateDir = buildDir
   roots.push(buildDir)
@@ -732,6 +732,35 @@ describe("docs Nuxt setup", () => {
     expect(generated.get("docs/example-sources.mjs")).toBe("export default {}\n")
   })
 
+  it("gives the parser the size of each picture in the public folders of the app and its layers", async () => {
+    const png = (width: number, height: number) => {
+      const bytes = Buffer.alloc(33)
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes)
+      bytes.write("IHDR", 12, "ascii")
+      bytes.writeUInt32BE(width, 16)
+      bytes.writeUInt32BE(height, 20)
+      return bytes
+    }
+    const app = mkdtempSync(join(tmpdir(), "docs-public-app-"))
+    const layer = mkdtempSync(join(tmpdir(), "docs-public-layer-"))
+    roots.push(app, layer)
+    mkdirSync(join(app, "public/screenshots"), { recursive: true })
+    writeFileSync(join(app, "public/screenshots/console.png"), png(1280, 720))
+    writeFileSync(join(app, "public/logo.png"), png(64, 64))
+    writeFileSync(join(app, "public/notes.txt"), "Not a picture.\n")
+    mkdirSync(join(layer, "assets"), { recursive: true })
+    writeFileSync(join(layer, "assets/logo.png"), png(32, 32))
+    writeFileSync(join(layer, "assets/banner.png"), png(1200, 300))
+    const options = await setupDocs({}, "/", false, [{ cwd: app, config: { srcDir: join(app, "app") } }, { cwd: layer, config: { srcDir: join(layer, "app"), dir: { public: "assets" } } }])
+    const nitro: { alias?: Record<string, string> } = {}
+    for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never)
+
+    const sizes = JSON.parse((await templates.get("docs/image-sizes.mjs")?.() ?? "").replace(/^export default /, ""))
+    // The app's own `/logo.png` wins over the layer's.
+    expect(sizes).toEqual({ "/screenshots/console.png": [1280, 720], "/logo.png": [64, 64], "/banner.png": [1200, 300] })
+    expect(nitro.alias?.["#docs/image-sizes"]).toBe(join(options.buildDir, "docs/image-sizes.mjs"))
+  })
+
   it("parses with the built-in plugins only without a parser module", async () => {
     await setupDocs({})
     expect(templates.get("docs/parser.mjs")?.()).toBe("export default {}\nexport const githubRepo = null\n")
@@ -794,12 +823,15 @@ describe("docs Nuxt setup", () => {
     expect(routes.some(path => path.startsWith("/portal"))).toBe(false)
     expect(handlers.map(handler => handler.route)).toEqual([
       "/api/_docs/page/**", "/api/_docs/search.json", "/sitemap.xml",
+      // The trailing-slash redirect: middleware, with no route.
+      undefined,
       "/llms.txt", "/llms-full.txt", "/sitemap.md",
       "/llms.txt", "/llms-full.txt", "/sitemap.md",
       "/mcp",
       // The Markdown copies of app pages: middleware, with no route.
       undefined,
     ])
+    expect(handlers[3]).toMatchObject({ middleware: true, handler: expect.stringMatching(/runtime\/server\/trailing-slash\.js$/) })
     expect(handlers.at(-1)).toMatchObject({ middleware: true, handler: expect.stringMatching(/runtime\/server\/markdown\.js$/) })
     // Nitro gets the raw route directly, so nuxt-agent-discovery still lets the build prerender the copies.
     expect((nitro as { handlers?: Array<{ route: string, method: string }> }).handlers?.map(handler => [handler.route, handler.method])).toEqual([["/raw/**", "get"], ["/raw/**", "head"]])

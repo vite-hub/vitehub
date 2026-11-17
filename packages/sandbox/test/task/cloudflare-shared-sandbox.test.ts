@@ -122,7 +122,7 @@ async function isolate(namespace: unknown, config: Record<string, unknown>) {
   const { resolveSandboxTaskRunner } = await import("../../src/task/runtime/runtime.ts")
   const { setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeRegistry } = await import("../../src/task/runtime/state.ts")
   const { runWithActiveCloudflareEnv } = await import("@vite-hub/internal/runtime/cloudflare-env")
-  setSandboxTaskRuntimeConfig({ provider: "cloudflare", ...config })
+  setSandboxTaskRuntimeConfig({ driver: "cloudflare", ...config })
   setSandboxTaskRuntimeRegistry({ echo: task("echo"), gate: task("gate"), slow: task("hang", 50) })
   return async (name: string, options?: { sandboxId?: string; signal?: AbortSignal }) => {
     const runner = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () => resolveSandboxTaskRunner(name))

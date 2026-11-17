@@ -48,6 +48,11 @@
       "import": "./dist/env.js",
       "default": "./dist/env.js"
     },
+    "./hints": {
+      "types": "./dist/hints.d.ts",
+      "import": "./dist/hints.js",
+      "default": "./dist/hints.js"
+    },
     "./ast": {
       "types": "./dist/ast.d.ts",
       "import": "./dist/ast.js",
@@ -277,6 +282,11 @@
       "types": "./dist/secret.d.ts",
       "import": "./dist/secret.js",
       "default": "./dist/secret.js"
+    },
+    "./runtime/user-agent": {
+      "types": "./dist/runtime/user-agent.d.ts",
+      "import": "./dist/runtime/user-agent.js",
+      "default": "./dist/runtime/user-agent.js"
     },
     "./sitemap": {
       "types": "./dist/sitemap.d.ts",

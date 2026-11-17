@@ -28,6 +28,7 @@ export default defineConfig({
       "src/dev-token.ts",
       "src/durability.ts",
       "src/env.ts",
+      "src/hints.ts",
       "src/features.ts",
       "src/forge.ts",
       "src/http-request.ts",
@@ -92,6 +93,7 @@ export default defineConfig({
       "src/runtime/random.ts",
       "src/runtime/request-origin.ts",
       "src/runtime/time-zone.ts",
+      "src/runtime/user-agent.ts",
       "src/runtime/vercel-hosted.ts",
     ],
     outExtensions: () => ({

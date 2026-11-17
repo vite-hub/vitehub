@@ -12,7 +12,7 @@ import { listQueueJobs, sendToQueue } from "../src/runtime/operations.ts"
 
 const codes = {
   QUEUE_DEFINITION_NAME_INVALID: queueErrorDiagnostics.QUEUE_DEFINITION_NAME_INVALID(),
-  QUEUE_JOBS_UNAVAILABLE: queueErrorDiagnostics.QUEUE_JOBS_UNAVAILABLE({ provider: "vercel" }),
+  QUEUE_JOBS_UNAVAILABLE: queueErrorDiagnostics.QUEUE_JOBS_UNAVAILABLE({ driver: "vercel" }),
   QUEUE_JOB_DUPLICATE: queueErrorDiagnostics.QUEUE_JOB_DUPLICATE(),
   QUEUE_JOB_NOT_FOUND: queueErrorDiagnostics.QUEUE_JOB_NOT_FOUND(),
   QUEUE_JOB_RUNNING: queueErrorDiagnostics.QUEUE_JOB_RUNNING(),
@@ -50,7 +50,7 @@ it("gives an operation failure its code, fix, and HTTP status", async () => {
     fix: expect.stringContaining("vitehub queue list"),
     status: 400,
   })
-  setQueueRuntimeConfig({ provider: "vercel", region: "iad1" } as never, vi.fn())
+  setQueueRuntimeConfig({ driver: "vercel", region: "iad1" } as never, vi.fn())
   await expect(listQueueJobs({})).rejects.toMatchObject({ code: "QUEUE_JOBS_UNAVAILABLE", status: 409, statusMessage: expect.stringContaining("vercel") })
 })
 
@@ -74,7 +74,7 @@ it("keeps the per-job results on the cause when Vercel rejects jobs of a batch",
   const results = [{ messageId: "a", status: "sent" }, { error: new Error("rejected"), status: "failed" }]
   const client = await createVercelQueueClient({
     client: { handleCallback: vi.fn(), send: vi.fn(), sendBatch: vi.fn(async () => results) },
-    provider: "vercel",
+    driver: "vercel",
     region: "iad1",
     topic: "welcome",
   } as never)

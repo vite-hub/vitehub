@@ -88,6 +88,8 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   // The Console keeps the Agent journal in libSQL.
   ["vite-hub/console/server", { "@libsql/client": "both", "@vite-hub/agent": "both", "drizzle-orm": "both" }],
   ["vite-hub/doctor", { "vite-doctor": "both" }],
+  // `node --import vite-hub/test/register` starts the Vite server of the app on import, so it needs Vite to load.
+  ["vite-hub/test/register", { "vite": "runtime" }],
   ["vite-hub/env/database", { "drizzle-orm": "both" }],
   ["vite-hub/forms/formisch", { "@formisch/vue": "both", "vue": "both" }],
   ["vite-hub/browser/controllers/playwright", { "playwright-core": "declaration" }],

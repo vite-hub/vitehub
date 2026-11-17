@@ -53,7 +53,7 @@ describe("context.sleep() arguments", () => {
   it("rejects a duration that no provider reads the same way", async () => {
     const sleep = vi.fn(async () => {})
     const run = (value: unknown) => runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { instanceId: "run-1" },
       name: "nap",
@@ -75,7 +75,7 @@ describe("Cloudflare", () => {
     const step: WorkflowProviderStep = { do: vi.fn(async (_name, _options, run) => await run()), sleep }
 
     await expect(runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { instanceId: "run-1" },
       name: "nap",
@@ -91,7 +91,7 @@ describe("Cloudflare", () => {
     let recorded: unknown
     const record: WorkflowProviderStep = { do: async (_name, _options, run) => recorded = await run(), sleep: async () => {} }
     const run = (step: WorkflowProviderStep) => runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { instanceId: "run-1" },
       name: "nap",
@@ -111,7 +111,7 @@ describe("Cloudflare", () => {
     const until = "2030-01-01T00:00:00.000Z"
 
     await expect(runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { instanceId: "run-1", payload: { until } },
       name: "nap",
@@ -131,7 +131,7 @@ describe("Cloudflare", () => {
     const sleep = vi.fn(async () => {})
 
     await runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { instanceId: "run-1" },
       name: "nap",
@@ -150,7 +150,7 @@ describe("inline runs (vite dev and Vercel handlers)", () => {
   })
 
   it("fails a root step that sleeps with the same code", async () => {
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({ nap: async () => ({ default: napInRootStep }) })
 
     const started = await startWorkflow("nap")
@@ -163,7 +163,7 @@ describe("inline runs (vite dev and Vercel handlers)", () => {
 
   it("waits with a timer in a folder Workflow, and records the sleep as a dev step", async () => {
     enableWorkflowDevRuns()
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({ nap: async () => ({ default: napTwiceInFolder }) })
 
     const startedAt = Date.now()
@@ -184,7 +184,7 @@ describe("inline runs (vite dev and Vercel handlers)", () => {
   it("splits a wait longer than the largest timer, so it does not end at once", async () => {
     vi.useFakeTimers()
     try {
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       setWorkflowRuntimeRegistry({ nap: async () => ({ default: folderWorkflow<undefined>(async (_payload, context) => { await context.sleep("30 days"); return "rested" }) }) })
       const started = await startWorkflow("nap")
 
@@ -201,7 +201,7 @@ describe("inline runs (vite dev and Vercel handlers)", () => {
 
 describe("OpenWorkflow (SQLite)", () => {
   beforeEach(() => {
-    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     setWorkflowRuntimeRegistry({
       nap: async () => ({ default: napInRootStep }),
       folderNap: async () => ({ default: napInFolder }),
