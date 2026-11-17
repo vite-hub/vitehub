@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import * as v from "valibot";
 import type { Snapshot } from "./inbox/store.ts";
 import type { GitHubEvidence, GitHubReviewThread } from "./inbox/types.ts";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 
 const feedbackInputSchema = v.strictObject({
   kind: v.picklist(["comment", "review", "review-comment"]),
@@ -23,13 +24,13 @@ export function readBabysitterFeedback(snapshot: Snapshot, input: unknown) {
   const matches = (item: GitHubEvidence) => identities(item).includes(request.id);
   const collection = request.kind === "comment" ? snapshot.comments : request.kind === "review" ? snapshot.reviews : snapshot.reviewComments;
   const item = Object.values(collection).find(matches) ?? (request.kind === "review-comment" ? snapshot.threads.flatMap(comments).find(matches) : undefined);
-  if (!item || item.deleted) throw new Error("Feedback is absent or deleted from the assigned PR snapshot.");
+  if (!item || item.deleted) throw presetsErrorDiagnostics.PRESETS_FEEDBACK_NOT_FOUND();
   const thread = request.kind === "review-comment" ? snapshot.threads.find(value => comments(value).some(comment => identities(comment).some(id => identities(item).includes(id)))) : undefined;
   const body = item.body ?? "";
   const version = createHash("sha256").update(JSON.stringify([body, item.updated_at ?? item.updatedAt, thread?.isResolved])).digest("hex");
-  if (request.offset && !request.version) throw new Error("Continue with the version returned by the first feedback read.");
-  if (request.version && request.version !== version) throw new Error("Feedback changed during pagination. Read again from offset zero.");
-  if (request.offset > body.length) throw new Error("Feedback offset exceeds the body length.");
+  if (request.offset && !request.version) throw presetsErrorDiagnostics.PRESETS_FEEDBACK_VERSION_MISSING();
+  if (request.version && request.version !== version) throw presetsErrorDiagnostics.PRESETS_FEEDBACK_CHANGED();
+  if (request.offset > body.length) throw presetsErrorDiagnostics.PRESETS_FEEDBACK_OFFSET_INVALID();
   const end = Math.min(body.length, request.offset + request.limit);
   return {
     repository: snapshot.repository, number: snapshot.number, headSha: snapshot.pr?.head?.sha,

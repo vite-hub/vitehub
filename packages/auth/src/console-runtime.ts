@@ -4,6 +4,8 @@ import { defineGrant } from "@vite-hub/runtime/internal/grant";
 import { adminClaimPluginId } from "./admin-claim.ts";
 import { adminClaimVariable } from "./admin-claim-code.ts";
 import { adminsPluginId, adminsVariable } from "./admins.ts";
+import { accessPolicyPluginId } from "./access-policy.ts";
+import { membersVariable } from "./members.ts";
 import { authConsoleActionNames, authConsoleEventGroups } from "./console-types.ts";
 import { parseAuthEventList } from "./events.ts";
 import { isAuthProcessMemoryDatabase } from "./runtime-state.ts";
@@ -234,16 +236,11 @@ function authConsoleError(status: number, detail: string): ResultError<AuthConso
   return code ? errors[code]({ detail }) : errors.AUTH_CONSOLE_PROVIDER_FAILED({ cause: detail });
 }
 
-/** An Auth Console error that a call site raised, as opposed to a failure of Better Auth or the database. */
-function isAuthConsoleError(value: unknown): value is ResultError<AuthConsoleErrorCode> {
-  return value instanceof Error && Object.hasOwn(errors, String(Reflect.get(value, "code")));
-}
-
 async function result<T>(run: () => Promise<T>): Promise<Result<T, AuthConsoleErrorCode>> {
   try {
     return [undefined, await run()];
   } catch (cause) {
-    if (isAuthConsoleError(cause)) return [cause, undefined];
+    if (errors.is(cause)) return [cause, undefined];
     return [errors.AUTH_CONSOLE_PROVIDER_FAILED({ cause }), undefined];
   }
 }
@@ -346,6 +343,17 @@ function adminsAccess(plugins: BetterAuthOptions["plugins"]): string[] {
   const role: unknown = Reflect.get(options, "role");
   if (!Array.isArray(admins) || typeof role !== "string") return [];
   return [`${adminsVariable} gives the ${role} role to ${admins.join(", ")} on sign-in.`];
+}
+
+/** The `VITEHUB_MEMBERS` rule as an access note, so the Console shows who may sign in. */
+function membersAccess(plugins: BetterAuthOptions["plugins"]): string[] {
+  const options: unknown = plugins?.find((plugin) => plugin.id === accessPolicyPluginId)?.options;
+  const members: unknown = options && typeof options === "object" ? Reflect.get(options, "members") : undefined;
+  if (!Array.isArray(members) || !members.length) return [];
+  // Emails name people, so the note counts them and lists only accounts, domains, and organizations.
+  const emails = members.filter((entry) => typeof entry === "string" && /^[^@]+@/.test(entry)).length;
+  const listed = [...(emails ? [`${emails} ${emails === 1 ? "email" : "emails"}`] : []), ...members.filter((entry) => typeof entry === "string" && !/^[^@]+@/.test(entry))];
+  return [`${membersVariable} lets only ${listed.join(", ")}, and the admins, sign up and sign in.`];
 }
 
 /** The `VITEHUB_ADMIN_CLAIM` rule as an access note. */
@@ -455,7 +463,7 @@ export function createAuthConsole(
     try {
       return await actingRequest(request);
     } catch (cause) {
-      if (host.actor && isAuthConsoleError(cause) && cause.code !== "AUTH_CONSOLE_PROVIDER_FAILED") return undefined;
+      if (host.actor && errors.is(cause) && cause.code !== "AUTH_CONSOLE_PROVIDER_FAILED") return undefined;
       throw cause;
     }
   }
@@ -586,7 +594,7 @@ export function createAuthConsole(
       edit: field.edit.enabled && !actions.editField.enabled ? actions.editField : field.edit,
     }));
     return {
-      access: [...(policy.access ?? []), ...adminsAccess(ctx.options.plugins), ...adminClaimAccess(ctx.options.plugins)],
+      access: [...(policy.access ?? []), ...membersAccess(ctx.options.plugins), ...adminsAccess(ctx.options.plugins), ...adminClaimAccess(ctx.options.plugins)],
       actions,
       fields,
       pages: [
@@ -1323,7 +1331,7 @@ export function createAuthConsole(
           acting = await actingRequest(request);
         } catch (cause) {
           // A signed Console person without an app account or a live session can still read. The actions say why not.
-          if (host.actor && isAuthConsoleError(cause) && cause.code !== "AUTH_CONSOLE_PROVIDER_FAILED")
+          if (host.actor && errors.is(cause) && cause.code !== "AUTH_CONSOLE_PROVIDER_FAILED")
             return await describe(undefined, cause.message);
           throw cause;
         }

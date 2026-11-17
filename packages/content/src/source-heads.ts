@@ -4,12 +4,12 @@ import { createSource } from "@vite-hub/source"
 import type { GitHubRefTarget, GitHubSource, Source, SourceItem, SourceRevision } from "@vite-hub/source"
 import { contentHub } from "comark-content"
 import type { CacheArtifact, ComarkContent, ContentHub, ContentOptions } from "comark-content"
-import { formatDiagnostic } from "nostics"
 import type { Diagnostic } from "nostics"
 
 import { CommitMemory, commitJson, commitKey, decodeCommit, encodeCommit, parserHash, readCommitJson, withCommitDocuments } from "./commit-cache.ts"
 import { checkContentDocuments, contentCheckReason, parseContentFiles } from "./check.ts"
 import { contentSource, contentSourceDefinition, contentSourceUrl, createContentInstance } from "./content-source.ts"
+import { warnDiagnostic } from "./diagnostic-log.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { contentKV, contentKVBuild } from "./kv.ts"
 import { contentRefGrant, signContentRefToken } from "./preview.ts"
@@ -252,11 +252,6 @@ function isAllowReason(reason: ContentSourceAllowReason | ContentSourceDenyReaso
   return reason === "published" || reason === "pull" || reason === "label" || reason === "console" || reason === "token"
 }
 
-/** Whether an error is the nostics diagnostic `code`. */
-function isDiagnostic(error: unknown, code: string): boolean {
-  return error instanceof Error && Reflect.get(error, "code") === code
-}
-
 /** The KV key of a head, such as `content:head:docs`. `vitehub kv get content:head:docs` shows it. */
 function headKey(name: string): string {
   return `content:head:${name}`
@@ -292,7 +287,7 @@ type KVFailure = ReturnType<typeof contentErrorDiagnostics.CONTENT_R0022>
 
 /** The fields of a diagnostic that `head()` returns. `warn` also logs it. */
 function diagnosticOf(code: ContentSourceHeadDiagnostic["code"], error: Diagnostic<unknown>, warn = false): ContentSourceHeadDiagnostic {
-  if (warn) console.warn(formatDiagnostic(error))
+  if (warn) warnDiagnostic(error)
   return { code, message: error.message, fix: error.fix ?? "" }
 }
 
@@ -414,7 +409,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   }
 
   function kvFailure(state: HeadState, cause: unknown): KVFailure {
-    const error = contentErrorDiagnostics.CONTENT_R0022({ source: state.name, key: headKey(state.name), reason: cause instanceof Error ? cause.message : String(cause) })
+    const error = contentErrorDiagnostics.CONTENT_R0022({ source: state.name, key: headKey(state.name), reason: cause instanceof Error ? cause.message : String(cause), cause })
     kvFailures.add(error)
     return error
   }
@@ -511,7 +506,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     catch (error) {
       failure = error
     }
-    if (failure) console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0023({ source: state.name, key, reason: failure instanceof Error ? failure.message : String(failure) })))
+    if (failure) warnDiagnostic(contentErrorDiagnostics.CONTENT_R0023({ source: state.name, key, reason: failure instanceof Error ? failure.message : String(failure) }))
   }
 
   /**
@@ -611,7 +606,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     const rejected = activeRejection(head)
     if (!rejected || state.reported.has(rejected.sha)) return
     state.reported.add(rejected.sha)
-    console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: rejected.sha, reason: rejected.reason, head: head?.sha ?? null })))
+    warnDiagnostic(contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: rejected.sha, reason: rejected.reason, head: head?.sha ?? null }))
   }
 
   /**
@@ -865,7 +860,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       if (!isKVFailure(error)) throw error
       if (!kvFailing(state)) {
         state.failed = Date.now()
-        console.warn(formatDiagnostic(error))
+        warnDiagnostic(error)
       }
       return await serve(state, fallback(state))
     }
@@ -945,7 +940,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
         target = typeof ref === "object" && ref ? givenRef(ref) : await resolveRef(state, parseContentRef(ref))
       }
       catch (error) {
-        if (isDiagnostic(error, "CONTENT_R0027") || isDiagnostic(error, "CONTENT_R0028")) return deny("missing")
+        if (contentErrorDiagnostics.CONTENT_R0027.is(error) || contentErrorDiagnostics.CONTENT_R0028.is(error)) return deny("missing")
         throw error
       }
       const grant = await contentRefGrant(request, state.name, target.ref)
@@ -963,7 +958,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
             facts = { ...target, pull: current.sha === target.sha ? current.pull : null }
           }
           catch (error) {
-            if (isDiagnostic(error, "CONTENT_R0028")) return deny("missing", target)
+            if (contentErrorDiagnostics.CONTENT_R0028.is(error)) return deny("missing", target)
             throw error
           }
         }

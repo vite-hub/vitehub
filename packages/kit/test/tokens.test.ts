@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
 // The kit tokens take the values of `@vite-hub/ui/theme.css`, the tokens that the Console and the docs use today. The
@@ -27,13 +28,49 @@ const renamed: Record<string, string> = {
   "--vh-shadow-floating": "--shadow-popover",
 };
 
+// theme.css takes the status colors from Nuxt UI's palette: `--vh-text-error: var(--ui-color-error-700)`, where the Nuxt
+// UI color `error` is the Tailwind color that `vitehubTheme` names, such as red. Nuxt UI draws `--ui-error` with the 500
+// shade in light and the 400 shade in dark.
+const themeColors = Object.fromEntries([.../colors: \{([^}]+)\}/.exec(readFileSync(new URL("../../ui/src/theme.ts", import.meta.url), "utf8"))![1]!
+  .matchAll(/(error|info|success|warning): "(\w+)"/g)].map(([, key, color]) => [key!, color!]));
+const tailwind = readFileSync(createRequire(new URL("../../ui/package.json", import.meta.url)).resolve("tailwindcss/theme.css"), "utf8");
+function shade(color: string, step: number): string {
+  const value = new RegExp(`--color-${color}-${step}: ([^;]+);`).exec(tailwind)![1]!;
+  // Tailwind writes `oklch(63.7% 0.237 25.331)`; the tokens write `oklch(0.637 0.237 25.331)`.
+  return value.replace(/oklch\(([\d.]+)%/, (_, lightness: string) => `oklch(${Number((Number(lightness) / 100).toFixed(5))}`);
+}
+
 describe("the kit tokens", () => {
+  it.each(modes)("supply every shared token read by the scoped family in $mode", ({ kit, theme }) => {
+    const family = readFileSync(new URL("../src/styles/default.css", import.meta.url), "utf8");
+    const names = [...new Set([...family.matchAll(/var\((--[\w-]+)/g)].map(([, name]) => name!))]
+      .filter(name => !/^--(?:ui|vh|font)-/.test(name));
+    for (const name of names) {
+      expect(theme.get(name) ?? modes[0]!.theme.get(name), name).toBe(kit.get(name) ?? modes[0]!.kit.get(name));
+    }
+  });
+
   it.each(modes)("have the values of theme.css in $mode", ({ kit, theme }) => {
     const expected = [...theme]
       .filter(([name]) => !/^--(?:ui|vh)-/.test(name) || name in renamed)
       .map(([name, value]) => [renamed[name] ?? name, value.replaceAll("var(--ui-border)", "var(--border)")]);
     expect(expected.length).toBeGreaterThan(7);
     expect(expected.map(([name]) => [name, kit.get(name!)])).toEqual(expected);
+  });
+
+  it.each(modes)("have the Nuxt UI steps of theme.css in $mode", ({ kit, theme }) => {
+    const steps = [...kit.keys()].filter(name => /^--ui-(?:text|bg|border)/.test(name));
+    expect(steps).toHaveLength(7);
+    expect(steps.map(name => [name, kit.get(name)])).toEqual(steps.map(name => [name, theme.get(name)]));
+  });
+
+  it.each(modes)("have the status colors of theme.css and Nuxt UI in $mode", ({ mode, kit, theme }) => {
+    expect(Object.keys(themeColors).sort()).toEqual(["error", "info", "success", "warning"]);
+    for (const [key, color] of Object.entries(themeColors)) {
+      const text = /var\(--ui-color-\w+-(\d+)\)/.exec(theme.get(`--vh-text-${key}`)!)![1]!;
+      expect(kit.get(`--vh-text-${key}`), key).toBe(shade(color, Number(text)));
+      expect(kit.get(`--ui-${key}`), key).toBe(shade(color, mode === "light" ? 500 : 400));
+    }
   });
 
   it("have the fonts of theme.css", () => {

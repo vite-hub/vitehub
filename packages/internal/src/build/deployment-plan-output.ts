@@ -25,6 +25,14 @@ export interface DeploymentEnvEntry {
   owners?: readonly string[]
 }
 
+/** What `vitehub deploy` does after it uploads the build, from `deploy` and `health` of `vitehub()`. */
+export interface DeploymentDeployManifest {
+  /** Paths on the deployed URL that must answer with a 2xx status, such as `/api/_vitehub/health`. */
+  check: readonly string[]
+  /** Submit the sitemap URLs of `url` to IndexNow after a production deploy. The site serves `/<key>.txt`. */
+  indexNow?: { key: string, url: string }
+}
+
 /** What a primitive needs to know to name the variables it reads in the deployed app. */
 export interface DeploymentEnvContext {
   host: ViteHubHost
@@ -80,6 +88,8 @@ export function mergeDeploymentEnv(entries: readonly DeploymentEnvEntry[]): Depl
 }
 
 interface FinalizeDeploymentPlanOutputOptions {
+  /** The steps of `vitehub deploy` after the upload. Omit it when there are none. */
+  deploy?: DeploymentDeployManifest
   /** The Server Env and primitive names to record. Omit it when the app has no Env plugin and no primitive names. */
   env?: readonly DeploymentEnvEntry[]
   /**
@@ -189,6 +199,7 @@ export async function finalizeDeploymentPlanOutput(options: FinalizeDeploymentPl
     services: options.services ?? options.plan.services,
     ...(options.env ? { env: options.env.map(deploymentEnvEntry).filter(entry => entry.names.length || entry.prefix) } : {}),
     ...(options.envDir === undefined ? {} : { envDir: options.envDir === false ? false : relative(output.root, options.envDir).replaceAll("\\", "/") || "." }),
+    ...(options.deploy ? { deploy: options.deploy } : {}),
   }
   const manifestPath = resolve(output.root, "deployment.json")
   await mkdir(dirname(manifestPath), { recursive: true })

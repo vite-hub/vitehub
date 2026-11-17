@@ -1,0 +1,14 @@
+{
+  "rawErrors": {
+    "packages/sandbox/src/internal/cloudflare-durable-object.ts": 2
+  },
+  "codesWithoutFix": [],
+  "invariants": {
+    "packages/sandbox/src/internal/cloudflare-transport.ts": 1,
+    "packages/sandbox/src/ssh.ts": 1,
+    "packages/sandbox/src/task/feature.ts": 1,
+    "packages/sandbox/src/task/internal/runtime-generation.ts": 1,
+    "packages/sandbox/src/task/internal/runtime-preparation.ts": 2,
+    "packages/sandbox/src/task/internal/shared/discovered-definition/bundler.ts": 1
+  }
+}

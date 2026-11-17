@@ -1,7 +1,7 @@
 import type { Comment, Cursor, ForgeProvider, Page, ReactionContent, ResolvedThreadRef, Thread } from "forges"
 import type { AgentChannelDeliveryEffectContext, AgentChannelDeliveryEffects, AgentRunInput, AgentRuntimeConfig } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { forgeErrorStatus } from "@vite-hub/forge"
+import { forgeErrorStatus } from "@vite-hub/internal/forge"
 import type { ForgeKind } from "@vite-hub/forge"
 import { isRuntimeRecord as isRecord } from "./runtime-type.ts"
 import { messageChannelReplyBody, setMessageChannelDeliveredReplyBody } from "./message-channel-delivery-body.ts"

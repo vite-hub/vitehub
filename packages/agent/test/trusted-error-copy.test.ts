@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url"
 import { Diagnostic } from "nostics"
 import { beforeAll, expect, it } from "vitest"
 import { loadBundledCopy } from "../../runtime/test/fixtures/diagnostic-copy.ts"
-import { AgentHttpError, toHttpErrorResponse } from "../src/http-error.ts"
+import { agentHttpError, toHttpErrorResponse } from "../src/http-error.ts"
 import {
   abortLocalAgentInvocation,
   createAgentInvocationCancellationError,
@@ -24,17 +24,17 @@ beforeAll(async () => {
 })
 
 it("preserves explicit public HTTP errors across bundles and redacts lookalikes", async () => {
-  const foreign = new copy.AgentHttpError(400, "Use a valid request")
-  expect(foreign).not.toBeInstanceOf(AgentHttpError)
+  const foreign = copy.agentHttpError(400, "Use a valid request")
+  expect(foreign).toMatchObject({ code: "AGENT_R0891", fix: expect.stringContaining("HTTP status") })
   const response = toHttpErrorResponse(foreign)!
   expect(response.status).toBe(400)
   expect(await response.json()).toEqual({ error: "Use a valid request" })
-  expect(await copy.toHttpErrorResponse(new AgentHttpError(409, "Try again"))!.json()).toEqual({ error: "Try again" })
+  expect(await copy.toHttpErrorResponse(agentHttpError(409, "Try again"))!.json()).toEqual({ error: "Try again" })
 
   const lookalikes = [
     Object.assign(new Diagnostic({ code: "AGENT_R0891", why: "private diagnostic" }), { statusCode: 400, name: "AgentHttpError" }),
     { name: "AgentHttpError", code: "AGENT_R0891", message: "private record", statusCode: 400 },
-    Object.assign(Object.create(AgentHttpError.prototype), { message: "private prototype", statusCode: 400 }),
+    Object.assign(Object.create(Object.getPrototypeOf(agentHttpError(400, "x"))), { message: "private prototype", statusCode: 400 }),
     JSON.parse(JSON.stringify(foreign)),
   ]
   for (const error of lookalikes) {

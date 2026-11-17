@@ -1,12 +1,12 @@
 import { posix } from "node:path"
 
-import { createJustBashProvider } from "../providers/just-bash.ts"
+import { createJustBashDriver } from "../providers/just-bash.ts"
 import { createShellRuntime } from "../runtime/session.ts"
 import { analyzeWorkspaceInspectionCommand } from "./command-analysis.ts"
 import { workspaceMountPoint } from "./filesystem.ts"
 import { cleanWorkspaceShellPath } from "./path.ts"
 
-import type { ShellExecutionProvider, ShellObservation } from "../runtime/types.ts"
+import type { ShellDriver, ShellObservation } from "../runtime/types.ts"
 import type { ExecutionBudget } from "@vite-hub/runtime"
 import type { ShellNetworkGrantExecutor } from "../providers/just-bash.ts"
 import type { WorkspaceInspectionCommandSegment } from "./command-analysis.ts"
@@ -23,7 +23,7 @@ interface WorkspaceInspectionCommandOptions {
   fs: WorkspaceShellFileSystem
   maxOutputLength?: number
   networkGrants?: ShellNetworkGrantExecutor
-  provider?: ShellExecutionProvider
+  driver?: ShellDriver
   signal?: AbortSignal
   timeout?: number
 }
@@ -38,15 +38,15 @@ export async function runWorkspaceInspectionCommand(
     ? 30_000
     : normalizeOutputLength(options.maxOutputLength)
   const timeout = options.timeout ?? 30_000
-  // Only controlled curl commands may replace the injected execution provider.
-  const provider = options.provider && options.networkGrants && await usesWorkspaceNetworkGrant(command)
+  // Only controlled curl commands may replace the injected Shell driver.
+  const driver = options.driver && options.networkGrants && await usesWorkspaceNetworkGrant(command)
     ? undefined
-    : options.provider
+    : options.driver
   const chargeRejected = () => {
     if (!options.budgetCharged) options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
   }
   const segments = await analyzeWorkspaceInspectionCommand(command)
-  const unsupportedSyntax = preflightUnsupportedWorkspaceSyntax(command, segments, options.commands, Boolean(provider))
+  const unsupportedSyntax = preflightUnsupportedWorkspaceSyntax(command, segments, options.commands, Boolean(driver))
   if (unsupportedSyntax) { chargeRejected(); return limitInspectionObservation(unsupportedSyntax, maxOutputLength) }
   const preflight = await withInspectionTimeout(timeout, options.signal, async (signal) => {
     const broad = await preflightWorkspaceInspectionCommand(segments, options.fs, options.broadSearchPaths, options.cwd, signal)
@@ -56,14 +56,14 @@ export async function runWorkspaceInspectionCommand(
   if (preflight) { chargeRejected(); return limitInspectionObservation(preflight, maxOutputLength) }
   const pipedBroadSearch = preflightPipedSearchWithoutPath(segments, options.broadSearchPaths)
   if (pipedBroadSearch) { chargeRejected(); return limitInspectionObservation(pipedBroadSearch, maxOutputLength) }
-  const unsupported = preflightUnsupportedWorkspaceCommand(command, segments, options.commands, Boolean(provider))
+  const unsupported = preflightUnsupportedWorkspaceCommand(command, segments, options.commands, Boolean(driver))
   if (unsupported) { chargeRejected(); return limitInspectionObservation(unsupported, maxOutputLength) }
   const runtime = createShellRuntime({
     policy: {
       maxOutputLength,
       timeout,
     },
-    provider: provider ?? createJustBashProvider({
+    driver: driver ?? createJustBashDriver({
       commands: options.commands,
       cwd: options.cwd || workspaceMountPoint,
       fs: options.fs,
@@ -396,11 +396,11 @@ function searchNoMatchFeedback(segments: WorkspaceInspectionCommandSegment[], re
   return ""
 }
 
-function preflightUnsupportedWorkspaceCommand(command: string, segments: WorkspaceInspectionCommandSegment[], commands?: string[], strictProvider = false): ShellObservation | undefined {
-  const syntax = preflightUnsupportedWorkspaceSyntax(command, segments, commands, strictProvider)
+function preflightUnsupportedWorkspaceCommand(command: string, segments: WorkspaceInspectionCommandSegment[], commands?: string[], strictDriver = false): ShellObservation | undefined {
+  const syntax = preflightUnsupportedWorkspaceSyntax(command, segments, commands, strictDriver)
   if (syntax) return syntax
   // Just Bash enforces its command registry inside substitutions and compound commands.
-  if (!strictProvider && (usesShellSubstitution(command) || usesCompoundShellSyntax(segments))) return undefined
+  if (!strictDriver && (usesShellSubstitution(command) || usesCompoundShellSyntax(segments))) return undefined
   if (!commands) return undefined
   const allowed = new Set([...commands, "cd", "false", "true"])
   for (const segment of segments) {
@@ -410,16 +410,16 @@ function preflightUnsupportedWorkspaceCommand(command: string, segments: Workspa
   }
 }
 
-function preflightUnsupportedWorkspaceSyntax(command: string, segments: WorkspaceInspectionCommandSegment[], commands?: string[], strictProvider = false): ShellObservation | undefined {
+function preflightUnsupportedWorkspaceSyntax(command: string, segments: WorkspaceInspectionCommandSegment[], commands?: string[], strictDriver = false): ShellObservation | undefined {
   if (segments.some(segment => segment.invalid)) {
     return unsupportedWorkspaceCommandFeedback(command, "invalid shell syntax", commands)
   }
   if (usesShellSubstitution(command)) {
-    if (strictProvider) return unsupportedWorkspaceCommandFeedback(command, "shell substitution", commands)
+    if (strictDriver) return unsupportedWorkspaceCommandFeedback(command, "shell substitution", commands)
     return undefined
   }
   if (usesCompoundShellSyntax(segments)) {
-    if (strictProvider) return unsupportedWorkspaceCommandFeedback(command, "compound shell syntax", commands)
+    if (strictDriver) return unsupportedWorkspaceCommandFeedback(command, "compound shell syntax", commands)
     return undefined
   }
 }

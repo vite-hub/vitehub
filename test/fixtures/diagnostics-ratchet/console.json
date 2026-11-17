@@ -1,0 +1,7 @@
+{
+  "rawErrors": {
+    "packages/console/src/oauth-page.ts": 4
+  },
+  "codesWithoutFix": [],
+  "invariants": {}
+}

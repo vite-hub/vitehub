@@ -746,6 +746,11 @@ export interface WorkspaceSource {
   resolve?: WorkspaceSourceResolver
   resolveRevision?(ctx: SourceContext): Promise<SourceRevision | undefined>
   prepare?(ctx: SourceContext): Promise<void>
+  /**
+   * The build calls it for a `lazy` or `startup` Source, which the app reads after deploy. It throws when the Source
+   * cannot reach its data with the credentials of the build, so a revoked token fails the build and not the first read.
+   */
+  checkAccess?(ctx: SourceContext): Promise<void>
   getKeys(ctx: SourceContext): Promise<string[]>
   getItem(key: string, ctx: SourceContext): Promise<WorkspaceSourceItem>
   getItems?(ctx: SourceContext): Promise<WorkspaceSourceItem[]>

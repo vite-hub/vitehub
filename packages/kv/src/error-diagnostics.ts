@@ -1,4 +1,5 @@
 import { defineErrors } from "@vite-hub/runtime"
+import type { InferDiagnosticCodes } from "nostics"
 
 import type { KVOperation } from "./types.ts"
 
@@ -32,6 +33,12 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "`ttl` must be a positive number of seconds within the safe integer range.",
       fix: "Pass the TTL in seconds, for example `kv.set('session', value, { ttl: 60 })`.",
     },
+    KV_INVALID_VALUE: {
+      why: ({ operation, problem }: { operation: "deleteIfEquals" | "setIfAbsent", problem: "missing" | "unserializable" }) => problem === "missing"
+        ? `kv.${operation}() needs a value. Use kv.delete() to remove a key.`
+        : "KV cannot serialize this value.",
+      fix: "Pass a string, a number, a boolean, `null`, an array, a plain object, or an object with `toJSON()` to `kv.setIfAbsent()` or `kv.deleteIfEquals()`. Use `kv.delete()` to remove a key.",
+    },
     KV_INVALID_WAIT: {
       why: "`wait` must be zero or a positive number of seconds.",
       fix: "Pass the wait in seconds, for example `kv.lock('jobs:report', { ttl: 60, wait: 5 })`, or omit `wait` to return at once.",
@@ -59,6 +66,27 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
         : operation === "lock"
           ? "Use the `redis`, `database`, or `upstash` driver for this store. On Cloudflare, use a Durable Object or a D1 row as the lock."
           : "Use the `redis`, `database`, or `upstash` driver for this store. For request budgets, use the Rate Limit primitive.",
+    },
+
+    // Operation errors. The `kv.*` operations of the CLI, the Console, and Agents throw them. `runKVOperation()` gives each code an HTTP status.
+    KV_INVALID_INPUT: {
+      why: ({ limit, operation, problem }: { limit?: number, operation?: string, problem: "key" | "key-length" | "limit" | "prefix-length" | "ttl" | "value" }) => ({
+        "key": `The ${operation} operation requires a key.`,
+        "key-length": "The key is too long.",
+        "limit": `limit must be at most ${limit}.`,
+        "prefix-length": "The prefix is too long.",
+        "ttl": "Upstash TTL must be at least 1 second.",
+        "value": "The set operation requires a value.",
+      })[problem],
+      fix: "Pass a `key` and a `prefix` of at most 2,048 characters, a `limit` of at most 1,000, and, for `kv.set`, a `value`. On Upstash, pass a `ttl` of at least 1 second.",
+    },
+    KV_RESERVED_KEY: {
+      why: ({ key, operation }: { key: string, operation: string }) => `The ${operation} operation cannot change ${key}. ViteHub owns the keys that start with \`vitehub:\`.`,
+      fix: "Use another key. Read access (get, has, list) stays open.",
+    },
+    KV_VALUE_UNSUPPORTED: {
+      why: "The stored value cannot be represented by the KV inspection protocol.",
+      fix: "Read the value in the app with `kv.get()`. The `kv.get` operation shows JSON values, bigint values, and bytes, without getters, symbols, or class instances.",
     },
 
     // Config errors. KV throws them because the code or the deployment must change.
@@ -121,7 +149,7 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
         : "Set the variable in the host environment, or set `url` and `token` in the KV config.",
     },
     KV_STORE_NOT_FOUND: {
-      why: ({ store }: { store: string }) => `The KV store "${store}" is not configured.`,
+      why: ({ store, stores }: { store: string, stores?: string }) => stores ? `KV store "${store}" was not found. Stores: ${stores}.` : `The KV store "${store}" is not configured.`,
       fix: "Add the store under `kv.stores`, or use the name of a configured store.",
     },
 
@@ -146,7 +174,7 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
 })
 
 /** Codes that a KV operation throws because the code or the deployment must change. */
-export const kvConfigErrorCodes: ReadonlySet<string> = new Set([
+export const kvConfigErrorCodes: ReadonlySet<InferDiagnosticCodes<typeof kvErrorDiagnostics>> = new Set([
   "KV_DATABASE_UNAVAILABLE",
   "KV_INVALID_BATCH",
   "KV_DENO_KV_UNAVAILABLE",
