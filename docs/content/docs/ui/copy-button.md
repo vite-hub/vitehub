@@ -6,7 +6,7 @@ navigation.group: Parts
 icon: i-lucide-copy
 ---
 
-`CopyButton` copies text to the clipboard. After a copy it shows a check for 2 seconds and tells screen readers "Copied". It is a Nuxt UI `UButton` with the theme defaults: neutral, ghost, and icon-only unless you give it a label.
+`CopyButton` copies text to the clipboard. After a copy its icon cross-fades to a check for 2 seconds, and it tells screen readers "Copied". It is a Nuxt UI `UButton` with the theme defaults: neutral, ghost, and icon-only unless you give it a label.
 
 ::example{name="CopyButtonExample" height=8}
 ::
@@ -38,11 +38,21 @@ Pass `icon` when the copied text has its own icon, such as a link. The check sti
 </template>
 ```
 
-`value` can also be a function. Use one when the text is expensive or must load first, such as the Markdown of a page. The button shows the loading icon until the text is ready:
+`value` can also be a function. Use one when the text is expensive or must load first, such as the Markdown of a page. The button shows the loading icon until the text is ready. Add `preload` to call the function when the pointer enters the button or the button gets focus, so the text is usually ready before the click:
 
 ```vue
 <template>
-  <CopyButton :value="() => $fetch('/raw/page.md', { responseType: 'text' })" label="Copy page" variant="outline" />
+  <CopyButton :value="() => $fetch('/raw/page.md', { responseType: 'text' })" preload label="Copy page" variant="outline" />
+</template>
+```
+
+Each hover or focus loads the text once, for the next click. When that load fails, the click calls the function again. Without `preload`, the function runs only on click.
+
+Set `duration` to change how long the check shows, in ms:
+
+```vue
+<template>
+  <CopyButton :value="apiKey" :duration="4000" aria-label="Copy the API key" />
 </template>
 ```
 
@@ -66,15 +76,50 @@ const items = [{
 }];
 ```
 
-`copy(value)` resolves to `true` when the text is on the clipboard, and `false` when the browser refused. It never rejects. `copied` and `failed` stay `true` for 2 seconds, or for the `duration` that you pass in ms.
+`copy(value)` resolves to `true` when the text is on the clipboard, and `false` when the browser refused. It never rejects. `copied` and `failed` stay `true` for 2 seconds, or for the `duration` that you pass in ms. A ref or a getter is read at each copy.
+
+## Animation
+
+Both icons stay in the button, stacked in one place. After a copy, the check comes in from opacity 0, a 0.3 scale, and a 3px blur in 300ms, and the copy icon goes out the same way in 200ms. When `duration` ends, they swap back the same way. The swap is a CSS transition, so a copy during the swap back reverses it from where it is. Nothing animates on page load.
+
+With reduced motion turned on in the system, the icons swap with no animation.
+
+The label stays the same, so the button does not change width.
+
+## Without Vue
+
+The swap is plain CSS in `@vite-hub/ui/icon-swap.css`. `styles.css` includes it. A page without Vue, such as a document in a cross-origin frame, can load the file or read it as text with `?raw` and draw the same button:
+
+```ts
+import iconSwap from "@vite-hub/ui/icon-swap.css?raw";
+
+const style = document.createElement("style");
+style.textContent = iconSwap;
+document.head.append(style);
+```
+
+```html
+<button type="button" data-slot="copy-button" aria-label="Copy">
+  <span data-slot="copy-button-icon" aria-hidden="true">
+    <svg data-icon="copy"><!-- the copy icon --></svg>
+    <svg data-icon="check"><!-- the check icon --></svg>
+  </span>
+  Copy
+</button>
+```
+
+- `data-slot="copy-button-icon"` holds the two icons. Any element works for an icon.
+- `data-icon="copy"` is the icon before a copy, and `data-icon="check"` the icon after it.
+- Set `data-copied` on the button after a copy, and remove it to swap back. The rules match `data-copied` on any element around the icons.
+- The page announces the result itself, for example in a polite live region.
 
 ## Features
 
-- The icon swaps from `copy`, or the `icon` prop, to `copyCheck` of Nuxt UI's `appConfig.ui.icons`, so the button follows the theme. The label stays the same, so the button does not change size.
+- The icon swaps from `copy`, or the `icon` prop, to `copyCheck` of Nuxt UI's `appConfig.ui.icons`, so the button follows the theme.
 - The button announces "Copied" or "Copy failed" through a polite live region. Inside a dialog, the region is in the dialog, so the screen reader still reads it.
 - Outside a secure context, such as a dev server on a LAN address, the clipboard API is missing or refuses. The button then copies with the older `document.execCommand("copy")`.
 - A clipboard that the browser blocks does not throw. The button keeps the copy icon, announces "Copy failed", and emits `error`.
-- A function `value` that returns a promise copies through a `ClipboardItem` where the browser has one, so Safari accepts the write after the click.
+- A function `value` that returns a promise copies through a `ClipboardItem` where the browser has one, so Safari accepts the write after the click. With `preload`, the click writes the text that already loaded, or passes the pending load to the `ClipboardItem`.
 
 ## Accessibility
 
@@ -84,7 +129,7 @@ The button is named "Copy" when it has no label and no `aria-label`. Give an ico
 
 ### CopyButton
 
-Renders a Nuxt UI `UButton` with `data-slot="copy-button"`, and `data-copied` for 2 seconds after a copy. Other attributes, such as `class` and `color`, pass to the button.
+Renders a Nuxt UI `UButton` with `data-slot="copy-button"`, and `data-copied` for `duration` ms after a copy. Its leading slot holds the two icons in `data-slot="copy-button-icon"`, except while the text loads. Other attributes, such as `class` and `color`, pass to the button.
 
 #### Props
 
@@ -96,6 +141,8 @@ Renders a Nuxt UI `UButton` with `data-slot="copy-button"`, and `data-copied` fo
 | `ariaLabel` | `string`                                               |           | The accessible name. Defaults to the label, or "Copy".                   |
 | `size`      | `"xs" \| "sm" \| "md" \| "lg" \| "xl"`                 |           | The button size. Defaults to the theme size, `sm`.                       |
 | `variant`   | `"ghost" \| "outline" \| "soft" \| "subtle" \| "solid" \| "link"` | `"ghost"` | The button variant. Use `outline` beside a primary action.     |
+| `duration`  | `number`                                               | `2000`    | How long, in ms, the check shows after a copy.                           |
+| `preload`   | `boolean`                                              | `false`   | Call a function `value` on pointer enter and on focus, so the click copies text that already loaded. |
 
 #### Events
 
@@ -106,7 +153,7 @@ Renders a Nuxt UI `UButton` with `data-slot="copy-button"`, and `data-copied` fo
 
 ### useCopy
 
-`useCopy(options?: { duration?: number }): { copy, copied, failed }`
+`useCopy(options?: { duration?: MaybeRefOrGetter<number> }): { copy, copied, failed }`
 
 | Return   | Type                                     | Description                                          |
 | -------- | ---------------------------------------- | ---------------------------------------------------- |

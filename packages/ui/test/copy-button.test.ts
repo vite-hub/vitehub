@@ -11,6 +11,21 @@ const ButtonStub = defineComponent({
   },
 });
 
+// Renders the leading slot as Nuxt UI's UButton does, with the classes of its leading icon.
+const SlotButtonStub = defineComponent({
+  setup(_props, { attrs, slots }) {
+    return () => h("button", { ...attrs, "data-stub": "UButton" }, [
+      slots.leading?.({ ui: { leadingIcon: () => "size-4 shrink-0" } }) ?? h("i", { "data-stub-icon": attrs.icon }),
+      slots.default?.(),
+    ]);
+  },
+});
+
+const IconStub = defineComponent({
+  props: { name: { required: true, type: String } },
+  setup: (props) => () => h("svg", { "data-name": props.name }),
+});
+
 function useClipboard(writeText: (text: string) => Promise<void>) {
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
 }
@@ -158,5 +173,102 @@ describe("CopyButton", () => {
     const wrapper = mount(() => h(CopyButton, { value: "x" }), { attachTo: dialog, global: { components: { UButton: ButtonStub } } });
     await wrapper.get("button").trigger("click");
     await vi.waitFor(() => expect(dialog.querySelector(":scope > [data-slot=live-announcer]")?.textContent).toBe("Copied"));
+  });
+
+  it("keeps both icons in one stack and toggles data-copied for `duration` ms", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    useClipboard(() => Promise.resolve());
+    const wrapper = mount(() => h(CopyButton, { value: "x", duration: 500 }), { attachTo: document.body, global: { components: { UButton: SlotButtonStub, UIcon: IconStub } } });
+    const icons = () => wrapper.findAll("[data-slot=copy-button-icon] > svg").map((icon) => [icon.attributes("data-icon"), icon.attributes("data-name"), icon.classes().join(" ")]);
+    const stack = [["copy", "i-lucide-copy", "size-4 shrink-0"], ["check", "i-lucide-check", "size-4 shrink-0"]];
+    expect(wrapper.get("[data-slot=copy-button-icon]").attributes("aria-hidden")).toBe("true");
+    expect(icons()).toEqual(stack);
+
+    await wrapper.get("button").trigger("click");
+    await flushPromises();
+    // The same two icons stay, so the CSS cross-fades them; only the attribute on the button changes.
+    expect(wrapper.get("button").attributes("data-copied")).toBe("");
+    expect(icons()).toEqual(stack);
+
+    vi.advanceTimersByTime(499);
+    await flushPromises();
+    expect(wrapper.get("button").attributes("data-copied")).toBe("");
+    vi.advanceTimersByTime(1);
+    await flushPromises();
+    expect(wrapper.get("button").attributes("data-copied")).toBeUndefined();
+    expect(icons()).toEqual(stack);
+  });
+
+  it("shows the button's loading icon instead of the stack while the text loads", async () => {
+    useClipboard(() => Promise.resolve());
+    let resolve: (text: string) => void = () => {};
+    const wrapper = mount(() => h(CopyButton, { value: () => new Promise<string>((done) => (resolve = done)) }), { attachTo: document.body, global: { components: { UButton: SlotButtonStub, UIcon: IconStub } } });
+    await wrapper.get("button").trigger("click");
+    expect(wrapper.find("[data-slot=copy-button-icon]").exists()).toBe(false);
+    resolve("loaded");
+    await flushPromises();
+    expect(wrapper.find("[data-slot=copy-button-icon]").exists()).toBe(true);
+    expect(wrapper.get("button").attributes("data-copied")).toBe("");
+  });
+
+  it("loads the text on pointerenter with `preload`, then writes it on click", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    useClipboard(writeText);
+    const load = vi.fn(() => Promise.resolve("# Page"));
+    const wrapper = mountButton({ value: load, preload: true });
+
+    await wrapper.get("button").trigger("pointerenter");
+    expect(load).toHaveBeenCalledOnce();
+    await wrapper.get("button").trigger("focus");
+    expect(load).toHaveBeenCalledOnce();
+    await flushPromises();
+
+    await wrapper.get("button").trigger("click");
+    // The text is ready, so the click writes the string at once, with no loading icon.
+    expect(writeText).toHaveBeenCalledWith("# Page");
+    expect(wrapper.get("button").attributes("loading")).toBe("false");
+    await flushPromises();
+    expect(load).toHaveBeenCalledOnce();
+    expect(wrapper.get("button").attributes("data-copied")).toBe("");
+
+    // A click uses the loaded text once. The next one loads again.
+    await wrapper.get("button").trigger("click");
+    await flushPromises();
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it("loads on focus with `preload`, and writes the pending text through a ClipboardItem", async () => {
+    const write = vi.fn((_items: ClipboardItem[]) => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { write, writeText: vi.fn() } });
+    let resolve: (text: string) => void = () => {};
+    const load = vi.fn(() => new Promise<string>((done) => (resolve = done)));
+    const wrapper = mountButton({ value: load, preload: true });
+
+    await wrapper.get("button").trigger("focus");
+    expect(load).toHaveBeenCalledOnce();
+    await wrapper.get("button").trigger("click");
+    // The click starts the write with the text that focus started to load.
+    expect(write).toHaveBeenCalledOnce();
+    expect(load).toHaveBeenCalledOnce();
+    resolve("# Page");
+    const [item] = write.mock.calls[0]![0];
+    await expect((await item!.getType("text/plain")).text()).resolves.toBe("# Page");
+  });
+
+  it("loads again on click when the preload failed, and never preloads without `preload`", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    useClipboard(writeText);
+    const load = vi.fn().mockRejectedValueOnce(new Error("Offline")).mockResolvedValue("# Page");
+    const wrapper = mountButton({ value: load, preload: true });
+    await wrapper.get("button").trigger("pointerenter");
+    await flushPromises();
+    await wrapper.get("button").trigger("click");
+    await flushPromises();
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(writeText).toHaveBeenCalledWith("# Page");
+
+    const plain = vi.fn(() => "text");
+    await mountButton({ value: plain }).get("button").trigger("pointerenter");
+    expect(plain).not.toHaveBeenCalled();
   });
 });
