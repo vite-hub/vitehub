@@ -6,6 +6,7 @@ import * as Y from "yjs"
 
 import { resolveRealtimeApplicationPath } from "./application-path.ts"
 import { keepRealtimeSocketAlive } from "./keepalive.ts"
+import { readRealtimeStatus, realtimeDocumentLayout } from "./layout.ts"
 import { createRealtimeIdentity, getRealtimePeople } from "./presence.ts"
 import {
   decodeRealtimeControlPayload,
@@ -20,7 +21,7 @@ import {
   workspaceRoomId,
 } from "./protocol.ts"
 
-import type { RealtimePerson, RealtimeWorkspaceChange } from "./types.ts"
+import type { RealtimeDocumentStatus, RealtimePerson, RealtimeWorkspaceChange } from "./types.ts"
 
 export type RealtimeRoomStatus = "connected" | "connecting" | "disconnected"
 
@@ -59,11 +60,16 @@ export interface RealtimeRoom {
   /** The field values that each other client set with `setLocal()`, by client id. */
   states(): Map<number, Record<string, unknown>>
   status(): RealtimeRoomStatus
+  /**
+   * The save status of the room document, as the server writes it: its `digest`, `savedAt`, `savedBy`, `error`, and
+   * `issues`. `undefined` until the room syncs, and again while it joins a new seed. `onUpdate()` runs when it changes.
+   */
+  saveStatus(): RealtimeDocumentStatus | undefined
   /** Sets one field of this browser's awareness state, such as a cursor. `null` removes it. */
   setLocal(field: string, value: unknown): void
   /** Sends a change hint to every other browser of the definition. Needs `changes: true`. */
   notify(change: RealtimeWorkspaceChange): void
-  /** Runs when the people, their awareness fields, or the status change. Returns a function that removes it. */
+  /** Runs when the people, their awareness fields, the status, or the save status change. Returns a function that removes it. */
   onUpdate(listener: () => void): () => void
   /** Runs for each change hint from another browser. Needs `changes: true`. Returns a function that removes it. */
   onChange(listener: (change: RealtimeWorkspaceChange) => void): () => void
@@ -78,8 +84,9 @@ export interface RealtimeRoom {
 
 /**
  * Joins one room of a Realtime Definition for presence: who is there and what each person shares through awareness,
- * such as a cursor. It does not edit the room document. Use it outside Vue, or when a page needs presence without an
- * editor; `useRealtimeTiptap()` from `@vite-hub/realtime/vue` is the editor client.
+ * such as a cursor. It also reads the room's save status, such as the digest of the stored document. It does not edit
+ * the room document and loads no editor. Use it outside Vue, or when a page needs presence or the save status without
+ * an editor; `useRealtimeTiptap()` from `@vite-hub/realtime/vue` is the editor client.
  */
 export function connectRealtimeRoom(definition: string, documentId: string, options: RealtimeRoomOptions = {}): RealtimeRoom {
   const updateListeners = new Set<() => void>()
@@ -87,6 +94,7 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
   const pendingChanges: RealtimeWorkspaceChange[] = []
   let requestHandler: RealtimeRequestHandler | undefined
   let currentStatus: RealtimeRoomStatus = "connecting"
+  let synced = false
   let destroyed = false
   let document: Y.Doc
   let provider: WebsocketProvider
@@ -102,6 +110,7 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
   const localState: Record<string, unknown> = {}
 
   function connect() {
+    synced = false
     document = new Y.Doc()
     provider = new WebsocketProvider(url(), room, document, { disableBc: true, params: { ...options.params, clientId: String(document.clientID) } })
     const current = provider
@@ -117,7 +126,9 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
       // The room re-seeded. Presence holds no document state, so join the new seed.
       current.destroy()
       document.destroy()
-      if (!destroyed) connect()
+      if (destroyed) return
+      connect()
+      emit()
     }
     current.messageHandlers[messageRealtimeRequest] = (_encoder, decoder) => {
       // SAFETY: y-websocket passes the lib0 decoder positioned after the message type.
@@ -138,6 +149,13 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
     const identity = options.identity ?? { id: `guest:${document.clientID}` }
     current.awareness.setLocalState({ ...localState, user: createRealtimeIdentity({ ...identity, id: identity.id || `guest:${document.clientID}` }) })
     current.awareness.on("change", emit)
+    // Only the server writes the status map, so a change there is a save, a refresh, or the first sync.
+    document.getMap(realtimeDocumentLayout.status).observe(emit)
+    current.on("sync", (value: boolean) => {
+      if (provider !== current) return
+      synced = value
+      emit()
+    })
     current.on("status", (event: { status: RealtimeRoomStatus }) => {
       currentStatus = event.status
       emit()
@@ -199,6 +217,7 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
       return states
     },
     status: () => currentStatus,
+    saveStatus: () => synced ? readRealtimeStatus(document) : undefined,
     setLocal(field, value) {
       if (value === null) delete localState[field]
       else localState[field] = value

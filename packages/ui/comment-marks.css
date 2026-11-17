@@ -11,7 +11,7 @@
  *   firmer (45%), `data-status="resolved"` makes it dashed and grey, and `data-draft="true"` is the area being drawn or
  *   written on: 2px comment blue with a fill. Its `comment-mark-handle` children, with `data-corner="top-left"` and the
  *   other three corners, are round handles.
- * - `data-leaving="true"` on a pin or an area: it shrinks and fades out in 180ms, then the page removes it.
+ * - `data-leaving="true"` on a pin or an area: it shrinks and fades out in 130ms (`commentLeaveMs` of `vite-hub/ui/headless`), then the page removes it.
  * The page places a pin with `left` and `top`, and an area with `left`, `top`, `width`, and `height`.
  * Commented text uses the CSS Custom Highlight API with the names `vh-comment`, `vh-comment-resolved`,
  * `vh-comment-active`, and `vh-comment-draft`.
@@ -191,7 +191,7 @@
 /* A mark that goes, such as the others when one comment shows on its own: it shrinks and fades. */
 :is([data-slot="comment-mark-pin"], [data-slot="comment-mark-area"])[data-leaving="true"],
 [data-slot="comment-layer-item"][data-leaving="true"] > * {
-  animation: vh-comment-mark-leave 180ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  animation: vh-comment-mark-leave 130ms cubic-bezier(0.4, 0, 1, 1) forwards;
   pointer-events: none;
 }
 
@@ -200,15 +200,11 @@
 }
 
 @keyframes vh-comment-mark-leave {
-  to { opacity: 0; scale: calc(var(--vh-comment-zoom, 1) * 0.6); }
+  to { opacity: 0; scale: calc(var(--vh-comment-zoom, 1) * 0.8); }
 }
 
 @keyframes vh-comment-mark-leave-area {
   to { opacity: 0; scale: 0.97; }
-}
-
-@keyframes vh-comment-mark-fade {
-  to { opacity: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -218,7 +214,8 @@
 
   :is([data-slot="comment-mark-pin"], [data-slot="comment-mark-area"])[data-leaving="true"],
   [data-slot="comment-layer-item"][data-leaving="true"] > * {
-    animation-name: vh-comment-mark-fade;
+    animation: none;
+    opacity: 0;
   }
 }
 

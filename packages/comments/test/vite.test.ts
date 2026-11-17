@@ -386,6 +386,15 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     await configure(plugin, root)
     expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("realtime: true")
   })
+
+  it("tells the overlay to show no faces with `overlay: { presence: false }`, and keeps the page tool", async () => {
+    const root = await project({ "server/comments.ts": "export const comments = defineComments()" })
+    await configure(hubComments(), root)
+    expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).not.toContain("presence: false")
+    await configure(hubComments({ overlay: { presence: false } }), root)
+    expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("presence: false")
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain('overlay: "/api/_vitehub/comments/assets/overlay.js')
+  })
 })
 
 describe("comments() without vite-hub", () => {
