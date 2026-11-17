@@ -6,7 +6,7 @@ import { writeFileIfChanged, writeFileIfChangedSync } from "@vite-hub/internal/d
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadNativePackageModule, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
+import { registerViteHubDevEndpoint, setViteHubDevResponseHeaders } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit, mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHostPreset } from "@vite-hub/internal/hosting"
 
@@ -511,7 +511,7 @@ function createAbortSignalFromClose(target: Pick<ServerResponse, "off" | "once">
 
 async function writeResponse(res: ServerResponse, response: Response): Promise<void> {
   res.statusCode = response.status
-  for (const [name, value] of response.headers) res.setHeader(name, value)
+  setViteHubDevResponseHeaders(res, response.headers)
   if (!response.body) {
     res.end()
     return

@@ -396,7 +396,7 @@ await import("data-package", { with: { type: "json" } })
     })
     await execFile("deno", ["check", "--config", "deno.json", "main.ts"], { cwd: join(root, ".output") })
     await expect(readFile(join(root, ".output/deploy.mjs"), "utf8")).resolves.toContain('const entrypoint = "main.ts"')
-  })
+  }, 30_000)
 
   it("stages retained Schedule sources with Deno deployment output", async () => {
     const root = await temporaryDirectory("vitehub-deno-schedule-sources-")

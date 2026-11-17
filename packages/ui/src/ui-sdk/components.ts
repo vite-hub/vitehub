@@ -3,7 +3,7 @@ import { Dialog, DialogBackdrop, DialogClose, DialogContent, DialogDescription, 
 import { Input, InputGroup } from "@ui-sdk/vue/input";
 import { Menu, MenuContent, MenuGroup, MenuGroupLabel, MenuItem, MenuItemIcon, MenuSeparator, MenuTrigger } from "@ui-sdk/vue/menu";
 import { Tabs, TabsList, TabsTab } from "@ui-sdk/vue/tabs";
-import { cloneVNode, type Component, computed, defineComponent, h, isVNode, nextTick, onMounted, ref, type PropType, type VNode } from "vue";
+import { cloneVNode, type Component, computed, defineAsyncComponent, defineComponent, h, isVNode, nextTick, onMounted, ref, type PropType, type VNode } from "vue";
 
 import { useViteHubUIIcons } from "../config.ts";
 import { lucideStroke } from "../internal/icon-shapes.ts";
@@ -217,7 +217,10 @@ const UTabs = defineComponent({
 
 interface MenuEntry { description?: string, disabled?: boolean, icon?: string, label?: string, onSelect?: (event: Event) => void, type?: "label" | "separator" | "link" | "checkbox" }
 
-/** Nuxt UI's `UDropdownMenu`: the default slot opens it, and `items` holds groups of entries, or one group. */
+/**
+ * Nuxt UI's `UDropdownMenu`: the default slot opens it, and `items` holds groups of entries, or one group.
+ * `update:open` tells when it opens and closes.
+ */
 const UDropdownMenu = defineComponent({
   name: "UDropdownMenu",
   inheritAttrs: false,
@@ -226,7 +229,8 @@ const UDropdownMenu = defineComponent({
     items: { default: () => [], type: Array as PropType<MenuEntry[] | MenuEntry[][]> },
     ui: { default: () => ({}), type: Object as PropType<{ content?: string }> },
   },
-  setup(props, { slots }) {
+  emits: { "update:open": (_open: boolean) => true },
+  setup(props, { emit, slots }) {
     const UIcon = useUIComponent("UIcon");
     const entry = (item: MenuEntry, index: number) => {
       if (item.type === "label") return h(MenuGroupLabel, { key: index }, () => item.label);
@@ -239,7 +243,7 @@ const UDropdownMenu = defineComponent({
     };
     return () => {
       const groups = (props.items.length && Array.isArray(props.items[0]) ? props.items : [props.items]) as MenuEntry[][];
-      return h(Menu, null, () => [
+      return h(Menu, { onOpenChange: (open: boolean) => emit("update:open", open) }, () => [
         h(MenuTrigger, null, { render: ({ props: trigger }: { props: Record<string, unknown> }) => asTrigger(slots.default?.(), trigger) }),
         h(MenuContent, { ...props.content, class: props.ui.content }, () => groups.flatMap((group, index) => [
           index ? h(MenuSeparator, { key: `separator-${index}` }) : null,
@@ -250,9 +254,15 @@ const UDropdownMenu = defineComponent({
   },
 });
 
+// The editor parts load Tiptap's menu plugins, so they load on first render, as Nuxt UI's do: a page without an editor
+// never loads them.
+const UEditorDragHandle = defineAsyncComponent(() => import("./editor.ts").then(parts => parts.UEditorDragHandle));
+const UEditorSuggestionMenu = defineAsyncComponent(() => import("./editor.ts").then(parts => parts.UEditorSuggestionMenu));
+const UEditorToolbar = defineAsyncComponent(() => import("./editor.ts").then(parts => parts.UEditorToolbar));
+
 /**
  * The components that the parts render, on ui-sdk instead of Nuxt UI. Give them to `createViteHubUI({ components })`
  * and load the kit style family. `UIcon` draws the icons that the parts use; to show other icons, such as your own in
  * `createViteHubUI({ icons })`, pass your own `UIcon` next to these.
  */
-export const uiSdkComponents: ViteHubUIComponents = { UButton, UDropdownMenu, UIcon, UInput, UModal, UTabs };
+export const uiSdkComponents: ViteHubUIComponents = { UButton, UDropdownMenu, UEditorDragHandle, UEditorSuggestionMenu, UEditorToolbar, UIcon, UInput, UModal, UTabs };

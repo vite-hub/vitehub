@@ -39,6 +39,8 @@ const serverPrimitiveSections = [
   "schedule",
   "shell",
   "source",
+  "sync",
+  "webhooks",
   "workflows",
   "workspace",
 ];

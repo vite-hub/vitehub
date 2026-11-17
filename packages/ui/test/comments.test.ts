@@ -437,6 +437,47 @@ describe("pins and threads", () => {
     expect(wrapper.get("[data-slot=comment-layer-item]").attributes("style")).toContain("left: 200px");
   });
 
+  it("unobserves closed preview and thread cards while the layer stays mounted", async () => {
+    const observed = new Set<Element>();
+    vi.stubGlobal("ResizeObserver", class {
+      observe(element: Element) { observed.add(element); }
+      unobserve(element: Element) { observed.delete(element); }
+      disconnect() { observed.clear(); }
+    });
+    const computedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element) => {
+      const style = computedStyle(element);
+      if (element.matches("[data-slot=comment-layer-popover]")) {
+        const getPropertyValue = style.getPropertyValue.bind(style);
+        vi.spyOn(style, "getPropertyValue").mockImplementation(name => name === "position-area" ? "bottom right" : getPropertyValue(name));
+      }
+      return style;
+    });
+    try {
+      const { wrapper } = await layer([thread(1)]);
+      const pin = wrapper.get("[data-slot=comment-pin]");
+      for (let cycle = 0; cycle < 3; cycle++) {
+        // Closing the thread restores focus to its pin. A focused pin keeps its preview open on pointerleave.
+        (pin.element as HTMLElement).blur();
+        await pin.trigger("pointerenter");
+        const preview = wrapper.get("[data-slot=comment-layer-popover][data-preview=true]").element;
+        expect(observed.has(preview)).toBe(true);
+        await pin.trigger("pointerleave");
+        expect(observed.has(preview)).toBe(false);
+        await pin.trigger("click");
+        const card = wrapper.get("[data-slot=comment-layer-popover]:not([data-preview])").element;
+        expect(observed.has(card)).toBe(true);
+        await wrapper.get("[aria-label=Close]").trigger("click");
+        await flushPromises();
+        expect(observed.has(card)).toBe(false);
+      }
+      expect([...observed].filter(element => !element.isConnected)).toEqual([]);
+      wrapper.unmount();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("previews a thread on hover and opens it on click", async () => {
     const { wrapper } = await layer([thread(1, { messages: [...thread(1).messages, { ...thread(1).messages[0]!, body: "A reply", id: "reply-1" }] })]);
     const pin = wrapper.get("[data-slot=comment-pin]");
