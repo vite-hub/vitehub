@@ -75,7 +75,7 @@ To use a signed-in user's ChatGPT Plus or Pro plan, define a [ChatGPT Connection
 The built-in Drivers reuse T3 Code's Codex and Claude Code runtime. ViteHub owns Agents, Capabilities, Workspaces, Invocations, and lifecycle events. Install only the provider packages you use:
 
 ```sh
-pnpm add @openai/codex@0.149.1
+pnpm add @openai/codex@0.169.0
 pnpm add @anthropic-ai/claude-agent-sdk@0.3.321
 ```
 

@@ -16,7 +16,7 @@ import { SecretEnv } from "./secret.ts"
 import { cloudflareEnv, processEnv, runtimeEnv, type RuntimeEnv } from "./internal/runtime-env.ts"
 import { isRecord, isRuntimeEnvEntry, isRuntimeLiteralEntry, isRuntimeProviderEntry, runtimeRegistryEntries } from "./core/registry.ts"
 import type { RuntimeEnvEntry, RuntimeProviderEntry } from "./core/registry.ts"
-import { envValueTypeName, parseEnvValue, stringValueSchema } from "./core/values.ts"
+import { envValueTypeName, parseEnvValue, readJsonInput, stringValueSchema } from "./core/values.ts"
 import type { EnvValueParseResult } from "./core/values.ts"
 
 import type {
@@ -153,9 +153,15 @@ function parseRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, value:
   if (!schema) {
     throw invalidEnvDeclaration(path, `${path} uses env.schemaFrom(), but no schema module was loaded for it. Only env.server declarations of hubEnv() support env.schemaFrom().`)
   }
+  let input = value
+  if (entry.schemaModule.input === "json") {
+    const json = readJsonInput(value)
+    if (!json.success) return json
+    input = json.data
+  }
   let result: unknown
   try {
-    result = schema["~standard"].validate(value)
+    result = schema["~standard"].validate(input)
   }
   catch (error) {
     return { message: `The schema threw: ${error instanceof Error ? error.message : String(error)}`, success: false }
@@ -526,7 +532,7 @@ async function inspectRegistryEntry(
 const registryEnvNames = new WeakMap<object, readonly string[] | null>()
 const resolvedServerEnvs = new WeakMap<object, { key: string, value: unknown }>()
 
-/** The env names a registry reads, or null when it declares an array or object, since each call returns its own copy. */
+/** The env names a registry reads, or null when it declares an array, list, JSON value, or object, since each call returns its own copy. */
 function reusableEnvNames(registry: object): readonly string[] | null {
   const known = registryEnvNames.get(registry)
   if (known !== undefined) return known
@@ -534,7 +540,7 @@ function reusableEnvNames(registry: object): readonly string[] | null {
   for (const { entry } of runtimeRegistryEntries(registry)) {
     if (!isRuntimeEnvEntry(entry)) continue
     // A schema from env.schemaFrom() can return an object, and a call must not share it.
-    if (entry.schemaModule || entry.schema?.kind === "array" || entry.schema?.kind === "object") {
+    if (entry.schemaModule || entry.schema?.kind === "array" || entry.schema?.kind === "json" || entry.schema?.kind === "list" || entry.schema?.kind === "object") {
       names = null
       break
     }

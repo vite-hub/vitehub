@@ -10,7 +10,7 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `env` from `vite-hub/env` or `@vite-hub/env/vite` | Declare values and sources. `env.boolean()`, `env.number()`, and `env.enum()` declare typed values. |
+| `env` from `vite-hub/env` or `@vite-hub/env/vite` | Declare values and sources. `env.boolean()`, `env.number()`, `env.enum()`, `env.list()`, and `env.json()` declare typed values. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Read Env failures by `ENV_*` code. |
 | `hubEnv` from `@vite-hub/env/vite` | Add the Vite plugin. |
 | `defineEnvProvider` from `vite-hub/env` | Define a read-only provider for outside Env storage. |

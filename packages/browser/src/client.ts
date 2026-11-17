@@ -442,6 +442,9 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
 }
 
 export function createBrowser<TConnection>(options: CreateBrowserOptions<TConnection>): BrowserClient<TConnection> {
+  if (options && typeof options === "object" && !options.driver && Object.hasOwn(options, "provider")) {
+    throw browserErrorDiagnostics.BROWSER_RENAMED_PROVIDER_KEY()
+  }
   if (!options || typeof options !== "object" || !options.driver) {
     throw browserErrorDiagnostics.BROWSER_R0004({ message: "[vitehub:browser] createBrowser() requires a driver." })
   }

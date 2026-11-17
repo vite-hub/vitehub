@@ -22,7 +22,7 @@ Start from the app of [Installation](/docs/getting-started/installation). You ne
 ### Install the packages
 
 ```bash [Terminal]
-pnpm add @vite-hub/agent @openai/codex@0.149.1
+pnpm add @vite-hub/agent @openai/codex@0.169.0
 ```
 
 `@openai/codex` installs one native Codex package for your OS and CPU. Without it, ViteHub uses `codex` from the host `PATH`. ViteHub downloads nothing during the build or at startup.
