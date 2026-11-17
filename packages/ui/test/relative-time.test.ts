@@ -3,7 +3,7 @@
 import { TooltipProvider } from "reka-ui";
 import { renderToString } from "@vue/server-renderer";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type App, createSSRApp, defineComponent, h, nextTick, ref } from "vue";
+import { type App, compile, createSSRApp, defineComponent, h, nextTick, ref } from "vue";
 import { createViteHubUI } from "../src/config.ts";
 import { provideRelativeNow, RelativeTime } from "../src/components/relative-time.ts";
 import { describeTime } from "../src/internal/describe-time.ts";
@@ -122,9 +122,16 @@ describe("RelativeTime", () => {
   });
 
   it("takes the short and narrow words, another locale, and another threshold", async () => {
-    expect((await hydrate("2026-10-24", { props: { style: "short" } })).time.textContent).toBe("last wk.");
+    expect((await hydrate("2026-10-24", { props: { format: "short" } })).time.textContent).toBe("last wk.");
     expect((await hydrate("2026-11-01", { props: { locale: "es" } })).time.textContent).toBe("hace 3 días");
     expect((await hydrate("2026-11-02", { props: { threshold: "1d" } })).time.textContent).toBe("Nov 2");
+  });
+
+  it("takes a static format from a template", async () => {
+    // The template compiler turns a static `style` into the native attribute, so the prop must have another name.
+    const app = createSSRApp({ components: { RelativeTime }, render: compile('<RelativeTime at="2026-10-24" format="short" />') });
+    provideRelativeNow(ref(now), app);
+    expect(await renderToString(app)).toContain(">last wk.</time>");
   });
 
   it("reads under a minute as now, before or after the clock", async () => {

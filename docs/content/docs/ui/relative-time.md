@@ -21,12 +21,12 @@ import { provideRelativeNow, RelativeTime } from "vite-hub/ui";
 
 ## Usage
 
-Pass the moment as `at`: milliseconds, a `Date`, or an ISO string. Use `style="short"` in a dense list:
+Pass the moment as `at`: milliseconds, a `Date`, or an ISO string. Use `format="short"` in a dense list:
 
 ```vue
 <template>
   <RelativeTime :at="comment.createdAt" />
-  <RelativeTime at="2026-11-02T09:30:00Z" style="short" />
+  <RelativeTime at="2026-11-02T09:30:00Z" format="short" />
 </template>
 ```
 
@@ -90,7 +90,7 @@ Renders `<time data-slot="relative-time">` with `data-mode="relative"` or `data-
 | ----------- | ---------------------------------- | -------- | -------------------------------------------------------------------------------------- |
 | `at`        | `number \| string \| Date`         | Required | The moment, in milliseconds, as a `Date`, or as an ISO date or instant.                |
 | `threshold` | `string`                           | `"3w"`   | How far from now the label becomes a date, such as `"7d"`, or `"none"`.                |
-| `style`     | `"long" \| "short" \| "narrow"`    | `"long"` | The length of the words: "3 weeks ago", "3 wk. ago", or "3w ago".                      |
+| `format`    | `"long" \| "short" \| "narrow"`    | `"long"` | The length of the words: "3 weeks ago", "3 wk. ago", or "3w ago".                      |
 | `locale`    | `string`                           | `"en"`   | A BCP 47 tag for the words and the date, such as `"es"`.                               |
 | `tooltip`   | `boolean`                          | `true`   | Show the full date, or the words of a date label, in a tooltip.                        |
 

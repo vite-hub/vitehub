@@ -6,7 +6,7 @@ import { holdSharedNow, relativeNowKey, releaseSharedNow } from "../internal/rel
 /** A moment: milliseconds, a `Date`, or an ISO string. A date alone, such as `2026-10-12`, is a calendar day. */
 export type RelativeTimeValue = number | string | Date;
 /** How long the words are: `long` ("3 weeks ago"), `short` ("3 wk. ago"), or `narrow` ("3w ago"). */
-export type RelativeTimeStyle = "long" | "short" | "narrow";
+export type RelativeTimeFormat = "long" | "short" | "narrow";
 
 /**
  * Gives every `RelativeTime` below the clock that it counts from, in milliseconds. The server and the browser must
@@ -36,8 +36,9 @@ export const RelativeTime = defineComponent({
     at: { required: true, type: [Number, String, Date] as PropType<RelativeTimeValue> },
     /** How far from now the label becomes a date, as a number and a unit (`s`, `m`, `h`, `d`, `w`, `mo`, `y`), or `none`. */
     threshold: { default: "3w", type: String },
+    // `style` would be the native attribute in a template, so `style="short"` would never reach the prop.
     // SAFETY: Vue's runtime constructor cannot express this string literal union.
-    style: { default: "long", type: String as PropType<RelativeTimeStyle> },
+    format: { default: "long", type: String as PropType<RelativeTimeFormat> },
     /** A BCP 47 tag for the words and the date. */
     locale: { default: "en", type: String },
     tooltip: { default: true, type: Boolean },
@@ -61,7 +62,7 @@ export const RelativeTime = defineComponent({
     const describe = (timeZone?: string) => {
       const at = now.value;
       if (at === undefined) return undefined;
-      const options = { locale: props.locale, style: props.style, threshold: props.threshold, timeZone };
+      const options = { locale: props.locale, style: props.format, threshold: props.threshold, timeZone };
       const time = describeTime(props.at, { ...options, now: at });
       if (!time?.datetime.includes("T")) return time;
       const instant = Date.parse(time.datetime);

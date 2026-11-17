@@ -17,7 +17,7 @@ const deploys = [
   <ul class="flex w-full max-w-sm flex-col divide-y divide-default text-sm">
     <li v-for="deploy in deploys" :key="deploy.id" class="flex items-center justify-between gap-4 py-2">
       <span class="font-mono">{{ deploy.branch }}</span>
-      <RelativeTime :at="deploy.at" class="text-muted" />
+      <RelativeTime :at="deploy.at" format="short" class="text-muted" />
     </li>
   </ul>
 </template>
