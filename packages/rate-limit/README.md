@@ -129,6 +129,10 @@ The limiter exposes its resolved `policy` and the driver's declared `capabilitie
 
 For managed guards, `peekRateLimit(id, key)` and `resetRateLimit(id, key)` use the counters of `requireRateLimit()` in the current runtime. `vitehub rate-limit peek <id> <key>` and `vitehub rate-limit reset <id> <key>` (which asks on a terminal, or needs `--yes`) run the `rate-limit.peek` and `rate-limit.reset` operations of the running app, on the dev server or with `--url` on a deployed app that enables the Console. The Console **Rate Limits** page runs the same operations.
 
+## Refusals in request logs
+
+With the evlog Nitro module registered, a request that `requireRateLimit()` or `checkRateLimit()` refuses gets a `rateLimit` field on its wide event: `{ name, limit, window, driver, key, allowed, reason, retryAfter? }`. `key` is `option` or `client-address`; the key value is not on the event, because it can be an IP address or a user id. Without evlog, nothing is set. See [Server API](https://vitehub.dev/docs/rate-limit/server-api#see-refusals-on-each-request).
+
 ## Public imports
 
 | Import                                    | Purpose                                                                   |

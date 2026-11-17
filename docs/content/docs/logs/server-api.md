@@ -10,6 +10,17 @@ icon: i-lucide-logs
 
 `vite-hub/logs` re-exports the Evlog root API. For request context, import the official Evlog framework adapters, such as `evlog/nitro/v3`. ViteHub does not rename them or add a second logger lifecycle.
 
+## Fields that ViteHub adds
+
+With the evlog Nitro module, ViteHub primitives add their own fields to the wide event of each request. Without evlog, they add nothing.
+
+| Field | Added by | Read more |
+| --- | --- | --- |
+| `database` | Each request that calls a database | [Database](/docs/database/server-api#see-database-work-on-each-request) |
+| `auth` | A sign-in, a Better Auth error, or a refusal of an Auth guard | [Auth](/docs/auth/server-api#see-auth-outcomes-on-each-request) |
+| `rateLimit` | A request that a Rate Limit refuses | [Rate Limit](/docs/rate-limit/server-api#see-refusals-on-each-request) |
+| `browserError` | A browser error report, with `observability.browserErrors` | [Configure](/docs/logs/configure) |
+
 ## Source contract
 
 ```ts

@@ -389,3 +389,71 @@ describe("non-throwing Rate Limit check", () => {
     await expect(checkRateLimit(event, "previews", { limit: 1, message: "Slow down.", window: "1m" } as never)).rejects.toThrow('does not support the "message" option')
   })
 })
+
+describe("Rate Limit refusals on the request's wide event", () => {
+  function withEvlog(event: H3Event) {
+    const log = { set: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    // Evlog's Nitro plugin puts the request logger here.
+    Object.assign(event.req, { context: { log } })
+    return log
+  }
+
+  it("names the policy of a refused request, without the key", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(30_000)
+    const event = requestEvent("192.0.2.40")
+    const log = withEvlog(event)
+    const policy = { key: "user-123", limit: 1, window: "1m" } as const
+
+    await requireRateLimit(event, "image-upload", policy)
+    expect(log.set).not.toHaveBeenCalled()
+    await expect(requireRateLimit(event, "image-upload", policy)).rejects.toMatchObject({ status: 429 })
+
+    expect(log.set).toHaveBeenCalledOnce()
+    expect(log.set.mock.calls[0]![0]).toEqual({ rateLimit: {
+      name: "image-upload",
+      limit: 1,
+      window: "1m",
+      driver: "memory",
+      key: "option",
+      allowed: false,
+      reason: "limited",
+      retryAfter: 30,
+    } })
+    expect(JSON.stringify(log.set.mock.calls)).not.toContain("user-123")
+  })
+
+  it("says that the key is the client address, without the address", async () => {
+    const event = requestEvent("192.0.2.41")
+    const log = withEvlog(event)
+
+    await checkRateLimit(event, "previews", { limit: 1, window: "10s" })
+    await checkRateLimit(event, "previews", { limit: 1, window: "10s" })
+
+    expect(log.set.mock.calls[0]![0]).toMatchObject({ rateLimit: { name: "previews", key: "client-address", allowed: false, reason: "limited" } })
+    expect(JSON.stringify(log.set.mock.calls)).not.toContain("192.0.2.41")
+  })
+
+  it("records an unavailable limiter that lets the request through", async () => {
+    setRateLimitRuntimeConfig({ driver: "cloudflare" })
+    const event = cloudflareEvent("open-previews", { limit: async () => { throw new Error("provider unavailable") } })
+    const log = withEvlog(event)
+
+    await checkRateLimit(event, "open-previews", { failure: "allow", key: "user", limit: 1, window: "1m" })
+
+    expect(log.set.mock.calls[0]![0]).toEqual({ rateLimit: {
+      name: "open-previews",
+      limit: 1,
+      window: "1m",
+      driver: "cloudflare",
+      key: "option",
+      allowed: true,
+      reason: "unavailable",
+    } })
+  })
+
+  it("refuses as before without evlog", async () => {
+    const event = requestEvent("192.0.2.42")
+    await requireRateLimit(event, "plain", { limit: 1, window: "1m" })
+    await expect(requireRateLimit(event, "plain", { limit: 1, window: "1m" })).rejects.toMatchObject({ status: 429 })
+  })
+})

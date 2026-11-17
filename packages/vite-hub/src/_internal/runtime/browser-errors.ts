@@ -1,3 +1,4 @@
+import { requestLog } from "@vite-hub/internal/runtime/request-log"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { getStandardContext } from "@vite-hub/runtime"
 
@@ -79,26 +80,13 @@ function minuteLimit(now: () => number): (key: string) => number | undefined {
   }
 }
 
-interface RequestLogger {
-  error: (error: Error, context: Record<string, unknown>) => void
-}
-
-/** Evlog's Nitro plugin puts the wide event of each request on `request.context.log`. */
-function requestLogger(request: Request): RequestLogger | undefined {
-  const context: unknown = Reflect.get(request, "context")
-  const log: unknown = context !== null && typeof context === "object" ? Reflect.get(context, "log") : undefined
-  if (log === null || typeof log !== "object") return undefined
-  const error: unknown = Reflect.get(log, "error")
-  return typeof error === "function" ? { error: (value, fields) => Reflect.apply(error, log, [value, fields]) } : undefined
-}
-
 /**
  * Write the report into the request's wide event at error level, so it goes through the redaction, sampling, and drains
  * of the app's Evlog setup, next to the server's own events. Without Evlog, the server console gets it.
  */
 function logReport(request: Request, report: BrowserErrorReport): void {
   const { kind, path, name, message, stack } = report
-  const log = requestLogger(request)
+  const log = requestLog(request)
   if (!log) {
     console.error("[vitehub] Browser error", report)
     return

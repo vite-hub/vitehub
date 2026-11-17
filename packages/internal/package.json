@@ -278,6 +278,11 @@
       "import": "./dist/runtime/client-rate-limit.js",
       "default": "./dist/runtime/client-rate-limit.js"
     },
+    "./runtime/request-log": {
+      "types": "./dist/runtime/request-log.d.ts",
+      "import": "./dist/runtime/request-log.js",
+      "default": "./dist/runtime/request-log.js"
+    },
     "./runtime/request-origin": {
       "types": "./dist/runtime/request-origin.d.ts",
       "import": "./dist/runtime/request-origin.js",

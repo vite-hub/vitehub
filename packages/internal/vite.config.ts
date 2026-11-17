@@ -92,6 +92,7 @@ export default defineConfig({
       "src/runtime/page-tools-loader.ts",
       "src/runtime/page-tools-shared.ts",
       "src/runtime/random.ts",
+      "src/runtime/request-log.ts",
       "src/runtime/request-origin.ts",
       "src/runtime/time-zone.ts",
       "src/runtime/user-agent.ts",

@@ -613,6 +613,10 @@ Apps that install `vite-hub` call `hub.signIn()` from `setupViteHubTest()`. In a
 - Protect application routes and the Console endpoint explicitly. Authentication proves a session; application-owned `authorize` callbacks define roles and permissions.
 - Keep automatic `/api/auth/**` exposure enabled unless the host mounts the stable handler itself, and verify the chosen `basePath` on both server and client.
 
+## Auth outcomes in request logs
+
+With the evlog Nitro module registered, each request's wide event gets an `auth` field: `{ outcome, path?, provider?, status?, code?, userId? }`. `outcome` is `success` for a completed sign-in or sign-up, `failure` for a Better Auth error, such as a failed OAuth callback that the browser only sees as a redirect with `?error=`, and `refused` for a refusal of an Auth guard. `code` is Better Auth's error code, the OAuth `error`, or `SIGNED_OUT` / `FORBIDDEN`. Better Auth's warnings and errors also go on the event; the app's own `logger` option still gets every message. The event never holds an email address, a token, or a URL query. Without evlog, nothing is set. See [Server API](https://vitehub.dev/docs/auth/server-api#see-auth-outcomes-on-each-request).
+
 ## Passwords in a WebContainer
 
 In a StackBlitz WebContainer, every `node:crypto` `scrypt` call fails. There, Auth sets `emailAndPassword.password` to the scrypt of `@noble/hashes`, with Better Auth's default parameters and `salt:key` format. A hash made on another host verifies in the WebContainer, and the other way around. Auth logs one `[vitehub] Auth hashes passwords with the scrypt of @noble/hashes` line when it first builds its options. Hashing is slower (about 3 seconds per sign-up or sign-in). A `hash` or `verify` function in the Auth Definition always wins. Other hosts keep Better Auth's default.

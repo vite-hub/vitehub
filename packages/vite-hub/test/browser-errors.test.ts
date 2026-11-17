@@ -20,7 +20,7 @@ function post(body: unknown, headers: Record<string, string> = { origin, "sec-fe
     body: typeof body === "string" ? body : JSON.stringify(body),
   })
   // Evlog's Nitro plugin puts the request logger here.
-  if (log) Object.assign(request, { context: { log } })
+  if (log) Object.assign(request, { context: { log: { set: vi.fn(), warn: vi.fn(), ...log } } })
   return request
 }
 

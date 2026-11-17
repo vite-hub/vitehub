@@ -1,5 +1,6 @@
 import { toResultError } from "@vite-hub/runtime"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { requestLog } from "@vite-hub/internal/runtime/request-log"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 import { createError } from "nitro/h3"
@@ -131,7 +132,21 @@ async function consumeRateLimit(
     ? getCloudflareRateLimiter(scope, id, policy)
     : [undefined, getRuntimeRateLimiter(driver, id, policy)] as const
   if (error) return [error, undefined]
-  return [undefined, await limiter.consume({ key })]
+  const decision = await limiter.consume({ key })
+  if (decision.reason) {
+    // The key can be a client address or a user id, so the event says only where it came from.
+    requestLog(event)?.set({ rateLimit: {
+      name: id,
+      limit: policy.limit,
+      window: policy.window,
+      driver,
+      key: options.key === undefined ? "client-address" : "option",
+      allowed: decision.allowed,
+      reason: decision.reason,
+      ...(decision.retryAfter === undefined ? {} : { retryAfter: decision.retryAfter }),
+    } })
+  }
+  return [undefined, decision]
 }
 
 /**

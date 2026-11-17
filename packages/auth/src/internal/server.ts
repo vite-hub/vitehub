@@ -16,7 +16,7 @@ import { readSetCookies } from "../set-cookie.ts"
 import { eventClientAddress, setRequestClientAddress, withClientAddress } from "../client-address.ts"
 import { createAuthAccessRouteMatcher } from "../runtime/server.ts"
 import { checkAbility } from "../ability-check.ts"
-import { runWithAuthEvent } from "../event-plugin.ts"
+import { runWithAuthEvent, setAuthOutcome, setAuthResponseOutcome } from "../request-log.ts"
 import { AbilityError } from "../ability-error.ts"
 import {
   authForRequest,
@@ -268,7 +268,11 @@ export function handleAuthRequest(
   // Better Auth limits requests per client IP. It gets the address that the host reports for the request.
   const address = eventClientAddress(event)
   const auth = requestProvider(definition, resolveAuthOptions(definition, { request, event, env: envResolverFor(definition) }))
-  return runWithAuthEvent(event, () => auth.handler(setRequestClientAddress(toRequest(request), address)))
+  return runWithAuthEvent(event, async () => {
+    const response = await auth.handler(setRequestClientAddress(toRequest(request), address))
+    await setAuthResponseOutcome(event, response)
+    return response
+  })
 }
 
 /** Return a Web Request itself, or the request in the Standard Context of a request event. */
@@ -484,8 +488,15 @@ type AuthCheck =
   | { authorization: AuthAuthorization, response?: undefined }
   | { authorization?: undefined, response: Response }
 
-function reject(response: Response): AuthCheck {
+/** A refused check. The refusal goes on the request's wide event as `auth`. */
+function reject(input: AuthRequestInput, response: Response): AuthCheck {
+  logRefusal(input, response)
   return { response }
+}
+
+function logRefusal(input: AuthRequestInput, response: Response): void {
+  const code = refusalCodes.get(response)
+  setAuthOutcome(input, { outcome: "refused", status: response.status, ...(code ? { code } : {}) })
 }
 
 
@@ -714,7 +725,7 @@ async function checkAuthRequest(
 ): Promise<AuthCheck> {
   const { auth, event, options, request, session } = await readRequestSession(input, definition)
   const identity = await resolveIdentity?.(toRequest(request), input, Boolean(session))
-  if (isRuntimeResponse(identity)) return reject(identity)
+  if (isRuntimeResponse(identity)) return reject(input, identity)
   if (identity || session) {
     const authorization: AuthAuthorization = Object.freeze({
       request,
@@ -728,29 +739,29 @@ async function checkAuthRequest(
     for (const [index, route] of routes.entries()) {
       const authorize = typeof route === "object" && route !== null ? route.authorize : undefined
       if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
-        return reject(createForbiddenResponse(request))
+        return reject(input, createForbiddenResponse(request))
       }
       if (!authorize) continue
       const rejection = await runAccessAuthorize(authorize, { ...authorization, event })
-      if (rejection.response) return reject(rejection.response)
+      if (rejection.response) return reject(input, rejection.response)
     }
     return { authorization }
   }
 
   if (!wantsHtml(request)) {
-    return reject(createRefusalResponse("SIGNED_OUT"))
+    return reject(input, createRefusalResponse("SIGNED_OUT"))
   }
 
   if (!redirectToSignIn) {
-    return reject(createRefusalResponse("SIGNED_OUT"))
+    return reject(input, createRefusalResponse("SIGNED_OUT"))
   }
 
   if (new URL(request.url).searchParams.has("auth_error")) {
-    return reject(createTextRefusalResponse("Unauthorized.", "SIGNED_OUT"))
+    return reject(input, createTextRefusalResponse("Unauthorized.", "SIGNED_OUT"))
   }
 
   const signIn = (options as { access?: AuthAccessConfiguration }).access?.signIn
-  return reject(signIn
+  return reject(input, signIn
     ? await createSignInResponse(auth, options, { ...signIn, ...signInURLs })
     : createRefusalResponse("SIGNED_OUT"))
 }
@@ -761,11 +772,11 @@ async function checkAuthorizeRequest<TInput extends AuthRequestInput>(
   definition: AuthDefinition,
 ): Promise<AuthCheck> {
   const { request, session } = await readRequestSession(input, definition)
-  if (!session) return reject(createRefusalResponse("SIGNED_OUT"))
+  if (!session) return reject(input, createRefusalResponse("SIGNED_OUT"))
   const authorization: AuthAuthorization = Object.freeze({ request, session: session.session, user: session.user })
   if (authorize === true) return { authorization }
   const rejection = await runAccessAuthorize(authorize, { ...authorization, event: authRequestEvent(input) })
-  return rejection.response ? reject(rejection.response) : { authorization }
+  return rejection.response ? reject(input, rejection.response) : { authorization }
 }
 
 /**
@@ -792,7 +803,10 @@ export function withAnonymousAuthorization<TInput extends AuthRequestInput, TRes
     // `false` keeps the status that withAuthorization() returns for the same caller.
     const deny = session ? undefined : () => createRefusalResponse("SIGNED_OUT")
     const rejection = await runAccessAuthorize(authorize, { ...authorization, event: authRequestEvent(input) }, deny)
-    if (rejection.response) return sendSessionCookies(input, rejection.response)
+    if (rejection.response) {
+      logRefusal(input, rejection.response)
+      return sendSessionCookies(input, rejection.response)
+    }
     return sendSessionCookies(input, await handler(input, authorization))
   }
 }
