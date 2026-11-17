@@ -428,6 +428,39 @@ describe("Agent Channel delivery journal", () => {
     info.mockRestore()
   }, 20_000)
 
+  it("preserves a delivery re-admitted during overflow cleanup", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const input = { agentName: "support", provider: "github", scope: "webhook:support", sourceId: "concurrent-oldest" }
+    const oldest = await openAgentChannelDelivery(state, input)
+    for (let index = 1; index < 10_000; index++) {
+      await state.appendToList("deliveries:index", `filler-${index}`)
+    }
+    const getList = state.getList.bind(state)
+    let retry: Awaited<ReturnType<typeof openAgentChannelDelivery>> | undefined
+    state.getList = async <T>(key: string) => {
+      const snapshot = await getList<T>(key)
+      if (key === "deliveries:index" && !snapshot.includes(oldest.delivery.id as T) && !retry) {
+        // Return the overflow admission's stale snapshot after a concurrent retry has finished.
+        state.getList = getList
+        retry = await openAgentChannelDelivery(state, input)
+      }
+      return snapshot
+    }
+
+    await openAgentChannelDelivery(state, { ...input, sourceId: "overflow" })
+
+    expect(retry?.duplicate).toBe(true)
+    expect(await state.getList("deliveries:index")).toContain(oldest.delivery.id)
+    expect(await resumeAgentChannelDelivery(state, oldest.delivery.id)).toBeDefined()
+    expect(await state.getList(`deliveries:${oldest.delivery.id}:events`)).toEqual([
+      expect.objectContaining({ type: "received" }),
+      expect.objectContaining({ type: "duplicate" }),
+    ])
+    expect((await openAgentChannelDelivery(state, input)).delivery.id).toBe(oldest.delivery.id)
+    info.mockRestore()
+  })
+
   it("de-duplicates concurrent admission references during inspection", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const state = stateAdapter()
