@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process"
-import { mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, realpath, rm, rmdir, writeFile } from "node:fs/promises"
 import { homedir, userInfo } from "node:os"
-import { dirname, posix, win32 } from "node:path"
+import { basename, dirname, join, posix, win32 } from "node:path"
 
 import type { Result } from "@vite-hub/runtime"
 import type { CronFields } from "./cron.ts"
@@ -35,6 +35,8 @@ export interface OsHost {
     /** Returns `true` when the file existed. */
     rm(path: string): Promise<boolean>
     rmdirIfEmpty(path: string): Promise<void>
+    /** The path with every symbolic link resolved. A part that does not exist stays as it is. */
+    realpath(path: string): Promise<string>
   }
 }
 
@@ -45,6 +47,7 @@ export interface OsTimerSpec {
   cron: string
   /** The cron in `timeZone`. */
   fields: CronFields
+  /** An IANA time zone, or `"local"` for the machine time zone. */
   timeZone: string
   command: readonly string[]
   env: Record<string, string>
@@ -130,15 +133,31 @@ function isMissing(error: unknown): boolean {
   return error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")
 }
 
+async function resolvePath(path: string): Promise<string> {
+  try {
+    return await realpath(path)
+  }
+  catch (error) {
+    if (!isMissing(error)) throw error
+    if (dirname(path) === path) return path
+    return join(await resolvePath(dirname(path)), basename(path))
+  }
+}
+
 export function createNodeHost(): OsHost {
   const user = userInfo().username
   return {
     platform: process.platform,
     uid: process.getuid?.(),
     user: process.platform === "win32" && process.env.USERDOMAIN ? `${process.env.USERDOMAIN}\\${user}` : user,
-    homedir: homedir(),
+    // Read on each call, so a change of HOME or TZ in the process applies to the next call.
+    get homedir() {
+      return homedir()
+    },
     env: process.env,
-    machineTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    get machineTimeZone() {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone
+    },
     now: () => new Date(),
     sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
     exec,
@@ -178,6 +197,7 @@ export function createNodeHost(): OsHost {
           throw error
         }
       },
+      realpath: resolvePath,
     },
   }
 }

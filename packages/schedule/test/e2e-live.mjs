@@ -19,7 +19,7 @@ async function dispatchProviderSchedule(run) {
   }
   const startedAt = Date.now()
   const url = new URL("/api/vitehub/schedules/vercel/daily-marker", run.url)
-  const response = await fetch(url, { method: "POST" })
+  const response = await fetch(url, { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` }, method: "POST" })
   if (!response.ok) {
     throw new Error(`POST ${url} failed with ${response.status}: ${await response.text()}`)
   }
