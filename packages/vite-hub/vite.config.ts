@@ -65,6 +65,10 @@ const runtimeEntries = [
   "src/internal/database-runtime-state.ts",
   "src/internal/disabled-upstash-driver.ts",
   "src/internal/disabled-redis-driver.ts",
+  // `vite-hub/test/register` loads these files by path: the module hooks and the worker of the Vite server.
+  "src/internal/test-loader.ts",
+  "src/internal/test-server.ts",
+  "src/_internal/runtime/redirects.ts",
   "src/task/operations.ts",
   "src/cache/operations.ts",
   "src/skills/operations.ts",
@@ -507,6 +511,7 @@ export default defineConfig({
         { from: "src/ui/styles.css", to: "dist/ui" },
         { from: "src/ui/theme.css", to: "dist/ui" },
         { from: "templates/cloudflare-types.d.ts", to: "dist" },
+        { from: "templates/cloudflare-workers.d.ts", to: "dist" },
       ],
       deps: {
         // Agent-only apps need the client-free journal constructor without installing the optional Database package.

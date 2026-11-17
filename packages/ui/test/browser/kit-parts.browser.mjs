@@ -163,7 +163,7 @@ for (const width of [1280, 390]) {
       const differences = []
       for (const id of Object.keys(before)) {
         const result = await diff(kit.page, before[id], after[id])
-        if (result.changed === 0 || result.changed <= (allowed[id]?.pixels ?? 0)) continue
+        if (result.changed >= 0 && result.changed <= (allowed[id]?.pixels ?? 0)) continue
         differences.push(result.changed < 0 ? `${id}: size ${result.size}` : `${id}: ${result.changed} of ${result.total} pixels (${(100 * result.changed / result.total).toFixed(2)}%)`)
         if (shots) {
           const name = `${id}-${width}-${theme}`

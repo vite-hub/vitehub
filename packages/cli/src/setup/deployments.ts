@@ -209,6 +209,19 @@ export async function readSetupLive(root: string, link: SetupLink | undefined, c
   }
 }
 
+/** How long `vitehub deploy` waits for the host when it reads the deployment that a failed check rolls back to. */
+const DEPLOY_PREVIOUS_TIMEOUT_MS = 10_000
+
+/**
+ * The deployment that receives production traffic now, read before `vitehub deploy` replaces it. It throws when the
+ * host request fails, so the caller can say why the rollback target is not known.
+ */
+export async function readLiveDeployment(root: string, link: SetupLink, credentials: Extract<HostCredentials, { ok: true }>, context: ViteHubCliContext, run: DeployRun): Promise<HostDeployment | undefined> {
+  const signal = AbortSignal.timeout(DEPLOY_PREVIOUS_TIMEOUT_MS)
+  const listed = await abortable(signal, "Host deployment lookup timed out", () => listers[link.host](deploymentsContext(root, link, credentials, context, run, DEPLOY_PREVIOUS_TIMEOUT_MS, signal), { includeLive: true, limit: 1 }))
+  return listed.find(item => item.live)
+}
+
 const reasonLabels: Record<SetupLiveReason, string> = {
   "host-error": "unknown (the host request failed; run `vitehub deployments` for the error)",
   "no-credentials": "unknown (no host credentials)",
