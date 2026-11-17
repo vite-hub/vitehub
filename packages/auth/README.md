@@ -86,6 +86,14 @@ Set `adminClaim: false` on another Auth Definition to make it ignore the host's 
 
 With a claim code set, Auth sets `verification.storeInDatabase: true`, including when sessions use `secondaryStorage`. Claim markers use only the database, so a secondary-storage outage cannot block reservation recovery. A failed role grant releases the reservation so the code can be tried again.
 
+## Members
+
+`VITEHUB_MEMBERS` lets only some people sign up and sign in. It is a comma-separated list of entries: `<provider>:<account id>` (such as `github:22072217`), an email, `@<domain>`, or `github-org:<organization>`. Email and domain entries match only an email that the provider verified. An organization entry adds the `read:org` scope to the GitHub provider and checks the membership with `checkGitHubOrgMember()`. The accounts in `VITEHUB_ADMINS` and users with the admin role always get in.
+
+Auth refuses to create a user that no entry lets in, and refuses each new session. A refusal answers `403` with `AUTH_NOT_MEMBER`, or an OAuth redirect with `?error=AUTH_NOT_MEMBER`. The list runs in the same plugin as `access.policy`, so a removed person loses a running session within five minutes and their MCP access tokens stop working. It needs stored sessions (`AUTH_MEMBERS_SESSION_STORE_REQUIRED`). An invalid entry fails with `AUTH_MEMBERS_ENTRY_INVALID`. The Auth Console lists the entries in its access notes, with the number of emails in place of the emails.
+
+`checkAuthMember(userId, event?)` from `@vite-hub/auth/server` runs the same rules for code that has a user id but no session, such as an upload ticket. It returns `[undefined, undefined]` for a member or when the variable is not set, `AUTH_NOT_MEMBER` for a refused or unknown user, and `AUTH_GITHUB_UNAVAILABLE` when GitHub cannot answer. A confirmed organization membership is reused for five minutes.
+
 ## Sessions without a database
 
 `stateless()` keeps each session in an encrypted cookie. Sessions survive restarts and work across replicas and Workers when every instance uses the same secret.
@@ -164,7 +172,7 @@ When `@vite-hub/env` is installed, the Auth Definition callback receives the typ
 
 Behind a proxy that ends TLS, set Better Auth's `advanced.trustedProxyHeaders: true`. `requestOrigin`, the default `baseURL`, and the `Origin` check then use the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. Set it only when a proxy you run sets these headers. Proxy trust uses the options of the Definition, or the object that its callback returns.
 
-Each Auth request or route guard runs its Definition callback once, then once more with the forwarded origin if the effective options trust proxy headers and that origin differs. If the second run disables trust, Auth keeps the request URL's origin and disables proxy trust. The guard uses the same resolved options for session lookup, route authorization, and automatic provider sign-in. A later request resolves fresh options. Requests with equal resolved options share one Better Auth instance. Plain values compare by value. Functions, adapters, and bindings compare by identity, so an instance never keeps an object that another request created. `authDatabase()` adapters compare by Database name. A change to a variable that the instance uses, such as `VITEHUB_SECRET`, `BETTER_AUTH_SECRET`, or `VITEHUB_ADMINS`, gives a new instance on the next request. A callback that creates plugins or other adapters on each call builds a new instance on each request, so create them outside the callback when they do not depend on the request. All guards of one request share one session lookup: access routes, `requireAuth()`, `requireAuthorization()`, `withAuth()`, `withAuthorization()`, and `withAnonymousAuthorization()`.
+Each Auth request or route guard runs its Definition callback once, then once more with the forwarded origin if the effective options trust proxy headers and that origin differs. If the second run disables trust, Auth keeps the request URL's origin and disables proxy trust. The guard uses the same resolved options for session lookup, route authorization, and automatic provider sign-in. A later request resolves fresh options. Requests with equal resolved options share one Better Auth instance. Plain values compare by value. Functions, adapters, and bindings compare by identity, so an instance never keeps an object that another request created. `authDatabase()` adapters compare by Database name. A change to a variable that the instance uses, such as `VITEHUB_SECRET`, `BETTER_AUTH_SECRET`, `VITEHUB_ADMINS`, or `VITEHUB_MEMBERS`, gives a new instance on the next request. A callback that creates plugins or other adapters on each call builds a new instance on each request, so create them outside the callback when they do not depend on the request. All guards of one request share one session lookup: access routes, `requireAuth()`, `requireAuthorization()`, `withAuth()`, `withAuthorization()`, and `withAnonymousAuthorization()`.
 
 The generated Nitro middleware uses `access.signIn` when one of the configured `access.routes` needs a browser redirect. Route objects can add an `authorize` callback when a valid session is not sufficient:
 
@@ -580,6 +588,20 @@ const error = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in to use this A
 ```
 
 `error.toJSON()` includes `name`, `code`, and `message`, while omitting `cause` and stack data. If a default Better Auth request or session operation fails, `authenticated()`, `withAuth()`, and `withAuthorization()` throw the same shared error with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. Existing ViteHub errors and structural `AbortError` objects keep their identity. Missing APIs, malformed responses, invalid Auth configuration, and invalid custom callback results use package-owned `AUTH_C####`, `AUTH_B####`, or `AUTH_R####` Nostics codes.
+
+## Test a signed-in route
+
+`signIn()` from `@vite-hub/auth/test` writes a user and a session to the Auth database and returns headers with the session cookie. Pass them to a `Request`, and `requireAuth()` accepts it. Auth creates the user when no user has this email, and other fields, such as `role`, go to the new user. It sends no email and calls no provider.
+
+```ts
+import { requireAuth } from "@vite-hub/auth/server";
+import { signIn } from "@vite-hub/auth/test";
+
+const { headers } = await signIn({ email: "ada@example.com", role: "admin" });
+const { user } = await requireAuth(new Request("http://localhost/api/me", { headers }));
+```
+
+Apps that install `vite-hub` call `hub.signIn()` from `setupViteHubTest()`. In a test, the default memory database of a Definition without `database` is emptied by `reset()`. A Definition with the `stateless()` preset has no database, so `signIn()` fails with `AUTH_TEST_SIGN_IN_STATELESS`.
 
 ## Production checks
 
