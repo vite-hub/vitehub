@@ -7,6 +7,7 @@ import { transform } from "esbuild"
 import { Diagnostic } from "nostics"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
+import { NonRetryableError as ViteHubNonRetryableError } from "../src/errors.ts"
 import { writeProviderEntries } from "../src/internal/vite-build.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 import type { WorkflowDefinitionRegistry, WorkflowProviderStep } from "../src/types.ts"
@@ -19,7 +20,7 @@ beforeAll(async () => {
   const baseDir = new URL("../.vitest-tmp/", import.meta.url)
   await mkdir(baseDir, { recursive: true })
   rootDir = await mkdtemp(join(baseDir.pathname, "cloudflare-errors-"))
-  const artifacts = await writeProviderEntries(rootDir, { provider: "cloudflare" })
+  const artifacts = await writeProviderEntries(rootDir, { driver: "cloudflare" })
   generatedSource = await readFile(artifacts.cloudflareWorkerFile, "utf8")
   // The VM below has no ESM loader, so dynamic imports become require calls.
   generatedCode = (await transform(generatedSource, { format: "cjs", supported: { "dynamic-import": false } })).code
@@ -142,6 +143,19 @@ describe("generated Cloudflare Workflow errors", () => {
       expect(caught).toHaveBeenCalledExactlyOnceWith(converted)
       if (boundary === "explicit step") expect(step.do).toHaveBeenCalledWith("validate", stepOptions, expect.any(Function))
     }
+  })
+
+  it.each(boundaries)("turns a ViteHub NonRetryableError into the Cloudflare one at the %s boundary", async (boundary) => {
+    const original = new ViteHubNonRetryableError("card declined", { cause: new Error("issuer said no") })
+    const { constructions, NonRetryableError, run } = loadGeneratedDispatcher(createRegistry(boundary, original))
+    const { step } = createStep()
+    const converted = await run(step).catch((error: unknown) => error)
+
+    expect(converted).toBeInstanceOf(NonRetryableError)
+    if (!(converted instanceof NonRetryableError)) throw new Error("Expected a native non-retryable error")
+    expect(converted).toMatchObject({ message: "card declined", name: "NonRetryableError" })
+    expect(converted.cause).toBe(original)
+    expect(constructions).toHaveBeenCalledExactlyOnceWith("card declined", "NonRetryableError")
   })
 
   it.each(boundaries)("passes retryable errors through the %s boundary", async (boundary) => {

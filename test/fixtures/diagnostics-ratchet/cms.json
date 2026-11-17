@@ -1,0 +1,7 @@
+{
+  "rawErrors": {
+    "packages/cms/src/build.ts": 1
+  },
+  "codesWithoutFix": [],
+  "invariants": {}
+}

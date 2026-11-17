@@ -4,6 +4,7 @@ import { computed, defineComponent, effectScope, getCurrentInstance, getCurrentS
 import { checkAbility } from "./ability-check.ts"
 import { AbilityError } from "./ability-error.ts"
 import { resolveAuthMountPath } from "./application-path.ts"
+import { authNuxtBridge as bridge } from "./nuxt-bridge.ts"
 
 import type { BetterAuthClientOptions, SessionQueryParams } from "better-auth"
 import type { inferAdditionalFields } from "better-auth/client/plugins"
@@ -11,17 +12,18 @@ import type { createAuthClient as createBetterAuthClient, BetterFetchError, VueA
 import type { ComputedRef, DeepReadonly, EffectScope, InjectionKey, Ref, VNode } from "vue"
 import type { AbilityArgs, AbilityName, AbilityRefusal } from "./abilities.ts"
 import type { AbilityCheckRefusal } from "./ability-check.ts"
-import type { AbilityErrorData } from "./ability-error.ts"
 import type { AuthDefinition, AuthFor } from "./types.ts"
+import type { AuthNuxtApp } from "./nuxt-bridge.ts"
 
 export type { VueAuthClient } from "better-auth/vue"
+export type { RequestFetch } from "./nuxt-bridge.ts"
+export { setDefaultAuthBasePath, setNuxtAppResolver, setNuxtErrorFactory, setRequestFetchResolver, setSessionSeedResolver, setSignOutHandler } from "./nuxt-bridge.ts"
 
 const LOAD = Symbol.for("vitehub.auth.client.load")
 const ON_LOAD = Symbol.for("vitehub.auth.client.on-load")
 const OPTIONS = Symbol.for("vitehub.auth.client.options")
 
 type Callable = (...args: unknown[]) => unknown
-type NuxtApp = { runWithContext<T>(run: () => T): T, isHydrating?: boolean, $vitehubAuthClient?: AuthClientLike }
 type SessionQuery = { query?: SessionQueryParams }
 type SessionState = { data: unknown, error: unknown, isPending: boolean, isRefetching: boolean, refetch: (query?: SessionQuery) => Promise<unknown> }
 
@@ -39,71 +41,9 @@ type AuthClientLike = Pick<VueAuthClient<{}>, "$fetch" | "getSession"> & {
   useSession: () => unknown
 }
 
-/** What `authorize()` passes to Nuxt's `createError()`: the refusal, as the server sends it, and `fatal`. */
-type NuxtErrorInput = { status: number, statusText: string, message: string, data: AbilityErrorData, fatal: true }
+type NuxtApp = AuthNuxtApp
 
-/** The fetch of one server request, which Better Auth's client uses for the calls of that request. */
-export interface RequestFetch {
-  /** The same object for every call of one request, such as the Nuxt app of the request. */
-  request: object
-  /** The origin of the request. On the server, Better Auth's client needs an absolute URL. */
-  origin: string
-  /** Calls the app in-process with the headers of the request, such as the cookie. */
-  fetch: typeof fetch
-}
-
-let nuxtAppResolver: (() => NuxtApp | undefined) | undefined
-let nuxtErrorFactory: ((input: NuxtErrorInput) => Error) | undefined
-let sessionSeedResolver: ((read: boolean) => unknown) | undefined
-let signOutHandler: ((redirectTo: string | undefined) => unknown) | undefined
-let defaultBasePath: string | undefined
-let requestFetchResolver: (() => RequestFetch | undefined) | undefined
 const signOutListeners = new Set<() => unknown>()
-
-/** Internal bridge installed by the Nuxt module, without making `#app` a dependency of this entry. */
-export function setNuxtAppResolver(resolver: (() => NuxtApp | undefined) | undefined): void {
-  nuxtAppResolver = resolver
-}
-
-/** Internal bridge installed by the Nuxt module: Nuxt's `createError()`, so a refusal of `authorize()` shows the error page. */
-export function setNuxtErrorFactory(factory: ((input: NuxtErrorInput) => Error) | undefined): void {
-  nuxtErrorFactory = factory
-}
-
-/**
- * Internal bridge installed by the Nuxt module in the browser. `signOut()` of `useUserSession()` calls it after a
- * sign-out. It forgets the session that the server read, and opens `redirectTo`, or the login page when the page on
- * screen is only for signed-in visitors.
- */
-export function setSignOutHandler(handler: ((redirectTo: string | undefined) => unknown) | undefined): void {
-  signOutHandler = handler
-}
-
-/**
- * Internal bridge installed by the Nuxt module: the path of Better Auth for the default `authClient`, such as
- * `/app/auth` for `defineAuth({ basePath: '/auth' })` below Nuxt `app.baseURL` `/app/`. The client reads it when it
- * loads Better Auth. Without it, the client uses `/api/auth` below the base path of the build.
- */
-export function setDefaultAuthBasePath(path: string | undefined): void {
-  defaultBasePath = path
-}
-
-/**
- * Internal bridge installed by the Nuxt module. The resolver returns the session that the server read for this
- * request, `null` when the request had none, or `undefined` when nobody knows yet, such as on a prerendered page.
- * With `read` on the server, it reads the session if the request did not read it yet, and can return a promise of it.
- */
-export function setSessionSeedResolver(resolver: ((read: boolean) => unknown) | undefined): void {
-  sessionSeedResolver = resolver
-}
-
-/**
- * Internal bridge installed by the Nuxt module. On the server, the resolver returns the fetch of the current request, or
- * `undefined` outside a request.
- */
-export function setRequestFetchResolver(resolver: (() => RequestFetch | undefined) | undefined): void {
-  requestFetchResolver = resolver
-}
 
 /** The state of a client hook, such as `useSession()`, before Better Auth's client has loaded. */
 const pendingState = <Refetch>(refetch: Refetch) => ({ data: null, error: null, isPending: true, isRefetching: false, refetch })
@@ -128,7 +68,7 @@ export const createAuthClient: typeof createBetterAuthClient = <Option extends B
  */
 function withDefaultBasePath<Option extends BetterAuthClientOptions>(options: Option | undefined): Option {
   // SAFETY: `basePath` is a Better Auth client option, so adding it changes no type of the client.
-  return { basePath: defaultBasePath ?? resolveAuthMountPath("/api/auth"), ...options } as Option
+  return { basePath: bridge.defaultBasePath ?? resolveAuthMountPath("/api/auth"), ...options } as Option
 }
 
 /**
@@ -163,7 +103,7 @@ function createLazyAuthClient<Option extends BetterAuthClientOptions>(resolveOpt
    * because only the caller's frame knows the request.
    */
   function loadForCall(): Promise<VueAuthClient<Option>> {
-    const request = "window" in globalThis ? undefined : requestFetchResolver?.()
+    const request = "window" in globalThis ? undefined : bridge.requestFetchResolver?.()
     if (!request) return load()
     let client = requestClients.get(request.request)
     if (!client) {
@@ -185,7 +125,7 @@ function createLazyAuthClient<Option extends BetterAuthClientOptions>(resolveOpt
     // One session state per app, which every caller shares. See `sessionStore()`.
     if (name === "useSession" && typeof args[0] !== "function") return sessionStore(client).state
     const scope = getCurrentScope()
-    const nuxtApp = nuxtAppResolver?.() || getCurrentInstance()?.appContext.config.globalProperties.$nuxt as NuxtApp | undefined
+    const nuxtApp = bridge.nuxtAppResolver?.() || getCurrentInstance()?.appContext.config.globalProperties.$nuxt as NuxtApp | undefined
     // SAFETY: `name` is one of the client's `use*` hooks.
     const real = (client: VueAuthClient<Option>) => (Reflect.get(client, name) as Callable)(...args)
     // Better Auth's `useSession(useFetch)` for Nuxt answers with a promise, so it can wait for the load too.
@@ -277,7 +217,7 @@ const stores = new WeakMap<object, WeakMap<object, SessionStore>>()
  */
 function sessionStore(client: object): SessionStore {
   const browser = "window" in globalThis
-  const app = browser ? undefined : nuxtAppResolver?.()
+  const app = browser ? undefined : bridge.nuxtAppResolver?.()
   const instance = getCurrentInstance()
   // On the server, only a component can make the render wait, so only a component starts the session read.
   const read = !browser && Boolean(instance)
@@ -325,7 +265,7 @@ function createSessionStore(client: object, app: NuxtApp | undefined, initialRea
   /** Settles the state with the server's session. A promise of it, such as a read still in flight, is the read. */
   function seed(read: boolean): void {
     if (seeded) return
-    const value = sessionSeedResolver?.(read)
+    const value = bridge.sessionSeedResolver?.(read)
     if (value === undefined) return
     seeded = true
     if (!(value instanceof Promise)) {
@@ -421,7 +361,7 @@ function createSessionStore(client: object, app: NuxtApp | undefined, initialRea
       // The server never loads Better Auth's client. It has the session that it read for the request, or nothing.
       if (!state.value.isPending) return state.value.data
       const started = generation
-      const session: unknown = await (app ? app.runWithContext(() => sessionSeedResolver?.(true)) : sessionSeedResolver?.(true))
+      const session: unknown = await (app ? app.runWithContext(() => bridge.sessionSeedResolver?.(true)) : bridge.sessionSeedResolver?.(true))
       if (started !== generation) return state.value.data
       if (session === undefined) return null
       state.value = settled(session)
@@ -650,7 +590,7 @@ export function provideAuthClient(client: AuthClientLike): void {
 export function useAuthClient(): typeof authClient {
   const instance = getCurrentInstance()
   const client = instance ? inject(authClientKey, undefined) : undefined
-  const nuxtApp = nuxtAppResolver?.() || instance?.appContext.config.globalProperties.$nuxt as NuxtApp | undefined
+  const nuxtApp = bridge.nuxtAppResolver?.() || instance?.appContext.config.globalProperties.$nuxt as NuxtApp | undefined
   // SAFETY: the configured client uses the app's Auth Definition, which supplies `RegisteredAuthClient`'s types.
   return (client ?? nuxtApp?.$vitehubAuthClient ?? authClient) as typeof authClient
 }
@@ -831,7 +771,7 @@ async function signOut(client: AuthClientLike, store: SessionStore, options: { r
     }
   }
   // Nuxt opens the next page with `navigateTo()`. Plain Vue knows no router, so it loads `redirectTo`.
-  if (signOutHandler) await signOutHandler(redirectTo)
+  if (bridge.signOutHandler) await bridge.signOutHandler(redirectTo)
   else if (redirectTo) location?.assign(redirectTo)
   return result
 }
@@ -873,7 +813,7 @@ function abilityRefusal(state: AbilitySessionState, name: string, args: unknown[
  */
 async function authorizedUser(client: Pick<typeof authClient, "getSession">, state: Readonly<Ref<AbilitySessionState>>): Promise<object | null> {
   const known = !state.value.isPending
-  if (!("window" in globalThis) || (known && nuxtAppResolver?.()?.isHydrating)) return state.value.data?.user ?? null
+  if (!("window" in globalThis) || (known && bridge.nuxtAppResolver?.()?.isHydrating)) return state.value.data?.user ?? null
   const { data } = await client.getSession()
   return data?.user ?? null
 }
@@ -905,7 +845,7 @@ export function useAbility(client: AuthClientLike = useAuthClient()): Ability {
       const refusal = checkAbility(abilities, await authorizedUser(client, state), name, args)
       if (!refusal) return
       const error = new AbilityError(refusal)
-      throw nuxtErrorFactory ? nuxtErrorFactory({ ...error.toJSON(), fatal: true }) : error
+      throw bridge.nuxtErrorFactory ? bridge.nuxtErrorFactory({ ...error.toJSON(), fatal: true }) : error
     },
     ready: computed(() => !state.value.isPending),
   }

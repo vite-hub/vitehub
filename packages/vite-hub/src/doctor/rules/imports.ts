@@ -64,7 +64,7 @@ const serverOnlyModules = new Set([
   "env", "env/bridge", "env/database", "env/seal",
   "forge", "gateways", "kv", "markdown-template/file", "queue", "rate-limit",
   "sandbox", "sandbox/ssh", "sandbox/task",
-  "schedule", "schedule/runtime", "schedule/runtime/kv", "schedule/runtime/process",
+  "schedule", "schedule/os", "schedule/runtime", "schedule/runtime/kv", "schedule/runtime/process",
   "sync", "sync/database", "sync/operations", "sync/runtime",
   "workflow", "workspace", "workspace/runtime",
 ])

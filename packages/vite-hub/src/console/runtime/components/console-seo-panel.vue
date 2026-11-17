@@ -6,6 +6,7 @@ import { describeConsoleSchemaFields } from "../client/schema-form";
 import { useConsoleMediaPicker } from "../client/media";
 import ConsolePropertyRow from "./console-property-row.vue";
 import ConsoleSchemaField from "./console-schema-field.vue";
+import Icon from "./console-icon.vue";
 
 import type { ConsoleSeoFallbacks, ConsoleSeoHint } from "../client/documents";
 
@@ -243,7 +244,7 @@ const placeholderRows = computed(() => {
                 @error="imageFailed = true"
               >
               <div v-else class="absolute inset-0 flex flex-col items-center justify-center gap-1 text-dimmed">
-                <UIcon name="i-lucide-image" class="size-5" aria-hidden="true" />
+                <Icon name="i-lucide-image" class="size-5" aria-hidden="true" />
                 <span class="text-xs">{{ imageUrl ? "Image not served" : "No image" }}</span>
               </div>
             </div>

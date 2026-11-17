@@ -19,7 +19,7 @@ export default defineNuxtConfig({
     blob: {
       stores: {
         default: { driver: 'fs' },
-        reports: { driver: 'vercel-blob', access: 'private' },
+        reports: { driver: 'vercel', access: 'private' },
       },
     },
   },
@@ -39,7 +39,7 @@ export default defineConfig({
       blob: {
         stores: {
           default: { driver: 'fs' },
-          reports: { driver: 'vercel-blob', access: 'private' },
+          reports: { driver: 'vercel', access: 'private' },
         },
       },
     }),
@@ -60,7 +60,7 @@ export default defineConfig({
       blob: {
         stores: {
           default: { driver: 'fs' },
-          reports: { driver: 'vercel-blob', access: 'private' },
+          reports: { driver: 'vercel', access: 'private' },
         },
       },
     }),
@@ -127,7 +127,7 @@ export default defineConfig({
 Writes from `vite dev` then change real data. On first use, the dev server prints `Blob store "default" is remote`, and `vitehub inspect definitions --kind blob` shows `Development: Remote`.
 ::
 
-`remote` changes only `vite dev`. Builds ignore it. A store with an explicit `driver` uses that driver in `vite dev`, with or without `remote`, because you selected it. On a `cloudflare-r2` store, `remote: true` makes `vite dev` use the real bucket through the R2 API and the HTTP credentials, not the local binding. In `blob.stores`, set `remote` on each named store. A value that is not a boolean fails with `BLOB_C0017`. `remote: true` on a store that uses the local `fs` driver fails with `BLOB_C0018`.
+`remote` changes only `vite dev`. Builds ignore it. A store with an explicit `driver` uses that driver in `vite dev`, with or without `remote`, because you selected it. On a `cloudflare` store, `remote: true` makes `vite dev` use the real bucket through the R2 API and the HTTP credentials, not the local binding. In `blob.stores`, set `remote` on each named store. A value that is not a boolean fails with `BLOB_C0017`. `remote: true` on a store that uses the local `fs` driver fails with `BLOB_C0018`.
 
 ### Protect served objects
 
@@ -176,7 +176,7 @@ export default defineConfig({
 :::
 ::
 
-To decide each request yourself, export `authorize` from `server/blob.ts`. It gets `{ request, session, user }` and returns `true`, `false`, or a `Response`.
+To decide each request yourself, export `authorize` from `server/blob.ts`. It gets `{ event, request, session, user }` and returns `true`, `false`, or a `Response`. `event` is the H3 event of the serve route, so the callback can pass it to your own server functions, such as a lookup that caches on `event.context`.
 
 ```ts [server/blob.ts]
 import type { BlobServeAuthorize } from 'vite-hub/blob'
@@ -454,6 +454,7 @@ export default defineConfig({
 | `binding` | `string` | Cloudflare Images binding name. Defaults to `IMAGES`. |
 | `sizes` | `number[]` | Widths and heights that variants snap to. Defaults to 16 through 3840. |
 | `quality` | `number` | Default quality for lossy formats, 1 to 100. Defaults to 75. |
+| `maxPixels` | `number` | Largest source that `photon` decodes, in pixels. Defaults to 4,000,000. Only with `transformer: 'photon'`. See [Photon on Workers and Node](/docs/blob/media#photon-on-workers-and-node). |
 
 Set `images: false` to always serve originals. `images` applies to every store.
 
@@ -573,13 +574,13 @@ The value must be in exactly one env variable at build time. When two variables 
 | `base` | `string` | `BLOB_FS_BASE` or `.vitehub/data/blob` | Storage folder. |
 | `urlBaseUrl` | `string` | None | Origin of the links that `blob.sign()` returns, such as `https://app.example`. Add the base URL of the app when it has one, such as `https://app.example/app`. Without it, the links start with `/_vitehub/blob/signed/`. |
 
-Use filesystem storage on one machine with one process. On a serverless host, it is not durable or shared. [Signed links](/docs/blob/server-api#signed-links-of-fs-stores) need `VITEHUB_SECRET`. They work on several instances only when the instances read the same folder and have the same secret.
+Use filesystem storage on one machine with one process. Each object is the file at its pathname in the folder. Like S3 and R2, the store can hold both `docs` and `docs/a.txt`. On a serverless host, it is not durable or shared. [Signed links](/docs/blob/server-api#signed-links-of-fs-stores) need `VITEHUB_SECRET`. They work on several instances only when the instances read the same folder and have the same secret.
 
 ### Cloudflare R2
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `driver` | `'cloudflare-r2'` | Required | Cloudflare R2. |
+| `driver` | `'cloudflare'` | Required | Cloudflare R2. |
 | `binding` | `string` | `BLOB` | Runtime R2 binding name. |
 | `bucketName` | `string` | R2 or Blob bucket env | Bucket for the generated R2 binding and HTTP fallback. |
 | `jurisdiction` | `'eu' \| 'fedramp' \| 'us'` | `R2_JURISDICTION` or `CLOUDFLARE_R2_JURISDICTION` env | Bucket [R2 jurisdiction](/docs/blob/hosts#jurisdictional-buckets) for the binding, provisioning, and the S3 API host. |
@@ -595,7 +596,7 @@ The runtime binding takes precedence. HTTP credentials are used when no active b
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `driver` | `'vercel-blob'` | Required | Vercel Blob. |
+| `driver` | `'vercel'` | Required | Vercel Blob. |
 | `access` | `'private' \| 'public'` | `'public'` when `serve: { access: 'public' }` serves the store, else `'private'` | Provider access of every object in the store. A public object has a public Vercel Blob URL. `'public'` on a store that `serve: { authorize: true }` serves fails with `BLOB_C0022`. |
 | `allowOverwrite` | `boolean` | `true` | Allows writes to replace an existing pathname. |
 | `downloadTimeoutMs` | `number` | Provider default | Download timeout in milliseconds. |

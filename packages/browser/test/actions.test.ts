@@ -8,7 +8,7 @@ import {
 
 import type { BrowserAvailability } from "../src/types.ts"
 
-const runtimeConfig = vi.hoisted(() => ({ binding: "BROWSER", engine: "chromium", provider: "cloudflare" as string | undefined }))
+const runtimeConfig = vi.hoisted(() => ({ binding: "BROWSER", driver: "cloudflare" as string | undefined, engine: "chromium" }))
 const availability = vi.hoisted(() => ({ current: { available: true } as BrowserAvailability }))
 vi.mock("#vitehub/browser/runtime", () => ({ default: runtimeConfig, loadCloudflarePlaywright: undefined }))
 vi.mock("#vitehub/browser/availability", () => ({
@@ -21,13 +21,13 @@ const runtime = globalThis as typeof globalThis & { __env__?: Record<string, unk
 
 afterEach(() => {
   delete runtime.__env__
-  runtimeConfig.provider = "cloudflare"
+  runtimeConfig.driver = "cloudflare"
   availability.current = { available: true }
 })
 
 describe("Browser Run actions", () => {
   it("rejects actions when Browser is not configured", async () => {
-    runtimeConfig.provider = undefined
+    runtimeConfig.driver = undefined
     const response = await runBrowserAction("content", "https://example.com")
     expect(response.status).toBe(500)
   })
@@ -112,7 +112,11 @@ describe("Browser Run actions", () => {
     const response = new Response(new ReadableStream({ cancel, start() {} }), { status: 500 })
     runtime.__env__ = { BROWSER: { quickAction: vi.fn(async () => response) } }
 
-    await expect(runBrowserContent("https://example.com")).rejects.toThrow("Browser content request failed with status 500")
+    await expect(runBrowserContent("https://example.com")).rejects.toMatchObject({
+      code: "BROWSER_CONTENT_FAILED",
+      fix: expect.stringContaining("runBrowserAction(\"content\", input)"),
+      message: "Browser content request failed with status 500",
+    })
     expect(cancel).toHaveBeenCalledOnce()
   })
 

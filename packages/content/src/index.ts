@@ -1,6 +1,6 @@
-import { formatDiagnostic } from "nostics"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
+import { warnDiagnostic } from "./diagnostic-log.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { buildArtifact, contentHub } from "comark-content"
 import comarkUi from "comark-ui/html"
@@ -43,6 +43,7 @@ import { contentSearchSections } from "./search-sections.ts"
 import { contentRssChannel, contentRssItems, contentRssLimit, renderContentRss } from "./rss.ts"
 import { contentLlmsFile } from "./llms.ts"
 import { contentReadDenied, contentReadGated, contentReadResponse } from "./read-gate.ts"
+import { contentRouteLogger, withContentRouteErrors } from "./route-errors.ts"
 import type { ContentHandlerOptions, ContentReadAccess } from "./read-gate.ts"
 import type { ContentLlmsOptions } from "./llms.ts"
 import type {
@@ -83,7 +84,7 @@ import type {
   ContentUnscheduleOptions,
 } from "./schedules.ts"
 import type { ContentPageMarkdown, ContentPageSummary, ContentPagesOptions } from "./mcp.ts"
-import type { ContentRoutedPage, ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
+import type { ContentDocumentCopyRenderer, ContentRoutedPage, ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
 import type { ContentCollectionsRuntime, ContentHistorySource } from "./collections-types.ts"
 import type { ContentSessions } from "./sessions.ts"
 export { contentSource } from "./content-source.ts"
@@ -119,7 +120,7 @@ export type { ContentHistoryEntry, ContentHistoryOptions, ContentHistoryResult }
 export type { ContentSourceHead, ContentSourceHeadDiagnostic, ContentSourceHeads, ContentSourceView, ContentSourceWebhookDelivery } from "./source-heads.ts"
 export { contentGitHubWebhookRoute, defineContentGitHubWebhookHandler } from "./github-webhook.ts"
 export { defineContentPreviewRoutesPlugin, parseContentPreviewPath, rewriteContentLinks } from "./ref-routes.ts"
-export type { ContentPreviewLink, ContentPreviewLinkAccess, ContentPreviewLinks, ContentPreviewLinksOptions, ContentPreviewPath, ContentPreviewRouteKind, ContentPreviewRoutesHost, ContentPreviewRoutesHostLoader, ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
+export type { ContentPreviewAppConfig, ContentPreviewLink, ContentPreviewLinkAccess, ContentPreviewLinks, ContentPreviewLinksOptions, ContentPreviewPath, ContentPreviewRouteKind, ContentPreviewRoutesHost, ContentPreviewRoutesHostLoader, ContentPreviewRoutesPluginOptions, ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
 export type { ContentSourcePull, ContentSourceRef, ContentSourceRefKind } from "./source-refs.ts"
 export type { ContentSourceAccess, ContentSourceAllowReason, ContentSourceDenyReason } from "./source-access.ts"
 export { defineContentPreset } from "./presets.ts"
@@ -166,9 +167,10 @@ export type { ContentRssChannel, ContentRssItem } from "./rss.ts"
 export { renderContentLlms, renderContentLlmsFull, renderContentSitemapMarkdown } from "./llms.ts"
 export type { ContentLlmsFile, ContentLlmsLink, ContentLlmsOptions, ContentLlmsSection, ContentSitemapMarkdownPage } from "./llms.ts"
 export { acceptsMarkdown, defineContentMarkdownHandler, renderContentMarkdownNotFound } from "./markdown-negotiation.ts"
-export type { ContentMarkdownErrorLink, ContentMarkdownRuntime, ContentMiddleware } from "./markdown-negotiation.ts"
+export type { ContentMarkdownErrorLink, ContentMarkdownHandlerOptions, ContentMarkdownRuntime, ContentMiddleware } from "./markdown-negotiation.ts"
 export type {
   ContentCollectionDefinition,
+  ContentDocumentMarkdownPage,
   ContentDocumentUrl,
   ContentEditingOptions,
   ContentField,
@@ -178,6 +180,7 @@ export type {
   ContentFieldsOutput,
   ContentFormat,
   ContentLabel,
+  ContentMarkdownCopy,
   DocumentComponent,
   DocumentComponentMediaProp,
   DocumentComponentProp,
@@ -546,6 +549,7 @@ export function defineContent<
   const replaced = new Set(customPlugins.filter(Boolean).map(plugin => plugin.name))
   const presetPlugins = preset === false ? [] : comarkUi(contentMarkdownPreset).plugins.filter(plugin => !replaced.has(plugin.name))
   sharedOptions.markdown = { ...markdownOptions, plugins: [...presetPlugins, ...customPlugins] }
+  sharedOptions.logger = contentRouteLogger(sharedOptions.logger)
   const seo = normalizeSeoOptions(seoOptions)
   const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)
   const workspace = options.workspace ?? presetDefaults.workspace
@@ -695,7 +699,7 @@ export function defineContent<
     instances.push(instance)
     collectionInstances.push({ instance, source: historySource })
   }
-  const hub = contentHub(instances, { basePath: "/api/content", logger: options.logger })
+  const hub = contentHub(instances, { basePath: "/api/content", logger: sharedOptions.logger })
   const readScope = createContentReadScope(hub.names, hub.basePath)
 
   // A preview request reads a second hub whose collection instances are pinned to `draft` with their own cache namespace.
@@ -750,7 +754,7 @@ export function defineContent<
     if (!byBase) viewHubs.set(view, byBase = new WeakMap())
     let composed = byBase.get(base)
     if (!composed) {
-      composed = contentHub(base.instances.map(instance => instance.name === view.name ? view : instance), { basePath: "/api/content", logger: options.logger })
+      composed = contentHub(base.instances.map(instance => instance.name === view.name ? view : instance), { basePath: "/api/content", logger: sharedOptions.logger })
       byBase.set(base, composed)
     }
     return composed
@@ -832,6 +836,18 @@ export function defineContent<
     return String(content) === content ? content : null
   }
   /**
+   * The Markdown copy of a collection page: from the `markdown` option of its definition, else the default copy.
+   * `footer` adds the end that only the `.md` copy has.
+   */
+  const documentCopy: ContentDocumentCopyRenderer = async (page, footer) => {
+    const render = collectionEntries.find(([name]) => name === page.collection)?.[1].markdown
+    if (!render) return await renderMarkdownCopy(page, page.site)
+    const { collection: _collection, ...input } = page
+    const copy = await render(input)
+    if (copy === null || typeof copy === "string") return copy
+    return footer && copy.footer ? `${copy.markdown}${copy.footer}` : copy.markdown
+  }
+  /**
    * The Markdown copy of a routed page, from its published collection document or its Source file. A Source with
    * `contentSource(input, { markdown })` renders its own copy. `footer` adds the end that only the `.md` copy has.
    */
@@ -852,7 +868,18 @@ export function defineContent<
     if (!documentsRuntime) return null
     const collection = documentsRuntime.collection(page.collection)
     const document = await collection.get(page.id, { ref: "published", ...(page.locale === undefined ? {} : { locale: page.locale }) })
-    return document ? await renderMarkdownCopy({ title: page.title, description: page.description, body: document.body }, site) : null
+    if (!document) return null
+    return await documentCopy({
+      collection: page.collection,
+      id: document.id,
+      path: contentPagePath(page.loc, site),
+      ...document.locale === undefined ? {} : { locale: document.locale },
+      data: document.data,
+      body: document.body,
+      ...page.title ? { title: page.title } : {},
+      ...page.description ? { description: page.description } : {},
+      ...site ? { site } : {},
+    }, footer)
   }
   /**
    * The routed Markdown pages that `content.pages()` lists. `all` adds the pages that indexes leave out, `noindex` ones
@@ -921,14 +948,18 @@ export function defineContent<
     markdown: async (path: string, markdownOptions?: ContentSitemapOptions) => {
       const site = siteFor(markdownOptions)
       const prefix = markdownPrefix(seo)
-      const copy = documentsRuntime ? await contentMarkdownCopy(documentsRuntime, prefix && path.startsWith(`${prefix}/`) ? path.slice(prefix.length) : path, site) : null
+      const copy = documentsRuntime ? await contentMarkdownCopy(documentsRuntime, prefix && path.startsWith(`${prefix}/`) ? path.slice(prefix.length) : path, site, documentCopy) : null
       if (copy !== null) return copy
       const page = await sourceCopyPage(path, site)
       return page ? await pageMarkdown(page, site, true) : null
     },
     hasMarkdown: async (path: string) => {
       const prefix = markdownPrefix(seo)
-      if (documentsRuntime && await contentMarkdownCopyExists(documentsRuntime, prefix && path.startsWith(`${prefix}/`) ? path.slice(prefix.length) : path)) return true
+      const copyPath = prefix && path.startsWith(`${prefix}/`) ? path.slice(prefix.length) : path
+      if (documentsRuntime && await contentMarkdownCopyExists(documentsRuntime, copyPath, async (collection) => {
+        if (!collectionEntries.find(([name]) => name === collection)?.[1].markdown) return true
+        return await contentMarkdownCopy(documentsRuntime, copyPath, configuredSite, documentCopy) !== null
+      })) return true
       return await sourceCopyPage(path, configuredSite) !== undefined
     },
     llms: async (llmsOptions: ContentLlmsOptions = {}) => {
@@ -1077,7 +1108,7 @@ export function defineContent<
       return links.length ? { ...result, previews: links } : result
     }
     catch (error) {
-      console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0076({ pull: pull.number, reason: error instanceof Error ? error.message : String(error) })))
+      warnDiagnostic(contentErrorDiagnostics.CONTENT_R0076({ pull: pull.number, reason: error instanceof Error ? error.message : String(error), cause: error }))
       return result
     }
   }
@@ -1099,7 +1130,7 @@ export function defineContent<
         view = await heads.api.at(`pr/${pull}`, name)
       }
       catch (error) {
-        if (Reflect.get(Object(error), "code") === "CONTENT_R0028") throw missing("GitHub has no such pull request")
+        if (contentErrorDiagnostics.CONTENT_R0028.is(error)) throw missing("GitHub has no such pull request")
         throw error
       }
       // An anonymous request: what a reader of the pull request gets without a cookie or a link token.
@@ -1143,7 +1174,7 @@ export function defineContent<
         const key = `${name}:${parsed.ref}`
         if (!reportedDenials.has(key) && reportedDenials.size < 100) {
           reportedDenials.add(key)
-          console.warn(formatDiagnostic(access.error))
+          warnDiagnostic(access.error)
         }
         return await next(request)
       }
@@ -1208,7 +1239,7 @@ export function defineContent<
     // SAFETY: The wrapper forwards the path and options without changing the generic document result.
     get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts), readScope.key, rewriteContentLinks) as ContentHub["get"],
     navigation: fresh((target, names?: Parameters<ContentHub["navigation"]>[0]) => target.navigation(names), readScope.names),
-    handler: fresh((target, request: Request) => target.handler(request), readScope.request, rewriteJsonLinks),
+    handler: fresh((target, request: Request) => withContentRouteErrors(() => target.handler(request)), readScope.request, rewriteJsonLinks),
     // SAFETY: The wrapper forwards the names unchanged, so Comark's registry types of the result hold.
     list: fresh((target, names?: string | readonly string[]) => target.list(names === undefined ? undefined : [names].flat()), readScope.names) as ContentRuntimeList,
     searchSections: fresh(async (target, names?: string | readonly string[], opts?: ContentSearchSectionsOptions) => {

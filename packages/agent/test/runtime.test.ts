@@ -194,7 +194,7 @@ describe("agent message protocol", () => {
     const { defineWorkspace } = await import("@vite-hub/workspace")
     const { registerWorkspace } = await import("@vite-hub/workspace/test")
     const workspaceName = `dynamic-access-${Math.random().toString(36).slice(2)}`
-    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "memory" } }))
+    registerWorkspace(workspaceName, defineWorkspace({ store: { driver: "memory" } }))
     const workspaceAgent = defineAgent({
       capabilities: () => [
         access({
@@ -2117,7 +2117,7 @@ describe("agent message protocol", () => {
       runtime: false,
       workspace: {
         mode: "write",
-        store: { provider: "memory" },
+        store: { driver: "memory" },
       },
       driver: { async run(context) {
           // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -3584,7 +3584,7 @@ describe("agent message protocol", () => {
           await (workspace as WritableWorkspaceFacade).fs.writeFile("screenshots/result.png", content, { mediaType: "image/png" })
           return "ok"
         } },
-      workspace: { mode: "write", store: { provider: "memory" } },
+      workspace: { mode: "write", store: { driver: "memory" } },
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -6365,7 +6365,7 @@ describe("agent message protocol", () => {
     inactiveFinishEffect.active = () => false
     registerWorkspace(workspaceName, defineWorkspace({
       commit: true,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }))
     const agent = defineAgent({
       capabilities: [
@@ -6411,7 +6411,7 @@ describe("agent message protocol", () => {
       workspace: {
         commit,
         mode: "write",
-        store: { provider: "memory" },
+        store: { driver: "memory" },
       },
       driver: { async run({ workspace }) {
           // SAFETY: This test fixture intentionally constructs the exact writable Workspace contract.
@@ -6444,7 +6444,7 @@ describe("agent message protocol", () => {
     const workspaceName = `failed-auto-commit-${Math.random().toString(36).slice(2)}`
     registerWorkspace(workspaceName, defineWorkspace({
       commit: true,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }))
     const agent = defineAgent({
       driver: { async run({ workspace }) {
@@ -12720,7 +12720,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       const agent = defineAgent({
@@ -12744,11 +12744,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("support-agent", run.id)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("received hello")
+      expect(completedRun.result).toEqual("received hello")
       await expect(invocations.getByRunId(run.id, "support-agent")).resolves.toMatchObject({ status: "completed" })
       const record = await invocations.getByRunId(run.id, "support-agent")
       expect(record?.observations.every(observation => observation.trace?.id === record.traceId)).toBe(true)
@@ -12765,7 +12763,7 @@ describe("agent message protocol", () => {
         driver: { run: () => "unreachable" },
         invocations,
       })
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       setWorkflowRuntimeRegistry({
         "broken-agent": async () => ({ handler: async () => { throw new Error("worker startup failed") } }),
       })
@@ -12800,7 +12798,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
         }) as never,
@@ -12854,7 +12852,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
         }) as never,
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -12935,7 +12933,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
         }) as never,
         workflow: () => import("@vite-hub/workflow"),
@@ -12977,7 +12975,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
         }) as never,
@@ -13039,7 +13037,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
           registerInlineWorkflowDefinition: vi.fn(),
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
@@ -13095,7 +13093,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "cloudflare" }),
           getWorkflowRuntimeRegistry: () => undefined,
           registerInlineWorkflowDefinition: vi.fn(),
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
@@ -13176,7 +13174,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "cloudflare" }),
           getWorkflowRuntimeRegistry: () => undefined,
           registerInlineWorkflowDefinition: () => { throw new Error("recovery registration failed") },
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
@@ -13215,7 +13213,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "cloudflare" }),
           getWorkflowRuntimeRegistry: () => undefined,
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
         }) as never,
@@ -13264,7 +13262,7 @@ describe("agent message protocol", () => {
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
           getWorkflowRuntimeEvent: () => undefined,
-          getWorkflowRuntimeConfig: () => ({ provider: "cloudflare" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "cloudflare" }),
           getWorkflowRuntimeRegistry: () => undefined,
           registerInlineWorkflowDefinition: vi.fn(),
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
@@ -13330,7 +13328,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
           registerInlineWorkflowDefinition: vi.fn(),
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
@@ -13382,7 +13380,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
           registerInlineWorkflowDefinition: vi.fn(),
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
@@ -13430,7 +13428,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
           registerInlineWorkflowDefinition: vi.fn(),
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
@@ -13495,7 +13493,7 @@ describe("agent message protocol", () => {
         driver: { run: () => "unreachable" },
         invocations,
       })
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       setWorkflowRuntimeRegistry({
         "broken-controlled-agent": async () => ({ handler: async () => { throw new Error("worker startup failed") } }),
       })
@@ -13530,7 +13528,7 @@ describe("agent message protocol", () => {
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         state: async () => ({
           getInlineWorkflowDefinitions: () => new Map(),
-          getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }),
+          getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" }),
           getWorkflowRuntimeRegistry: () => undefined,
           registerInlineWorkflowDefinition: vi.fn(),
           runWithWorkflowRuntimeEvent: (_event: unknown, callback: () => unknown) => callback(),
@@ -13615,7 +13613,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         driver: { run: context => Boolean(context.input.abortSignal) },
@@ -13634,11 +13632,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("support-agent-abort-signal", run.id)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.json()).resolves.toEqual(false)
+      expect(completedRun.result).toEqual(false)
     })
 
     it("delivers durable failure fallbacks with completed write tool results", async () => {
@@ -14791,7 +14787,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         driver: { run: () => ({
@@ -14811,9 +14807,7 @@ describe("agent message protocol", () => {
 
       await Promise.all(waitUntilTasks)
       const completed = await getWorkflowRun("portable-result", run.id)
-      expect(completed.result).toBeInstanceOf(Response)
-      if (!(completed.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      const result = await completed.result.json()
+      const { result } = completed
       expect({ ...completed, result }).toMatchObject({
         result: {
           text: "portable text",
@@ -14906,7 +14900,7 @@ describe("agent message protocol", () => {
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       const getWorkflowRun = vi.fn(async () => ({
         id: "target-run",
-        metadata: new Error("worker startup failed"),
+        error: { message: "worker startup failed" },
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         provider: "cloudflare" as const,
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -14936,12 +14930,12 @@ describe("agent message protocol", () => {
             },
           },
           provider: "cloudflare",
-          step: { sleep },
+          sleep,
         }, runInline)
 
         expect(runInline).not.toHaveBeenCalled()
         expect(sleep).toHaveBeenCalledTimes(61)
-        expect(sleep).toHaveBeenLastCalledWith("agent-invocation-recovery-61", "1 minute")
+        expect(sleep).toHaveBeenLastCalledWith("1 minute")
         await expect(invocations.getByRunId("source-run", "broken-agent")).resolves.toMatchObject({
           error: { message: "worker startup failed" },
           status: "failed",
@@ -15072,7 +15066,7 @@ describe("agent message protocol", () => {
             workflowName: "recovering-agent",
           } },
           provider: "cloudflare",
-          step: { sleep },
+          sleep,
         }, vi.fn())
 
         await vi.waitFor(async () => {
@@ -15232,7 +15226,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         driver: { run: () => ({
@@ -15262,7 +15256,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({ driver: { run: () => ({ createdAt: new Date(0) }) } })
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -15493,7 +15487,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         driver: { run: () => new Response("portable response", {
@@ -15518,11 +15512,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("portable-response", run.id)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.json()).resolves.toMatchObject({
+      expect(completedRun.result).toMatchObject({
         raw: {
           body: { data: "cG9ydGFibGUgcmVzcG9uc2U=", encoding: "base64", mediaType: "Text/Plain" },
           headers: [
@@ -15544,7 +15536,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         driver: { run: () => new Response(new Uint8Array([0xff, 0x00, 0x80]), {
@@ -15561,9 +15553,7 @@ describe("agent message protocol", () => {
 
       await Promise.all(waitUntilTasks)
       const completed = await getWorkflowRun("portable-binary-response", run.id)
-      expect(completed.result).toBeInstanceOf(Response)
-      if (!(completed.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      const result = await completed.result.json()
+      const { result } = completed
       expect({ ...completed, result }).toMatchObject({
         result: {
           raw: {
@@ -15583,7 +15573,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({ driver: { run: context => ({
         method: context.request?.method,
@@ -15605,11 +15595,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("request-url", run.id)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.json()).resolves.toMatchObject({
+      expect(completedRun.result).toMatchObject({
         method: "GET",
         tenant: null,
         url: "https://calories.example/messages?source=telegram",
@@ -15622,7 +15610,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         driver: { run: context => context.messages[0]?.parts },
@@ -15668,11 +15656,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("portable-attachments", run.id)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.json()).resolves.toEqual([
+      expect(completedRun.result).toEqual([
         { data: "data:image/jpeg;base64,AQID", mediaType: "image/jpeg", type: "image" },
         { data: "data:audio/mpeg;base64,BAUG", mediaType: "audio/mpeg", type: "audio" },
         { data: "data:application/pdf;base64,BwgJ", mediaType: "application/pdf", type: "file" },
@@ -15686,7 +15672,7 @@ describe("agent message protocol", () => {
       const { defineAgent } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       const agent = defineAgent({ driver: { run: () => "unused" } })
 
       await expect(runAgentWithContext(agent, {
@@ -15707,7 +15693,7 @@ describe("agent message protocol", () => {
       const { defineAgent } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       const agent = defineAgent({ driver: { run: () => "unused" } })
       await expect(runAgentWithContext(agent, {
         agentIdentity: { name: "portable-message-parts" },
@@ -15743,7 +15729,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       try {
         const agent = defineAgent({
@@ -15768,11 +15754,9 @@ describe("agent message protocol", () => {
         await Promise.all(waitUntilTasks)
         const completedRun = await getWorkflowRun("portable-storage", run.id)
         expect(completedRun).toMatchObject({
-          result: expect.any(Response),
           status: "completed",
         })
-        if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-        await expect(completedRun.result.json()).resolves.toMatchObject({
+        expect(completedRun.result).toMatchObject({
           blobs: { blobs: [{ pathname: "workflow/input.jpg" }] },
           schema: { database: "default", schema: { meals: true } },
         })
@@ -15816,7 +15800,7 @@ describe("agent message protocol", () => {
       }))
       const consolePrimitive = { resolve }
       setAgentWorkflowCapabilityLoaders({ console: () => consolePrimitive })
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       try {
         const agent = defineAgent({
@@ -15851,11 +15835,9 @@ describe("agent message protocol", () => {
         await Promise.all(waitUntilTasks)
         const completedRun = await getWorkflowRun("portable-console", run.id)
         expect(completedRun).toMatchObject({
-          result: expect.any(Response),
           status: "completed",
         })
-        if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-        await expect(completedRun.result.text()).resolves.toEqual("https://example.test/linked-invocation")
+        expect(completedRun.result).toEqual("https://example.test/linked-invocation")
         expect(resolve).toHaveBeenCalledWith(expect.objectContaining({
           request: expect.objectContaining({ url: "https://example.test/portal/api/agent" }),
         }))
@@ -15874,7 +15856,7 @@ describe("agent message protocol", () => {
       const loadConsole = vi.fn(() => ({ resolve: vi.fn() }))
       const waitUntilTasks: Array<Promise<unknown>> = []
       setAgentWorkflowCapabilityLoaders({ console: loadConsole })
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       try {
         const run = await runAgentWithContext(defineAgent({
@@ -15889,11 +15871,9 @@ describe("agent message protocol", () => {
         await Promise.all(waitUntilTasks)
         const completedRun = await getWorkflowRun("capability-boundary", run.id)
         expect(completedRun).toMatchObject({
-          result: expect.any(Response),
           status: "completed",
         })
-        if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-        await expect(completedRun.result.json()).resolves.toEqual([])
+        expect(completedRun.result).toEqual([])
         expect(loadConsole).not.toHaveBeenCalled()
       } finally {
         setAgentWorkflowCapabilityLoaders({})
@@ -15952,7 +15932,7 @@ describe("agent message protocol", () => {
         runEvents: defineAgentRunEvents({ store: resolveStore }),
         runtime: agentWorkflow("summary-run-events"),
       })
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const run = await runAgentWithContext(agent, {
@@ -15965,11 +15945,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("summary-run-events", run.id)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("done")
+      expect(completedRun.result).toEqual("done")
       expect(resolveStore).toHaveBeenCalledTimes(2)
       expect(innerRunId).toBe(run.id)
       expect(published).toEqual([
@@ -16025,7 +16003,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       setWorkflowRuntimeRegistry({
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         support: async () => ({ handler: async (_payload, context) => `registry:${(context.payload as { input?: { prompt?: string } }).input?.prompt}` }),
@@ -16041,9 +16019,7 @@ describe("agent message protocol", () => {
 
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("support", run.id)
-      expect(completedRun).toMatchObject({ result: expect.any(Response)})
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("registry:hello")
+      expect(completedRun.result).toEqual("registry:hello")
     })
 
     it("does not reuse discovered registry entries for explicit Agent workflows", async () => {
@@ -16051,7 +16027,7 @@ describe("agent message protocol", () => {
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       setWorkflowRuntimeRegistry({
         "explicit-registry-collision": async () => ({ handler: async () => "registry" }),
       })
@@ -16072,7 +16048,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       setWorkflowRuntimeRegistry({
         "named-discovered": async () => ({
           handler: async (_payload, context) => ({ marker: "registry", payload: context.payload }),
@@ -16093,11 +16069,7 @@ describe("agent message protocol", () => {
 
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("named-discovered", run.id)
-      expect(completedRun).toMatchObject({
-        result: expect.any(Response),
-      })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.json()).resolves.toMatchObject({
+      expect(completedRun.result).toMatchObject({
         marker: "registry",
         payload: { capabilities: { blob: false } },
       })
@@ -16110,7 +16082,7 @@ describe("agent message protocol", () => {
       const { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
       const agent = defineAgent({ runtime: agentWorkflow("cache-boundary"), driver: { run: () => "inline" } })
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       setWorkflowRuntimeRegistry({ "cache-boundary": async () => ({ handler: async () => "registry" }) })
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -16122,9 +16094,7 @@ describe("agent message protocol", () => {
       }, {}) as { id: string }
       await Promise.all(waitUntilTasks.splice(0))
       const completedRun1 = await getWorkflowRun("cache-boundary", discoveredRun.id)
-      expect(completedRun1).toMatchObject({ result: expect.any(Response)})
-      if (!(completedRun1.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun1.result.text()).resolves.toEqual("registry")
+      expect(completedRun1.result).toEqual("registry")
 
       setWorkflowRuntimeRegistry(undefined)
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -16135,9 +16105,7 @@ describe("agent message protocol", () => {
       }, {}) as { id: string }
       await Promise.all(waitUntilTasks)
       const completedRun2 = await getWorkflowRun("cache-boundary", directRun.id)
-      expect(completedRun2).toMatchObject({ result: expect.any(Response)})
-      if (!(completedRun2.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun2.result.text()).resolves.toEqual("inline")
+      expect(completedRun2.result).toEqual("inline")
     })
 
     it("keeps manually composed child Agents inline with inherited parent identity", async () => {
@@ -16176,7 +16144,7 @@ describe("agent message protocol", () => {
       const { defineAgent } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       const child = defineAgent({ driver: { run: () => "child" } })
       const parent = defineAgent({
         runtime: false,
@@ -16210,7 +16178,7 @@ describe("agent message protocol", () => {
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const run = await runAgentWithContext(defineAgent({ driver: { run: context => Object.keys(context.capabilities || {}) } }), {
         agentIdentity: { name: "generated-capabilities" },
@@ -16230,7 +16198,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const run = await runAgentWithContext(defineAgent({
@@ -16268,7 +16236,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         runtime: agentWorkflow(),
@@ -16286,11 +16254,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("browser", run.id)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("received hello")
+      expect(completedRun.result).toEqual("received hello")
     })
 
     it("keeps one discovered Agent Definition isolated across host identities", async () => {
@@ -16300,7 +16266,7 @@ describe("agent message protocol", () => {
       const { resolveRegisteredWorkspaceDefinition } = await import("@vite-hub/workspace")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         runtime: agentWorkflow(),
@@ -16328,18 +16294,14 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun1 = await getWorkflowRun(docsIdentity.name, docsRun.id)
       expect(completedRun1).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun1.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun1.result.json()).resolves.toEqual(docsIdentity)
+      expect(completedRun1.result).toEqual(docsIdentity)
       const completedRun2 = await getWorkflowRun(supportIdentity.name, supportRun.id)
       expect(completedRun2).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun2.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun2.result.json()).resolves.toEqual(supportIdentity)
+      expect(completedRun2.result).toEqual(supportIdentity)
       await expect(resolveRegisteredWorkspaceDefinition(docsIdentity.workspace)).resolves.toMatchObject({ name: docsIdentity.workspace })
       await expect(resolveRegisteredWorkspaceDefinition(supportIdentity.workspace)).resolves.toMatchObject({ name: supportIdentity.workspace })
       expect(agent.runtime).toBe(originalRuntime)
@@ -16351,7 +16313,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
       const hostIdentity = { name: "identity-host-fallback" }
       const bindingAgent = defineAgent({
         name: "identity-definition-shadowed",
@@ -16391,17 +16353,11 @@ describe("agent message protocol", () => {
       }, {}) as { id: string }
       await Promise.all(waitUntilTasks)
       const completedRun1 = await getWorkflowRun("identity-binding-wins", bindingRun.id)
-      expect(completedRun1).toMatchObject({ result: expect.any(Response)})
-      if (!(completedRun1.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun1.result.json()).resolves.toEqual(hostIdentity)
+      expect(completedRun1.result).toEqual(hostIdentity)
       const completedRun2 = await getWorkflowRun("identity-definition-wins", definitionRun.id)
-      expect(completedRun2).toMatchObject({ result: expect.any(Response)})
-      if (!(completedRun2.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun2.result.json()).resolves.toEqual(hostIdentity)
+      expect(completedRun2.result).toEqual(hostIdentity)
       const completedRun3 = await getWorkflowRun(hostIdentity.name, hostRun.id)
-      expect(completedRun3).toMatchObject({ result: expect.any(Response)})
-      if (!(completedRun3.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun3.result.json()).resolves.toEqual(hostIdentity)
+      expect(completedRun3.result).toEqual(hostIdentity)
     })
 
     it("resolves workspace names from explicit configuration before host identity", async () => {
@@ -16445,7 +16401,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         name: "reviewer",
@@ -16463,18 +16419,16 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("reviewer", run.id)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("received hello")
+      expect(completedRun.result).toEqual("received hello")
     })
 
     it("requires direct unnamed workflow runtime bindings to provide a name", async () => {
       const { defineAgent, agentWorkflow } = await import("../src/index.ts")
       const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         runtime: agentWorkflow(),
@@ -16495,7 +16449,7 @@ describe("agent message protocol", () => {
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
       let runtimeConfig: unknown
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const agent = {
@@ -16521,11 +16475,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun1 = await getWorkflowRun("configured-agent", run.id)
       expect(completedRun1).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun1.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun1.result.json()).resolves.toMatchObject({ text: "configured" })
+      expect(completedRun1.result).toMatchObject({ text: "configured" })
       expect(runtimeConfig).toEqual({ region: "iad" })
     })
 
@@ -16536,7 +16488,7 @@ describe("agent message protocol", () => {
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
       let runtimeConfig: unknown
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const agent = {
@@ -16562,11 +16514,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun2 = await getWorkflowRun("falsey-configured-agent", run.id)
       expect(completedRun2).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun2.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun2.result.json()).resolves.toMatchObject({ text: "configured" })
+      expect(completedRun2.result).toMatchObject({ text: "configured" })
       expect(runtimeConfig).toBe(configuredRuntime)
     })
 
@@ -16576,7 +16526,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const run = (context: { prompt?: string }) => `received ${context.prompt}`
       const firstAgent = defineAgent({
@@ -16608,18 +16558,14 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun1 = await getWorkflowRun("support-agent", first.id)
       expect(completedRun1).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun1.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun1.result.text()).resolves.toEqual("received first")
+      expect(completedRun1.result).toEqual("received first")
       const completedRun2 = await getWorkflowRun("support-agent", second.id)
       expect(completedRun2).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun2.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun2.result.text()).resolves.toEqual("received second")
+      expect(completedRun2.result).toEqual("received second")
     })
 
     it("uses trigger run ids as workflow run ids", async () => {
@@ -16627,7 +16573,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "vercel" })
+      setWorkflowRuntimeConfig({ driver: "vercel" })
 
       const agent = defineAgent({
         capabilities: [{
@@ -16659,11 +16605,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("portal-agent", "portal:run")
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("received hello")
+      expect(completedRun.result).toEqual("received hello")
     })
 
     it("maps invalid trigger run ids to deterministic Workflow ids", async () => {
@@ -16673,7 +16617,7 @@ describe("agent message protocol", () => {
       const waitUntilTasks: Array<Promise<unknown>> = []
       const workflowRunId = "vitehub-invalid-3f69a017b830c1f1fff0bccb6bee512d714787164444d45f1a92c14b11a3ff37"
       let consumerRunId = "telegram:42:103"
-      setWorkflowRuntimeConfig({ provider: "cloudflare" })
+      setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
       const agent = defineAgent({
         capabilities: [{
@@ -16701,11 +16645,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("telegram-agent", workflowRunId)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual(workflowRunId)
+      expect(completedRun.result).toEqual(workflowRunId)
 
       consumerRunId = workflowRunId
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -16724,7 +16666,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "cloudflare" })
+      setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
       const agent = defineAgent({
         runtime: agentWorkflow("explicit-cloudflare-env-agent"),
@@ -16741,11 +16683,9 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       const completedRun = await getWorkflowRun("explicit-cloudflare-env-agent", run.id)
       expect(completedRun).toMatchObject({
-        result: expect.any(Response),
         status: "completed",
       })
-      if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-      await expect(completedRun.result.text()).resolves.toEqual("explicit.nuxt.com")
+      expect(completedRun.result).toEqual("explicit.nuxt.com")
     })
 
     it("passes the active Cloudflare env through workflow inline fallback", async () => {
@@ -16755,7 +16695,7 @@ describe("agent message protocol", () => {
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
-      setWorkflowRuntimeConfig({ provider: "cloudflare" })
+      setWorkflowRuntimeConfig({ driver: "cloudflare" })
 
       const agent = defineAgent({
         runtime: agentWorkflow("cloudflare-agent"),
@@ -16776,11 +16716,9 @@ describe("agent message protocol", () => {
         await Promise.all(waitUntilTasks)
         const completedRun = await getWorkflowRun("cloudflare-agent", run.id)
         expect(completedRun).toMatchObject({
-          result: expect.any(Response),
           status: "completed",
         })
-        if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
-        await expect(completedRun.result.text()).resolves.toEqual("nuxt.com")
+        expect(completedRun.result).toEqual("nuxt.com")
       })
     })
   })

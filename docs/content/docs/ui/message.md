@@ -13,16 +13,16 @@ icon: i-lucide-message-square-text
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `vite-hub/ui`:
 
 ```ts
-import { Message, MessageAvatar, MessageContent, MessageFooter, MessageGroup, MessageHeader } from "@vite-hub/ui";
+import { Message, MessageAvatar, MessageContent, MessageFooter, MessageGroup, MessageHeader } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```ts
-import { Bubble, BubbleContent, Message, MessageAvatar, MessageContent } from "@vite-hub/ui";
+import { Bubble, BubbleContent, Message, MessageAvatar, MessageContent } from "vite-hub/ui";
 ```
 
 ```vue
@@ -67,7 +67,7 @@ MessageGroup
 - An avatar at the bottom of the message. With a footer, the avatar moves up to stay next to the content.
 - Header and footer for sender names, status, and actions.
 - The footer follows the message side, so actions stay aligned on `align="end"` rows.
-- Default styles sit in the `components` layer of `@vite-hub/ui/styles.css`, so a utility class such as `class="max-w-lg"` overrides them.
+- Default styles sit in the `components` layer of `vite-hub/ui/styles.css`, so a utility class such as `class="max-w-lg"` overrides them.
 
 ## Avatar
 

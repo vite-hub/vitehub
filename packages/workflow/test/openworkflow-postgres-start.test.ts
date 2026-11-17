@@ -36,7 +36,7 @@ const app = {
   captureError: error => errors.push(String(error.cause?.message ?? error.message)),
   hooks: { hook: (_name, callback) => close.push(callback) },
 }
-setWorkflowRuntimeConfig({ postgres: { schema: process.env.SCHEMA, url: process.env.DATABASE_URL }, provider: "openworkflow" })
+setWorkflowRuntimeConfig({ postgres: { schema: process.env.SCHEMA, url: process.env.DATABASE_URL }, driver: "openworkflow" })
 setWorkflowRuntimeRegistry({ ping: async () => ({ default: { handler: async () => "pong" } }) })
 // Start every server at the same moment, after its modules load.
 await new Promise(resolve => setTimeout(resolve, Number(process.env.START_AT) - Date.now()))

@@ -8,7 +8,7 @@ import type { WorkspaceRules } from "../src/core/types.ts"
 
 describe("workspace rules", () => {
   it("keeps ordinary direct Workspace braces compatible in memory stores", async () => {
-    const workspace = createWorkspace({ name: "docs", store: { provider: "memory" } })
+    const workspace = createWorkspace({ name: "docs", store: { driver: "memory" } })
     await workspace.writeFile("docs/readme.md", "readme")
     await workspace.writeFile("docs/guide.mdx", "guide")
 
@@ -116,7 +116,7 @@ describe("workspace rules", () => {
           write: true,
         },
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
 
     await workspace.writeFile("script.sh", "echo ok\n", { metadata: { gitMode: "120000" } })
@@ -136,14 +136,14 @@ describe("workspace rules", () => {
         },
       }
       expect(() => defineWorkspace({ rules })).toThrow(expect.objectContaining({ code: "WORKSPACE_R0075" }))
-      expect(() => createWorkspace({ name: "secrets", rules, store: { provider: "memory" } }))
+      expect(() => createWorkspace({ name: "secrets", rules, store: { driver: "memory" } }))
         .toThrow("Workspace rule \"secrets/**\" sets read. Workspace rules do not limit reads.")
-      expect(() => createWorkspace({ name: "plugin-secrets", plugins: [{ id: "guard", rules }], store: { provider: "memory" } }))
+      expect(() => createWorkspace({ name: "plugin-secrets", plugins: [{ id: "guard", rules }], store: { driver: "memory" } }))
         .toThrow(expect.objectContaining({ code: "WORKSPACE_R0075" }))
     })
 
     it("rejects a read rule from a plugin registered after the Workspace exists", async () => {
-      const workspace = createWorkspace({ name: "late-plugin", store: { provider: "memory" } })
+      const workspace = createWorkspace({ name: "late-plugin", store: { driver: "memory" } })
       await workspace.writeFile("secrets/key.txt", "CONFIDENTIAL")
       const rules: WorkspaceRules = {
         "secrets/**": {
@@ -163,7 +163,7 @@ describe("workspace rules", () => {
       const workspace = createWorkspace({
         name: "locked",
         rules: { "**": { write: false }, "docs/**": { maxBytes: 100 } },
-        store: { provider: "memory" },
+        store: { driver: "memory" },
       })
 
       await expect(workspace.writeFile("docs/page.md", "page")).rejects.toThrow("Workspace rule \"**\" does not allow writeFile")
@@ -174,7 +174,7 @@ describe("workspace rules", () => {
       const workspace = createWorkspace({
         name: "carve-out",
         rules: { "**": { maxBytes: 4, write: false }, "docs/**": { write: true } },
-        store: { provider: "memory" },
+        store: { driver: "memory" },
       })
 
       await expect(workspace.writeFile("docs/page.md", "page")).resolves.toBe("docs/page.md")
@@ -186,7 +186,7 @@ describe("workspace rules", () => {
       const workspace = createWorkspace({
         name: "validators",
         rules: { "**": { validate: () => false }, "docs/**": { write: true } },
-        store: { provider: "memory" },
+        store: { driver: "memory" },
       })
 
       await expect(workspace.writeFile("docs/page.md", "page")).rejects.toThrow("validator rejected")
@@ -198,7 +198,7 @@ describe("workspace rules", () => {
         name: "plugin-merge",
         plugins: [{ id: "guard", rules: { "secrets/**": { write: false }, "posts/**": { validate } } }],
         rules: { "secrets/**": { maxBytes: 100 }, "posts/**": { maxBytes: 100 } },
-        store: { provider: "memory" },
+        store: { driver: "memory" },
       })
 
       await expect(workspace.writeFile("secrets/token.txt", "x")).rejects.toThrow("does not allow writeFile")
@@ -210,7 +210,7 @@ describe("workspace rules", () => {
       const workspace = createWorkspace({
         name: "media",
         rules: { "**": { mediaType: "text/markdown" } },
-        store: { provider: "memory" },
+        store: { driver: "memory" },
       })
 
       await expect(workspace.writeFile("page.html", "<script>alert(1)</script>")).rejects.toThrow("does not allow media type text/html: page.html")

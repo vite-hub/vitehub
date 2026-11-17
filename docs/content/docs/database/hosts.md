@@ -12,7 +12,7 @@ icon: i-lucide-cloud-cog
 | --- | --- | --- |
 | Local SQLite | `connection.url` or no connection config | Default for local development and generated Drizzle files. |
 | Hosted libSQL (for example Turso) | `connection.url` and optional `connection.authToken` | Keep secret URLs and tokens in Server Env. |
-| Cloudflare D1 | `cloudflare` Definition options or top-level `database.driver: 'd1'` | Uses a D1 binding on Cloudflare. Local development uses D1 only with `remote: true` or `cloudflare.http`. Vercel uses D1 only with `cloudflare.http`. |
+| Cloudflare D1 | `cloudflare` Definition options or top-level `database.driver: 'cloudflare'` | Uses a D1 binding on Cloudflare. Local development uses D1 only with `remote: true` or `cloudflare.http`. Vercel uses D1 only with `cloudflare.http`. |
 | Postgres (for example Neon) | `dialect: 'postgresql'` with `connection.url` and optional `cloudflare.hyperdriveId` | Uses a Hyperdrive binding on Cloudflare and `connection.url` elsewhere. See [Use Postgres](#use-postgres). |
 
 ### Use the real D1 database in development
@@ -104,7 +104,7 @@ export default defineDatabase({
 })
 ```
 
-In Nuxt, or for every Definition that uses the top-level resource, set it at the top level: `database: { driver: 'd1', readReplication: true }`.
+In Nuxt, or for every Definition that uses the top-level resource, set it at the top level: `database: { driver: 'cloudflare', readReplication: true }`.
 
 ViteHub then opens one D1 session per request, with the [Sessions API](https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession):
 
@@ -117,7 +117,7 @@ With the cookie, a client's next read sees its own writes. Other clients can rea
 
 All queries of one request use the same session. Work outside a request, such as a Schedule or a Queue consumer, uses the primary database.
 
-`vitehub provision run --provider cloudflare` turns on replication for D1 databases that set `readReplication`. When it is off, the plan shows `update  cloudflare-d1  <name>  read replication: disabled -> auto`. A database that already replicates shows `exists` and is not changed. Provision never turns replication off. For a database that ViteHub does not provision, turn it on in the Cloudflare dashboard, or call `PATCH /accounts/<account_id>/d1/database/<database_id>` with `{ "read_replication": { "mode": "auto" } }`. Without replication on the database, every session uses the primary.
+`vitehub provision run --host cloudflare` turns on replication for D1 databases that set `readReplication`. When it is off, the plan shows `update  cloudflare-d1  <name>  read replication: disabled -> auto`. A database that already replicates shows `exists` and is not changed. Provision never turns replication off. For a database that ViteHub does not provision, turn it on in the Cloudflare dashboard, or call `PATCH /accounts/<account_id>/d1/database/<database_id>` with `{ "read_replication": { "mode": "auto" } }`. Without replication on the database, every session uses the primary.
 
 `vitehub inspect definitions --kind database` shows `Read replication` for each database that uses it. D1 over HTTP, libSQL, and local SQLite ignore the option.
 
@@ -130,7 +130,7 @@ A Postgres Definition uses [postgres.js](https://github.com/porsager/postgres) t
 3. Outside a Cloudflare request with an empty URL, postgres.js reads `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`.
 4. In development and app tests, with none of these, [PGlite](/docs/database/configure#run-postgres-locally-with-pglite). Production output has no PGlite.
 
-Use the PG* variables on Node and container hosts that give separate credentials, not a URL. Workers ignore them, and Vercel still needs `connection.url`.
+Use the PG* variables on Node, Vercel, and container hosts that give separate credentials, not a URL. Workers ignore them.
 
 A Worker cannot use a socket from one request in another. So inside a Cloudflare request, ViteHub creates one client and reuses it for all queries of that request. Hyperdrive keeps the pool of origin connections, so a new client per request is cheap. Each client opens at most 5 connections, inside the Workers connection limit. On Node, Vercel, and local development, one client pool serves the process.
 
@@ -258,7 +258,7 @@ export default defineNuxtConfig({
   vitehub: {
     host: 'cloudflare',
     database: {
-      driver: 'd1',
+      driver: 'cloudflare',
       databaseName: 'app-content',
     },
   },
@@ -277,7 +277,7 @@ export default defineConfig({
     vitehub({
       host: 'cloudflare',
       database: {
-        driver: 'd1',
+        driver: 'cloudflare',
         databaseName: 'app-content',
       },
     }),
@@ -297,7 +297,7 @@ export default defineConfig({
     vitehub({
       host: 'cloudflare',
       database: {
-        driver: 'd1',
+        driver: 'cloudflare',
         databaseName: 'app-content',
       },
     }),
@@ -307,7 +307,7 @@ export default defineConfig({
 :::
 ::
 
-Run `vitehub provision run --provider cloudflare` to write the D1 id to `.vitehub/provision.json`. A Cloudflare production build fails before deployment when it finds no id in provision state, `database.databaseId`, or a complete matching Nitro Wrangler binding.
+Run `vitehub provision run --host cloudflare` to write the D1 id to `.vitehub/provision.json`. A Cloudflare production build fails before deployment when it finds no id in provision state, `database.databaseId`, or a complete matching Nitro Wrangler binding.
 
 ::note
 In Nuxt, `vitehub.database` declares one D1 Database Host Resource. It keeps Nuxt Content and Cloudflare `wrangler.d1_databases` in sync. Discovered Database Definitions still own the Drizzle Runtime Surface. For Cloudflare and Vercel builds, `vite-hub/nuxt` writes the hosted runtime, schema modules, and Definition defaults before Nitro resolves their imports. Explicit Nitro aliases take precedence.

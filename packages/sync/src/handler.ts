@@ -644,8 +644,10 @@ function httpStatus(error: unknown): number | undefined {
 }
 
 /** What `refuse()` of an action throws. Its message is meant for the caller. */
-// Internal invariant: `refuse()` throws it, and `actionRefusal()` in this module catches it as SYNC_ACTION_REFUSED.
-class ActionRefusal extends Error {}
+// `refuse()` throws this local control value; `actionRefusal()` turns it into a diagnostic for the caller.
+class ActionRefusal {
+  constructor(readonly message: string) {}
+}
 
 /**
  * The refusal for an error that an action threw. `refuse()` gives its message. A ViteHub Diagnostic, an HTTP error below 500, and a schema error

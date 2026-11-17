@@ -1,6 +1,7 @@
 import { parseMarkdown } from "comark/parse"
 import type { ComarkPlugin } from "comark"
 import type { LeaseStore } from "@vite-hub/runtime"
+import { escapeXml, renderRobots, renderSitemap, sitemapUrlLimit } from "@vite-hub/internal/sitemap"
 
 import { contentDocumentUrl } from "./documents.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
@@ -8,7 +9,7 @@ import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import type { AnyContentCollection } from "./collections-types.ts"
 import { titleCase } from "./title-case.ts"
 import type { ContentCollectionsRuntime } from "./collections-runtime.ts"
-import type { ContentDocumentUrl } from "./documents.ts"
+import type { ContentDocumentMarkdownPage, ContentDocumentUrl } from "./documents.ts"
 import type { ContentMcpOptions } from "./mcp.ts"
 import type { ContentSourceSeo } from "./content-source.ts"
 import type { ContentLlmsSection } from "./llms.ts"
@@ -27,7 +28,8 @@ export interface DefineContentSeoOptions {
   /**
    * Serve each published Markdown document with a URL as Markdown at that URL plus `.md`, such as `/blog/hello.md`
    * for `/blog/hello` and `/index.md` for `/`, so agents can read it and readers can paste it into a chat. `prefix`
-   * also serves each copy below a folder, such as `/raw/blog/hello.md`, and the llms files link there.
+   * also serves each copy below a folder, such as `/raw/blog/hello.md`, and the llms files link there. `pages: true`
+   * also converts each other app page from its HTML.
    */
   markdown?: boolean | ContentMarkdownOptions
   /**
@@ -68,6 +70,11 @@ export interface ContentRssOptions {
 export interface ContentMarkdownOptions {
   /** A folder that also serves each copy, such as `/raw` for `/raw/blog/hello.md`. The llms files link there. */
   prefix?: string
+  /**
+   * Also serve a copy of each app page that is not a Content document: the HTML that the app renders for the same
+   * request, converted to Markdown. Content documents keep their exact copy. Default `false`.
+   */
+  pages?: boolean
 }
 
 /** `defineContent({ seo: { llms } })`. */
@@ -106,7 +113,7 @@ export interface ContentSitemapOptions {
 }
 
 /** One sitemap file holds at most this many URLs. */
-export const contentSitemapLimit = 50_000
+export const contentSitemapLimit: number = sitemapUrlLimit
 
 export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions | undefined {
   if (options === undefined) return
@@ -127,10 +134,12 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
   }
   if (sitemap !== undefined && sitemap !== true && sitemap !== false) throw invalid("sitemap must be true or false.")
   if (markdown !== undefined && markdown !== true && markdown !== false) {
-    const shape = "markdown must be true, false, or { prefix: '/raw' }."
+    const shape = "markdown must be true, false, or { prefix: '/raw', pages: true }."
     if (markdown === null || Object(markdown) !== markdown || Array.isArray(markdown)) throw invalid(shape)
     const prefix: unknown = Reflect.get(markdown, "prefix")
     if (prefix !== undefined && (String(prefix) !== prefix || !/^\/[^/?#\s]+(?:\/[^/?#\s]+)*$/.test(prefix))) throw invalid(`${shape} The prefix starts with / and does not end with one.`)
+    const pages: unknown = Reflect.get(markdown, "pages")
+    if (pages !== undefined && pages !== true && pages !== false) throw invalid(`${shape} pages must be true or false.`)
   }
   if (dateLeases !== undefined && (dateLeases === null || typeof dateLeases !== "object" || typeof Reflect.get(dateLeases, "acquire") !== "function" || typeof Reflect.get(dateLeases, "get") !== "function")) {
     throw invalid("dateLeases must be an atomic LeaseStore with acquire() and get().")
@@ -303,21 +312,16 @@ export function contentSitemapEntries(pages: readonly ContentRoutedPage[], dates
   })
 }
 
-export function escapeXml(value: string): string {
-  return value.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&apos;" })[character]!)
-}
+export { escapeXml }
 
 /** Render sitemap entries as a sitemaps.org `urlset` document. */
 export function renderContentSitemap(entries: readonly ContentSitemapEntry[]): string {
-  const urls = entries.map(entry => `  <url>\n    <loc>${escapeXml(entry.loc)}</loc>${entry.lastmod ? `\n    <lastmod>${escapeXml(entry.lastmod)}</lastmod>` : ""}\n  </url>`)
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join("\n")}${urls.length ? "\n" : ""}</urlset>\n`
+  return renderSitemap(entries)
 }
 
 /** robots.txt that allows every crawler, keeps `disallow` paths out, and names the sitemap when there is one. */
 export function renderContentRobots(options: { site?: string, sitemap?: boolean, disallow?: readonly string[] }): string {
-  const lines = ["User-agent: *", ...(options.disallow?.length ? options.disallow.map(path => `Disallow: ${path}`) : ["Allow: /"])]
-  if (options.sitemap) lines.push("", `Sitemap: ${absolute("/sitemap.xml", options.site)}`)
-  return `${lines.join("\n")}\n`
+  return renderRobots({ ...options.sitemap ? { sitemap: absolute("/sitemap.xml", options.site) } : {}, ...options.disallow ? { disallow: options.disallow } : {} })
 }
 
 /**
@@ -400,7 +404,7 @@ async function routedMarkdown(collections: Iterable<AnyContentCollection>, page:
  * The Markdown copy of the published document that a path plus `.md` names, or null. It starts with the document's
  * title, unless the body has its own, and its description as a quote.
  */
-export async function contentMarkdownCopy(runtime: Pick<ContentCollectionsRuntime, "collection" | "collections" | "resolve">, path: string, site: string | undefined): Promise<string | null> {
+export async function contentMarkdownCopy(runtime: Pick<ContentCollectionsRuntime, "collection" | "collections" | "resolve">, path: string, site: string | undefined, render: ContentDocumentCopyRenderer = defaultDocumentCopy): Promise<string | null> {
   const page = contentMarkdownCopyPage(path)
   if (page === undefined) return null
   let resolved = await runtime.resolve(page, { ref: "published" })
@@ -414,20 +418,30 @@ export async function contentMarkdownCopy(runtime: Pick<ContentCollectionsRuntim
   const seo: unknown = collection.seo ? document.data[collection.seo] : undefined
   const title = stringField(seo, "title") ?? stringField(document.data, collection.titleField)
   const description = stringField(seo, "description") ?? stringField(document.data, "description")
-  return await renderMarkdownCopy({ title, description, body: document.body }, site)
+  return await render({ collection: collection.name, id: document.id, path: String(document.url) === document.url ? document.url : page, ...document.locale === undefined ? {} : { locale: document.locale }, data: document.data, body: document.body, ...title ? { title } : {}, ...description ? { description } : {}, ...site ? { site } : {} }, true)
 }
 
+/** A published document with a page, as the Markdown copy of its page renders it. */
+export type ContentDocumentCopyPage = ContentDocumentMarkdownPage & { collection: string }
+
+/** Render the Markdown copy of a document page. `footer` adds the end that only the `.md` copy has. */
+export type ContentDocumentCopyRenderer = (page: ContentDocumentCopyPage, footer: boolean) => Promise<string | null>
+
+const defaultDocumentCopy: ContentDocumentCopyRenderer = async page => await renderMarkdownCopy(page, page.site)
+
 /**
- * Whether the published document that a path plus `.md` names has a Markdown copy, without reading its body. A path
- * that `resolve()` misses checks the singletons only: every other document with a URL is in its index.
+ * Whether the published document that a path plus `.md` names has a Markdown copy. `available` checks custom
+ * renderers; otherwise this does not read the body. A path that `resolve()` misses checks the singletons only:
+ * every other document with a URL is in its index.
  */
-export async function contentMarkdownCopyExists(runtime: Pick<ContentCollectionsRuntime, "collection" | "collections" | "resolve">, path: string): Promise<boolean> {
+export async function contentMarkdownCopyExists(runtime: Pick<ContentCollectionsRuntime, "collection" | "collections" | "resolve">, path: string, available?: (collection: string) => Promise<boolean>): Promise<boolean> {
   const page = contentMarkdownCopyPage(path)
   if (page === undefined) return false
   const resolved = await runtime.resolve(page, { ref: "published" })
   const collection = resolved ? runtime.collection(resolved.collection) : undefined
-  if (collection?.routable && collection.format === "markdown") return true
-  return await routedMarkdown(runtime.collections.values(), page, !resolved) !== null
+  if (collection?.routable && collection.format === "markdown") return available ? await available(collection.name) : true
+  const routed = await routedMarkdown(runtime.collections.values(), page, !resolved)
+  return routed !== null && (available ? await available(routed.collection) : true)
 }
 
 /**

@@ -641,7 +641,7 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     const github = createFakeGitHub()
     vi.stubGlobal("fetch", github.fetch)
     github.commit("main", { "run.sh": { content: "echo published\n", mode: "100755" } })
-    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "", refs: { published: "main", draft: "vitehub/content" } }, "content")
+    const store = createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: "", refs: { published: "main", draft: "vitehub/content" } }, "content")
     const attributes: unknown[] = []
     registerWorkspace("content", { store, rules: { "**": { write: true, validate: (input) => {
       attributes.push(input.metadata)
@@ -892,7 +892,7 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     const remoteApp = await app()
     const local = await project(remoteApp.fetch, "options")
 
-    expect((await local.run("pull", "content", "--url", remote)).stderr).toContain("Pass --dir <folder> on the first pull")
+    expect((await local.run("pull", "content", "--url", remote)).stderr).toContain("WORKSPACE_CHECKOUT_DIR: Workspace \"content\" is not checked out yet.\nPass `--dir`")
     expect((await local.run("pull", "content", "--dir", "..", "--url", remote)).stderr).toContain("must be a folder inside the project")
     expect((await local.run("pull", "content", "--dir", ".", "--url", remote)).stderr).toContain("must be a folder inside the project")
     expect((await local.run("push")).stderr).toContain("has no checked-out Workspace")

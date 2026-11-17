@@ -25,7 +25,7 @@ function setup(url = ":memory:") {
   const db = drizzle({ client: client });
   const store = createDatabaseEnvStore({
     db,
-    encryptionKey: new Uint8Array(32).fill(7),
+    encryptionKeys: [new Uint8Array(32).fill(7)],
     previews: true,
   });
   const emit = vi.fn();

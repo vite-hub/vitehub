@@ -400,7 +400,7 @@ const cases = [
  * Console check the CLI's signed calls on Node.
  */
 function hubOptions(item) {
-  return { host: item.host, agent: true, auth: true, console: true, publicUrl: `http://127.0.0.1:${item.port}`, realtime: item.host === "node" ? { authority: "memory" } : true }
+  return { host: item.host, agent: true, auth: true, console: true, publicUrl: `http://127.0.0.1:${item.port}`, realtime: item.host === "node" ? { driver: "memory" } : true }
 }
 
 async function writeFixture(item) {
@@ -598,6 +598,8 @@ for (const item of cases) {
       }
     }
     await ada.page.getByText("Close policy dialog", { exact: true }).click()
+    // Ada's own clicks above are changes too. The checks below read only the changes of the Agent's turns.
+    await ada.page.evaluate(() => { window.pageTest.changes.length = 0 })
     const pageId = await ada.page.evaluate(() => window.pageTest.id)
 
     // Grace joins Ada's page id. Every call below must still reach only Ada's tab.

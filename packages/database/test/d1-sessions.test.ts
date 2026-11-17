@@ -97,6 +97,13 @@ describe("D1 read replication", () => {
     expect(event.res.headers.get("set-cookie")).toBeNull()
   })
 
+  it("skips a malformed or empty duplicate bookmark cookie", async () => {
+    const { binding, constraints } = createReplicatedD1()
+    const name = d1BookmarkCookieName("DB")
+    await inRequest(binding, createEvent("GET", `${name}=%E0%A4%A; ${name}=; ${name}=bookmark-valid`), () => createDb(true).select().from(schema.notes))
+    expect(constraints).toEqual(["bookmark-valid"])
+  })
+
   it("starts a write on the primary and carries its bookmark to the next read", async () => {
     const { binding, constraints } = createReplicatedD1()
     const db = createDb(true)
@@ -195,7 +202,7 @@ describe("D1 read replication", () => {
   })
 
   it("inherits the integration option and lets a Definition turn it off", () => {
-    const defaults = cloudflareOptions({ driver: "d1", databaseName: "app", readReplication: true })
+    const defaults = cloudflareOptions({ driver: "cloudflare", databaseName: "app", readReplication: true })
     expect(defaults).toEqual({ databaseName: "app", readReplication: true })
     expect(mergeCloudflareConfig(defaults, { binding: "DB" })?.readReplication).toBe(true)
     expect(mergeCloudflareConfig(defaults, { readReplication: false })?.readReplication).toBe(false)

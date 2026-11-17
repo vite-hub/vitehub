@@ -1,5 +1,6 @@
 import { agentSurface } from "./agent-surface/index.ts"
 import { defineForms } from "./define-forms/index.ts"
+import { driverKey } from "./driver-key/index.ts"
 import { nuxtCron } from "./nuxt-cron/index.ts"
 import { nuxtSafeRuntimeConfig } from "./nuxt-safe-runtime-config/index.ts"
 import { nuxthub } from "./nuxthub/index.ts"
@@ -9,7 +10,9 @@ import { queueWorkflowVerbs } from "./queue-workflow-verbs/index.ts"
 import { renamedApis } from "./renamed-apis/index.ts"
 import { resend } from "./resend/index.ts"
 import { runtimeContracts } from "./runtime-contracts/index.ts"
+import { shellDriver } from "./shell-driver/index.ts"
 import { t3Env } from "./t3-env/index.ts"
+import { tsconfigPaths } from "./tsconfig-paths/index.ts"
 import { vitehubOptions } from "./vitehub-options/index.ts"
 
 import type { Codemod } from "./types.ts"
@@ -21,6 +24,7 @@ import type { Codemod } from "./types.ts"
 export const codemods: readonly Codemod[] = [
   nuxthub,
   nuxtSafeRuntimeConfig,
+  driverKey,
   t3Env,
   resend,
   rootAccessors,
@@ -32,11 +36,28 @@ export const codemods: readonly Codemod[] = [
   vitehubOptions,
   agentSurface,
   renamedApis,
+  tsconfigPaths,
+  shellDriver,
 ]
 
-/** Codemods that move an app between ViteHub releases. `vitehub migrate` runs them in order. */
+/**
+ * Codemods that move an app between ViteHub releases. `vitehub migrate` runs each one that applies, in this order, and
+ * each one sees the edits of the ones before it. Config codemods run first: `vitehub-options` moves top-level feature
+ * keys into `vitehub()`, where `agent-surface` then renames the Agent driver keys. `define-forms` moves the Database
+ * files before the import codemods rewrite them. `root-accessors` moves `#vitehub/env/server` to `vite-hub/env` before
+ * `one-entry-imports` joins the `vite-hub/env/*` imports with it. The codemods that move an app from another module, such
+ * as NuxtHub, are not upgrades, so only `npx @vite-hub/codemods` runs them.
+ */
 export const upgradeCodemods: readonly Codemod[] = [
+  vitehubOptions,
+  defineForms,
   runtimeContracts,
   rootAccessors,
+  oneEntryImports,
+  queueWorkflowVerbs,
+  agentSurface,
+  driverKey,
   renamedApis,
+  tsconfigPaths,
+  shellDriver,
 ]

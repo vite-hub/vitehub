@@ -44,7 +44,7 @@ assert.ok(!workerPath.includes("/src/"))
 const state = await import(pathToFileURL(workflowRuntimeModule("state")))
 const { createOpenWorkflowWorker, installOpenWorkflow } = await import(pathToFileURL(workerPath))
 const { resetOpenWorkflowRuntime } = await import(pathToFileURL(workerPath.replace("openworkflow-worker.js", "openworkflow.js")))
-state.setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+state.setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
 const { default: registry } = await import("./.vitehub/nitro/workflow/dev-registry.mjs")
 state.setWorkflowRuntimeRegistry(registry)
 const hooks = []
@@ -57,7 +57,7 @@ try {
     await worker.stop()
     const completed = await getWorkflowRun("pipeline", run.id)
     assert.equal(completed.status, "completed", JSON.stringify(completed))
-    assert.equal(await completed.result.json(), 2)
+    assert.equal(completed.result, 2)
     assert.equal((await state.loadWorkflowDefinition("pipeline")).options.rootStep, false)
   } finally {
     await worker.stop()

@@ -8,7 +8,7 @@ import { setWorkspaceRuntimeAssetsRegistry } from "../src/runtime/state.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
 
 import type { WorkspaceSession } from "../src/core/types.ts"
-import type { ShellExecutionProvider } from "@vite-hub/shell"
+import type { ShellDriver } from "@vite-hub/shell"
 import { createExecutionBudget } from "@vite-hub/runtime"
 
 function createAssets(files: Record<string, string | Uint8Array>) {
@@ -24,11 +24,11 @@ async function runShell(tools: ReturnType<typeof createWorkspaceTools>, command:
 function createMutableWorkspace() {
   return createWorkspace({
     name: "mutable",
-    store: { provider: "memory" },
+    store: { driver: "memory" },
   })
 }
 
-function createProvider(stdout: string): ShellExecutionProvider {
+function createDriver(stdout: string): ShellDriver {
   return {
     boundary: {
       cwd: true,
@@ -158,18 +158,18 @@ describe("createWorkspaceTools", () => {
     expect(runWorkspaceInspectionCommand).toHaveBeenCalledOnce()
   })
 
-  it("forwards tool cancellation to a custom shell provider", async () => {
+  it("forwards tool cancellation to a custom Shell driver", async () => {
     let signal: AbortSignal | undefined
-    const provider = createProvider("provider\n")
-    const exec = provider.exec
-    provider.exec = async (command, options) => {
+    const driver = createDriver("driver\n")
+    const exec = driver.exec
+    driver.exec = async (command, options) => {
       signal = options?.signal
       return await exec(command, options)
     }
-    const tools = createWorkspaceTools(createAssets({ "README.md": "# Docs\n" }), { executionProvider: provider })
+    const tools = createWorkspaceTools(createAssets({ "README.md": "# Docs\n" }), { shellDriver: driver })
     const controller = new AbortController()
 
-    await expect(runShell(tools, "cat README.md", controller.signal)).resolves.toMatchObject({ stdout: "provider\n" })
+    await expect(runShell(tools, "cat README.md", controller.signal)).resolves.toMatchObject({ stdout: "driver\n" })
     expect(signal).toBe(controller.signal)
   })
 
@@ -270,16 +270,16 @@ describe("createWorkspaceTools", () => {
     expect(close).toHaveBeenCalled()
   })
 
-  it("uses an explicit shell execution provider when no executable Workspace Session is available", async () => {
+  it("uses an explicit Shell driver when no executable Workspace Session is available", async () => {
     const tools = createWorkspaceTools(createAssets({
       "README.md": "# Docs\n",
     }), {
-      executionProvider: createProvider("provider\n"),
+      shellDriver: createDriver("driver\n"),
     })
 
     await expect(runShell(tools, "pwd")).resolves.toMatchObject({
       exitCode: 0,
-      stdout: "provider\n",
+      stdout: "driver\n",
     })
   })
 
@@ -424,7 +424,7 @@ describe("createWorkspaceTools", () => {
           url: "https://portal.example.com/runtime/inventory-health",
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
     await workspace.writeFile("README.md", "# Docs\n")
     workspace.startSession = vi.fn(async () => ({
@@ -501,7 +501,7 @@ describe("createWorkspaceTools", () => {
           url: "https://portal.example.com/runtime/inventory-health",
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
 
     await expect(runShell(createWorkspaceTools(workspace, { sourceRequests: true }), "curl -d '{\"region\":\"eu\"}' https://portal.example.com/runtime/inventory-health")).resolves.toMatchObject({
@@ -522,7 +522,7 @@ describe("createWorkspaceTools", () => {
         pageTwo: fetch({ query: { page: 2 }, url: "https://portal.example.com/runtime/items" }),
         pageThree: fetch({ query: { page: 3 }, url: "https://portal.example.com/runtime/items" }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
 
     const tools = createWorkspaceTools(workspace, { operations: { list: false, read: false, search: true } })

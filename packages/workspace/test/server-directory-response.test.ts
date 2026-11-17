@@ -11,7 +11,7 @@ afterEach(() => {
 
 describe("workspace file responses", () => {
   it("returns not found for a directory path", async () => {
-    registerWorkspace("directory-response", defineWorkspace({ store: { provider: "memory" } }))
+    registerWorkspace("directory-response", defineWorkspace({ store: { driver: "memory" } }))
     const workspace = useWorkspace("directory-response", { mode: "write" })
     await workspace.fs.mkdir("docs")
 

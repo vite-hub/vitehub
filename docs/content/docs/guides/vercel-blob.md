@@ -7,7 +7,7 @@ navigation.group: Storage
 icon: i-simple-icons-vercel
 ---
 
-Set `host: 'vercel'` and `blob: true` in `vitehub()`, and connect a Blob store to the Vercel project. ViteHub picks the `vercel-blob` driver, and server code reads and writes files with `blob` from `vite-hub/blob`. You do not install `@vercel/blob`; the driver bundles it.
+Set `host: 'vercel'` and `blob: true` in `vitehub()`, and connect a Blob store to the Vercel project. ViteHub picks the `vercel` driver, and server code reads and writes files with `blob` from `vite-hub/blob`. You do not install `@vercel/blob`; the driver bundles it.
 
 ## What Vercel Blob is
 
@@ -56,7 +56,7 @@ export default defineConfig({
 :::
 ::
 
-On the `vercel` host, `blob: true` picks `driver: 'vercel-blob'`. The store writes private objects unless you set `access: 'public'` or serve it with `serve: { access: 'public' }`. A public object has a public Vercel Blob URL that anyone can open. For a public store, set the access mode yourself:
+On the `vercel` host, `blob: true` picks `driver: 'vercel'`. The store writes private objects unless you set `access: 'public'` or serve it with `serve: { access: 'public' }`. A public object has a public Vercel Blob URL that anyone can open. For a public store, set the access mode yourself:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -65,7 +65,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     host: 'vercel',
-    blob: { driver: 'vercel-blob', access: 'public' },
+    blob: { driver: 'vercel', access: 'public' },
   },
 })
 ```
@@ -81,7 +81,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       host: 'vercel',
-      blob: { driver: 'vercel-blob', access: 'public' },
+      blob: { driver: 'vercel', access: 'public' },
     }),
     nitro(),
   ],
@@ -98,7 +98,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       host: 'vercel',
-      blob: { driver: 'vercel-blob', access: 'public' },
+      blob: { driver: 'vercel', access: 'public' },
     }),
   ],
 })
@@ -114,13 +114,13 @@ On Vercel, ViteHub signs in with [OIDC](https://vercel.com/docs/vercel-blob#oidc
 
 ViteHub picks credentials at runtime in this order:
 
-1. A `token` in the `vercel-blob` store config.
+1. A `token` in the `vercel` store config.
 2. OIDC, when `BLOB_STORE_ID` is set. The Vercel SDK reads the OIDC token itself.
 3. `BLOB_READ_WRITE_TOKEN`, for code off Vercel, such as CI or another host. The SDK also uses it when `BLOB_STORE_ID` is set but there is no OIDC token.
 
 When neither `BLOB_STORE_ID` nor `BLOB_READ_WRITE_TOKEN` is set at runtime, ViteHub throws `BLOB_C0009`.
 
-`vite dev` uses the local `fs` store when it infers Vercel Blob from these variables or from the Vercel host, so development writes do not change the real store. To use the real store in `vite dev`, set `remote: true` on the store, or set `driver: 'vercel-blob'`, then run `vercel env pull` once. The SDK refreshes the OIDC token with your Vercel CLI login. Read [Use the real store in development](/docs/blob/configure#use-the-real-store-in-development).
+`vite dev` uses the local `fs` store when it infers Vercel Blob from these variables or from the Vercel host, so development writes do not change the real store. To use the real store in `vite dev`, set `remote: true` on the store, or set `driver: 'vercel'`, then run `vercel env pull` once. The SDK refreshes the OIDC token with your Vercel CLI login. Read [Use the real store in development](/docs/blob/configure#use-the-real-store-in-development).
 
 Create the store in one of two ways:
 
@@ -128,8 +128,8 @@ Create the store in one of two ways:
 - With the ViteHub Vercel Provision Step. It creates a store named `vitehub-blob` in `iad1` with your `access` mode and connects it to the project's production, preview, and development environments, which adds `BLOB_STORE_ID`. If an older connection has only `BLOB_READ_WRITE_TOKEN`, the step warns and keeps it. Reconnect the store in the dashboard to use OIDC.
 
 ```bash [Terminal]
-VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider vercel --dry-run
-VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider vercel
+VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --host vercel --dry-run
+VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --host vercel
 ```
 
 Add `VERCEL_TEAM_ID` or `VERCEL_ORG_ID` if the token needs a team scope. See [Provisioning](/docs/development/provisioning).
@@ -179,7 +179,7 @@ export default defineNuxtConfig({
     host: 'vercel',
     auth: true,
     blob: {
-      driver: 'vercel-blob',
+      driver: 'vercel',
       access: 'private',
       serve: { route: '/files', authorize: true },
     },
@@ -200,7 +200,7 @@ export default defineConfig({
       host: 'vercel',
       auth: true,
       blob: {
-        driver: 'vercel-blob',
+        driver: 'vercel',
         access: 'private',
         serve: { route: '/files', authorize: true },
       },
@@ -222,7 +222,7 @@ export default defineConfig({
       host: 'vercel',
       auth: true,
       blob: {
-        driver: 'vercel-blob',
+        driver: 'vercel',
         access: 'private',
         serve: { route: '/files', authorize: true },
       },
@@ -273,7 +273,7 @@ Some limits come from Vercel and some from the ViteHub driver. Read [Vercel Blob
 
 - A Vercel Function accepts a request body of at most 4.5 MB. A form upload with `blob.handleUpload()` sends the file through your function, so keep `ensure.maxSize` under that. A larger request fails with `413`, also in `vite dev` for Vercel. For larger files, use [direct uploads](/docs/blob/server-api#direct-uploads). See [Blob limits](/docs/blob/limits-and-errors#limits).
 - The [multipart upload](/docs/blob/server-api#multipart-uploads) route also sends each part through your function, and Vercel Blob needs parts of at least 5 MiB (except the last). So on Vercel, a file over 4.5 MB cannot use it either.
-- The `vercel-blob` driver signs a `PUT` with a Vercel client token, as `@vercel/blob/client` does, so `handleUpload({ direct: true })` sends large files straight to Vercel Blob. It needs `BLOB_READ_WRITE_TOKEN`: a store that only uses Vercel OIDC cannot sign. It does not sign a `GET`, so serve private files with `blob.serve()`.
+- The `vercel` driver signs a `PUT` with a Vercel client token, as `@vercel/blob/client` does, so `handleUpload({ direct: true })` sends large files straight to Vercel Blob. It needs `BLOB_READ_WRITE_TOKEN`: a store that only uses Vercel OIDC cannot sign. It does not sign a `GET`, so serve private files with `blob.serve()`.
 - The driver rejects `customMetadata` with `BLOB_R0011`. [Media records](/docs/blob/media) still work, because they are JSON objects in the same store.
 - ViteHub sets `allowOverwrite: true` by default, so a write to an existing pathname replaces the file. The Vercel SDK rejects it by default; set `allowOverwrite: false` to keep that.
 - After an overwrite or delete, the Vercel cache can serve the old file for up to 60 seconds.
@@ -290,4 +290,4 @@ Routes that import `blob` stay the same. Change the host, and ViteHub picks the 
 | `netlify` | Netlify Blobs. |
 | `node` | Files in `.vitehub/data/blob` on the local disk. |
 
-Run `vitehub provision run --provider cloudflare` to create the R2 bucket. See [Blob hosts](/docs/blob/hosts) for R2, S3, and MinIO setup, and [Blob configuration](/docs/blob/configure#provider-options) for each driver's options.
+Run `vitehub provision run --host cloudflare` to create the R2 bucket. See [Blob hosts](/docs/blob/hosts) for R2, S3, and MinIO setup, and [Blob configuration](/docs/blob/configure#provider-options) for each driver's options.

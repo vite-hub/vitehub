@@ -31,7 +31,7 @@ describe("Babysitter admission", () => {
     const result = await check();
     expect(result).toMatchObject({ accepting: false, hostOnly: true, reason: `token-budget-${window}` });
     expect(result.state.hourlyInputTokens).toBeUndefined();
-    expect(result.state.errors).toContain("tokens: No invocation journal is assigned.");
+    expect(result.state.errors).toEqual([expect.stringMatching(/^tokens: .*the runtime assigns the invocation journal$/)]);
   });
 
   it("keeps callback fields from overriding scheduler authority", async () => {
@@ -99,7 +99,7 @@ it("reports repeated invocation cursors instead of looping during budget reads",
 
   const result = await check(Date.now());
 
-  expect(result.state.errors).toContain("tokens: [vitehub] Agent Invocation listing returned a repeated pagination cursor.");
+  expect(result.state.errors).toEqual([expect.stringMatching(/^tokens: .*a new pagination cursor for each page$/)]);
   expect(list).toHaveBeenCalledTimes(2);
 });
 

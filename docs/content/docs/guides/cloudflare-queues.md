@@ -176,8 +176,8 @@ Wrangler runs them through Miniflare. See Cloudflare's [Queues local development
 Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. The token must be allowed to create Queues and deploy Workers. Preview, then create the queues:
 
 ```bash [Terminal]
-pnpm vitehub provision run --provider cloudflare --dry-run
-pnpm vitehub provision run --provider cloudflare
+pnpm vitehub provision run --host cloudflare --dry-run
+pnpm vitehub provision run --host cloudflare
 ```
 
 Build again and deploy with Nitro:
@@ -227,4 +227,4 @@ The queue file and route stay the same. To move to Vercel Queues:
 3. Remove `contentType` from `sendQueue()` calls. Vercel returns `QUEUE_UNSUPPORTED_OPTION` for it.
 4. Replace `onError` with `callbackOptions.retry`, which returns `{ acknowledge: true }`, `{ afterSeconds }`, or `undefined`. `concurrency` applies only to Cloudflare.
 
-See [Vercel Queues](/docs/guides/vercel-queues) for all steps. Self-hosted Node uses the local provider. Deno has no Queue Provider. See [Queue hosts](/docs/queue/hosts) and the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix).
+See [Vercel Queues](/docs/guides/vercel-queues) for all steps. Self-hosted Node uses the local driver. Deno has no Queue Provider. See [Queue hosts](/docs/queue/hosts) and the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix).

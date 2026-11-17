@@ -4,7 +4,7 @@ import { copyFile, mkdir } from "node:fs/promises"
 import { join } from "pathe"
 
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { matchLedger, toLedgerRow } from "./migration-ledger.ts"
+import { findRenumbered, matchLedger, matchRecordedNames, nameLedgerTables, toLedgerRow } from "./migration-ledger.ts"
 
 import type { MigrationEntry } from "./migration-journal.ts"
 
@@ -23,19 +23,30 @@ export interface D1HttpTarget {
 
 export type D1Query = (sql: string, params?: unknown[]) => Promise<unknown[]>
 
+/** A migration that a ledger lists, but not the Wrangler table under its file name. */
+export interface AdoptedMigration {
+  /** The ledger that lists it. */
+  from: string
+  /** The Wrangler file name. */
+  name: string
+  tag: string
+}
+
 export interface D1Ledger {
-  /** Migration file names in the ledger. */
+  /** File names of the applied migrations. */
   applied: ReadonlySet<string>
-  /**
-   * Set when the ledger table does not exist yet. Names of the migrations that Drizzle Kit applied before, which the
-   * first `vitehub database migrate` writes into the new ledger.
-   */
-  missing?: { adopted: readonly string[] }
+  /** Applied migrations that the Wrangler table does not list yet. `vitehub database migrate` records them first. */
+  adopted: readonly AdoptedMigration[]
+  /** Whether the Wrangler table exists. */
+  exists: boolean
   table: string
 }
 
-/** Sends SQL to the Cloudflare D1 HTTP API or a configured proxy. Returns the rows of the last statement. */
-export function createD1Query(target: D1HttpTarget, request: typeof fetch = fetch): D1Query {
+/**
+ * Sends SQL to the Cloudflare D1 HTTP API or a configured proxy. Returns the rows of the last statement.
+ * `fail` makes the caller's error for a problem, so each command throws its own code.
+ */
+export function createD1Query(target: D1HttpTarget, fail: (problem: string) => Error, request: typeof fetch = fetch): D1Query {
   const missing = (target.proxy ? [
     !target.proxy.url && "`cloudflare.http.url`",
     !target.proxy.token && "`cloudflare.http.authToken`",
@@ -44,11 +55,11 @@ export function createD1Query(target: D1HttpTarget, request: typeof fetch = fetc
     !target.token && "`CLOUDFLARE_API_TOKEN`",
     !target.databaseId && "a value for `cloudflare.databaseId`",
   ]).filter(Boolean)
-  if (missing.length) throw new Error(`ViteHub applies D1 HTTP migrations with ${target.proxy ? "the configured proxy" : "the Cloudflare API"}, which needs ${missing.join(" and ")}.`)
+  if (missing.length) throw fail(`ViteHub applies D1 HTTP migrations with ${target.proxy ? "the configured proxy" : "the Cloudflare API"}, which needs ${missing.join(" and ")}.`)
   const url = target.proxy
     ? target.proxy.url!
     : `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(target.accountId!)}/d1/database/${encodeURIComponent(target.databaseId!)}/query`
-  if (!["http:", "https:"].includes(new URL(url).protocol)) throw new Error("D1 HTTP migrations need an HTTP or HTTPS URL for `cloudflare.http.url`.")
+  if (!["http:", "https:"].includes(new URL(url).protocol)) throw fail("D1 HTTP migrations need an HTTP or HTTPS URL for `cloudflare.http.url`.")
   const token = target.proxy ? target.proxy.token : target.token
   return async (sql, params = []) => {
     const response = await request(url, {
@@ -58,7 +69,7 @@ export function createD1Query(target: D1HttpTarget, request: typeof fetch = fetc
     })
     const payload: unknown = await response.json().catch(() => undefined)
     const rows = readD1Rows(payload)
-    if (!response.ok || !rows) throw new Error(`Cloudflare D1 returned HTTP ${response.status}${describeD1Errors(payload)}.`)
+    if (!response.ok || !rows) throw fail(`Cloudflare D1 returned HTTP ${response.status}${describeD1Errors(payload)}.`)
     return rows
   }
 }
@@ -169,24 +180,11 @@ export async function copyD1MigrationFiles(migrationsDir: string, outputDir: str
 }
 
 /**
- * Fails when a ledger row has the name part of a migration under another number, for example when `d1-migrations.json`
- * is missing and a folder sorts before applied ones. Wrangler would apply them again.
- */
-function assertNumbering(applied: ReadonlySet<string>, files: readonly D1MigrationFile[]) {
-  const names = new Set(files.map(file => file.name))
-  for (const name of applied) {
-    if (names.has(name)) continue
-    const suffix = /^\d+_(.+)$/.exec(name)?.[1]
-    const moved = suffix && files.find(file => file.name.endsWith(`_${suffix}`))
-    if (moved) {
-      throw databaseErrorDiagnostics.DATABASE_D1_MIGRATION_INVALID({ problem: `Wrangler's migrations table lists ${name}, but that migration is now ${moved.name} (${moved.tag}). Wrangler would apply it again. Restore ${d1MigrationNamesFile} next to the migrations, or set "${moved.tag}": "${name}" in it.` })
-    }
-  }
-}
-
-/**
- * Reads Wrangler's migrations ledger. When it does not exist and Drizzle Kit's ledger does, the migrations that
- * Drizzle Kit applied count as applied, so a database that `vitehub database migrate` migrated before keeps its state.
+ * Reads the applied migrations from Wrangler's migrations table and from the other ledgers on the database: NuxtHub's
+ * `_hub_migrations`, Wrangler's default `d1_migrations`, and Drizzle Kit's `__drizzle_migrations`. A migration counts
+ * as applied when a ledger lists its file name, its name without `.sql`, its folder, or the old file that its folder
+ * keeps in its name, or, in Drizzle Kit's ledger, its SQL hash. So a database keeps its state after a move from
+ * NuxtHub or a change of the migrations layout.
  */
 export async function readD1Ledger(
   query: D1Query,
@@ -194,26 +192,45 @@ export async function readD1Ledger(
   migrations: readonly MigrationEntry[],
 ): Promise<D1Ledger> {
   const migrationsTable = cloudflare?.migrationsTable ?? defaultD1MigrationsTable
-  const tables = new Set((await query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?)", [migrationsTable, drizzleMigrationsTable]))
+  const nameTables = [migrationsTable, ...nameLedgerTables.filter(table => table !== migrationsTable)]
+  const candidates = [...nameTables, drizzleMigrationsTable]
+  const tables = new Set((await query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (${candidates.map(() => "?").join(", ")})`, candidates))
     .map(row => readRowValue(row, "name", 0)))
-  if (tables.has(migrationsTable)) {
-    const rows = await query(`SELECT name FROM ${quoteIdentifier(migrationsTable)}`)
-    const applied = new Set(rows.map(row => String(readRowValue(row, "name", 0))))
-    assertNumbering(applied, listD1Migrations(migrationsDir))
-    return { applied, table: migrationsTable }
+  const files = listD1Migrations(migrationsDir)
+  const applied = new Map<string, string>()
+  let listed = new Set<string>()
+  // Ledger names that match no migration, and the table of each.
+  const unmatched = new Map<string, string>()
+  for (const table of nameTables) {
+    if (!tables.has(table)) continue
+    const names = (await query(`SELECT name FROM ${quoteIdentifier(table)}`)).map(row => String(readRowValue(row, "name", 0)))
+    if (table === migrationsTable) listed = new Set(names)
+    const match = matchRecordedNames(names, files)
+    for (const tag of match.applied.keys()) applied.set(tag, applied.get(tag) ?? table)
+    for (const name of match.unmatched) unmatched.set(name, table)
   }
-  let adopted: string[] = []
   if (tables.has(drizzleMigrationsTable)) {
     // ViteHub wrote this ledger as Drizzle Kit 0.x did, without `name`, so rows match by time and hash.
     const rows = await query(`SELECT id, hash, created_at FROM ${drizzleMigrationsTable}`)
-    const { applied } = matchLedger(rows.map(row => toLedgerRow({
+    const match = matchLedger(rows.map(row => toLedgerRow({
       created_at: readRowValue(row, "created_at", 2),
       hash: readRowValue(row, "hash", 1),
       id: readRowValue(row, "id", 0),
     })), migrations)
-    adopted = listD1Migrations(migrationsDir).filter(file => applied.has(file.tag)).map(file => file.name)
+    for (const tag of match.applied) applied.set(tag, applied.get(tag) ?? drizzleMigrationsTable)
   }
-  return { applied: new Set(adopted), missing: { adopted }, table: migrationsTable }
+  const renumbered = findRenumbered([...unmatched.keys()], files, new Set(applied.keys()))
+  if (renumbered) {
+    const { moved, name } = renumbered
+    throw databaseErrorDiagnostics.DATABASE_D1_MIGRATION_INVALID({ problem: `The migrations table ${unmatched.get(name)} lists ${name}, but that migration is now ${moved.name} (${moved.tag}). Wrangler would apply it again. Restore ${d1MigrationNamesFile} next to the migrations, or set "${moved.tag}": "${name.replace(/\.sql$/, "")}.sql" in it.` })
+  }
+  const appliedFiles = files.filter(file => applied.has(file.tag))
+  return {
+    adopted: appliedFiles.filter(file => !listed.has(file.name)).map(file => ({ from: applied.get(file.tag)!, name: file.name, tag: file.tag })),
+    applied: new Set(appliedFiles.map(file => file.name)),
+    exists: tables.has(migrationsTable),
+    table: migrationsTable,
+  }
 }
 
 /**
@@ -225,15 +242,17 @@ export async function applyD1Migrations(
   ledger: D1Ledger,
   migrationsDir: string,
   onApplied: (name: string) => void,
+  onAdopted: (migration: AdoptedMigration) => void,
 ): Promise<void> {
   const table = quoteIdentifier(ledger.table)
   const insert = (name: string) => `INSERT INTO ${table} (name) VALUES ('${name.replaceAll("'", "''")}');`
-  if (ledger.missing) {
-    // Wrangler creates the same table.
+  if (!ledger.exists || ledger.adopted.length) {
     await query([
-      `CREATE TABLE IF NOT EXISTS ${table} (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);`,
-      ...ledger.missing.adopted.map(insert),
+      // Wrangler creates the same table.
+      ...ledger.exists ? [] : [`CREATE TABLE IF NOT EXISTS ${table} (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);`],
+      ...ledger.adopted.map(migration => insert(migration.name)),
     ].join("\n"))
+    for (const migration of ledger.adopted) onAdopted(migration)
   }
   for (const file of recordD1MigrationNames(migrationsDir)) {
     if (ledger.applied.has(file.name)) continue

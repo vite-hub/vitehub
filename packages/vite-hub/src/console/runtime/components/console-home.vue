@@ -18,13 +18,18 @@ import {
   resolveConsoleSectionDocs,
   resolveConsoleSectionGroup,
 } from "../sections";
+import { consoleAddablePrimitives, openConsoleAddPrimitive } from "../client/add-primitive";
 import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import { recentTimestamp } from "../client/format";
+import { useConsoleProjects } from "../client/project-session";
 import ConsoleMark from "./console-mark.vue";
+import ConsoleRelativeTime from "./console-relative-time.vue";
+import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
 import ConsoleState from "./console-state.vue";
+import Icon from "./console-icon.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 const props = defineProps<{
@@ -83,14 +88,11 @@ const sectionGroups = computed(() =>
     };
   }),
 );
-// Usage and Skills come with Agents, so they are not offered on their own. A user limited to some sections may not see the others,
-// so the Overview does not call them "not enabled".
-const notEnabledPrimitives = computed(() =>
-  installedNavigation.value?.scoped
-    ? []
-    : consolePrimitives.filter((entry) => entry.id !== "usage" && entry.id !== "skills" && !sections.value.includes(entry.id)),
-);
+const addablePrimitives = computed(() => consoleAddablePrimitives(sections.value));
 const agentsEnabled = computed(() => sections.value.includes("agents"));
+// The build that serves the app, from `project.get`. A development server has none.
+const projects = useConsoleProjects();
+const build = computed(() => projects.info.value?.build);
 const sessionItems = computed(() =>
   recentSessions.items.value.slice(0, 5).map((item) => ({
     agentName: item.agentName,
@@ -213,7 +215,7 @@ onBeforeUnmount(() => {
 
     <UDashboardPanel id="console-home">
       <template #header>
-        <UDashboardNavbar title="Overview" :toggle="false" :ui="{ root: 'border-0' }" />
+        <ConsolePageHeader title="Overview" :toggle="false" />
       </template>
 
       <template #body>
@@ -302,6 +304,22 @@ onBeforeUnmount(() => {
                 </div>
               </section>
 
+              <section v-if="build" class="vitehub-console__overview-block" aria-labelledby="console-home-deploy">
+                <h2 id="console-home-deploy" class="vitehub-console__overview-label">Last deploy</h2>
+                <ul class="vitehub-console__overview-list">
+                  <li class="vitehub-console__overview-row">
+                    <Icon name="i-lucide-git-commit-horizontal" class="vitehub-console__overview-icon" />
+                    <span class="vitehub-console__overview-name font-mono text-xs">{{ build.commit ? build.commit.sha.slice(0, 7) : "No commit" }}</span>
+                    <span class="vitehub-console__overview-description">{{ build.commit?.message }}</span>
+                    <span class="vitehub-console__overview-meta">
+                      <span v-if="build.commit?.author" class="hidden truncate sm:inline">{{ build.commit.author }}</span>
+                      <span v-if="build.commit?.branch" class="hidden font-mono sm:inline">{{ build.commit.branch }}</span>
+                      <ConsoleRelativeTime :value="build.time" />
+                    </span>
+                  </li>
+                </ul>
+              </section>
+
               <section v-if="agentsEnabled" class="vitehub-console__overview-block" aria-labelledby="console-home-sessions">
                 <h2 id="console-home-sessions" class="vitehub-console__overview-label">Recent sessions</h2>
                 <ul class="vitehub-console__overview-list">
@@ -309,7 +327,7 @@ onBeforeUnmount(() => {
                     <USkeleton v-for="index in 3" :key="index" class="h-7" />
                   </li>
                   <li v-else-if="recentSessions.error.value" class="vitehub-console__overview-row">
-                    <UIcon name="i-lucide-cloud-off" class="vitehub-console__overview-icon" />
+                    <Icon name="i-lucide-cloud-off" class="vitehub-console__overview-icon" />
                     <span class="vitehub-console__overview-description">Could not load recent sessions.</span>
                     <UButton class="ms-auto" variant="ghost" size="xs" label="Try again" @click="loadRecentSessions" />
                   </li>
@@ -340,7 +358,7 @@ onBeforeUnmount(() => {
                   </template>
                   <li>
                     <button type="button" class="vitehub-console__overview-row text-muted" data-focus-inset @click="openSection(consoleSectionDetails.agents.routeName)">
-                      <UIcon name="i-lucide-arrow-right" class="vitehub-console__overview-icon" />
+                      <Icon name="i-lucide-arrow-right" class="vitehub-console__overview-icon" />
                       <span>View all sessions</span>
                     </button>
                   </li>
@@ -379,7 +397,7 @@ onBeforeUnmount(() => {
                           :aria-label="`${section.label} documentation`"
                           :title="`${section.label} documentation`"
                         >
-                          <UIcon name="i-lucide-book-open" class="size-3.5" aria-hidden="true" />
+                          <Icon name="i-lucide-book-open" class="size-3.5" aria-hidden="true" />
                         </a>
                       </span>
                     </li>
@@ -387,26 +405,18 @@ onBeforeUnmount(() => {
                 </section>
               </div>
 
-              <section v-if="notEnabledPrimitives.length" class="vitehub-console__overview-block" aria-labelledby="console-home-not-enabled">
-                <h2 id="console-home-not-enabled" class="vitehub-console__overview-label">Not enabled</h2>
+              <section v-if="addablePrimitives.length" class="vitehub-console__overview-block" aria-labelledby="console-home-add">
+                <h2 id="console-home-add" class="vitehub-console__overview-label">Add</h2>
                 <ul class="vitehub-console__overview-list">
-                  <li v-for="entry in notEnabledPrimitives" :key="entry.id">
-                    <a
-                      class="vitehub-console__overview-row" data-focus-inset
-                      data-optional
-                      :href="entry.setup"
-                      rel="noreferrer"
-                      target="_blank"
-                      :aria-label="`Set up ${entry.label}`"
-                    >
-                      <ConsoleSectionIcon :icon="entry.icon" class="vitehub-console__overview-icon" />
-                      <span class="vitehub-console__overview-name">{{ entry.label }}</span>
-                      <span class="vitehub-console__overview-description" :title="entry.pitch">{{ entry.pitch }}</span>
+                  <li>
+                    <button type="button" class="vitehub-console__overview-row" data-focus-inset @click="openConsoleAddPrimitive()">
+                      <Icon name="i-lucide-plus" class="vitehub-console__overview-icon" />
+                      <span class="vitehub-console__overview-name">Add a primitive</span>
+                      <span class="vitehub-console__overview-description">Get the vitehub add command or a prompt for your coding agent.</span>
                       <span class="vitehub-console__overview-meta">
-                        Set up
-                        <UIcon name="i-lucide-arrow-up-right" class="size-3" />
+                        <Icon name="i-lucide-chevron-right" class="size-3.5" />
                       </span>
-                    </a>
+                    </button>
                   </li>
                 </ul>
               </section>
@@ -417,11 +427,11 @@ onBeforeUnmount(() => {
                 <ul class="vitehub-console__overview-list">
                   <li>
                     <a class="vitehub-console__overview-row" data-focus-inset :href="consoleGuide.href" rel="noreferrer" target="_blank">
-                      <UIcon :name="consoleGuide.icon" class="vitehub-console__overview-icon" />
+                      <Icon :name="consoleGuide.icon" class="vitehub-console__overview-icon" />
                       <span class="vitehub-console__overview-name">{{ consoleGuide.label }}</span>
                       <span class="vitehub-console__overview-description" :title="consoleGuide.description">{{ consoleGuide.description }}</span>
                       <span class="vitehub-console__overview-meta">
-                        <UIcon name="i-lucide-arrow-up-right" class="size-3" />
+                        <Icon name="i-lucide-arrow-up-right" class="size-3" />
                       </span>
                     </a>
                   </li>
@@ -431,7 +441,7 @@ onBeforeUnmount(() => {
                       <span class="vitehub-console__overview-name">{{ guide.label }}</span>
                       <span class="vitehub-console__overview-description" :title="guide.description">{{ guide.description }}</span>
                       <span class="vitehub-console__overview-meta">
-                        <UIcon name="i-lucide-arrow-up-right" class="size-3" />
+                        <Icon name="i-lucide-arrow-up-right" class="size-3" />
                       </span>
                     </a>
                   </li>
@@ -470,7 +480,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__overview-label {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.8125rem;
   font-weight: 400;
   line-height: 1.25rem;
@@ -486,7 +496,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__overview-mark {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 /* Rows reach past the text edge, so the hover tint has room and the icons still line up with the header. */
@@ -523,11 +533,11 @@ onBeforeUnmount(() => {
 
 @media (hover: hover) {
   .vitehub-console__overview-row:is(button, a, [data-cell]):not(:disabled):hover {
-    background: var(--ui-bg-elevated);
+    background: var(--muted);
   }
 
   .vitehub-console__overview-row:is(button, a, [data-cell]):not(:disabled):hover .vitehub-console__overview-icon {
-    color: var(--ui-text-highlighted);
+    color: var(--foreground);
   }
 }
 
@@ -539,7 +549,7 @@ onBeforeUnmount(() => {
 
 .vitehub-console__overview-icon {
   align-items: center;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: inline-flex;
   flex: none;
   height: 1rem;
@@ -550,7 +560,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__overview-name {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   flex: none;
   font-weight: 500;
   max-width: 45%;
@@ -561,7 +571,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__overview-description {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -572,7 +582,7 @@ onBeforeUnmount(() => {
 
 .vitehub-console__overview-meta {
   align-items: center;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: inline-flex;
   flex: none;
   font-family: var(--font-mono);
@@ -599,14 +609,8 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__overview-docs:hover {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   text-decoration: underline;
-}
-
-/* Primitives that are not enabled read one tone quieter, so they look optional. */
-.vitehub-console__overview-row[data-optional] .vitehub-console__overview-name {
-  color: var(--ui-text-toned);
-  font-weight: 400;
 }
 
 /* On a phone the name and meta fit; a description after a name would truncate to a few letters. */

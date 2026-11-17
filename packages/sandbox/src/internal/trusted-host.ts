@@ -27,6 +27,7 @@ import { basename, delimiter, dirname, isAbsolute, join, posix, relative, resolv
 import { Readable, Writable } from "node:stream";
 import { promisify } from "node:util";
 import type { ExecutionAuthority } from "@vite-hub/runtime";
+import { stopMarkedProcesses } from "@vite-hub/internal/process-sweep";
 
 import type {
   SandboxFileEntry,
@@ -463,6 +464,8 @@ async function resolveEnvironment(
   return env;
 }
 
+const sessionEnvironmentKey = "VITEHUB_SANDBOX_SESSION";
+
 async function createTrustedHostSession(options: {
   env: Record<string, string>;
   home: string;
@@ -600,11 +603,12 @@ async function createTrustedHostSession(options: {
       runOptions.abortSignal?.throwIfAborted();
       // No await may separate this fence from launch and process registration.
       // Teardown either owns the registered child or prevents its launch.
-      if (closing) throw new Error("Trusted host Sandbox session is closing.");
+      if (closing) throw sandboxErrorDiagnostics.SANDBOX_TRUSTED_HOST_CLOSING();
       const child = spawnChildProcess(runOptions.command, {
         cwd,
         detached: process.platform !== "win32",
-        env: { ...options.env, ...runOptions.env, INIT_CWD: cwd, OLDPWD: cwd, PWD: cwd },
+        // The marker finds commands that leave their process group, for example with setsid.
+        env: { ...options.env, ...runOptions.env, INIT_CWD: cwd, OLDPWD: cwd, PWD: cwd, [sessionEnvironmentKey]: options.root },
         shell: true,
       });
       processes.add(child);
@@ -650,8 +654,8 @@ async function createTrustedHostSession(options: {
       } finally {
         if (timeout) clearTimeout(timeout);
       }
-      if (timedOut)
-        throw new Error("Timed out waiting for trusted-host processes to exit after SIGKILL.");
+      if (timedOut) throw sandboxErrorDiagnostics.SANDBOX_TRUSTED_HOST_KILL_TIMED_OUT();
+      await stopMarkedProcesses(sessionEnvironmentKey, options.root);
       processes.clear();
       processGroups.clear();
     },

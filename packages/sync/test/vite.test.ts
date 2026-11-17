@@ -94,3 +94,16 @@ it("contributes SQLite tables to every selected named Database", async () => {
     expect.objectContaining({ database: "second", dialect: "sqlite" }),
   ])
 })
+
+it("keeps the default contribution alongside a named Database", async () => {
+  const root = app({
+    "server/sync/a.ts": 'export default { options: {} }',
+    "server/sync/b.ts": 'export default { options: { database: "other" } }',
+  })
+  const contributions = await hubSync().vitehub.databases({ projectRoot: root })
+  expect(contributions).toEqual([
+    expect.objectContaining({ dialect: "sqlite" }),
+    expect.objectContaining({ database: "other", dialect: "sqlite" }),
+  ])
+  expect(contributions[0]).not.toHaveProperty("database")
+})

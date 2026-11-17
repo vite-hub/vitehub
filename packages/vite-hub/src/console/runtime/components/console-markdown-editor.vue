@@ -24,6 +24,7 @@ import { useConsoleToast } from "../client/toast";
 import ConsoleComarkComponent from "./console-comark-component.vue";
 import ConsoleMediaDialog from "./console-media-dialog.vue";
 import ConsoleLoading from "./console-loading.vue";
+import Icon from "./console-icon.vue";
 
 import type { DropdownMenuItem, EditorCustomHandlers, EditorToolbarItem } from "@nuxt/ui";
 import type { Editor, JSONContent } from "@tiptap/vue-3";
@@ -156,7 +157,7 @@ const extensions = codec.extensions().map(extension => extension.extend({
   starterKit: {
     undoRedo: live ? false : undefined,
     trailingNode: false,
-    dropcursor: { class: "vitehub-drop-cursor", color: "var(--ui-primary)", width: 2 },
+    dropcursor: { class: "vitehub-drop-cursor", color: "var(--primary)", width: 2 },
     link: { openOnClick: false },
   },
 }));
@@ -495,7 +496,7 @@ watch(editor, (instance) => {
   <section class="vitehub-markdown-editor relative" :aria-label="label ?? 'Body'">
     <ConsoleLoading v-if="hydrating" label="Loading editor…" />
     <p v-if="lossy" class="mb-4 flex items-start gap-2 rounded-md bg-elevated/60 px-3 py-2 text-[13px] text-muted" role="status">
-      <UIcon name="i-lucide-lock" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+      <Icon name="i-lucide-lock" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
       <span>Read-only here. {{ lossy }} Switch to Source to read or edit the Markdown.</span>
     </p>
     <template v-if="editor">
@@ -585,7 +586,7 @@ watch(editor, (instance) => {
 .vitehub-markdown-editor__content > :first-child { margin-top: 0; }
 
 .vitehub-markdown-editor__content :is(h1, h2, h3, h4) {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   font-weight: 600;
 }
 
@@ -601,20 +602,20 @@ watch(editor, (instance) => {
 .vitehub-markdown-editor__content li::marker { color: var(--ui-text-dimmed); }
 
 .vitehub-markdown-editor__content blockquote {
-  border-inline-start: 2px solid var(--ui-text-highlighted);
+  border-inline-start: 2px solid var(--foreground);
   padding-inline-start: 1rem;
 }
 
 .vitehub-markdown-editor__content a {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   text-decoration: underline;
   text-decoration-color: var(--ui-border-accented);
   text-underline-offset: 3px;
 }
 
 .vitehub-markdown-editor__content code {
-  background: var(--ui-bg-elevated);
-  border-radius: calc(var(--ui-radius) * 1.5);
+  background: var(--muted);
+  border-radius: calc(var(--radius) * 1.5);
   font-family: var(--font-mono);
   font-size: 0.85em;
   padding: 0.1em 0.3em;
@@ -622,8 +623,8 @@ watch(editor, (instance) => {
 
 .vitehub-markdown-editor__content pre {
   background: var(--ui-bg-muted);
-  border-radius: calc(var(--ui-radius) * 2);
-  box-shadow: inset 0 0 0 1px var(--ui-border);
+  border-radius: calc(var(--radius) * 2);
+  box-shadow: inset 0 0 0 1px var(--border);
   font-family: var(--font-mono);
   font-size: 0.8125rem;
   line-height: 1.25rem;
@@ -635,35 +636,35 @@ watch(editor, (instance) => {
 
 .vitehub-markdown-editor__content hr {
   border: 0;
-  border-top: 1px solid var(--ui-border);
+  border-top: 1px solid var(--border);
   margin-block: 1.5rem;
 }
 
 .vitehub-markdown-editor__content table { border-collapse: collapse; margin-block: 1rem; table-layout: fixed; width: 100%; }
 .vitehub-markdown-editor__content :is(th, td) {
-  border: 1px solid var(--ui-border);
+  border: 1px solid var(--border);
   padding: 0.375rem 0.625rem;
   position: relative;
   text-align: start;
   vertical-align: top;
 }
-.vitehub-markdown-editor__content th { background: var(--ui-bg-elevated); font-weight: 500; }
+.vitehub-markdown-editor__content th { background: var(--muted); font-weight: 500; }
 .vitehub-markdown-editor__content .selectedCell::after {
-  background: color-mix(in oklab, var(--ui-primary) 12%, transparent);
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
   content: "";
   inset: 0;
   pointer-events: none;
   position: absolute;
 }
-.vitehub-markdown-editor__content .column-resize-handle { background: var(--ui-primary); bottom: 0; position: absolute; right: -1px; top: 0; width: 2px; }
+.vitehub-markdown-editor__content .column-resize-handle { background: var(--primary); bottom: 0; position: absolute; right: -1px; top: 0; width: 2px; }
 
-.vitehub-markdown-editor__content img { border-radius: calc(var(--ui-radius) * 1.5); display: inline-block; max-width: 100%; }
-.vitehub-markdown-editor__content img.ProseMirror-selectednode { outline: 2px solid var(--ui-primary); outline-offset: 2px; }
+.vitehub-markdown-editor__content img { border-radius: calc(var(--radius) * 1.5); display: inline-block; max-width: 100%; }
+.vitehub-markdown-editor__content img.ProseMirror-selectednode { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 /* The block that the handle selected gets a tint, as in Notion. */
 .vitehub-markdown-editor__content .ProseMirror-selectednode:not(img) {
-  background: color-mix(in oklab, var(--ui-primary) 10%, transparent);
-  border-radius: calc(var(--ui-radius) * 1.5);
+  background: color-mix(in oklab, var(--primary) 10%, transparent);
+  border-radius: calc(var(--radius) * 1.5);
 }
 
 /* Placeholder on the empty line with the cursor. */

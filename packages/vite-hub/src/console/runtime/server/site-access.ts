@@ -1,11 +1,13 @@
 import { viteHubPageGrants } from "@vite-hub/internal/runtime/page-tools"
-import { viteHubPageToolsResetCookie, viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
+import { viteHubPageToolsQuery, viteHubPageToolsResetCookie, viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { readConsoleAccessGrants, readConsoleOperationUser, type ConsoleAccess } from "./access.ts"
 import { consoleRequestError, type ConsoleRequestEvent } from "./request.ts"
+import { consoleSiteKV, listConsoleSiteSessions, openConsoleSiteSession, requireConsoleSiteKey, revokeConsoleSiteSession } from "./site-session.ts"
 import { appBase, appOrigin, authConsole, authFailure, base64url, consoleInvitePrefix, consoleRecordStore, issueConsoleTicket, seeOther, ticketProblem, type ConsoleTicket, type ConsoleTicketRecord } from "./tickets.ts"
 
 import type { ViteHubPageGrant } from "@vite-hub/internal/runtime/page-tools"
+import { siteStateCookie } from "../site-access.ts"
 import type { SiteGrant, SiteInvite, SiteSession } from "../site-access.ts"
 
 /**
@@ -18,9 +20,10 @@ import type { SiteGrant, SiteInvite, SiteSession } from "../site-access.ts"
  *   once, in one browser, and signs it in as a new user with that name and the `guest` role. Guests never get the
  *   Console.
  *
- * The users, their roles, and the sessions are Better Auth's: the roles go in `user.role` of the `admin()` plugin, and
- * a browser is a Better Auth session, which ends as the app's session settings say. Revoking a guest's browser deletes
- * the guest.
+ * With Auth, the users, their roles, and the sessions are Better Auth's: the roles go in `user.role` of the `admin()`
+ * plugin, and a browser is a Better Auth session, which ends as the app's session settings say. Revoking a guest's
+ * browser deletes the guest. Without Auth, the browser gets the sealed `vitehub_site` cookie with the person and the
+ * roles, and the app's KV store keeps its session (see `site-session.ts`).
  */
 
 /** The role of a Console member: the **Console** link of the page tools pill. */
@@ -40,11 +43,16 @@ function contextRequest(context: SiteContext): Request {
   return context.request
 }
 
-/** The Auth Console of a request. Site access keeps its people in ViteHub Auth. */
+/** The Auth Console of a request, or undefined in an app without Auth, where Site access uses its own cookie. */
 async function auth(request: Request, event?: unknown) {
-  const api = await authConsole(request, isRequestEvent(event) ? event : undefined)
-  if (!api) throw consoleRequestError(404, "Site access signs browsers in with ViteHub Auth, and the app has no Auth section.")
-  return api
+  return await authConsole(request, isRequestEvent(event) ? event : undefined)
+}
+
+/** Without Auth, Site access needs the secret of its cookie and a shared store before it makes a link. */
+async function assertSiteAccess(request: Request, event?: unknown): Promise<void> {
+  if (await auth(request, event)) return
+  await requireConsoleSiteKey()
+  await consoleSiteKV()
 }
 
 /** The answer of an Auth Console call, or its failure as a Console error. */
@@ -75,29 +83,51 @@ function targetPath(record: ConsoleTicketRecord): string | undefined {
   return url.origin === record.origin ? url.href : undefined
 }
 
+/** The page with `?vitehub`, which opens the pill, before its hash. A page that already has the query keeps it. */
+export function withPageTools(page: string): string {
+  const hash = page.indexOf("#")
+  const path = hash === -1 ? page : page.slice(0, hash)
+  const query = path.indexOf("?")
+  if (query !== -1 && new URLSearchParams(path.slice(query)).has(viteHubPageToolsQuery)) return page
+  return `${path}${query === -1 ? "?" : "&"}${viteHubPageToolsQuery}${hash === -1 ? "" : page.slice(hash)}`
+}
+
 /**
  * Redeem a `page.member` or `page.guest` ticket: find or make the user, add the roles, start a Better Auth session for
- * the browser, and go to the page. The `vitehub_session` marker and the reset page tools hint make the next page ask
- * the session route again, as after a sign-in.
+ * the browser, and go to the page with `?vitehub`, which opens the pill. The `vitehub_session` marker and the reset page
+ * tools hint make the next page ask the session route again, as after a sign-in.
  */
 export async function openSiteSession(record: ConsoleTicketRecord, request: Request, event: ConsoleRequestEvent): Promise<Response> {
   const location = targetPath(record)
   if (!location) return ticketProblem(401, "CONSOLE_TICKET_INVALID")
+  const bound = record.target.state
+  if (bound && bound !== await stateHash(readCookie(request, siteStateCookie) ?? "")) {
+    return ticketProblem(403, "CONSOLE_TICKET_MISMATCH", "This link was made for another browser.", "Open /_vitehub of the app in this browser.")
+  }
   const guest = record.purpose === "page.guest"
   const name = guest ? record.target.name : record.person.name ?? record.person.email
   if (!name) return ticketProblem(401, "CONSOLE_TICKET_INVALID")
-  const api = await auth(request, event)
   const grants = (record.target.grants ?? "").split(",").filter(Boolean)
-  // A member without `grants` in the ticket gets every page tool role. `console.authorize` can name fewer.
-  const memberGrants = "grants" in record.target ? grants : viteHubPageGrants().map(grant => grant.id)
-  const user = await unwrap(api.hostUser(guest
-    ? { name, roles: [guestRole, ...grants] }
-    : { email: record.person.email, name, ...(record.person.image ? { image: record.person.image } : {}), roles: [consoleGrant.id, ...memberGrants], owned: viteHubPageGrants().map(grant => grant.id) }))
-  const headers = await unwrap(api.hostSession(user.id, request))
+  const roles = guest ? [guestRole, ...grants] : [consoleGrant.id, ...("grants" in record.target ? grants : viteHubPageGrants().map(grant => grant.id))]
+  const api = await auth(request, event)
+  const headers = new Headers()
+  if (api) {
+    const user = await unwrap(api.hostUser(guest
+      ? { name, roles }
+      : { email: record.person.email, name, ...(record.person.image ? { image: record.person.image } : {}), roles, owned: viteHubPageGrants().map(grant => grant.id) }))
+    for (const cookie of (await unwrap(api.hostSession(user.id, request))).getSetCookie()) headers.append("set-cookie", cookie)
+  }
+  else {
+    // A guest is only this browser, with an id of its invite. A member is the Console person.
+    const person = guest
+      ? { id: `site-guest:${record.target.invite ?? ""}`, name }
+      : { id: record.person.id, name, ...(record.person.email ? { email: record.person.email } : {}), ...(record.person.image ? { image: record.person.image } : {}) }
+    headers.append("set-cookie", await openConsoleSiteSession({ kind: guest ? "guest" : "member", person, roles, userAgent: request.headers.get("user-agent") ?? "", secure: record.origin.startsWith("https:") }))
+  }
   const maxAge = /;\s*Max-Age=(\d+)/i.exec(headers.get("set-cookie") ?? "")?.[1]
   headers.append("set-cookie", `${viteHubSessionMarkerCookie}=1; Path=/; SameSite=Lax${maxAge ? `; Max-Age=${maxAge}` : ""}`)
   headers.append("set-cookie", viteHubPageToolsResetCookie)
-  return seeOther(location, headers)
+  return seeOther(withPageTools(location), headers)
 }
 
 /** A page path of the app, such as `/runs/42`. */
@@ -107,19 +137,32 @@ function pagePath(path: string | undefined): string {
   return path
 }
 
+function readCookie(request: Request, name: string): string | undefined {
+  for (const part of (request.headers.get("cookie") ?? "").split(";")) {
+    const [key, ...value] = part.trim().split("=")
+    if (key === name) return value.join("=")
+  }
+  return undefined
+}
+
+async function stateHash(state: string): Promise<string> {
+  return base64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(state))))
+}
+
 /**
  * `site.link`: a one-time link that signs the browser that opens it in as you. With `qr`, it lasts 10 minutes. The roles
- * are the `grants` that `console.authorize` returned for this call, or every page tool role.
+ * are the `grants` that `console.authorize` returned for this call, or every page tool role. With `state`, from
+ * `GET /_vitehub`, it works only in the browser that has that state cookie.
  */
-export async function linkSite(context: SiteContext, input: { path?: string, qr?: boolean }): Promise<ConsoleTicket> {
-  await auth(contextRequest(context), context.event)
+export async function linkSite(context: SiteContext, input: { path?: string, qr?: boolean, state?: string }): Promise<ConsoleTicket> {
+  await assertSiteAccess(contextRequest(context), context.event)
   const grants = readConsoleAccessGrants(context.access)
   if (grants) {
     const known = new Set(viteHubPageGrants().map(grant => grant.id))
     const unknown = grants.filter(grant => !known.has(grant))
     if (unknown.length) throw consoleRequestError(500, `console.authorize returned grants that no page tool of this app gives: ${unknown.join(", ")}. Read the roles with site.grants.`)
   }
-  const target = { path: pagePath(input.path).slice(1), ...(grants ? { grants: grants.join(",") } : {}) }
+  const target = { path: pagePath(input.path).slice(1), ...(grants ? { grants: grants.join(",") } : {}), ...(input.state ? { state: await stateHash(input.state) } : {}) }
   return await issueConsoleTicket(context, "page.member", target, input.qr ? { lifetime: qrLinkLifetime } : {})
 }
 
@@ -138,7 +181,7 @@ export async function inviteGuest(context: SiteContext, input: { name: string, g
   const name = input.name.trim()
   if (!name) throw consoleRequestError(400, "Give the guest a name. It is the author of their comments.")
   const grants = readGrants(input.grants)
-  await auth(contextRequest(context), context.event)
+  await assertSiteAccess(contextRequest(context), context.event)
   const days = input.expiresInDays ?? 7
   const path = pagePath(input.path)
   const id = base64url(crypto.getRandomValues(new Uint8Array(12)))
@@ -182,6 +225,7 @@ export async function revokeInvite(context: SiteContext, id: string): Promise<{ 
 export async function listSessions(context: SiteContext): Promise<{ sessions: SiteSession[] }> {
   const api = await auth(contextRequest(context), context.event)
   const known = new Set([consoleGrant.id, ...viteHubPageGrants().map(grant => grant.id)])
+  if (!api) return { sessions: await listConsoleSiteSessions(known) }
   const rows = await unwrap(api.hostSessions([consoleGrant.id, guestRole]))
   return {
     sessions: rows.map(({ id, user, roles, device, createdAt, updatedAt, expiresAt }) => {
@@ -201,9 +245,17 @@ export async function listSessions(context: SiteContext): Promise<{ sessions: Si
   }
 }
 
-/** `site.revoke-session`: the browser is signed out. A guest has one browser, so revoking it deletes the guest too. */
+/**
+ * `site.revoke-session`: the browser is signed out. A guest has one browser, so revoking it deletes the guest too. In an
+ * app without Auth, a guest is only that browser.
+ */
 export async function revokeSession(context: SiteContext, id: string): Promise<{ revoked: true, removedUser: boolean }> {
   const api = await auth(contextRequest(context), context.event)
+  if (!api) {
+    const revoked = await revokeConsoleSiteSession(id)
+    if (!revoked) throw consoleRequestError(404, "No browser has this session. It was revoked, or it expired.")
+    return { revoked: true, removedUser: revoked.guest }
+  }
   const { userId, roles } = await unwrap(api.revokeHostSession(id))
   const removedUser = roles.includes(guestRole)
   if (removedUser) await unwrap(api.removeHostUser(userId))

@@ -3,10 +3,11 @@ import { computed, defineAsyncComponent, inject, onMounted, ref } from "vue";
 
 import type { DropdownMenuItem } from "@nuxt/ui";
 import { consoleAccountViewsKey } from "../client/account-views";
-import { forgetConsoleProject, openConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
+import { canManageConsoleProjects, forgetConsoleProject, openConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost, consoleProjectName } from "../client/projects";
 import ConsoleCodeText from "./console-code-text.vue";
 import ConsoleMark from "./console-mark.vue";
+import Icon from "./console-icon.vue";
 
 // Only an `account` Console shows these, so they load with the Better Auth client. The page loads the view of its first
 // paint before it mounts.
@@ -37,6 +38,23 @@ const switchItems = computed<DropdownMenuItem[][]>(() => [
   ],
 ].filter(group => group.length));
 
+/**
+ * Why a `/_vitehub` link did not sign the browser in to the app: one title and one sentence, then the way back to the
+ * page. Owners and admins can link an app that is no project of the team.
+ */
+const siteRefusal = computed(() => {
+  const value = gate.value;
+  if (value.kind !== "site-refused") return { title: "", text: "", host: "", back: "", link: false };
+  const host = consoleProjectHost({ url: value.url });
+  const team = projects.account.value?.teams.find(item => item.id === projects.account.value?.teamId)?.name ?? "your team";
+  const back = `${value.url}${value.page}`;
+  if (!value.linked) {
+    const link = projects.account.value ? canManageConsoleProjects(projects.account.value) : false;
+    return { title: `${host} is not an app of ${team}`, text: link ? "Link it once, and /_vitehub signs you in there." : "Ask an owner of the team that has this app to invite you.", host, back, link };
+  }
+  return { title: `${host} did not sign you in`, text: value.message ?? "Try again.", host, back, link: false };
+});
+
 async function retry(): Promise<void> {
   if (gate.value.kind === "problem" && gate.value.home) {
     projects.navigate(projects.home);
@@ -56,18 +74,18 @@ onMounted(() => {
 <template>
   <ConsoleAccountShell v-if="accountShell" />
 
-  <div v-else-if="gate.kind === 'opening'" class="vitehub-console-boot">
-    <div class="vh-primitive-rail">
-      <div class="vh-primitive-rail__surface">
-        <div class="vh-primitive-rail__header">
-          <span class="vh-primitive-rail__item"><span class="vh-primitive-rail__icon"><ConsoleMark class="vitehub-console-boot__mark" /></span></span>
+  <div v-else-if="gate.kind === 'opening' || gate.kind === 'site'" class="vitehub-console-boot">
+    <div class="vitehub-sidebar">
+      <div class="vitehub-sidebar__surface">
+        <div class="vitehub-sidebar__top">
+          <span class="vitehub-sidebar__item"><span class="vitehub-sidebar__icon"><ConsoleMark class="vitehub-console-boot__mark" /></span></span>
         </div>
       </div>
     </div>
     <div class="vitehub-console-boot__panel">
       <div class="vitehub-console-boot__header" />
       <p role="status" class="vitehub-console-opening">
-        <UIcon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
+        <Icon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
         {{ host && projects.mode !== "embedded" ? `Opening ${host}…` : "Opening Console…" }}
       </p>
     </div>
@@ -78,6 +96,17 @@ onMounted(() => {
       <ConsoleMark class="size-6 text-highlighted!" />
 
       <ConsoleAccountSignIn v-if="gate.kind === 'account'" :invitation="gate.invitation" />
+
+      <template v-else-if="gate.kind === 'site-refused'">
+        <div class="grid gap-1.5" role="alert">
+          <h1 class="vitehub-project-gate__title">{{ siteRefusal.title }}</h1>
+          <p class="vitehub-project-gate__text">{{ siteRefusal.text }}</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <UButton v-if="siteRefusal.link" icon="i-lucide-link" label="Link this app" @click="projects.linkOpen.value = true" />
+          <UButton :color="siteRefusal.link ? 'neutral' : 'primary'" :variant="siteRefusal.link ? 'outline' : 'solid'" icon="i-lucide-arrow-left" :label="`Back to ${siteRefusal.host}`" :href="siteRefusal.back" />
+        </div>
+      </template>
 
       <template v-else-if="gate.kind === 'problem'">
         <div class="grid gap-1.5" role="alert">
@@ -94,14 +123,14 @@ onMounted(() => {
         />
       </template>
 
-      <div v-if="projects.mode !== 'embedded' && current && gate.kind !== 'empty' && gate.kind !== 'account'" class="vitehub-project-gate__host">
+      <div v-if="projects.mode !== 'embedded' && current && gate.kind !== 'empty' && gate.kind !== 'account' && gate.kind !== 'site-refused'" class="vitehub-project-gate__host">
         <span class="min-w-0 truncate font-mono">{{ current.url }}</span>
         <UDropdownMenu :items="switchItems" :content="{ align: 'end' }" :ui="{ content: 'min-w-60', item: 'pointer-coarse:min-h-11' }">
           <UButton variant="ghost" size="xs" trailing-icon="i-lucide-chevron-down" label="Switch project" />
         </UDropdownMenu>
       </div>
     </div>
-    <ConsoleAccountLink v-if="projects.mode === 'account'" v-model:open="projects.linkOpen.value" />
+    <ConsoleAccountLink v-if="projects.mode === 'account'" v-model:open="projects.linkOpen.value" :url="gate.kind === 'site-refused' ? gate.url : undefined" />
   </main>
 </template>
 
@@ -122,7 +151,7 @@ onMounted(() => {
 }
 
 .vitehub-project-gate__title {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   font-size: 1.125rem;
   font-weight: 600;
   line-height: 1.5rem;
@@ -131,7 +160,7 @@ onMounted(() => {
 }
 
 .vitehub-project-gate__text {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.875rem;
   line-height: 1.25rem;
   overflow-wrap: anywhere;
@@ -154,7 +183,7 @@ onMounted(() => {
 
 .vitehub-project-gate__host {
   align-items: center;
-  border-top: 1px solid var(--ui-border);
+  border-top: 1px solid var(--border);
   color: var(--ui-text-dimmed);
   display: flex;
   font-size: 0.75rem;
