@@ -48,10 +48,12 @@ async function createProject(dialect: "postgresql" | "sqlite", io: DbCliIo = {})
     name: "default",
     ...dialect === "sqlite" ? { connection: { url: `file:${sqliteFile}` } } : { driver: "pglite" },
   } as ResolvedDrizzleDatabaseConfig
+  const databases: Record<string, ResolvedDrizzleDatabaseConfig> = { default: database }
   const contributor = createDbCliContributor(undefined, () => ({
-    databaseNames: ["default"],
-    databases: { default: database },
+    databaseNames: Object.keys(databases),
+    databases,
     generatedDrizzleConfigFile: join(rootDir, "drizzle.config.ts"),
+    generatedDrizzleConfigFilesByDatabase: Object.fromEntries(Object.keys(databases).map(name => [name, join(rootDir, "drizzle.config.ts")])),
     rootDir,
   }) as unknown as ResolvedDBViteConfig, undefined, io)!
 
@@ -90,7 +92,10 @@ async function createProject(dialect: "postgresql" | "sqlite", io: DbCliIo = {})
     ? "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
     : "SELECT table_schema || '.' || table_name AS name FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY name")).map(row => row.name)
 
-  return { database, query, rootDir, run, tables }
+  /** Adds a second database to the resolved config. */
+  const addDatabase = (added: ResolvedDrizzleDatabaseConfig) => { databases[added.name] = added }
+
+  return { addDatabase, database, query, rootDir, run, tables }
 }
 
 describe.each(["sqlite", "postgresql"] as const)("vitehub database reset on %s", (dialect) => {
@@ -161,6 +166,27 @@ describe("vitehub database reset refusals", () => {
     expect(result.stderr).toContain("DATABASE_DROP_FAILED")
     expect(result.stderr).toContain("Its migrations cannot be read, so nothing was dropped.")
     expect(await project.query("SELECT title FROM notes")).toEqual([{ title: "Groceries" }])
+  }, 120_000)
+
+  it("resets one database of several when another one still has a Drizzle Kit 0.x folder", async () => {
+    const project = await createProject("sqlite")
+    await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
+    await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0 })
+    await project.query("INSERT INTO notes (id, title) VALUES (1, 'Groceries')")
+    const legacyDir = join(project.rootDir, "legacy-migrations")
+    await mkdir(join(legacyDir, "meta"), { recursive: true })
+    await writeFile(join(legacyDir, "meta", "_journal.json"), JSON.stringify({ dialect: "sqlite", entries: [], version: "7" }))
+    project.addDatabase({ connection: { url: "file:.vitehub/data/database/legacy.sqlite.db" }, dialect: "sqlite", migrationsDir: legacyDir, name: "legacy" } as ResolvedDrizzleDatabaseConfig)
+
+    const reset = await project.run("reset", ["--database", "default", "--force"])
+    expect(reset).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(await project.query("SELECT title FROM notes")).toEqual([])
+
+    // The 0.x folder of the database that `reset` rebuilds stops it before the drop.
+    const refused = await project.run("reset", ["--database", "legacy", "--force"])
+    expect(refused.exitCode).toBe(1)
+    expect(refused.stderr).toContain("DATABASE_MIGRATIONS_OLD_LAYOUT")
+    expect(refused.stdout).not.toContain("dropped")
   }, 120_000)
 
   it("refuses a remote database without --remote, and the deployed D1 database of a binding", async () => {

@@ -653,7 +653,7 @@ async function runDrizzleKit(
   }
   const config = await getConfig?.({ strict: feature === "generate" })
   // Drizzle Kit 1.0 cannot generate or migrate next to a 0.x journal, so stop before it changes anything.
-  if (config && !writeOldLayoutDiagnostics(config, context)) return 1
+  if (config && !writeOldLayoutDiagnostics(config, context, only)) return 1
   // Drizzle Kit resolves `out` and the SQLite URL from its working directory, and the Database writes them relative to its
   // project root. In Nuxt the Vite root is `srcDir` (`app/`), so `context.rootDir` is not the project root.
   const projectRoot = config?.rootDir ?? context.rootDir
@@ -802,9 +802,9 @@ function listOldLayoutFolders(config: ResolvedDBViteConfig) {
   return [...folders].map(([dir, database]) => ({ database, dir }))
 }
 
-/** Writes `DATABASE_MIGRATIONS_OLD_LAYOUT` for each 0.x migrations folder. Returns false when there is one. */
-function writeOldLayoutDiagnostics(config: ResolvedDBViteConfig, context: ViteHubCliContext): boolean {
-  const folders = listOldLayoutFolders(config)
+/** Writes `DATABASE_MIGRATIONS_OLD_LAYOUT` for each 0.x migrations folder, or for the one of `only`. Returns false when there is one. */
+function writeOldLayoutDiagnostics(config: ResolvedDBViteConfig, context: ViteHubCliContext, only?: string): boolean {
+  const folders = listOldLayoutFolders(config).filter(({ database }) => !only || database.name === only)
   for (const { database, dir } of folders) {
     const diagnostic = databaseErrorDiagnostics.DATABASE_MIGRATIONS_OLD_LAYOUT({ database: database.name, dir: relative(config.rootDir, dir) || dir })
     context.stderr.write(`${formatRuntimeDiagnosticError(diagnostic)}\n`)
