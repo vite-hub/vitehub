@@ -62,6 +62,7 @@ it("exports the portable Email contract", () => {
   expectTypeOf(createEmail).returns.toEqualTypeOf<EmailClient>()
   expectTypeOf(email.send).parameters.toEqualTypeOf<[message: EmailSendMessage]>()
   expectTypeOf(email.send).returns.toEqualTypeOf<Promise<Result<EmailSendResult, EmailErrorCode>>>()
+  expectTypeOf(email.canSend).toEqualTypeOf<boolean>()
   expectTypeOf(message.to).toEqualTypeOf<EmailAddressList>()
   expectTypeOf(message.from).toEqualTypeOf<EmailAddress>()
 })
