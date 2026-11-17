@@ -72,7 +72,7 @@ A `database` store deletes expired rows in the background, at most once a minute
 { "level": "warn", "action": "kv", "message": "KV could not delete expired rows", "kv": { "op": "expiry-sweep", "driver": "database", "namespace": "sessions", "code": "SQLITE_BUSY" } }
 ```
 
-`code` is the `code` of the error, else its class name. When the KV Nitro plugin cannot read the KV configuration at startup, it logs `kv: { op: "read-config" }`. Without evlog, KV prints the first expiry failure to the server console.
+`code` is the `code` of the error, else its class name. When the KV Nitro plugin cannot read the KV configuration at startup, it logs `kv: { op: "read-config" }`. A streak of failed deletes logs once, and a delete that works ends the streak. The event never holds the error's message. Without evlog, or with evlog's `enabled: false`, KV prints the failure to the server console.
 
 ## Runtime errors
 

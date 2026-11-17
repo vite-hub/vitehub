@@ -154,7 +154,7 @@ export default defineNitroPlugin((nitroApp) => {
 
 ## Failures in logs
 
-A failed delete of expired rows in a `database` store does not fail the write. With the evlog Nitro module registered, KV logs it as its own evlog event with `kv: { op: "expiry-sweep", driver, namespace, code }`. Without evlog, the first failure goes to the console. See [Limits and errors](https://vitehub.dev/docs/kv/limits-and-errors#see-expiry-failures-in-logs).
+A failed delete of expired rows in a `database` store does not fail the write. With the evlog Nitro module registered, KV logs each streak of failures once, as its own evlog event with `kv: { op: "expiry-sweep", driver, namespace, code }`. Without evlog, it goes to the console. See [Limits and errors](https://vitehub.dev/docs/kv/limits-and-errors#see-expiry-failures-in-logs).
 
 ## CLI
 
