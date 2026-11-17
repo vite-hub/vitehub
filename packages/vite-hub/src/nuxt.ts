@@ -204,6 +204,7 @@ type NuxtLike = {
 const agentVueComposables = ["useAgent", "useAgentInvocation", "useAgentInvocations", "useChat"]
 const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
 const cloudflareTypes = fileURLToPath(new URL("./cloudflare-types.d.ts", import.meta.url))
+const cloudflareWorkersDeclaration = fileURLToPath(new URL("./cloudflare-workers.d.ts", import.meta.url))
 
 function emailTemplateResolver(root: string): Plugin {
   const { resolveEmailTemplateModulePath } = requireOptionalOwner(ownerModules.emailVite, "email")
@@ -1148,7 +1149,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const generatedData = secondaryProjectRoots
     .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/data/**/*.d.ts")))
   // `@cloudflare/workers-types` is an optional peer. `cloudflare-types.d.ts` references it, so add that file only when the app installs it.
-  if (plan.host === "cloudflare" && isPackageInstalled("@cloudflare/workers-types")) generatedTypes.push(relative(nuxt.options.buildDir, cloudflareTypes))
+  // Without it, generated server files such as the Database middleware still import `cloudflare:workers`, so declare what they use.
+  if (plan.host === "cloudflare") {
+    generatedTypes.push(relative(nuxt.options.buildDir, isPackageInstalled("@cloudflare/workers-types") ? cloudflareTypes : cloudflareWorkersDeclaration))
+  }
   addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData)
   // Code under shared/ can type-import server files, such as server/auth.ts, which use the generated declarations.
   addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData, "sharedTsConfig")
