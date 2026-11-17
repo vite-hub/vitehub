@@ -156,14 +156,16 @@ export function createForgeChannelSyncProvider(options: ForgeChannelSyncOptions)
   }
   let instance: string | undefined
   if (repositories) {
+    const invalid = () => agentDiagnostics.AGENT_R0997({ message: "Forge baseUrl must be an instance URL without credentials, query, or fragment." })
+    let url: URL
     try {
-      const url = new URL(options.baseUrl || (options.forge === "gitlab" ? "https://gitlab.com" : "https://codeberg.org"))
-      if (url.username || url.password || url.search || url.hash) throw new Error("Invalid instance URL")
-      instance = url.href.replace(/\/+$/, "")
+      url = new URL(options.baseUrl || (options.forge === "gitlab" ? "https://gitlab.com" : "https://codeberg.org"))
     }
     catch {
-      throw agentDiagnostics.AGENT_R0997({ message: "Forge baseUrl must be an instance URL without credentials, query, or fragment." })
+      throw invalid()
     }
+    if (url.username || url.password || url.search || url.hash) throw invalid()
+    instance = url.href.replace(/\/+$/, "")
   }
   const events = channelEvents(options)
   const subscriptions = sorted(events.flatMap(event => [...nativeEvents[options.forge][event]]))
