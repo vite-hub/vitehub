@@ -1,4 +1,4 @@
-/** A value in `fields`. The server refuses objects and arrays. */
+/** A value in `fields`. An object or an array is dropped, and the event counts it in `browserError.droppedFields`. */
 export type BrowserReportField = string | number | boolean | null
 
 export interface BrowserReportOptions {

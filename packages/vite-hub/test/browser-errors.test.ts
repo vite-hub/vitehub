@@ -29,12 +29,18 @@ function post(body: unknown, headers: Record<string, string> = { origin, "sec-fe
 
 type Listener = (event: { error?: unknown, reason?: unknown, payload?: unknown }) => void
 
-/** Runs the page reporter as a browser would, with a fake `fetch`. */
-function runReporter(path = "/orders") {
+/** Session storage of one tab, kept across page loads. */
+function tabStorage() {
+  const items = new Map<string, string>()
+  return { getItem: (key: string) => items.get(key) ?? null, setItem: (key: string, value: string) => void items.set(key, value) }
+}
+
+/** Runs the page reporter as a browser would, with a fake `fetch`. Each call is one page load. */
+function runReporter(path = "/orders", sessionStorage: unknown = tabStorage()) {
   const listeners = new Map<string, Listener>()
   const fetch = vi.fn(async (_url: string, _init: RequestInit) => new Response(null, { status: 204 }))
-  const run = new Function("addEventListener", "fetch", "location", browserErrorsReporterSource(JSON.stringify("/api/_vitehub/browser-errors")))
-  run((name: string, listener: Listener) => listeners.set(name, listener), fetch, { pathname: path })
+  const run = new Function("addEventListener", "fetch", "location", "sessionStorage", browserErrorsReporterSource(JSON.stringify("/api/_vitehub/browser-errors")))
+  run((name: string, listener: Listener) => listeners.set(name, listener), fetch, { pathname: path }, sessionStorage)
   const bodies = () => fetch.mock.calls.map(([, init]) => JSON.parse(String(init.body)) as Record<string, unknown>)
   return { listeners, fetch, bodies }
 }
@@ -44,12 +50,13 @@ function runNuxtPlugin() {
   const hooks = new Map<string, (payload: unknown) => void>()
   const fetch = vi.fn(async (_url: string, _init: RequestInit) => new Response(null, { status: 204 }))
   const source = browserErrorsNuxtPluginSource().replace(/^import .*$/m, "").replace("export default", "return")
-  const plugin = new Function("defineNuxtPlugin", "useRuntimeConfig", "addEventListener", "fetch", "location", source)(
+  const plugin = new Function("defineNuxtPlugin", "useRuntimeConfig", "addEventListener", "fetch", "location", "sessionStorage", source)(
     (definition: unknown) => definition,
     () => ({ app: { baseURL: "/shop/" } }),
     () => {},
     fetch,
     { pathname: "/orders" },
+    tabStorage(),
   ) as { setup: (nuxtApp: { hook: (name: string, hook: (payload: unknown) => void) => void }) => void }
   plugin.setup({ hook: (name, hook) => hooks.set(name, hook) })
   const bodies = () => fetch.mock.calls.map(([, init]) => JSON.parse(String(init.body)) as Record<string, unknown>)
@@ -93,18 +100,30 @@ describe("browser error ingest", () => {
 
   it("logs an uncaught error at error level, whatever level the page sends", () => {
     expect(parseBrowserErrorReport({ ...report, level: "warn" })).toMatchObject({ kind: "error", level: "error" })
-    expect(parseBrowserErrorReport({ ...report, kind: "handled", level: "info" })).toBeUndefined()
+    expect(parseBrowserErrorReport({ ...report, kind: "handled", level: "info" })).toMatchObject({ kind: "handled", level: "error" })
   })
 
-  it("refuses fields that are nested, too many, or badly named", () => {
+  it("keeps the report and drops the fields that are nested, extra, or badly named", async () => {
     const handled = { ...report, kind: "handled" }
-    expect(parseBrowserErrorReport({ ...handled, fields: { order: { id: 1 } } })).toBeUndefined()
-    expect(parseBrowserErrorReport({ ...handled, fields: { ids: [1, 2] } })).toBeUndefined()
-    expect(parseBrowserErrorReport({ ...handled, fields: { status: Number.NaN } })).toBeUndefined()
-    expect(parseBrowserErrorReport({ ...handled, fields: ["status"] })).toBeUndefined()
-    expect(parseBrowserErrorReport({ ...handled, fields: { "bad key": 1 } })).toBeUndefined()
-    expect(parseBrowserErrorReport({ ...handled, fields: Object.fromEntries(Array.from({ length: 21 }, (_, index) => [`field${index}`, index])) })).toBeUndefined()
-    expect(parseBrowserErrorReport({ ...handled, action: 42 })).toBeUndefined()
+    const fields = (body: Record<string, unknown>) => {
+      const parsed = parseBrowserErrorReport(body)
+      return { fields: parsed?.fields, droppedFields: parsed?.droppedFields }
+    }
+    expect(fields({ ...handled, fields: { status: 503, order: { id: 1 }, ids: [1, 2], ratio: Number.NaN, "bad key": 1, [`k${"x".repeat(40)}`]: 1 } }))
+      .toEqual({ fields: { status: 503 }, droppedFields: 5 })
+    expect(fields({ ...handled, fields: Object.fromEntries(Array.from({ length: 22 }, (_, index) => [`field${index}`, index])) }))
+      .toEqual({ fields: Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`field${index}`, index])), droppedFields: 2 })
+    expect(fields({ ...handled, fields: ["status"] })).toEqual({ fields: undefined, droppedFields: 1 })
+    // The page counts what it dropped before sending.
+    expect(fields({ ...handled, fields: { status: 503 }, droppedFields: 2 })).toEqual({ fields: { status: 503 }, droppedFields: 2 })
+    expect(fields({ ...handled, droppedFields: -1 })).toEqual({ fields: undefined, droppedFields: undefined })
+    expect(parseBrowserErrorReport({ ...handled, action: 42 })).toMatchObject({ kind: "handled", message: "x is undefined" })
+    expect(parseBrowserErrorReport({ ...handled, action: 42 })?.action).toBeUndefined()
+
+    const error = vi.fn()
+    const response = await createBrowserErrorsHandler().fetch(post({ ...handled, fields: { status: 503, order: { id: 1 } } }, undefined, { error }))
+    expect(response.status).toBe(204)
+    expect(error.mock.calls[0]![1]).toEqual({ browserError: { kind: "handled", path: "/orders", level: "error", fields: { status: 503 }, droppedFields: 1 } })
   })
 
   it("cuts long field values and removes their queries", () => {
@@ -259,6 +278,25 @@ describe("browser error reporter", () => {
     nuxt.hooks.get("app:chunkError")!({ error: new Error("Unable to preload CSS for /assets/Cart.css") })
     expect(nuxt.bodies()).toMatchObject([{ kind: "chunk", message: "Unable to preload CSS for /assets/Cart.css" }])
   })
+
+  it("reports a missing chunk once per tab, not again on each reload", () => {
+    const storage = tabStorage()
+    const missing = () => new TypeError("Failed to fetch dynamically imported module: /assets/Cart.js")
+    const first = runReporter("/orders", storage)
+    first.listeners.get("vite:preloadError")!({ payload: missing() })
+    const reload = runReporter("/orders", storage)
+    reload.listeners.get("vite:preloadError")!({ payload: missing() })
+    reload.listeners.get("vite:preloadError")!({ payload: new TypeError("Failed to fetch dynamically imported module: /assets/Checkout.js") })
+    expect(first.fetch).toHaveBeenCalledOnce()
+    expect(reload.bodies()).toMatchObject([{ kind: "chunk", message: "Failed to fetch dynamically imported module: /assets/Checkout.js" }])
+  })
+
+  it("still reports a missing chunk when session storage throws", () => {
+    const blocked = { getItem: () => { throw new DOMException("denied", "SecurityError") }, setItem: () => { throw new DOMException("denied", "SecurityError") } }
+    const { listeners, fetch } = runReporter("/orders", blocked)
+    listeners.get("vite:preloadError")!({ payload: new TypeError("Failed to fetch dynamically imported module: /assets/Cart.js") })
+    expect(fetch).toHaveBeenCalledOnce()
+  })
 })
 
 describe("reportBrowserError", () => {
@@ -298,6 +336,18 @@ describe("reportBrowserError", () => {
     expect(fetch).toHaveBeenCalledTimes(3)
     for (let index = 0; index < 20; index++) reportBrowserError(new Error(`failure ${index}`))
     expect(fetch).toHaveBeenCalledTimes(10)
+  })
+
+  it("drops fields the server would refuse before sending, and counts them", () => {
+    const { bodies } = runReporter()
+    const fields = { status: 503, note: "n".repeat(500), order: { id: 1 }, "bad key": 1, ...Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`field${index}`, index])) }
+    // A page without TypeScript can pass any value.
+    Reflect.apply(reportBrowserError, undefined, [new Error("Could not save"), { action: "save-order", fields }])
+    const [body] = bodies()
+    expect(body!.fields).toEqual({ status: 503, note: "n".repeat(300), ...Object.fromEntries(Array.from({ length: 18 }, (_, index) => [`field${index}`, index])) })
+    // `order`, `bad key`, and the two fields after the 20th.
+    expect(body!.droppedFields).toBe(4)
+    expect(parseBrowserErrorReport(body)).toMatchObject({ fields: body!.fields, droppedFields: 4 })
   })
 
   it("skips an aborted request and never throws", () => {

@@ -30,6 +30,8 @@ export interface BrowserErrorReport {
   level: "error" | "warn"
   action?: string
   fields?: Record<string, BrowserReportField>
+  /** How many fields the page or the server dropped because they were nested, extra, or badly named. */
+  droppedFields?: number
   name: string
   message: string
   stack?: string
@@ -54,20 +56,30 @@ function isRecord(value: unknown): value is object {
 }
 
 /**
- * The fields of a report, each string cut to 300 characters. `null` when they are not at most 20 flat values with plain
- * names: a nested value would let a page write any shape into the event.
+ * The first 20 flat values with plain names, each string cut to 300 characters, and how many other entries it dropped.
+ * A nested value would let a page write any shape into the event. A bad entry does not drop the report: the page sends
+ * each error once, so a refused report is lost.
  */
-function parseFields(value: object): Record<string, BrowserReportField> | null {
-  const entries = Object.entries(value)
-  if (entries.length > maxFields) return null
+function parseFields(value: unknown): { fields: Record<string, BrowserReportField>, dropped: number } {
+  if (!isRecord(value)) return { fields: {}, dropped: value === undefined ? 0 : 1 }
   const fields: Record<string, BrowserReportField> = {}
-  for (const [name, field] of entries) {
-    if (!fieldName.test(name)) return null
-    if (typeof field === "string") fields[name] = cut(field, 300)
-    else if ((typeof field === "number" && Number.isFinite(field)) || typeof field === "boolean" || field === null) fields[name] = field
-    else return null
+  let kept = 0
+  let dropped = 0
+  for (const [name, field] of Object.entries(value)) {
+    const flat = typeof field === "string" || (typeof field === "number" && Number.isFinite(field)) || typeof field === "boolean" || field === null
+    if (kept >= maxFields || !fieldName.test(name) || !flat) {
+      dropped++
+      continue
+    }
+    fields[name] = typeof field === "string" ? cut(field, 300) : field
+    kept++
   }
-  return fields
+  return { fields, dropped }
+}
+
+/** The count of fields that the page dropped before it sent the report. */
+function pageDropped(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 1000 ? value : 0
 }
 
 /** The report in a request body, with each field cut to size. `undefined` when the body is not a report. */
@@ -77,22 +89,19 @@ export function parseBrowserErrorReport(body: unknown): BrowserErrorReport | und
   const path: unknown = Reflect.get(body, "path")
   const message = text(Reflect.get(body, "message"), 1000)
   if (typeof kind !== "string" || !kinds.has(kind) || typeof path !== "string" || !path.startsWith("/") || message === undefined) return undefined
-  const level: unknown = Reflect.get(body, "level")
-  if (level !== undefined && level !== "error" && level !== "warn") return undefined
-  const action: unknown = Reflect.get(body, "action")
-  if (action !== undefined && typeof action !== "string") return undefined
-  const rawFields: unknown = Reflect.get(body, "fields")
-  if (rawFields !== undefined && !isRecord(rawFields)) return undefined
-  const fields = rawFields === undefined ? undefined : parseFields(rawFields)
-  if (fields === null) return undefined
+  // A bad action, level, or field is ignored, never a reason to lose the report.
+  const action = text(Reflect.get(body, "action"), 100)
+  const { fields, dropped } = parseFields(Reflect.get(body, "fields"))
+  const droppedFields = dropped + pageDropped(Reflect.get(body, "droppedFields"))
   const stack = text(Reflect.get(body, "stack"), 4000)
   return {
     kind,
     path: path.split(/[?#]/, 1)[0]!.slice(0, 300),
     // An uncaught error is always an error, whatever the page says.
-    level: kind === "handled" && level === "warn" ? "warn" : "error",
-    ...(action ? { action: cut(action, 100) } : {}),
-    ...(fields && Object.keys(fields).length > 0 ? { fields } : {}),
+    level: kind === "handled" && Reflect.get(body, "level") === "warn" ? "warn" : "error",
+    ...(action ? { action } : {}),
+    ...(Object.keys(fields).length > 0 ? { fields } : {}),
+    ...(droppedFields > 0 ? { droppedFields } : {}),
     name: text(Reflect.get(body, "name"), 120) || "Error",
     message,
     ...(stack ? { stack } : {}),
@@ -136,14 +145,14 @@ function minuteLimit(now: () => number): (key: string) => number | undefined {
  * of the app's Evlog setup, next to the server's own events. Without Evlog, the server console gets it.
  */
 function logReport(request: Request, report: BrowserErrorReport): void {
-  const { kind, path, level, action, fields, name, message, stack } = report
+  const { kind, path, level, action, fields, droppedFields, name, message, stack } = report
   const log = requestLog(request)
   if (!log) {
     if (level === "warn") console.warn("[vitehub] Browser warning", report)
     else console.error("[vitehub] Browser error", report)
     return
   }
-  const browserError = { kind, path, level, ...(action ? { action } : {}), ...(fields ? { fields } : {}) }
+  const browserError = { kind, path, level, ...(action ? { action } : {}), ...(fields ? { fields } : {}), ...(droppedFields ? { droppedFields } : {}) }
   if (level === "warn") {
     log.warn(message, { browserError })
     return
