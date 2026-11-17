@@ -448,6 +448,7 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-settings-value.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/client/auth-management.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/client/add-primitive.ts", to: "dist/console/runtime/client" },
+        { from: "src/console/runtime/client/command-search.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/components/console-add-primitive.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/client/app-identity.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/client/sidebar.ts", to: "dist/console/runtime/client" },
