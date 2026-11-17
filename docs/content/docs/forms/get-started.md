@@ -15,8 +15,8 @@ You need a ViteHub app from [Installation](/docs/getting-started/installation). 
 Install Forms, Valibot, and the Database packages that store the messages:
 
 ```bash [commands/install]
-pnpm add @vite-hub/forms valibot @vite-hub/database drizzle-orm
-pnpm add -D drizzle-kit
+pnpm add @vite-hub/forms valibot @vite-hub/database drizzle-orm@1.0.0-rc.5
+pnpm add -D drizzle-kit@1.0.0-rc.5
 ```
 
 ::
