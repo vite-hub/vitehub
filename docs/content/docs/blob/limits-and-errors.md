@@ -26,6 +26,22 @@ export default defineEventHandler(async () => {
 
 `JSON.stringify(error)` includes only `name`, `code`, `why`, `fix`, and `docs`. It does not include `cause` or `stack`, because provider errors can contain credentials or private data.
 
+## See cache failures in logs
+
+Some Blob failures do not fail the operation: a cache read or write, the cleanup of derived files, a media record write, and the metadata and hash files of the `fs` driver. With the evlog Nitro module, added through `vitehub({ observability })` or by hand, Blob logs each one with a `blob` field:
+
+```json
+{ "level": "warn", "blob": { "op": "transform-cache-write", "store": "photos", "driver": "cloudflare", "code": "ECONNRESET" } }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `op` | `transform-cache-read`, `transform-cache-write`, `derived-cache-cleanup`, `media-record-write`, `fs-hash-cache-write`, or `fs-metadata-rekey`. |
+| `store`, `driver` | The store and its driver. The `fs` driver operations have no store. |
+| `code` | The `code` of the error, such as `ENOSPC`, else its class name. |
+
+A failure in `serve()` goes on the wide event of its request. Other failures do not know their request, so each one is its own evlog event, `{ action: "blob", message, blob }`. The fields never hold a pathname or file contents. Without evlog, Blob prints the failure to the server console.
+
 ## Limits
 
 ViteHub checks these host limits before the provider sees the request:
