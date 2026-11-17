@@ -365,7 +365,18 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // Without an `app.vue` of its own, the app is the docs site: the docs `app.vue` draws the site header, search, and
     // head on every page. An app with its own `app.vue` keeps it, and the docs layouts draw them on docs pages only.
     const ownsApp = !hasAppComponent(nuxt.options._layers.map(layer => layer.config.srcDir), nuxt.options.extensions)
-    nuxt.options.alias["#docs/shell"] = addTemplate({ filename: "docs/shell.mjs", write: true, getContents: () => `export const ownsApp = ${ownsApp}\n` }).dst
+    // `nuxi build` and `nuxi dev` write the types before the templates, so Nuxt finds no `.d.mts` beside a `#docs/*`
+    // template then, and a site's typecheck reads the module's JavaScript.
+    nuxt.hook("prepare:types", ({ tsConfig, sharedTsConfig, serverTsConfig }) => {
+      const templates = new Set(nuxt.options.build.templates.map(template => template.dst))
+      for (const paths of [tsConfig, sharedTsConfig, serverTsConfig].map(config => config?.compilerOptions?.paths)) {
+        for (const [alias, target] of Object.entries(nuxt.options.alias)) {
+          const declaration = target.replace(/\.mjs$/, ".d.mts")
+          if (paths?.[alias] && alias.startsWith("#docs/") && templates.has(declaration)) paths[alias] = [declaration]
+        }
+      }
+    })
+    nuxt.options.alias["#docs/shell"] =addTemplate({ filename: "docs/shell.mjs", write: true, getContents: () => `export const ownsApp = ${ownsApp}\n` }).dst
     addTemplate({ filename: "docs/shell.d.mts", write: true, getContents: () => "export declare const ownsApp: boolean\n" })
     // comark-ui's blocks add their styles when they mount. The page links them instead, so the first paint, before the
     // app hydrates, shows no raw blocks, such as an anchor's screen reader text or a tab row as plain text, and nothing
@@ -1015,13 +1026,16 @@ function docsLogo(logo: DocsSiteOptions["logo"], appBase: string): DocsLogo | nu
   return { src: docsAppPath(logo.light, appBase), dark: logo.dark ? docsAppPath(logo.dark, appBase) : null, mask: false }
 }
 
+// The icon plugin sets `icon.customize`. Nuxt types the app config from its values, and a function is not one of them.
 const docsRuntimeConfigTypes = `import type { DocsPublicConfig } from "@vite-hub/docs"
 
 declare module "nuxt/schema" {
   interface PublicRuntimeConfig { docs: DocsPublicConfig }
+  interface CustomAppConfig { icon?: { customize?: (content: string, name?: string, prefix?: string) => string } }
 }
 declare module "@nuxt/schema" {
   interface PublicRuntimeConfig { docs: DocsPublicConfig }
+  interface CustomAppConfig { icon?: { customize?: (content: string, name?: string, prefix?: string) => string } }
 }
 
 export {}

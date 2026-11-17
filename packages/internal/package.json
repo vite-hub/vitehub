@@ -163,6 +163,11 @@
       "import": "./dist/provision-state.js",
       "default": "./dist/provision-state.js"
     },
+    "./process-sweep": {
+      "types": "./dist/process-sweep.d.ts",
+      "import": "./dist/process-sweep.js",
+      "default": "./dist/process-sweep.js"
+    },
     "./systemd": {
       "types": "./dist/systemd.d.ts",
       "import": "./dist/systemd.js",

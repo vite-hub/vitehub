@@ -216,8 +216,8 @@ describe("teams() send", () => {
 
   it("rejects replace with the idempotency key of the same send or without one", async () => {
     const { adapter, connector } = await setup()
-    await expect(connector.send("x", { recipient: channel, idempotencyKey: "same", replace: "same" })).rejects.toThrow(TypeError)
-    await expect(connector.send("x", { recipient: channel, replace: "earlier" })).rejects.toThrow(TypeError)
+    await expect(connector.send("x", { recipient: channel, idempotencyKey: "same", replace: "same" })).rejects.toMatchObject({ code: "AGENT_CONNECTOR_REPLACE_INVALID" })
+    await expect(connector.send("x", { recipient: channel, replace: "earlier" })).rejects.toMatchObject({ code: "AGENT_CONNECTOR_REPLACE_INVALID" })
     expect(adapter.postMessage).not.toHaveBeenCalled()
   })
 
