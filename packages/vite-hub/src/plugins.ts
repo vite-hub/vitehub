@@ -534,12 +534,12 @@ export interface ViteHubOptions {
    * `{ auth: false }` takes calls without a signature, for development only.
    */
   console?: boolean | ConsoleOptions
-  /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   /**
    * Writes a bundle report of each production build to `.vitehub/bundle/`: client and server size, the code that loads
    * at startup, and why each package is there. Read it with `vitehub bundle`. Off by default.
    */
   bundle?: boolean
+  /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   database?: boolean | DatabaseOptions
   email?: boolean | EmailOptions
   /**
@@ -572,7 +572,7 @@ export interface ViteHubOptions {
   observability?: boolean | ObservabilityOptions
   /**
    * Queue Definitions in `server/queues/`. On Node, `true` uses Postgres with a Postgres Default Database, else local
-   * files. An object sets Queue options, such as `cache`, or selects the Node provider with `provider`.
+   * files. An object sets Queue options, such as `cache`, or selects the Node driver with `driver`.
    */
   queue?: boolean | QueueOptions
   /**
@@ -893,10 +893,18 @@ function assertNodeScheduleWake(schedule: ViteHubOptions["schedule"]): void {
   throw viteHubErrorDiagnostics.VITE_HUB_R0137({ message: "[vitehub] The \"node\" host has no cron, so this build would never run its Schedules. Set schedule: { runtime: { driver: \"process\" }, providerOutput: \"auto\" } to run them in the server process, or schedule: { providerOutput: false } to wake them yourself." })
 }
 
-function hostDriverOptions<T extends { driver?: unknown }>(options: object | undefined, inferred: T): Partial<T> {
-  // Leave old-key-only configs for the owner's migration diagnostic before a host driver can hide them.
-  if (options && Reflect.get(options, "driver") === undefined && Object.hasOwn(options, "provider")) return {}
-  return inferred
+/**
+ * Rejects the former `provider` key of the features whose driver `vitehub()` picks from the host. The host checks run
+ * before the owner packages read their options, so without this check a host that has no such service would stop with
+ * a host error, and a host that has one would hide the old key.
+ */
+function assertNoProviderKey(options: ViteHubOptions): void {
+  for (const key of ["queue", "rateLimit", "sandboxTask"] as const) {
+    const feature: unknown = options[key]
+    if (!feature || typeof feature !== "object" || Reflect.get(feature, "driver") !== undefined || !Object.hasOwn(feature, "provider")) continue
+    const provider: unknown = Reflect.get(feature, "provider")
+    throw viteHubErrorDiagnostics.VITE_HUB_RENAMED_PROVIDER_KEY({ key, value: JSON.stringify(provider) ?? String(provider) })
+  }
 }
 
 /**
@@ -1034,7 +1042,7 @@ function deploymentPlugins(
             const namePrefix = configuredQueue && "namePrefix" in configuredQueue ? configuredQueue.namePrefix : undefined
             setResolvedFeatureOptions(config, "queue", {
               ...configuredQueue,
-              ...hostDriverOptions(configuredQueue, { driver }),
+              driver,
               ...(driver === "cloudflare" && namePrefix === undefined ? { namePrefix: `${name}-` } : {}),
             })
           }
@@ -1046,7 +1054,7 @@ function deploymentPlugins(
               namespace: name,
               // Cloudflare Rate Limit bindings exist only in the built wrangler.json, so the dev server keeps the owner
               // default for `serve`: one in-memory limiter.
-              ...hostDriverOptions(rateLimitOptions, building ? buildRateLimitDriver(plan, options) : { driver: "memory" }),
+              ...building ? buildRateLimitDriver(plan, options) : { driver: "memory" },
             })
           }
           if (requestedServices.includes("sandbox") && plan.services.sandbox.supported) {
@@ -1057,7 +1065,7 @@ function deploymentPlugins(
               ...(plan.services.sandbox.driver === "cloudflare" && configuredSandboxName === undefined
                 ? { name: cloudflareResourceScope(name) + "-sandbox" }
                 : {}),
-              ...hostDriverOptions(configuredSandboxTask, { driver: plan.services.sandbox.driver }),
+              driver: plan.services.sandbox.driver,
             })
           }
           let nitro = cloneRecord((config as { nitro?: unknown }).nitro)
@@ -1128,7 +1136,9 @@ function deploymentPlugins(
                 conditions: [],
                 define: {},
                 extensions: [],
-                hasScheduleIntegration: false,
+                // Nuxt does not run the deployment output plugin's configResolved hook, so read the plugins here.
+                hasScheduleIntegration: (config.plugins as readonly unknown[] | undefined)?.flat(Infinity)
+                  .some(plugin => isRecord(plugin) && plugin.name === "@vite-hub/schedule/vite") ?? false,
                 mainFields: [],
                 preserveSymlinks: false,
               },
@@ -1406,6 +1416,7 @@ function doctorPlugin(): Plugin {
 /** Builds the ViteHub plugin list for one resolved feature configuration. */
 function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires an options object." })
+  assertNoProviderKey(options)
   const host = resolveBuildHost(options.host)
   // Keep `false`: it turns the Console off, and unset keeps the development operation RPC.
   options = withConnectionsDatabase(withDataDir({ ...options, host, console: options.console === false ? false : resolveConsoleOptions(options.console) }))
@@ -1416,7 +1427,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   // the one enabled by Connections) are provisioned and bound like explicit
   // D1 configurations.
   if (plan.host === "cloudflare" && options.database === true) options = { ...options, database: { driver: "cloudflare" } }
-  assertFeatureSupported("schedule", plan.host, options)
   if (options.agent && options.agent !== true && options.agent.runtime === "deno" && plan.host === "deno") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0087({ message: "[vitehub] The \"deno\" host cannot deploy the Agent Deno runtime because its generated server is outside the deployed Nitro entrypoint. Use the host's Nitro runtime or compose an explicit Deno Agent deployment." })
   }
@@ -1657,7 +1667,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (sandboxTaskEnabled) {
     const sandboxTaskPluginOptions = {
       ...options.sandboxTask === true ? {} : options.sandboxTask,
-      ...hostDriverOptions(options.sandboxTask && options.sandboxTask !== true ? options.sandboxTask : undefined, { driver: sandboxTaskDriver }),
+      driver: sandboxTaskDriver,
       providerImportAliases,
       providerImportSpecifier: "vite-hub/sandbox/task",
     }
@@ -1724,7 +1734,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.queue && plan.services.queue.supported) {
     const driver = configuredQueue?.driver ?? (plan.host === "node" ? undefined : plan.services.queue.driver)
     // SAFETY: The driver is the host's Queue driver or the app's own `queue.driver`.
-    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ ...configuredQueue, ...hostDriverOptions(configuredQueue, driver ? { driver } : {}) } as QueueOptions, { databaseImport: "vite-hub/database/drizzle", importBase: "vite-hub/queue" })))
+    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ ...configuredQueue, ...(driver ? { driver } : {}) } as QueueOptions, { databaseImport: "vite-hub/database/drizzle", importBase: "vite-hub/queue" })))
   }
   if (options.i18n) {
     // SAFETY: ViteHub adds the public import path of its re-exports to the public i18n options.
@@ -1748,7 +1758,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     // SAFETY: ViteHub adds its KV re-export path to the public Rate Limit options for generated imports.
     plugins.push(afterApplicationConfig(requireOptionalOwner(rateLimitVite, "rateLimit").hubRateLimit({
       ...(options.rateLimit === true ? {} : options.rateLimit),
-      ...hostDriverOptions(options.rateLimit === true ? undefined : options.rateLimit, buildRateLimitDriver(plan, options)),
+      ...buildRateLimitDriver(plan, options),
       kvImport: "vite-hub/kv",
     } as RateLimitOptions & { kvImport: string })))
   }
@@ -1805,7 +1815,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   if (options.schedule) {
     plugins.push(requireOptionalOwner(ownerModules.scheduleVite, "schedule").hubSchedule({
-      ...(plan.host === "vercel" ? { providerOutput: "standalone" as const } : {}),
+      // Vercel cron jobs and Deno.cron call entries outside the Nitro server.
+      ...(plan.host === "vercel" || plan.host === "deno" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
       databaseImport: "@vite-hub/database",
       importBase: "vite-hub/schedule",
