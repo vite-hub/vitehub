@@ -142,14 +142,51 @@ describe("Rate Limit declarations", () => {
     const imported = 'import { requireRateLimit } from "@vite-hub/rate-limit"\n'
     expect(() => extractRateLimitDeclarations("args.ts", `${imported}requireRateLimit(event, "uploads")`))
       .toThrow("requires an event, a stable ID, and a static options object")
-    expect(() => extractRateLimitDeclarations("dynamic.ts", `${imported}const limit = 1\nrequireRateLimit(event, "uploads", { limit, window: "1m" })`))
+    expect(() => extractRateLimitDeclarations("dynamic.ts", `${imported}let limit = 1\nrequireRateLimit(event, "uploads", { limit, window: "1m" })`))
       .toThrow('option "limit" must be a static literal')
-    expect(() => extractRateLimitDeclarations("id.ts", `${imported}const id = "uploads"\nrequireRateLimit(event, id, { limit: 1, window: "1m" })`))
+    expect(() => extractRateLimitDeclarations("computed.ts", `${imported}const limit = base * 2\nrequireRateLimit(event, "uploads", { limit, window: "1m" })`))
+      .toThrow('option "limit" must be a static literal')
+    expect(() => extractRateLimitDeclarations("id.ts", `${imported}let id = "uploads"\nrequireRateLimit(event, id, { limit: 1, window: "1m" })`))
       .toThrow("non-empty static string ID")
     expect(() => extractRateLimitDeclarations("spread.ts", `${imported}requireRateLimit(event, "uploads", { ...policy, key })`))
       .toThrow("cannot use object spreads")
     expect(() => extractRateLimitDeclarations("unknown.ts", `${imported}requireRateLimit(event, "uploads", { limit: 1, route: "/", window: "1m" })`))
       .toThrow('does not support the "route" option')
+  })
+
+  it("reads a const with a literal value in the same file", () => {
+    const source = [
+      'import { checkRateLimit } from "vite-hub/rate-limit"',
+      "export const PUBLISH_BURST = 30",
+      'const WINDOW = "1m" as const',
+      'const ID = "file-upload"',
+      "export async function publishBurst(event, ownerId) {",
+      "  return await checkRateLimit(event, ID, { key: ownerId, limit: PUBLISH_BURST, window: WINDOW })",
+      "}",
+    ].join("\n")
+
+    expect(extractRateLimitDeclarations("/project/server/utils/publish-burst.ts", source)).toMatchObject([{
+      name: "file-upload",
+      policy: { limit: 30, window: "1m" },
+    }])
+  })
+
+  it("reads the nearest const and not a binding that shadows it", () => {
+    const imported = 'import { requireRateLimit } from "@vite-hub/rate-limit"\n'
+    const local = `${imported}const LIMIT = 5\nexport async function route(event) {\n  const LIMIT = 10\n  await requireRateLimit(event, "search", { limit: LIMIT, window: "1m" })\n}`
+    expect(extractRateLimitDeclarations("local.ts", local)).toMatchObject([{ policy: { limit: 10 } }])
+    const parameter = `${imported}const LIMIT = 5\nexport async function route(event, LIMIT) {\n  await requireRateLimit(event, "search", { limit: LIMIT, window: "1m" })\n}`
+    expect(() => extractRateLimitDeclarations("parameter.ts", parameter)).toThrow('option "limit" must be a static literal')
+  })
+
+  it("reads message and code of requireRateLimit() as runtime values", () => {
+    const source = [
+      'import { checkRateLimit, requireRateLimit } from "@vite-hub/rate-limit"',
+      'requireRateLimit(event, "sync", { code: t.code, key, limit: 3, message: t("tooManyTries"), window: "1m" })',
+    ].join("\n")
+    expect(extractRateLimitDeclarations("worded.ts", source)).toMatchObject([{ name: "sync", policy: { limit: 3, window: "1m" } }])
+    expect(() => extractRateLimitDeclarations("check.ts", 'import { checkRateLimit } from "@vite-hub/rate-limit"\ncheckRateLimit(event, "sync", { limit: 3, message: "Slow down.", window: "1m" })'))
+      .toThrow('does not support the "message" option')
   })
 
   it("unwraps transparent TypeScript assertions", () => {

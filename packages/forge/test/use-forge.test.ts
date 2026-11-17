@@ -131,6 +131,18 @@ describe("useForge() with a GitHub App", () => {
     expect(github.count("GET", "/repos/acme/web/installation")).toBe(0)
   })
 
+  it("uses the installation of the call before the routing, and mints a token that lasts minLifetime", async () => {
+    const forge = useForge({ baseUrl: github.url, env: appEnv({ VITEHUB_GITHUB_INSTALLATION_ID: "7", VITEHUB_GITHUB_APP_OWNER: "acme" }) })
+
+    // A webhook delivery names its installation, so no lookup and no routing.
+    await expect(forge.token({ repository: "acme/web", installation: 55 })).resolves.toMatchObject([undefined, { token: "ghs_55_1" }])
+    await expect(forge.token({ installation: 55, minLifetime: 30 * 60_000 })).resolves.toMatchObject([undefined, { token: "ghs_55_1" }])
+    // The cached token expires within the hour, so a two-hour lifetime mints a new one.
+    await expect(forge.token({ installation: 55, minLifetime: 2 * 3_600_000 })).resolves.toMatchObject([undefined, { token: "ghs_55_2" }])
+    expect(github.count("GET", "/repos/acme/web/installation")).toBe(0)
+    expect(github.count("POST", "/app/installations/7/access_tokens")).toBe(0)
+  })
+
   it("routes each repository owner to its installation", async () => {
     github.installations.set("third/app", 11)
     const forge = useForge({

@@ -6,11 +6,9 @@ import type { EventHandler, EventHandlerRequest } from "nitro/h3"
 import { docsAppPath } from "../../navigation.ts"
 import { docsContent } from "../content.ts"
 
-import type { DocsPublicConfig } from "../../nuxt.ts"
-
 /** The indexed pages from Content and the `sitemap` paths of the options, sorted by URL. */
 const handler: EventHandler<EventHandlerRequest, Promise<string>> = defineHandler(async (event) => {
-  const { site, sitemap, appBase } = useRuntimeConfig().public.docs as DocsPublicConfig
+  const { site, sitemap, appBase } = useRuntimeConfig().public.docs
   const origin = site.url || event.url.origin
   const entries = await docsContent().sitemap({ site: `${origin}${appBase.replace(/\/+$/, "")}` })
   const extra = sitemap.map(path => ({ loc: `${origin}${docsAppPath(path, appBase)}` }))
