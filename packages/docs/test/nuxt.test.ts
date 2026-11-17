@@ -823,12 +823,15 @@ describe("docs Nuxt setup", () => {
     expect(routes.some(path => path.startsWith("/portal"))).toBe(false)
     expect(handlers.map(handler => handler.route)).toEqual([
       "/api/_docs/page/**", "/api/_docs/search.json", "/sitemap.xml",
+      // The trailing-slash redirect: middleware, with no route.
+      undefined,
       "/llms.txt", "/llms-full.txt", "/sitemap.md",
       "/llms.txt", "/llms-full.txt", "/sitemap.md",
       "/mcp",
       // The Markdown copies of app pages: middleware, with no route.
       undefined,
     ])
+    expect(handlers[3]).toMatchObject({ middleware: true, handler: expect.stringMatching(/runtime\/server\/trailing-slash\.js$/) })
     expect(handlers.at(-1)).toMatchObject({ middleware: true, handler: expect.stringMatching(/runtime\/server\/markdown\.js$/) })
     // Nitro gets the raw route directly, so nuxt-agent-discovery still lets the build prerender the copies.
     expect((nitro as { handlers?: Array<{ route: string, method: string }> }).handlers?.map(handler => [handler.route, handler.method])).toEqual([["/raw/**", "get"], ["/raw/**", "head"]])
