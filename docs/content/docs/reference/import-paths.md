@@ -163,6 +163,9 @@ the same behavior.
 | `vite-hub/ui/theme` and `vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the design tokens and focus ring. |
 | `vite-hub/ui/vite` | Register the canonical UI package for Vue with Vite. In Nuxt, `vite-hub/nuxt` adds the UI runtime. |
 | `vite-hub/tsconfig` | TypeScript config that includes ViteHub's generated declaration entry without taking ownership of application source includes. |
+| `vite-hub/webhooks` | `defineWebhook()` for `server/webhooks/<name>.ts` and `sendWebhook()`: send events to a URL outside the app, signed, retried, and debounced. Needs `queue` and `database`. Re-exports `@vite-hub/webhooks`. |
+| `vite-hub/webhooks/database` | The `vitehub_webhook_deliveries` table and `createDrizzleWebhookStore()`. Re-exports `@vite-hub/webhooks/database`. |
+| `vite-hub/webhooks/runtime` | List, flush, cancel, and redeliver webhook deliveries from server code. Re-exports `@vite-hub/webhooks/runtime`. |
 | `vite-hub/workflow` | Workflow Definitions and run helpers. |
 | `vite-hub/workflow/openworkflow` | `startOpenWorkflowWorker()` and `createOpenWorkflowWorker()` for a separate OpenWorkflow worker process. Node servers start a worker automatically. |
 | `vite-hub/workspace` and `vite-hub/workspace/runtime` | Workspace Definitions, Sources, history contracts, runtime facades, and registry APIs. |
@@ -219,6 +222,7 @@ These paths have no `vite-hub` path:
 | `@vite-hub/realtime/vite` | Realtime discovery and generated runtime wiring. |
 | `@vite-hub/sandbox/task/vite` | The Sandbox Task Vite plugin. |
 | `@vite-hub/schedule/vite` | The Schedule Vite plugin. |
+| `@vite-hub/webhooks/vite` | Discovers `server/webhooks/`, contributes the `vitehub-webhooks` Queue and the deliveries table, and writes the webhook name types. |
 | `@vite-hub/workflow/vite` | The Workflow Vite plugin. |
 | `@vite-hub/workspace/vite` | The Workspace Vite plugin. |
 

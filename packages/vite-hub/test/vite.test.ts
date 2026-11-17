@@ -735,6 +735,7 @@ describe("vitehub", () => {
       "@vite-hub/forms/vite",
       "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
+      "@vite-hub/webhooks/vite",
       "vite-hub/optional-owner-imports",
       "vite-hub/task",
       "vite-hub/skills",
@@ -802,6 +803,7 @@ describe("vitehub", () => {
       "@vite-hub/forms/vite",
       "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
+      "@vite-hub/webhooks/vite",
       "vite-hub/optional-owner-imports",
       "vite-hub/task",
       "vite-hub/skills",
@@ -880,7 +882,7 @@ describe("vitehub", () => {
       providerImportSpecifier: "vite-hub/sandbox/task",
     })
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith({
-      databaseImport: "@vite-hub/database/runtime/registry",
+      databaseImport: "@vite-hub/database",
       importBase: "vite-hub/schedule",
       providerImportAliases: {
         "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-redis-driver\.(?:ts|js)$/),

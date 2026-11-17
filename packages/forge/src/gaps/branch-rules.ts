@@ -4,8 +4,10 @@ import { forgeDiagnostics } from "../error-diagnostics.ts"
 import { forgeErrorStatus } from "../provider.ts"
 import { isRecord, repositoryPath } from "./github.ts"
 
-// Gap: forges `BranchRules` has no required workflows, ruleset merge methods or classic protection source.
-// Gap: forges `repos.branchRules()` rejects when GitHub refuses rulesets to a private repository on a plan without them.
+// Gap: forges `BranchRules` has no required workflows, ruleset merge methods or classic protection source
+// (https://github.com/danielroe/forges/issues/294).
+// Gap: forges `repos.branchRules()` rejects when GitHub refuses rulesets to a private repository on a plan without them
+// (https://github.com/danielroe/forges/issues/293).
 
 /** What GitHub branch rules ask for beyond `BranchRules` from `provider.repos.branchRules()`. */
 export interface GitHubBranchRuleDetails {

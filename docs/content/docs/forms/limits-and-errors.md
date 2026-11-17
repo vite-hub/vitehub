@@ -40,7 +40,7 @@ A build has forms that store messages, but the app has no Database, so the messa
 
 ### FORMS_R0001
 
-The Database could not read or write a message. Most often the table is missing: run `vitehub database generate` and `vitehub database migrate`.
+The Database could not read or write a message. Read `error.cause` for the Database error. A missing table has its own code, `FORMS_TABLES_MISSING`.
 
 ### FORMS_R0002
 

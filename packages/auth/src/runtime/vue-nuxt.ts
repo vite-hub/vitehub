@@ -177,7 +177,7 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
     // On the server, one resolver serves all requests. It finds the read of the request through the request's Nuxt app.
     setSessionSeedResolver((read) => {
       if (stale) return undefined
-      // Read the state directly: on Nuxt 5, `runWithContext()` returns a Promise even for a sync callback.
+      // Read the state directly: on the server, `runWithContext()` returns a Promise even for a sync callback.
       // Outside a Nuxt context, such as module scope, the session is unknown.
       try {
         const app = read ? tryUseNuxtApp() as NuxtApp | undefined : undefined

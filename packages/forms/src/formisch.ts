@@ -51,6 +51,7 @@ export function useFormSubmit<TSchema extends FormSchema>(name: string, form: Fo
     // Move focus to the first field with a server issue, as Formisch does for its own validation.
     const first = failure.issues.find(issue => issue.path.length)
     // After the render, so the field already points to its error through `aria-describedby` when focus reads it.
+    // Formisch's own focus in Vue runs before that render (https://github.com/open-circle/formisch/issues/271).
     if (first) {
       await nextTick()
       ;(focus as (form: FormStore<TSchema>, config: { path: (string | number)[] }) => void)(form, { path: first.path })
