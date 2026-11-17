@@ -13,6 +13,7 @@ icon: i-lucide-circle-alert
 - To cancel a run, pass an `AbortSignal` to `runSandboxTask()`. Cancellation stops provider work that can stop and keeps your abort reason. The task timeout still applies to each attempt on its own.
 - Vercel closes each Sandbox session after success or failure. Cloudflare creates and closes a new Sandbox for each run unless you set `sandboxId`.
 - A Cloudflare `sandboxId` shares one Sandbox. ViteHub deletes the run's files after each attempt, caches prepared projects by digest, and runs calls with the same ID one at a time in one isolate. Separate Worker isolates can still enter the Sandbox at the same time.
+- ViteHub does not stop a shared Sandbox. After a success, a failure, a timeout, or an abort, the Sandbox stays until it is idle for `sleepAfter`. A timeout or an abort stops only the command of that run, so other runs in the Sandbox continue. A new run does not delete the files that other runs keep in `HOME` or `/workspace`.
 
 ## SANDBOX_R0165
 
@@ -35,6 +36,8 @@ To read the full details on the server, call `resolveSandboxTaskRunner(name).run
 The Cloudflare runtime retries only requests that are safe to repeat: session cleanup, file reads, full file writes, file deletes, file listing, and recursive directory creation. It retries when Cloudflare marks the error `retryable`. With no flag, it retries temporary failures, such as a Container that is still starting. It does not retry when the Durable Object is `overloaded` or the error has `retryable: false`, even during Container startup.
 
 The runtime does not retry `session.exec()`, a new process, a file move, or a port exposure once the request can reach the Container. If the response is lost, the command may have run, and a retry could run it twice. A Container that is still starting never got the command, so ViteHub retries that case. The error keeps the Cloudflare flag in `error.data.retryable` and the original error in `error.cause`. Retry yourself only when running twice is safe.
+
+`runSandboxTask()` on Cloudflare follows the same rule for the whole run. A failed run starts again in a new Sandbox only until the package install, the project setup, or the handler command can reach the Container. After a command starts, the Task does not start again. The transport can retry an individual command on a cold start without repeating earlier commands. Handler errors never start the Task again.
 
 ## Production checks
 
