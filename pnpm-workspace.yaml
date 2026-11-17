@@ -84,6 +84,8 @@ catalogs:
     "@libsql/client": ^0.18.0
     "@sqlite.org/sqlite-wasm": 3.53.0-build1
     "@types/pg": ^8.15.0
+    # Exact versions: a range such as ^1.0.0-rc.5 installs the older branch build 1.0.0-rc.5-ab785fc
+    # (https://github.com/drizzle-team/drizzle-orm/issues/6694).
     drizzle-kit: 1.0.0-rc.5
     drizzle-orm: 1.0.0-rc.5
     pg: ^8.16.0
@@ -243,11 +245,15 @@ catalogs:
     tinyglobby: ^0.2.17
 
 overrides:
+  # micromark 4.0.3 parses block quotes and nested lists in quadratic time.
+  # Remove when micromark releases a fix (https://github.com/micromark/micromark/issues/246).
   "mdast-util-from-markdown>micromark": 4.0.2
   "@vercel/blob>undici": ^6.29.1
   "@voidzero-dev/vite-plus-core": 0.3.3
   "ai@>=7.0.0 <8.0.0": 7.0.130
   "glob": ^13.0.6
+  # git-up 8.1.1 still uses parse-url 9, which depends on the deprecated @types/parse-path stub.
+  # Remove when git-up releases its parse-url update (https://github.com/IonicaBizau/git-up/pull/48).
   "parse-url>@types/parse-path": "-"
   "uuid": ^11.1.0
   vite: npm:@voidzero-dev/vite-plus-core@0.3.3
@@ -255,17 +261,27 @@ overrides:
   workflow: catalog:workflow
 
 patchedDependencies:
+  # @netlify/blobs reads NODE_ENV when Deno imports it, so a Deno app without --allow-env throws.
+  # Remove when @netlify/blobs releases a fix (https://github.com/netlify/primitives/issues/858).
   "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
   # web.css rules for InputGroup, Timeline, Waterfall, SelectLabel and the NumberInput scrub area, plus --ui-ring-width,
-  # --ui-ring-offset and --ui-radius-popup. To send upstream; the kit build inlines the patched web.css.
+  # --ui-ring-offset and --ui-radius-popup. The kit build inlines the patched web.css.
   # Also 21 core bug fixes and 5 Vue bug fixes, each on its own onmax/ui-sdk branch (listed in #4571 and #4598).
+  # Upstream issues: vercel-labs/ui#716 to #732 (https://github.com/vercel-labs/ui/issues/716). The checkPattern fix
+  # (https://github.com/vercel-labs/ui/pull/635) is in 0.1.0-beta.6, the fixes for #716 and #717 are in beta.7, and
+  # fixes for several others are merged but not released. Remove each hunk when the kit moves to a release with its fix.
   "@ui-sdk/core@0.1.0-beta.5": patches/@ui-sdk__core@0.1.0-beta.5.patch
   "@ui-sdk/vue@0.1.0-beta.5": patches/@ui-sdk__vue@0.1.0-beta.5.patch
   "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
   # Cloudflare dev (Nitro 3 `miniflare` runner) served `require("*.json")` as CommonJS, so workerd failed to parse it
   # and @nuxt/icon's dev server bundle returned 500. The patch serves .json files as JSON modules. Remove it when an
-  # env-runner release fixes unjs/env-runner#110 (https://github.com/unjs/env-runner/issues/110) and Nitro uses it.
+  # env-runner release has the fix (https://github.com/unjs/env-runner/pull/111, for unjs/env-runner#110) and Nitro
+  # uses it.
   env-runner@0.3.11: patches/env-runner@0.3.11.patch
+  # On Cloudflare, the Worker runs first for prerendered pages, so Markdown negotiation works.
+  # Remove when nuxt-agent-discovery releases https://github.com/benjamincanac/nuxt-agent-discovery/pull/65.
   nuxt-agent-discovery@0.8.2: patches/nuxt-agent-discovery@0.8.2.patch
-  # Workers builds resolve the `workerd` condition, which 5.0.1 lacks (crouchcd/pkce-challenge#50, merged, unreleased).
+  # Workers builds resolve the `workerd` condition, which 5.0.1 lacks. pkce-challenge 6.0.1 has the fix, but
+  # @ai-sdk/mcp allows only ^5.0.1. Remove when @ai-sdk/mcp allows 6.0.1 or a 5.x release has the fix
+  # (https://github.com/crouchcd/pkce-challenge/pull/50#issuecomment-6941517852).
   pkce-challenge@5.0.1: patches/pkce-challenge@5.0.1.patch

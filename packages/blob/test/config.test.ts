@@ -947,3 +947,29 @@ describe("NuxtHub S3 env", () => {
       .toThrow(`\`blob.stores.default.${option}\``)
   })
 })
+
+describe("renamed Blob drivers", () => {
+  it.each([
+    ["cloudflare-r2", "cloudflare"],
+    ["vercel-blob", "vercel"],
+  ])("names the new driver for the former %s", (driver, renamed) => {
+    const expected = expect.objectContaining({
+      code: "BLOB_C0001",
+      fix: expect.stringContaining(`blob: { driver: "${renamed}" }`),
+      why: expect.stringContaining(`renamed this driver to "${renamed}"`),
+    })
+    // SAFETY: An app config without types passes the former driver name.
+    expect(() => normalizeBlobOptions({ driver } as never, { env: {} })).toThrow(expected)
+    // SAFETY: An app config without types passes the former driver name.
+    expect(() => normalizeBlobOptions({ stores: { default: { driver } } } as never, { env: {} })).toThrow(expected)
+  })
+
+  it("keeps the driver list for a name that was never a driver", () => {
+    // SAFETY: An app config without types passes an unknown driver name.
+    expect(() => normalizeBlobOptions({ driver: "toString" } as never, { env: {} })).toThrow(expect.objectContaining({
+      code: "BLOB_C0001",
+      fix: expect.stringContaining("Check the spelling"),
+      why: "`blob.driver` \"toString\" is not a Blob driver.",
+    }))
+  })
+})

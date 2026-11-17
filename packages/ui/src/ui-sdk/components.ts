@@ -80,7 +80,7 @@ const UButton = defineComponent({
       };
       const leading = props.loading ? "i-lucide-loader-circle" : props.icon;
       const content = () => [
-        leading ? h(UIcon, { "data-slot": props.loading ? "spinner" : undefined, name: leading }) : null,
+        slots.leading ? slots.leading({}) : leading ? h(UIcon, { "data-slot": props.loading ? "spinner" : undefined, name: leading }) : null,
         slots.default ? slots.default() : props.label ? h("span", props.label) : null,
         props.trailingIcon ? h(UIcon, { name: props.trailingIcon }) : null,
       ];

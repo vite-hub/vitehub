@@ -387,6 +387,27 @@ The route also serves [image variants](/docs/blob/media#image-variants), such as
 
 Files from the served store include a URL. With `serve.publicBaseUrl`, it is absolute. Without it, it is relative to the route, so callers can add their own origin.
 
+## Seed files
+
+Seed files are the starting files of the app, such as the poster and captions of a demo video. Put them in `server/seed/blob/`, in the folders of their pathnames:
+
+```txt [Files]
+server/seed/blob/
+  video/receiving-a-delivery.mp4
+  video/receiving-a-delivery.en.vtt
+  video/receiving-a-delivery-poster.jpg
+```
+
+Start `vite dev`, then upload the files to the default store:
+
+```bash [Terminal]
+pnpm vitehub seed blob
+```
+
+The pathname is the path in the folder, so `server/seed/blob/video/receiving-a-delivery.mp4` is the blob `video/receiving-a-delivery.mp4`. The store sets the content type from the extension, such as `video/mp4` or `text/vtt`. Files that start with `.` are skipped. Each file can have up to 8 MiB, like `vitehub blob put`. The command uploads each file again on every run.
+
+Without `--remote`, `vitehub seed` writes the stores of the running dev server. With `--remote`, it writes the deployed app at `--url`, or at `vitehub({ publicUrl })`. Only the default store has seed files. `pnpm vitehub seed` also runs the [Database](/docs/database/configure#seed-data) and [KV](/docs/kv/configure#seed-values) seeds.
+
 ## Image variants
 
 `images` sets how the serve route makes image variants. Without it, the `auto` transformer uses the Cloudflare Images binding when the Worker has one, sharp when it is installed, and the original otherwise.

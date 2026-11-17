@@ -11,7 +11,8 @@ const parts = Object.fromEntries(["components", "composables", "headless", "play
     .map((file) => [`parts/${dir}/${file.slice(0, -3)}`, `src/${dir}/${file}`]),
 ));
 
-// The Node build of vega-canvas loads the optional `canvas` package with a top-level await, which Nitro's es2019 target rejects.
+// The Node build of vega-canvas loads the optional `canvas` package with a top-level `await import("canvas")`. This
+// package has one dist for the browser and the server, so that await would reach browser bundles too.
 // Without `canvas`, both builds return null in Node, so the browser build is bundled for every host.
 const vegaCanvasBrowser = fileURLToPath(new URL("vega-canvas.browser.js", import.meta.resolve("vega-canvas")));
 
@@ -19,7 +20,7 @@ export default defineConfig({
   pack: {
     ...packDefaults,
     alias: { "vega-canvas": vegaCanvasBrowser },
-    copy: [{ from: "styles.css", to: "dist" }, { from: "theme.css", to: "dist" }, { from: "theme-focus-ring.css", to: "dist" }, { from: "comment-marks.css", to: "dist" }],
+    copy: [{ from: "styles.css", to: "dist" }, { from: "theme.css", to: "dist" }, { from: "theme-focus-ring.css", to: "dist" }, { from: "comment-marks.css", to: "dist" }, { from: "icon-swap.css", to: "dist" }],
     deps: {
       alwaysBundle: [/@pierre\//, "@vite-hub/icons", "@vite-hub/runtime", "@vite-hub/blob/client", /^comark-(?!chat(?:\/|$))/, "vega-canvas"],
       // Keep vega-loader's Node/browser exports selectable by the consuming host.
@@ -78,7 +79,7 @@ export default defineConfig({
             if (entry && typeof entry === "object") delete entry.require;
           }
         }
-        return { ...normalized, "./comment-marks.css": "./dist/comment-marks.css", "./styles.css": "./dist/styles.css", "./theme.css": "./dist/theme.css" };
+        return { ...normalized, "./comment-marks.css": "./dist/comment-marks.css", "./icon-swap.css": "./dist/icon-swap.css", "./styles.css": "./dist/styles.css", "./theme.css": "./dist/theme.css" };
       },
       inlinedDependencies: false,
     },
