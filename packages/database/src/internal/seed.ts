@@ -15,7 +15,7 @@ import type { AnyRelations } from "drizzle-orm"
 import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
 import type { ExportTarget } from "./export.ts"
 
-/** The file names that `vitehub database seed` looks for, beside the migrations folder of a Database. */
+/** The file names that `vitehub seed` looks for, beside the migrations folder of a Database. */
 const seedFileNames = ["seed.ts", "seed.mts", "seed.js", "seed.mjs"]
 
 export interface SeedOptions {

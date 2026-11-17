@@ -2948,7 +2948,7 @@ async function postChatStream(
     }
     const previousAdapter = chatThread._adapter
     const previousFallback = chatThread._fallbackStreamingPlaceholderText
-    // ponytail: Chat SDK does not expose whether native streaming was accepted.
+    // ponytail: Chat SDK does not expose whether native streaming was accepted (https://github.com/vercel/chat/issues/1178).
     chatThread._adapter = new Proxy(adapter, {
       get(target, property) {
         if (property === "stream") {
@@ -2990,7 +2990,8 @@ async function postChatStream(
     return
   }
 
-  // ponytail: Chat SDK has no per-stream fallback option; replace this when it exposes one.
+  // ponytail: Chat SDK has no per-stream fallback option; replace this when it exposes one
+  // (https://github.com/vercel/chat/issues/1178).
   const adapter = thread.adapter
   const placeholder = fallback === null ? Promise.resolve(undefined) : adapter.postMessage(thread.id, fallback)
   const clearPlaceholder = () => {

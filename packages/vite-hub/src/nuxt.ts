@@ -1388,6 +1388,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   // Registered after every module's own hook. @nuxtjs/mcp-toolkit points `h3` at nitropack's H3 1 on every Nitro, and
   // Nitro 3's runtime then cannot import `h3/rules`. Nuxt 5 gives Nitro 2 modules H3 1 through its compatibility layer.
+  // Remove when @nuxtjs/mcp-toolkit releases https://github.com/nuxt-modules/mcp-toolkit/pull/416.
   nuxt.hook?.("modules:done", () => {
     nuxt.hook?.("nitro:config", async (config) => {
       const alias = isRecord(config.alias) ? config.alias : undefined
