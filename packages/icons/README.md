@@ -45,7 +45,9 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `schedule` | Schedule |
 | `shell` | Shell |
 | `source` | Source |
+| `sync` | Sync |
 | `ui` | UI |
+| `webhooks` | Webhooks |
 | `workflow` | Workflows |
 | `workspace` | Workspace |
 | `skills` | Agent Skills |

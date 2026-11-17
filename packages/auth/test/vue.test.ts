@@ -22,7 +22,14 @@ vi.mock("better-auth/vue", () => ({
     betterAuth.created.push(options)
     return {
       signIn: { social: async (input: unknown) => { betterAuth.calls.push(["signIn.social", input]); return { data: input } } },
-      signOut: async (...args: unknown[]) => { betterAuth.calls.push(["signOut", ...args]); return betterAuth.signOutResult },
+      signOut: async (...args: unknown[]) => {
+        betterAuth.calls.push(["signOut", ...args])
+        // Better Auth calls the success hook of the merged fetch options, as its client proxy does.
+        const fetchOptions: unknown = typeof args[0] === "object" && args[0] !== null ? Reflect.get(args[0], "fetchOptions") : undefined
+        const onSuccess: unknown = typeof fetchOptions === "object" && fetchOptions !== null ? Reflect.get(fetchOptions, "onSuccess") : undefined
+        if (typeof onSuccess === "function") await onSuccess({ data: betterAuth.signOutResult })
+        return betterAuth.signOutResult
+      },
       // Better Auth reads the session when its `useSession()` hook first mounts.
       useSession: () => {
         betterAuth.subscriptions++
@@ -489,18 +496,66 @@ describe("signOut() of useUserSession()", () => {
     await signOut({ redirectTo: "/goodbye", fetchOptions: { headers: { "x-reason": "menu" } } })
 
     // The session store follows Better Auth's session atom before the call runs.
-    expect(betterAuth.calls).toEqual([["useSession"], ["signOut", { fetchOptions: { headers: { "x-reason": "menu" } }, disableRedirect: true }]])
+    expect(betterAuth.calls).toEqual([["useSession"], ["signOut", { disableRedirect: true, fetchOptions: { headers: { "x-reason": "menu" }, body: { disableRedirect: true }, onSuccess: expect.any(Function) } }]])
     expect(pageLoads).toHaveBeenCalledExactlyOnceWith("/goodbye")
   })
 
-  it("gives Better Auth its second argument, the fetch options", async () => {
+  it("gives Better Auth its second argument, the fetch options, merged with the first", async () => {
     signedIn()
     const onSuccess = vi.fn()
     const { signOut } = useUserSession(createAuthClient())
 
-    await signOut(undefined, { onSuccess })
+    await signOut(undefined, { onSuccess, headers: { "x-reason": "menu" } })
 
-    expect(betterAuth.calls).toEqual([["useSession"], ["signOut", { disableRedirect: true }, { onSuccess }]])
+    expect(betterAuth.calls).toEqual([["useSession"], ["signOut", { disableRedirect: true, fetchOptions: { headers: { "x-reason": "menu" }, body: { disableRedirect: true }, onSuccess: expect.any(Function) } }]])
+    expect(onSuccess).toHaveBeenCalledExactlyOnceWith({ data: { data: true } })
+  })
+
+  it.each([
+    ["the options", (body: object) => [{ fetchOptions: { body } }]],
+    ["the second argument", (body: object) => [undefined, { body }]],
+  ])("keeps disableRedirect when the fetch options of %s set their own body", async (_name, call) => {
+    signedIn()
+    const { signOut } = useUserSession(createAuthClient())
+
+    await (signOut as (...args: unknown[]) => Promise<unknown>)(...call({ disableRedirect: false, reason: "menu" }))
+
+    expect(betterAuth.calls.at(-1)?.[1]).toMatchObject({ fetchOptions: { body: { disableRedirect: true, reason: "menu" } } })
+  })
+
+  it("opens the provider's sign-out page and runs every listener when one listener fails", async () => {
+    signedIn()
+    const steps: string[] = []
+    vi.stubGlobal("location", { assign: (url: string) => void steps.push(`open ${url}`) })
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const stops = [
+      onSignOut(() => { throw new Error("sync failure") }),
+      onSignOut(async () => { throw new Error("async failure") }),
+      onSignOut(() => void steps.push("last listener")),
+    ]
+    betterAuth.signOutResult = { data: { success: true, url: logout, redirect: false }, error: null }
+    const { signOut } = useUserSession(createAuthClient())
+
+    await signOut()
+    for (const stop of stops) stop()
+
+    expect(steps).toEqual(["last listener", `open ${logout}`])
+    expect(console.error).toHaveBeenCalledTimes(2)
+  })
+
+  it("runs the success hook of the caller after the onSignOut() listeners", async () => {
+    signedIn()
+    const steps: string[] = []
+    const stop = onSignOut(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1))
+      steps.push("listener done")
+    })
+    const { signOut } = useUserSession(createAuthClient())
+
+    await signOut({ fetchOptions: { onSuccess: () => void steps.push("caller success") } })
+    stop()
+
+    expect(steps).toEqual(["listener done", "caller success"])
   })
 
   it("waits for the onSignOut() listeners after the server ended the session, and before the next page opens", async () => {
@@ -558,7 +613,7 @@ describe("signOut() of useUserSession()", () => {
     stop()
 
     // Without `disableRedirect`, Better Auth opens the page inside its `signOut()`, before the listeners run.
-    expect(betterAuth.calls.at(-1)).toEqual(["signOut", { disableRedirect: true }])
+    expect(betterAuth.calls.at(-1)).toEqual(["signOut", { disableRedirect: true, fetchOptions: { body: { disableRedirect: true }, onSuccess: expect.any(Function) } }])
     expect(steps).toEqual(["listener done", `open ${logout}`])
     expect(result).toEqual(returned)
     expect(session.user.value).toBeNull()
