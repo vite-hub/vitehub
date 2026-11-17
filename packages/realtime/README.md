@@ -177,7 +177,7 @@ const [error, answer] = await requestRealtimeRoom("tabs", tabId, { want: "title"
 
 ## Refusals and failures in logs
 
-With the evlog Nitro module registered, a refused connection, save, checkpoint, or refresh gets a `realtime` field on its request's wide event: `{ definition, room, refused, status, code? }`. A room id of a `document: false` Definition is a short hash, because it can be a token. After the WebSocket opens, close codes, connection errors, failed sync between Node instances, and failed background saves are their own evlog events, `{ action: "realtime", message, realtime: { definition, room, closed | failed } }`. Sync failures between instances also print to the console. Without evlog, Realtime prints the sync and save failures to the console. See [Limits and errors](https://vitehub.dev/docs/realtime/limits-and-errors#see-refusals-and-failures-in-logs).
+With the evlog Nitro module registered, a refused connection, save, checkpoint, or refresh gets a `realtime` field on its request's wide event: `{ definition, room, refused, status, code? }`. A room id of a `document: false` Definition is a short hash, because it can be a token. After the WebSocket opens, close codes, connection errors, failed sync between Node instances, and failed background saves are their own evlog events, `{ action: "realtime", message, realtime: { definition, room, closed | failed } }`. Without evlog, Realtime prints the sync and save failures to the console. See [Limits and errors](https://vitehub.dev/docs/realtime/limits-and-errors#see-refusals-and-failures-in-logs).
 
 ## Public imports
 

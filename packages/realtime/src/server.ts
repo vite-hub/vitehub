@@ -92,8 +92,8 @@ import { hasNativeCloudflareSql } from "./cloudflare-sql.ts"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { requestLog } from "@vite-hub/internal/runtime/request-log"
-import { logRealtime, noteRealtimeRequest, realtimeRoomFields, realtimeRoomLabel, useRealtimeEvlog } from "./log.ts"
-import type { RealtimeEvlog, RealtimeLogFields } from "./log.ts"
+import { logRealtime, realtimeRoomFields, realtimeRoomLabel } from "./log.ts"
+import type { RealtimeLogFields } from "./log.ts"
 
 export { isRealtimeAvailable } from "./availability.ts"
 export { blobDocument } from "./blob-document.ts"
@@ -121,13 +121,6 @@ export interface RealtimeHandlerOptions {
    * this process.
    */
   bus?: () => Promise<RealtimeBus | undefined> | RealtimeBus | undefined
-  /**
-   * Logs the failures that come after a connection opens (a peer error, a protocol close, a failed sync between
-   * instances) as their own evlog events. ViteHub passes `() => import("evlog")` when the app installs evlog. Realtime
-   * uses it only when the app's requests have an evlog request logger. Without evlog, Realtime prints failures to the
-   * console.
-   */
-  evlog?: () => Promise<RealtimeEvlog>
 }
 
 const maxMessageBytes = 1024 * 1024
@@ -808,7 +801,6 @@ function isBareRequest(request: Request): boolean {
 }
 
 export function createRealtimeHandler(registry: RealtimeRegistry, options: RealtimeHandlerOptions = {}): RealtimeHandler {
-  if (options.evlog) useRealtimeEvlog(options.evlog)
   const inactiveMemoryRoomKeys = new Set<string>()
   const memoryRoomKeys = new Set<string>()
   const rooms = new Map<string, Promise<Room>>()
@@ -2475,7 +2467,6 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
   })
 
   const handler = defineEventHandler(async (event) => {
-    noteRealtimeRequest(event)
     const forwarded = await forwardToCloudflareDurableObject(event)
     if (forwarded) return forwarded
     // Inside the Durable Object, a refresh from refreshRealtimeDocument(). The Worker strips the header from client requests.

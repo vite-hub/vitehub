@@ -71,7 +71,7 @@ Failures after the WebSocket opens have no request. Realtime logs each one as it
 | `failed: "bus-publish"`, `"bus-receive"`, `"bus-repair"`, `"bus-reset"`, `"bus-lock"` | Node instances could not share a room through Redis or Postgres. Level `error`, except `bus-lock` (`warn`). |
 | `failed: "save"`, `"hold"`, `"release"`, `"refresh"` | The document adapter failed in a save, `hold()`, or `release()` that runs on its own, or a refresh failed. Level `warn`. |
 
-Realtime sends these events to evlog only when the app installs evlog and its requests have an evlog request logger. Level `error` events also print to the console, because evlog can be off or `silent`, and an event outside a request does not reach Nitro's `evlog:drain` hooks. Without evlog, or when evlog is off, Realtime prints the failures of instances and adapters to the console, and does not log closes or connection errors.
+Realtime sends these events to evlog when the app installs evlog and registers its Nitro module. They also reach the app's `evlog:drain` hooks. Without evlog, or with evlog's `enabled: false`, Realtime prints the failures of instances and adapters to the console, and does not log closes or connection errors.
 
 ## Request errors
 

@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import * as Y from "yjs"
 
-import { logRealtime, noteRealtimeRequest, resetRealtimeEvlog, useRealtimeEvlog } from "../src/log.ts"
+import { setEvlogBridge } from "@vite-hub/internal/runtime/request-log"
+
+import { logRealtime } from "../src/log.ts"
 import { encodeWorkspaceChange } from "../src/protocol.ts"
 import { createRealtimeHandler } from "../src/server.ts"
 import { appendParagraph, createMemoryAdapter, createMemoryBusNetwork, createStubEditor, createTestServer, settle } from "./harness.ts"
@@ -11,7 +13,7 @@ import type { RealtimeHandlerOptions } from "../src/server.ts"
 import type { RealtimeDefinition } from "../src/types.ts"
 
 afterEach(() => {
-  resetRealtimeEvlog()
+  setEvlogBridge(undefined)
   vi.restoreAllMocks()
 })
 
@@ -22,16 +24,17 @@ function requestLogger() {
   return { set: vi.fn(), warn: vi.fn(), error: vi.fn() }
 }
 
-/** `import("evlog")`: each event's logger is kept, so a test can read what it logged. */
+/** The evlog bridge that `vitehub()` installs. Each event's logger is kept, so a test can read what it logged. */
 function fakeEvlog() {
   const enabled = { value: true }
-  const events: Array<{ fields: Record<string, unknown>, error: ReturnType<typeof vi.fn>, warn: ReturnType<typeof vi.fn>, emit: ReturnType<typeof vi.fn> }> = []
+  const events: Array<{ fields: Record<string, unknown>, info: ReturnType<typeof vi.fn>, error: ReturnType<typeof vi.fn>, warn: ReturnType<typeof vi.fn>, emit: ReturnType<typeof vi.fn> }> = []
   const createLogger = (fields: Record<string, unknown>) => {
-    const logger = { fields, error: vi.fn(), warn: vi.fn(), emit: vi.fn() }
+    const logger = { fields, info: vi.fn(), error: vi.fn(), warn: vi.fn(), emit: vi.fn() }
     events.push(logger)
     return logger
   }
-  return { enabled, events, load: async () => ({ createLogger, isEnabled: () => enabled.value }) }
+  setEvlogBridge({ createLogger, isEnabled: () => enabled.value })
+  return { enabled, events }
 }
 
 type Hooks = {
@@ -125,7 +128,7 @@ describe("Realtime refusals on the upgrade request's wide event", () => {
 describe("Realtime log events after the upgrade", () => {
   it("logs a peer error as an evlog event", async () => {
     const evlog = fakeEvlog()
-    const response = await server({ access: "public" }, { evlog: evlog.load })("guides/welcome.md", { log: requestLogger() })
+    const response = await server({ access: "public" })("guides/welcome.md", { log: requestLogger() })
     const client = peer()
     response.crossws!.open(client)
     const failure = new Error("The socket was reset.")
@@ -146,7 +149,7 @@ describe("Realtime log events after the upgrade", () => {
   it("logs a 4429 close as an evlog event", async () => {
     vi.spyOn(Date, "now").mockReturnValue(100)
     const evlog = fakeEvlog()
-    const response = await server({ access: "public" }, { evlog: evlog.load })("%40workspace?workspace=events", { log: requestLogger() })
+    const response = await server({ access: "public" })("%40workspace?workspace=events", { log: requestLogger() })
     const client = peer()
     response.crossws!.open(client)
 
@@ -168,10 +171,9 @@ describe("Realtime log events after the upgrade", () => {
   it("changes nothing without evlog, and never throws when evlog fails", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
     const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    const broken = async () => ({ createLogger: () => { throw new Error("evlog is broken") } })
-    for (const options of [undefined, { evlog: broken }, { evlog: async () => { throw new Error("evlog is not installed") } }]) {
-      resetRealtimeEvlog()
-      const response = await server({ access: "public" }, options)("guides/welcome.md", { log: options ? requestLogger() : undefined })
+    for (const broken of [false, true]) {
+      if (broken) setEvlogBridge({ createLogger: () => { throw new Error("evlog is broken") } })
+      const response = await server({ access: "public" })("guides/welcome.md", { log: broken ? requestLogger() : undefined })
       const client = peer()
       response.crossws!.open(client)
 
@@ -183,25 +185,13 @@ describe("Realtime log events after the upgrade", () => {
     expect(consoleError).not.toHaveBeenCalled()
     expect(consoleWarn).not.toHaveBeenCalled()
   })
-
-  it("skips evlog when the app's requests have no evlog request logger", async () => {
-    const evlog = fakeEvlog()
-    const response = await server({ access: "public" }, { evlog: evlog.load })("guides/welcome.md")
-    const client = peer()
-    response.crossws!.open(client)
-
-    response.crossws!.error(client, new Error("The socket was reset."))
-    await settle()
-
-    expect(evlog.events).toHaveLength(0)
-  })
 })
 
 describe("Realtime log events: one per failure, and none lost", () => {
   it("logs one close for a connection that keeps sending bad frames, and drops its frames", async () => {
     vi.spyOn(Date, "now").mockReturnValue(100)
     const evlog = fakeEvlog()
-    const connect = server({ access: "public" }, { evlog: evlog.load })
+    const connect = server({ access: "public" })
     const bad = (await connect("guides/welcome.md", { log: requestLogger() })).crossws!
     const badPeer = peer()
     bad.open(badPeer)
@@ -221,22 +211,21 @@ describe("Realtime log events: one per failure, and none lost", () => {
     expect(evlog.events.map(event => (event.fields.realtime as { closed: number }).closed)).toEqual([4400, 4429])
   })
 
-  it("prints an error to the console also when evlog has it, and a warning when evlog is off", async () => {
+  it("sends an error to evlog only, and prints to the console when evlog is off", async () => {
+    // Standalone events reach evlog's output and the app's evlog:drain hooks, so a console line would print it twice.
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
     const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const evlog = fakeEvlog()
-    useRealtimeEvlog(evlog.load)
-    noteRealtimeRequest({ req: { context: { log: requestLogger() } } })
     const failure = new Error("Redis is not reachable.")
 
     logRealtime("error", "Realtime could not send a room message to the other instances.", { definition: "docs", failed: "bus-publish" }, failure)
-    await settle()
-    expect(consoleError).toHaveBeenCalledWith("[vitehub] Realtime could not send a room message to the other instances.", failure)
     expect(evlog.events).toHaveLength(1)
+    expect(evlog.events[0]!.fields).toEqual({ action: "realtime", message: "Realtime could not send a room message to the other instances.", realtime: { definition: "docs", failed: "bus-publish" } })
+    expect(evlog.events[0]!.error).toHaveBeenCalledWith(failure)
+    expect(consoleError).not.toHaveBeenCalled()
 
     evlog.enabled.value = false
     logRealtime("warn", "Realtime could not save a room.", { definition: "docs", failed: "save" }, new Error("Store unavailable"))
-    await settle()
     expect(consoleWarn).toHaveBeenCalledWith("[vitehub] Realtime could not save a room.", "Store unavailable")
     expect(evlog.events).toHaveLength(1)
   })
@@ -247,8 +236,7 @@ describe("Realtime log events: one per failure, and none lost", () => {
     const network = createMemoryBusNetwork()
     const bus = network.bus()
     const { adapter } = createMemoryAdapter({ page: { body: "Start" } })
-    const app = createTestServer({ access: "public", document: adapter, editor: createStubEditor().editor, persistence: false }, { handler: { bus: () => bus, evlog: evlog.load } })
-    noteRealtimeRequest({ req: { context: { log: requestLogger() } } })
+    const app = createTestServer({ access: "public", document: adapter, editor: createStubEditor().editor, persistence: false }, { handler: { bus: () => bus } })
     const client = await app.connect("page")
     await settle()
     vi.spyOn(bus, "writeRoom").mockRejectedValue(new Error("Record unavailable"))
