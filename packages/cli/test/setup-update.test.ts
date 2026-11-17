@@ -147,11 +147,11 @@ minimumReleaseAgeExclude:
     expect(await readFile(join(root, "pnpm-workspace.yaml"), "utf8")).toBe(workspaceYaml)
   })
 
-  it("updates npm overrides and runs npm install", async () => {
+  it("updates npm overrides to match their direct dependencies and runs npm install", async () => {
     const manifest = {
       dependencies: { "@vite-hub/kv": "~0.0.4", "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@caff6eb" },
       name: "app",
-      overrides: { "@vite-hub/runtime": "0.0.4", "vite-hub": { ".": "0.0.4", "@vite-hub/env": "0.0.4" } },
+      overrides: { "@vite-hub/kv": "~0.0.4", "@vite-hub/runtime": "0.0.4", "vite-hub": { ".": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@caff6eb", "@vite-hub/env": "0.0.4" } },
     }
     const root = await createProject({ "package-lock.json": "{}", "package.json": `${JSON.stringify(manifest, null, "\t")}\n` })
     const { fetch } = registry({ "@vite-hub/env": "0.1.0", "@vite-hub/kv": "0.1.0", "@vite-hub/runtime": "0.1.0", "vite-hub": "0.1.0" })
@@ -164,7 +164,8 @@ minimumReleaseAgeExclude:
     expect(await readFile(join(root, "package.json"), "utf8")).toBe(`${JSON.stringify({
       dependencies: { "@vite-hub/kv": "~0.1.0", "vite-hub": "^0.1.0" },
       name: "app",
-      overrides: { "@vite-hub/runtime": "0.1.0", "vite-hub": { ".": "0.1.0", "@vite-hub/env": "0.1.0" } },
+      // npm rejects an override of a direct dependency with another specifier (EOVERRIDE), so those copy the dependency.
+      overrides: { "@vite-hub/kv": "~0.1.0", "@vite-hub/runtime": "0.1.0", "vite-hub": { ".": "^0.1.0", "@vite-hub/env": "0.1.0" } },
     }, null, "\t")}\n`)
     expect(existsSync(join(root, "pnpm-workspace.yaml"))).toBe(false)
   })
@@ -189,6 +190,35 @@ minimumReleaseAgeExclude:
     expect(result.exitCode, result.stderr).toBe(0)
     expect(result.json.root).toBe(root)
     expect(JSON.parse(await readFile(join(root, "cli/package.json"), "utf8")).devDependencies["@vite-hub/cli"]).toBe("0.1.0")
+  })
+
+  it("updates the whole npm workspace from a workspace package", async () => {
+    const root = await createProject({
+      "package-lock.json": "{}",
+      "package.json": JSON.stringify({ name: "shop", overrides: { "@vite-hub/env": "0.0.4" }, workspaces: ["apps/*"] }),
+      "apps/admin/package.json": JSON.stringify({ dependencies: { "@vite-hub/kv": "^0.0.4" }, name: "admin" }),
+      "apps/site/package.json": JSON.stringify({ dependencies: { "vite-hub": "^0.0.4" }, name: "site" }),
+    })
+    const spawn = vi.fn(async () => ({ exitCode: 0 }))
+    const result = await runSetup<SetupUpdatePlan>(["update", "--json"], join(root, "apps/site"), {}, { ...registry({ ...released, "@vite-hub/kv": "0.1.0" }), spawn })
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.json.root).toBe(root)
+    expect(result.json.changes.map(change => change.path)).toEqual(["package.json", "apps/admin/package.json", "apps/site/package.json"])
+    expect(spawn).toHaveBeenCalledWith("npm", ["install"], expect.objectContaining({ cwd: root }))
+  })
+
+  it("keeps a nested project that its parent does not list as a workspace on its own", async () => {
+    const root = await createProject({
+      "package-lock.json": "{}",
+      "package.json": JSON.stringify({ dependencies: { "vite-hub": "^0.0.4" }, workspaces: ["apps/*"] }),
+      "tools/demo/package.json": JSON.stringify({ dependencies: { "vite-hub": "^0.0.4" } }),
+    })
+    const result = await runSetup<SetupUpdatePlan>(["update", "--no-install", "--json"], join(root, "tools/demo"), {}, registry(released))
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.json.root).toBe(join(root, "tools/demo"))
+    expect(JSON.parse(await readFile(join(root, "package.json"), "utf8")).dependencies["vite-hub"]).toBe("^0.0.4")
   })
 
   it("reports a project that is already on the target and installs nothing", async () => {

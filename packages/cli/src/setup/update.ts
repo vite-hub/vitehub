@@ -260,11 +260,30 @@ async function workspaceFolders(root: string, patterns: readonly string[]): Prom
   return [...included].filter(folder => !excluded.has(folder)).sort()
 }
 
-/** The folder whose pnpm-workspace.yaml covers `start`, like pnpm finds it, else `start`. */
-function workspaceRoot(start: string): string {
+/** The workspace patterns of a root: `packages` of pnpm-workspace.yaml, else `workspaces` of package.json. */
+function workspacePatterns(yaml: string | undefined, manifest: JsonObject): string[] {
+  if (yaml !== undefined) {
+    const lines = yaml.split("\n")
+    return yamlList(lines, yamlBlocks(lines).get("packages")).map(item => item.value)
+  }
+  const workspaces = manifest.workspaces
+  const list: unknown[] = Array.isArray(workspaces) ? workspaces : isObject(workspaces) && Array.isArray(workspaces.packages) ? workspaces.packages : []
+  return list.filter(item => typeof item === "string")
+}
+
+/**
+ * The root of the workspace that `start` belongs to: the nearest pnpm-workspace.yaml above, like pnpm finds it, or the
+ * nearest package.json whose `workspaces` list `start`, like npm, Yarn, and Bun. `start` itself when it has a lockfile
+ * or no workspace lists it.
+ */
+async function workspaceRoot(start: string): Promise<string> {
   if (setupLockfiles.some(([file]) => existsSync(join(start, file)))) return start
   for (let folder = dirname(start), last = start; folder !== last; last = folder, folder = dirname(folder)) {
     if (existsSync(join(folder, "pnpm-workspace.yaml"))) return folder
+    const manifest = join(folder, "package.json")
+    if (!existsSync(manifest)) continue
+    const patterns = workspacePatterns(undefined, await readJson(manifest))
+    if (patterns.length && (await workspaceFolders(folder, patterns)).includes(relative(folder, start))) return folder
   }
   return start
 }
@@ -347,19 +366,14 @@ interface PlannedUpdate {
 
 /** Plans the update: finds every ViteHub specifier, resolves the target, and computes the new files. Writes nothing. */
 export async function planSetupUpdate(rootDir: string, args: Pick<SetupUpdateArgs, "preview">, context: Pick<ViteHubCliContext, "env" | "fetch">): Promise<PlannedUpdate> {
-  const root = workspaceRoot(rootDir)
+  const root = await workspaceRoot(rootDir)
   const rootManifestFile = join(root, "package.json")
   if (!existsSync(rootManifestFile)) throw cliErrorDiagnostics.SETUP_NOT_A_PROJECT({ root })
   const rootManifest = await readJson(rootManifestFile)
   const { packageManager } = detectPackageManager(root, rootManifest, context.env)
   const yamlFile = join(root, "pnpm-workspace.yaml")
   const yamlBefore = existsSync(yamlFile) ? await readFile(yamlFile, "utf8") : undefined
-  const yamlLines = yamlBefore?.split("\n") ?? []
-  const workspaces = rootManifest.workspaces
-  const patterns = yamlBefore !== undefined
-    ? yamlList(yamlLines, yamlBlocks(yamlLines).get("packages")).map(item => item.value)
-    : (Array.isArray(workspaces) ? workspaces : isObject(workspaces) && Array.isArray(workspaces.packages) ? workspaces.packages : []).filter(item => typeof item === "string")
-  const folders = [".", ...(await workspaceFolders(root, patterns)).filter(folder => folder !== ".")]
+  const folders = [".", ...(await workspaceFolders(root, workspacePatterns(yamlBefore, rootManifest))).filter(folder => folder !== ".")]
 
   // First pass: collect the names, so each package is resolved once.
   const manifests = await Promise.all(folders.map(async (folder) => {
@@ -394,10 +408,19 @@ export async function planSetupUpdate(rootDir: string, args: Pick<SetupUpdateArg
   }
   const files: WorkspaceFile[] = []
   for (const manifest of manifests) {
+    // npm accepts an override of a direct dependency only when both use the same specifier, so the override copies it.
+    const direct = new Map<string, string>()
+    for (const field of dependencyFields) {
+      const dependencies = manifest.value[field]
+      if (!isObject(dependencies)) continue
+      for (const [name, value] of Object.entries(dependencies)) {
+        if (isViteHubPackage(name) && typeof value === "string" && isReplaceable(value) && !missing.includes(name)) direct.set(name, nextSpecifier(name, value, "dependency", resolved))
+      }
+    }
     let edited = false
     visitManifest(manifest.value, (holder, key, found) => {
       const current = String(holder[key])
-      const specifier = next(found.name, current, found.place)
+      const specifier = found.place === "override" && direct.has(found.name) ? direct.get(found.name)! : next(found.name, current, found.place)
       if (specifier === current) return
       edited = true
       if (specifier === null) delete holder[key]
