@@ -1,6 +1,7 @@
 import { parseMarkdown } from "comark/parse"
 import type { ComarkPlugin } from "comark"
 import type { LeaseStore } from "@vite-hub/runtime"
+import { escapeXml, renderRobots, renderSitemap, sitemapUrlLimit } from "@vite-hub/internal/sitemap"
 
 import { contentDocumentUrl } from "./documents.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
@@ -112,7 +113,7 @@ export interface ContentSitemapOptions {
 }
 
 /** One sitemap file holds at most this many URLs. */
-export const contentSitemapLimit = 50_000
+export const contentSitemapLimit: number = sitemapUrlLimit
 
 export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions | undefined {
   if (options === undefined) return
@@ -311,21 +312,16 @@ export function contentSitemapEntries(pages: readonly ContentRoutedPage[], dates
   })
 }
 
-export function escapeXml(value: string): string {
-  return value.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&apos;" })[character]!)
-}
+export { escapeXml }
 
 /** Render sitemap entries as a sitemaps.org `urlset` document. */
 export function renderContentSitemap(entries: readonly ContentSitemapEntry[]): string {
-  const urls = entries.map(entry => `  <url>\n    <loc>${escapeXml(entry.loc)}</loc>${entry.lastmod ? `\n    <lastmod>${escapeXml(entry.lastmod)}</lastmod>` : ""}\n  </url>`)
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join("\n")}${urls.length ? "\n" : ""}</urlset>\n`
+  return renderSitemap(entries)
 }
 
 /** robots.txt that allows every crawler, keeps `disallow` paths out, and names the sitemap when there is one. */
 export function renderContentRobots(options: { site?: string, sitemap?: boolean, disallow?: readonly string[] }): string {
-  const lines = ["User-agent: *", ...(options.disallow?.length ? options.disallow.map(path => `Disallow: ${path}`) : ["Allow: /"])]
-  if (options.sitemap) lines.push("", `Sitemap: ${absolute("/sitemap.xml", options.site)}`)
-  return `${lines.join("\n")}\n`
+  return renderRobots({ ...options.sitemap ? { sitemap: absolute("/sitemap.xml", options.site) } : {}, ...options.disallow ? { disallow: options.disallow } : {} })
 }
 
 /**

@@ -194,6 +194,31 @@ describe("DB CLI contributor", () => {
     expect((await migrationFolders(join(rootDir, "migrations"))).length > 0).toBe(true)
   }, 60_000)
 
+  it("orders a later schema generate after future SQL-only contributions", async () => {
+    const imports = "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'"
+    const rootDir = await writeDrizzleProject([imports, "export const users = sqliteTable('users', { id: integer('id') })"])
+    await expect(runRealDrizzleKit(rootDir)).resolves.toEqual({ exitCode: 0, stderr: "" })
+    const migrationsDir = join(rootDir, "migrations")
+    const contributed = "20990101000000_insert_users"
+    await mkdir(join(migrationsDir, contributed))
+    await writeFile(join(migrationsDir, contributed, "migration.sql"), "INSERT INTO users VALUES (1);")
+    await writeFile(join(rootDir, "schema.ts"), [imports, "export const users = sqliteTable('users', { id: integer('id'), name: text('name') })"].join("\n"))
+
+    await expect(runRealDrizzleKit(rootDir)).resolves.toEqual({ exitCode: 0, stderr: "" })
+    const folders = await migrationFolders(migrationsDir)
+    expect(folders).toHaveLength(3)
+    expect(folders[1]).toBe(contributed)
+    expect(folders[2]).toMatch(/^20990101000001_/)
+    const database = new DatabaseSync(":memory:")
+    try {
+      for (const folder of folders) database.exec(await readFile(join(migrationsDir, folder, "migration.sql"), "utf8"))
+      expect(database.prepare("SELECT id, name FROM users").get()).toMatchObject({ id: 1, name: null })
+    }
+    finally {
+      database.close()
+    }
+  }, 60_000)
+
   // A custom migration that changes the tables, such as the Comments upgrade, must leave nothing for the next generate.
   it.each([
     { args: ["--custom", "--name", "move", "--schema-snapshot"], migrations: 2 },

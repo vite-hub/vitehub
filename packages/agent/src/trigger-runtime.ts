@@ -41,7 +41,7 @@ import type {
   ResolvedAgentTriggerTask,
 } from "./types.ts"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
-import { githubHmacSignatureFormat, verifyViteHubHmacSignature, viteHubHmacSha256 } from "@vite-hub/internal/secret"
+import { githubHmacSignatureFormat, stripeSignatureToleranceSeconds, verifyViteHubHmacSignature, verifyViteHubStripeSignature } from "@vite-hub/internal/secret"
 import { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
@@ -491,10 +491,6 @@ async function sha256(value: string | Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes))
 }
 
-async function hmacSha256(secret: string, value: ArrayBuffer): Promise<string> {
-  return [...await viteHubHmacSha256(secret, value)].map(byte => byte.toString(16).padStart(2, "0")).join("")
-}
-
 type HmacSignaturePreset = Extract<NonNullable<AgentWebhookRegistrationDefinition["signature"]>, { preset: "hmac-sha256" }>
 
 function hmacSignaturePreset(signature: AgentWebhookRegistrationDefinition["signature"]): HmacSignaturePreset | undefined {
@@ -513,40 +509,9 @@ async function constantTimeEqual(left: string, right: string): Promise<boolean> 
 }
 
 function stripeSignatureTolerance(signature: AgentWebhookRegistrationDefinition["signature"]): number | undefined {
-  if (signature === "stripe-sha256") return 300
-  if (isRecord(signature) && "preset" in signature && signature.preset === "stripe-sha256") return signature.toleranceSeconds ?? 300
+  if (signature === "stripe-sha256") return stripeSignatureToleranceSeconds
+  if (isRecord(signature) && "preset" in signature && signature.preset === "stripe-sha256") return signature.toleranceSeconds ?? stripeSignatureToleranceSeconds
   return undefined
-}
-
-// Verifies `t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">`. Any matching `v1` passes, as during secret rotation.
-async function verifyStripeSignature(secret: string, header: string, rawBody: Uint8Array, toleranceSeconds: number, receivedAt = Date.now()): Promise<boolean> {
-  if (!Number.isFinite(toleranceSeconds) || toleranceSeconds < 0) return false
-  let timestamp: string | undefined
-  let signatureCount = 0
-  const signatures: string[] = []
-  for (const part of header.split(",")) {
-    const separator = part.indexOf("=")
-    if (separator <= 0) continue
-    const key = part.slice(0, separator).trim()
-    const value = part.slice(separator + 1).trim()
-    if (key === "t") timestamp = value
-    else if (key === "v1") {
-      if (++signatureCount > 32) return false
-      if (/^[a-f0-9]{64}$/.test(value)) signatures.push(value)
-    }
-  }
-  if (!timestamp || !/^\d+$/.test(timestamp) || !signatures.length) return false
-  const timestampSeconds = Number(timestamp)
-  if (!Number.isSafeInteger(timestampSeconds)) return false
-  if (Math.floor(receivedAt / 1000) - timestampSeconds > toleranceSeconds) return false
-  const prefix = new TextEncoder().encode(`${timestamp}.`)
-  const payload = new Uint8Array(prefix.length + rawBody.length)
-  payload.set(prefix)
-  payload.set(rawBody, prefix.length)
-  const expected = await hmacSha256(secret, payload.buffer)
-  let verified = false
-  for (const signature of signatures) verified = await constantTimeEqual(expected, signature) || verified
-  return verified
 }
 
 function webhookVerificationError(message: string): AgentHttpError {
@@ -678,7 +643,7 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     const stripeTolerance = stripeSignatureTolerance(registration.signature)
     if (stripeTolerance !== undefined) {
       const rawBody = await readRawBody()
-      if (await verifyStripeSignature(secretToken, headerValue, rawBody, stripeTolerance, options.receivedAt)) {
+      if (await verifyViteHubStripeSignature(secretToken, headerValue, rawBody, { receivedAt: options.receivedAt, toleranceSeconds: stripeTolerance })) {
         return { registration, verified: true }
       }
       continue

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { resolve, sep } from "node:path"
 
-import { forgeEnv } from "@vite-hub/forge"
+import { forgeEnv } from "@vite-hub/internal/forge"
 import { discoverServerChannelModules, listMatchingFiles } from "@vite-hub/internal/definition-catalog"
 import { builtInChannelEnv } from "./channel-env.ts"
 import { discoverAgentDefinitions, tokenizeAgentSource } from "./discovery.ts"

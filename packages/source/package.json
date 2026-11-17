@@ -68,7 +68,6 @@
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
-    "@vite-hub/forge": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "mrmime": "catalog:workspace",
     "nostics": "catalog:runtime",
@@ -78,6 +77,7 @@
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@types/picomatch": "catalog:tooling",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
@@ -97,7 +97,8 @@
     "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
     "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat",
-    "vue": "catalog:vue-compat"
+    "vue": "catalog:vue-compat",
+    "@vite-hub/forge": "workspace:*"
   },
   "peerDependenciesMeta": {
     "@modelcontextprotocol/sdk": {
@@ -113,6 +114,9 @@
       "optional": true
     },
     "vue": {
+      "optional": true
+    },
+    "@vite-hub/forge": {
       "optional": true
     }
   },

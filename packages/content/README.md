@@ -28,7 +28,7 @@ Content plugins, such as `json()`, `media()`, or `sqlite-full-text-search`, go i
 evaluated when the content runtime is created and can be changed by rebuilding
 or recreating that runtime.
 
-Install Comark when importing a parse plugin directly:
+Content uses the app's `comark` and `@comark/html`, so the app and Content parse with one copy. pnpm and npm install them with Content. Install `comark` yourself when you import a parse plugin directly:
 
 ```sh
 pnpm add comark
@@ -306,9 +306,9 @@ const { data: page } = await useFetch("/api/content/get/docs/introduction")
 
 With the framework distribution, import from `vite-hub/ui`. There is no separate Comark UI install, component map, or stylesheet to configure. Pass `components` only to override a renderer for your application.
 
-Without Vue, `renderContentHtml(await content.get(path), { components? })` renders a parsed document to an HTML string with the same Comark UI preset. The app does not install `@comark/html`.
+Without Vue, `renderContentHtml(await content.get(path), { components? })` renders a parsed document to an HTML string with the same Comark UI preset. The app does not import `@comark/html`.
 
-Content bundles Comark UI's parser and editor implementation and installs the Comark and Tiptap runtimes it needs. It leaves Vue to the UI package. Nuxt UI supplies the application's theme tokens; Nuxt UI Prose components are not needed. The preset's file include plugin stays off. Content leaves badge and chip images as URLs instead of downloading them during parsing. Icons and diagrams use Comark UI's default resolvers; override their plugins in `markdown.plugins` for an offline or private renderer.
+Content bundles Comark UI's parser and editor implementation and installs the Tiptap runtime it needs. It leaves Vue to the UI package. Nuxt UI supplies the application's theme tokens; Nuxt UI Prose components are not needed. The preset's file include plugin stays off. Content leaves badge and chip images as URLs instead of downloading them during parsing. Icons and diagrams use Comark UI's default resolvers; override their plugins in `markdown.plugins` for an offline or private renderer.
 
 ## Document collections
 

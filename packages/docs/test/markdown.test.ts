@@ -294,6 +294,23 @@ describe("HTML-only blocks", () => {
     expect(find(nodes, "p")?.[3]).toMatchObject(["comark-html", { block: "suggestion", inline: true }, "npm"])
   })
 
+  it("draws a chart with a note as HTML, since only the HTML renderer draws its marks", async () => {
+    const { nodes } = await parse("::chart{title=\"Deploys\"}\n| day | deploys |\n| --- | --: |\n| mon | 3 |\n| tue | 5 |\n:::annotation{at=\"tue\" mark=\"circle\"}\nRelease day.\n:::\n::\n")
+    const node = find(nodes, "comark-html")
+
+    expect(find(nodes, "chart")).toBeUndefined()
+    expect(node?.[1]).toMatchObject({ block: "chart" })
+    expect(node?.[1].html).toContain("cch-marked")
+    expect(node?.[1].html).toContain("Release day.")
+  })
+
+  it("leaves a chart without notes to the Vue component", async () => {
+    const { nodes } = await parse("::chart{title=\"Deploys\"}\n| day | deploys |\n| --- | --: |\n| mon | 3 |\n| tue | 5 |\n::\n")
+
+    expect(find(nodes, "chart")).toBeDefined()
+    expect(find(nodes, "comark-html")).toBeUndefined()
+  })
+
   it("draws the HTML-only blocks inside an example's preview", async () => {
     const { nodes } = await parse(":::example\n````md\n::diff\n```ts\nconst a = 1\n```\n```ts\nconst a = 2\n```\n::\n````\n:::\n")
 
