@@ -255,13 +255,6 @@ overrides:
   vue: catalog:ui
   workflow: catalog:workflow
 
-packageExtensions:
-  "@pierre/trees@1.0.0-beta.6":
-    peerDependenciesMeta:
-      react:
-        optional: true
-      react-dom:
-        optional: true
 patchedDependencies:
   "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
   # web.css rules for InputGroup, Timeline, Waterfall, SelectLabel and the NumberInput scrub area, plus --ui-ring-width,
