@@ -1261,8 +1261,8 @@ function agentOptionMissingPlugin(): Plugin {
   return {
     name: "vite-hub/agent-option-missing",
     configResolved(config) {
-      // An app can add hubAgent() itself. Vitest resolves its config with the `test` mode.
-      if (config.mode === "test" || config.plugins.some(plugin => plugin.name === "@vite-hub/agent/vite")) return
+      // An app can add hubAgent() itself. Vitest can use any Vite mode.
+      if (process.env.VITEST || config.plugins.some(plugin => plugin.name === "@vite-hub/agent/vite")) return
       const root = resolveViteHubProjectRoot(config.root)
       // SAFETY: ViteHub hosts add this private server-directory key before plugins read the config.
       const serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? [resolve(root, "server")]

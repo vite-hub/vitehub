@@ -5,7 +5,7 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { createBuilder, resolveConfig } from "vite"
-import { describe, expect, it, onTestFinished } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { getDeploymentHost, VITEHUB_ENV_SERVER, VITEHUB_FEATURES } from "@vite-hub/internal/build/vite"
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
@@ -65,6 +65,8 @@ describe("built-in host integration", () => {
   })
 
   it.each([undefined, true, false] as const)("checks server/agents against agent %s", async (agent) => {
+    vi.stubEnv("VITEST", undefined)
+    onTestFinished(() => vi.unstubAllEnvs())
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-"))
     onTestFinished(() => rm(root, { force: true, recursive: true }))
     await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -84,17 +86,27 @@ describe("built-in host integration", () => {
     else await expect(resolve()).resolves.toBeTruthy()
   })
 
-  it("lets a Vitest config use vitehub() without agent when server/agents has Agents", async () => {
+  it.each([
+    { vitest: undefined, command: "build", mode: "production" },
+    { vitest: undefined, command: "build", mode: "test" },
+    { vitest: undefined, command: "serve", mode: "test" },
+    { vitest: "true", command: "serve", mode: "test" },
+    { vitest: "true", command: "serve", mode: "integration" },
+  ] as const)("checks missing agent with Vitest=$vitest, command=$command, mode=$mode", async ({ vitest, command, mode }) => {
+    vi.stubEnv("VITEST", vitest)
+    onTestFinished(() => vi.unstubAllEnvs())
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-test-"))
     onTestFinished(() => rm(root, { force: true, recursive: true }))
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "labeller.ts"), "export default {}\n")
-    // Vitest resolves the config with the `test` mode. The tests import Agent Definitions, and no Agent route runs.
-    await expect(resolveConfig({
-      mode: "test",
+    const config = resolveConfig({
+      configFile: false,
+      mode,
       root,
       plugins: [vitehub({ host: "node", blob: false, env: false, queue: false, rateLimit: false, workflow: false })],
-    }, "serve")).resolves.toBeTruthy()
+    }, command)
+    if (vitest) await expect(config).resolves.toBeTruthy()
+    else await expect(config).rejects.toMatchObject({ code: "VITE_HUB_AGENT_OPTION_MISSING" })
   })
 
   it("applies deployment-owned Nitro configuration only during build", async () => {
