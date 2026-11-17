@@ -7,19 +7,23 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 export const removedViteHubOptions: Readonly<Record<string, { why: string, fix: string }>> = {
   preset: {
     why: "`preset` was renamed to `host`. Without `host`, ViteHub detects the host, and builds for Node when it finds none.",
-    fix: "Rename `preset` to `host`.",
+    fix: "Rename `preset` to `host`. `vitehub migrate` renames it.",
   },
   sandbox: {
     why: "`sandbox` was renamed to `sandboxTask`.",
-    fix: "Rename `sandbox` to `sandboxTask: true`.",
+    fix: "Rename `sandbox` to `sandboxTask: true`. `vitehub migrate` renames it.",
   },
   devtools: {
     why: "The `devtools` option was removed with the browser DevTools.",
-    fix: "Remove `devtools`. Use the ViteHub Console with `console: true`.",
+    fix: "Remove `devtools`. Use the ViteHub Console with `console: true`. `vitehub migrate` removes it.",
   },
   logs: {
     why: "`logs` moved into `observability`.",
     fix: "Move it to `observability: { logs: ... }`. Its `evlog` options go to `observability.evlog`. `npx @vite-hub/codemods vitehub-options` moves it.",
+  },
+  "cloudflare.secretsFile": {
+    why: "`cloudflare.secretsFile` was removed. `vitehub deploy` uploads the Worker secrets that the app reads with each new version.",
+    fix: "Remove `cloudflare.secretsFile`. Keep the values in the shell or in `.env.production`, and deploy with `vitehub deploy`.",
   },
   contentImportBase: {
     why: "`contentImportBase` was removed. ViteHub always imports Content from `vite-hub/content`.",
@@ -30,7 +34,8 @@ export const removedViteHubOptions: Readonly<Record<string, { why: string, fix: 
 /** Fails with `VITE_HUB_B0024` when `options` set a removed or renamed option, which ViteHub would otherwise ignore. */
 export function assertNoRemovedViteHubOptions(options: object, where: string): void {
   for (const [key, { why, fix }] of Object.entries(removedViteHubOptions)) {
-    if (Reflect.get(options, key) === undefined) continue
+    const value = key.split(".").reduce<unknown>((value, part) => value !== null && typeof value === "object" ? Reflect.get(value, part) : undefined, options)
+    if (value === undefined) continue
     throw viteHubErrorDiagnostics.VITE_HUB_B0024({ message: `[vitehub] \`${key}\` in ${where} is no longer a ViteHub option. ${why} ${fix}` })
   }
 }

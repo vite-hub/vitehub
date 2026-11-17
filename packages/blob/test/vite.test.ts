@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { build as bundle } from "esbuild"
+import ts from "typescript"
 import { installStandardContext } from "@vite-hub/runtime/internal/h3"
 import { H3, setResponseHeader } from "h3"
 import { afterAll, describe, expect, it, vi } from "vitest"
@@ -793,6 +794,25 @@ describe("hubBlob", () => {
     }
   })
 
+  it("writes Cloudflare plugin and middleware files that typecheck with the cloudflare:workers declaration of vite-hub/nuxt", { timeout: 30_000 }, async () => {
+    const root = await temporaryDirectory("vitehub-blob-cloudflare-types-")
+    await writeFile(join(root, "package.json"), "{}\n")
+    const plugin = hubBlob({ driver: "cloudflare-r2", bucketName: "assets", images: { sizes: [320, 640] } })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ build: { outDir: "dist" }, nitro: { preset: "cloudflare_module" }, root })
+    const files = [join(root, ".vitehub/nitro/blob/plugin.ts"), join(root, ".vitehub/nitro/blob/middleware.ts")]
+    for (const file of files) await expect(readFile(file, "utf8")).resolves.toContain("from 'cloudflare:workers'")
+    const program = ts.createProgram([...files, join(import.meta.dirname, "../../vite-hub/templates/cloudflare-workers.d.ts")], {
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      noEmit: true,
+      skipLibCheck: true,
+      strict: true,
+      target: ts.ScriptTarget.ES2022,
+      types: [],
+    })
+    expect(ts.getPreEmitDiagnostics(program).map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
+  })
+
   it("uses Cloudflare defaults for the Nitro runtime when hosting is inferred", { timeout: 30_000 }, async () => {
     const root = await temporaryDirectory("vitehub-blob-inferred-cloudflare-")
     const previousBucket = process.env.BLOB_BUCKET_NAME
@@ -815,7 +835,7 @@ describe("hubBlob", () => {
       expect(nitroPlugin).toContain('"driver":"cloudflare-r2"')
       expect(nitroPlugin).toContain('"bucketName":"assets"')
       expect(nitroPlugin).toContain("import { env as vitehubEnv } from 'cloudflare:workers'")
-      expect(nitroPlugin).toContain("setActiveCloudflareEnv(vitehubEnv)")
+      expect(nitroPlugin).toContain("setActiveCloudflareEnv(vitehubEnv as unknown as Record<string, unknown>)")
       expect(nitroPlugin).not.toContain("hooks.hook('request'")
       const middleware = await readFile(join(root, ".vitehub", "nitro", "blob", "middleware.ts"), "utf8")
       expect(middleware).toContain("export default function vitehubBlobMiddleware(event: Parameters<typeof getRequestCloudflareEnv>[0])")
@@ -1412,9 +1432,9 @@ describe("hubBlob", () => {
                 "export function betterAuth() {",
                 "  return { api: { getSession({ headers }) {",
                 "    const cookie = headers.get('cookie') || ''",
-                "    if (!cookie.startsWith('session=')) return null",
+                "    if (!cookie.startsWith('session=')) return { headers: new Headers(), response: null }",
                 "    const id = cookie.slice(8)",
-                "    return { user: { id }, session: { id: 'blob-session', userId: id } }",
+                "    return { headers: new Headers(), response: { user: { id }, session: { id: 'blob-session', userId: id } } }",
                 "  } } }",
                 "}",
               ].join("\n"),
@@ -1440,7 +1460,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain("import { withAuthorization } from \"#vitehub/auth/server\"")
-        expect(handler).toContain("export default { fetch: withAuthorization(true, (request: Request) => serveBlob(request)) }")
+        expect(handler).toContain("export default defineHandler(event => withAuthorization(true, () => serveBlob(event.req))(event))")
 
         const request = await bundleServeRoute(root, "public, max-age=3600")
         const anonymous = await request("u1/meal.jpg")
@@ -1497,7 +1517,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain(`import { authorize } from ${JSON.stringify(join(root, "server", `blob${extension}`))}`)
-        expect(handler).toContain("export default { fetch: withAuthorization(authorize, (request: Request) => serveBlob(request)) }")
+        expect(handler).toContain("export default defineHandler(event => withAuthorization(authorize, () => serveBlob(event.req))(event))")
 
         const request = await bundleServeRoute(root)
         const own = await request("u1/meal.jpg", { cookie: "session=u1" })
@@ -1506,6 +1526,38 @@ describe("hubBlob", () => {
         const other = await request("u2/meal.jpg", { cookie: "session=u1" })
         expect(other.status).toBe(403)
         expect(calls).toEqual(["u1/meal.jpg"])
+      }
+      finally {
+        Reflect.deleteProperty(globalThis, "__vitehubBlobServeCalls")
+        await rm(root, { force: true, recursive: true })
+      }
+    })
+
+    it.each([false, true])("gives the authorize export the H3 event of the route (anonymous: %s)", async (anonymous) => {
+      const root = await temporaryDirectory("vitehub-blob-authorize-event-")
+      Reflect.set(globalThis, "__vitehubBlobServeCalls", [])
+      try {
+        await mkdir(join(root, "server"), { recursive: true })
+        await writeFile(join(root, "server", "blob.ts"), [
+          "export const authorize = ({ event, user }) => {",
+          "  event.res.headers.set('x-reader', user?.id ?? 'anonymous')",
+          "  return event.context.params._ === `${user?.id ?? 'public'}/meal.jpg`",
+          "}",
+          "",
+        ].join("\n"))
+        const plugin = hubBlob({ driver: "fs", serve: { ...(anonymous ? { anonymous: true } : {}), authorize: true, route: "/photos" } }, { importBase: "virtual:blob-test" })
+        await (plugin.configResolved as (config: unknown) => void | Promise<void>)({ build: { outDir: "dist" }, plugins: [authPlugin], root } as never)
+
+        const request = await bundleServeRoute(root)
+        const own = await request("u1/meal.jpg", { cookie: "session=u1" })
+        expect(own.status).toBe(200)
+        expect(own.headers.get("x-reader")).toBe("u1")
+        expect((await request("u2/meal.jpg", { cookie: "session=u1" })).status).toBe(403)
+        if (anonymous) {
+          const shared = await request("public/meal.jpg")
+          expect(shared.status).toBe(200)
+          expect(shared.headers.get("x-reader")).toBe("anonymous")
+        }
       }
       finally {
         Reflect.deleteProperty(globalThis, "__vitehubBlobServeCalls")
@@ -1536,7 +1588,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain("import { withAnonymousAuthorization } from \"#vitehub/auth/server\"")
-        expect(handler).toContain("export default { fetch: withAnonymousAuthorization(authorize, (request: Request) => serveBlob(request)) }")
+        expect(handler).toContain("export default defineHandler(event => withAnonymousAuthorization(authorize, () => serveBlob(event.req))(event))")
 
         const request = await bundleServeRoute(root, "public, max-age=3600", "/f")
         const shared = await request("public/meal.jpg")
@@ -1622,7 +1674,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).not.toContain(JSON.stringify(join(root, "server", "blob.ts")))
-        expect(handler).toContain("export default { fetch: withAuthorization(true, (request: Request) => serveBlob(request)) }")
+        expect(handler).toContain("export default defineHandler(event => withAuthorization(true, () => serveBlob(event.req))(event))")
       }
       finally {
         await rm(root, { force: true, recursive: true })

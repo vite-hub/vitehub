@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { runViteHubCli } from "@vite-hub/cli"
-import { registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
+import { registerViteHubPageTool, respondViteHubPageSession } from "@vite-hub/internal/runtime/page-tools"
+import { readViteHubPageSession } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { createAuthConsole } from "../../auth/src/console-runtime.ts"
 import { consoleEventsFixture } from "../../auth/test/fixtures/console-events.ts"
@@ -12,8 +13,9 @@ import { consoleOperations } from "../src/console/runtime/server/operations.ts"
 import { installConsoleProjectRoot } from "../src/console/runtime/server/project-root.ts"
 import { redeemConsoleTicket } from "../src/console/runtime/server/tickets.ts"
 import { consolePageAuthUser } from "../src/console/runtime/server/page-auth.ts"
-import { consolePageToolAllowed } from "../src/console/runtime/server/page-tool.ts"
+import { consolePageToolAllowed, installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
 import consoleRpcRoute from "../src/console/runtime/server/rpc.ts"
+import siteEntryRoute, { siteEntryPage } from "../src/console/runtime/server/site-entry.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { requestEvent } from "./console-event.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
@@ -52,8 +54,8 @@ async function link(name: string, input: Record<string, unknown> = {}, user?: Co
 }
 
 /** Opens a one-time link in a browser, and returns the redirect and the cookies it set, as a Cookie header. */
-async function open(url: string, userAgent = chrome): Promise<{ response: Response, cookie: string }> {
-  const response = await consoleRpcRoute.fetch(new Request(url, { headers: { "user-agent": userAgent } }))
+async function open(url: string, userAgent = chrome, cookies = ""): Promise<{ response: Response, cookie: string }> {
+  const response = await consoleRpcRoute.fetch(new Request(url, { headers: { "user-agent": userAgent, ...(cookies ? { cookie: cookies } : {}) } }))
   const cookie = response.headers.getSetCookie().map(value => value.split(";")[0]!).filter(pair => !pair.endsWith("=")).join("; ")
   return { response, cookie }
 }
@@ -95,7 +97,7 @@ describe("Console members", () => {
     const url = await link("site.link", { path: "/runs/42" })
     const { response, cookie } = await open(url)
     expect(response.status).toBe(303)
-    expect(response.headers.get("location")).toBe(`${origin}/runs/42`)
+    expect(response.headers.get("location")).toBe(`${origin}/runs/42?vitehub`)
     expect(response.headers.getSetCookie()).toEqual([
       expect.stringMatching(/^better-auth\.session_token=[^;]+; Path=\/; Max-Age=604800; HttpOnly; SameSite=Lax$/),
       "vitehub_session=1; Path=/; SameSite=Lax; Max-Age=604800",
@@ -203,6 +205,180 @@ describe("guests", () => {
   })
 })
 
+describe("GET /_vitehub", () => {
+  async function enter(path = "/_vitehub", headers: Record<string, string> = {}): Promise<{ response: Response, location: URL, state: string, cookie: string }> {
+    const response = await siteEntryRoute.fetch(new Request(`${origin}${path}`, { headers }))
+    const location = new URL(response.headers.get("location") ?? "", origin)
+    const cookie = response.headers.getSetCookie()[0] ?? ""
+    return { response, location, state: location.searchParams.get("state") ?? "", cookie }
+  }
+
+  it("sends the browser to the Console with the page of the Referer and a state, and keeps the state in a cookie", async () => {
+    const { response, location, state, cookie } = await enter("/_vitehub", { referer: `${origin}/runs/42?tab=logs` })
+    expect(response.status).toBe(303)
+    expect(`${location.origin}${location.pathname}`).toBe("https://console.vitehub.dev/open")
+    expect(Object.fromEntries(location.searchParams)).toEqual({ project: origin, site: "/runs/42?tab=logs", state })
+    expect(state).toMatch(/^[\w-]{43}$/)
+    expect(cookie).toBe(`__Host-vitehub-site-state=${state}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`)
+  })
+
+  it("comes back to the path below /_vitehub, with its query", async () => {
+    const { location } = await enter("/_vitehub/projects/meetups?task=x", { referer: `${origin}/elsewhere` })
+    expect(location.searchParams.get("site")).toBe("/projects/meetups?task=x")
+  })
+
+  it.each([
+    ["/_vitehub", {}, "/"],
+    ["/_vitehub/", {}, "/"],
+    ["/_vitehub", { referer: "https://evil.example/runs/42" }, "/"],
+    ["/_vitehub", { referer: `${origin}/_vitehub/rpc` }, "/"],
+    ["/_vitehub//evil.example/x", {}, "/"],
+  ])("comes back from %s with %o to %s, a page of the app", async (path, headers, site) => {
+    const { location } = await enter(path, headers)
+    expect(location.origin).toBe("https://console.vitehub.dev")
+    expect(location.searchParams.get("site")).toBe(site)
+  })
+
+  it("answers 404 for a path that ViteHub serves itself, and goes to no page", async () => {
+    for (const path of ["/_vitehub/rpc/x", "/_vitehub/page/assets/old.js", "/_vitehub/.well-known/skills/x", "/_vitehub/_vitehub/runs"]) {
+      const response = await siteEntryRoute.fetch(new Request(`${origin}${path}`))
+      expect(response.status, path).toBe(404)
+      expect(response.headers.get("location"), path).toBeNull()
+    }
+  })
+
+  it("signs in only the browser that has the state cookie, and goes back to the page with the pill", async () => {
+    app.database.sqlite.prepare("UPDATE user SET emailVerified = 1 WHERE id = ?").run(app.member.id)
+    const { state, cookie, location } = await enter("/_vitehub/projects/meetups?task=x")
+    const stateCookie = cookie.split(";")[0]!
+    // The Console calls site.link with the page and the state of the link, as for a signed-out person after the sign-in.
+    const input = { path: location.searchParams.get("site"), state }
+
+    // A link made for another browser's state signs nobody in here.
+    const stolen = await open(await link("site.link", input))
+    expect(stolen.response.status).toBe(403)
+    expect(stolen.cookie).toBe("")
+
+    const { response, cookie: session } = await open(await link("site.link", input), chrome, stateCookie)
+    expect(response.status).toBe(303)
+    expect(response.headers.get("location")).toBe(`${origin}/projects/meetups?task=x&vitehub`)
+    expect((await signedIn(session))?.user).toMatchObject({ id: app.member.id })
+
+    // Signed in now, /_vitehub goes back to the page at once.
+    const nitroApp = { fetch: (request: Request) => siteEntryRoute.fetch(request) }
+    installConsolePageTool(nitroApp, { script: "/console.js", user: consolePageAuthUser })
+    const again = await nitroApp.fetch(new Request(`${origin}/_vitehub/projects/meetups?task=x`, { headers: { cookie: session } }))
+    expect(again.headers.get("location")).toBe("/projects/meetups?task=x&vitehub")
+    // Without the session, it still goes through the Console.
+    const anonymous = await nitroApp.fetch(new Request(`${origin}/_vitehub/projects/meetups`))
+    expect(new URL(anonymous.headers.get("location")!).origin).toBe("https://console.vitehub.dev")
+  })
+
+  it("keeps the state of this browser, so a link from another tab still works", async () => {
+    const first = await enter()
+    const response = await siteEntryRoute.fetch(new Request(`${origin}/_vitehub`, { headers: { cookie: first.cookie.split(";")[0]! } }))
+    expect(new URL(response.headers.get("location")!).searchParams.get("state")).toBe(first.state)
+  })
+
+  it("goes to the page with ?vitehub on a development server", async () => {
+    installConsoleDevelopment("", true)
+    const { response, cookie } = await enter("/_vitehub/docs?tab=1")
+    expect(response.status).toBe(303)
+    expect(response.headers.get("location")).toBe("/docs?tab=1&vitehub")
+    expect(cookie).toBe("")
+    expect((await enter("/_vitehub", { referer: `${origin}/docs?vitehub=comments` })).response.headers.get("location")).toBe("/docs?vitehub=comments")
+  })
+
+  it.each([
+    [null, "/"],
+    ["/guide/day-2", "/guide/day-2"],
+    ["//evil.example/x", "/"],
+    ["https://evil.example/", "/"],
+    ["/\\evil.example", "/"],
+    ["/\t/evil.example", "/"],
+    ["/_vitehub/rpc", "/"],
+  ])("reads %s as the page %s", (page, path) => {
+    expect(siteEntryPage(page, "")).toBe(path)
+  })
+
+  it("reads the page below the app base", async () => {
+    expect(siteEntryPage("/portal/runs/42?x=1", "/portal")).toBe("/runs/42?x=1")
+    expect(siteEntryPage("/portal", "/portal")).toBe("/")
+    expect(siteEntryPage("/portality", "/portal")).toBe("/")
+    expect(siteEntryPage("/runs/42", "/portal")).toBe("/")
+    const { location } = await enter("/portal/_vitehub/runs/42")
+    expect(Object.fromEntries(location.searchParams)).toMatchObject({ project: `${origin}/portal`, site: "/runs/42" })
+  })
+
+  it("answers only GET, and 404 for another method on a page path", async () => {
+    expect((await siteEntryRoute.fetch(new Request(`${origin}/_vitehub`, { method: "POST" }))).status).toBe(405)
+    expect((await siteEntryRoute.fetch(new Request(`${origin}/_vitehub/schedules/run`, { method: "POST" }))).status).toBe(404)
+  })
+})
+
+describe("the account in the pill", () => {
+  /** An app with the Console link and Comments for every reader, as generated output installs them with Auth. */
+  function pageApp(): object {
+    const nitroApp = {}
+    installConsolePageTool(nitroApp, { script: "/console.js", user: consolePageAuthUser })
+    registerViteHubPageTool(nitroApp, {
+      id: "comments",
+      label: "Comments",
+      icon: "i-lucide-message-square-text",
+      script: "/comments.js",
+      allowed: async ({ request }) => {
+        const user = (await signedIn(request.headers.get("cookie") ?? ""))?.user
+        return Boolean(user && commentsRoleAllows({ id: user.id, role: String(Reflect.get(user, "role")) }, "read"))
+      },
+    })
+    return nitroApp
+  }
+
+  async function pageSession(nitroApp: object, cookie = "") {
+    const response = await respondViteHubPageSession(nitroApp, new Request(`${origin}/_vitehub/page/session`, { headers: { cookie } }))
+    return readViteHubPageSession(await response.json())
+  }
+
+  it("names a Console member, says the Console signed them in, and signs them out of the app only", async () => {
+    app.database.sqlite.prepare("UPDATE user SET emailVerified = 1 WHERE id = ?").run(app.member.id)
+    const nitroApp = pageApp()
+    const { response: opened, cookie } = await open(await link("site.link"))
+    expect(opened.status).toBe(303)
+    const { tools, account } = await pageSession(nitroApp, cookie)
+    expect(tools.map(tool => tool.id)).toEqual(["console", "comments"])
+    expect(account).toEqual({ name: "Ada Lovelace", email: "ada@example.com", via: "console", signOut: "/api/auth/sign-out" })
+
+    // The browser posts to signOut, as the account menu does.
+    const response = await app.auth.handler(new Request(`${origin}${account!.signOut}`, { method: "POST", headers: { cookie, origin, "content-type": "application/json" }, body: "{}" }))
+    expect(response.status).toBe(200)
+    const cleared = response.headers.getSetCookie()
+    expect(cleared).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^better-auth\.session_token=; .*Max-Age=0/),
+      expect.stringMatching(/^vitehub_session=; .*Max-Age=0/),
+      "vitehub-tools=; Path=/; Max-Age=0; SameSite=Lax",
+    ]))
+    expect(await signedIn(cookie)).toBeNull()
+    expect(await pageSession(nitroApp, cookie)).toEqual({ tools: [] })
+  })
+
+  it("names a guest without the made-up email, and without the Console line", async () => {
+    const nitroApp = pageApp()
+    const { value } = await call("site.invite", { name: "Ana", grants: ["comments-write"] })
+    const { cookie } = await open(String(Reflect.get(Object(value), "url")))
+    const { tools, account } = await pageSession(nitroApp, cookie)
+    expect(tools.map(tool => tool.id)).toEqual(["comments"])
+    expect(account).toEqual({ name: "Ana", signOut: "/api/auth/sign-out" })
+  })
+
+  it("never names anyone to an anonymous visitor", async () => {
+    installConsoleAccess({ mode: "open" })
+    const nitroApp = {}
+    installConsolePageTool(nitroApp, { script: "/console.js", user: consolePageAuthUser })
+    registerViteHubPageTool(nitroApp, { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/comments.js", allowed: async () => true })
+    expect(await pageSession(nitroApp)).toEqual({ tools: [expect.objectContaining({ id: "comments" })] })
+  })
+})
+
 /**
  * Run `vitehub <args>` as in a project with the Console. Its calls reach the Console RPC of this app: signed with a key
  * and `--url`, as against a deployed app, or unsigned through the dev server that the command finds.
@@ -275,7 +451,7 @@ describe("the vitehub site commands", () => {
     // A development server answers only this machine, so the browser that opens the link runs here too.
     const response = await redeemConsoleTicket(requestEvent(new Request(url!, { headers: { "user-agent": chrome } }), { remoteAddress: "127.0.0.1" }))
     const cookie = response.headers.getSetCookie().map(value => value.split(";")[0]!).filter(pair => !pair.endsWith("=")).join("; ")
-    expect(response.headers.get("location")).toBe(`${origin}/runs/42`)
+    expect(response.headers.get("location")).toBe(`${origin}/runs/42?vitehub`)
     expect((await signedIn(cookie))?.user).toMatchObject({ name: "Ana", role: "guest,comments-read,comments-write" })
     expect((await vitehub(["site", "grants"], "dev")).stdout).toBe([
       "ROLE            LABEL           GUESTS",

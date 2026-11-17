@@ -6,7 +6,7 @@ import { dirname, relative, resolve, sep } from "node:path"
 import { number, object, optional, parse, record, safeParse, string } from "valibot"
 
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobListResult, BlobMultipartOptions, BlobObject, BlobPutBody, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
-import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import { blobErrorDiagnostics, blobErrors } from "../error-diagnostics.ts"
 import isBlob from "../internal/is-blob.ts"
 import { signFsRequest } from "../internal/fs-sign.ts"
 
@@ -69,12 +69,10 @@ function encodeCursor(after: string) {
 
 function decodeCursor(cursor: string | undefined) {
   if (cursor === undefined) return ""
-  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-  if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw new TypeError("Invalid Blob cursor.")
+  if (!/^[A-Za-z0-9_-]*$/.test(cursor) || cursor.length % 4 === 1) throw blobErrors.BLOB_INVALID_CURSOR()
   const decodedBytes = Buffer.from(cursor, "base64url")
   const decoded = decodedBytes.toString("utf8")
-  // Internal invariant: blobResult() returns a bad cursor as the cause of BLOB_OPERATION_FAILED. A code would change the TypeError class.
-  if (decodedBytes.toString("base64url") !== cursor || !Buffer.from(decoded).equals(decodedBytes) || !decoded.startsWith(cursorPrefix)) throw new TypeError("Invalid Blob cursor.")
+  if (decodedBytes.toString("base64url") !== cursor || !Buffer.from(decoded).equals(decodedBytes) || !decoded.startsWith(cursorPrefix)) throw blobErrors.BLOB_INVALID_CURSOR()
   return decoded.slice(cursorPrefix.length)
 }
 
@@ -389,8 +387,7 @@ async function readEntry(root: string, pathname: string, sidecars = sidecarIndex
         uploadedAt: stats.mtime,
       }
     }
-    // Internal invariant: blobResult() returns this as the cause of BLOB_OPERATION_FAILED.
-    throw new Error("Blob changed while reading its filesystem metadata.")
+    throw blobErrorDiagnostics.BLOB_OBJECT_CHANGED_DURING_READ({ step: "metadata" })
   }
   catch (error) {
     if (isNotFound(error)) return null
@@ -571,8 +568,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
                   contentHash.update(bytes)
                   for (let offset = 0; offset < bytes.length;) {
                     const { bytesWritten } = await output.write(bytes, offset, bytes.length - offset)
-                    // Internal invariant: blobResult() returns a stalled filesystem write as the cause of BLOB_OPERATION_FAILED.
-                    if (bytesWritten === 0) throw new Error("Multipart output write made no progress.")
+                    if (bytesWritten === 0) throw blobErrorDiagnostics.BLOB_FS_WRITE_STALLED()
                     offset += bytesWritten
                   }
                 }
@@ -707,8 +703,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
           if (fileVersion(before) !== fileVersion(await stat(path, { bigint: true }))) continue
           return new Blob([bytes], { type: meta.contentType || "" })
         }
-        // Internal invariant: blobResult() returns this as the cause of BLOB_OPERATION_FAILED.
-        throw new Error("Blob changed while reading its filesystem contents.")
+        throw blobErrorDiagnostics.BLOB_OBJECT_CHANGED_DURING_READ({ step: "contents" })
       }
       catch (error) {
         if (isNotFound(error)) return null

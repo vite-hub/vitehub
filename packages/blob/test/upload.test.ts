@@ -89,6 +89,113 @@ describe("handleUpload", () => {
   })
 })
 
+describe("handleUpload maxFiles", () => {
+  /** A form body sent one chunk per pull: the headers of each file part, then its content. */
+  function streamedForm(files: { name: string, content: string, field?: string }[]) {
+    const boundary = "vitehub-test-boundary"
+    const chunks: { content?: string, text: string }[] = []
+    for (const file of files) {
+      chunks.push({ text: `--${boundary}\r\nContent-Disposition: form-data; name="${file.field ?? "files"}"; filename="${file.name}"\r\nContent-Type: text/plain\r\n\r\n` })
+      chunks.push({ content: file.name, text: `${file.content}\r\n` })
+    }
+    chunks.push({ text: `--${boundary}--\r\n` })
+    const read: string[] = []
+    let index = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const chunk = chunks[index++]
+        if (!chunk) return controller.close()
+        if (chunk.content) read.push(chunk.content)
+        controller.enqueue(new TextEncoder().encode(chunk.text))
+      },
+    }, { highWaterMark: 0 })
+    const request = new Request("http://localhost/api/files", {
+      body,
+      duplex: "half",
+      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+      method: "POST",
+    } as RequestInit)
+    return { read, request }
+  }
+
+  it("answers 400 for a third file before it reads that file", async () => {
+    const { read, request } = streamedForm([
+      { content: "one", name: "a.txt" },
+      { content: "two", name: "b.txt" },
+      { content: "three", name: "c.txt" },
+    ])
+
+    await expect(storage.handleUpload(new H3Event(request), { maxFiles: 2 })).rejects.toMatchObject({
+      message: 'Form field "files" accepts at most 2 files.',
+      statusCode: 400,
+    })
+    expect(read).toEqual(["a.txt", "b.txt"])
+    expect(ok(await storage.list()).blobs).toEqual([])
+  })
+
+  it("counts the files of a non-ASCII formKey before it reads the extra file", async () => {
+    const { read, request } = streamedForm(["a.txt", "b.txt", "c.txt"].map(name => ({ content: name, field: "fichiers-é", name })))
+
+    await expect(storage.handleUpload(new H3Event(request), { formKey: "fichiers-é", maxFiles: 2 })).rejects.toMatchObject({ statusCode: 400 })
+    expect(read).toEqual(["a.txt", "b.txt"])
+  })
+
+  it("stores up to maxFiles files and counts only the files of formKey", async () => {
+    const { request } = streamedForm([
+      { content: "one", name: "a.txt" },
+      { content: "note", field: "other", name: "note.txt" },
+      { content: "two", name: "b.txt" },
+    ])
+
+    const objects = ok(await storage.handleUpload(new H3Event(request), { maxFiles: 2 }))
+    expect(objects.map(object => object.pathname)).toEqual(["a.txt", "b.txt"])
+  })
+
+  it("keeps binary files byte for byte", async () => {
+    const bytes = Uint8Array.from({ length: 300_000 }, (_, index) => (index * 7919) % 256)
+    const objects = ok(await storage.handleUpload(formRequest([new File([bytes], "a.bin"), new File([bytes], "b.bin")]), { maxFiles: 2 }))
+    expect(objects.map(object => object.size)).toEqual([bytes.byteLength, bytes.byteLength])
+    expect(new Uint8Array(await (ok(await storage.get("b.bin")))!.arrayBuffer())).toEqual(bytes)
+  })
+
+  it("rejects a Content-Length above maxFiles times ensure.maxSize before it reads the body", async () => {
+    let read = false
+    const request = new Request("http://localhost/api/files", {
+      body: new ReadableStream({ pull(controller) { read = true; controller.close() } }, { highWaterMark: 0 }),
+      duplex: "half",
+      headers: { "content-length": String(3 * 1024 * 1024), "content-type": "multipart/form-data; boundary=x" },
+      method: "POST",
+    } as RequestInit)
+
+    await expect(storage.handleUpload(new H3Event(request), { ensure: { maxSize: "1MB" }, maxFiles: 2 })).rejects.toMatchObject({ statusCode: 413 })
+    expect(read).toBe(false)
+  })
+
+  it("answers 400 for part headers that never end, without reading the rest of the body", async () => {
+    const chunks = [`--b\r\nContent-Disposition: form-data; name="files"; filename="a.txt"\r\n${"X-Pad: x\r\n".repeat(4096)}`, "rest"]
+    let pulls = 0
+    const request = new Request("http://localhost/api/files", {
+      body: new ReadableStream<Uint8Array>({
+        pull(controller) {
+          const chunk = chunks[pulls++]
+          if (chunk) controller.enqueue(new TextEncoder().encode(chunk))
+          else controller.close()
+        },
+      }, { highWaterMark: 0 }),
+      duplex: "half",
+      headers: { "content-type": "multipart/form-data; boundary=b" },
+      method: "POST",
+    } as RequestInit)
+    await expect(storage.handleUpload(new H3Event(request), { maxFiles: 2 })).rejects.toMatchObject({ statusCode: 400 })
+    expect(pulls).toBe(1)
+  })
+
+  it.each([0, 1.5, Number.NaN])("rejects maxFiles: %s", async (maxFiles) => {
+    await expect(storage.handleUpload(formRequest([new File(["a"], "a.txt")]), { maxFiles }))
+      .rejects.toMatchObject({ code: "BLOB_UPLOAD_MAX_FILES_INVALID" })
+  })
+})
+
 describe("upload size gates", () => {
   // A body that records whether the handler read it.
   function declaredBody(contentLength: number, contentType: string, init: { method?: string, url?: string } = {}) {

@@ -138,7 +138,7 @@ describe("webhooks.stateScope", () => {
     // SAFETY: The test passes a value that the type rejects, as JavaScript configuration can.
     const { seen, send } = await queuedRoute({ secretToken: false, stateScope: stateScope as string })
 
-    await expect(send()).rejects.toThrow(new TypeError('[vitehub] Webhook registration "tickets" stateScope must be a non-empty string.'))
+    await expect(send()).rejects.toMatchObject({ code: "AGENT_WEBHOOK_STATE_SCOPE_INVALID", message: '[vitehub] Webhook registration "tickets" stateScope must be a non-empty string.' })
     expect(seen).not.toHaveBeenCalled()
   })
 })

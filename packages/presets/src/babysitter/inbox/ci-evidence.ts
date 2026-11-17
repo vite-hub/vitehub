@@ -92,12 +92,13 @@ export async function hydrateFailedCiEvidence(inbox: PullRequestInbox, claim: Cl
       const parsedLog = v.safeParse(logSchema, await inbox.meta(logKey))
       let cached = parsedLog.success ? parsedLog.output : undefined
       if (!cached || cached.retryAt !== undefined && cached.retryAt <= now) {
+        const unavailable = { value: { error: 'Job log unavailable or expired; this is an API read failure, not an additional CI failure.' }, retryAt: now + 120_000, fetchedAt: now }
         try {
+          // An empty response counts as an unavailable log, as a failed read does.
           const log = await readers.readLog(`repos/${repository}/actions/jobs/${job.id}/logs`, repository)
-          if (!log) throw new Error('Empty log response')
-          cached = { value: { log: compactCiLog(log) }, fetchedAt: now }
+          cached = log ? { value: { log: compactCiLog(log) }, fetchedAt: now } : unavailable
         } catch {
-          cached = { value: { error: 'Job log unavailable or expired; this is an API read failure, not an additional CI failure.' }, retryAt: now + 120_000, fetchedAt: now }
+          cached = unavailable
         }
         await inbox.setMeta(logKey, cached)
       }

@@ -10,6 +10,7 @@ import { runViteHubCli } from "../../cli/src/index.ts"
 import { eventDatabase } from "./event-helpers.ts"
 import type { AuthDefinition, AuthRuntimeOptions } from "../src/types.ts"
 import { defineFixedAuth } from "./fixed-auth.ts"
+import { requestEvent } from "./request-event.ts"
 
 const origin = "http://localhost:3000"
 const databases: ReturnType<typeof eventDatabase>[] = []
@@ -45,6 +46,19 @@ async function setup(overrides: AuthRuntimeOptions = {}) {
 }
 
 describe("auth events with real Better Auth and Node SQLite", () => {
+  it("gives events.authorize the event that handleAuthRequest() got", async () => {
+    const seen: unknown[] = []
+    const database = eventDatabase(); databases.push(database)
+    const app = await setup({ events: { store: createDatabaseAuthEventStore({ db: database.db }), authorize: ({ event }) => seen.push(event) > 0 } })
+    const user = await app.signUp("reader")
+    const request = new Request(`${origin}/api/auth/vitehub/events`, { headers: { cookie: user.cookie, origin } })
+    // The client address that the host reports makes handleAuthRequest() give Better Auth another Request.
+    Object.defineProperty(request, "ip", { value: "192.0.2.7" })
+    const event = requestEvent(request)
+    expect((await handleAuthRequest(app.definition, event)).status).toBe(200)
+    expect(seen).toEqual([event])
+  })
+
   it("records signup, signin, admin actions, revoke, signout and aggregates through code and CLI", async () => {
     const { definition, store, request, signUp, sqlite, userHook } = await setup()
     const owner = await signUp("owner")

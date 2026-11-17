@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { posix } from "node:path";
+import { join, posix } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 import { createCloudflareRuntime } from "../src/cloudflare.ts";
 import { resolveSandbox } from "../src/index.ts";
 import {
+  allowsHost,
   createCloudflareSandboxDurableObject,
+  createCloudflareSandboxOutbound,
   parseDuration,
   type CloudflareContainer,
   type CloudflareContainerExecProcess,
@@ -21,6 +25,25 @@ function gnuTimeout() {
     } catch {}
   }
   throw new Error("Install GNU coreutils to test the Debian Sandbox image's process-group timeout.");
+}
+
+const signals = { SIGINT: 2, SIGKILL: 9, SIGTERM: 15 } as const;
+
+/** A PATH with the tools the process-group shells use, except the named one. Custom images can lack it. */
+function imageWithout(tool: string) {
+  const bin = mkdtempSync(join(tmpdir(), "vitehub-image-"));
+  for (const name of ["bash", "cat", "rm", "sleep"].filter(name => name !== tool))
+    symlinkSync(execFileSync("bash", ["-c", `command -v ${name}`], { encoding: "utf8" }).trim(), join(bin, name));
+  return bin;
+}
+
+/** Running `sleep <mark>` processes. Zombies do not count. */
+function markedProcesses(mark: string) {
+  return execFileSync("ps", ["-eo", "pid=,stat=,args="], { encoding: "utf8" })
+    .trim()
+    .split("\n")
+    .map(line => line.trim().split(/\s+/))
+    .filter(([, status, command, argument]) => command === "sleep" && argument === mark && !status!.startsWith("Z"));
 }
 
 class FileError extends Error {
@@ -47,10 +70,17 @@ function fakeContainer() {
   const encoder = new TextEncoder();
   const executions: Execution[] = [];
   const timeouts: number[] = [];
-  const container: CloudflareContainer & { destroyed: number; starts: unknown[] } = {
+  const container: CloudflareContainer & { destroyed: number; intercepts: Array<[string, string, unknown]>; starts: unknown[] } = {
     destroyed: 0,
+    intercepts: [],
     running: false,
     starts: [],
+    async interceptOutboundHttp(target, handler) {
+      this.intercepts.push(["http", target, handler]);
+    },
+    async interceptOutboundHttps(target, handler) {
+      this.intercepts.push(["https", target, handler]);
+    },
     async destroy() {
       this.destroyed++;
       (this as { running: boolean }).running = false;
@@ -92,7 +122,7 @@ function fakeContainer() {
           return { exitCode: await exitCode, stderr: await err, stdout: await out };
         },
       };
-      if (command.at(-1) !== "long-running") {
+      if (!command.includes("long-running")) {
         queueMicrotask(() => {
           stdout.enqueue(encoder.encode(`${options?.cwd}|${options?.env?.NAME ?? ""}|${command.join(" ")}`));
           stderr.enqueue(encoder.encode("warning\n"));
@@ -150,13 +180,31 @@ function fakeFiles() {
   return { Files, directories, files };
 }
 
-function setup(cloudflare?: Parameters<typeof createCloudflareRuntime>[0]["cloudflare"]) {
+/** The `kill` commands that signal a spawned process group: `[signal, group file]`. */
+function groupKills(executions: Execution[]) {
+  return executions
+    .filter(execution => execution.command[2]?.includes("kill -"))
+    .map(execution => execution.command.slice(-2));
+}
+
+function groupFile(execution: Execution) {
+  return execution.command.at(-1);
+}
+
+/** The `ctx.exports` loopback of the outbound entrypoint: it binds props and returns a Fetcher. */
+const outbound = (options: { props: unknown }) => ({ fetcher: options.props });
+
+function setup(
+  cloudflare?: Parameters<typeof createCloudflareRuntime>[0]["cloudflare"],
+  networkPolicy?: Parameters<typeof createCloudflareRuntime>[0]["networkPolicy"],
+) {
   const { container, executions, timeouts } = fakeContainer();
   const { Files, files } = fakeFiles();
   const storage = new Map<string, unknown>();
   const Sandbox = createCloudflareSandboxDurableObject({
     DurableObject: FakeDurableObject,
     Files,
+    outboundEntrypoint: "SandboxOutbound",
     SandboxFileError: { is: (cause): cause is FileError => cause instanceof FileError },
   });
   const names: string[] = [];
@@ -167,6 +215,7 @@ function setup(cloudflare?: Parameters<typeof createCloudflareRuntime>[0]["cloud
       if (!objects.has(name)) {
         objects.set(name, new Sandbox({
           container,
+          exports: { SandboxOutbound: outbound },
           id: { name, toString: () => name },
           storage: {
             async get<T>(key: string) { return storage.get(key) as T | undefined; },
@@ -181,7 +230,7 @@ function setup(cloudflare?: Parameters<typeof createCloudflareRuntime>[0]["cloud
       return name;
     },
   };
-  const runtime = createCloudflareRuntime({ cloudflare, namespace, sandboxId: "Task-1" });
+  const runtime = createCloudflareRuntime({ cloudflare, namespace, networkPolicy, sandboxId: "Task-1" });
   return { container, executions, files, names, objects, runtime, storage, timeouts };
 }
 
@@ -385,6 +434,63 @@ describe("Cloudflare Sandbox Durable Object", () => {
     }
   });
 
+  it.skipIf(process.platform !== "linux").each([
+    ["SIGTERM", "sleep $MARK & wait", "full image"],
+    ["SIGKILL", "sleep $MARK & wait", "full image"],
+    ["SIGKILL", "bash -c 'trap \"\" TERM; sleep $MARK' & sleep $MARK", "full image"],
+    ["SIGINT", "sleep $MARK", "full image"],
+    ["SIGTERM", "sleep $MARK & wait", "image without setsid"],
+  ] as const)("sends %s to every process of a spawned command: %s (%s)", async (signal, template, image) => {
+    const mark = `6${String(Math.floor(Math.random() * 1e6)).padStart(6, "0")}`;
+    const { container, objects, runtime } = setup();
+    const session = await (await resolveSandbox({ runtime }, {})).open();
+    const children: ReturnType<typeof spawn>[] = [];
+    const bin = image === "full image" ? undefined : imageWithout("setsid");
+    const env = bin ? { PATH: bin } : process.env;
+    container.exec = async (command, options) => {
+      const child = spawn(command[0]!, command.slice(1), { cwd: "/", env, stdio: ["pipe", "pipe", "pipe"] });
+      children.push(child);
+      const exitCode = new Promise<number>((resolve, reject) => {
+        child.on("exit", (code, signal) => resolve(code ?? 128 + signals[signal as keyof typeof signals]));
+        child.on("error", reject);
+      });
+      const stream = (readable: NodeJS.ReadableStream) => new ReadableStream<Uint8Array>({
+        start(controller) {
+          readable.on("data", chunk => controller.enqueue(new Uint8Array(chunk)));
+          readable.on("end", () => controller.close());
+        },
+      });
+      return {
+        exitCode,
+        stderr: options?.stderr === "ignore" ? null : stream(child.stderr!),
+        stdin: null,
+        stdout: options?.stdout === "ignore" ? null : stream(child.stdout!),
+        kill: signal => { child.kill(signal); },
+        async output() { throw new Error("not used"); },
+      };
+    };
+    try {
+      const child = await objects.get("Task-1")!.startProcess(`echo started; ${template.replaceAll("$MARK", mark)}`);
+      await vi.waitFor(() => expect(markedProcesses(mark).length).toBeGreaterThanOrEqual(template.includes("trap") ? 2 : 1));
+
+      await child.kill(signal);
+
+      await expect(child.waitForExit()).resolves.toEqual({ exitCode: 128 + signals[signal] });
+      await vi.waitFor(() => expect(markedProcesses(mark)).toEqual([]));
+      // The wrapper's job notice ("Killed ...") stays out of the command output.
+      await expect(child.getLogs()).resolves.toEqual({ stderr: "", stdout: "started\n" });
+      const groupFile = children[0]!.spawnargs.at(-1)!;
+      expect(groupFile).toMatch(/^\/tmp\/vitehub-process-.+\.pgid$/);
+      expect(existsSync(groupFile)).toBe(false);
+    } finally {
+      for (const [pid] of markedProcesses(mark)) {
+        try { process.kill(Number(pid), "SIGKILL"); } catch {}
+      }
+      if (bin) rmSync(bin, { force: true, recursive: true });
+      await session.close();
+    }
+  });
+
   it("streams spawned output live, forwards stdin and reports the exit code", async () => {
     const { executions, runtime } = setup();
     const sandbox = await resolveSandbox({ runtime }, {});
@@ -426,7 +532,7 @@ describe("Cloudflare Sandbox Durable Object", () => {
     expect(execution.options?.stdin).toBeUndefined();
     expect(process.stdin).toBeUndefined();
     await process.kill("SIGINT");
-    expect(execution.signals).toEqual([2]);
+    expect(groupKills(executions)).toEqual([["2", groupFile(execution)]]);
     execution.exit(130);
     await session.close();
   });
@@ -441,14 +547,16 @@ describe("Cloudflare Sandbox Durable Object", () => {
     const cancelled = session.exec("long-running", [], { signal: controller.signal });
     await vi.waitFor(() => expect(running()).toHaveLength(1));
     controller.abort(new Error("cancel exec"));
-    await expect(cancelled).rejects.toThrow("cancel exec");
+    const rejection = expect(cancelled).rejects.toThrow("cancel exec");
     // GNU timeout treats SIGALRM as its deadline and kills the command's process group.
     await vi.waitFor(() => expect(running()[0]!.signals).toEqual([14]));
     running()[0]!.exit(137);
+    await rejection;
 
-    await expect(session.exec("long-running", [], { timeout: 50 })).rejects.toThrow();
+    const timeoutRejection = expect(session.exec("long-running", [], { timeout: 50 })).rejects.toThrow();
     await vi.waitFor(() => expect(running()[1]!.signals).toEqual([14]));
     running()[1]!.exit(137);
+    await timeoutRejection;
 
     expect(container.destroyed).toBe(0);
     expect(container.running).toBe(true);
@@ -477,18 +585,169 @@ describe("Cloudflare Sandbox Durable Object", () => {
     const cancelled = await session.spawn!("long-running", [], { signal: controller.signal });
     const first = executions.at(-1)!;
     controller.abort(reason);
-    await vi.waitFor(() => expect(first.signals).toEqual([9]));
+    await vi.waitFor(() => expect(groupKills(executions)).toEqual([["9", groupFile(first)]]));
     first.exit(137);
     await expect(cancelled.wait()).rejects.toBe(reason);
 
     const timed = await session.spawn!("long-running", [], { timeout: 20 });
     const second = executions.at(-1)!;
-    await vi.waitFor(() => expect(second.signals).toEqual([9]));
+    await vi.waitFor(() => expect(groupKills(executions).at(-1)).toEqual(["9", groupFile(second)]));
     second.exit(137);
     await expect(timed.wait()).rejects.toMatchObject({ name: "TimeoutError" });
 
     expect(container.destroyed).toBe(0);
     await session.close();
+  });
+
+  it("starts the Container without internet for networkPolicy deny-all", async () => {
+    const { container, executions, runtime } = setup(undefined, "deny-all");
+    const sandbox = await resolveSandbox({ runtime }, {});
+    const session = await sandbox.open();
+
+    expect(sandbox.plan.executionAuthority.network).toBe("none");
+    await session.exec("true");
+    expect(container.starts).toEqual([{ enableInternet: false }]);
+    expect(container.intercepts).toEqual([]);
+    expect(executions.at(-1)!.options?.env?.NODE_EXTRA_CA_CERTS).toBeUndefined();
+    await session.close();
+  });
+
+  it("sends only allowed hosts through the outbound entrypoint and trusts the interception CA in every command", async () => {
+    const { container, executions, runtime } = setup(undefined, { allow: ["API.example.com", "*.github.com", "api.example.com."] });
+    const sandbox = await resolveSandbox({ runtime }, {});
+    const session = await sandbox.open();
+
+    expect(sandbox.plan.executionAuthority.network).toBe("restricted");
+    await session.exec("curl", ["https://api.example.com"], { env: { NAME: "value" } });
+    expect(container.starts).toEqual([{ enableInternet: false }]);
+    const fetcher = { fetcher: { allow: ["*.github.com", "api.example.com"] } };
+    expect(container.intercepts).toEqual([
+      ["http", "*.github.com", fetcher],
+      ["https", "*.github.com", fetcher],
+      ["http", "api.example.com", fetcher],
+      ["https", "api.example.com", fetcher],
+    ]);
+    const ca = "/etc/cloudflare/certs/cloudflare-containers-ca.crt";
+    const caEnv = { CURL_CA_BUNDLE: ca, GIT_SSL_CAINFO: ca, NODE_EXTRA_CA_CERTS: ca, REQUESTS_CA_BUNDLE: ca, SSL_CERT_FILE: ca };
+    expect(executions.at(-1)!.options?.env).toMatchObject({ ...caEnv, NAME: "value" });
+
+    const child = await session.spawn!("node", ["fetch.mjs"]);
+    expect(executions.at(-1)!.options?.env).toMatchObject(caEnv);
+    await child.wait();
+    await session.close();
+  });
+
+  it("holds commands until the intercepts of a starting Container exist", async () => {
+    const { container, executions } = fakeContainer();
+    const { Files } = fakeFiles();
+    const Sandbox = createCloudflareSandboxDurableObject({
+      DurableObject: FakeDurableObject,
+      Files,
+      outboundEntrypoint: "SandboxOutbound",
+      SandboxFileError: { is: (cause): cause is FileError => cause instanceof FileError },
+    });
+    let release!: () => void;
+    const registered = new Promise<void>(resolve => release = resolve);
+    const intercept = container.interceptOutboundHttp!.bind(container);
+    container.interceptOutboundHttp = async (target, handler) => {
+      await registered;
+      await intercept(target, handler);
+    };
+    const configuration = { networkPolicy: { allow: ["example.com"] } };
+    const sandbox = new Sandbox({
+      container,
+      exports: { SandboxOutbound: outbound },
+      id: { name: "a", toString: () => "a" },
+      storage: { get: async <T>() => configuration as T, put: async () => {} },
+    }, {});
+
+    const first = sandbox.exec("true");
+    await vi.waitFor(() => expect(container.running).toBe(true));
+    const second = sandbox.exec("true");
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(executions).toEqual([]);
+
+    release();
+    await Promise.all([first, second]);
+    expect(container.starts).toHaveLength(1);
+    expect(container.intercepts.map(([protocol]) => protocol)).toEqual(["http", "https"]);
+    expect(executions).toHaveLength(2);
+  });
+
+  it("fetches only the hosts of the allowlist, whatever Host header the Container sends", async () => {
+    const Outbound = createCloudflareSandboxOutbound({ WorkerEntrypoint: FakeDurableObject });
+    const entrypoint = new Outbound({ props: { allow: ["*.github.com", "registry.npmjs.org"] } }, {});
+    const fetch = vi.fn(async () => new Response("upstream"));
+    vi.stubGlobal("fetch", fetch);
+    try {
+      // HTTPS with SNI registry.npmjs.org and `Host: example.com` reaches the entrypoint as https://example.com/.
+      const denied = await entrypoint.fetch(new Request("https://example.com/"));
+      expect(denied.status).toBe(403);
+      expect(await denied.text()).toContain("example.com is not in the Sandbox networkPolicy");
+      expect((await entrypoint.fetch(new Request("https://github.com/"))).status).toBe(403);
+      expect(fetch).not.toHaveBeenCalled();
+
+      await expect((await entrypoint.fetch(new Request("https://registry.npmjs.org/left-pad"))).text()).resolves.toBe("upstream");
+      await expect((await entrypoint.fetch(new Request("http://api.github.com/zen"))).text()).resolves.toBe("upstream");
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(allowsHost(["*.example.com"], "a.b.EXAMPLE.com.")).toBe(true);
+    expect(allowsHost(["*.example.com"], "example.com")).toBe(false);
+    expect(allowsHost(["*.example.com"], "badexample.com")).toBe(false);
+  });
+
+  it("restarts a running Container that started with another network policy", async () => {
+    const { container, executions, timeouts } = fakeContainer();
+    const { Files } = fakeFiles();
+    const storage = new Map<string, unknown>();
+    const Sandbox = createCloudflareSandboxDurableObject({
+      DurableObject: FakeDurableObject,
+      Files,
+      outboundEntrypoint: "SandboxOutbound",
+      SandboxFileError: { is: (cause): cause is FileError => cause instanceof FileError },
+    });
+    const ctx = {
+      container,
+      exports: { SandboxOutbound: outbound },
+      id: { name: "shared", toString: () => "shared" },
+      storage: {
+        async get<T>(key: string) { return storage.get(key) as T | undefined; },
+        async put(key: string, value: unknown) { storage.set(key, value); },
+      },
+    };
+    await new Sandbox(ctx, {}).exec("true");
+    expect(container.starts).toEqual([{ enableInternet: true }]);
+
+    // A new Durable Object instance, as after an eviction, with the same policy keeps the Container.
+    await new Sandbox(ctx, {}).configure({ networkPolicy: "allow-all", sleepAfter: "30s" });
+    expect(container.destroyed).toBe(0);
+    expect(timeouts.at(-1)).toBe(30_000);
+
+    const object = new Sandbox(ctx, {});
+    await object.configure({ networkPolicy: { allow: ["api.example.com"] } });
+    expect(container.destroyed).toBe(1);
+    await object.exec("true");
+    expect(container.starts).toEqual([{ enableInternet: true }, { enableInternet: false }]);
+    expect(container.intercepts.map(([protocol, host]) => `${protocol}:${host}`)).toEqual(["http:api.example.com", "https:api.example.com"]);
+    expect(executions.length).toBe(2);
+  });
+
+  it("does not start a Container for an allowlist when the Worker does not export the outbound entrypoint", async () => {
+    const { container } = fakeContainer();
+    const { Files } = fakeFiles();
+    const Sandbox = createCloudflareSandboxDurableObject({
+      DurableObject: FakeDurableObject,
+      Files,
+      outboundEntrypoint: "SandboxOutbound",
+      SandboxFileError: { is: (cause): cause is FileError => cause instanceof FileError },
+    });
+    const configuration = { networkPolicy: { allow: ["api.example.com"] } };
+    const sandbox = new Sandbox({ container, id: { name: "a", toString: () => "a" }, storage: { get: async <T>() => configuration as T, put: async () => {} } }, {});
+
+    await expect(sandbox.exec("true")).rejects.toThrow("needs the \"SandboxOutbound\" entrypoint in ctx.exports");
+    expect(container.starts).toEqual([]);
   });
 
   it("reads sleepAfter in 0.x units", () => {

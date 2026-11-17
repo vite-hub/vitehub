@@ -1,3 +1,5 @@
+import { invariant } from "@vite-hub/internal/invariant"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { discoveredAgentName, discoveredAgentWorkspace } from "./internal/discovered-agent-name.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { declaredAgentWorkspace, registeredWorkspaceAgentNames } from "./internal/workspace-agent-registration.ts"
@@ -119,7 +121,7 @@ function instructionsExtension(value: unknown): InstructionsExtension | undefine
 
 function extendInstructions(extend: InstructionsExtension, inherited: string): string {
   const document: unknown = extend(inherited)
-  if (typeof document !== "string") throw new TypeError("[vitehub] driver.instructions extend() must return a string.")
+  if (typeof document !== "string") throw agentDiagnostics.AGENT_INSTRUCTIONS_EXTEND_INVALID()
   return document
 }
 
@@ -167,7 +169,7 @@ function extendCapability(inherited: unknown, capability: ExtensibleCapability):
   if (inherited === undefined || inherited === capability || typeof capability.extend !== "function") return capability
   const extended: unknown = Reflect.apply(capability.extend, capability, [inherited])
   if (!extensibleCapability(extended) || extended.id !== capability.id) {
-    throw new TypeError(`[vitehub] Capability "${capability.id}" extend() must return a Capability with the same id.`)
+    throw agentDiagnostics.AGENT_CAPABILITY_EXTEND_ID_CHANGED({ id: capability.id })
   }
   return extended
 }
@@ -244,7 +246,7 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
     const inherited = new Map<string, unknown>()
     for (const [index, capability] of [...parent, ...child].entries()) {
       if (!extensibleCapability(capability)) {
-        throw new TypeError("[vitehub] Agent layers require explicit capability definitions with stable IDs.")
+        throw agentDiagnostics.AGENT_CAPABILITY_ID_MISSING()
       }
       if (index < parent.length) inherited.set(capability.id, capability)
       capabilities.set(capability.id, index < parent.length ? capability : extendCapability(inherited.get(capability.id), capability))
@@ -278,21 +280,21 @@ export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (setting
   input = resolveAgentPresetExtension(input, resolvePreset, mergePresetOptions)
   if (!record(input)) return input
   if (!("extends" in input)) {
-    if ("options" in input) throw new TypeError("[vitehub] Agent options require a preset with options and configure.")
+    if ("options" in input) throw agentDiagnostics.AGENT_PRESET_OPTIONS_WITHOUT_CONFIGURE()
     return resolveDriverExtensions(input)
   }
   const { extends: parent, options: presetOptions, ...overrides } = input
   if (!parent || typeof parent !== "object" || !layerMetadata(parent)) {
-    throw new TypeError("[vitehub] defineAgent({ extends }) requires an Agent Definition created by defineAgent().")
+    throw agentDiagnostics.AGENT_EXTENDS_INVALID()
   }
   const inherited = layerMetadata(parent)!
   const configured = inherited.configured
   if (!configured && "options" in input) {
-    throw new TypeError("[vitehub] Agent options require a preset with options and configure.")
+    throw agentDiagnostics.AGENT_PRESET_OPTIONS_WITHOUT_CONFIGURE()
   }
   if (configured) {
     if (presetOptions !== undefined && !record(presetOptions)) {
-      throw new TypeError("[vitehub] Agent preset options must be an object.")
+      throw agentDiagnostics.AGENT_PRESET_OPTIONS_INVALID({ name: "preset" })
     }
     const options = mergePresetOptions(configured.options, presetOptions)
     const definition = configured.configure(mergePresetOptions({}, options))
@@ -304,7 +306,7 @@ export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (setting
       const { name: _inheritedName, ...rest } = layer
       return merge(document, index === inheritedOverrides.length - 1 ? layer : rest, "")
     }, defaults)
-    if (!record(settings)) throw new TypeError("[vitehub] Invalid Agent layer options.")
+    invariant(record(settings), "merge() of record defaults and record layers returns a record")
     const { workspace: discoveredWorkspace, ...discoveryDefaults } = inherited.defaults ?? {}
     // Inspect final settings before discovery defaults can create Workspace access.
     // SAFETY: These settings combine a registered definition with its overrides.
@@ -312,7 +314,7 @@ export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (setting
       ? { ...discoveryDefaults, workspace: discoveredWorkspace }
       : discoveryDefaults
     const resolved = resolveDriverExtensions(merge(applicableDefaults, settings, ""))
-    if (!record(resolved)) throw new TypeError("[vitehub] Invalid Agent layer options.")
+    invariant(record(resolved), "merge() of record defaults and record overrides returns a record")
     // SAFETY: Resolved settings merge a registered definition with its overrides.
     rememberLayerMetadata(resolved, { options: resolved as AgentSettings, configured: { ...configured, options, overrides: inheritedOverrides }, defaults: inherited.defaults, parent })
     // Preserve application-owned decorations from the configure result on every reconfiguration.
@@ -330,7 +332,7 @@ export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (setting
   }
   const { name: _parentName, ...defaults } = layerMetadata(parent)!.options
   const resolved = resolveDriverExtensions(merge(defaults, overrides, ""))
-  if (!record(resolved)) throw new TypeError("[vitehub] Invalid Agent layer options.")
+  invariant(record(resolved), "merge() of record defaults and record overrides returns a record")
   inheritColocatedSkills(asMetadataTarget(parent), asMetadataTarget(resolved))
   // SAFETY: Resolved settings merge a registered definition with its overrides.
   rememberLayerMetadata(resolved, { options: resolved as AgentSettings, defaults: inherited.defaults, parent })
@@ -377,7 +379,7 @@ export function rememberAgentLayerOptions<T extends LayerAgentDefinition>(defini
 
 function assertLayerDefinition(value: unknown): asserts value is LayerAgentDefinition {
   if (!value || typeof value !== "object" || !layerMetadata(value)) {
-    throw new TypeError("[vitehub] Agent configure must return an Agent Definition created by defineAgent().")
+    throw agentDiagnostics.AGENT_CONFIGURE_RESULT_INVALID()
   }
 }
 
@@ -596,11 +598,11 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
   if (!record(input) || !("configure" in input)) return undefined
   if (!record(input.options) || typeof input.configure !== "function"
     || Object.keys(input).some(key => key !== "options" && key !== "configure" && key !== "configKey")) {
-    throw new TypeError("[vitehub] A configured Agent requires only options defaults and a configure callback.")
+    throw agentDiagnostics.AGENT_CONFIGURED_OPTIONS_INVALID()
   }
   if (input.configKey !== undefined && (typeof input.configKey !== "string" || !/^[a-z][a-zA-Z0-9]*$/.test(input.configKey)
     || ["extends", "preset", "presets", "options", "configure", "driver", "workspace", "channels", "capabilities", "name", "description", "hooks", "data", "intercept", "github", "runtime", "invoker", "invocations", "messages", "sandbox", "version", "resolve", "run", "health", "status", "chat", "cli", "configKey", "constructor", "prototype"].includes(input.configKey))) {
-    throw new TypeError("[vitehub] Agent configKey must be a non-reserved configuration key.")
+    throw agentDiagnostics.AGENT_CONFIG_KEY_INVALID()
   }
   const configKey = typeof input.configKey === "string" ? input.configKey : undefined
   const callback = input.configure

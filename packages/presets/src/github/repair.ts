@@ -4,6 +4,10 @@ import { isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import * as v from "valibot";
+import { invariantError } from "@vite-hub/internal/invariant";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
+import { findGitHubBaseReverts } from "./base-reverts.ts";
+import type { GitHubBaseRevert } from "./base-reverts.ts";
 import { resolveGitHubMergeConflicts } from "./conflicts.ts";
 import type { GitHubConflictOptions, GitHubConflictResolution } from "./conflicts.ts";
 import { assertGitHubDependenciesCurrent } from "./install.ts";
@@ -13,6 +17,8 @@ const exec = promisify(execFile);
 export interface GitHubRepairCommit {
   message: string;
   paths: string[];
+  /** Files where a base merge intentionally keeps the PR's version over a base change, each with the reason. */
+  baseOverrides?: Array<{ path: string; reason: string }>;
 }
 
 /** Git metadata is protected by provider sandboxes. Only the host stages repairs. */
@@ -22,20 +28,21 @@ export async function commitGitHubPullRequestWorkspace(
   options: { expectedHead: string; signal?: AbortSignal; identity?: Record<string, string | undefined>; verifyDependencies?: boolean },
 ): Promise<string> {
   options.signal?.throwIfAborted();
-  if (!input.message.trim() || !input.paths.length) throw new Error("A repair message and explicit file paths are required.");
+  if (!input.message.trim() || !input.paths.length) throw presetsErrorDiagnostics.PRESETS_REPAIR_INPUT_MISSING();
   for (const path of input.paths) {
     if (!path || path === "." || isAbsolute(path) || path.split(/[\\/]/).some(part => part === ".." || part === ".git") || path.includes("\0")) {
-      throw new Error("Repair paths must name files inside the assigned checkout.");
+      throw presetsErrorDiagnostics.PRESETS_REPAIR_PATH_INVALID();
     }
     const entry = await lstat(join(target, path)).catch((error: unknown) => {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
       throw error;
     });
-    if (entry?.isDirectory()) throw new Error("Repair paths must name individual files.");
+    if (entry?.isDirectory()) throw presetsErrorDiagnostics.PRESETS_REPAIR_PATH_DIRECTORY();
   }
-  if (!(await lstat(join(target, ".git"))).isDirectory()) throw new Error("Repair requires an independent prepared Git directory.");
+  if (!(await lstat(join(target, ".git"))).isDirectory()) throw invariantError("the GitHub host passes the root of its own prepared clone to the repair")
   const git = repairGit(target, options);
-  if (await realpath(await git("rev-parse", "--show-toplevel")) !== await realpath(target)) throw new Error("Repair target must be its checkout root.");
+  let message = input.message;
+  if (await realpath(await git("rev-parse", "--show-toplevel")) !== await realpath(target)) throw invariantError("the GitHub host passes the checkout root of its own clone to the repair")
   await git("merge-base", "--is-ancestor", options.expectedHead, "HEAD");
   const recordPath = join(target, ".git", "vitehub-merge.json");
   const rawRecord = await readFile(recordPath, "utf8").catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; return undefined; });
@@ -43,8 +50,8 @@ export async function commitGitHubPullRequestWorkspace(
   if (mergeRecord) {
     if (mergeRecord.head !== options.expectedHead || await git("rev-parse", "HEAD") !== mergeRecord.head
       || (await readFile(join(target, ".git", "MERGE_HEAD"), "utf8")).trim() !== mergeRecord.base
-      || digest(await git("ls-files", "--stage", "-z")) !== mergeRecord.index) throw new Error("Prepared merge metadata or index changed outside the host repair tools.");
-  } else if (await git("diff", "--cached", "--name-only")) throw new Error("Repair checkout contains unrelated staged changes.");
+      || digest(await git("ls-files", "--stage", "-z")) !== mergeRecord.index) throw presetsErrorDiagnostics.PRESETS_REPAIR_MERGE_CHANGED();
+  } else if (await git("diff", "--cached", "--name-only")) throw presetsErrorDiagnostics.PRESETS_REPAIR_STAGED_CHANGES();
   // Restored tracked instructions can retain the provider's skip-worktree flag.
   // Only the explicitly authorized paths may cross that sparse boundary.
   const skipped = (await git("ls-files", "-v", "-z", "--", ...input.paths)).split("\0")
@@ -54,7 +61,12 @@ export async function commitGitHubPullRequestWorkspace(
   if (mergeRecord) {
     await writeFile(recordPath, JSON.stringify({ ...mergeRecord, index: digest(await git("ls-files", "--stage", "-z")) }));
     const unresolved = await git("diff", "--name-only", "--diff-filter=U");
-    if (unresolved) throw new Error(`Resolve the remaining merge conflicts and call commitRepair with their file paths: ${unresolved}`);
+    if (unresolved) throw presetsErrorDiagnostics.PRESETS_REPAIR_CONFLICTS_UNRESOLVED({ files: unresolved });
+    const reasons = new Map(input.baseOverrides?.map(({ path, reason }) => [path, reason.trim()]));
+    const reverts = await findGitHubBaseReverts(git.raw, mergeRecord);
+    const unexplained = reverts.filter(({ path }) => !reasons.get(path));
+    if (unexplained.length) throw presetsErrorDiagnostics.PRESETS_REPAIR_BASE_REVERTED({ files: describeBaseReverts(unexplained) });
+    if (reverts.length) message += `\n\nKeeps this PR's version over base changes:\n${reverts.map(({ path }) => `- ${path}: ${reasons.get(path)}`).join("\n")}`;
   }
   if (options.verifyDependencies) {
     const directory = await mkdtemp(join(target, ".git", "vitehub-commit-snapshot-"));
@@ -64,7 +76,7 @@ export async function commitGitHubPullRequestWorkspace(
       const tree = await git("write-tree");
       await git("checkout-index", "--all", `--prefix=${directory}/`);
       await assertGitHubDependenciesCurrent(target, directory);
-      if (await git("write-tree") !== tree) throw new Error("Repair index changed during dependency validation.");
+      if (await git("write-tree") !== tree) throw presetsErrorDiagnostics.PRESETS_REPAIR_INDEX_CHANGED();
     } catch (error) {
       // A rejected ordinary repair must be stageable again after refresh.
       // Prepared merges retain their host-recorded conflict-resolution index.
@@ -72,7 +84,7 @@ export async function commitGitHubPullRequestWorkspace(
       throw error;
     } finally { await rm(directory, { recursive: true, force: true }); }
   }
-  if (mergeRecord || await git("diff", "--cached", "--name-only")) await git("commit", "-m", input.message);
+  if (mergeRecord || await git("diff", "--cached", "--name-only")) await git("commit", "-m", message);
   if (mergeRecord) await rm(recordPath);
   options.signal?.throwIfAborted();
   return await git("rev-parse", "HEAD");
@@ -88,6 +100,15 @@ const mergeRecordSchema = v.object({
     lockfile: v.optional(v.string()),
   })),
 });
+function describeBaseReverts(reverts: GitHubBaseRevert[]) {
+  const quote = (line: string) => JSON.stringify(line.length > 100 ? `${line.slice(0, 100)}…` : line);
+  return reverts.slice(0, 10).map(({ path, dropped, restored }) => [
+    `${path}:`,
+    dropped.length ? ` drops ${dropped.length} base line(s) such as ${dropped.slice(0, 2).map(quote).join(", ")}` : "",
+    dropped.length && restored.length ? ";" : "",
+    restored.length ? ` restores ${restored.length} line(s) the base removed, such as ${restored.slice(0, 2).map(quote).join(", ")}` : "",
+  ].join("")).join("\n") + (reverts.length > 10 ? `\nand ${reverts.length - 10} more files` : "");
+}
 const digest = (index: string) => createHash("sha256").update(index).digest("hex");
 function repairGit(target: string, options: { signal?: AbortSignal; identity?: Record<string, string | undefined>; env?: Record<string, string> }) {
   // No shell credentials, ambient Git bindings, global configuration, hooks,
@@ -112,10 +133,10 @@ function repairGit(target: string, options: { signal?: AbortSignal; identity?: R
  * no judgment are resolved and staged; the result lists them when the merge conflicted.
  */
 export async function prepareGitHubRepairBase(target: string, options: { expectedHead: string; base: string; signal?: AbortSignal; fetch?: { url: string; env: Record<string, string> }; conflicts?: Omit<GitHubConflictOptions, "signal"> }): Promise<GitHubConflictResolution | undefined> {
-  if (!/^[a-f\d]{40}$/i.test(options.base)) throw new Error("Repair base must be an exact commit SHA.");
+  if (!/^[a-f\d]{40}$/i.test(options.base)) throw invariantError("the Babysitter passes the exact base commit SHA that it read from GitHub")
   const git = repairGit(target, options);
-  if (await realpath(await git("rev-parse", "--show-toplevel")) !== await realpath(target) || !(await lstat(join(target, ".git"))).isDirectory()) throw new Error("Base merge requires an independent prepared checkout.");
-  if (await git("rev-parse", "HEAD") !== options.expectedHead || await git("status", "--porcelain")) throw new Error("Base merge requires the clean assigned PR head.");
+  if (await realpath(await git("rev-parse", "--show-toplevel")) !== await realpath(target) || !(await lstat(join(target, ".git"))).isDirectory()) throw invariantError("the Babysitter merges the base in the root of its own prepared clone")
+  if (await git("rev-parse", "HEAD") !== options.expectedHead || await git("status", "--porcelain")) throw invariantError("the Babysitter merges the base on a clean clone of the assigned pull request head")
   // The live branch may have advanced after the checkout fetched its objects.
   // This runs only during host preparation, before provider writes are admitted.
   if (options.fetch) await repairGit(target, { signal: options.signal, env: options.fetch.env })("fetch", "--no-tags", "--", options.fetch.url, options.base);
@@ -127,7 +148,7 @@ export async function prepareGitHubRepairBase(target: string, options: { expecte
   }
   const mergeHead = await readFile(join(target, ".git", "MERGE_HEAD"), "utf8").catch(() => undefined);
   if (!mergeHead) return undefined;
-  if (mergeHead.trim() !== options.base) throw new Error("Prepared merge selected a different base.");
+  if (mergeHead.trim() !== options.base) throw invariantError("the prepared merge uses the base commit SHA that the Babysitter read from GitHub")
   // Host resolutions are staged before the digest, so commitRepair accepts them as host work.
   const conflicts = await resolveGitHubMergeConflicts(target, git.raw, { ...options.conflicts, signal: options.signal });
   await writeFile(join(target, ".git", "vitehub-merge.json"), JSON.stringify({ head: options.expectedHead, base: options.base, index: digest(await git("ls-files", "--stage", "-z")), conflicts }));

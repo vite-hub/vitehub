@@ -6,6 +6,7 @@ import { consoleFocalCropPosition } from "../client/media-library";
 import { useConsoleToast } from "../client/toast";
 
 import type { ConsoleMediaDetails, ConsoleMediaReference } from "../client/media";
+import Icon from "./console-icon.vue";
 
 /**
  * A Blob reference field, such as `image()` or `file()`, as a property value: a thumbnail and the file name, Replace and
@@ -120,7 +121,7 @@ const meta = computed(() => {
     <div class="group flex min-w-0 items-center gap-2.5 rounded-md px-2.5 py-1 hover:bg-elevated/50">
       <span class="vitehub-media-field__thumb" :style="{ background: details?.color }">
         <img v-if="details?.thumbnail && kind === 'image'" :src="details.thumbnail" :alt="alt" class="size-full object-cover" :style="{ objectPosition: consoleFocalCropPosition(details.focal, details, 1) }">
-        <UIcon v-else :name="missing ? 'i-lucide-triangle-alert' : kind === 'image' ? 'i-lucide-image' : 'i-lucide-file'" class="size-4" :class="missing ? 'text-warning' : 'text-dimmed'" aria-hidden="true" />
+        <Icon v-else :name="missing ? 'i-lucide-triangle-alert' : kind === 'image' ? 'i-lucide-image' : 'i-lucide-file'" class="size-4" :class="missing ? 'text-warning' : 'text-dimmed'" aria-hidden="true" />
       </span>
       <span class="grid min-w-0 flex-1">
         <span class="truncate text-sm text-highlighted" :title="reference.pathname">{{ name }}</span>
@@ -147,9 +148,9 @@ const meta = computed(() => {
 <style>
 .vitehub-media-field__thumb {
   align-items: center;
-  background: var(--ui-bg-elevated);
-  border-radius: calc(var(--ui-radius) * 1.5);
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ui-text-highlighted) 6%, transparent);
+  background: var(--muted);
+  border-radius: calc(var(--radius) * 1.5);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 6%, transparent);
   display: inline-flex;
   flex-shrink: 0;
   height: 2.5rem;

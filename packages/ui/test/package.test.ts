@@ -65,7 +65,7 @@ const publicEntries = [".", "./headless", "./markdown-editor", "./nuxt", "./play
 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
-    expect(Object.keys(packageJson.exports).sort()).toEqual([...publicEntries, "./package.json", "./styles.css", "./theme.css"].sort());
+    expect(Object.keys(packageJson.exports).sort()).toEqual([...publicEntries, "./comment-marks.css", "./package.json", "./styles.css", "./theme.css"].sort());
     expect(packageJson.peerDependencies).toMatchObject({
       "@iconify-json/lucide": expect.any(String),
       "@nuxt/ui": expect.any(String),
@@ -97,8 +97,8 @@ describe("@vite-hub/ui package contract", () => {
       "@shikijs/themes": "4.5.0",
       "@types/node": "catalog:tooling",
       "@vite-hub/comments": "workspace:*",
-      "@ui-sdk/core": "0.1.0-beta.2",
-      "@ui-sdk/vue": "0.1.0-beta.2",
+      "@ui-sdk/core": "0.1.0-beta.5",
+      "@ui-sdk/vue": "0.1.0-beta.5",
       "nostics": "catalog:runtime",
       shiki: "^4.5.0",
       "@codemirror/autocomplete": "6.20.4",

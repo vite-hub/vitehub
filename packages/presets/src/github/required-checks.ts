@@ -39,8 +39,14 @@ export function createGitHubRequiredCheckPolicyReader(
     try {
       const rules = await read(repository, branch);
       const details = githubBranchRuleDetails(rules);
-      if (details.requiredWorkflows) throw new Error("Required workflow rules cannot be reduced to check contexts");
-      return { ...base, status: "known", classicSource: details.classicSource, required: rules.requiredChecks.map(requiredCheck) };
+      if (details.requiredWorkflows) return { ...base, reason: "Required workflow rules cannot be reduced to check contexts" };
+      const required: GitHubRequiredCheck[] = [];
+      for (const check of rules.requiredChecks) {
+        const parsed = requiredCheck(check);
+        if (typeof parsed === "string") return { ...base, reason: parsed };
+        required.push(parsed);
+      }
+      return { ...base, status: "known", classicSource: details.classicSource, required };
     } catch (error) {
       return {
         ...base,
@@ -95,12 +101,13 @@ export function createGitHubRequiredCheckPolicyReader(
   };
 }
 
-function requiredCheck(check: RequiredCheck): GitHubRequiredCheck {
-  if (typeof check.name !== "string" || !check.name.trim()) throw new Error("Invalid required-check name");
+/** Reads one required check, or returns why the policy is unknown. */
+function requiredCheck(check: RequiredCheck): GitHubRequiredCheck | string {
+  if (typeof check.name !== "string" || !check.name.trim()) return "Invalid required-check name";
   // GitHub reports app ID -1 for a classic check that any app may report.
-  if (check.appId !== undefined && (typeof check.appId !== "string" || !/^-?\d+$/.test(check.appId))) throw new Error("Invalid required-check app ID");
+  if (check.appId !== undefined && (typeof check.appId !== "string" || !/^-?\d+$/.test(check.appId))) return "Invalid required-check app ID";
   const appId = check.appId === undefined || check.appId === "-1" ? null : Number(check.appId);
-  if (appId !== null && (!Number.isSafeInteger(appId) || appId < 0)) throw new Error("Invalid required-check app ID");
+  if (appId !== null && (!Number.isSafeInteger(appId) || appId < 0)) return "Invalid required-check app ID";
   return { context: check.name, appId };
 }
 

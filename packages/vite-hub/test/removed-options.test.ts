@@ -18,6 +18,11 @@ describe("removed vitehub() options", () => {
     expect(() => vitehub(options)).toThrow(fix)
   })
 
+  it("rejects removed secretsFile while accepting Worker vars", () => {
+    expect(() => vitehub({ host: "cloudflare", env: false, cloudflare: { vars: true } })).not.toThrow()
+    expect(() => vitehub({ host: "cloudflare", env: false, cloudflare: { secretsFile: ".env" } } as ViteHubOptions)).toThrow("Remove `cloudflare.secretsFile`.")
+  })
+
   it("accepts `host`", () => {
     expect(() => vitehub({ host: "cloudflare", env: false })).not.toThrow()
   })

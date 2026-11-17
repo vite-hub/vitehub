@@ -175,7 +175,7 @@ describe("Workflow Provider Output lifecycle", () => {
 
   it("fails closed when schedule runtime preparation has no resolved config", async () => {
     const plugin = hubWorkflow()
-    await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).rejects.toThrow("requires resolved Vite config")
+    await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).rejects.toMatchObject({ code: "INTERNAL_INVARIANT_FAILED" })
   })
 
   it("keeps Provider Output work in the Nuxt SSR environment when Nitro builds outside Vite", async () => {
