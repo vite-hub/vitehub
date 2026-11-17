@@ -66,7 +66,7 @@ describe("built-in host integration", () => {
 
   it.each([undefined, true, false] as const)("checks server/agents against agent %s", async (agent) => {
     vi.stubEnv("VITEST", undefined)
-    onTestFinished(() => vi.unstubAllEnvs())
+    onTestFinished(() => { vi.unstubAllEnvs() })
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-"))
     onTestFinished(() => rm(root, { force: true, recursive: true }))
     await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -94,7 +94,7 @@ describe("built-in host integration", () => {
     { vitest: "true", command: "serve", mode: "integration" },
   ] as const)("checks missing agent with Vitest=$vitest, command=$command, mode=$mode", async ({ vitest, command, mode }) => {
     vi.stubEnv("VITEST", vitest)
-    onTestFinished(() => vi.unstubAllEnvs())
+    onTestFinished(() => { vi.unstubAllEnvs() })
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-test-"))
     onTestFinished(() => rm(root, { force: true, recursive: true }))
     await mkdir(join(root, "server", "agents"), { recursive: true })
