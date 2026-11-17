@@ -1,6 +1,6 @@
 ---
 title: Forms in Vue
-description: Draw a whole form from its schema with AutoForm, send your own native form with useFormAction(), or a Formisch form with useFormSubmit(). FormHoneypot adds the spam trap to your own markup.
+description: Draw a form from its schema with AutoForm, send your own form with useFormAction() or Formisch, and add the spam trap with FormHoneypot.
 navigation.title: Vue
 navigation.order: 8
 icon: i-lucide-panels-top-left

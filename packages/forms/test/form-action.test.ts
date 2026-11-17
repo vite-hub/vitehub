@@ -151,6 +151,8 @@ describe("FormHoneypot", () => {
     input.value = "bot"
     input.dispatchEvent(new InputEvent("input", { bubbles: true }))
     expect(trap.value).toBe("bot")
+    // The app renders the typed value before it resets the field, as after a send.
+    await nextTick()
     trap.value = ""
     await nextTick()
     expect(input.value).toBe("")
