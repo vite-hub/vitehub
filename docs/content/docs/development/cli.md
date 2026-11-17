@@ -31,6 +31,8 @@ Help lists the namespaces (command groups) you have:
 - `types`, `task`, `decisions`, and `sandbox` from the framework. `decisions` and `sandbox` do not load the project config, and `sandbox` also runs in a deployed container without Vite.
 - `inspect` and `provision`, built into the CLI. Plugin commands named `inspect` are ignored.
 
+`vitehub database --help` and `vitehub database <feature> --help` print the help without loading the project config, so they answer at once in a Nuxt app.
+
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
        vitehub <command> [args...]
