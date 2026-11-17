@@ -16,10 +16,10 @@ import { hubSource } from "@vite-hub/source/vite"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { collapseWranglerConfigFile } from "@vite-hub/internal/build/cloudflare"
 import { collectDeploymentEnv, describeDeploymentPlanOutput, finalizeDeploymentPlanOutput, mergeDeploymentEnv } from "@vite-hub/internal/build/deployment-plan-output"
-import type { DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
+import type { DeploymentDeployManifest, DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
-import { createNoExternalAddition, getDeploymentHost, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_HOST, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, getDeploymentHost, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_HOST, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import { listSourceFiles } from "@vite-hub/internal/definition-catalog"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import { hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
@@ -40,6 +40,7 @@ import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { vitestInlinePlugin } from "./vitest-inline.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { healthVitePlugin, type HealthOptions } from "./health-vite.ts"
+import { resolveDeployManifest, writeIndexNowKeyFile, type DeployOptions } from "./deploy-options.ts"
 import { viteHubSeoPlugin, type SeoOptions } from "./seo/vite.ts"
 import { requestPolicyVitePlugin, type SameOriginWritesOptions } from "./request-policy-vite.ts"
 import { redirectsVitePlugin, resolveRedirectsPolicy, type RedirectsOptions } from "./redirects-vite.ts"
@@ -98,6 +99,7 @@ export type { ConsoleOptions } from "./console/vite.ts"
 export type { RedirectsOptions } from "./redirects-vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityLogsOptions, ObservabilityOptions } from "./observability-vite.ts"
 export type { HealthOptions } from "./health-vite.ts"
+export type { DeployOptions } from "./deploy-options.ts"
 export type { SeoOptions } from "./seo/vite.ts"
 export type { SameOriginWritesOptions } from "./request-policy-vite.ts"
 export type { SystemdOptions } from "./systemd.ts"
@@ -453,6 +455,10 @@ export interface ViteHubOptions {
    * Without any of them, ViteHub builds for `"node"`. `vitehub deploy --host` overrides it for its build.
    */
   host?: ViteHubHost
+  /**
+   * The name of the app. Host resources, such as the Cloudflare Worker, use it in lower case with dashes, and the
+   * Console shows it as written. Default: the `name` in `package.json`.
+   */
   name?: string
   /**
    * Public origin of the deployed application, such as `https://agents.example.com`.
@@ -530,6 +536,12 @@ export interface ViteHubOptions {
    * It answers `{ ok, commit }`, and with a Database, pings each one and answers 503 when one fails.
    */
   health?: boolean | HealthOptions
+  /**
+   * What `vitehub deploy` does after it uploads the build: `check` lists paths that must answer with a 2xx status on
+   * the deployed URL, and `indexNow: true` sends the sitemap URLs to IndexNow after a production deploy. With `health`,
+   * the health route is checked too.
+   */
+  deploy?: DeployOptions
   kv?: boolean | KVOptions
   /**
    * The app MCP server at `/mcp`, with one tool per file in `server/mcp/tools/`. MCP clients sign in with `mcpOAuth()`
@@ -786,6 +798,7 @@ function deploymentNitroModule(
   envPlugin: () => EnvVitePlugin | undefined,
   contributedEnv: () => readonly DeploymentEnvEntry[],
   envDir: () => string | false | undefined,
+  deploy: DeploymentDeployManifest | undefined,
 ) {
   return (nitro: {
     hooks: {
@@ -823,7 +836,7 @@ function deploymentNitroModule(
       }
       const registry = envPlugin()?.api.getServerEnvRegistry()
       const env = mergeDeploymentEnv([...registry ? deploymentEnvEntries(registry) : [], ...contributedEnv()])
-      await finalizeDeploymentPlanOutput({ ...(registry || env.length ? { env } : {}), envDir: envDir(), identity, outputDir, plan, rootDir, services })
+      await finalizeDeploymentPlanOutput({ ...(registry || env.length ? { env } : {}), ...(deploy ? { deploy } : {}), envDir: envDir(), identity, outputDir, plan, rootDir, services })
       if (systemd) {
         const unit = resolveSystemdUnit({
           drainMs: systemd.drainMs,
@@ -1097,7 +1110,14 @@ function deploymentPlugins(
             const systemd = plan.host === "node" && systemdOptions
               ? { drainMs: agentDrainMs(options.agent), name: systemdUnitName(systemdOptions, name), options: systemdOptions }
               : undefined
-            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current, systemd, () => deploymentEnvPlugin.current, contributedEnv, () => resolvedEnvDir)
+            const deploy = resolveDeployManifest({ deploy: options.deploy, health: options.health, publicUrl: typeof options.publicUrl === "string" ? normalizePublicUrl(options.publicUrl) : undefined })
+            if (deploy?.indexNow) {
+              // The key file is a static file at the site root, such as `/3f2a....txt`.
+              const dir = writeIndexNowKeyFile(resolveViteHubGeneratedRoot(config), deploy.indexNow.key)
+              const publicAssets = Array.isArray(nitro.publicAssets) ? nitro.publicAssets : []
+              nitro.publicAssets = [...publicAssets.filter(asset => cloneRecord(asset).dir !== dir), { baseURL: "/", dir, maxAge: 3600 }]
+            }
+            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current, systemd, () => deploymentEnvPlugin.current, contributedEnv, () => resolvedEnvDir, deploy)
             resolvedBuildConfigs.set(module, buildConfigRef)
             nitro.modules = [
               module,
@@ -1535,6 +1555,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (configuredConsole || devOperationsOnly) {
     const invocationRootState = {}
     const consolePlugin = consoleVitePlugin({
+      name: options.name,
       contentImportBase: "vite-hub/content",
       blobStores: consoleBlobStores,
       console: configuredConsole || undefined,

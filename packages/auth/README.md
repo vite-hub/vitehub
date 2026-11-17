@@ -589,6 +589,20 @@ const error = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in to use this A
 
 `error.toJSON()` includes `name`, `code`, and `message`, while omitting `cause` and stack data. If a default Better Auth request or session operation fails, `authenticated()`, `withAuth()`, and `withAuthorization()` throw the same shared error with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. Existing ViteHub errors and structural `AbortError` objects keep their identity. Missing APIs, malformed responses, invalid Auth configuration, and invalid custom callback results use package-owned `AUTH_C####`, `AUTH_B####`, or `AUTH_R####` Nostics codes.
 
+## Test a signed-in route
+
+`signIn()` from `@vite-hub/auth/test` writes a user and a session to the Auth database and returns headers with the session cookie. Pass them to a `Request`, and `requireAuth()` accepts it. Auth creates the user when no user has this email, and other fields, such as `role`, go to the new user. It sends no email and calls no provider.
+
+```ts
+import { requireAuth } from "@vite-hub/auth/server";
+import { signIn } from "@vite-hub/auth/test";
+
+const { headers } = await signIn({ email: "ada@example.com", role: "admin" });
+const { user } = await requireAuth(new Request("http://localhost/api/me", { headers }));
+```
+
+Apps that install `vite-hub` call `hub.signIn()` from `setupViteHubTest()`. In a test, the default memory database of a Definition without `database` is emptied by `reset()`. A Definition with the `stateless()` preset has no database, so `signIn()` fails with `AUTH_TEST_SIGN_IN_STATELESS`.
+
 ## Production checks
 
 - Supply a strong Better Auth secret from Server Env at request time; never put it in Public Env, client code, Agent input, logs, or traces. Without `secret`, `secrets`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_SECRETS`, or `AUTH_SECRET`, Auth uses `deriveSecret("vitehub:auth")` from `VITEHUB_SECRET`.

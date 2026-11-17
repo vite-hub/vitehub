@@ -140,6 +140,8 @@ export default defineConfig({
 
 Blob stores binary objects and small object metadata. Keep catalogs, indexes, permissions, search records, domain records, and richer metadata queries in KV, Database, or another NoSQL/catalog store next to Blob.
 
+`blob.delete({ prefix })` deletes every object under a non-empty prefix, page by page, and returns `[error, { deleted }]`. Use it instead of a `list()` and `delete()` loop. It keeps the reserved `.vitehub/`, `_vitehub/derived/`, and `_vitehub/media/` objects unless the prefix starts with one of these folders. See [Delete a folder](https://vitehub.dev/docs/blob/server-api#delete-a-folder).
+
 Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings fail if they cannot decode the cursor.
 
 With `folded: true`, files-sdk drivers (S3 and S3-compatible stores, R2, GCS, and Azure) ask the provider for the folders, so each page is one provider request. A page then holds at most `limit` blobs and folders together.

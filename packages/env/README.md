@@ -161,6 +161,24 @@ export default defineEventHandler((event) => {
 
 It compares in constant time. A wrong or missing token throws a `401` HTTP error with `ENV_SERVICE_TOKEN_INVALID`. When the variable has no token, every request fails with `503` and `ENV_SERVICE_TOKEN_UNSET`. The variable holds one token, or a comma-separated list while you rotate. `checkServiceToken(event, name)` returns the same result as `[error, undefined]`. See [Service tokens](https://vitehub.dev/docs/env/service-tokens).
 
+## Verify a webhook
+
+`verifyWebhook(event, { provider, secret })` from `vite-hub/env` checks the signature of a Stripe, GitHub, or other HMAC-SHA256 webhook in a plain route. `secret` is the name of the server variable with the signing secret. It reads the raw body once, compares in constant time, and returns `[error, body]` with the parsed JSON body.
+
+```ts
+// server/api/stripe/webhook.post.ts
+import { defineEventHandler, HTTPError } from "h3";
+import { verifyWebhook } from "vite-hub/env";
+
+export default defineEventHandler(async (event) => {
+  const [error, stripeEvent] = await verifyWebhook<{ type: string }>(event, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" });
+  if (error) throw new HTTPError({ status: 400, message: error.message });
+  return { received: stripeEvent.type };
+});
+```
+
+`provider` is `"stripe"` (`Stripe-Signature`, at most `toleranceSeconds` old, default 300), `"github"` (`X-Hub-Signature-256`), or `"hmac"` with a `header` and optional `prefix`, `encoding`, and `secretEncoding`. The codes are `ENV_WEBHOOK_SIGNATURE_INVALID`, `ENV_WEBHOOK_SECRET_UNSET`, and `ENV_WEBHOOK_BODY_INVALID`. The variable holds one secret, or a comma-separated list while you rotate. See [Verify webhooks](https://vitehub.dev/docs/env/webhooks).
+
 ## Typed server values
 
 Host variables are strings. Declare `env.boolean()`, `env.number()`, or `env.enum()` when server code needs another type. ViteHub parses the value when Server Env resolves and generates the exact type.
