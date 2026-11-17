@@ -917,7 +917,6 @@ function deploymentPlugins(
   options: ViteHubOptions,
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
-  const observabilityLogs = options.observability && options.observability !== true && options.observability.logs
   let deployCommandOwned = false
   const resolvedBuildConfigs = new WeakMap<object, { current: ResolvedBuildConfig }>()
   let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
@@ -1067,10 +1066,11 @@ function deploymentPlugins(
             const cloudflare = cloneRecord(nitro.cloudflare)
             const wrangler = cloneRecord(cloudflare.wrangler)
             if (typeof wrangler.name !== "string") wrangler.name = cloudflareResourceScope(name)
-            if (observabilityLogs && wrangler.observability === undefined) wrangler.observability = { enabled: true }
+            // Nitro reads the project wrangler file from its root, which is the Vite root. Its keys lose to this config.
+            const project = readProjectWranglerConfig(resolve(config.root ?? process.cwd()))
+            // Workers keep no logs without `observability`. An explicit value in either config wins, also `enabled: false`.
+            if (wrangler.observability === undefined && project?.observability === undefined) wrangler.observability = { enabled: true }
             if (building && typeof options.publicUrl === "string") {
-              // Nitro reads the project wrangler file from its root, which is the Vite root.
-              const project = readProjectWranglerConfig(resolve(config.root ?? process.cwd()))
               Object.assign(wrangler, cloudflareCustomDomainConfig(normalizePublicUrl(options.publicUrl), wrangler, project))
             }
             if (options.realtime) {
