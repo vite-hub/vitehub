@@ -1,0 +1,23 @@
+Run any Netlify API method
+
+USAGE
+  $ netlify api [options] [apiMethod]
+
+ARGUMENTS
+  apiMethod             Open API method to run
+
+OPTIONS
+  -d, --data <data>     Data to use
+  -h, --help            display help for command
+  --list                List out available API methods (default: false)
+  --debug               Print debugging information
+  --auth <token>        Netlify auth token - can be used to run this command
+                        without logging in
+
+DESCRIPTION
+  For more information on available methods check out https://open-api.netlify.com/ or run 'netlify api --list'
+
+EXAMPLES
+  $ netlify api --list
+  $ netlify api getSite --data '{ "site_id": "123456" }'
+
