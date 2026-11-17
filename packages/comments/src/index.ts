@@ -59,7 +59,7 @@ export interface Comments {
    * Whether the `authorize` policy allows an action. Without a policy, see `defaultPolicy()`. `gate` says what your
    * server checked before, such as Console section access; a route of your own usually passes nothing.
    */
-  can(context: { user: CommentsUser | null, action: CommentAction, thread?: CommentThread, subject?: CommentSubject }, gate?: CommentsPolicyGate): Promise<boolean>
+  can(context: { user: CommentsUser | null, action: CommentAction, thread?: CommentThread, subject?: CommentSubject, console?: boolean }, gate?: CommentsPolicyGate): Promise<boolean>
   /** People that `@` suggests to `user`, at most 20: `people`, else Auth, else the authors of threads that `user` may read. */
   people(context: { query: string, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, limit?: number, gate?: CommentsPolicyGate }): Promise<Result<CommentUser[], Codes<"COMMENTS_NOT_INSTALLED">>>
   /**
