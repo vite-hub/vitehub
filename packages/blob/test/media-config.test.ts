@@ -38,7 +38,7 @@ describe("blob.images configuration", () => {
   })
 
   it("adds a Cloudflare Images binding only for the explicit cloudflare-images transformer", () => {
-    const store = { binding: "BLOB", driver: "cloudflare-r2" as const }
+    const store = { binding: "BLOB", driver: "cloudflare" as const }
     expect(cloudflareImagesBinding({ store })).toBeUndefined()
     expect(cloudflareImagesBinding({ images: { transformer: "auto" }, store })).toBeUndefined()
     expect(cloudflareImagesBinding({ images: { transformer: "cloudflare-images" }, store })).toEqual({ binding: "IMAGES" })
@@ -88,7 +88,7 @@ describe("generated Nitro plugin", () => {
     // The Worker gets the compiled module itself, so Photon loads with and without `wasm.lazy`.
     const previousHost = process.env.VITEHUB_HOST
     process.env.VITEHUB_HOST = "cloudflare"
-    const worker = await generatePlugin({ bucketName: "assets", driver: "cloudflare-r2", images: { transformer: "photon" } })
+    const worker = await generatePlugin({ bucketName: "assets", driver: "cloudflare", images: { transformer: "photon" } })
       .finally(() => previousHost === undefined ? Reflect.deleteProperty(process.env, "VITEHUB_HOST") : process.env.VITEHUB_HOST = previousHost)
     expect(worker).toContain("setBlobPhotonLoader(() => loadWorkerPhoton(import('@cf-wasm/photon/others'), import('@cf-wasm/photon/photon.wasm')))")
     expect(worker).not.toContain("sharp")
@@ -96,7 +96,7 @@ describe("generated Nitro plugin", () => {
 
   it("finds Photon in node_modules when the Nuxt Nitro build replays the hook without a resolver", async () => {
     const replay = async () => {
-      const plugin = hubBlob({ driver: "cloudflare-r2", images: { transformer: "photon" } })
+      const plugin = hubBlob({ driver: "cloudflare", images: { transformer: "photon" } })
       const config = await resolveConfig({ configFile: false, logLevel: "silent", root }, "build")
       await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, createResolver: undefined })
       return await readFile(join(root, ".vitehub/nitro/blob/plugin.ts"), "utf8")
@@ -111,7 +111,7 @@ describe("generated Nitro plugin", () => {
     const entry = join(root, ".yarn/cache/photon/index.js")
     await mkdir(join(root, ".yarn/cache/photon"), { recursive: true })
     await writeFile(entry, "export {}")
-    for (const driver of ["fs", "cloudflare-r2"] as const) {
+    for (const driver of ["fs", "cloudflare"] as const) {
       const source = await generatePlugin({ driver, images: { transformer: "photon" } }, { "@cf-wasm/photon": entry })
       expect(source).toContain("setBlobPhotonLoader(() => import('@cf-wasm/photon'))")
     }
@@ -132,7 +132,7 @@ describe("generated Nitro plugin", () => {
     // A previous build's plugin makes Vite resolve from its directory and return an optional-peer placeholder.
     await mkdir(join(root, ".vitehub/nitro/blob"), { recursive: true })
     await writeFile(join(root, ".vitehub/nitro/blob/plugin.ts"), "export {}")
-    for (const driver of ["fs", "cloudflare-r2"] as const) {
+    for (const driver of ["fs", "cloudflare"] as const) {
       await expect(generatePlugin({ driver, images: { transformer: "photon" } })).rejects.toMatchObject({ code: "BLOB_B0007" })
     }
   })

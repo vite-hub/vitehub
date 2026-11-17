@@ -24,7 +24,7 @@ async function runShell(tools: ReturnType<typeof createWorkspaceTools>, command:
 function createMutableWorkspace() {
   return createWorkspace({
     name: "mutable",
-    store: { provider: "memory" },
+    store: { driver: "memory" },
   })
 }
 
@@ -424,7 +424,7 @@ describe("createWorkspaceTools", () => {
           url: "https://portal.example.com/runtime/inventory-health",
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
     await workspace.writeFile("README.md", "# Docs\n")
     workspace.startSession = vi.fn(async () => ({
@@ -501,7 +501,7 @@ describe("createWorkspaceTools", () => {
           url: "https://portal.example.com/runtime/inventory-health",
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
 
     await expect(runShell(createWorkspaceTools(workspace, { sourceRequests: true }), "curl -d '{\"region\":\"eu\"}' https://portal.example.com/runtime/inventory-health")).resolves.toMatchObject({
@@ -522,7 +522,7 @@ describe("createWorkspaceTools", () => {
         pageTwo: fetch({ query: { page: 2 }, url: "https://portal.example.com/runtime/items" }),
         pageThree: fetch({ query: { page: 3 }, url: "https://portal.example.com/runtime/items" }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
 
     const tools = createWorkspaceTools(workspace, { operations: { list: false, read: false, search: true } })

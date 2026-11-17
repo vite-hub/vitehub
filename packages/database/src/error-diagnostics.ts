@@ -112,6 +112,18 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Store large files in Blob, and keep the Blob pathname in the row.",
     },
 
+    // Idempotency errors. `withIdempotency()` returns them as `[error, undefined]`.
+    DATABASE_IDEMPOTENCY_INVALID_OPTIONS: {
+      why: ({ option }: { option: "key" | "timeout" | "ttl" }) => option === "key"
+        ? "`withIdempotency()` needs a key that is a non-empty string."
+        : `\`${option}\` of \`withIdempotency()\` must be a positive number of seconds.`,
+      fix: "Pass a key that names the work, such as `stripe:${event.id}`, and `ttl` and `timeout` in seconds, for example `withIdempotency(key, fn, { ttl: 86400, timeout: 60 })`.",
+    },
+    DATABASE_IDEMPOTENCY_IN_PROGRESS: {
+      why: ({ key }: { key: string }) => `Another call with the key ${JSON.stringify(key)} is running.`,
+      fix: "Retry later: when the other call finishes, a retry gets its result. In an HTTP route, answer 409 so the client retries. In a Queue handler, return, because the running call does the work. A call that crashed holds the key until its `timeout` ends.",
+    },
+
     // Config errors. ViteHub throws them when code first uses the database, because the code or the deployment must change.
     DATABASE_DISABLED: {
       why: "Database is not configured in this runtime.",
@@ -214,6 +226,20 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     DATABASE_EXPORT_FAILED: {
       why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot export the database "${database}". ${problem}`,
       fix: "Read the problem in `why`. Without `--remote`, `vitehub database export` reads the local SQLite file. With `--remote`, it needs `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1, `connection.url` and `connection.authToken` for libSQL, the proxy `url` and `authToken` for object-form `cloudflare.http`, or `connection.url` or the PG* variables and `pg_dump` for Postgres.",
+    },
+
+    // SQL and drop errors. The CLI prints them and exits with code 1.
+    DATABASE_DROP_FAILED: {
+      why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot drop the tables of the database "${database}". ${problem}`,
+      fix: "Read the problem in `why`. The drop runs in one transaction, so a failure drops nothing. Without `--remote`, it drops the local SQLite file or PGlite folder. With `--remote`, it needs the same credentials as `vitehub database export --remote`.",
+    },
+    DATABASE_DROP_NOT_CONFIRMED: {
+      why: ({ database }: { database: string }) => `\`vitehub database drop\` drops every table of the database "${database}" and was not confirmed.`,
+      fix: "Answer `y` on a terminal, or add `--force` when no terminal can answer, such as in CI or a script.",
+    },
+    DATABASE_SQL_FAILED: {
+      why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot run the SQL on the database "${database}". ${problem}`,
+      fix: "Read the problem in `why`. Without `--remote`, `vitehub database sql` runs on the local SQLite file or PGlite folder. With `--remote`, it needs the same credentials as `vitehub database export --remote`. For a SQL error, fix the statement and run it again.",
     },
 
     // Seed errors. `vitehub database seed` prints them and exits with code 1.

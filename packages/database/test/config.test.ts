@@ -729,7 +729,7 @@ describe("resolveDBViteConfig", () => {
       ].join("\n"))
     }
 
-    expect(() => resolveDBViteConfig({ driver: "d1", binding: "DB_SHARED", databaseId: "id", databaseName: "name" }, rootDir))
+    expect(() => resolveDBViteConfig({ driver: "cloudflare", binding: "DB_SHARED", databaseId: "id", databaseName: "name" }, rootDir))
       .toThrow(/DATABASE_BINDING_CONFLICT|same Cloudflare D1 binding/)
   })
 
@@ -745,7 +745,7 @@ describe("resolveDBViteConfig", () => {
       ].join("\n"))
     }
 
-    expect(() => resolveDBViteConfig({ driver: "d1", databaseId: "id", databaseName: "name" }, rootDir))
+    expect(() => resolveDBViteConfig({ driver: "cloudflare", databaseId: "id", databaseName: "name" }, rootDir))
       .toThrow(/DATABASE_BINDING_CONFLICT|same Cloudflare D1 binding/)
   })
 
@@ -761,7 +761,7 @@ describe("resolveDBViteConfig", () => {
       ].join("\n"))
     }
 
-    expect(() => resolveDBViteConfig({ driver: "d1", databaseId: "id", databaseName: "name" }, rootDir))
+    expect(() => resolveDBViteConfig({ driver: "cloudflare", databaseId: "id", databaseName: "name" }, rootDir))
       .toThrow(/DATABASE_BINDING_CONFLICT|same Cloudflare D1 binding/)
   })
 
@@ -777,7 +777,7 @@ describe("resolveDBViteConfig", () => {
       ].join("\n"))
     }
 
-    expect(() => resolveDBViteConfig({ driver: "d1", databaseId: "id", databaseName: "name" }, rootDir))
+    expect(() => resolveDBViteConfig({ driver: "cloudflare", databaseId: "id", databaseName: "name" }, rootDir))
       .toThrow(/DATABASE_BINDING_CONFLICT|same Cloudflare D1 binding/)
   })
 
@@ -806,7 +806,7 @@ describe("resolveDBViteConfig", () => {
       ].join("\n"))
     }
 
-    expect(() => resolveDBViteConfig({ driver: "d1", databaseId: "id", databaseName: "name" }, rootDir))
+    expect(() => resolveDBViteConfig({ driver: "cloudflare", databaseId: "id", databaseName: "name" }, rootDir))
       .toThrow(/DATABASE_BINDING_CONFLICT|same Cloudflare D1 binding/)
   })
 
@@ -823,7 +823,7 @@ describe("resolveDBViteConfig", () => {
       ].join("\n"))
     }
 
-    expect(() => resolveDBViteConfig({ driver: "d1", binding: "DB_SHARED", databaseId: "id", databaseName: "name" }, rootDir))
+    expect(() => resolveDBViteConfig({ driver: "cloudflare", binding: "DB_SHARED", databaseId: "id", databaseName: "name" }, rootDir))
       .toThrow(/DATABASE_BINDING_CONFLICT|same Cloudflare D1 binding/)
   })
 
@@ -999,7 +999,7 @@ describe("resolveDBViteConfig", () => {
     await writeDefinition(rootDir, "server/databases/default.ts")
 
     const resolved = resolveDBViteConfig({
-      driver: "d1",
+      driver: "cloudflare",
       databaseId: "remote-id",
       databaseName: "remote-name",
       cloudflare: { http: true },
@@ -1017,7 +1017,7 @@ describe("resolveDBViteConfig", () => {
     await writeDefinition(rootDir, "server/databases/default.ts", "notes", { cloudflare: "" })
 
     const resolved = resolveDBViteConfig({
-      driver: "d1",
+      driver: "cloudflare",
       databaseId: "remote-id",
       databaseName: "remote-name",
       migrationsTable: "__nuxt_migrations",
@@ -1050,7 +1050,7 @@ describe("resolveDBViteConfig", () => {
       cloudflare: { http: true },
       databaseId: "host-id",
       databaseName: "host-name",
-      driver: "d1",
+      driver: "cloudflare",
       previewDatabaseId: "host-preview-id",
     }, rootDir)!
     const definition = { cloudflare: resource, name: "default", schema: {} }
@@ -1080,7 +1080,7 @@ describe("resolveDBViteConfig", () => {
         await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { default: "application-id" } } }))
       }
       const resolved = resolveDBViteConfig({
-        binding: "HOST_DB", cloudflare: { http: true }, databaseId: "host-id", databaseName: "host-name", driver: "d1", previewDatabaseId: "host-preview-id",
+        binding: "HOST_DB", cloudflare: { http: true }, databaseId: "host-id", databaseName: "host-name", driver: "cloudflare", previewDatabaseId: "host-preview-id",
       }, rootDir)!
       expect(resolved.definitionDefaults.cloudflareProjections.default?.resource).toBe("configured")
       const expression = renderDatabaseConfigExpression("default", resolved, "definition")
@@ -1110,7 +1110,7 @@ describe("resolveDBViteConfig", () => {
   it("assigns per-name bindings to inherited D1 resources", async () => {
     const rootDir = await createTempProject()
     for (const name of ["alpha", "beta"]) await writeDefinition(rootDir, `server/databases/${name}/index.ts`)
-    const resolved = resolveDBViteConfig({ binding: "HOST_DB", databaseId: "host-id", databaseName: "host-db", driver: "d1" }, rootDir)!
+    const resolved = resolveDBViteConfig({ binding: "HOST_DB", databaseId: "host-id", databaseName: "host-db", driver: "cloudflare" }, rootDir)!
 
     expect(resolveCloudflareD1Bindings(resolved).d1Databases).toMatchObject([
       { binding: "DB_ALPHA", database_id: "host-id", database_name: "host-db" },
@@ -1138,7 +1138,7 @@ describe("resolveDBViteConfig", () => {
         cloudflare: { http: true },
         databaseId: { kind: "env-variable", source: { kind: "env", name: "VITEHUB_TEST_INHERITED_D1_ID" } },
         databaseName: "host-db",
-        driver: "d1",
+        driver: "cloudflare",
       }, rootDir)!
       const definition = { name, schema: {} }
       const expression = renderDatabaseConfigExpression(name, resolved, "definition")
@@ -1165,7 +1165,7 @@ describe("resolveDBViteConfig", () => {
       cloudflare: { http: { authToken: "host-token", url: "https://host-proxy.example/raw" } },
       databaseId: "host-id",
       databaseName: "host-name",
-      driver: "d1",
+      driver: "cloudflare",
     }, rootDir)!
     const definition = { cloudflare: { http: { url: "https://application-proxy.example/raw" } }, name: "default", schema: {} }
     const expression = renderDatabaseConfigExpression("default", resolved, "definition")
@@ -1181,7 +1181,7 @@ describe("resolveDBViteConfig", () => {
     const provisionState = { cloudflare: { d1: { default: "application-id" } } }
     await mkdir(join(rootDir, ".vitehub"), { recursive: true })
     await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify(provisionState))
-    const resolved = resolveDBViteConfig({ binding: "HOST_DB", databaseId: "host-id", databaseName: "host-name", driver: "d1" }, rootDir)!
+    const resolved = resolveDBViteConfig({ binding: "HOST_DB", databaseId: "host-id", databaseName: "host-name", driver: "cloudflare" }, rootDir)!
     const definition = { cloudflare: { databaseName: "application-name" }, name: "default", schema: {} }
     const expression = renderDatabaseConfigExpression("default", resolved, "definition")
     const registry = Function("definition", "resolveRuntimeCloudflareConfig", `return (${expression})`)(definition, resolveRuntimeCloudflareConfig)

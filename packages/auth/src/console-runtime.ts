@@ -1,6 +1,9 @@
 import type { AuthContext, BetterAuthOptions, DBAdapter, User, Where } from "better-auth";
+import { createAuthEndpoint } from "better-auth/api";
+import { setSessionCookie } from "better-auth/cookies";
 import { defineErrors, type Result, type ResultError } from "@vite-hub/runtime";
 import { defineGrant } from "@vite-hub/runtime/internal/grant";
+import { userAgentDevice } from "@vite-hub/internal/runtime/user-agent";
 import { adminClaimPluginId } from "./admin-claim.ts";
 import { adminClaimVariable } from "./admin-claim-code.ts";
 import { adminsPluginId, adminsVariable } from "./admins.ts";
@@ -957,7 +960,7 @@ export function createAuthConsole(
           user: userSummary(
             (await find("user", equality("id", string(row.userId)))) ?? { id: row.userId },
           ),
-          device: authConsoleDevice(string(row.userAgent)),
+          device: userAgentDevice(string(row.userAgent)),
           createdAt: date(row.createdAt),
           expiresAt: date(row.expiresAt),
           updatedAt: date(row.updatedAt),
@@ -1257,23 +1260,16 @@ export function createAuthConsole(
   }
   async function hostSession(userId: string, request: Request): Promise<Headers> {
     const ctx = await hostContext();
-    const session = await ctx.internalAdapter.createSession(userId, false, {
-      userAgent: request.headers.get("user-agent") ?? "",
-      ipAddress: "",
+    // In an endpoint context, Better Auth writes the cookies of a normal sign-in: the name prefix, the attributes, and
+    // the cookie cache with its chunks. It also reads the address and the user agent of the session from the request.
+    const signIn = createAuthEndpoint.serverOnly({ method: "POST" }, async (endpoint) => {
+      const user = await endpoint.context.internalAdapter.findUserById(userId);
+      if (!user) throw authConsoleError(404, "User not found.");
+      const session = await endpoint.context.internalAdapter.createSession(userId);
+      await setSessionCookie(endpoint, { session, user }, false);
     });
-    const cookie = ctx.authCookies.sessionToken;
-    const attributes = record(cookie.attributes);
-    const parts = [
-      `${cookie.name}=${await signedSessionToken(ctx.secret, session.token)}`,
-      `Path=${string(attributes.path) || "/"}`,
-      `Max-Age=${ctx.sessionConfig.expiresIn}`,
-      ...(string(attributes.domain) ? [`Domain=${string(attributes.domain)}`] : []),
-      ...(attributes.httpOnly === false ? [] : ["HttpOnly"]),
-      ...(attributes.secure ? ["Secure"] : []),
-      `SameSite=${(string(attributes.sameSite) || "lax").replace(/^./, (letter) => letter.toUpperCase())}`,
-      ...(attributes.partitioned ? ["Partitioned"] : []),
-    ];
-    return new Headers([["set-cookie", parts.join("; ")]]);
+    const { headers } = await signIn({ context: ctx, headers: request.headers, returnHeaders: true });
+    return new Headers(headers.getSetCookie().map((cookie) => ["set-cookie", cookie]));
   }
   async function hostSessions(roles: readonly string[]): Promise<AuthConsoleHostSession[]> {
     const ctx = await hostContext();
@@ -1293,7 +1289,7 @@ export function createAuthConsole(
               id: string(session.id),
               user: userSummary(user),
               roles: roleList(user.role),
-              device: authConsoleDevice(string(session.userAgent)),
+              device: userAgentDevice(string(session.userAgent)),
               createdAt: date(session.createdAt),
               updatedAt: date(session.updatedAt),
               expiresAt: date(session.expiresAt),
@@ -1410,27 +1406,3 @@ function roleList(value: unknown): string[] {
   return string(value).split(",").map((role) => role.trim()).filter(Boolean);
 }
 
-/** A short device label. The full user agent is never returned to the browser. */
-function authConsoleDevice(userAgent: string): string {
-  const browser = /Edg\//.test(userAgent)
-    ? "Edge"
-    : /Firefox\//.test(userAgent)
-      ? "Firefox"
-      : /Chrome\//.test(userAgent)
-        ? "Chrome"
-        : /Safari\//.test(userAgent)
-          ? "Safari"
-          : "Unknown browser";
-  const os = /iPhone|iPad/.test(userAgent)
-    ? "iOS"
-    : /Android/.test(userAgent)
-      ? "Android"
-      : /Windows/.test(userAgent)
-        ? "Windows"
-        : /Macintosh/.test(userAgent)
-          ? "macOS"
-          : /Linux/.test(userAgent)
-            ? "Linux"
-            : "Unknown device";
-  return `${browser} · ${os}`;
-}

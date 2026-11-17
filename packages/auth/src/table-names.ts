@@ -1,4 +1,4 @@
-import type { AuthTableName } from "./schema.ts"
+import type { AuthTableName } from "./table-specs.ts"
 
 /**
  * The schema keys of the Auth schemas and their SQL names. Its own module, so the Vite plugin lists the tables without

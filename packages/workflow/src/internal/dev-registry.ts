@@ -34,7 +34,7 @@ export function discoverWorkflowDevDefinitions(rootDir: string, serverDirs?: str
 
 /** True when the startup registry must have the Agent Workflows, because an OpenWorkflow worker runs the Agent turns. */
 export function registersAgentWorkflows(workflow: false | ResolvedWorkflowOptions | undefined): boolean {
-  return workflow !== undefined && workflow !== false && workflow.provider === "openworkflow"
+  return workflow !== undefined && workflow !== false && workflow.driver === "openworkflow"
 }
 
 /**
@@ -45,7 +45,7 @@ export function registersAgentWorkflows(workflow: false | ResolvedWorkflowOption
 export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflowOptions | undefined, dev = false, databaseImport?: string): string {
   // Provider Output builds own their registry; reserve a path without changing runtime state.
   if (workflow === undefined) return "export default function viteHubWorkflowStartupPlugin() {}\n"
-  const openWorkflow = workflow !== false && workflow.provider === "openworkflow"
+  const openWorkflow = workflow !== false && workflow.driver === "openworkflow"
   const runtimeConfig = dev && workflow !== false ? localDevWorkflowOptions(workflow) : workflow
   return [
     "import { definePlugin } from \"nitro\"",
@@ -110,7 +110,7 @@ export interface WorkflowVercelNitroRegistry {
  * with local code.
  */
 function localDevWorkflowOptions(workflow: ResolvedWorkflowOptions): ResolvedWorkflowOptions {
-  if (workflow.provider !== "openworkflow" || workflow.remote === true) return workflow
+  if (workflow.driver !== "openworkflow" || workflow.remote === true) return workflow
   if (workflow.postgres?.url !== undefined || workflow.sqlite?.path !== undefined) return workflow
   return { ...workflow, sqlite: { ...workflow.sqlite, path: defaultOpenWorkflowSqlitePath } }
 }

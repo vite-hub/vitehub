@@ -192,7 +192,7 @@ const serverPrimitives: SupportMatrixGroup = {
     featureRow("realtime", "Authoritative collaborative rooms", cell(
       "package",
       "Cloudflare Nitro output uses Durable Objects. Node servers share rooms through Postgres or Redis.",
-      "Host authority",
+      "Host driver",
     )),
     featureRow("sandboxTask", "Isolated command execution", cell(
       "package",

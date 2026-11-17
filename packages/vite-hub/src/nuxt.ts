@@ -30,7 +30,8 @@ import { mergeGeneratedSourceNitroConfig, type GeneratedSourceHandler } from "@v
 import { mergeConfig } from "vite"
 
 import { isIncludedNitroPlugin } from "@vite-hub/internal/build/included-nitro-registry"
-import { resolveSandboxTaskProvider, viteHubPlugins, type ViteHubOptions } from "./plugins.ts"
+import { resolveSandboxTaskDriver, viteHubPlugins, type ViteHubOptions } from "./plugins.ts"
+import { installStaleChunkReloadNuxt, staleChunkReloadPluginName } from "./stale-chunk-reload.ts"
 import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
 import { disabledKVConfigModule, disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { consoleDevAccessNotice } from "./console/dev-access-notice.ts"
@@ -173,6 +174,7 @@ type NuxtLike = {
     buildDir: string
     dev?: boolean
     experimental?: {
+      emitRouteChunkError?: unknown
       nitroViteEnvironment?: boolean
     }
     devServerHandlers?: Array<{
@@ -204,6 +206,7 @@ type NuxtLike = {
 const agentVueComposables = ["useAgent", "useAgentInvocation", "useAgentInvocations", "useChat"]
 const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
 const cloudflareTypes = fileURLToPath(new URL("./cloudflare-types.d.ts", import.meta.url))
+const cloudflareWorkersDeclaration = fileURLToPath(new URL("./cloudflare-workers.d.ts", import.meta.url))
 
 function emailTemplateResolver(root: string): Plugin {
   const { resolveEmailTemplateModulePath } = requireOptionalOwner(ownerModules.emailVite, "email")
@@ -872,8 +875,9 @@ type ViteHubNuxtModule = {
 
 /**
  * An app that imports `vite-hub/ui` parts gets their runtime without adding `@vite-hub/ui/nuxt`: the plugin that gives
- * them Nuxt UI's Nuxt icon, their icons in the `@nuxt/icon` client bundle, and component auto-imports. `@vite-hub/ui` owns all three. Headless apps
- * do not need the optional Nuxt UI peer or its module, so they must not receive a plugin that imports it.
+ * them Nuxt UI's Nuxt icon, their icons in the `@nuxt/icon` client bundle, the Shiki WebAssembly alias, and component
+ * auto-imports. `@vite-hub/ui` owns all of them. Headless apps do not need the optional Nuxt UI peer or its module, so
+ * they must not receive a plugin that imports it.
  */
 async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
   if (!nuxt.hook || !isPackageInstalled("@nuxt/ui")) return
@@ -886,7 +890,7 @@ async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
     if (!nuxt.options._installedModules?.some(({ meta }) => meta.name === "@nuxt/ui")) return
     ui.addViteHubUIRuntime({
       hook: (name, callback) => Reflect.apply(hook, nuxt, [name, callback]),
-      options: { plugins: (nuxt.options.plugins ??= []) },
+      options: { plugins: (nuxt.options.plugins ??= []), vite: (nuxt.options.vite ??= {}) },
     })
     // Auto-import the components, as the UI module did. The app still imports `@vite-hub/ui/styles.css` itself.
     ui.addViteHubUIComponents(nuxt)
@@ -1059,7 +1063,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     kv: effectiveKV,
     host: plan.host,
     queue: effectiveQueue,
-    sandboxTask: resolveSandboxTaskProvider(options.sandboxTask, plan) !== undefined,
+    sandboxTask: resolveSandboxTaskDriver(options.sandboxTask, plan) !== undefined,
   })
   if (nuxt.options.dev) consoleSections.splice(0, consoleSections.length, ...insertConsoleSection(consoleSections, "setup"))
   const runtimeCapabilityImports = {
@@ -1087,7 +1091,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     env: options.env !== false,
     kv: effectiveKV,
     queue: effectiveQueue && plan.services.queue.supported,
-    sandboxTask: resolveSandboxTaskProvider(options.sandboxTask, plan) !== undefined,
+    sandboxTask: resolveSandboxTaskDriver(options.sandboxTask, plan) !== undefined,
     seo: Boolean(options.seo?.sitemap),
     // Match the Workflow owner's implicit enablement through Agent, including the Netlify exception.
     workflow: options.workflow !== false && Boolean(options.workflow || (options.agent && plan.host !== "netlify")),
@@ -1147,7 +1151,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const generatedData = secondaryProjectRoots
     .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/data/**/*.d.ts")))
   // `@cloudflare/workers-types` is an optional peer. `cloudflare-types.d.ts` references it, so add that file only when the app installs it.
-  if (plan.host === "cloudflare" && isPackageInstalled("@cloudflare/workers-types")) generatedTypes.push(relative(nuxt.options.buildDir, cloudflareTypes))
+  // Without it, generated server files such as the Database middleware still import `cloudflare:workers`, so declare what they use.
+  if (plan.host === "cloudflare") {
+    generatedTypes.push(relative(nuxt.options.buildDir, isPackageInstalled("@cloudflare/workers-types") ? cloudflareTypes : cloudflareWorkersDeclaration))
+  }
   addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData)
   // Code under shared/ can type-import server files, such as server/auth.ts, which use the generated declarations.
   addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData, "sharedTsConfig")
@@ -1160,7 +1167,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       databaseOptions.projectRoot === undefined && nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
     )
     const { hubDatabase: hubDatabaseNuxt } = requireOptionalOwner(await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/nuxt")), options.connections ? "connections" : "database")
-    await hubDatabaseNuxt(defaultD1 ? { driver: "d1", ...databaseOptions } : databaseOptions)(undefined, nuxt)
+    await hubDatabaseNuxt(defaultD1 ? { driver: "cloudflare", ...databaseOptions } : databaseOptions)(undefined, nuxt)
   }
 
   const installedPlugins = flattenPlugins(viteHubPlugins(markCmsPresetFeaturesResolved({
@@ -1171,6 +1178,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     .filter(plugin => !isIncludedNitroPlugin(plugin))
     .filter(plugin => !(options.database && plugin.name === "@vite-hub/database/vite"))
     .filter(plugin => !consoleOptions || !["vite-hub/console", "vite-hub/console-invocation-root"].includes(plugin.name))
+    // Nuxt renders its own HTML. `installStaleChunkReloadNuxt()` adds the Nuxt plugin.
+    .filter(plugin => plugin.name !== staleChunkReloadPluginName)
   const plugins = [
     ...installedPlugins.filter(plugin => plugin.name !== "vite-hub/deployment-output"),
     ...(nuxt.options.vitehubCliDiscovery ? [{
@@ -1443,7 +1452,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           : effectiveQueue === undefined
             ? undefined
             : getResolvedFeatureOptions(replayConfig, "queue") ?? effectiveQueue,
-        sandboxTask: Boolean(getResolvedFeatureOptions(replayConfig, "sandboxTask") ?? options.sandboxTask) && resolveSandboxTaskProvider(options.sandboxTask, plan) !== undefined,
+        sandboxTask: Boolean(getResolvedFeatureOptions(replayConfig, "sandboxTask") ?? options.sandboxTask) && resolveSandboxTaskDriver(options.sandboxTask, plan) !== undefined,
         workspace: options.workspace,
         workflow: options.workflow,
       })
@@ -1552,6 +1561,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (!include.includes("vite-hub/agent/vue")) include.push("vite-hub/agent/vue")
   }
   addVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
+  await installStaleChunkReloadNuxt(nuxt, projectRoot)
   if (isPackageInstalled("@vite-hub/decisions")) addVueImports(nuxt, "vite-hub/decisions/vue", ["useChoices"])
   if (isPackageInstalled("@vite-hub/forms")) {
     addVueImports(nuxt, "vite-hub/forms/vue", ["useFormAction"])

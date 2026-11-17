@@ -1,10 +1,10 @@
 import * as v from "valibot"
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
-import { listRuntimeRateLimiters, resolveRateLimitProvider } from "./runtime/state.ts"
+import { listRuntimeRateLimiters, resolveRateLimitDriver } from "./runtime/state.ts"
 
 import type { RateLimitCounterScope, RateLimiter, RateLimitRuntimeConfig, RateLimitWindow } from "./types.ts"
 
-type RateLimitRuntimeProvider = RateLimitRuntimeConfig["provider"]
+type RateLimitRuntimeDriver = RateLimitRuntimeConfig["driver"]
 
 /** Counter of one key for one policy. `peekRateLimit()` reads it without consuming a token. */
 export interface RateLimitCounterSnapshot {
@@ -20,7 +20,7 @@ export interface RateLimitCounterSnapshot {
 interface RateLimitCounterTarget {
   key: string
   name: string
-  provider: RateLimitRuntimeProvider
+  provider: RateLimitRuntimeDriver
 }
 
 export type RateLimitPeekInspection =
@@ -67,7 +67,7 @@ function limitersFor(target: RateLimitCounterTarget): RateLimiter[] | undefined 
  */
 export async function peekRateLimit(name: string, key: string): Promise<RateLimitPeekInspection> {
   assertTarget(name, key)
-  const target: RateLimitCounterTarget = { key, name: name.trim(), provider: await resolveRateLimitProvider() }
+  const target: RateLimitCounterTarget = { key, name: name.trim(), provider: await resolveRateLimitDriver() }
   const limiters = limitersFor(target)
   if (!limiters) return { ...target, reason: cloudflareRateLimitCounterUnsupportedReason, status: "unsupported" }
   if (limiters.length === 0) return { ...target, reason: target.provider === "kv" ? unusedKVReason : unusedReason, status: "unused" }
@@ -94,7 +94,7 @@ export async function peekRateLimit(name: string, key: string): Promise<RateLimi
  */
 export async function resetRateLimit(name: string, key: string): Promise<RateLimitResetInspection> {
   assertTarget(name, key)
-  const target: RateLimitCounterTarget = { key, name: name.trim(), provider: await resolveRateLimitProvider() }
+  const target: RateLimitCounterTarget = { key, name: name.trim(), provider: await resolveRateLimitDriver() }
   const limiters = limitersFor(target)
   if (!limiters) return { ...target, reason: cloudflareRateLimitCounterUnsupportedReason, status: "unsupported" }
   if (limiters.length === 0 && target.provider === "kv") return { ...target, reason: unusedKVReason, status: "unsupported" }

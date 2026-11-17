@@ -39,11 +39,15 @@ interface D1StatementLike {
   bind: (...params: unknown[]) => unknown
 }
 
-/** A D1 binding that checks each statement before the binding runs it. */
+/** A D1 binding that checks each statement before the binding runs it. An empty batch resolves `[]`, as on libSQL. */
 export function checkD1Limits<TDatabase extends object>(database: TDatabase): TDatabase {
   return new Proxy(database, {
     get(target, property) {
       const value: unknown = Reflect.get(target, property, target)
+      // D1 rejects an empty batch with "No SQL statements detected."
+      if (property === "batch" && typeof value === "function") {
+        return async (statements: readonly unknown[]) => statements.length ? await Reflect.apply(value, target, [statements]) : []
+      }
       if (property !== "prepare" || typeof value !== "function") return value
       return (query: string) => {
         assertD1Statement(query, undefined)

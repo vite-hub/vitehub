@@ -72,6 +72,20 @@ const { loggedIn, user, signOut } = useUserSession()
 - Better Auth gets the other options, such as `fetchOptions`, and `signOut()` returns its result. When the sign-out fails, the session and the page stay.
 - When Better Auth sends the visitor to the provider's sign-out page, such as with OpenID Connect logout, `signOut()` opens no other page. Better Auth's `callbackURL` option sets the page after that.
 
+To sign out from a link or from server code, call `signOut(event)` from `vite-hub/auth/server`. It ends the session and returns the response that clears the session cookies:
+
+```ts [server/routes/logout.get.ts]
+import { signOut } from 'vite-hub/auth/server'
+import { defineHandler } from 'h3'
+
+export default defineHandler(event => signOut(event, { redirectTo: '/login' }))
+```
+
+- With `redirectTo`, the response is a `303` redirect to that page. Without it, the response is `204`. Return it from the route, so the browser gets the cookies.
+- If Better Auth returns a provider logout URL, the response redirects there first and passes `redirectTo` as the return URL.
+- `redirectTo` must be a path of the app, such as `/login`. Another site fails with `AUTH_SIGN_OUT_REDIRECT_INVALID`.
+- A request without a session gets the same response.
+
 ### Client plugins
 
 To use Better Auth client plugins, such as `adminClient()`, export their options from `app/auth.client.ts` in a Nuxt app, or from `auth.client.ts` in the Vite root. The default client, `useUserSession()`, `useAuthClient()`, and the Nuxt page guard then use one client with these plugins.
@@ -157,6 +171,7 @@ export default defineHandler(async (event) => {
 | `useAuth(event)` | Returns the Better Auth instance of the app's Auth Definition for a request event or a Web `Request`. |
 | `handleAuth(input)` | Handles an Auth HTTP request. `input` is a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 2 event in a ViteHub app. Auth reads the client address and the Cloudflare bindings from the Standard Context of the Request. A Request that Nitro did not create gets one that reads srvx `ip` and `runtime.cloudflare`. |
 | `handleAuthRequest(definition, input, event?)` | Handles an Auth request for an explicit Auth Definition. |
+| `signOut(event, { redirectTo }?)` | Ends the session of the request. Returns a `303` redirect to `redirectTo`, or `204`, with the cookies that clear the session. |
 | `toAuthRequest(input)` | Returns a Web `Request` itself, or `event['~standard'].req` of a request event. |
 | `createAuthHandler(definition)` | Creates a handler called as `handler(request, { clientAddress }?)`. Manual hosts pass the peer address for rate limiting and session IPs. |
 | `createAuthAccessHandler(routes, definition?)` | Creates a handler that matches route metadata, checks the session, and runs every matching authorization rule. |

@@ -42,7 +42,7 @@ describe("provider detection", () => {
 
     const { resolveCloudflareTaskSandbox } = await import("../../src/task/runtime/providers/cloudflare.ts")
     const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () =>
-      resolveCloudflareTaskSandbox({ local: {}, provider: { provider: "cloudflare" } }))
+      resolveCloudflareTaskSandbox({ local: {}, provider: { driver: "cloudflare" } }))
 
     expect(provider.resolveSandbox).toEqual(expect.any(Function))
   })

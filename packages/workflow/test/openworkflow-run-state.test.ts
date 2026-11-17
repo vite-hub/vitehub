@@ -11,7 +11,7 @@ let failCreateUser = false
 beforeEach(() => {
   resetWorkflowRuntime()
   failCreateUser = false
-  setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+  setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
   // The same shape that the generated registry gives a folder Workflow with two step files.
   setWorkflowRuntimeRegistry({
     "onboard-user": async () => ({

@@ -6,7 +6,7 @@ import { getOpenWorkflowRuntime, resetOpenWorkflowRuntime } from "../src/runtime
 import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
 
-const config = { provider: "openworkflow", sqlite: { path: ":memory:" } } as const
+const config = { driver: "openworkflow", sqlite: { path: ":memory:" } } as const
 const seenIds: Array<string | undefined> = []
 
 beforeEach(() => {

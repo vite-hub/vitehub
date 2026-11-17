@@ -87,6 +87,8 @@ export interface ConsoleState {
   documents?: ConsoleDocumentEditors
   env?: ServerEnvDescription
   projectName?: string
+  /** The installed `vite-hub` version, from generated output. */
+  vitehub?: string
   sections?: readonly ConsoleSectionId[]
   /** Sections shown in navigation when local operations have more runtime sections installed. */
   navigationSections?: readonly ConsoleSectionId[]
