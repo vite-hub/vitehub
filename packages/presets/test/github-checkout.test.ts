@@ -66,7 +66,7 @@ it('rejects shared directories, linked worktrees, and cancelled preparation', as
   await expect(prepareGitHubPullRequestWorkspace(source, root)).rejects.toThrow('must be separate')
   const linked = join(root, 'linked')
   await git(source, 'worktree', 'add', '--detach', linked)
-  await expect(prepareGitHubPullRequestWorkspace(linked, target)).rejects.toThrow('independent prepared Git clone')
+  await expect(prepareGitHubPullRequestWorkspace(linked, target)).rejects.toMatchObject({ code: 'INTERNAL_INVARIANT_FAILED', message: expect.stringContaining('has a .git directory') })
   await expect(prepareGitHubPullRequestWorkspace(source, target, { signal: AbortSignal.abort() })).rejects.toThrow()
 })
 

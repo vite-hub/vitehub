@@ -95,6 +95,11 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ limit, size }: { limit: number, size: number }) => `The file is ${size} bytes. The blob operations accept at most ${limit} bytes.`,
       fix: "Upload larger files from the application or with the tools of the provider.",
     },
+    // Option errors. `handleUpload()` throws them before it reads the request.
+    BLOB_UPLOAD_MAX_FILES_INVALID: {
+      why: ({ maxFiles }: { maxFiles: number }) => `\`maxFiles\` of \`handleUpload()\` is ${maxFiles}. It must be a positive integer.`,
+      fix: "Pass `maxFiles` as a whole number of 1 or more, such as `blob.handleUpload(event, { maxFiles: 5 })`, or omit it to accept any number of files.",
+    },
     // Published numbered errors.
     BLOB_R0027: withFix("Use one of the store names that the message lists, or add the store to `blob.stores` in the Vite config, for example `stores: { default: { driver: \"fs\" }, media: { driver: \"fs\" } }`."),
     BLOB_C0001: withFix("Set `blob.driver` to a supported driver, for example `\"fs\"`, `\"cloudflare-r2\"`, `\"vercel-blob\"`, `\"netlify-blobs\"`, `\"minio\"`, or `\"s3\"`. Check the spelling."),

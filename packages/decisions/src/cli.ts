@@ -3,6 +3,7 @@ import { relative, resolve } from "node:path"
 import { parseArgs } from "node:util"
 
 import { withStdoutOnStderr } from "@vite-hub/internal/cli"
+import { loadAllEnv } from "@vite-hub/internal/vite-stage"
 
 import { decisionsDiagnostics } from "./diagnostics.ts"
 import type { ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliStreams } from "@vite-hub/internal/cli"
@@ -60,7 +61,7 @@ async function loadModule(file: string, rootDir: string): Promise<Record<string,
 async function loadProjectEnv(context: CliContext): Promise<void> {
   const { loadEnv } = await import("vite")
   const mode = context.env.NODE_ENV === "production" ? "production" : "development"
-  for (const [key, value] of Object.entries(loadEnv(mode, context.rootDir, ""))) {
+  for (const [key, value] of Object.entries(loadAllEnv(loadEnv, mode, context.rootDir))) {
     if (process.env[key] === undefined) process.env[key] = value
   }
 }

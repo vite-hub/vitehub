@@ -78,6 +78,11 @@
       "import": "./dist/deployment.js",
       "default": "./dist/deployment.js"
     },
+    "./forge": {
+      "types": "./dist/forge.d.ts",
+      "import": "./dist/forge.js",
+      "default": "./dist/forge.js"
+    },
     "./features": {
       "types": "./dist/features.d.ts",
       "import": "./dist/features.js",
@@ -157,6 +162,11 @@
       "types": "./dist/provision-state.d.ts",
       "import": "./dist/provision-state.js",
       "default": "./dist/provision-state.js"
+    },
+    "./systemd": {
+      "types": "./dist/systemd.d.ts",
+      "import": "./dist/systemd.js",
+      "default": "./dist/systemd.js"
     },
     "./standard-schema": {
       "types": "./dist/standard-schema.d.ts",
@@ -262,6 +272,11 @@
       "types": "./dist/secret.d.ts",
       "import": "./dist/secret.js",
       "default": "./dist/secret.js"
+    },
+    "./sitemap": {
+      "types": "./dist/sitemap.d.ts",
+      "import": "./dist/sitemap.js",
+      "default": "./dist/sitemap.js"
     },
     "./runtime/time-zone": {
       "types": "./dist/runtime/time-zone.d.ts",

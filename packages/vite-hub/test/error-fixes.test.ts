@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { resolveCacheStorage } from "../src/cache.ts"
+import { resolveCacheStorage } from "../src/cache-storage.ts"
 import { viteHubErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { vitehub } from "../src/index.ts"
 

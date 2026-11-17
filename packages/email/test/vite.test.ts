@@ -325,18 +325,31 @@ describe("hubEmail", () => {
       .toBe(`/@fs/${template}?markdown-template`)
     expect(await readFile(join(root, ".vitehub", "types", "email.d.ts"), "utf8")).toBe([
       'declare module "#vitehub/emails/monthly-recap/index.mjs/detail" {',
-      "  const render: (data?: Record<string, unknown>) => Promise<string>",
+      "  const render: (data?: Record<string, never>) => Promise<string>",
       "  export default render",
       "}",
       "",
       'declare module "#vitehub/emails/monthly-recap" {',
-      "  const render: (data?: Record<string, unknown>) => Promise<string>",
+      "  const render: (data?: Record<string, never>) => Promise<string>",
       "  export default render",
+      "}",
+      "",
+    ].join("\n"))
+    expect(await readFile(join(root, ".vitehub", "types", "email-templates.d.ts"), "utf8")).toBe([
+      'import "@vite-hub/email"',
+      "",
+      'declare module "@vite-hub/email" {',
+      "  interface EmailTemplateRegistry {",
+      '    "monthly-recap/index.mjs/detail": Record<string, never>',
+      '    "monthly-recap": Record<string, never>',
+      "  }",
       "}",
       "",
     ].join("\n"))
     await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .rejects.toMatchObject({ code: "ENOENT" })
+    // Only an app with templates bundles the Markdown renderer.
+    expect(await readFile(join(root, ".vitehub", "email", "preview.mjs"), "utf8")).toMatch(/export const renderEmailTemplate = async \(source, data\) => \(await import\(".+\/markdown\.ts"\)\)\.renderEmailMarkdown\(source, \{ data \}\)/)
     await expect(plugin.api.prepareTypes({ materialize: true, projectRoot: root }))
       .resolves.toEqual({
         "monthly-recap": join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"),
@@ -352,6 +365,9 @@ describe("hubEmail", () => {
     await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .rejects.toMatchObject({ code: "ENOENT" })
     expect(await readFile(join(root, ".vitehub", "types", "email.d.ts"), "utf8")).toBe("")
+    await expect(readFile(join(root, ".vitehub", "types", "email-templates.d.ts"), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" })
+    expect(await readFile(join(root, ".vitehub", "email", "preview.mjs"), "utf8")).toContain("export const renderEmailTemplate = undefined")
     expect(() => functionHook(plugin.resolveId, "resolveId")("#vitehub/emails/../secret"))
       .toThrow("is not valid")
   })
@@ -780,7 +796,7 @@ describe("hubEmail", () => {
 
   it("rejects unknown built-in driver names", () => {
     // SAFETY: this deliberately bypasses the public union to cover runtime validation.
-    expect(() => hubEmail({ driver: "smtp" as "resend" })).toThrow('"resend" or "cloudflare-email"')
+    expect(() => hubEmail({ driver: "smtp" as "resend" })).toThrow('"resend", "cloudflare-email", or "log"')
   })
 
   it("rejects secret defaults that would be included in build output", () => {

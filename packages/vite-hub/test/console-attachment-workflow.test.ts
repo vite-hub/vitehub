@@ -60,7 +60,7 @@ it.each(["import", "connect", "registration", "dispatch"] as const)("rolls back 
   expect(result?.blobs.map(item => item.pathname)).toContain(`_vitehub/console/attachments/${retained.id}`)
 })
 
-it("keeps Console images when an Agent Workflow executes inline on OpenWorkflow", async () => {
+it("rolls back Console images when an undiscovered Agent Workflow is rejected on OpenWorkflow", async () => {
   const base = await mkdtemp(join(tmpdir(), "console-workflow-inline-")); dirs.push(base)
   setBlobRuntimeConfig({ store: { driver: "fs", base }, serve: { route: "/files/", store: "default", publicBaseUrl: "https://example.test" } })
   installConsoleBlob(base, blob)
@@ -69,16 +69,15 @@ it("keeps Console images when an Agent Workflow executes inline on OpenWorkflow"
   setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
   const run = vi.fn(() => "done")
   const agent = defineAgent({ name: "console-inline-upload", driver: { run }, runtime: agentWorkflow("console-inline-upload") })
-  const controller = await withConsoleInputMessage("", { files: [{ url: "data:image/png;base64,YQ==", filename: "test.png" }] }, (message, onInputHandoff) => startAgentInvocation(
+  await expect(withConsoleInputMessage("", { files: [{ url: "data:image/png;base64,YQ==", filename: "test.png" }] }, (message, onInputHandoff) => startAgentInvocation(
     agent,
     { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
     { messages: [message] },
     { onInputHandoff },
-  ))
-  await vi.waitFor(async () => expect(await controller.inspect()).toMatchObject({ outcome: "available", invocation: { status: "completed" } }))
-  expect(run).toHaveBeenCalledOnce()
+  ))).rejects.toMatchObject({ code: "WORKFLOW_AGENT_NOT_DISCOVERED" })
+  expect(run).not.toHaveBeenCalled()
   expect(importer).not.toHaveBeenCalled()
   const [listError, result] = await blob.list({ prefix: "_vitehub/console/attachments/" })
   expect(listError).toBeUndefined()
-  expect(result?.blobs).toHaveLength(1)
+  expect(result?.blobs).toHaveLength(0)
 })
