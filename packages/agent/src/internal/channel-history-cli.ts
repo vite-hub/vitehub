@@ -8,6 +8,7 @@ import { agentChannelHistoryHeader } from "./channel-history.ts"
 import { agentChannelSyncProviderHeader } from "./channel-sync.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { decodeViteHubBase64Key } from "@vite-hub/internal/secret"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 interface ChannelHistoryCliContext {
   cwd: string
@@ -297,7 +298,7 @@ export async function runAgentChannelHistoryCli(
     }
   }
   catch (error) {
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     return 1
   }
 }

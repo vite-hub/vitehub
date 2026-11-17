@@ -1751,7 +1751,7 @@ describe("schedule provider output", () => {
     expect(source).toContain("const name = \"reports/daily\"")
   })
 
-  it("emits Vercel handlers that require the cron secret when configured", async () => {
+  it("emits Vercel handlers that require the cron secret", async () => {
     const rootDir = await createTempProject("vitehub-schedule-vercel-auth-")
     await mkdir(join(rootDir, ".vitehub", "schedule"), { recursive: true })
     const registryFile = join(rootDir, ".vitehub", "schedule", "registry.mjs")
@@ -1766,7 +1766,7 @@ describe("schedule provider output", () => {
 
     const source = await readFile(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"), "utf8")
     expect(source).toContain("process.env.CRON_SECRET")
-    expect(source).toContain("if (cronSecret && !isScheduleCronAuthorized(authorization, cronSecret))")
+    expect(source).toContain("if (!isScheduleCronAuthorized(authorization, cronSecret))")
     expect(source).not.toContain("!== `Bearer ${cronSecret}`")
     expect(source).toContain("res.statusCode = 401")
 
@@ -1777,8 +1777,15 @@ describe("schedule provider output", () => {
       return res.statusCode
     }
     const previousSecret = process.env.CRON_SECRET
-    process.env.CRON_SECRET = "cron-secret"
     try {
+      for (const secret of [undefined, ""]) {
+        if (secret === undefined) delete process.env.CRON_SECRET
+        else process.env.CRON_SECRET = secret
+        for (const authorization of [undefined, "Bearer ", "Bearer undefined", "Bearer cron-secret"]) {
+          expect(await run(authorization)).toBe(401)
+        }
+      }
+      process.env.CRON_SECRET = "cron-secret"
       for (const authorization of [undefined, "Bearer cron", "Bearer cron-secret-", "Bearer cron-secreT", "Basic cron-secret"]) {
         expect(await run(authorization)).toBe(401)
       }

@@ -92,6 +92,15 @@ export function readPendingMigration(migrationsDir: string, tag: string, entries
   const statements = sql.split("--> statement-breakpoint").map(statement => statement.trim()).filter(statement => splitSqlStatements(statement).length)
   // A hand-written D1 migration has no folder, so there is no previous snapshot to compare a rebuild with.
   const index = entries.findIndex(entry => entry.tag === tag)
-  const before = index < 0 ? undefined : index > 0 ? readSnapshotColumns(migrationsDir, entries[index - 1]!.tag) : new Map<string, string[]>()
+  let before: TableColumns | undefined = index < 0 ? undefined : new Map<string, string[]>()
+  for (let previous = index - 1; previous >= 0; previous--) {
+    before = readSnapshotColumns(migrationsDir, entries[previous]!.tag)
+    if (before) break
+    // Index-only SQL cannot change table columns. Anything else leaves the schema unknown;
+    // never carry a stale snapshot across arbitrary contributed DDL.
+    const intervening = splitSqlStatements(readFileSync(migrationSqlFile(migrationsDir, entries[previous]!.tag), "utf8"))
+    if (!intervening.every(statement => /^\s*(?:CREATE\s+(?:UNIQUE\s+)?INDEX\s|DROP\s+INDEX\s)/i.test(statement))) break
+    before = new Map<string, string[]>()
+  }
   return { dataLoss: findDataLoss(statements, before), name: tag, statements }
 }

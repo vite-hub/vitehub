@@ -9,6 +9,10 @@ const dynamicError = {
 export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/workflows/diagnostics",
   codes: {
+    WORKFLOW_AGENT_NOT_DISCOVERED: {
+      why: ({ name }: { name: string }) => `[vitehub] The Agent Workflow ${JSON.stringify(name)} is not a discovered Agent, so OpenWorkflow workers cannot run its turns.`,
+      fix: "Move the Agent to server/agents/, so that the build adds its Workflow to the registry that every OpenWorkflow worker loads. To run it without a Workflow, call runAgent().",
+    },
     // Operation errors. The `workflow.*` operations of the CLI, the Console, and Agents throw them with an HTTP status.
     WORKFLOW_DEFINITION_NOT_FOUND: {
       why: ({ available, workflow }: { available?: string, workflow?: string }) => workflow === undefined ? "Workflow definition was not found." : `Unknown Workflow: ${workflow}.${available ?? ""}`,

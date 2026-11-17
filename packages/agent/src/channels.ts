@@ -18,7 +18,7 @@ import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/in
 import { invariant } from "@vite-hub/internal/invariant"
 import type { Forge, ForgeKind, ForgeProvider } from "@vite-hub/forge"
 import { loadForge } from "./internal/forge-module.ts"
-import { AgentHttpError } from "./http-error.ts"
+import { agentHttpError } from "./http-error.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { defineCapability, trustGitHubPullRequestWorkspaceCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "./capability-runtime.ts"
 import { mergeConflictSkillContent, mergeConflictSkillName, mergeConflictSkillPath } from "./internal/merge-conflict-skill.ts"
@@ -140,7 +140,7 @@ export {
   rewriteDeliveryArtifactMarkdown,
 } from "./delivery-artifacts.ts"
 export type { AgentChannelRetryingMessage, AgentChannelSkippedMessage, AgentChannelStatus } from "./internal/channel-status.ts"
-export { GmailApiError, createGmailOAuthClient, gmailEnvNames, gmailLabelPalette } from "./internal/gmail-channel.ts"
+export { createGmailOAuthClient, gmailEnvNames, gmailLabelPalette } from "./internal/gmail-channel.ts"
 export type {
   GmailClient,
   GmailLabelColor,
@@ -2051,7 +2051,7 @@ async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>
     return await forgeIdentity(provider, { kind: "token" })
   }
   catch (error) {
-    if (forgeErrorStatus(error) === undefined && !(error instanceof Error && "code" in error && error.code === "AGENT_R0356")) throw error
+    if (forgeErrorStatus(error) === undefined && !agentDiagnostics.AGENT_R0356.is(error)) throw error
   }
   const processEnv = globalThis.process?.env
   if (
@@ -4833,9 +4833,9 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           const settings = await gmailChannelSettings(context)
           let payload: unknown
           try { payload = JSON.parse(new TextDecoder().decode(rawBody)) }
-          catch { throw new AgentHttpError(400, "Invalid Pub/Sub push request.") }
+          catch { throw agentHttpError(400, "Invalid Pub/Sub push request.") }
           const push = await readGmailPush({ payload, request: { headers: Object.fromEntries(request.headers.entries()) } }, settings, options.fetch ?? globalThis.fetch)
-          if (!push.ok) throw new AgentHttpError(push.status, push.reason)
+          if (!push.ok) throw agentHttpError(push.status, push.reason)
           return true
         },
       },

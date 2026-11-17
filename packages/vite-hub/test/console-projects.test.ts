@@ -16,6 +16,13 @@ afterEach(() => {
 const target = { origin: "https://app.example.com", base: "/portal" }
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
   operationRpcFetch(async () => Response.json(body, { headers, status }))
+/** The Console's fetch with the account read of `/api/account`: the session, or 401 signed out. Other calls go to `app`. */
+const withAccount = (account: () => unknown, app: (url: string, init: RequestInit) => Promise<Response>) =>
+  operationRpcFetch(async (url: string, init: RequestInit) => {
+    if (url !== "/api/account") return await app(url, init)
+    const session = account()
+    return session ? Response.json(session) : Response.json({ code: "UNAUTHORIZED", message: "Sign in." }, { status: 401 })
+  })
 const projectGet = { ok: true, value: { protocol: 1, name: "Shop", vitehub: "0.1.0", sections: ["kv", "logs"], operations: ["kv.list"] } }
 const signatureRejection = { code: "CONSOLE_KEY_UNKNOWN", message: "The request was signed with the key `CONSOLE_P1`, and this app has no `VITEHUB_CONSOLE_KEY_CONSOLE_P1`.", ok: false, status: 401 }
 
@@ -245,6 +252,75 @@ describe("account Console", () => {
     session = undefined
     await module.startConsoleAccount({ ...boot, search: `?project=${encodeURIComponent(linked.url)}&path=${encodeURIComponent("//evil.example")}` })
     expect(module.consoleSignInReturnPath()).toBe("/")
+  })
+
+  it("signs the browser in to the app of a /_vitehub link and goes back to the page, through a sign-in", async () => {
+    const state = "s".repeat(43)
+    const search = `?project=${encodeURIComponent("https://app.example.com/portal")}&site=${encodeURIComponent("/runs/42")}&state=${state}`
+    let session: import("../src/console/runtime/client/account.ts").ConsoleAccount | undefined
+    const fetch = vi.fn(json(200, { ok: true, value: { url: `https://app.example.com/portal/_vitehub/rpc?ticket=vt1_${"t".repeat(43)}`, expiresAt: "2026-11-14T00:00:00.000Z" } }))
+    vi.stubGlobal("fetch", withAccount(() => session, fetch))
+    const replace = vi.fn()
+    vi.stubGlobal("location", { replace })
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const boot = { home: "/", navigate: vi.fn(), pageOrigin: "https://console.example.com", pathname: "/open", search, showPath: () => {} }
+    // Signed out, the sign-in keeps the page and the state of the link.
+    await module.startConsoleAccount(boot)
+    const returnTo = module.consoleSignInReturnPath()
+    expect(new URL(returnTo, "https://console.example.com").searchParams.get("site")).toBe("/runs/42")
+    expect(new URL(returnTo, "https://console.example.com").searchParams.get("state")).toBe(state)
+    // Signed in, the Console asks the app for a link bound to the state, and replaces the page with it.
+    session = { user: { id: "u", name: "Ada", email: "ada@example.com" }, hasEmail: true, teams: [{ id: "t", name: "Personal", slug: "personal-u" }], teamId: "t", roles: ["owner"], projects: [linked] }
+    const back = new URL(returnTo, "https://console.example.com")
+    await module.startConsoleAccount({ ...boot, search: back.search })
+    expect(module.useConsoleProjects().gate.value).toEqual({ kind: "site", page: "/runs/42", state })
+    await module.openConsoleSite()
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe("/p/p-1/_vitehub/rpc")
+    expect(JSON.parse(String(init.body))).toMatchObject({ m: "site.link", a: [{ path: "/runs/42", state }] })
+    expect(replace).toHaveBeenCalledWith(`https://app.example.com/portal/_vitehub/rpc?ticket=vt1_${"t".repeat(43)}`)
+  })
+
+  it("keeps the hash of the app page, which the browser kept through the /_vitehub redirect", async () => {
+    const state = "s".repeat(43)
+    vi.stubGlobal("fetch", withAccount(() => undefined, json(500, {})))
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const search = `?project=${encodeURIComponent("https://app.example.com/portal")}&site=${encodeURIComponent("/runs/42?tab=logs")}&state=${state}`
+    await module.startConsoleAccount({ home: "/", navigate: vi.fn(), pageOrigin: "https://console.example.com", pathname: "/open", search, hash: "#step-3", showPath: () => {} })
+    expect(new URL(module.consoleSignInReturnPath(), "https://console.example.com").searchParams.get("site")).toBe("/runs/42?tab=logs#step-3")
+  })
+
+  it("follows only a ticket link of the app that it opened", async () => {
+    const { siteTicketUrl } = await import("../src/console/runtime/client/project-session.ts")
+    const ticket = `vt1_${"t".repeat(43)}`
+    expect(siteTicketUrl(`https://app.example.com/portal/_vitehub/rpc?ticket=${ticket}`, linked.url)).toBe(`https://app.example.com/portal/_vitehub/rpc?ticket=${ticket}`)
+    for (const url of [
+      `https://evil.example/portal/_vitehub/rpc?ticket=${ticket}`,
+      `https://app.example.com/_vitehub/rpc?ticket=${ticket}`,
+      `https://app.example.com/portal/elsewhere?ticket=${ticket}`,
+      "https://app.example.com/portal/_vitehub/rpc?ticket=short",
+      "javascript:alert(1)",
+      42,
+    ]) expect(siteTicketUrl(url, linked.url), String(url)).toBeUndefined()
+  })
+
+  it("says why a /_vitehub link did not sign the browser in", async () => {
+    const state = "s".repeat(43)
+    const session = { user: { id: "u", name: "Ada", email: "ada@example.com" }, hasEmail: true, teams: [{ id: "t", name: "Personal", slug: "personal-u" }], teamId: "t", roles: ["owner"], projects: [linked] }
+    const fetch = vi.fn(json(404, { ok: false, status: 404, code: "CONSOLE_REQUEST_FAILED", message: "Site access signs browsers in with ViteHub Auth, and the app has no Auth section." }))
+    vi.stubGlobal("fetch", withAccount(() => session, fetch))
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const boot = { home: "/", navigate: vi.fn(), pageOrigin: "https://console.example.com", pathname: "/open", showPath: () => {} }
+    // An app that is no project of the team.
+    await module.startConsoleAccount({ ...boot, search: `?project=${encodeURIComponent("https://unknown.example.com")}&site=%2F&state=${state}` })
+    expect(module.useConsoleProjects().gate.value).toEqual({ kind: "site-refused", url: "https://unknown.example.com", page: "/", linked: false })
+    // An app that refuses: the Console shows the app's reason.
+    await module.startConsoleAccount({ ...boot, search: `?project=${encodeURIComponent(linked.url)}&site=%2Fdocs&state=${state}` })
+    await module.openConsoleSite()
+    expect(module.useConsoleProjects().gate.value).toMatchObject({ kind: "site-refused", url: linked.url, page: "/docs", linked: true, message: expect.stringContaining("no Auth section") })
+    // A link without a valid state, or with a page that leaves the app, is no site link.
+    expect(module.consoleSiteLink(`?project=${encodeURIComponent(linked.url)}&site=%2F&state=short`)).toBeUndefined()
+    expect(module.consoleSiteLink(`?project=${encodeURIComponent(linked.url)}&site=${encodeURIComponent("//evil.example")}&state=${state}`)).toBeUndefined()
   })
 
   it("boots with one account read that matches the HTML preload, and sends project.get of the last app at the same time", async () => {

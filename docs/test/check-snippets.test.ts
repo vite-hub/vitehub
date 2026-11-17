@@ -682,4 +682,16 @@ useDatabase('default').db.query.users.findMany({ with: { comments: true } })`),
     const failures = checkSnippets(misspelled, declarations).failures
     expect(failures.map(failure => failure.diagnostics.map(diagnostic => diagnostic.code))).toEqual([[2551]])
   }, 60_000)
+
+  it("checks the Email README template send against the template of the page", async () => {
+    const root = join(repoRoot, "packages/email")
+    const snippets = collectSnippets([{ file: join(root, "README.md"), root }])
+    const declarations = await generatedDeclarations(snippets)
+    expect(declarations.map(declaration => declaration.file.split(".vitehub/")[1])).toEqual(expect.arrayContaining(["types/email-templates.d.ts", "types/email.d.ts"]))
+    expect(checkSnippets(snippets, declarations).failures).toEqual([])
+
+    const wrong = snippets.map(snippet => ({ ...snippet, code: snippet.code.replace('data: { user: { name: "Maxi" } },\n  from', 'data: { user: { name: { first: "Maxi" } } },\n  from') }))
+    const failures = checkSnippets(wrong, declarations).failures
+    expect(failures.map(failure => failure.diagnostics.map(diagnostic => diagnostic.code))).toEqual([[2322]])
+  }, 60_000)
 })
