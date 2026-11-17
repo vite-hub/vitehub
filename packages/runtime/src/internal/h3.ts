@@ -203,3 +203,6 @@ export function getRuntimeContext(
 }
 
 export { installRequestStandardContext, sendPreparedResponse } from "../request-context.ts"
+// H3 tells an HTTPError by its name and status, not by class, so this copy keeps its status in every H3 app. Packages
+// that list `nitro` as an optional peer throw it instead of the one from `nitro/h3`.
+export { HTTPError } from "h3"
