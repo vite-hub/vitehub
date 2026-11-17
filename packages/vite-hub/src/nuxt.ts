@@ -21,7 +21,7 @@ import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deploymen
 import { generatedModules } from "./internal/generated-modules.ts"
 import { nitroOptionalPeers } from "./internal/nitro-optional-peers.ts"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
-import { normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import { cloudflareExportConditions } from "./deployment.ts"
 import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import { nuxtPageRoutes } from "@vite-hub/bundle/vite"
@@ -204,6 +204,7 @@ type NuxtLike = {
 const agentVueComposables = ["useAgent", "useAgentInvocation", "useAgentInvocations", "useChat"]
 const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
 const cloudflareTypes = fileURLToPath(new URL("./cloudflare-types.d.ts", import.meta.url))
+const cloudflareWorkersDeclaration = fileURLToPath(new URL("./cloudflare-workers.d.ts", import.meta.url))
 
 function emailTemplateResolver(root: string): Plugin {
   const { resolveEmailTemplateModulePath } = requireOptionalOwner(ownerModules.emailVite, "email")
@@ -872,8 +873,9 @@ type ViteHubNuxtModule = {
 
 /**
  * An app that imports `vite-hub/ui` parts gets their runtime without adding `@vite-hub/ui/nuxt`: the plugin that gives
- * them Nuxt UI's Nuxt icon, their icons in the `@nuxt/icon` client bundle, and component auto-imports. `@vite-hub/ui` owns all three. Headless apps
- * do not need the optional Nuxt UI peer or its module, so they must not receive a plugin that imports it.
+ * them Nuxt UI's Nuxt icon, their icons in the `@nuxt/icon` client bundle, the Shiki WebAssembly alias, and component
+ * auto-imports. `@vite-hub/ui` owns all of them. Headless apps do not need the optional Nuxt UI peer or its module, so
+ * they must not receive a plugin that imports it.
  */
 async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
   if (!nuxt.hook || !isPackageInstalled("@nuxt/ui")) return
@@ -886,7 +888,7 @@ async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
     if (!nuxt.options._installedModules?.some(({ meta }) => meta.name === "@nuxt/ui")) return
     ui.addViteHubUIRuntime({
       hook: (name, callback) => Reflect.apply(hook, nuxt, [name, callback]),
-      options: { plugins: (nuxt.options.plugins ??= []) },
+      options: { plugins: (nuxt.options.plugins ??= []), vite: (nuxt.options.vite ??= {}) },
     })
     // Auto-import the components, as the UI module did. The app still imports `@vite-hub/ui/styles.css` itself.
     ui.addViteHubUIComponents(nuxt)
@@ -950,7 +952,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
 
   const configuredModuleOptions = mergeNuxtModuleOptions(inlineOptions, nuxt.options.vitehub) as ViteHubNuxtOptions
   assertNoRemovedViteHubOptions(configuredModuleOptions, "the `vitehub` options of nuxt.config.ts")
-  const moduleOptions = { ...configuredModuleOptions, host: resolveBuildHost(configuredModuleOptions.host) }
+  const moduleOptions = { ...configuredModuleOptions, host: resolveNuxtBuildHost(configuredModuleOptions.host, nuxt.options.nitro) }
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)
   // The `cms` preset turns on Workspace, Database, and Blob. Nuxt knows the root here, so resolve it once.
@@ -1147,7 +1149,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const generatedData = secondaryProjectRoots
     .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/data/**/*.d.ts")))
   // `@cloudflare/workers-types` is an optional peer. `cloudflare-types.d.ts` references it, so add that file only when the app installs it.
-  if (plan.host === "cloudflare" && isPackageInstalled("@cloudflare/workers-types")) generatedTypes.push(relative(nuxt.options.buildDir, cloudflareTypes))
+  // Without it, generated server files such as the Database middleware still import `cloudflare:workers`, so declare what they use.
+  if (plan.host === "cloudflare") {
+    generatedTypes.push(relative(nuxt.options.buildDir, isPackageInstalled("@cloudflare/workers-types") ? cloudflareTypes : cloudflareWorkersDeclaration))
+  }
   addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData)
   // Code under shared/ can type-import server files, such as server/auth.ts, which use the generated declarations.
   addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData, "sharedTsConfig")
@@ -1655,12 +1660,18 @@ async function resolveNuxtContentDatabaseDependencies(nuxtInstance: unknown) {
   const nuxtOptions = (nuxtInstance as NuxtLike | undefined)?.options
   if (!nuxtOptions || nuxtOptions.dev) return {}
   const configured = { ...nuxtOptions.vitehub } as ViteHubNuxtOptions
-  if (resolveBuildHost(configured.host) === "cloudflare") return {}
+  if (resolveNuxtBuildHost(configured.host, nuxtOptions.nitro) === "cloudflare") return {}
   const project = { projectRoot: resolveViteHubProjectRoot(nuxtOptions.rootDir || process.cwd()), serverDirs: resolveNuxtServerDirs(nuxtOptions) }
   const { database } = withConnectionsDatabase(resolveCmsPresetFeatures(withComments(configured as ViteHubOptions), project))
   if (!database || (database !== true && database.driver !== undefined)) return {}
   const owner = await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/nuxt"))
   return owner?.hubDatabase(database === true ? {} : { ...database }).getModuleDependencies(nuxtInstance) ?? {}
+}
+
+/** Without a `host` option, a Nuxt app that sets `nitro.preset`, such as `cloudflare-module`, builds for that host. */
+function resolveNuxtBuildHost(host: ViteHubNuxtOptions["host"], nitro: Record<string, unknown> | undefined) {
+  const preset = nitro?.preset
+  return resolveBuildHost(host ?? hostFromNitroPreset(typeof preset === "string" ? preset : undefined))
 }
 
 export default viteHubNuxtModule

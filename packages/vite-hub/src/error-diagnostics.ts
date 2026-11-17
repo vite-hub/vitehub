@@ -435,7 +435,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_B0009: {
       ...dynamicError,
-      fix: "Remove `nitro.preset` from nuxt.config.ts. ViteHub sets the Nitro preset from the `vitehub.host` option.",
+      fix: "Remove `nitro.preset` or `vitehub.host` from nuxt.config.ts, or make them name the same host. Without `vitehub.host`, ViteHub takes the host from `nitro.preset`.",
     },
     VITE_HUB_B0011: {
       ...dynamicError,
