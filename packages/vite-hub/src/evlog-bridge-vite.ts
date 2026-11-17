@@ -11,13 +11,14 @@ import type { Plugin } from "vite"
  */
 export function renderEvlogBridgeNitroPlugin(): string {
   return [
-    `import { createLogger } from "evlog"`,
+    `import { createLogger, isEnabled } from "evlog"`,
     `import { useRuntimeConfig } from "nitro/runtime-config"`,
     "",
     "export default function viteHubEvlogBridge(nitroApp) {",
     "  if (!useRuntimeConfig().evlog) return",
     `  globalThis[Symbol.for(${JSON.stringify(evlogBridgeKey)})] = {`,
     "    createLogger,",
+    "    isEnabled,",
     // evlog sends a standalone event to its global drains only. Request events also reach the `evlog:drain` hooks.
     "    drain: event => nitroApp.hooks.callHook(\"evlog:drain\", { event }),",
     "  }",

@@ -46,6 +46,8 @@ export interface StandaloneLogger {
 export interface EvlogBridge {
   createLogger: (fields: Record<string, unknown>) => StandaloneLogger
   drain?: (event: unknown) => unknown
+  /** `false` when the app turned evlog off with `enabled: false`. ViteHub packages then print to the console. */
+  isEnabled?: () => boolean
 }
 
 /**
@@ -101,12 +103,13 @@ export function errorCode(error: unknown): string | undefined {
 
 /**
  * Emits one evlog event of its own, outside a request's wide event. The event also reaches the app's `evlog:drain`
- * hooks. Returns `false` when the app does not register evlog, and never throws.
+ * hooks. Returns `false` when the app does not register evlog or turned it off, and never throws.
  */
 export function emitLogEvent(event: PrimitiveLogEvent): boolean {
   const bridge = evlogBridge()
   if (!bridge) return false
   try {
+    if (bridge.isEnabled?.() === false) return false
     const log = bridge.createLogger({ action: event.field, message: event.message, [event.field]: event.fields })
     if (event.level === "error") log.error(event.error instanceof Error ? event.error : event.error === undefined ? event.message : `${event.message}: ${errorText(event.error)}`)
     else log[event.level](event.error === undefined ? event.message : `${event.message}: ${errorText(event.error)}`)

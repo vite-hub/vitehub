@@ -97,4 +97,11 @@ describe("emitLogEvent", () => {
     setEvlogBridge({ createLogger: () => { throw new Error("evlog broke") } })
     expect(emitLogEvent({ field: "schedule", fields: {}, level: "info", message: "Schedule run succeeded" })).toBe(false)
   })
+
+  it("returns false when the app turned evlog off, so the caller prints to the console", () => {
+    const createLogger = vi.fn()
+    setEvlogBridge({ createLogger, isEnabled: () => false })
+    expect(emitLogEvent({ field: "schedule", fields: {}, level: "info", message: "Schedule run succeeded" })).toBe(false)
+    expect(createLogger).not.toHaveBeenCalled()
+  })
 })

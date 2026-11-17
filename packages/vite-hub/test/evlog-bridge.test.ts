@@ -10,12 +10,12 @@ import { evlogBridgeVitePlugin, renderEvlogBridgeNitroPlugin } from "../src/evlo
 type NitroPlugin = (app: { hooks: { callHook: (name: string, context: unknown) => unknown } }) => void
 
 /** Evaluates the generated plugin with stubs for evlog and Nitro's runtime config. */
-function bridgePlugin(runtimeConfig: Record<string, unknown>, createLogger: () => unknown): NitroPlugin {
+function bridgePlugin(runtimeConfig: Record<string, unknown>, createLogger: () => unknown, isEnabled = () => true): NitroPlugin {
   const source = renderEvlogBridgeNitroPlugin()
     .replace(/^import .*$/gm, "")
     .replace("export default function", "return function")
   // eslint-disable-next-line no-new-func -- evaluates the generated module body without a loader.
-  return new Function("createLogger", "useRuntimeConfig", source)(createLogger, () => runtimeConfig) as NitroPlugin
+  return new Function("createLogger", "isEnabled", "useRuntimeConfig", source)(createLogger, isEnabled, () => runtimeConfig) as NitroPlugin
 }
 
 const roots: string[] = []
@@ -33,6 +33,7 @@ describe("generated evlog bridge Nitro plugin", () => {
 
     const bridge = evlogBridge()
     expect(bridge?.createLogger).toBe(createLogger)
+    expect(bridge?.isEnabled?.()).toBe(true)
     await bridge?.drain?.({ action: "schedule" })
     expect(callHook).toHaveBeenCalledWith("evlog:drain", { event: { action: "schedule" } })
   })
