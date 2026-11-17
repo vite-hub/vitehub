@@ -71,6 +71,7 @@ Available namespaces:
   sandbox     Serve and check an SSH Sandbox runner. Does not load the project config.
   inspect     Inspect discovered Definitions, host resources, and generated Provider Output.
   provision   Idempotently create missing provider resources.
+  seed        Write the seed files of Database, KV, and Blob.
 ```
 
 ## Commands
