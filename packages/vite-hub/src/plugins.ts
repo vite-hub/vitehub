@@ -890,6 +890,12 @@ function assertNodeScheduleWake(schedule: ViteHubOptions["schedule"]): void {
   throw viteHubErrorDiagnostics.VITE_HUB_R0137({ message: "[vitehub] The \"node\" host has no cron, so this build would never run its Schedules. Set schedule: { runtime: { driver: \"process\" }, providerOutput: \"auto\" } to run them in the server process, or schedule: { providerOutput: false } to wake them yourself." })
 }
 
+function hostDriverOptions<T extends { driver?: unknown }>(options: object | undefined, inferred: T): T | { driver: undefined } {
+  // Leave old-key-only configs for the owner's migration diagnostic before a host driver can hide them.
+  if (options && Reflect.get(options, "driver") === undefined && Object.hasOwn(options, "provider")) return { driver: undefined }
+  return inferred
+}
+
 /**
  * The Rate Limit driver of a build. On Node, Rate Limit counts in KV when the app enables KV, because KV can use Redis
  * or a Postgres Database that every instance shares. When ViteHub selects `kv` itself, a store that cannot share counts
@@ -1025,7 +1031,7 @@ function deploymentPlugins(
             const namePrefix = configuredQueue && "namePrefix" in configuredQueue ? configuredQueue.namePrefix : undefined
             setResolvedFeatureOptions(config, "queue", {
               ...configuredQueue,
-              driver,
+              ...hostDriverOptions(configuredQueue, { driver }),
               ...(driver === "cloudflare" && namePrefix === undefined ? { namePrefix: `${name}-` } : {}),
             })
           }
@@ -1037,7 +1043,7 @@ function deploymentPlugins(
               namespace: name,
               // Cloudflare Rate Limit bindings exist only in the built wrangler.json, so the dev server keeps the owner
               // default for `serve`: one in-memory limiter.
-              ...building ? buildRateLimitDriver(plan, options) : { driver: "memory" },
+              ...hostDriverOptions(rateLimitOptions, building ? buildRateLimitDriver(plan, options) : { driver: "memory" }),
             })
           }
           if (requestedServices.includes("sandbox") && plan.services.sandbox.supported) {
@@ -1048,7 +1054,7 @@ function deploymentPlugins(
               ...(plan.services.sandbox.driver === "cloudflare" && configuredSandboxName === undefined
                 ? { name: cloudflareResourceScope(name) + "-sandbox" }
                 : {}),
-              driver: plan.services.sandbox.driver,
+              ...hostDriverOptions(configuredSandboxTask, { driver: plan.services.sandbox.driver }),
             })
           }
           let nitro = cloneRecord((config as { nitro?: unknown }).nitro)
@@ -1648,7 +1654,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (sandboxTaskEnabled) {
     const sandboxTaskPluginOptions = {
       ...options.sandboxTask === true ? {} : options.sandboxTask,
-      driver: sandboxTaskDriver,
+      ...hostDriverOptions(options.sandboxTask && options.sandboxTask !== true ? options.sandboxTask : undefined, { driver: sandboxTaskDriver }),
       providerImportAliases,
       providerImportSpecifier: "vite-hub/sandbox/task",
     }
@@ -1715,7 +1721,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.queue && plan.services.queue.supported) {
     const driver = configuredQueue?.driver ?? (plan.host === "node" ? undefined : plan.services.queue.driver)
     // SAFETY: The driver is the host's Queue driver or the app's own `queue.driver`.
-    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ ...configuredQueue, ...(driver ? { driver } : {}) } as QueueOptions, { databaseImport: "vite-hub/database/drizzle", importBase: "vite-hub/queue" })))
+    plugins.push(afterApplicationConfig(requireOptionalOwner(queueVite, "queue").hubQueue({ ...configuredQueue, ...hostDriverOptions(configuredQueue, driver ? { driver } : {}) } as QueueOptions, { databaseImport: "vite-hub/database/drizzle", importBase: "vite-hub/queue" })))
   }
   if (options.i18n) {
     // SAFETY: ViteHub adds the public import path of its re-exports to the public i18n options.
@@ -1739,7 +1745,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     // SAFETY: ViteHub adds its KV re-export path to the public Rate Limit options for generated imports.
     plugins.push(afterApplicationConfig(requireOptionalOwner(rateLimitVite, "rateLimit").hubRateLimit({
       ...(options.rateLimit === true ? {} : options.rateLimit),
-      ...buildRateLimitDriver(plan, options),
+      ...hostDriverOptions(options.rateLimit === true ? undefined : options.rateLimit, buildRateLimitDriver(plan, options)),
       kvImport: "vite-hub/kv",
     } as RateLimitOptions)))
   }
