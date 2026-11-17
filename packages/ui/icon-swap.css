@@ -7,14 +7,15 @@
  *
  *   <button data-slot="copy-button" data-copied>
  *     <span data-slot="copy-button-icon" aria-hidden="true">
- *       <svg data-icon="copy">…</svg>
- *       <svg data-icon="check">…</svg>
+ *       <span data-icon="copy"><svg>…</svg></span>
+ *       <span data-icon="check"><svg>…</svg></span>
  *     </span>
  *     Copy
  *   </button>
  *
  * - `copy-button-icon` holds both icons in one grid cell, so the button keeps its size and both icons stay in the DOM.
- * - `data-icon="copy"` is the icon before a copy, and `data-icon="check"` the icon after it. Any element works.
+ * - `data-icon="copy"` wraps the icon before a copy, and `data-icon="check"` the icon after it. The swap sets the opacity,
+ *   scale, and filter of the wrappers, so a class on an icon inside, such as a utility opacity, stays as it is.
  * - `data-copied` on the button, or on any element around the icons, shows the check. Remove it to show the copy icon.
  *
  * The entering icon goes from opacity 0, scale 0.3, and a 3px blur to its rest in 300ms. The leaving icon goes back in
@@ -28,6 +29,7 @@
 }
 
 [data-slot="copy-button-icon"] > * {
+  display: flex;
   grid-area: 1 / 1;
   transition-property: opacity, scale, filter;
   transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);

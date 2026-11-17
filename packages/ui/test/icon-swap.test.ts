@@ -17,7 +17,7 @@ describe("@vite-hub/ui/icon-swap.css", () => {
 
   it("stacks the two icons in one grid cell and swaps them on data-copied", () => {
     expect(swap).toMatch(/\[data-slot="copy-button-icon"\] \{\s*display: grid;/);
-    expect(swap).toMatch(/\[data-slot="copy-button-icon"\] > \* \{\s*grid-area: 1 \/ 1;/);
+    expect(swap).toMatch(/\[data-slot="copy-button-icon"\] > \* \{\s*display: flex;\s*grid-area: 1 \/ 1;/);
     for (const selector of [
       '[data-slot="copy-button-icon"] > [data-icon="check"]',
       '[data-copied] [data-slot="copy-button-icon"] > [data-icon="copy"]',

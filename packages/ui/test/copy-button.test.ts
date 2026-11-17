@@ -179,7 +179,7 @@ describe("CopyButton", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     useClipboard(() => Promise.resolve());
     const wrapper = mount(() => h(CopyButton, { value: "x", duration: 500 }), { attachTo: document.body, global: { components: { UButton: SlotButtonStub, UIcon: IconStub } } });
-    const icons = () => wrapper.findAll("[data-slot=copy-button-icon] > svg").map((icon) => [icon.attributes("data-icon"), icon.attributes("data-name"), icon.classes().join(" ")]);
+    const icons = () => wrapper.findAll("[data-slot=copy-button-icon] > [data-icon]").map((icon) => [icon.attributes("data-icon"), icon.get("svg").attributes("data-name"), icon.get("svg").classes().join(" ")]);
     const stack = [["copy", "i-lucide-copy", "size-4 shrink-0"], ["check", "i-lucide-check", "size-4 shrink-0"]];
     expect(wrapper.get("[data-slot=copy-button-icon]").attributes("aria-hidden")).toBe("true");
     expect(icons()).toEqual(stack);

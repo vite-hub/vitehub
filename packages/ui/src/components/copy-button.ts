@@ -183,11 +183,12 @@ export const CopyButton = defineComponent({
     }
 
     // Both icons stay in the DOM, so the swap animates both ways. While the text loads, the button shows its own loading icon.
+    // Each icon has a wrapper that the swap animates, so a utility class on the icon, such as the theme's opacity, stays.
     const leading = ({ ui }: ButtonLeadingSlotProps) => {
       const iconClass = ui?.leadingIcon?.({ class: leadingIconClass(attrs.ui) });
       return [h("span", { "aria-hidden": "true", "data-slot": "copy-button-icon" }, [
-        h(UIcon, { class: iconClass, "data-icon": "copy", name: props.icon ?? icons.value.copy }),
-        h(UIcon, { class: iconClass, "data-icon": "check", name: icons.value.copyCheck }),
+        h("span", { "data-icon": "copy" }, [h(UIcon, { class: iconClass, name: props.icon ?? icons.value.copy })]),
+        h("span", { "data-icon": "check" }, [h(UIcon, { class: iconClass, name: icons.value.copyCheck })]),
       ])];
     };
 

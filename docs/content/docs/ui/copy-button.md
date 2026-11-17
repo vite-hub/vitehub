@@ -101,15 +101,15 @@ document.head.append(style);
 ```html
 <button type="button" data-slot="copy-button" aria-label="Copy">
   <span data-slot="copy-button-icon" aria-hidden="true">
-    <svg data-icon="copy"><!-- the copy icon --></svg>
-    <svg data-icon="check"><!-- the check icon --></svg>
+    <span data-icon="copy"><svg><!-- the copy icon --></svg></span>
+    <span data-icon="check"><svg><!-- the check icon --></svg></span>
   </span>
   Copy
 </button>
 ```
 
-- `data-slot="copy-button-icon"` holds the two icons. Any element works for an icon.
-- `data-icon="copy"` is the icon before a copy, and `data-icon="check"` the icon after it.
+- `data-slot="copy-button-icon"` holds the two icons.
+- `data-icon="copy"` wraps the icon before a copy, and `data-icon="check"` the icon after it. The swap animates the wrappers, so the icons keep their own classes.
 - Set `data-copied` on the button after a copy, and remove it to swap back. The rules match `data-copied` on any element around the icons.
 - The page announces the result itself, for example in a polite live region.
 
