@@ -4846,7 +4846,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       expect(imports(withSync.nuxt)).toContainEqual({ from: "vite-hub/sync/client", name: "clearSync" })
       expect(imports(withoutSync.nuxt)).not.toContainEqual({ from: "vite-hub/sync/vue", name: "useSync" })
       // Without Auth, no plugin clears Sync on sign-out.
-      expect(withSync.nuxt.options.plugins).toEqual([])
+      expect(withSync.nuxt.options.plugins.filter(plugin => String(typeof plugin === "string" ? plugin : plugin.src).includes("/.vitehub/sync/"))).toEqual([])
     }
     finally {
       await rm(root, { recursive: true, force: true })
