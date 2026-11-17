@@ -108,22 +108,32 @@ async function loadLog(): Promise<void> {
 
 watch(filter, () => void loadLog());
 
-// One clock for the countdowns. It ticks each second while a timer waits, and the lists load again once one is due.
+// One clock for the countdowns. It ticks each second while a timer waits.
 const now = ref(Date.now());
 let clock: ReturnType<typeof setInterval> | undefined;
 let dueReload: ReturnType<typeof setTimeout> | undefined;
-const soonestDue = computed(() => pending.value.reduce<number | undefined>((soonest, entry) => soonest === undefined || entry.dueAt < soonest ? entry.dueAt : soonest, undefined));
 watch(() => pending.value.length > 0, (waiting) => {
   if (clock) clearInterval(clock);
   clock = undefined;
   now.value = Date.now();
   if (waiting) clock = setInterval(() => (now.value = Date.now()), 1_000);
 }, { immediate: true });
-watch(soonestDue, (due) => {
+
+/** The next time the lists may change on their own: when a timer is due, or soon while a delivery is due or sending. */
+const nextChange = computed(() => {
+  const active = [...pending.value, ...deliveries.value].filter(entry => entry.state === "pending" || entry.state === "sending");
+  return active.reduce<number | undefined>((soonest, entry) => {
+    const at = entry.state === "sending" ? 0 : entry.dueAt;
+    return soonest === undefined || at < soonest ? at : soonest;
+  }, undefined);
+});
+// The lists load again a few seconds after the next change, and keep loading while a delivery stays due or sending,
+// so a slow receiver or a late Queue still ends in its final state.
+watch([nextChange, loading, deliveriesLoading], ([at, listsLoading, logLoading]) => {
   if (dueReload) clearTimeout(dueReload);
   dueReload = undefined;
-  // The Queue delivers a moment after the due time, so the reload waits a little longer.
-  if (due !== undefined) dueReload = setTimeout(() => void load(), Math.min(Math.max(0, due - Date.now()) + 3_000, 2 ** 31 - 1));
+  if (at === undefined || listsLoading || logLoading) return;
+  dueReload = setTimeout(() => void load(), Math.min(Math.max(0, at - Date.now()) + 3_000, 2 ** 31 - 1));
 });
 
 const filterItems = webhookLogFilters.map(value => ({ label: value === "all" ? "All" : webhookStateStatus(value).label, value }));

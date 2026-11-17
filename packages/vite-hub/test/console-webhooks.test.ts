@@ -254,6 +254,20 @@ describe("Webhooks page", () => {
     await vi.waitFor(() => expect(state.opened).toBeUndefined())
   })
 
+  it("loads the lists again until a sending delivery settles", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "setTimeout", "Date"] })
+    const sending = delivery({ attempts: 1, id: "whd_sending", state: "sending" })
+    answer({ deliveries: [sending] })
+    const { state } = await mountWebhooks()
+    await vi.waitFor(() => expect(state.deliveries.map(entry => entry.state)).toEqual(["sending"]))
+    answer({ deliveries: [{ ...sending, lastStatus: 200, state: "sent" }] })
+    await vi.advanceTimersByTimeAsync(3_500)
+    await vi.waitFor(() => expect(state.deliveries.map(entry => entry.state)).toEqual(["sent"]))
+    const reads = calls("webhooks.deliveries").length
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(calls("webhooks.deliveries")).toHaveLength(reads)
+  })
+
   it("ticks the countdown each second while a timer waits", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "setTimeout", "Date"] })
     answer({ pending: [{ ...pendingT3, dueAt: Date.now() + 21 * minute }] })
