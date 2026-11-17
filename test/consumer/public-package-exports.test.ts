@@ -9,7 +9,7 @@ import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
 import ts from "typescript"
-import { array, boolean, object, optional, parse, record, string } from "valibot"
+import { array, boolean, type InferOutput, object, optional, parse, record, string } from "valibot"
 import { parse as parseYaml } from "yaml"
 
 import { publicPackageBinContracts, publicPackageExportContracts } from "../public-package-exports"
@@ -427,6 +427,7 @@ function optionalContractPeers(packageName: string) {
 async function importPackagesWithoutDeclarationPeer(
   root: string,
   specs: Record<string, string>,
+  packedManifests: PackedManifests,
   omittedPeer: string,
   peerSpecs: Record<string, string>,
 ) {
@@ -441,7 +442,11 @@ async function importPackagesWithoutDeclarationPeer(
     const requiredPeers = Object.keys(sourceManifest.peerDependencies || {}).filter(name =>
       !sourceManifest.peerDependenciesMeta?.[name]?.optional,
     )
-    const declaredPeers = [...Object.keys(sourceManifest.peerDependencies || {}), ...optionalContractPeers(packageName)]
+    const declaredPeers = [
+      ...Object.keys(sourceManifest.peerDependencies || {}),
+      ...optionalContractPeers(packageName),
+      ...[...await workspaceDependencyClosure(packageName, specs, packedManifests)].filter(name => name !== packageName),
+    ]
     const sourcePeerSpecs = await resolvedPeerDependencySpecs(sourceManifest.peerDependencies || {})
     const devDependencies = mixedPeerFixtureSpecs(
       packageName,
@@ -503,13 +508,54 @@ function declarationPeerAbsentRuntimeContracts(omittedPeer: string) {
   )
 }
 
-async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<string, string>) {
-  const requiredPeerVersions = await requiredPeerSpecs()
-  // Read each packed manifest once, before the fixtures queue their installs.
-  const packedManifests = new Map(await settled(Object.entries(specs).map(async ([packageName, spec]) => {
+type PackedManifests = Map<string, InferOutput<typeof packageManifestSchema>>
+
+// Read each packed manifest once, before the fixtures queue their installs.
+async function readPackedManifests(specs: Record<string, string>): Promise<PackedManifests> {
+  return new Map(await settled(Object.entries(specs).map(async ([packageName, spec]) => {
     const { stdout } = await run("tar", ["-xOf", spec.slice("file:".length), "package/package.json"], repoRoot)
     return [packageName, parse(packageManifestSchema, JSON.parse(stdout))] as const
   })))
+}
+
+// Walk only the package under test and its reachable first-party edges.
+// Packed manifests can gain runtime edges during the build (for example,
+// Agent's Forge adapter), so the closure must follow every source edge
+// while keeping unrelated tarballs out of the isolated fixture. A required
+// first-party peer of a dependency (Comments needs Database) must be in the
+// fixture too, or pnpm looks for an unpublished version on the registry.
+async function workspaceDependencyClosure(packageName: string, specs: Record<string, string>, packedManifests: PackedManifests) {
+  const workspaceDependencies = new Set<string>()
+  const pending = [packageName]
+  while (pending.length) {
+    const current = pending.pop()!
+    if (workspaceDependencies.has(current)) continue
+    workspaceDependencies.add(current)
+    const dependencyInfo = packageInfos.find(candidate => candidate.packageName === current)
+    if (!dependencyInfo) continue
+    const dependencyManifest = await readManifest(join(repoRoot, "packages", dependencyInfo.name, "package.json"))
+    const packedManifest = packedManifests.get(current) || {}
+    const dependencies = [
+      ...Object.keys(dependencyManifest.dependencies || {}),
+      ...Object.keys(dependencyManifest.optionalDependencies || {}),
+      ...Object.keys(dependencyManifest.peerDependencies || {}).filter(name =>
+        !dependencyManifest.peerDependenciesMeta?.[name]?.optional,
+      ),
+      ...Object.keys(packedManifest.dependencies || {}),
+      ...Object.keys(packedManifest.optionalDependencies || {}),
+      ...Object.keys(packedManifest.peerDependencies || {}).filter(name =>
+        !packedManifest.peerDependenciesMeta?.[name]?.optional,
+      ),
+    ]
+    for (const dependency of dependencies) {
+      if (specs[dependency]) pending.push(dependency)
+    }
+  }
+  return workspaceDependencies
+}
+
+async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<string, string>, packedManifests: PackedManifests) {
+  const requiredPeerVersions = await requiredPeerSpecs()
 
   await settled(packagesByExportCount.map(async (info) => {
     const appDir = join(root, "absent-peers", info.name)
@@ -517,36 +563,7 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
     const requiredPeers = Object.keys(sourceManifest.peerDependencies || {}).filter(name =>
       !sourceManifest.peerDependenciesMeta?.[name]?.optional,
     )
-    // Walk only the package under test and its reachable first-party edges.
-    // Packed manifests can gain runtime edges during the build (for example,
-    // Agent's Forge adapter), so the closure must follow every source edge
-    // while keeping unrelated tarballs out of the isolated fixture.
-    const workspaceDependencies = new Set<string>()
-    const pending = [info.packageName]
-    while (pending.length) {
-      const packageName = pending.pop()!
-      if (workspaceDependencies.has(packageName)) continue
-      workspaceDependencies.add(packageName)
-      const dependencyInfo = packageInfos.find(candidate => candidate.packageName === packageName)
-      if (!dependencyInfo) continue
-      const dependencyManifest = await readManifest(join(repoRoot, "packages", dependencyInfo.name, "package.json"))
-      const packedManifest = packedManifests.get(packageName) || {}
-      const dependencies = [
-        ...Object.keys(dependencyManifest.dependencies || {}),
-        ...Object.keys(dependencyManifest.optionalDependencies || {}),
-        ...Object.keys(dependencyManifest.peerDependencies || {}).filter(name =>
-          !dependencyManifest.peerDependenciesMeta?.[name]?.optional,
-        ),
-        ...Object.keys(packedManifest.dependencies || {}),
-        ...Object.keys(packedManifest.optionalDependencies || {}),
-        ...Object.keys(packedManifest.peerDependencies || {}).filter(name =>
-          !packedManifest.peerDependenciesMeta?.[name]?.optional,
-        ),
-      ]
-      for (const dependency of dependencies) {
-        if (specs[dependency]) pending.push(dependency)
-      }
-    }
+    const workspaceDependencies = await workspaceDependencyClosure(info.packageName, specs, packedManifests)
     await mkdir(appDir, { recursive: true })
     await Promise.all([
       writeFile(join(appDir, ".npmrc"), [
@@ -1116,13 +1133,14 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
       }
 
       await assertResolution(appDir, optionalPeerProbes, false)
-      await exercisePackagesWithoutOptionalPeers(root, specs)
+      const packedManifests = await readPackedManifests(specs)
+      await exercisePackagesWithoutOptionalPeers(root, specs, packedManifests)
 
       const optionalPeerSpecs = await addOptionalPeers(appDir)
       const peerSpecs = { ...await requiredPeerSpecs(), ...optionalPeerSpecs }
       expect(Object.keys(optionalPeerSpecs)).toEqual(optionalPeers)
       await assertResolution(appDir, optionalPeerProbes, true)
-      await settled(optionalPeers.map(optionalPeer => importPackagesWithoutDeclarationPeer(root, specs, optionalPeer, peerSpecs)))
+      await settled(optionalPeers.map(optionalPeer => importPackagesWithoutDeclarationPeer(root, specs, packedManifests, optionalPeer, peerSpecs)))
       const presentPeerContracts = publicPackageExportContracts
         .filter(contract => isJavaScriptModule(contract.target))
       const presentCloudflareContracts = presentPeerContracts.filter(contract => contract.specifier.endsWith("/cloudflare/state"))
