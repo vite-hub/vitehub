@@ -2255,7 +2255,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   // Every later write would be refused too, so end the pass and let the claim requeue.
                   const changed = new DOMException("Pull request evidence changed.", "AbortError");
                   schedulerEvent("babysitter.pass.evidence_changed", { ...owner, head_sha: pullRequest.headRefOid, observed_head: observedHead });
-                  passController.abort(changed);
+                  // End the pass on the next turn of the event loop. Ending it now closes the tool server before it
+                  // sends this refusal, and the Agent gets a dropped connection instead of the reason.
+                  setTimeout(() => passController.abort(changed), 0);
                   throw changed;
                 }
                 return current;
