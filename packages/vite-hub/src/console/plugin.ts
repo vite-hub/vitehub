@@ -121,7 +121,10 @@ export const consolePageToolScript = "/_vitehub/console/assets/page-tool.js?v=2"
 
 function renderConsolePageTool(pageTool: ConsoleNitroPluginOptions["pageTool"], auth: boolean): string {
   if (!pageTool) return "export default function viteHubConsolePlugin() {}"
-  const user = auth ? `, user: async request => (await import(${JSON.stringify(generatedModules.consolePageAuth)})).consolePageAuthUser(request)` : ""
+  // Without Auth, Site access signs browsers in with its own cookie, which the page tools read too.
+  const user = auth
+    ? `, user: async request => (await import(${JSON.stringify(generatedModules.consolePageAuth)})).consolePageAuthUser(request)`
+    : `, site: async request => (await import(${JSON.stringify(generatedModules.consoleSiteSession)})).readConsoleSiteVisitor(request)`
   return `export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: ${JSON.stringify(pageTool.base)}, script: ${JSON.stringify(consolePageToolScript)}${user} }) }`
 }
 
@@ -143,8 +146,8 @@ function renderConsoleNitroPlugin(
   const agents = catalog.agents
   const accessCode = renderConsoleAccess(access)
   const operations = catalog.operations ?? []
-  // With Auth, the page tools pill comes with Site access: the Console signs members and guests in to the app.
-  const sections = withConsoleDocumentEditorSections(pageTool && configuredSections.includes("auth") ? [...configuredSections, "site"] : configuredSections, catalog)
+  // The page tools pill comes with Site access: the Console signs members and guests in to the app.
+  const sections = withConsoleDocumentEditorSections(pageTool ? [...configuredSections, "site"] : configuredSections, catalog)
     .filter(section => !access?.hiddenSections?.includes(section))
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)

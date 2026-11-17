@@ -171,7 +171,7 @@
   "docs/content/docs/workspace/configure.md#1": "no-vitehub",
   "docs/content/docs/workspace/get-started.md#1": "no-vitehub",
   "docs/content/docs/workspace/hosts.md#1": "no-vitehub",
-  "docs/nuxt.config.ts": "no-vitehub",
+  "docs/nuxt.config.ts": "ok",
   "fixtures/consumer/vite-hub/vite.config.ts": "ok",
   "fixtures/docs-hosts/cloudflare/vite.config.ts": "ok",
   "fixtures/docs-hosts/deno/vite.config.ts": "ok",
