@@ -72,6 +72,11 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
       const source = await getSourceForRoot(ctx.rootDir)
       await prepareWorkspaceSource(source, ctx)
     },
+    async checkAccess(ctx) {
+      // Without a token at build, a token that only the deployed app has can still read a private repository.
+      if (!await resolveGitHubAuth(resolvedOptions.auth, ctx.rootDir)) return
+      await (await getSourceForRoot(ctx.rootDir)).resolveRevision?.(ctx)
+    },
     async getKeys(ctx) {
       const source = await getSourceForRoot(ctx.rootDir)
       return await source.getKeys(ctx)

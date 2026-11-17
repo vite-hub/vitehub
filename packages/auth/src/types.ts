@@ -6,6 +6,7 @@ import type { AuthEventsConfiguration } from "./events.ts"
 import type { AuthRedirects } from "./nuxt-types.ts"
 import type { AuthConsoleOptions } from "./console-types.ts";
 import type { AuthPreset } from "./presets.ts"
+import type { AuthSchemaOptions } from "./table-specs.ts"
 declare global {
   namespace ViteHub {
     interface AuthRuntimeEnv extends Record<string, unknown> {}
@@ -201,8 +202,11 @@ export interface ResolvedAuthViteConfig {
     public?: string[]
   }
   basePath: string
-  /** The app Database that `authDatabase()` names, which gets the Better Auth tables. `false` without the call. */
-  tables: false | { database: string }
+  /**
+   * The app Database that `authDatabase()` names, which gets the Better Auth tables, and the plugins and additional fields
+   * of the Definition that add tables and columns. `false` without the call.
+   */
+  tables: false | { database: string, schema?: AuthSchemaOptions }
   /** `true` when the static Definition sets no `database` or `preset`, so only a development server can run it. */
   implicitMemory?: true
   definition: DiscoveredAuthDefinition

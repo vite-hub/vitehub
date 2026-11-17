@@ -32,37 +32,18 @@ describe("Auth option resolution", () => {
     expect(() => resolveAuthOptions(definition).providerOptions).toThrow(/text IDs/)
   })
 
-  it("rejects effective user fields missing from the owned schema", () => {
-    const database = Object.assign(() => { throw new Error("Adapter must not run") }, { vitehubDatabase: "default" })
+  it("leaves additional fields and plugin columns to the adapter, which compares them with the Database", () => {
+    const database = Object.assign(vi.fn(), { vitehubDatabase: "default" })
     const user = { additionalFields: { plan: { type: "string" as const } } }
-    for (const definition of [
-      defineAuth({ database, user }),
-      defineAuth(() => ({ database, user })),
-    ]) {
-      expect(() => resolveAuthOptions(definition).providerOptions).toThrow(/user.additionalFields/)
-    }
-    expect(resolveAuthOptions(defineAuth({ user })).providerOptions.user).toEqual(user)
-    expect(resolveAuthOptions(defineAuth({ database, user: { additionalFields: {} } })).providerOptions.database).toBe(database)
-  })
-
-  it.each(["session", "account", "verification"] as const)("rejects effective %s additional fields before opening the Database", (model) => {
-    const database = Object.assign(vi.fn(), { vitehubDatabase: "default" })
-    const options = { [model]: { additionalFields: { tenant: { type: "string" as const } } } }
-    for (const definition of [
-      defineAuth({ database, ...options }),
-      defineAuth(() => ({ database, ...options })),
-    ]) {
-      expect(() => resolveAuthOptions(definition).providerOptions).toThrow(`${model}.additionalFields`)
-    }
-    expect(database).not.toHaveBeenCalled()
-  })
-
-  it("rejects plugin fields absent from the owned tables before opening the Database", () => {
-    const database = Object.assign(vi.fn(), { vitehubDatabase: "default" })
     const plugins = [username()]
-    expect(() => resolveAuthOptions(defineAuth({ database, plugins })).providerOptions).toThrow(/user.username/)
-    expect(() => resolveAuthOptions(defineAuth(() => ({ database, plugins }))).providerOptions).toThrow(/user.username/)
-    expect(resolveAuthOptions(defineAuth({ plugins })).providerOptions.plugins).toContain(plugins[0])
+    for (const definition of [
+      defineAuth({ database, user, plugins }),
+      defineAuth(() => ({ database, user, plugins })),
+    ]) {
+      const { providerOptions } = resolveAuthOptions(definition)
+      expect(providerOptions.user).toMatchObject(user)
+      expect(providerOptions.plugins).toContain(plugins[0])
+    }
     expect(database).not.toHaveBeenCalled()
   })
 
@@ -74,7 +55,7 @@ describe("Auth option resolution", () => {
     { verification: { fields: { value: "code" } } },
   ])("rejects schema remapping for owned tables: %j", (options) => {
     const database = Object.assign(vi.fn(), { vitehubDatabase: "default" })
-    expect(() => resolveAuthOptions(defineAuth({ database, ...options })).providerOptions).toThrow(/fixed table and field names/)
+    expect(() => resolveAuthOptions(defineAuth({ database, ...options })).providerOptions).toThrow(expect.objectContaining({ code: "AUTH_C0056" }))
     expect(database).not.toHaveBeenCalled()
   })
 

@@ -21,6 +21,11 @@ export function installConsoleBuild(build: ConsoleProjectBuild): ConsoleProjectB
   return consoleState().build = build
 }
 
+/** Generated output installs the `vite-hub` version that the app built with, for `project.get`. */
+export function installConsoleVersion(version: string): string {
+  return consoleState().vitehub = version
+}
+
 export function installConsoleProjectName(projectRoot: string, projectName: string): string {
   installConsoleProjectRoot(projectRoot)
   return consoleState().projectName = projectName

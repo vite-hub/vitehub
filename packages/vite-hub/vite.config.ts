@@ -61,6 +61,7 @@ const runtimeEntries = [
   "src/_internal/auth/runtime/server.ts",
   "src/_internal/runtime/internal/h3.ts",
   "src/_internal/runtime/request-policy.ts",
+  "src/_internal/runtime/security.ts",
   "src/internal/agent-invocations-libsql.ts",
   "src/internal/database-runtime-state.ts",
   "src/internal/disabled-upstash-driver.ts",
@@ -171,8 +172,6 @@ export default defineConfig({
   pack: [
     {
       ...packDefaults,
-      // `project.get` reports this version, without the package manifest in the app's server output.
-      define: { __VITE_HUB_VERSION__: JSON.stringify(frameworkPackageManifest.version) },
       copy: [
         { from: "src/cloudflare-prerender.mjs", to: "dist" },
         { from: "src/error-diagnostics.ts", to: "dist" },
@@ -514,6 +513,7 @@ export default defineConfig({
         { from: "src/ui/styles.css", to: "dist/ui" },
         { from: "src/ui/theme.css", to: "dist/ui" },
         { from: "templates/cloudflare-types.d.ts", to: "dist" },
+        { from: "templates/cloudflare-workers.d.ts", to: "dist" },
       ],
       deps: {
         // Agent-only apps need the client-free journal constructor without installing the optional Database package.
