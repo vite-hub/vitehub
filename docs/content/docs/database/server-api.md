@@ -110,7 +110,7 @@ import { useDatabase } from 'vite-hub/database'
 
 export default defineEventHandler(async (event) => {
   const { db, schema } = useDatabase('default')
-  const { titles } = await readBody<{ titles: string[] }>(event)
+  const { titles } = await readBody<{ titles: string[] }>(event) ?? { titles: [] }
   const writes: BatchItem<'sqlite'>[] = []
   for (const title of titles) writes.push(db.insert(schema.notes).values({ title }))
   await db.batch(writes)
