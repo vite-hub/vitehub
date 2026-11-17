@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { build, loadNuxt } from "nuxt"
+import { writeTypes } from "nuxt/kit"
 import { expect, it } from "vitest"
 
 import type { Nitro } from "nitro/types"
@@ -86,3 +87,31 @@ it("lets the client read the payload of prerendered pages with the default Nuxt 
     await rm(root, { recursive: true, force: true })
   }
 }, 30_000)
+
+// A site's vue-tsc reads the generated tsconfig, and `nuxi build` and `nuxi dev` write it before the templates exist.
+// A `#docs/*` path to a template's `.mjs` types the module from its JavaScript. The app config must also type
+// `icon.customize`, which the docs icon plugin sets.
+it("gives a site's typecheck the declarations of each #docs template and of icon.customize", async () => {
+  const root = await mkdtemp(join(tmpdir(), "docs-consumer-"))
+  const moduleUrl = pathToFileURL(join(import.meta.dirname, "../dist/nuxt.js")).href
+  const docs = (await import(moduleUrl)).default as never
+  let nuxt: Awaited<ReturnType<typeof loadNuxt>> | undefined
+  try {
+    await mkdir(join(root, "content/docs/guide"), { recursive: true })
+    await writeFile(join(root, "content/docs/guide/index.md"), "---\ntitle: Guide\n---\nHello\n")
+    await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({})\n")
+    nuxt = await loadNuxt({ cwd: root, overrides: { dev: false, _prepare: true, modules: [[docs, { mcp: false }]] }, ready: true })
+    await writeTypes(nuxt)
+    for (const file of ["tsconfig.app.json", "tsconfig.shared.json", "tsconfig.server.json"]) {
+      const { compilerOptions } = JSON.parse(await readFile(join(nuxt.options.buildDir, file), "utf8")) as { compilerOptions: { paths: Record<string, string[]> } }
+      expect(compilerOptions.paths["#docs/shell"], file).toEqual(["./docs/shell.d.mts"])
+      expect(compilerOptions.paths["#docs/blocks"], file).toEqual(["./docs/blocks.d.mts"])
+    }
+    const types = nuxt.options.build.templates.find(template => template.filename === "types/vite-hub-docs.d.ts")
+    expect(String(await types?.getContents?.({} as never))).toMatch(/interface CustomAppConfig \{[^}]*customize\?:/)
+  }
+  finally {
+    await nuxt?.close()
+    await rm(root, { recursive: true, force: true })
+  }
+}, 120_000)
