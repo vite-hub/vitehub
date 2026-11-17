@@ -385,7 +385,7 @@ describe("defineAgent workspace option", () => {
     const first = agent.run!(context())
     await vi.waitFor(() => expect(starts).toBe(1))
     const second = agent.run!(context())
-    await Promise.resolve()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(starts).toBe(1)
 
     releases.shift()!()

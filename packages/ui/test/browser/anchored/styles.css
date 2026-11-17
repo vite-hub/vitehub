@@ -1,0 +1,34 @@
+/* The kit style family between the base styles and the parts' own layer, as the kit README asks. */
+@layer theme, base, comark, ui-sdk, components, utilities;
+@import "../../../../kit/src/styles/tokens.css";
+@import "../../../../kit/src/styles/default.css";
+@import "../../../styles.css";
+@import "../../../comment-marks.css";
+
+body {
+  margin: 0;
+  background: var(--vh-bg);
+  color: var(--vh-text);
+  font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
+}
+
+main {
+  min-height: 100vh;
+  padding: 32px 48px;
+}
+
+/* A spot that a comment points at. The page moves it with `left` and `top`. */
+.spot {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+}
+
+.session {
+  height: 520px;
+  margin: 24px;
+  width: min(680px, calc(100vw - 48px));
+  border: 1px solid var(--vh-border);
+  border-radius: 12px;
+  overflow: hidden;
+}

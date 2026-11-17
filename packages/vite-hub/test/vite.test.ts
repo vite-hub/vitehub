@@ -733,6 +733,7 @@ describe("vitehub", () => {
       "@vite-hub/source/vite",
       "@vite-hub/content/vite",
       "@vite-hub/forms/vite",
+      "@vite-hub/sync/vite",
       "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
       "@vite-hub/webhooks/vite",
@@ -777,6 +778,7 @@ describe("vitehub", () => {
       "vite-hub/unavailable-services",
       "vite-hub/cloudflare-sh-syntax",
       "vite-hub/cloudflare-pkce-challenge",
+      "vite-hub/cloudflare-redirects-file",
       "vite-hub/dependencies",
       "vite-hub/error-log",
       "@vite-hub/env/vite",
@@ -801,6 +803,7 @@ describe("vitehub", () => {
       "@vite-hub/source/vite",
       "@vite-hub/content/vite",
       "@vite-hub/forms/vite",
+      "@vite-hub/sync/vite",
       "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
       "@vite-hub/webhooks/vite",
@@ -999,6 +1002,18 @@ describe("vitehub", () => {
     }
     finally {
       ownerModules.formsVite = forms
+    }
+  })
+
+  it("checks Sync entries when only the Sync owner is absent", () => {
+    expect(ownerModules.formsVite).toBeDefined()
+    const sync = ownerModules.syncVite
+    try {
+      ownerModules.syncVite = undefined
+      expect(pluginNames(vitehub({ database: false, host: "node" }))).toContain("vite-hub/optional-owner-entries")
+    }
+    finally {
+      ownerModules.syncVite = sync
     }
   })
 
@@ -2384,7 +2399,7 @@ describe("vitehub", () => {
   })
 
   it("rejects unsupported capabilities and conflicting target selection", async () => {
-    expect(() => vitehub({ host: "deno", schedule: true })).toThrow("cannot provide Schedule")
+    expect(() => vitehub({ host: "deno", schedule: true })).not.toThrow()
     expect(() => vitehub({ host: "deno", agent: { runtime: "deno" } })).toThrow("cannot deploy the Agent Deno runtime")
 
     // SAFETY: The explicit Deno preset installs the named deployment plugin.

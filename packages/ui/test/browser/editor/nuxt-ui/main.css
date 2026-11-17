@@ -1,0 +1,6 @@
+@layer theme, base, comark, components, utilities;
+@import "tailwindcss";
+@import "@nuxt/ui";
+@import "../../../../styles.css";
+@import "../page.css";
+@source "../../../../src";
