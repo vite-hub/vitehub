@@ -92,7 +92,7 @@ describe("ask(prompt, { model, schema })", () => {
       doGenerate: async () => ({
         content: [],
         finishReason: { raw: reason, unified: reason },
-        usage: { inputTokens: { total: 20 }, outputTokens: { total: 0 } },
+        usage: { inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 20, total: 20 }, outputTokens: { reasoning: 0, text: 0, total: 0 } },
         warnings: [],
       }),
     })
