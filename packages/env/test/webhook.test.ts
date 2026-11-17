@@ -85,12 +85,12 @@ describe("verifyWebhook({ provider: 'github' })", () => {
 })
 
 describe("verifyWebhook({ provider: 'hmac' })", () => {
-  it("checks a base64 HMAC with a base64 key, as Airtable sends it", async () => {
+  it("checks a hex HMAC with a base64 key, as Airtable sends it", async () => {
     const key = Buffer.from("airtable-mac-secret").toString("base64")
     vi.stubEnv("AIRTABLE_WEBHOOK_SECRET", key)
     const payload = JSON.stringify({ base: { id: "app1" }, webhook: { id: "ach1" } })
-    const mac = `hmac-sha256=${createHmac("sha256", Buffer.from(key, "base64")).update(payload).digest("base64")}`
-    const options = { provider: "hmac", secret: "AIRTABLE_WEBHOOK_SECRET", header: "X-Airtable-Content-MAC", prefix: "hmac-sha256=", encoding: "base64", secretEncoding: "base64" } as const
+    const mac = `hmac-sha256=${createHmac("sha256", Buffer.from(key, "base64")).update(payload).digest("hex")}`
+    const options = { provider: "hmac", secret: "AIRTABLE_WEBHOOK_SECRET", header: "X-Airtable-Content-MAC", prefix: "hmac-sha256=", encoding: "hex", secretEncoding: "base64" } as const
     const [error, notification] = await verifyWebhook<{ webhook: { id: string } }>(post({ "x-airtable-content-mac": mac }, payload), options)
     expect(error).toBeUndefined()
     expect(notification?.webhook.id).toBe("ach1")

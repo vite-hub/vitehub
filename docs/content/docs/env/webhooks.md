@@ -60,7 +60,7 @@ export default defineEventHandler(async (event) => {
     secret: 'AIRTABLE_WEBHOOK_SECRET',
     header: 'X-Airtable-Content-MAC',
     prefix: 'hmac-sha256=',
-    encoding: 'base64',
+    encoding: 'hex',
     secretEncoding: 'base64',
   })
   if (error) throw new HTTPError({ status: 400, message: error.message })
