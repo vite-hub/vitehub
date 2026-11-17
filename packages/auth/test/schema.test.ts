@@ -97,6 +97,21 @@ describe("Auth tables", () => {
     }
   })
 
+  it("stores monthly API-key durations as JavaScript numbers in both dialects", () => {
+    const postgres = createAuthPostgresSchema({ plugins: ["apiKey"] }).apikey!
+    const sqlite = createAuthSqliteSchema({ plugins: ["apiKey"] }).apikey!
+    const dialect = new PgDialect({ codecs: postgresJsCodecs })
+    const duration = 30 * 24 * 60 * 60 * 1000
+    for (const key of ["refillInterval", "rateLimitTimeWindow"]) {
+      const column = postgres[key]!
+      expect(column.getSQLType()).toBe("bigint")
+      expect(column.dataType).toBe("number int53")
+      expect(column.mapToDriverValue(duration)).toBe(duration)
+      expect(dialect.codecs.apply(column, "normalize", String(duration))).toBe(duration)
+      expect(sqlite[key]!.mapFromDriverValue(duration)).toBe(duration)
+    }
+  })
+
   // Each plugin with every option that adds a table or a column turned on.
   const pluginFactories: Record<AuthSchemaPlugin, () => NonNullable<BetterAuthOptions["plugins"]>[number]> = {
     anonymous: () => anonymous(),
@@ -112,6 +127,15 @@ describe("Auth tables", () => {
     // A Better Auth upgrade that changes a plugin's tables fails here. Update `authPluginSchemas` in src/table-specs.ts.
     const core = betterAuthTables({})
     const expected = betterAuthTables({ plugins: [pluginFactories[plugin]()] })
+    if (plugin === "apiKey") {
+      // Millisecond durations can exceed Postgres's signed 32-bit integer range.
+      const apikey = expected.apikey!
+      apikey.fields = {
+        ...apikey.fields,
+        refillInterval: { ...apikey.fields.refillInterval!, bigint: true },
+        rateLimitTimeWindow: { ...apikey.fields.rateLimitTimeWindow!, bigint: true },
+      }
+    }
     const fields: Record<string, Record<string, AuthTableField>> = {}
     const tables: Record<string, AuthTableSpec> = {}
     for (const [model, spec] of Object.entries(expected)) {

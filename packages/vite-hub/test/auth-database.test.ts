@@ -70,7 +70,8 @@ describe("authDatabase()", () => {
     const extended = createClient({ url: `file:${join(directory, "extended.db")}` })
     try {
       for (const statement of await generateMigration(await generateDrizzleJson({}), await generateDrizzleJson({ ...schema }))) await extended.execute(statement)
-      state.databases.extended = { db: drizzle({ client: extended, relations: defineRelations(schema) }), schema: { ...schema } }
+      // The dynamic schema has a string index; give Drizzle an explicit empty relations map.
+      state.databases.extended = { db: drizzle({ client: extended, relations: defineRelations(schema, (): Record<string, never> => ({})) }), schema: { ...schema } }
       // comark-ui stores the GitHub login; Finance and Lesson Video turn on two-factor sign-in.
       const definition = defineAuth({
         database: authDatabase("extended"),
