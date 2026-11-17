@@ -3727,16 +3727,10 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
 
     await viteHubNuxtModule({ host: "cloudflare", queue }, nuxt)
 
-    const typescript = {
-      tsConfig: {
-        include: [
-          "../.vitehub/types.d.ts",
-          ...(enabled ? ["../.vitehub/queue.d.ts"] : []),
-          expect.stringContaining("cloudflare-types.d.ts"),
-        ],
-      },
-    }
-    expect(nuxt.options).toMatchObject({ nitro: { typescript }, typescript })
+    const include = (cloudflare: string) => ({
+      tsConfig: { include: ["../.vitehub/types.d.ts", ...(enabled ? ["../.vitehub/queue.d.ts"] : []), expect.stringContaining(cloudflare)] },
+    })
+    expect(nuxt.options).toMatchObject({ nitro: { typescript: include("cloudflare-types.d.ts") }, typescript: include("cloudflare-workers.d.ts") })
   })
 
   it("exposes materialized Email templates to Nuxt and Nitro on Vercel", async () => {
