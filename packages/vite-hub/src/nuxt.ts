@@ -32,6 +32,7 @@ import { mergeConfig } from "vite"
 import { isIncludedNitroPlugin } from "@vite-hub/internal/build/included-nitro-registry"
 import { resolveSandboxTaskDriver, viteHubPlugins, type ViteHubOptions } from "./plugins.ts"
 import { installBrowserErrorsNuxt } from "./browser-errors-vite.ts"
+import { installStaleChunkReloadNuxt, staleChunkReloadPluginName } from "./stale-chunk-reload.ts"
 import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
 import { disabledKVConfigModule, disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { consoleDevAccessNotice } from "./console/dev-access-notice.ts"
@@ -174,6 +175,7 @@ type NuxtLike = {
     buildDir: string
     dev?: boolean
     experimental?: {
+      emitRouteChunkError?: unknown
       nitroViteEnvironment?: boolean
     }
     devServerHandlers?: Array<{
@@ -1177,6 +1179,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     .filter(plugin => !isIncludedNitroPlugin(plugin))
     .filter(plugin => !(options.database && plugin.name === "@vite-hub/database/vite"))
     .filter(plugin => !consoleOptions || !["vite-hub/console", "vite-hub/console-invocation-root"].includes(plugin.name))
+    // Nuxt renders its own HTML. `installStaleChunkReloadNuxt()` adds the Nuxt plugin.
+    .filter(plugin => plugin.name !== staleChunkReloadPluginName)
   const plugins = [
     ...installedPlugins.filter(plugin => plugin.name !== "vite-hub/deployment-output"),
     ...(nuxt.options.vitehubCliDiscovery ? [{
@@ -1559,6 +1563,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   addVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
   if (options.observability && options.observability !== true && options.observability.browserErrors) await installBrowserErrorsNuxt(nuxt, projectRoot)
+  await installStaleChunkReloadNuxt(nuxt, projectRoot)
   if (isPackageInstalled("@vite-hub/decisions")) addVueImports(nuxt, "vite-hub/decisions/vue", ["useChoices"])
   if (isPackageInstalled("@vite-hub/forms")) {
     addVueImports(nuxt, "vite-hub/forms/vue", ["useFormAction"])
