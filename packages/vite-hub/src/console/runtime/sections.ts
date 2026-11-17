@@ -202,7 +202,7 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("databases", "Databases", consoleSectionDetails.databases.icon, "database", "Define relational data with Drizzle and query it through generated imports.", { feature: "database" }),
   primitive("email", "Email", "i-vitehub-email", "email", "Send transactional email through a provider-neutral driver, with safe test capture.", { feature: "email" }),
   primitive("kv", "KV", consoleSectionDetails.kv.icon, "kv", "Store and read small values by key through one key-value API.", { feature: "kv" }),
-  primitive("cache", "Cache", consoleSectionDetails.cache.icon, "kv/configure", "Keep the results of cached functions and handlers in a store of your host.", { feature: "cache", setup: "kv/configure" }),
+  primitive("cache", "Cache", consoleSectionDetails.cache.icon, "reference/config-options", "Keep the results of cached functions and handlers in a store of your host.", { feature: "cache", setup: "kv/configure" }),
   primitive("rate-limits", "Rate Limits", "i-vitehub-rate-limit", "rate-limit", "Require request budgets through an H3 guard and atomic drivers.", { feature: "rateLimit" }),
   primitive("sandbox-tasks", "Sandbox Tasks", "i-vitehub-sandbox", "sandbox", "Run named package projects as Sandbox Tasks in an isolated Cloudflare or Vercel Sandbox.", { feature: "sandboxTask" }),
   primitive("workspaces", "Workspaces", "i-vitehub-workspace", "workspace", "Build persistent file-tree state with rules, Source Bindings, snapshots, and diffs.", { feature: "workspace" }),
