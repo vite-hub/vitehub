@@ -37,8 +37,6 @@ export type DeviceEvent = { type: "load", keys: string[] } | { type: "named" } |
 /** The device of one page. `openDevice()` and `useStoredData()` use the device of the browser tab. */
 export interface Device {
   open: (options?: OpenDeviceOptions) => Promise<void>
-  /** `true` once the page called `open()`, also before the stored copies are in memory. */
-  opened: () => boolean
   setAccount: (account: string | null) => Promise<Result<void, "DEVICE_STORAGE_FAILED">>
   clear: () => Promise<Result<void, "DEVICE_STORAGE_FAILED">>
   inspect: () => DeviceInspection
@@ -512,7 +510,6 @@ export function createDevice(options: DeviceOptions): Device {
       opening = load()
       return opening
     },
-    opened: () => opening !== undefined,
     named: () => named !== undefined,
     setAccount,
     clear,

@@ -14,7 +14,7 @@ It has no dependency on Sync or Auth, and it needs no server code.
 
 With `vite-hub/nuxt` in `modules`, the ViteHub module finds the package and does the setup:
 
-- A client plugin opens the device. On a page that the server rendered, it opens it when hydration ends, so the first render matches the server HTML. Without server HTML, such as with `ssr: false`, it opens it before the app mounts.
+- A client plugin opens the device. On a page that the server rendered, it opens it when hydration ends, so hydration does not wait for it. Without server HTML, such as with `ssr: false`, it opens it before the app mounts.
 - With ViteHub Auth, the plugin names the account of `useUserSession()`, and `signOut()` waits until the copies are gone.
 - `useStoredData`, `useStoredFetch`, `setDeviceAccount`, `clearDevice`, and `inspectDevice` are auto-imported.
 
@@ -103,7 +103,7 @@ export const useProject = (id: string) => useStoredData(`project:${id}`, async (
 - **Naming starts the reads again.** When the page names its account, each read that runs calls its loader again, and the answer on the screen stays until the new one. A stored copy of another account goes back to the default at once.
 - **Old answers never show.** After another account, a sign-out, or `clearDevice()`, in this tab or in another tab, every read shows its default and calls its loader again, also a read whose loader answered. The read with `account` keeps the answer that named the account, and does not call its loader again for that naming. The answer of a loader call that started before the change does not show and does not go to the disk.
 - **Plain data.** The device keeps the answer as JSON. Return objects, arrays, strings, numbers, booleans, and null from the loader.
-- **Server rendering.** On the server, `useStoredData()` and `useStoredFetch()` read no storage and call no loader: `data` is the default and `status` is `idle`. In an app that the server renders, call `openDevice()` after the app mounts. The Nuxt plugin does it when hydration ends. A read in a component that renders before `openDevice()` renders the default and `idle`, as the server did, and calls the loader when the component mounts. The stored copy shows when the device opens, if the loader has not answered yet.
+- **Server rendering.** On the server, `useStoredData()` and `useStoredFetch()` read no storage and call no loader: `data` is the default and `status` is `idle`. A component that hydrates server HTML renders the default and `idle`, as the server did, also when the device is open. When it mounts, it shows the stored copy and calls the loader. So `openDevice()` can come before `app.mount()` in an app that the server renders too. The Nuxt plugin opens the device when hydration ends, so hydration does not wait for it.
 - **Tabs.** `clearDevice()` and a change of account reach every tab through a BroadcastChannel. The values of a read do not move between tabs: each tab asks its own loader. Each start-over of the disk gets a new generation, and a write applies only when the disk still has the generation of the tab. A new generation from another tab, also for the same account, is a reset in this tab: every read shows its default and calls its loader again. So a tab that missed a message, such as a suspended tab, cannot fill the disk again. Its write fails, and the tab drops what it had.
 
 ## Limits

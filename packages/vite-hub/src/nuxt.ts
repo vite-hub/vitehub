@@ -486,7 +486,7 @@ ${options.auth ? `import { onSignOut, useUserSession } from "vite-hub/auth/vue"\
 export default defineNuxtPlugin({
   name: "vitehub:device",${options.auth ? `\n  dependsOn: ["vitehub:auth"],` : ""}
   async setup(nuxtApp) {${options.auth ? account : ""}
-    // Hydration must render what the server rendered, so the device opens after it.
+    // Hydration does not wait for IndexedDB. A read that hydrates renders what the server rendered either way.
     if (nuxtApp.payload.serverRendered) nuxtApp.hooks.hookOnce("app:suspense:resolve", () => void ${open})
     else await ${open}
   },

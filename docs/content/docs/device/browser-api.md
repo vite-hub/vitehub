@@ -10,7 +10,7 @@ icon: i-lucide-code
 
 ## `openDevice()`
 
-Reads the stored copies into memory. Await it before `app.mount()`, so the first render of `useStoredData()` reads them:
+Reads the stored copies into memory. Await it before `app.mount()`, so the first render of `useStoredData()` reads them. This is also correct in an app that the server renders: see [Server rendering](#server-rendering).
 
 ```ts [src/main.ts]
 import { createApp } from 'vue'
@@ -103,7 +103,7 @@ A loader that does not throw on an error answer returns the error body as data, 
 | Field | Holds |
 | --- | --- |
 | `data` | The stored copy, then the answer of the loader. Before both, the default. |
-| `status` | `idle` on the server, and in the first render of a read that starts before `openDevice()`. `pending` while the loader runs, then `success` or `error`. |
+| `status` | `idle` on the server, and in the browser until a component that hydrates server HTML mounts. `pending` while the loader runs, then `success` or `error`. |
 | `error` | What the loader threw, as an `Error`. A stored copy stays in `data`. |
 | `storedAt` | The time of the stored copy while `data` holds it. `undefined` once `data` is an answer of this page, or the default. |
 | `refresh()` | Calls the loader again and aborts the older call. It never throws: a failure goes to `error`. |
@@ -160,7 +160,7 @@ export default defineNuxtConfig({
 
 The plugin does this in the browser:
 
-- **A page that the server rendered.** It calls `openDevice()` when hydration ends, so the first render matches the server HTML. The reads render the default and `idle`, as on the server, start their loaders when they mount, and show the stored copies when the device opens.
+- **A page that the server rendered.** It calls `openDevice()` when hydration ends, so hydration does not wait for IndexedDB. The reads render the default and `idle`, as on the server, start their loaders when they mount, and show the stored copies when the device opens.
 - **No server HTML**, such as with `ssr: false`. It awaits `openDevice()` before the app mounts, so the first render shows the stored copies.
 - **With ViteHub Auth.** It watches `useUserSession()`. When the session is read, it calls `setDeviceAccount()` with the user id, or `null` without a user. A session read that failed names nobody, so a reload without a network keeps the copies. On `signOut()`, it calls `setDeviceAccount(null)`, and `signOut()` waits until the copies are gone before it opens the next page.
 
@@ -168,4 +168,4 @@ The plugin does this in the browser:
 
 On the server, `useStoredData()` reads no storage and calls no loader. `data` is the default and `status` is `idle`. The functions of `vite-hub/device` store nothing on the server, so no account or copy stays in server memory between requests.
 
-In an app that the server renders, the first render in the browser must match the server. So call `openDevice()` after the app mounts, not before. In Nuxt, the module does it when hydration ends. A read in a component that renders before `openDevice()` renders the default and `idle`, as the server did, and calls the loader when the component mounts. The stored copy shows when the device opens, if the loader has not answered yet.
+In an app that the server renders, the first render in the browser must match the server. `useStoredData()` does this for you. A component that hydrates server HTML renders the default and `idle`, as the server did, also when the device is open or another component of the key has an answer. When the component mounts, it shows the stored copy or the answer and calls the loader. So you can await `openDevice()` before `app.mount()`, as in an app without server rendering. If the device opens later, the stored copy shows when it opens, if the loader has not answered yet. A component that mounts after hydration shows the stored copy in its first render.
