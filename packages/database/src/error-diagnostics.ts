@@ -112,6 +112,18 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Store large files in Blob, and keep the Blob pathname in the row.",
     },
 
+    // Idempotency errors. `withIdempotency()` returns them as `[error, undefined]`.
+    DATABASE_IDEMPOTENCY_INVALID_OPTIONS: {
+      why: ({ option }: { option: "key" | "timeout" | "ttl" }) => option === "key"
+        ? "`withIdempotency()` needs a key that is a non-empty string."
+        : `\`${option}\` of \`withIdempotency()\` must be a positive number of seconds.`,
+      fix: "Pass a key that names the work, such as `stripe:${event.id}`, and `ttl` and `timeout` in seconds, for example `withIdempotency(key, fn, { ttl: 86400, timeout: 60 })`.",
+    },
+    DATABASE_IDEMPOTENCY_IN_PROGRESS: {
+      why: ({ key }: { key: string }) => `Another call with the key ${JSON.stringify(key)} is running.`,
+      fix: "Retry later: when the other call finishes, a retry gets its result. In an HTTP route, answer 409 so the client retries. In a Queue handler, return, because the running call does the work. A call that crashed holds the key until its `timeout` ends.",
+    },
+
     // Config errors. ViteHub throws them when code first uses the database, because the code or the deployment must change.
     DATABASE_DISABLED: {
       why: "Database is not configured in this runtime.",
@@ -187,7 +199,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_MIGRATION_DATA_LOSS: {
       why: ({ database, statements }: { database: string, statements: readonly string[] }) => `Pending migrations of the database "${database}" lose data:${fileList(statements)}`,
-      fix: "Run `vitehub database migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub database migrate --allow-data-loss`, or set `database.migrateOnStart: { allowDataLoss: true }` for the next start.",
+      fix: "Run `vitehub database migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub database migrate --allow-data-loss`, or set `database.migrateOnStart: { allowDataLoss: true }` for the next build. To accept it for one start of a built server, such as a container, set `VITEHUB_DATABASE_ALLOW_DATA_LOSS=1`.",
     },
     DATABASE_MIGRATION_FAILED: {
       why: ({ database, migration, problem }: { database: string, migration: string, problem: string }) => `The migration "${migration}" of the database "${database}" failed: ${problem} The database rolled back every pending migration of this run.`,
@@ -218,11 +230,11 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
 
     // SQL and drop errors. The CLI prints them and exits with code 1.
     DATABASE_DROP_FAILED: {
-      why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot drop the tables of the database "${database}". ${problem}`,
+      why: ({ command, database, problem }: { command: "drop" | "reset", database: string, problem: string }) => `\`vitehub database ${command}\` cannot drop the tables of the database "${database}". ${problem}`,
       fix: "Read the problem in `why`. The drop runs in one transaction, so a failure drops nothing. Without `--remote`, it drops the local SQLite file or PGlite folder. With `--remote`, it needs the same credentials as `vitehub database export --remote`.",
     },
     DATABASE_DROP_NOT_CONFIRMED: {
-      why: ({ database }: { database: string }) => `\`vitehub database drop\` drops every table of the database "${database}" and was not confirmed.`,
+      why: ({ command, database }: { command: "drop" | "reset", database: string }) => `\`vitehub database ${command}\` drops every table of the database "${database}" and was not confirmed.`,
       fix: "Answer `y` on a terminal, or add `--force` when no terminal can answer, such as in CI or a script.",
     },
     DATABASE_SQL_FAILED: {
@@ -369,6 +381,14 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     DATABASE_SCHEMA_LOAD_FAILED: {
       why: ({ problem, source }: { problem: string, source: string }) => `${source} could not load: ${problem}`,
       fix: "Read `error.cause` for the import error, and fix the module. `vitehub database generate` needs every schema module to load.",
+    },
+    DATABASE_UNKNOWN_DRIVER: {
+      why: ({ driver }: { driver: string }) => driver === "\"d1\""
+        ? "`database.driver` is \"d1\". ViteHub renamed this driver to \"cloudflare\", and it does not read \"d1\"."
+        : `\`database.driver\` ${driver} is not a Database driver. The only driver of the \`database\` option is "cloudflare".`,
+      fix: ({ driver }: { driver: string }) => driver === "\"d1\""
+        ? "Set `database: { driver: \"cloudflare\" }`, or run `npx @vite-hub/codemods driver-key` to rename it in every config file."
+        : "Set `database.driver` to \"cloudflare\" for Cloudflare D1, or remove it. On `host: \"cloudflare\"`, ViteHub uses D1 without it. Set Postgres drivers in the Database Definition.",
     },
     DATABASE_WRANGLER_BINDING_CONFLICT: {
       why: ({ binding, field, generated, project, scope }: { binding: string, field: string, generated: string, project: string, scope: string }) => `The D1 binding "${binding}"${scope} is declared by ViteHub and by the project's Wrangler config with a different ${field}: ${JSON.stringify(generated)} and ${JSON.stringify(project)}.`,

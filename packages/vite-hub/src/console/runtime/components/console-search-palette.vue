@@ -10,6 +10,7 @@ import type { ConsoleDocumentOverview, ConsoleDocumentSearchResult, ConsoleDocum
 import type { ConsoleContributedSection, ConsoleDocumentCollection } from "../definitions"
 import type { AgentInvocationListItem } from "./invocation"
 import type { ConsoleSectionDetails, ConsoleSectionId } from "../sections"
+import { consoleAddablePrimitives, openConsoleAddPrimitive } from "../client/add-primitive"
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances, consoleDarkSchemeQuery } from "../client/appearance"
 import { consoleDocumentStateColor, consoleDocumentStateLabel, consoleErrorMessage, consolePublishMismatches, consoleSingularLabel, createConsoleDocumentsClient } from "../client/documents"
 import { switchConsoleProject, useConsoleProjects } from "../client/project-session"
@@ -363,6 +364,30 @@ const projectActions = computed<CommandPaletteItem[]>(() => projects.mode !== "e
     }]
   : [])
 
+// "Add a primitive" opens the dialog at its list. With a query, "Set up <Primitive>" opens it at one primitive, so
+// search finds a primitive that the app does not use yet.
+const addPrimitiveItems = computed<CommandPaletteItem[]>(() => {
+  if (!installedNavigation.value) return []
+  const add = (choice?: ConsoleSectionId) => {
+    open.value = false
+    openConsoleAddPrimitive(choice)
+  }
+  return [
+    { icon: "i-lucide-plus", keywords: ["add", "enable", "install", "primitive", "vitehub add"], label: "Add a primitive…", onSelect: () => add() },
+    ...(searchTerm.value.trim()
+      ? consoleAddablePrimitives(sections.value).map(entry => ({
+          description: entry.pitch,
+          icon: entry.icon,
+          keywords: ["add", "enable", entry.id, ...(entry.feature ? [entry.feature] : [])],
+          label: `Set up ${entry.label}`,
+          section: entry.id,
+          slot: "section",
+          onSelect: () => add(entry.id),
+        }))
+      : []),
+  ]
+})
+
 /** Pages and collections of the document editor sections, after their section in the Go to group. */
 function documentSectionItems(section: ConsoleSectionId): CommandPaletteItem[] {
   const entry = documentSections.value.find(candidate => candidate.details.id === section)
@@ -441,6 +466,9 @@ const groups = computed<CommandPaletteGroup[]>(() => [
     ],
     label: "Go to",
   },
+  ...(addPrimitiveItems.value.length
+    ? [{ id: "add-primitive", items: addPrimitiveItems.value, label: "Add to this app" }]
+    : []),
   ...(!debouncedSearchTerm.value && recentDocumentItems.value.length
     ? [{ id: "documents", ignoreFilter: true, items: recentDocumentItems.value.map(documentItem), label: "Recent documents" }]
     : []),

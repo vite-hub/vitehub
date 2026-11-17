@@ -469,7 +469,7 @@ describe("workspace CLI", () => {
         rules: {
           "**": { commit: "chore: update workspace" },
         },
-        store: { provider: "memory" },
+        store: { driver: "memory" },
       },
       workspace,
     })).rejects.toThrow("requires a Sandbox session host")

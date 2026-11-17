@@ -28,7 +28,7 @@ import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, hasR
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectMigrateOnStartDatabases, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
 import { installMigrateOnDeploy, type MigrateOnDeployNitro } from "./internal/migrate-on-deploy.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
-import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
+import { assertDatabaseOptionsDriver, resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { hubDatabase as hubDatabaseVite } from "./vite.ts"
 import { isAbsolute } from "pathe"
 
@@ -138,7 +138,7 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
     const serverDirs = resolvedOptions.projectRoot
       ? [resolve(root, "server")]
       : resolveNuxtServerDirs(nuxtOptions)
-    const databaseConfig = resolvedOptions.driver === "d1"
+    const databaseConfig = resolvedOptions.driver === "cloudflare"
       ? resolveDBViteConfig(resolvedOptions, root, { provisionRoot, serverDirs })
       : undefined
     const sourceMigrationsDir = databaseConfig && databaseConfig.definitionDefaults.cloudflareProjections.default?.resource === "inherited"
@@ -636,10 +636,12 @@ function resolveDatabaseNuxtOptions(
   if (options === false || inlineOptions === false) {
     return false
   }
-  return {
+  const resolved = {
     ...(isRecord(options) ? options : {}),
     ...(isRecord(inlineOptions) ? inlineOptions : {}),
   } as ResolvedDatabaseNuxtIntegrationOptions
+  assertDatabaseOptionsDriver(resolved)
+  return resolved
 }
 
 function resolveDatabaseViteOptions(options: ResolvedDatabaseNuxtIntegrationOptions, serverDirs?: string[]): DatabaseOptions | undefined {
@@ -656,8 +658,8 @@ function resolveDatabaseViteOptions(options: ResolvedDatabaseNuxtIntegrationOpti
   if (options.connection) {
     viteOptions.connection = options.connection
   }
-  if (options.driver === "d1") {
-    viteOptions.driver = "d1"
+  if (options.driver === "cloudflare") {
+    viteOptions.driver = "cloudflare"
     viteOptions.binding = options.binding
     viteOptions.databaseId = options.databaseId
     viteOptions.databaseName = options.databaseName
@@ -676,7 +678,7 @@ function resolveDatabaseNuxtD1Options(
   migrationsDir?: string,
   provisionState?: NonNullable<Parameters<typeof resolveCloudflareD1Binding>[1]>["provisionState"],
 ): ResolvedDatabaseNuxtD1Options | undefined {
-  if (options.driver !== "d1") return
+  if (options.driver !== "cloudflare") return
 
   const projection = resolveCloudflareD1Binding({
     binding: options.binding,

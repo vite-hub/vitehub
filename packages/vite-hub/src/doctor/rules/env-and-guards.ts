@@ -146,30 +146,28 @@ export const unsealSecretEnv: DoctorRule = createRule({
     }
 
     return {
-      ScriptNode(node) {
-        if (isNodeType(node, "TemplateLiteral") && Array.isArray(node.expressions)) {
-          for (const expression of node.expressions) check(expression, "A template literal")
-        }
-        else if (isNodeType(node, "BinaryExpression") && typeof node.operator === "string") {
-          const strict = strictOperators.has(node.operator)
-          if (!strict && !coercingOperators.has(node.operator)) return
-          if (node.operator !== "+" && (isNullish(node.left) || isNullish(node.right))) return
-          check(node.left, `The \`${node.operator}\` operator`, strict)
-          check(node.right, `The \`${node.operator}\` operator`, strict)
-        }
-        else if (isNodeType(node, "CallExpression")) {
-          const callee = memberPath(node.callee)?.join(".")
-          const encodes = isNodeType(unwrap(node.callee), "MemberExpression") && callee?.endsWith(".encode")
-          if (callee && (coercingCalls.has(callee) || encodes)) for (const argument of callArguments(node)) check(argument, `\`${callee}()\``)
-        }
-        else if (isNodeType(node, "Property")) {
-          // A header value: `{ headers: { Authorization: token } }` or `new Headers({ ... })`.
-          const object = parentOf(node)
-          const owner = semanticParent(object).parent
-          const isHeaders = owner?.type === "Property" && propertyName(owner) === "headers"
-            || owner?.type === "NewExpression" && isIdentifier(unwrap(owner.callee), "Headers")
-          if (isHeaders) check(node.value, "A request header")
-        }
+      TemplateLiteral(node) {
+        for (const expression of node.expressions) check(expression, "A template literal")
+      },
+      BinaryExpression(node) {
+        const strict = strictOperators.has(node.operator)
+        if (!strict && !coercingOperators.has(node.operator)) return
+        if (node.operator !== "+" && (isNullish(node.left) || isNullish(node.right))) return
+        check(node.left, `The \`${node.operator}\` operator`, strict)
+        check(node.right, `The \`${node.operator}\` operator`, strict)
+      },
+      CallExpression(node) {
+        const callee = memberPath(node.callee)?.join(".")
+        const encodes = isNodeType(unwrap(node.callee), "MemberExpression") && callee?.endsWith(".encode")
+        if (callee && (coercingCalls.has(callee) || encodes)) for (const argument of callArguments(node)) check(argument, `\`${callee}()\``)
+      },
+      Property(node) {
+        // A header value: `{ headers: { Authorization: token } }` or `new Headers({ ... })`.
+        const object = parentOf(node)
+        const owner = semanticParent(object).parent
+        const isHeaders = owner?.type === "Property" && propertyName(owner) === "headers"
+          || owner?.type === "NewExpression" && isIdentifier(unwrap(owner.callee), "Headers")
+        if (isHeaders) check(node.value, "A request header")
       },
     }
   },
@@ -272,15 +270,14 @@ export const noLiteralCredentials: DoctorRule = createRule({
     }
 
     return {
-      ScriptNode(node) {
-        if (isConfig && isNodeType(node, "Property")) {
-          const key = propertyName(node)
-          const owner = semanticParent(parentOf(node)).parent
-          if (key === "server" && owner?.type === "Property" && propertyName(owner) === "env") serverEnvEntries(node.value, "env.server")
-          if (key === "email" && isNodeType(unwrap(node.value), "ObjectExpression")) emailOptions(node.value)
-          return
-        }
-        if (!isNodeType(node, "CallExpression")) return
+      Property(node) {
+        if (!isConfig) return
+        const key = propertyName(node)
+        const owner = semanticParent(parentOf(node)).parent
+        if (key === "server" && owner?.type === "Property" && propertyName(owner) === "env") serverEnvEntries(node.value, "env.server")
+        if (key === "email" && isNodeType(unwrap(node.value), "ObjectExpression")) emailOptions(node.value)
+      },
+      CallExpression(node) {
         if (isConfig && isViteHubCall(r, node, ["email/vite"], "hubEmail")) {
           emailOptions(callArguments(node)[0])
           return
@@ -352,8 +349,7 @@ export const awaitAsyncHelpers: DoctorRule = createRule({
   create(ctx) {
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression")) return
+      CallExpression(node) {
         const reference = r.callee(node)
         const { parent, child } = semanticParent(node)
         if (!parent) return
@@ -406,19 +402,18 @@ export const loadProviderEnv: DoctorRule = createRule({
     }
 
     return {
-      ScriptNode(node) {
-        if (isNodeType(node, "MemberExpression")) {
-          const found = envPath(node)
-          if (found?.sync && providers.has(found.path.join("."))) report(node, found.path.join("."))
-        }
-        else if (isNodeType(node, "VariableDeclarator") && isNodeType(node.id, "ObjectPattern")) {
-          const root = envPath(node.init)
-          if (!root?.sync) return
-          for (const identifier of patternBindings(node.id)) {
-            const path = patternPath(node.id, identifier.name)
-            const full = path && [...root.path, ...path].join(".")
-            if (full && providers.has(full)) report(identifier, full)
-          }
+      MemberExpression(node) {
+        const found = envPath(node)
+        if (found?.sync && providers.has(found.path.join("."))) report(node, found.path.join("."))
+      },
+      VariableDeclarator(node) {
+        if (!isNodeType(node.id, "ObjectPattern")) return
+        const root = envPath(node.init)
+        if (!root?.sync) return
+        for (const identifier of patternBindings(node.id)) {
+          const path = patternPath(node.id, identifier.name)
+          const full = path && [...root.path, ...path].join(".")
+          if (full && providers.has(full)) report(identifier, full)
         }
       },
     }
@@ -448,8 +443,7 @@ export const checkRateLimitDecision: DoctorRule = createRule({
   create(ctx) {
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression")) return
+      CallExpression(node) {
         const callee = unwrap(node.callee)
         const name = isExport(r.callee(node), ["rate-limit"], "checkRateLimit") ? "checkRateLimit()"
           : isNodeType(callee, "MemberExpression") && isIdentifier(callee.property, "consume") && isRateLimiter(r, callee.object) ? "consume()"
@@ -480,7 +474,7 @@ export const checkRateLimitDecision: DoctorRule = createRule({
 
 
 /** True when the call result is assigned to a name that is declared outside `handler`. */
-function isAssignedOutside(r: Resolver, call: AstNode, handler: AstNode): boolean {
+function isAssignedOutside(r: Resolver, call: unknown, handler: AstNode): boolean {
   let current = parentOf(call)
   while (current && current !== handler) {
     if (isNodeType(current, "AssignmentExpression") && isIdentifier(current.left)) {
@@ -505,8 +499,8 @@ export const rateLimiterAtModuleScope: DoctorRule = createRule({
     if (isTestFile(ctx.file.relativePath)) return
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression") || !isExport(r.callee(node), ["rate-limit/drivers/memory"], "memoryRateLimitDriver")) return
+      CallExpression(node) {
+        if (!isExport(r.callee(node), ["rate-limit/drivers/memory"], "memoryRateLimitDriver")) return
         let current = parentOf(node)
         while (current && !(isFunctionNode(current) && isRouteHandler(ctx, current))) current = parentOf(current)
         // `limiter ??= createRateLimiter(...)` keeps one driver in a binding outside the handler.
@@ -535,8 +529,8 @@ export const authRuntimeOptionsRule: DoctorRule = createRule({
   create(ctx) {
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression") || !isViteHubCall(r, node, ["auth"], "defineAuth")) return
+      CallExpression(node) {
+        if (!isViteHubCall(r, node, ["auth"], "defineAuth")) return
         const options = callArguments(node)[0]
         for (const property of objectProperties(options)) {
           const key = propertyName(property)
@@ -562,8 +556,8 @@ export const noAgentConnectionActor: DoctorRule = createRule({
   create(ctx) {
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression") || !isExport(r.callee(node), ["connections/server"], "useConnection")) return
+      CallExpression(node) {
+        if (!isExport(r.callee(node), ["connections/server"], "useConnection")) return
         const actor = objectProperty(callArguments(node)[1], "actor")
         const value = stringValue(actor?.value)
         if (!actor || !value?.startsWith("agent:")) return
@@ -579,7 +573,7 @@ export const noAgentConnectionActor: DoctorRule = createRule({
 const valibotObjectSchemas = new Set(["object", "looseObject", "strictObject", "objectWithRest"])
 
 /** True for `v.object(...)` or `object(...)` imported from `valibot`. */
-function isValibotObject(r: Resolver, call: AstNode): boolean {
+function isValibotObject(r: Resolver, call: { callee: unknown }): boolean {
   const callee = unwrap(call.callee)
   const root = chainRoot(callee)
   const origin = root ? r.binding(root)?.origin : undefined
@@ -600,8 +594,8 @@ export const noNestedBlobReferenceSchema: DoctorRule = createRule({
   create(ctx) {
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression") || !isValibotObject(r, node)) return
+      CallExpression(node) {
+        if (!isValibotObject(r, node)) return
         for (const property of objectProperties(callArguments(node)[0])) {
           const value = unwrap(property.value)
           const reference = isNodeType(value, "CallExpression") ? r.callee(value) : undefined

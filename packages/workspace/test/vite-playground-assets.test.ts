@@ -14,7 +14,7 @@ it("builds the Vite playground README as a Workspace file", async () => {
     path,
   }], rootDir, {
     root: resolve(rootDir, ".vitehub/workspaces"),
-    store: { provider: "memory" },
+    store: { driver: "memory" },
     assets: true,
   })
 

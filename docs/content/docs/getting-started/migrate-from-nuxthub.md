@@ -27,9 +27,9 @@ through [Capabilities](/docs/agents/capabilities).
 | `hub.db.driver: 'd1-http'` | `cloudflare: { databaseId, http: true }` | Rename `NUXT_HUB_CLOUDFLARE_ACCOUNT_ID`, `NUXT_HUB_CLOUDFLARE_API_TOKEN`, and `NUXT_HUB_CLOUDFLARE_DATABASE_ID` to `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_D1_DATABASE_ID`. |
 | `hub.db.casing` | `snakeCase.table()` per table | Drizzle 1.0 has no casing for a database. See [Name columns in snake_case](/docs/database/configure#name-columns-in-snake_case). |
 | `hub.db: 'mysql'` | Not supported | Keep NuxtHub or Drizzle for MySQL. |
-| `hub.kv` with any unstorage driver | `kv` with `cloudflare-kv-binding`, `database`, `deno-kv`, `fs-lite`, `redis`, or `upstash` | Another driver fails the build with `KV_INVALID_DRIVER`. |
+| `hub.kv` with any unstorage driver | `kv` with `cloudflare`, `database`, `deno-kv`, `fs-lite`, `redis`, or `upstash` | Another driver fails the build with `KV_INVALID_DRIVER`. |
 | `hub.cache` | `cache` option | Mounts Nitro's `cache` storage on the host's store. `defineCachedHandler` and `defineCachedFunction` from `nitro/cache` use it. Another unstorage driver fails the build. See [Keep the cache](#keep-the-cache). |
-| `handleUpload`, multipart helpers, `useUpload`, `useMultipartUpload` | Same names on `blob` and in `vite-hub/blob/vue` | Methods return `[error, value]`. Multipart works with `fs`, `cloudflare-r2` (binding), and `vercel-blob`. NuxtHub's `s3` driver had multipart. ViteHub's `s3` does not, and returns `BLOB_R0030`. |
+| `handleUpload`, multipart helpers, `useUpload`, `useMultipartUpload` | Same names on `blob` and in `vite-hub/blob/vue` | Methods return `[error, value]`. Multipart works with `fs`, `cloudflare` (binding), and `vercel`. NuxtHub's `s3` driver had multipart. ViteHub's `s3` does not, and returns `BLOB_R0030`. |
 | `hosting` auto-detection | `host` | Set the host, or let ViteHub detect it from the build variables. |
 | `.data/` | `.vitehub/data/` | Local development data does not move automatically. See [Move local data](#move-local-data). |
 | Auto-imported `kv`, `blob`, `db`, `schema` | Auto-imported in Nuxt server code | On Nuxt 5, the module adds them, and the helpers of every other enabled feature. See [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). Explicit imports also work. |
@@ -208,8 +208,8 @@ Check client return values, not only imports:
 - Multipart options use `concurrency` instead of NuxtHub's `concurrent`.
 - Update the multipart client and server together, because their request and response formats differ.
 
-Multipart uploads work with the `fs`, `cloudflare-r2` (binding), and
-`vercel-blob` drivers. Direct `PUT` uploads with `blob.sign()` on Cloudflare
+Multipart uploads work with the `fs`, `cloudflare` (binding), and
+`vercel` drivers. Direct `PUT` uploads with `blob.sign()` on Cloudflare
 also need `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` at
 runtime, because an R2 binding alone cannot sign requests. To serve files
 without your own route, set `blob: { serve: { access: "public" } }` for public
@@ -404,6 +404,13 @@ Definition, in `server/databases/default/migrations/`. It applies them with driz
 for SQLite and libSQL, and with Wrangler for Cloudflare D1. These runners use
 different history tables by default.
 
+For SQLite, libSQL, and D1 HTTP, you can keep NuxtHub's migration files. Move
+them to `server/databases/default/migrations/`, run `pnpm vitehub database up`,
+and run `pnpm vitehub database migrate`. It reads `_hub_migrations` and does not
+run the migrations that NuxtHub applied. See
+[Keep an existing migrations table](/docs/database/configure#keep-an-existing-migrations-table).
+The baseline sections below start a new migration history instead.
+
 ::warning
 Do not set Wrangler's history table to `_hub_migrations` to skip the baseline.
 NuxtHub records normalized migration names, and Wrangler records filenames, so
@@ -594,7 +601,7 @@ export default defineNuxtConfig({
   vitehub: {
     host: "cloudflare",
     cache: {
-      driver: "cloudflare-kv-binding",
+      driver: "cloudflare",
       binding: "CACHE",
       namespaceId: process.env.CLOUDFLARE_CACHE_NAMESPACE_ID,
     },
@@ -652,6 +659,45 @@ export default defineHandler(async (event) => {
 - In Nuxt, `invalidateTag()` is auto-imported when `cache` is on. Nitro's
   `defineCachedFunction()` and `defineCachedHandler()` stay auto-imported and
   have no `tags`, so import the ViteHub ones from `vite-hub/cache`.
+
+### Serve the stored value when a call fails
+
+An exchange-rate API, a price feed, or a GitHub read can fail for a few
+minutes. Set `staleIfError` to the number of seconds after `maxAge` during
+which a call that throws returns the stored value instead of the error:
+
+```ts [server/utils/rates.ts]
+import { defineCachedFunction } from "vite-hub/cache"
+
+export const getRates = defineCachedFunction(
+  async (base: string) => {
+    const response = await fetch(`https://api.frankfurter.dev/v1/latest?base=${base}`)
+    if (!response.ok) throw new Error(`Frankfurter answered ${response.status}`)
+    const body: { rates: Record<string, number> } = await response.json()
+    return body.rates
+  },
+  { maxAge: 60 * 60 * 12, staleIfError: 60 * 60 * 24 * 7, getKey: (base: string) => base },
+)
+```
+
+For 12 hours, `getRates("USD")` returns the stored rates. After that, it calls
+the API again. When the API throws, it returns the stored rates for up to 7
+more days, and the next call tries the API again.
+
+- The error goes to `onError`, or to the console as a warning.
+- A call that throws keeps the stored entry and its time. It does not start a
+  new `maxAge`.
+- With nothing stored, or after `maxAge` plus `staleIfError`, the call throws.
+- The stored entry stays in the `cache` mount, or in your `storage`, for
+  `maxAge` plus `staleIfError`.
+- `staleIfError` with `serialize` fails when you define the function.
+- It works with `swr: true`, `tags`, and `expire()`. After `invalidateTag()`,
+  a call that throws also returns the stored value. `invalidate()` deletes the
+  entry, so nothing is left to return.
+- The window starts from the `maxAge` of the function, not from Nitro's
+  `cache.defaults`.
+- `defineCachedHandler()` has no `staleIfError`. Cache the call that can fail
+  with `defineCachedFunction()` and call it from the handler.
 
 ## Modules that expect NuxtHub
 
@@ -748,12 +794,12 @@ export default defineNuxtConfig({
     host: "cloudflare",
     database: true,
     kv: {
-      driver: "cloudflare-kv-binding",
+      driver: "cloudflare",
       binding: "KV",
       namespaceId: process.env.CLOUDFLARE_KV_NAMESPACE_ID,
     },
     blob: {
-      driver: "cloudflare-r2",
+      driver: "cloudflare",
       binding: "BLOB",
       bucketName: process.env.CLOUDFLARE_R2_BUCKET_NAME,
     },

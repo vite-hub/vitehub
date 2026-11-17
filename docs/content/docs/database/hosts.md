@@ -12,8 +12,10 @@ icon: i-lucide-cloud-cog
 | --- | --- | --- |
 | Local SQLite | `connection.url` or no connection config | Default for local development and generated Drizzle files. |
 | Hosted libSQL (for example Turso) | `connection.url` and optional `connection.authToken` | Keep secret URLs and tokens in Server Env. |
-| Cloudflare D1 | `cloudflare` Definition options or top-level `database.driver: 'd1'` | Uses a D1 binding on Cloudflare. Local development uses D1 only with `remote: true` or `cloudflare.http`. Vercel uses D1 only with `cloudflare.http`. |
+| Cloudflare D1 | `cloudflare` Definition options or top-level `database.driver: 'cloudflare'` | Uses a D1 binding on Cloudflare. Local development uses D1 only with `remote: true` or `cloudflare.http`. Vercel uses D1 only with `cloudflare.http`. |
 | Postgres (for example Neon) | `dialect: 'postgresql'` with `connection.url` and optional `cloudflare.hyperdriveId` | Uses a Hyperdrive binding on Cloudflare and `connection.url` elsewhere. See [Use Postgres](#use-postgres). |
+
+Several server processes can share one local SQLite file, for example with the `node-cluster` preset or PM2. A write waits up to 5 seconds for the lock of another process before it fails with `SQLITE_BUSY`. The wait blocks the server thread, so keep each write short.
 
 ### Use the real D1 database in development
 
@@ -104,7 +106,7 @@ export default defineDatabase({
 })
 ```
 
-In Nuxt, or for every Definition that uses the top-level resource, set it at the top level: `database: { driver: 'd1', readReplication: true }`.
+In Nuxt, or for every Definition that uses the top-level resource, set it at the top level: `database: { driver: 'cloudflare', readReplication: true }`.
 
 ViteHub then opens one D1 session per request, with the [Sessions API](https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession):
 
@@ -258,7 +260,7 @@ export default defineNuxtConfig({
   vitehub: {
     host: 'cloudflare',
     database: {
-      driver: 'd1',
+      driver: 'cloudflare',
       databaseName: 'app-content',
     },
   },
@@ -277,7 +279,7 @@ export default defineConfig({
     vitehub({
       host: 'cloudflare',
       database: {
-        driver: 'd1',
+        driver: 'cloudflare',
         databaseName: 'app-content',
       },
     }),
@@ -297,7 +299,7 @@ export default defineConfig({
     vitehub({
       host: 'cloudflare',
       database: {
-        driver: 'd1',
+        driver: 'cloudflare',
         databaseName: 'app-content',
       },
     }),
@@ -308,6 +310,8 @@ export default defineConfig({
 ::
 
 Run `vitehub provision run --host cloudflare` to write the D1 id to `.vitehub/provision.json`. A Cloudflare production build fails before deployment when it finds no id in provision state, `database.databaseId`, or a complete matching Nitro Wrangler binding.
+
+`driver` takes only `'cloudflare'`. Any other value, such as the former `'d1'`, fails with [`DATABASE_UNKNOWN_DRIVER`](/docs/database/diagnostics/database_unknown_driver). Run `npx @vite-hub/codemods driver-key` to rename `'d1'`.
 
 ::note
 In Nuxt, `vitehub.database` declares one D1 Database Host Resource. It keeps Nuxt Content and Cloudflare `wrangler.d1_databases` in sync. Discovered Database Definitions still own the Drizzle Runtime Surface. For Cloudflare and Vercel builds, `vite-hub/nuxt` writes the hosted runtime, schema modules, and Definition defaults before Nitro resolves their imports. Explicit Nitro aliases take precedence.

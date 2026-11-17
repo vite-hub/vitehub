@@ -3,6 +3,8 @@ import { dirname, resolve } from "node:path"
 
 import { formatDiagnostic } from "nostics"
 
+import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT } from "./build/vite.ts"
+
 import type { Diagnostic } from "nostics"
 import type { Plugin, ResolvedConfig } from "vite"
 
@@ -49,8 +51,17 @@ const startedKey = Symbol.for("vitehub.hints.started")
 const startedShared = globalThis as typeof globalThis & { [startedKey]?: WeakSet<object> }
 const started = startedShared[startedKey] ??= new WeakSet<object>()
 
+/**
+ * The report of the ViteHub project root, where the other generated files go. A Nuxt app with `srcDir: "app"` has its
+ * Vite root in `app/`, one folder below.
+ */
+function hintsFile(config: HintsConfig): string {
+  const projectRoot: unknown = Reflect.get(config, VITEHUB_PROJECT_ROOT)
+  return resolve(typeof projectRoot === "string" ? projectRoot : resolveViteHubProjectRoot(config.root), viteHubHintsFile)
+}
+
 function startRun(config: HintsConfig): HintsRun {
-  const file = resolve(config.root, viteHubHintsFile)
+  const file = hintsFile(config)
   const run = { file, report: { version: 1 as const, command: config.command, startedAt: new Date().toISOString(), hints: [] }, keys: new Set<string>() }
   runs.set(file, run)
   return run
@@ -66,7 +77,7 @@ function write(run: HintsRun): void {
  * {@link viteHubHintsFile}. Build the diagnostic from the package's nostics catalog, so its code has a docs page.
  */
 export function reportViteHubHint(config: HintsConfig, diagnostic: Diagnostic): void {
-  const run = runs.get(resolve(config.root, viteHubHintsFile)) ?? startRun(config)
+  const run = runs.get(hintsFile(config)) ?? startRun(config)
   const hint: ViteHubHint = {
     code: diagnostic.code,
     why: diagnostic.why,
