@@ -7,6 +7,7 @@ import { number, object, optional, parse, record, safeParse, string } from "vali
 
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobListResult, BlobMultipartOptions, BlobObject, BlobPutBody, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics, blobErrors } from "../error-diagnostics.ts"
+import { bareETag } from "../internal/etag.ts"
 import isBlob from "../internal/is-blob.ts"
 import { signFsRequest } from "../internal/fs-sign.ts"
 
@@ -611,6 +612,10 @@ async function listKeys(root: string, options: BlobListOptions, after: string): 
   }
 }
 
+// Writes of one file run one at a time in this process, across drivers of the same folder, so `putIf()` checks the
+// object that its write replaces.
+const writes = new Map<string, Promise<unknown>>()
+
 export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdapter<ResolvedFsBlobStoreConfig> {
   const root = resolveRoot(options)
 
@@ -717,6 +722,25 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         return { etag: partEtag(bytes), partNumber }
       },
     }
+  }
+
+  async function put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions) {
+    await assertNoSymlinkPath(root, resolveBlobPath(root, pathname))
+    await assertNoSymlinkPath(root, resolveMetaPath(root, pathname))
+    const bytes = await bodyToBytes(body)
+    return await publish(pathname, async (temporary) => {
+      await writeFile(temporary, bytes, { flag: "wx" })
+      return sha256(bytes)
+    }, { contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined), customMetadata: putOptions.customMetadata })
+  }
+
+  async function oneWriteAtATime<T>(pathname: string, write: () => Promise<T>): Promise<T> {
+    const key = resolveBlobPath(root, pathname)
+    const run = (writes.get(key) ?? Promise.resolve()).catch(() => {}).then(write)
+    writes.set(key, run)
+    return await run.finally(() => {
+      if (writes.get(key) === run) writes.delete(key)
+    })
   }
 
   const driver: BlobDriverAdapter<ResolvedFsBlobStoreConfig> = {
@@ -852,15 +876,13 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         throw error
       }
     },
-    async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      await assertNoSymlinkPath(root, resolveBlobPath(root, pathname))
-      await assertNoSymlinkPath(root, resolveMetaPath(root, pathname))
-      const bytes = await bodyToBytes(body)
-      return await publish(pathname, async (temporary) => {
-        await writeFile(temporary, bytes, { flag: "wx" })
-        return sha256(bytes)
-      }, { contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined), customMetadata: putOptions.customMetadata })
-    },
+    put: (pathname, body, putOptions = {}) => oneWriteAtATime(pathname, () => put(pathname, body, putOptions)),
+    // The check and the write run in this process only. Another process that writes the same folder can write between them.
+    putIf: (pathname, body, putOptions, condition) => oneWriteAtATime(pathname, async () => {
+      const current = await readEntry(root, pathname)
+      const holds = condition.type === "create" ? !current : current?.contentHash === bareETag(condition.etag)
+      return holds ? await put(pathname, body, putOptions) : null
+    }),
     // Copies the file, then writes the metadata of the source for the new file.
     async copy(from, to) {
       const source = await readEntry(root, from)

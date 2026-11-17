@@ -163,10 +163,10 @@ export default defineRealtime({
 
 `save()` reads the stored file first. It throws `RealtimeDocumentConflict`
 when the file changed, was created, or was deleted after the room loaded it.
-
-> [!WARNING]
-> Blob has no conditional write. An outside write between that read and the
-> save's write is lost.
+It then writes with the Blob `ifMatch` condition, so an outside write between
+that read and the save's write also throws `RealtimeDocumentConflict`, and the
+outside write stays. The store must support conditional writes: see
+[Write only if unchanged](/docs/blob/server-api#write-only-if-unchanged).
 
 After you change the file outside the room, call `refreshRealtimeDocument()`
 so the room loads it.

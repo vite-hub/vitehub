@@ -102,6 +102,10 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
 
     // Config errors. The server throws them, because the code or the deployment must change.
+    REALTIME_BLOB_ETAG_MISSING: {
+      why: ({ pathname }: { pathname: string }) => `The Blob store returned no \`httpEtag\` for ${pathname}, so \`blobDocument()\` cannot save the file only if it is unchanged.`,
+      fix: "Pass a ViteHub Blob store, such as `blob` from `vite-hub/blob`, whose `head()` returns `httpEtag` on every driver. A store of your own must return `httpEtag` from `head()` and accept `ifMatch` in `put()`.",
+    },
     REALTIME_INVALID_PERSISTENCE: {
       why: ({ name, reason }: { name: "debounce" | "maxWait", reason: "below-debounce" | "not-milliseconds" }) => reason === "below-debounce"
         ? "Realtime `persistence.maxWait` must be at least `persistence.debounce`."
