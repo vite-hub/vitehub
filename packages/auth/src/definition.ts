@@ -24,7 +24,7 @@ const accessRouteKeys = new Set(["authorize", "method", "route"])
 function validateAuthDatabase(value: unknown): void {
   // `authDatabase()` resolves the Database of each request, so a static Definition can hold it.
   if (typeof value === "undefined" || value === "memory" || authDatabaseName(value) !== undefined) return
-  throw authErrorDiagnostics.AUTH_C0021({ message: "`defineAuth()` database must be `authDatabase()` from `@vite-hub/auth/database` or `\"memory\"`. `true` and `{ name }` do not create storage. Return another Better Auth adapter from the Definition callback." })
+  throw authErrorDiagnostics.AUTH_C0021({ message: "`defineAuth()` database must be `authDatabase()` from `vite-hub/auth/database` or `\"memory\"`. `true` and `{ name }` do not create storage. Return another Better Auth adapter from the Definition callback." })
 }
 
 /** `runtime` was a second way to resolve options. Its shallow merge replaced whole objects such as `advanced`. */
