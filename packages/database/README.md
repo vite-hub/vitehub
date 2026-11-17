@@ -167,6 +167,10 @@ A package can also contribute a whole Database with `{ name, definition, reason?
 
 Contributed tables are in the generated Drizzle schema, so `vitehub database generate` writes their migrations. They are also in `useDatabase(name).schema`, the generated types, `vitehub inspect`, and the Console. A table contribution can set `relations` to the name of an export of `definition.module` that holds `defineRelationsPart()` of its tables. The target Database merges them before the relations of its Definition. A contribution name, key, or SQL table name used twice fails with `DATABASE_DUPLICATE_TABLE`. A missing or ambiguous target fails with `DATABASE_INVALID_CONTRIBUTION_TARGET` and lists the Database names. `resolveDefaultDatabase(names)` from `@vite-hub/database/config` returns the same default or only Database.
 
+### Contributed SQL migrations
+
+A table contribution or a use without tables can set `migrations` to the absolute path of a folder of `.sql` files. `vitehub database generate` adds each file that the target Database does not have yet to its migrations folder, as `<timestamp>_<name>_<file>/migration.sql`, after the migrations it generates and in file name order. Commit the folders. Every migration path (`vitehub database migrate`, D1, migrate on start, app tests) then applies them once, and a later generate finds them and adds nothing. A file named `<name>.<dialect>.sql` applies only to a Database of that dialect. ViteHub puts a `--> statement-breakpoint` between statements at the semicolons outside quotes and comments, and copies a file that already has breakpoints as written. `vitehub inspect` shows a `Contributed migrations` field with the files that still need a generate.
+
 ### The default Database
 
 A package that needs a Database does not add one. It contributes its tables, or a use without tables, and leaves `database` unset (or sets `"default"`). When the app has no Database Definition, the Database integration adds the implicit `default` Database once, for all of them, in Vite and in Nuxt:
@@ -252,7 +256,7 @@ ViteHub queries Postgres with postgres.js through Drizzle. A Cloudflare Hyperdri
 
 `connection.replicas` takes read replica URLs, like `[process.env.DATABASE_REPLICA_URL]`. ViteHub opens one client of the Definition's driver for each one and returns Drizzle's `withReplicas()` database. `db.$replica` reads from one replica, picked at random. Other queries, writes, and transactions use `connection.url`. Empty entries are skipped. A Hyperdrive binding and PGlite ignore the replicas, and then `db.$replica` is `db`. Inspection shows their number, not their URLs.
 
-Outside a Cloudflare request, when `connection.url` is not set or its environment variable is empty, postgres.js reads the standard PG* environment variables: `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`. Use them for container deploys that give discrete credentials instead of a URL. A URL always takes precedence. Workers ignore PG* variables, and Vercel output still needs `connection.url`.
+Outside a Cloudflare request, when `connection.url` is not set or its environment variable is empty, postgres.js reads the standard PG* environment variables: `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`. Use them for container deploys that give discrete credentials instead of a URL. A URL always takes precedence. Vercel Functions read them too. Workers ignore PG* variables.
 
 `getPostgresConnectionUrl(name = "default")` from `@vite-hub/database` returns the URL that a Postgres Database connects to outside a request: the Hyperdrive binding, then `connection.url`. It returns `undefined` for a Database that is not Postgres, or that connects through PG* variables, throws `DATABASE_MISSING_CONNECTION` when a Postgres Database has no connection, and opens no client. Workflow uses it so that OpenWorkflow keeps its runs in the same database.
 

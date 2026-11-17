@@ -40,7 +40,7 @@ import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi, type DocsT
 import { docsThemeCss } from "./theme-css.ts"
 
 import type { ContentLlmsSection } from "@vite-hub/content"
-import type { Nuxt } from "nuxt/schema"
+import type { Nuxt, PublicRuntimeConfig } from "nuxt/schema"
 
 import type { DocsContentSnapshot, DocsSourceInput } from "./manifest.ts"
 import type { DocsSectionFile } from "./schema.ts"
@@ -222,6 +222,15 @@ export interface DocsPublicConfig {
   ogImage: { component: string } | false
 }
 
+// `useRuntimeConfig().public.docs` is typed in the app and in Nitro server code. Nuxt types Nitro's runtime config as
+// its own when its server types load. Package code and server files without them get the same `public` here.
+declare module "nuxt/schema" {
+  interface PublicRuntimeConfig { docs: DocsPublicConfig }
+}
+declare module "nitro/types" {
+  interface NitroRuntimeConfig { public: PublicRuntimeConfig }
+}
+
 interface DiscoveryLink {
   href: string
   anchor?: string
@@ -292,10 +301,19 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // Nuxt passes the inline options only to setup, so read them from the `modules` entry too.
     // SAFETY: the `docs` key and the inline entry options of this module are its options.
     const docs = (await readModuleOptions(nuxt, ["@vite-hub/docs", "@vite-hub/docs/nuxt", "vite-hub/docs/nuxt"], "docs") ?? {}) as DocsModuleOptions
+    // Nuxt UI may already have queued its own fonts path when it precedes docs in the app's modules.
+    // Redirect both that path and future name resolutions before Nuxt loads dependency modules.
+    const fontsPath = dependency("@nuxt/fonts")
+    const uiFontsPath = createRequire(dependency("@nuxt/ui")).resolve("@nuxt/fonts")
+    nuxt.options.alias["@nuxt/fonts"] = fontsPath
+    nuxt.options.alias[uiFontsPath] = fontsPath
     return {
       // Comments keeps threads in a ViteHub Database, so it runs through `vite-hub/nuxt`, which the app installs.
       ...await docsCommentsDependencies(nuxt, docs.comments),
       // Pages render with Nuxt UI prose components, and search and the outline are Nuxt UI content components.
+      // Nuxt UI asks for @nuxt/fonts 0.14, which writes empty font files on a Nitro 3 build.
+      // Resolve the shared dependency to this package's Nitro 3-compatible version in either module order.
+      "@nuxt/fonts": {},
       // A peer dependency: the app's own copy, so the app and the shell share one Nuxt UI.
       "@nuxt/ui": { defaults: { prose: true, content: true } },
       [dependency("@vite-hub/ui/nuxt")]: {},
