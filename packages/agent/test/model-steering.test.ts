@@ -1,10 +1,12 @@
-import { jsonSchema, tool } from "ai"
+import type { PrepareStepFunction, ToolSet } from "ai"
+import { isStepCount, jsonSchema, ToolLoopAgent, tool } from "ai"
 import { MockLanguageModelV3 } from "ai/test"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAgent, defineCapability, startAgentInvocation } from "../src/index.ts"
 import { telegram } from "../src/channels.ts"
-import { agentInvocationInputSupport } from "../src/internal/agent-invocation-control.ts"
+import { openModelSteering } from "../src/internal/model-steering.ts"
+import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 
 import type { AgentRuntimeContext } from "../src/index.ts"
@@ -65,6 +67,52 @@ function lookupTool(execute: () => Promise<string>) {
 }
 
 describe("model Driver steering", () => {
+  it.each([false, true])("keeps copied steering once across steps (SDK 6-style messages: %s)", async (resetMessages) => {
+    const steering = openModelSteering("copied-steering")
+    let submitted: Promise<unknown> | undefined
+    let calls = 0
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => {
+        calls += 1
+        return calls < 4
+          ? { content: [{ input: "{}", toolCallId: `lookup-${calls}`, toolName: "lookup", type: "tool-call" as const }], finishReason: { raw: "tool_calls", unified: "tool-calls" as const }, usage, warnings: [] }
+          : { content: [{ text: "Done", type: "text" as const }], finishReason: { raw: "stop", unified: "stop" as const }, usage, warnings: [] }
+      },
+    })
+    const copyMessages: PrepareStepFunction<ToolSet> = ({ messages }) => ({ messages: structuredClone(messages) })
+    const prepareStep = steering.prepareStep(copyMessages)
+    try {
+      await new ToolLoopAgent({
+        model,
+        prepareStep: options => prepareStep({
+          ...options,
+          // SDK 6 rebuilds each step from the original prompt and model responses.
+          messages: resetMessages ? options.messages.filter(message => message.role !== "user" || message.content !== "Check the token first.") : options.messages,
+        }),
+        stopWhen: isStepCount(4),
+        tools: {
+          lookup: tool({
+            execute: async () => {
+              submitted ??= sendAgentInvocationInput("copied-steering", { prompt: "Check the token first." }, { mode: "steer" })
+              return "Looked up"
+            },
+            inputSchema: jsonSchema<Record<string, never>>({ properties: {}, type: "object" }),
+          }),
+        },
+      }).generate({ prompt: "Hi" })
+      await expect(submitted).resolves.toBe("accepted")
+      expect(model.doGenerateCalls.map(call => userTexts(call.prompt))).toEqual([
+        ["Hi"],
+        ["Hi", "Check the token first."],
+        ["Hi", "Check the token first."],
+        ["Hi", "Check the token first."],
+      ])
+    }
+    finally {
+      steering.close()
+    }
+  })
+
   it("sends steering input to the model at its next step", async () => {
     const model = lookupModel()
     const toolStarted = deferred()

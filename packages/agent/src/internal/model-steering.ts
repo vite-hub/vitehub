@@ -1,4 +1,4 @@
-import type { ModelMessage, PrepareStepFunction, PrepareStepResult, ToolSet, UserModelMessage } from "ai"
+import type { PrepareStepFunction, PrepareStepResult, ToolSet, UserModelMessage } from "ai"
 
 import type { AgentInvocationControlOutcome } from "../agent-invocation.ts"
 import { getMessageText } from "../messages.ts"
@@ -34,7 +34,7 @@ export function openModelSteering(invocationId: string): ModelSteering {
   const pending: PendingSteering[] = []
   // AI SDK 7 carries a `messages` override into later steps. AI SDK 6 does not, so steered
   // messages that a later step lacks go back in at the place where the model first read them.
-  const injected: Array<{ index: number, message: ModelMessage }> = []
+  const injected: Array<{ index: number, message: UserModelMessage }> = []
   let closed = false
   const unregister = registerAgentInvocationInputHandler(invocationId, {
     sendInput(input, options) {
@@ -58,10 +58,23 @@ export function openModelSteering(invocationId: string): ModelSteering {
     prepareStep(prepareStep) {
       return async (options) => {
         let messages = options.messages
-        const missing = injected.filter(entry => !messages.includes(entry.message))
-        if (missing.length) {
-          messages = [...messages]
-          for (const entry of missing) messages.splice(entry.index, 0, entry.message)
+        let nextIndex = 0
+        for (const entry of injected) {
+          // Callers can clone messages or normalize string content into text parts. Match
+          // each submission once, in order, without mistaking an earlier user prompt for it.
+          const index = messages.findIndex((message, index) => index >= Math.max(nextIndex, entry.index)
+            && message.role === "user"
+            && (typeof message.content === "string"
+              ? message.content
+              : message.content.map(part => part.type === "text" ? part.text : "").join("")) === entry.message.content)
+          if (index >= 0) {
+            nextIndex = index + 1
+          }
+          else {
+            if (messages === options.messages) messages = [...messages]
+            messages.splice(entry.index, 0, entry.message)
+            nextIndex = entry.index + 1
+          }
         }
         const arrived = closed ? [] : pending.splice(0)
         for (const entry of arrived) {
