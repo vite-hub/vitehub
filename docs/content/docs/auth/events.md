@@ -119,7 +119,7 @@ Output is JSON. List commands also take `--from`, `--to`, and `--cursor`. The CL
 ```ts fragment
 events: {
   store,
-  onEvent: event => sendWebhook('https://example.com/hooks/auth', event),
+  onEvent: event => fetch('https://example.com/hooks/auth', { method: 'POST', body: JSON.stringify(event) }),
 },
 ```
 
