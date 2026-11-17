@@ -13,11 +13,11 @@ afterEach(async () => {
 async function configure(
   options: ViteHubOptions,
   wrangler: Record<string, unknown> = {},
-  projectWrangler?: Record<string, unknown>,
+  projectWrangler?: Record<string, unknown> | string,
 ) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-cf-observability-"));
   roots.push(root);
-  if (projectWrangler) await writeFile(join(root, "wrangler.json"), JSON.stringify(projectWrangler));
+  if (projectWrangler) await writeFile(join(root, "wrangler.json"), typeof projectWrangler === "string" ? projectWrangler : JSON.stringify(projectWrangler));
   const plugin = vitehub(options).find(
     (candidate) =>
       candidate &&
@@ -64,6 +64,16 @@ describe("Cloudflare Workers observability", () => {
       (await configure({ host: "cloudflare" }, {}, { observability: { enabled: false } })).observability,
     ).toBeUndefined();
     expect((await configure({ host: "cloudflare" }, {}, { name: "shop" })).observability).toEqual({ enabled: true });
+  });
+  it("accepts comments in project wrangler.json with and without an observability override", async () => {
+    expect((await configure({ host: "cloudflare" }, {}, `{
+      // Worker configuration
+      "name": "shop"
+    }`)).observability).toEqual({ enabled: true });
+    expect((await configure({ host: "cloudflare" }, {}, `{
+      /* Keep native collection disabled. */
+      "observability": { "enabled": false }
+    }`)).observability).toBeUndefined();
   });
   it("leaves other hosts unchanged", async () => {
     expect((await configure({ host: "node" })).observability).toBeUndefined();
