@@ -149,7 +149,7 @@ A tab that is open during a deploy still runs the old build. When it loads a laz
 
 ViteHub reloads the page once when this happens, so the tab gets the new build. There is nothing to configure:
 
-- In Nuxt, the page reloads at its current address, like Nuxt's own reload when a page fails to load during a navigation. With `experimental.restoreState`, it keeps the `useState()` values.
+- In Nuxt, the page reloads at its current address, like Nuxt's own reload when a page fails to load during a navigation. It also reloads for a missing stylesheet, which Nuxt otherwise skips. With `experimental.restoreState`, it keeps the `useState()` values.
 - In a Vite app, ViteHub adds a small inline script to the built `index.html`. A Content Security Policy without `'unsafe-inline'` blocks it.
 - When a file is also missing from the new build, the page does not reload again within 10 seconds, so it cannot loop.
 

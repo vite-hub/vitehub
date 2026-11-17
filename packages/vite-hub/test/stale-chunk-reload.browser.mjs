@@ -2,11 +2,13 @@
 // only build A had. The check builds a Vite app and a Nuxt 5 app twice for Node, opens build A in headless Chromium,
 // swaps the server to build B, and checks:
 // - the failed chunk reloads the page once, into build B, and the lazy part then loads;
-// - a chunk that build B misses too, within 10 seconds, does not reload again, so the page cannot loop.
+// - a chunk that build B misses too, within 10 seconds, does not reload again, so the page cannot loop;
+// - a deploy that changes only the receipt's stylesheet reloads too. Nuxt cancels the event of a missing stylesheet
+//   itself, and that is not an opt-out of the app.
 // Run: pnpm --filter vite-hub exec node --test test/stale-chunk-reload.browser.mjs   (STALE_CHUNK_CASES=vite picks cases)
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
-import { copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
@@ -20,13 +22,19 @@ const hubOptions = { host: "node", console: false }
 const cases = [
   { name: "vite", framework: "vite", port: 4851 },
   { name: "nuxt", framework: "nuxt", port: 4852 },
-  { name: "nuxt-css", framework: "nuxt", port: 4853, cssOnly: true },
 ].filter(item => !process.env.STALE_CHUNK_CASES || process.env.STALE_CHUNK_CASES.split(",").includes(item.name))
 
-/** The page shows its build, and the receipt view loads as a lazy chunk on a click. */
+const colors = { C: "rgb(200, 0, 0)", D: "rgb(0, 0, 200)" }
+
+/**
+ * The page shows its build, and the receipt view loads as a lazy chunk on a click. Builds C and D change only the
+ * receipt's stylesheet: its JavaScript stays the same file.
+ */
 function appFiles(item, build) {
   const page = `<script setup lang="ts">\nimport { defineAsyncComponent, ref } from "vue"\n\nconst Receipt = defineAsyncComponent(() => import("./Receipt.vue"))\nconst open = ref(false)\n</script>\n\n<template>\n  <main>\n    <p id="build">Build ${build}</p>\n    <button id="open" @click="open = true">Show receipt</button>\n    <Receipt v-if="open" />\n  </main>\n</template>\n`
-  const receipt = `<template>\n  <p id="receipt">Receipt from build ${item.cssOnly ? "shared" : build}</p>\n</template>\n<style>\n#receipt { color: ${build === "A" ? "red" : "blue"}; }\n</style>\n`
+  const receipt = colors[build]
+    ? `<template>\n  <p id="receipt">Receipt</p>\n</template>\n\n<style>\n#receipt { color: ${colors[build]}; }\n</style>\n`
+    : `<template>\n  <p id="receipt">Receipt from build ${build}</p>\n</template>\n`
   if (item.framework === "vite") {
     return {
       "index.html": "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>Orders</title></head><body><div id=\"app\"></div><script type=\"module\" src=\"/src/main.ts\"></script></body></html>\n",
@@ -91,6 +99,11 @@ async function start(item, output) {
   return { origin, stop: () => new Promise(resolve => server.once("exit", resolve).kill()) }
 }
 
+/** The public files of a build, by extension. */
+async function publicFiles(output, extension) {
+  return (await readdir(join(output, "public"), { recursive: true })).filter(file => file.endsWith(extension)).sort()
+}
+
 /** The public file that holds the receipt of a build. */
 async function receiptChunk(output, build) {
   const files = (await readdir(join(output, "public"), { recursive: true })).filter(file => file.endsWith(".js"))
@@ -108,22 +121,10 @@ for (const item of cases) {
     await rm(root, { force: true, recursive: true })
     const buildA = await buildApp(item, root, "A")
     const buildB = await buildApp(item, root, "B")
-    const currentReceipt = await receiptChunk(buildB, item.cssOnly ? "shared" : "B")
-    if (item.cssOnly) {
-      // Keep all old JavaScript available. Only the old extracted stylesheet is missing.
-      for (const file of await readdir(join(buildA, "public"), { recursive: true })) {
-        if (!file.endsWith(".js")) continue
-        await mkdir(join(buildB, "public", file, ".."), { recursive: true })
-        await copyFile(join(buildA, "public", file), join(buildB, "public", file))
-      }
-    }
-    else assert.notEqual(await receiptChunk(buildA, "A").then(file => file.slice(buildA.length)), await receiptChunk(buildB, "B").then(file => file.slice(buildB.length)))
+    assert.notEqual(await receiptChunk(buildA, "A").then(file => file.slice(buildA.length)), await receiptChunk(buildB, "B").then(file => file.slice(buildB.length)))
 
     let server = await start(item, buildA)
     const page = await browser.newPage()
-    const failedAssets = []
-    page.on("response", response => { if (response.status() >= 400) failedAssets.push(response.url()) })
-    page.on("requestfailed", request => failedAssets.push(request.url()))
     let loads = 0
     page.on("load", () => loads++)
     try {
@@ -139,24 +140,63 @@ for (const item of cases) {
 
       await page.locator("#open").click()
       await page.locator("#build").getByText("Build B").waitFor({ timeout: 15_000 })
+      // Server-rendered HTML shows the new build before its load event.
+      await page.waitForLoadState("load")
       assert.equal(loads, 2)
-      if (item.cssOnly) {
-        assert.ok(failedAssets.some(url => new URL(url).pathname.endsWith(".css")), "The stale stylesheet must fail")
-        assert.ok(!failedAssets.some(url => new URL(url).pathname.endsWith(".js")), "Old JavaScript must remain available")
-      }
       await page.locator("#open").click()
-      await page.locator("#receipt").getByText(`Receipt from build ${item.cssOnly ? "shared" : "B"}`).waitFor()
-
-      assert.equal(await page.locator("#receipt").evaluate(element => getComputedStyle(element).color), "rgb(0, 0, 255)")
+      await page.locator("#receipt").getByText("Receipt from build B").waitFor()
 
       // A chunk that the new build misses too must not reload again within 10 seconds.
       await page.reload()
       await page.locator("#build").getByText("Build B").waitFor()
-      await rm(currentReceipt)
+      await rm(await receiptChunk(buildB, "B"))
       const before = loads
       await page.locator("#open").click()
       await page.waitForTimeout(2_000)
       assert.equal(loads, before)
+    }
+    finally {
+      await page.close()
+      await server.stop()
+    }
+  })
+}
+
+for (const item of cases) {
+  test(`${item.name}: a stale stylesheet after a deploy reloads the page once`, { timeout: 300_000 }, async () => {
+    const root = join(fixtures, `${item.name}-css`)
+    await rm(root, { force: true, recursive: true })
+    const buildC = await buildApp(item, root, "C")
+    const buildD = await buildApp(item, root, "D")
+    // The JavaScript of the receipt changes with its stylesheet. Serve the old JavaScript after the deploy too, so that
+    // only the stylesheet fails.
+    const scriptsC = await publicFiles(buildC, ".js")
+    const [cssC, cssD] = await Promise.all([publicFiles(buildC, ".css"), publicFiles(buildD, ".css")])
+    assert.notDeepEqual(cssC, cssD)
+
+    let server = await start(item, buildC)
+    const page = await browser.newPage()
+    let loads = 0
+    page.on("load", () => loads++)
+    try {
+      await page.goto(server.origin, { waitUntil: "networkidle" })
+      await page.locator("#build").getByText("Build C").waitFor()
+      await (await page.context().newCDPSession(page)).send("Network.clearBrowserCache")
+
+      await server.stop()
+      server = await start(item, buildD)
+      await page.route("**/*.js", async (route) => {
+        const file = scriptsC.find(name => new URL(route.request().url()).pathname.endsWith(`/${name.split("/").pop()}`))
+        await (file ? route.fulfill({ contentType: "text/javascript", body: await readFile(join(buildC, "public", file)) }) : route.continue())
+      })
+      await page.locator("#open").click()
+      await page.locator("#build").getByText("Build D").waitFor({ timeout: 15_000 })
+      // Server-rendered HTML shows the new build before its load event.
+      await page.waitForLoadState("load")
+      assert.equal(loads, 2)
+      await page.locator("#open").click()
+      await page.locator("#receipt").waitFor()
+      assert.equal(await page.locator("#receipt").evaluate(element => getComputedStyle(element).color), colors.D)
     }
     finally {
       await page.close()
