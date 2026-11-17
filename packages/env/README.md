@@ -183,7 +183,7 @@ export default defineEventHandler(async (event) => {
 
 ## Typed server values
 
-Host variables are strings. Declare `env.boolean()`, `env.number()`, or `env.enum()` when server code needs another type. ViteHub parses the value when Server Env resolves and generates the exact type.
+Host variables are strings. Declare `env.boolean()`, `env.number()`, `env.enum()`, `env.list()`, or `env.json()` when server code needs another type. ViteHub parses the value when Server Env resolves and generates the exact type.
 
 ```ts fragment
 // vite.config.ts
@@ -197,6 +197,21 @@ env: {
 ```
 
 `useServerEnv().dryRun` is a `boolean`, `minConfidence` is a `number`, and `mode` is `"draft" | "send"`. Defaults use the parsed type. `env.enum()` cannot be secret because its allowed values are public metadata. An invalid value throws `ENV_RUNTIME_VALUE_INVALID` with the declaration path; the value is never included.
+
+`env.list()` reads items separated by commas or line breaks: it trims each item and drops empty items. `env.list(env.number())` parses each item with the item helper. `env.json()` reads JSON text, and `env.json(env.schemaFrom("./server/env.schema.ts", "settings"))` checks it with a Standard Schema from a module:
+
+```ts fragment
+// vite.config.ts
+env: {
+  server: {
+    adminEmails: env.list({ default: [] }), // string[]
+    ports: env.list(env.number()), // number[]
+    settings: env.json(env.schemaFrom("./server/env.schema.ts", "settings")), // schema output
+  },
+}
+```
+
+Put `default`, `secret`, `source`, and `optional` on the list, not on the item helper. Text that is not JSON fails with `ENV_RUNTIME_VALUE_INVALID`. See [Lists and JSON values](https://vitehub.dev/docs/env/configure#lists-and-json-values).
 
 For a pattern, a custom refinement, or a transform, export a Standard Schema from a module and point the declaration at it. The server build imports the module and runs the schema on the raw value:
 
