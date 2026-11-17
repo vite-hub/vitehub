@@ -192,10 +192,6 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
       "@shikijs/langs",
       "@shikijs/themes",
       "vega-loader",
-      // `test/browser/kit-parts.browser.mjs` aliases these to the copies of Nuxt UI and `@vite-hub/kit`, which the
-      // two sides of the check must share.
-      "@iconify/vue",
-      "@fontsource-variable/geist",
     ],
   },
   "vite-hub": {
@@ -287,6 +283,8 @@ const config: KnipConfiguration = {
     ...packageWorkspaces,
     docs: {
       entry: [
+        // ViteHub discovers the site's Server Primitive Definitions by convention.
+        ...matching("docs", viteHubAppEntries),
         // Markdown pages render these components by name.
         "app/components/content/**/*.vue",
         "app/examples/**/*.vue",
