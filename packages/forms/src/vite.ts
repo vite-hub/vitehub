@@ -111,7 +111,7 @@ export function renderFormsHandler(forms: readonly DiscoveredForm[], options: Hu
   const lines = [
     `import { createFormsHandler } from ${JSON.stringify(imports.runtime)}`,
     ...imports.standard ? [`import { getStandardContext } from ${JSON.stringify(imports.standard)}`] : [],
-    ...options.database && imports.databases ? [`import { databases } from ${JSON.stringify(imports.databases)}`] : [],
+    ...options.database && imports.databases ? [`import { useDatabase } from ${JSON.stringify(imports.databases)}`] : [],
     ...options.email && imports.email ? [`import { email } from ${JSON.stringify(imports.email)}`] : [],
     ...options.auth && imports.auth ? [`import { useAuth } from ${JSON.stringify(imports.auth)}`] : [],
     ...options.rateLimit && imports.rateLimit ? [`import { checkRateLimit } from ${JSON.stringify(imports.rateLimit)}`] : [],
@@ -119,7 +119,7 @@ export function renderFormsHandler(forms: readonly DiscoveredForm[], options: Hu
     "",
     "export default createFormsHandler({",
     `  forms: { ${forms.map((form, index) => `${JSON.stringify(form.name)}: form${index}`).join(", ")} },`,
-    ...options.database && imports.databases ? ["  databases,"] : [],
+    ...options.database && imports.databases ? ["  useDatabase,"] : [],
     ...options.memory ? ["  memory: true,"] : [],
     ...options.email && imports.email ? ["  sendEmail: message => email.send(message),"] : [],
     ...options.auth && imports.auth
