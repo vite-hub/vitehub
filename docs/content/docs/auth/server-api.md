@@ -82,6 +82,7 @@ export default defineHandler(event => signOut(event, { redirectTo: '/login' }))
 ```
 
 - With `redirectTo`, the response is a `303` redirect to that page. Without it, the response is `204`. Return it from the route, so the browser gets the cookies.
+- If Better Auth returns a provider logout URL, the response redirects there first and passes `redirectTo` as the return URL.
 - `redirectTo` must be a path of the app, such as `/login`. Another site fails with `AUTH_SIGN_OUT_REDIRECT_INVALID`.
 - A request without a session gets the same response.
 

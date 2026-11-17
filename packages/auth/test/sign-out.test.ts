@@ -11,9 +11,15 @@ const stored = vi.hoisted(() => ({ db: {} as Record<string, Record<string, unkno
 vi.mock("#vitehub/auth/definition", async () => {
   const { memoryAdapter } = await import("better-auth/adapters/memory")
   const { defineFixedAuth } = await import("./fixed-auth.ts")
+  const { genericOAuth } = await import("better-auth/plugins")
   return {
     default: defineFixedAuth({
       emailAndPassword: { enabled: true },
+      plugins: [genericOAuth({ config: [{
+        providerId: "company", clientId: "company-client", clientSecret: "company-secret",
+        authorizationUrl: "https://id.example/authorize", tokenUrl: "https://id.example/token",
+        endSessionEndpoint: "https://id.example/logout",
+      }] })],
       database: memoryAdapter(stored.db),
       secret: "vitehub-server-sign-out-secret-5b7d1e9c3a",
     }),
@@ -71,7 +77,29 @@ describe("signOut()", () => {
     expect(signedOut.headers.get("location")).toBe("/")
   })
 
-  it.each(["https://evil.test/", "//evil.test/", "/\\evil.test", "login"])("refuses %s as redirectTo, so a query value cannot open another site", async (redirectTo) => {
-    await expect(signOut(new Request(`${origin}/logout`), { redirectTo })).rejects.toMatchObject({ code: "AUTH_SIGN_OUT_REDIRECT_INVALID" })
+  it.each(["/login", undefined])("visits provider logout with callback %s and clears the local session", async (redirectTo) => {
+    const cookie = await signUp()
+    stored.db.account!.push({
+      id: "company-account", accountId: "ada-company", providerId: "company",
+      userId: stored.db.user![0]!.id, idToken: "provider-id-token",
+      createdAt: new Date(), updatedAt: new Date(),
+    })
+    const response = await signOut(new Request(`${origin}/logout`, { headers: { cookie } }), { redirectTo })
+    expect(response.status).toBe(303)
+    const location = new URL(response.headers.get("location")!)
+    expect(location.origin + location.pathname).toBe("https://id.example/logout")
+    expect(location.searchParams.get("post_logout_redirect_uri")).toBe(redirectTo ? `${origin}${redirectTo}` : null)
+    expect(location.searchParams.get("id_token_hint")).toBe("provider-id-token")
+    expect(cleared(response)).toEqual(expect.arrayContaining(["better-auth.session_token", "vitehub_session"]))
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(stored.db.session).toHaveLength(0)
+  })
+
+  it.each(["https://evil.test/", "//evil.test/", "/\\evil.test", "login", "/\t/evil.test", "/\n/evil.test", "/\r/evil.test"])("refuses %s as redirectTo, so a query value cannot open another site", async (redirectTo) => {
+    const cookie = await signUp()
+    const request = new Request(`${origin}/logout?${new URLSearchParams({ redirect: redirectTo })}`, { headers: { cookie } })
+    const destination = new URL(request.url).searchParams.get("redirect")!
+    await expect(signOut(request, { redirectTo: destination })).rejects.toMatchObject({ code: "AUTH_SIGN_OUT_REDIRECT_INVALID" })
+    expect(stored.db.session).toHaveLength(1)
   })
 })
