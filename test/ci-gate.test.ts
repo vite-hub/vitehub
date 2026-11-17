@@ -270,6 +270,7 @@ fi
     "checks",
     "schedule-os-select",
     "workflow-lint",
+    "doctor",
     "contract-tests",
     "package-tests",
     "package-tests-success",
@@ -296,6 +297,18 @@ fi
     expect(runGate(results, "push").status).not.toBe(0)
     expect(runGate(results, "workflow_dispatch").status).not.toBe(0)
     expect(runGate(results, "pull_request", true).status).not.toBe(0)
+  })
+
+  it.each(["push", "workflow_dispatch"])("accepts the Doctor job skipped on %s", (event) => {
+    expect(runGate({ ...successfulJobs, doctor: { result: "skipped" } }, event).status).toBe(0)
+  })
+
+  it("runs Doctor on the lines that a pull request changes", () => {
+    const doctor = workflow.jobs.doctor
+    const step = doctor?.steps.find(item => item.run?.includes("doctor:typescript"))
+    expect(doctor?.if).toBe("${{ github.event_name == 'pull_request' }}")
+    expect(step?.env?.VITE_DOCTOR_SINCE).toBe("${{ github.event.pull_request.base.sha }}")
+    expect(step?.run).toContain("--format agent")
   })
 
   it("rejects the push-only checks skipped on a repair-main pull request", () => {

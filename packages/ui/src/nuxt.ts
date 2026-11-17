@@ -9,7 +9,6 @@ import { icons as viteHubIcons } from "@vite-hub/icons";
 import type { ViteHubUIIconOptions, ViteHubUIOptions } from "./config.ts";
 import { componentNames } from "./component-names.ts";
 import { viteHubUIIcons } from "./icons.ts";
-import type { AliasOptions } from "vite";
 
 // Components are not serializable, so the module takes the defaults only. Pass components to `createViteHubUI()` in a plugin.
 // Icons come from the app config, below.
@@ -30,9 +29,12 @@ declare module "@nuxt/schema" {
   }
 }
 
+/** Vite's `resolve.alias`: a list of entries, or a record of replacements. The declarations do not import Vite, an optional peer. */
+type ViteAliasOptions = readonly { find: string | RegExp; replacement: string }[] | { [find: string]: string };
+
 /** The parts of a Nuxt instance that `addViteHubUIRuntime()` uses. */
 export interface ViteHubUIRuntimeNuxt {
-  options: { plugins: Array<string | { src: string }>; vite: { resolve?: { alias?: AliasOptions } } };
+  options: { plugins: Array<string | { src: string }>; vite: { resolve?: { alias?: ViteAliasOptions } } };
   hook: (name: "icon:clientBundleIcons", callback: (icons: Set<string>) => void) => unknown;
 }
 

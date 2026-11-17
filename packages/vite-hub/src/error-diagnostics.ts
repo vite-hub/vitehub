@@ -306,8 +306,12 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Remove `cache` from `vitehub()`, or set `cache: { driver: \"kv\" }` with `kv` enabled to keep the cache in KV on this host.",
     },
     VITE_HUB_C0004: {
-      ...dynamicError,
-      fix: "Set `cache.driver` to \"cloudflare\", \"deno-kv\", \"fs-lite\", \"kv\", or \"vercel\".",
+      why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
+        ? `\`cache.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`
+        : `\`cache.driver\` is ${driver}. It must be "cloudflare", "deno-kv", "fs-lite", "kv", or "vercel".`,
+      fix: ({ renamed }: { driver: string, renamed?: string }) => renamed
+        ? `Set \`cache: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
+        : "Set `cache.driver` to \"cloudflare\", \"deno-kv\", \"fs-lite\", \"kv\", or \"vercel\".",
     },
     VITE_HUB_R0052: {
       ...dynamicError,

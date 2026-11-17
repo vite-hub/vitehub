@@ -11,6 +11,7 @@ import {
   normalizeWorkspacePath,
 } from "../../core/path.ts";
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts";
+import { workspaceStoreDiscard } from "../../storage/discard.ts";
 import { workspaceStoreTarget } from "../../storage/target.ts";
 import { workspaceRevisionMaterializer } from "../../storage/materialization.ts";
 import {
@@ -260,6 +261,14 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       repository: this.#repository,
       root: this.#root,
     }));
+  }
+
+  /** Drops the staged writes. The next call loads the branch again, as the first call does. */
+  async [workspaceStoreDiscard](): Promise<void> {
+    await this.#mutate(async () => {
+      this.#dirty = false;
+      this.#ready = undefined;
+    });
   }
 
   [workspaceStoreTarget]() {

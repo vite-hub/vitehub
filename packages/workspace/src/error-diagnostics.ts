@@ -103,6 +103,15 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Fix the conflict in `vitehub.lock`, or delete the entry and pull again.",
     },
 
+    // Config errors. The Vite plugin and the runtime throw them because the `store` option must change.
+    WORKSPACE_UNKNOWN_STORE_DRIVER: {
+      why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
+        ? `The Workspace \`store.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`
+        : `The Workspace \`store.driver\` ${driver} is not a Workspace Store driver.`,
+      fix: ({ renamed }: { driver: string, renamed?: string }) => renamed
+        ? `Set \`store: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
+        : "Set `store.driver` to \"local\", \"memory\", \"github\", \"cloudflare\", or \"vercel\", or pass a Store object.",
+    },
     // Registry errors. The generated Workspace registry loads each Definition module when the app first uses it.
     WORKSPACE_REGISTRY_LOAD_FAILED: {
       why: ({ reason, workspace }: { reason: string, workspace: string }) => `The module of Workspace "${workspace}" did not load: ${reason}`,

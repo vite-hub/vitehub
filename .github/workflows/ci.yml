@@ -26,6 +26,7 @@ jobs:
     needs:
       - checks
       - workflow-lint
+      - doctor
       - contracts-examples
       - contract-tests
       - package-tests
@@ -78,12 +79,15 @@ jobs:
           ])
           // Deploys run only on a push to main.
           const deployJobs = new Set(["docs-deploy", "docs-demo-deploy", "console-deploy"])
+          // Doctor checks the lines that a pull request changes, so it runs only on pull requests.
+          const pullRequestOnlyJobs = new Set(["doctor"])
           // OS timer checks run only when schedule-os-select says the change can affect them.
           const scheduleOsJobs = new Set(["schedule-os", "schedule-os-success"])
           const scheduleOsSelected = results["schedule-os-select"]?.outputs?.run === "true"
           const failures = Object.entries(results).filter(([name, job]) => {
             const maySkip = (process.env.FULL_SUITE !== "true" && skippedPullRequestJobs.has(name))
               || (process.env.GITHUB_EVENT_NAME !== "push" && deployJobs.has(name))
+              || (process.env.GITHUB_EVENT_NAME !== "pull_request" && pullRequestOnlyJobs.has(name))
               || (!scheduleOsSelected && scheduleOsJobs.has(name))
             return job.result !== "success" && !(maySkip && job.result === "skipped")
           })
@@ -138,6 +142,28 @@ jobs:
       - uses: docker://rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
         with:
           args: -color
+
+  # Doctor reports unsound type evidence on the lines that a pull request
+  # changes. doctor.config.json selects the rules. The agent format gives each
+  # finding its fix and docs link. A push has no pull request base, so it skips
+  # this job.
+  doctor:
+    name: doctor
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+      - name: Check changed lines
+        env:
+          VITE_DOCTOR_SINCE: ${{ github.event.pull_request.base.sha }}
+        run: vp run doctor:typescript --format agent
 
   # Split from checks, which took 9 minutes because typecheck, contracts and
   # examples each ran a full build in sequence.
