@@ -503,6 +503,22 @@ describe("ViteHub Nuxt integration", () => {
     expect(Reflect.get(nuxt.options.vite, "__vitehubProjectRoot")).toBe(nuxt.options.rootDir)
   })
 
+  it("aliases cloudflare:email to a Node stub in nuxt dev of a Cloudflare app", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt(true)
+    await viteHubNuxtModule({ host: "cloudflare" }, nuxt)
+    // The generated Email module lists the scheme as external for the Worker build.
+    const config: Record<string, unknown> = { rollupConfig: { external: ["cloudflare:email", "cloudflare:workers"] } }
+    await runNitroConfigHook(config)
+    const alias = config.alias as Record<string, string>
+    expect(alias["cloudflare:email"]).toMatch(/[\\/]vitehub[\\/]cloudflare-email\.dev\.mjs$/)
+    const { EmailMessage } = await import(/* @vite-ignore */ pathToFileURL(alias["cloudflare:email"]!).href) as { EmailMessage: new (from: string, to: string, raw: string) => object }
+    expect(new EmailMessage("site@onmax.me", "maxi@onmax.me", "Subject: Hi")).toEqual({ from: "site@onmax.me", raw: "Subject: Hi", to: "maxi@onmax.me" })
+    const plugins = (config.rollupConfig as { plugins: Array<{ name?: string, options?: (options: { external?: unknown }) => { external?: unknown } }> }).plugins
+    const plugin = plugins.find(entry => entry.name === "vite-hub/nitro-cloudflare-workers-dev")
+    const external = plugin!.options!({ external: ["cloudflare:email", "cloudflare:workers"] }).external as (id: string, importer: string | undefined, isResolved: boolean) => boolean
+    expect(external("cloudflare:email", undefined, false)).toBe(false)
+  })
+
   it("lets Nitro's dev shim answer cloudflare:workers in nuxt dev, and only there", async () => {
     type External = (id: string, importer: string | undefined, isResolved: boolean) => boolean
     type RollupOptions = { external?: unknown }
@@ -3436,6 +3452,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(mocks.useEnvPlugin).toHaveBeenCalledWith(expect.objectContaining({ name: "@vite-hub/env/vite" }))
     expect(nitroConfig).toEqual({
       alias: {
+        "cloudflare:email": `${tmp}/vitehub-nuxt/.nuxt/vitehub/cloudflare-email.dev.mjs`,
         "cloudflare:workers": `${tmp}/vitehub-nuxt/.nuxt/vitehub/cloudflare-workers.dev.mjs`,
         "#vitehub/env/description": `${tmp}/vitehub-nuxt/.vitehub/env/description.mjs`,
         "#vitehub/env/public": `${tmp}/vitehub-nuxt/.vitehub/env/public.mjs`,
