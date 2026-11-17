@@ -39,9 +39,7 @@ To turn it off, or to set a sampling rate, put your own `observability` in
 the project `wrangler.json`. ViteHub then leaves the key as you wrote it.
 
 ```json [wrangler.json]
-{
-  "observability": { "enabled": false }
-}
+{ "observability": { "enabled": false } }
 ```
 
 ## Cloudflare boundaries
