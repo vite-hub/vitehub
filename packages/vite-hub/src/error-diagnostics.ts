@@ -587,5 +587,17 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ value }: { value: string }) => `\`security.maxBodySize\` is ${value}, which is not a size.`,
       fix: "Set `security.maxBodySize` to a whole number of bytes greater than 0, or to a size such as `\"500kb\"`, `\"1mb\"`, or `\"2gb\"`.",
     },
+    VITE_HUB_TEST_MODULE_NOT_LOADED: {
+      why: ({ id }: { id: string }) => `The Vite server of vite-hub/test resolved "${id}", but no plugin loads it.`,
+      fix: "Check that the plugin that adds this module is in `vite.config.ts` or `nuxt.config.ts`, and run the same test with Vitest. When only `vite-hub/test/register` fails, report it with the module id.",
+    },
+    VITE_HUB_TEST_SERVER_FAILED: {
+      why: ({ error }: { error: string }) => `The Vite server of vite-hub/test failed:\n${error}`,
+      fix: "Fix the error above in `vite.config.ts`, `nuxt.config.ts`, or the files that it names. `vite dev` or `nuxt dev` shows the same error.",
+    },
+    VITE_HUB_TEST_SERVER_TIMEOUT: {
+      why: "The Vite server of vite-hub/test did not start in 60 seconds.",
+      fix: ({ directory }: { directory: string }) => `Delete ${directory} and run the tests again. To see the server error, run one test file with \`node --import vite-hub/test/register --test-isolation=none <file>\`.`,
+    },
   },
 })
