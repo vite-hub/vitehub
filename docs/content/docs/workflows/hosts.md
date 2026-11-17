@@ -70,18 +70,16 @@ OpenWorkflow resolves storage at runtime in this order:
 2. With neither set, `OPENWORKFLOW_SQLITE_PATH` selects SQLite.
 3. Else `OPENWORKFLOW_POSTGRES_URL` selects Postgres.
 4. Else, when the app has a Postgres Default Database (`server/databases/config.ts` with `dialect: 'postgresql'`), OpenWorkflow uses that Database's connection URL. A Database that connects through PG* variables only fails startup with `WORKFLOW_OPENWORKFLOW_DATABASE_URL_MISSING`, so runs never go to a SQLite file by accident. `DATABASE_URL` alone is not used.
-5. Else it uses `.vitehub/data/openworkflow.sqlite.db` in the process working directory, unless `DATABASE_URL` contains a Postgres URL (see the upgrade step below).
+5. Else it uses `.vitehub/data/openworkflow.sqlite.db` in the process working directory, unless `DATABASE_URL` contains a Postgres URL (see below).
 
-### Upgrade from DATABASE_URL storage
+### `DATABASE_URL` is not read
 
-OpenWorkflow no longer selects Postgres from `DATABASE_URL` alone. Before upgrading an app that uses it, set `OPENWORKFLOW_POSTGRES_URL` or `workflow.postgres.url` to the **same Postgres URL**, or add a Postgres Default Database pointing to that database. Keep the existing schema and namespace so queued and sleeping runs remain visible to every server.
-
-When `DATABASE_URL` starts with `postgres://` or `postgresql://` and no storage was selected above, storage resolution fails with `WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED` before either dispatch or the worker opens SQLite. Set the Postgres storage explicitly to resume those runs. To select local storage intentionally, set `workflow.sqlite.path` or `OPENWORKFLOW_SQLITE_PATH`. Other `DATABASE_URL` schemes, such as `libsql://`, do not trigger this diagnostic. `vite dev` still pins its local SQLite file unless `workflow.remote` is `true`.
+OpenWorkflow does not select Postgres from `DATABASE_URL`. When `DATABASE_URL` starts with `postgres://` or `postgresql://` and no step above selected storage, startup fails with `WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED` before dispatch or the worker opens SQLite. To keep runs in that database, set `OPENWORKFLOW_POSTGRES_URL` or `workflow.postgres.url` to the same URL, or add a Postgres Default Database for it. To use SQLite, set `workflow.sqlite.path` or `OPENWORKFLOW_SQLITE_PATH`. Other `DATABASE_URL` schemes, such as `libsql://`, do not cause this error. `vite dev` still uses its local SQLite file unless `workflow.remote` is `true`.
 
 > [!WARNING]
 > The SQLite default needs a writable filesystem. Its state lives only as long as that file. A new container or a temporary function filesystem can lose it. Set up persistent storage before production. Keep staging and production storage or namespaces apart.
 
-`workflow.database` is not supported and fails the config. It used to accept a Named Database without connecting OpenWorkflow to it. Use `workflow.postgres.url` or `workflow.sqlite.path` instead. Check where the old runtime really stored runs before you move them.
+`workflow.database` is not an option, and the config fails with it. Use `workflow.postgres.url` or `workflow.sqlite.path`.
 
 ## Run Workflows on Node
 
