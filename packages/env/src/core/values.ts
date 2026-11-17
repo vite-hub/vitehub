@@ -12,19 +12,23 @@ export const stringValueSchema: EnvValueSchema = Object.freeze({ kind: "string" 
 export function parseEnvValue(schema: EnvValueSchema, input: unknown): EnvValueParseResult {
   switch (schema.kind) {
     case "array":
-    case "object": {
-      let value: unknown = input;
-      if (typeof value === "string") {
-        try {
-          value = JSON.parse(value);
-        } catch {
-          return { success: false, message: "Expected valid JSON." };
-        }
-      }
-      return isEnvSchemaValue(value) && matchesJsonType(schema, value)
-        ? { data: typeof input === "string" ? value : structuredClone(value), success: true }
-        : { success: false, message: "JSON value does not match the declared type." };
+    case "object":
+    case "json": {
+      const json = readJsonInput(input);
+      if (!json.success) return json;
+      return isEnvSchemaValue(json.data) &&
+        (schema.kind === "json" || matchesJsonType(schema, json.data))
+        ? { data: typeof input === "string" ? json.data : structuredClone(json.data), success: true }
+        : {
+            success: false,
+            message:
+              schema.kind === "json"
+                ? "Expected a JSON value."
+                : "JSON value does not match the declared type.",
+          };
     }
+    case "list":
+      return parseList(schema.items ?? stringValueSchema, input);
     case "string":
       return typeof input === "string" &&
         (schema.minLength === undefined || input.length >= schema.minLength) &&
@@ -67,6 +71,10 @@ export function envValueTypeName(schema: EnvValueSchema): string {
             .join("; ")} }`
         : "Record<string, never>";
     }
+    case "list":
+      return `Array<${envValueTypeName(schema.items ?? stringValueSchema)}>`;
+    case "json":
+      return "unknown";
     case "enum":
       return schema.values.map((value) => JSON.stringify(value)).join(" | ");
     case "url":
@@ -74,6 +82,38 @@ export function envValueTypeName(schema: EnvValueSchema): string {
     default:
       return schema.kind;
   }
+}
+
+/** Item kinds that `env.list()` accepts. Each one parses a single string. */
+export const listItemKinds: ReadonlySet<EnvValueSchema["kind"]> = new Set(["boolean", "enum", "number", "string", "url"]);
+
+/** Read a string as JSON text. Other values, such as a default or a typed host binding, are already parsed. */
+export function readJsonInput(input: unknown): EnvValueParseResult {
+  if (typeof input !== "string") return { data: input, success: true };
+  try {
+    return { data: JSON.parse(input), success: true };
+  } catch {
+    return { success: false, message: "Expected valid JSON." };
+  }
+}
+
+// A host value is one string with items on separate lines or between commas. A default is an array of items.
+function parseList(item: EnvValueSchema, input: unknown): EnvValueParseResult {
+  const items =
+    typeof input === "string"
+      ? input
+          .split(/[,\n]/)
+          .map((value) => value.trim())
+          .filter(Boolean)
+      : input;
+  if (!Array.isArray(items)) return { message: "Expected a comma-separated list.", success: false };
+  const data: unknown[] = [];
+  for (const [index, value] of items.entries()) {
+    const result = parseEnvValue(item, value);
+    if (!result.success) return { message: `Item ${index + 1}: ${result.message}`, success: false };
+    data.push(result.data);
+  }
+  return { data, success: true };
 }
 
 function parseBoolean(input: unknown): EnvValueParseResult {
@@ -151,6 +191,7 @@ export function schemaContainsEnum(schema: EnvValueSchema): boolean {
     case "enum":
       return true;
     case "array":
+    case "list":
       return !!schema.items && schemaContainsEnum(schema.items);
     case "object":
       return Object.values(schema.properties ?? {}).some(schemaContainsEnum);

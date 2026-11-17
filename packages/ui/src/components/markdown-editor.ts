@@ -1,5 +1,3 @@
-import { createHandlers } from "@nuxt/ui/utils/editor";
-import type { EditorSuggestionMenuItem, EditorToolbarItem } from "@nuxt/ui";
 import type { AnyExtension } from "@tiptap/core";
 import { type Editor, EditorContent } from "@tiptap/vue-3";
 import { uploadFiles } from "@vite-hub/blob/client";
@@ -8,7 +6,9 @@ import { chooseFiles, uploadKey, uploadPlugin, type UploadOptions } from "comark
 import { useComarkEditor, type UseComarkEditorOptions } from "comark-ui/editor/vue";
 import { computed, defineComponent, h, provide, ref, shallowRef, watch, watchEffect, type PropType } from "vue";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
+import { createEditorHandlers, editorHandlersKey, type EditorHandlers } from "../editor/handlers.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
+import type { EditorSuggestionMenuItem, EditorToolbarItem } from "../ui-sdk/editor.ts";
 
 /** Sends one file and resolves with the URL the document links to. Call `progress` with a fraction from 0 to 1. */
 export type MarkdownEditorUpload = (file: File, progress: (fraction: number) => void) => Promise<string>;
@@ -59,7 +59,8 @@ const blocks: EditorSuggestionMenuItem[] = [
 const image: EditorSuggestionMenuItem = { kind: "image", label: "Image", description: "Upload an image, video, or audio file", icon: "i-lucide-image" };
 
 /**
- * A Markdown editor on comark-ui's editor, with Nuxt UI's bubble toolbar, "/" menu, and drag handle. Bind Markdown with
+ * A Markdown editor on comark-ui's editor, with a bubble toolbar, a "/" menu, and a drag handle: Nuxt UI's, or the ones
+ * given to `createViteHubUI({ components })`, such as `uiSdkComponents`. Bind Markdown with
  * `v-model`, or pass an `editor` the app made, such as a Realtime room's. With `upload`, pasted and dropped files and the
  * "/" menu's Image item upload with a placeholder that shows the percentage; a string is a Blob upload route.
  */
@@ -120,17 +121,17 @@ export const MarkdownEditor = defineComponent({
       });
     }, { immediate: true });
 
-    // Nuxt UI's menus run an item's `kind` through these handlers. Image opens the file picker instead of asking for a URL.
-    const handlers = computed(() => ({
-      ...createHandlers(),
+    // The menus run an item's `kind` through these handlers. Image opens the file picker.
+    const handlers = computed<EditorHandlers>(() => ({
+      ...createEditorHandlers(),
       image: {
         canExecute: () => Boolean(options.value),
-        execute: (current: Editor) => ({ run: () => (options.value ? chooseFiles(current.view, options.value) : false) }),
+        execute: current => ({ run: () => (options.value ? chooseFiles(current.view, options.value) : false) }),
         isActive: () => false,
         isDisabled: () => !options.value,
       },
     }));
-    provide("editorHandlers", handlers);
+    provide(editorHandlersKey, handlers);
 
     const menu = computed(() => (options.value ? [...blocks, image] : blocks));
 

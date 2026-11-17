@@ -165,7 +165,7 @@ export { defineContentMcpHandler } from "./mcp.ts"
 export type { ContentMcpOptions, ContentPageMarkdown, ContentPageSummary, ContentPagesOptions } from "./mcp.ts"
 export type { ContentRssChannel, ContentRssItem } from "./rss.ts"
 export { renderContentLlms, renderContentLlmsFull, renderContentSitemapMarkdown } from "./llms.ts"
-export type { ContentLlmsFile, ContentLlmsLink, ContentLlmsOptions, ContentLlmsSection, ContentSitemapMarkdownPage } from "./llms.ts"
+export type { ContentLlmsFile, ContentLlmsLink, ContentLlmsOptions, ContentLlmsPage, ContentLlmsSection, ContentLlmsSectionsContext, ContentSitemapMarkdownPage } from "./llms.ts"
 export { acceptsMarkdown, defineContentMarkdownHandler, renderContentMarkdownNotFound } from "./markdown-negotiation.ts"
 export type { ContentMarkdownErrorLink, ContentMarkdownHandlerOptions, ContentMarkdownRuntime, ContentMiddleware } from "./markdown-negotiation.ts"
 export type {
@@ -969,8 +969,13 @@ export function defineContent<
       const label = (page: ContentRoutedPage) => page.key === undefined && documentsRuntime
         ? documentsRuntime.collection(page.collection).label
         : routedSources.find(source => source.name === page.collection)?.label ?? contentLabel(page.collection)
-      const pages = (await markdownPages(site)).map(page => ({ ...page, path: contentPagePath(page.loc, site), section: label(page) }))
-      return await contentLlmsFile(pages, page => pageMarkdown(page, site), typeof llms === "object" ? llms : {}, site, llmsOptions.file ?? "llms.txt", markdownPrefix(seo))
+      // A page in another locale than the source locale of its collection goes to `/<locale>/llms-full.txt`.
+      const translation = (page: ContentRoutedPage) => page.locale !== undefined && page.key === undefined && documentsRuntime && page.locale !== documentsRuntime.collection(page.collection).locales?.[0] ? page.locale : undefined
+      const pages = (await markdownPages(site)).map((page) => {
+        const locale = translation(page)
+        return { ...page, path: contentPagePath(page.loc, site), section: label(page), ...locale === undefined ? {} : { translation: locale } }
+      })
+      return await contentLlmsFile(pages, page => pageMarkdown(page, site), typeof llms === "object" ? llms : {}, site, llmsOptions.file ?? "llms.txt", markdownPrefix(seo), llmsOptions.locale)
     },
     robots: (sitemapOptions?: ContentSitemapOptions) => {
       const robots = seo?.robots
@@ -1416,9 +1421,10 @@ export function defineContentRobotsHandler(content: SeoRuntime): ContentHandler 
 }
 
 /**
- * Serve `/llms.txt`, `/llms-full.txt`, and `/sitemap.md` from `content.llms()`. The last path segment of the request
- * picks the file. It asks `authorize` for `read` as `defineContentHandler()` does. ViteHub generates the three routes
- * when `defineContent({ seo: { llms: true } })`.
+ * Serve `/llms.txt`, `/llms-full.txt`, `/<locale>/llms-full.txt`, and `/sitemap.md` from `content.llms()`. The last
+ * path segment of the request picks the file, and the segment before `llms-full.txt` its locale. It asks `authorize`
+ * for `read` as `defineContentHandler()` does, and adds `seo.llms.headers`. ViteHub generates the routes when
+ * `defineContent({ seo: { llms: true } })`.
  */
 export function defineContentLlmsHandler(content: SeoRuntime, options: ContentHandlerOptions = {}): ContentHandler {
   return {
@@ -1429,10 +1435,12 @@ export function defineContentLlmsHandler(content: SeoRuntime, options: ContentHa
       if (llms === undefined || llms === false || !file) return new Response("Not Found", { status: 404 })
       const denied = await contentReadDenied(content, request, options)
       if (denied) return denied
-      const text = await content.llms({ site: content.seo?.site ?? url.origin, file })
-      return contentReadResponse(content, new Response(request.method === "HEAD" ? null : text, {
-        headers: { "content-type": file === "sitemap.md" ? "text/markdown; charset=utf-8" : "text/plain; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" },
-      }))
+      const segments = url.pathname.split("/").filter(Boolean)
+      const locale = file === "llms-full.txt" && segments.length > 1 ? segments.at(-2) : undefined
+      const text = await content.llms({ site: content.seo?.site ?? url.origin, file, ...locale === undefined ? {} : { locale } })
+      const headers = new Headers({ "content-type": file === "sitemap.md" ? "text/markdown; charset=utf-8" : "text/plain; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" })
+      for (const [name, value] of Object.entries(typeof llms === "object" ? llms.headers ?? {} : {})) headers.set(name, value)
+      return contentReadResponse(content, new Response(request.method === "HEAD" ? null : text, { headers }))
     },
   }
 }

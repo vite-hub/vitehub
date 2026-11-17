@@ -132,4 +132,56 @@ describe("Webhooks in a built Nitro 3 app", () => {
       await new Promise(done => receiver.close(done))
     }
   }, 300_000)
+  // The registry also holds a placeholder `default` that throws. Webhooks and Forms must use the Database that
+  // `vitehub database generate` adds their tables to, here the only one, `content`.
+  it("uses the only Database when it is not named default", async () => {
+    const received: string[] = []
+    const receiver = createServer((request, response) => {
+      const chunks: Buffer[] = []
+      request.on("data", chunk => chunks.push(chunk))
+      request.on("end", () => {
+        received.push(Buffer.concat(chunks).toString("utf8"))
+        response.end("ok")
+      })
+    })
+    await new Promise<void>(done => receiver.listen(0, "127.0.0.1", done))
+    const address = receiver.address()
+    if (!address || typeof address === "string") throw new TypeError("Expected a TCP address.")
+
+    const root = await createProject({
+      ...files,
+      "server/webhooks/t3.ts": "import { defineWebhook } from 'vite-hub/webhooks'\nexport default defineWebhook({ url: 'T3_WEBHOOK_URL', secret: 'T3_WEBHOOK_SECRET' })\n",
+      "server/databases/content.ts": "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ name: 'content', schema: {} })\n",
+      "server/forms/contact.ts": "import * as v from 'valibot'\nimport { defineForm } from 'vite-hub/forms'\nexport default defineForm({ schema: v.object({ message: v.string() }) })\n",
+      "server/routes/inbox.get.ts": "import { installedForms } from 'vite-hub/forms/runtime'\nexport default { fetch: async () => Response.json((await installedForms()!.inbox.list())[1]) }\n",
+    })
+    process.chdir(root)
+    process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
+    const options: ViteHubOptions = { database: true, host: "node", queue: true }
+    const generate = await runCli(root, vitehub(options), ["database", "generate"])
+    expect(generate.exitCode).toBe(0)
+    const migrations = join(root, "server/databases/content/migrations")
+    const migration = (await readdir(migrations)).find(file => /^\d{14}_/.test(file))!
+    const sql = await readFile(join(migrations, migration, "migration.sql"), "utf8")
+    expect(sql).toContain("CREATE TABLE `vitehub_webhook_deliveries`")
+    expect(sql).toContain("CREATE TABLE `vitehub_form_submissions`")
+    expect((await runCli(root, vitehub(options), ["database", "migrate"])).exitCode).toBe(0)
+
+    await build(root, options)
+    const server = await startBuiltServer(root, { T3_WEBHOOK_SECRET: "whsec_content", T3_WEBHOOK_URL: `http://127.0.0.1:${address.port}/hook` })
+    try {
+      const sent = await server.fetch("/comment", { body: JSON.stringify({ comment: "on content" }), headers: { "content-type": "application/json" }, method: "POST" })
+      expect(await sent.json()).toEqual({ id: expect.stringMatching(/^whd_/), status: "pending" })
+      await vi.waitFor(() => expect(received).toEqual([JSON.stringify({ comment: "on content" })]), { interval: 100, timeout: 15_000 })
+      await vi.waitFor(async () => expect(await (await server.fetch("/deliveries")).json()).toEqual([expect.objectContaining({ state: "sent" })]), { interval: 100, timeout: 5_000 })
+
+      const form = await server.fetch("/api/_vitehub/forms/contact", { body: JSON.stringify({ message: "Hi" }), headers: { "content-type": "application/json", "referer": `http://127.0.0.1:${server.port}/` }, method: "POST" })
+      expect(`${form.status} ${await form.text()}`).toMatch(/^201 /)
+      expect(await (await server.fetch("/inbox")).json()).toEqual([expect.objectContaining({ data: { message: "Hi" } })])
+    }
+    finally {
+      server.close()
+      await new Promise(done => receiver.close(done))
+    }
+  }, 300_000)
 })

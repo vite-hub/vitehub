@@ -15,6 +15,35 @@ import { vitehub } from "../src/index.ts"
 
 
 describe("built-in host integration", () => {
+  it.each(["cloudflare", "vercel"] as const)("rejects old provider keys before %s driver inference", async (host) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-old-provider-"))
+    onTestFinished(() => rm(root, { force: true, maxRetries: 5, recursive: true }))
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "old-provider-test", type: "module" }))
+    for (const command of ["build", "serve"] as const) {
+      for (const [feature, code] of [
+        ["queue", "QUEUE_RENAMED_PROVIDER_KEY"],
+        ["rateLimit", "RATE_LIMIT_RENAMED_PROVIDER_KEY"],
+        ["sandboxTask", "SANDBOX_TASK_RENAMED_PROVIDER_KEY"],
+      ] as const) {
+        const options = { host, env: false, blob: false, workflow: false, queue: false, rateLimit: false }
+        // The Vercel host has no Rate Limit driver, so it stops before Rate Limit reads its options.
+        const expected = host === "vercel" && feature === "rateLimit" ? "INTERNAL_R0002" : code
+        await expect(resolveConfig({
+          configFile: false,
+          root,
+          // SAFETY: An app config without types still passes the former key.
+          plugins: [vitehub({ ...options, [feature]: { provider: "vercel" } } as never)],
+        }, command)).rejects.toMatchObject({ code: expected })
+        await expect(resolveConfig({
+          configFile: false,
+          root,
+          // SAFETY: An app config without types still passes the former key next to `driver`.
+          plugins: [vitehub({ ...options, [feature]: { provider: "vercel", driver: feature === "rateLimit" && host === "vercel" ? "memory" : host } } as never)],
+        }, command)).resolves.toBeTruthy()
+      }
+    }
+  }, 30_000)
+
   it.each([undefined, "custom-output"])(
     "inspects deployment output from a separate Nitro root with output %s",
     async (outputDir) => {

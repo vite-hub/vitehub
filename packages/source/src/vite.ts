@@ -720,7 +720,7 @@ async function writeContentArtifact(
     [features.robots, robots, "defineContentRobotsHandler", ["/robots.txt"]],
     [features.rss, rss, "defineContentRssHandler", ["/rss.xml"]],
     [features.mcp, mcp, "defineContentMcpHandler", ["/mcp"]],
-    [features.llms, llms, "defineContentLlmsHandler", ["/llms.txt", "/llms-full.txt", "/sitemap.md"]],
+    [features.llms, llms, "defineContentLlmsHandler", ["/llms.txt", "/llms-full.txt", "/:locale/llms-full.txt", "/sitemap.md"]],
   ] as const) {
     if (!enabled) {
       await rm(path, { force: true })
