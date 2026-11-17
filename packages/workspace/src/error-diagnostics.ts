@@ -104,6 +104,10 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
 
     // Config errors. The Vite plugin and the runtime throw them because the `store` option must change.
+    WORKSPACE_RENAMED_STORE_PROVIDER_KEY: {
+      why: ({ provider }: { driver: string, provider: string }) => `The Workspace \`store\` sets \`provider: ${provider}\`. ViteHub renamed this key to \`driver\`, and it does not read \`provider\`, so the Store would not be the one you chose.`,
+      fix: ({ driver }: { driver: string, provider: string }) => `Set \`store: { driver: ${driver} }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
+    },
     WORKSPACE_UNKNOWN_STORE_DRIVER: {
       why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
         ? `The Workspace \`store.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`

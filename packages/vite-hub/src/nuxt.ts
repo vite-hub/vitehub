@@ -1182,15 +1182,17 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   ]
   const generatedData = secondaryProjectRoots
     .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/data/**/*.d.ts")))
-  // `@cloudflare/workers-types` is an optional peer. `cloudflare-types.d.ts` references it, so add that file only when the app installs it.
-  // Without it, generated server files such as the Database middleware still import `cloudflare:workers`, so declare what they use.
-  if (plan.host === "cloudflare") {
-    generatedTypes.push(relative(nuxt.options.buildDir, isPackageInstalled("@cloudflare/workers-types") ? cloudflareTypes : cloudflareWorkersDeclaration))
-  }
-  addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData)
+  // Generated server files such as the Database middleware import `cloudflare:workers`. `cloudflare-workers.d.ts` declares
+  // what they use, without globals. App and shared code also reach server files, through typed server routes and type
+  // imports, so they get only that declaration: the global Workers types replace DOM types such as `Element`.
+  // `@cloudflare/workers-types` is an optional peer. When the app installs it, the server code gets its full types.
+  const cloudflare = plan.host === "cloudflare"
+  const serverTypes = cloudflare ? [relative(nuxt.options.buildDir, isPackageInstalled("@cloudflare/workers-types") ? cloudflareTypes : cloudflareWorkersDeclaration)] : []
+  const appTypes = cloudflare ? [relative(nuxt.options.buildDir, cloudflareWorkersDeclaration)] : []
+  addTypeScriptDefaults(nuxt.options, [...generatedTypes, ...appTypes], generatedData)
   // Code under shared/ can type-import server files, such as server/auth.ts, which use the generated declarations.
-  addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData, "sharedTsConfig")
-  addTypeScriptDefaults((nuxt.options.nitro ??= {}), generatedTypes, generatedData)
+  addTypeScriptDefaults(nuxt.options, [...generatedTypes, ...appTypes], generatedData, "sharedTsConfig")
+  addTypeScriptDefaults((nuxt.options.nitro ??= {}), [...generatedTypes, ...serverTypes], generatedData)
   if (options.database) {
     const databaseOptions = options.database === true ? {} : { ...options.database }
     // Cloudflare SQLite Definitions default to D1 unless a driver is explicit.

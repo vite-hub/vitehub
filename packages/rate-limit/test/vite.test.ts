@@ -173,6 +173,19 @@ describe("hubRateLimit", () => {
     expect(JSON.parse(await readFile(join(root, ".vitehub/hints.json"), "utf8")).hints).toEqual([])
   })
 
+  it("rejects the former provider key instead of picking the host driver", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-provider-key-"))
+    roots.push(root)
+    // SAFETY: An app config without types still passes the former key.
+    const plugin = hubRateLimit({ provider: "kv" } as never)
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
+
+    expect(() => config({ nitro: { preset: "cloudflare-module" }, root }, { command: "build" })).toThrow(expect.objectContaining({
+      code: "RATE_LIMIT_RENAMED_PROVIDER_KEY",
+      fix: expect.stringContaining('`rateLimit: { driver: "kv" }`'),
+    }))
+  })
+
   it("fails configuration for conflicting policies with the same ID", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-conflicting-policies-"))
     roots.push(root)
