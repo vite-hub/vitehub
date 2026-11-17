@@ -17,6 +17,7 @@ icon: i-lucide-code-2
 | `getPostgresConnectionUrl` from `vite-hub/database` | Read the connection URL of a Postgres Database, for a package that opens its own Postgres client, such as OpenWorkflow. |
 | `ensureMigrations` from `vite-hub/database` | Apply the pending migrations once in this process, from a task, a test, or a plugin. |
 | `withIdempotency` from `vite-hub/database` | Run work once for a key, such as a webhook delivery id, and give repeats the first result. |
+| `useLeases` from `vite-hub/database` | Let one server at a time hold a key, such as a sync or a leader job, and renew it while the work runs. |
 | `hubDatabase` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve config values and discovery config. |
 | `@vite-hub/database/cli` | The `vitehub database` CLI commands. |
@@ -204,6 +205,31 @@ export default defineEventHandler(async (event) => {
 The keys live in the table `vitehub_idempotency_keys`, which the first call creates, on SQLite, D1, libSQL, and Postgres. Read it with `vitehub database sql "SELECT * FROM vitehub_idempotency_keys"`. The result must be JSON: a repeat gets `JSON.parse(JSON.stringify(result))`, so a `Date` comes back as a string. Pick a `timeout` longer than `fn` can run. A call that runs past it no longer holds the key, and a repeat runs `fn` a second time.
 
 `fn` and the stored result are separate writes. When the process stops after `fn` and before the result is stored, the key frees itself after `timeout` and a retry runs `fn` again. Make the work safe to repeat when that matters, for example with the idempotency key of your payment or mail provider.
+
+## Hold a lease
+
+`useLeases()` lets one server at a time hold a key. A lease ends at `release()` or when its `ttl` passes, and the holder can `renew()` it while the work runs:
+
+```ts [server/api/sync/stripe.post.ts]
+import { defineEventHandler, HTTPError } from 'h3'
+import { useLeases } from 'vite-hub/database'
+
+export default defineEventHandler(async () => {
+  const [error, lease] = await useLeases().acquire('sync:stripe-payouts', { ttl: 60 })
+  if (error) throw new HTTPError({ status: 503, statusText: error.why })
+  if (!lease) return { skipped: true }
+  try {
+    const response = await fetch('https://api.stripe.com/v1/payouts?limit=100')
+    const { data }: { data: { id: string }[] } = await response.json()
+    return { synced: data.length }
+  }
+  finally {
+    await lease.release()
+  }
+})
+```
+
+The leases live in the table `vitehub_leases` of the default or only Database, which the first call creates, on SQLite, D1, libSQL, and Postgres. Pass `{ database }` to use another Database. The [locks and leases guide](/docs/guides/run-one-at-a-time) shows `renew()`, `get()`, and when to use `kv.lock()` instead.
 
 ## Apply migrations from server code
 
