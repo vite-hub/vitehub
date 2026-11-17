@@ -170,6 +170,41 @@ export function docsMarkdown(options: DocsParserOptions = {}): { preset: false, 
   return { preset: false, autoClose: true, plugins: [...plugins, docsPageStep] }
 }
 
+/** The size of a picture, `[width, height]` in pixels, by its URL path, such as `/screenshots/console.png`. */
+export type DocsImageSizes = Record<string, readonly [number, number]>
+
+const pixels = (value: unknown) => {
+  const parsed = Number(value)
+  return parsed > 0 ? parsed : undefined
+}
+
+/**
+ * Gives an image of the app's `public/` folder its `width` and `height`, so the browser keeps its room before the
+ * picture loads and the page does not move. comark-ui measures only data URIs and remote URLs, not a path on the site.
+ * An image with one side keeps it and gets the other at the picture's ratio. A side in other units, like `50%`, is the
+ * author's layout, so the image is left alone.
+ */
+export function docsImageSizes(sizes: DocsImageSizes): ComarkPlugin {
+  const visit = (nodes: ComarkNode[]) => {
+    for (const node of nodes) {
+      if (!isElement(node)) continue
+      const attrs = node[1]
+      const size = node[0] === "img" && typeof attrs.src === "string" ? sizes[attrs.src.split(/[?#]/)[0]!] : undefined
+      if (size && (attrs.width === undefined || attrs.height === undefined)) {
+        const width = pixels(attrs.width)
+        const height = pixels(attrs.height)
+        if ((attrs.width === undefined || width) && (attrs.height === undefined || height)) {
+          const ratio = size[1] / size[0]
+          attrs.width = String(width ?? (height ? Math.round(height / ratio) : size[0]))
+          attrs.height = String(height ?? (width ? Math.round(width * ratio) : size[1]))
+        }
+      }
+      visit(node.slice(2) as ComarkNode[])
+    }
+  }
+  return { name: "docs-image-sizes", post: state => visit(state.tree.nodes) }
+}
+
 /** The last step of a page parse, after every plugin: list items without paragraphs, example anchors, and HTML-only blocks. */
 const docsPageStep: ComarkPlugin = {
   name: "docs-page",

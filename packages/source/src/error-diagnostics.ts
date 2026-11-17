@@ -190,5 +190,9 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "[vitehub] The archive of the github() Source has an entry with an invalid size.",
       fix: "Load the Source again: GitHub or `git archive` sent a cut or broken archive. If it fails again, check the network and that the ref of the `github()` Source exists.",
     },
+    SOURCE_GLOB_OPTIONS_NOT_LITERAL: {
+      why: "glob() here takes options that are not literals, so the build cannot bundle its files. It reads them from disk at runtime, which hosts such as Cloudflare Workers do not have.",
+      fix: "Write the options of `glob()` as literals in the call, such as `glob({ cwd: \"content\", include: [\"**/*.md\"] })`, so the build can find and bundle the files.",
+    },
   },
 })

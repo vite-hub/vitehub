@@ -3,5 +3,7 @@
     "packages/docs/src/nuxt.ts": 1
   },
   "codesWithoutFix": [],
-  "invariants": {}
+  "invariants": {
+    "packages/docs/src/nuxt.ts": 1
+  }
 }

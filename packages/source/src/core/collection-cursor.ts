@@ -106,16 +106,14 @@ async function decodeCursor<TCursorInput extends CollectionCursorValue, TCursorO
     throw new CollectionCursorError(undefined, { cause })
   }
   if (!isCursorValue(decoded)) throw new CollectionCursorError()
+  let cursor: TCursorOutput
   try {
-    const cursor = await parseCollectionSchema(schema, decoded)
-    if (!isCursorValue(cursor)) {
-      // Internal invariant: the catch below answers this with CollectionCursorError (SOURCE_R0023).
-      throw new Error("Collection cursor schema returned an invalid value.")
-    }
-    return cursor
+    cursor = await parseCollectionSchema(schema, decoded)
   } catch (cause) {
     throw new CollectionCursorError(undefined, { cause })
   }
+  if (!isCursorValue(cursor)) throw new CollectionCursorError()
+  return cursor
 }
 
 /** Bind cursor transport and validation to the Collection's schema once. */
