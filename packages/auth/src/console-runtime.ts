@@ -1,4 +1,6 @@
 import type { AuthContext, BetterAuthOptions, DBAdapter, User, Where } from "better-auth";
+import { createAuthEndpoint } from "better-auth/api";
+import { setSessionCookie } from "better-auth/cookies";
 import { defineErrors, type Result, type ResultError } from "@vite-hub/runtime";
 import { defineGrant } from "@vite-hub/runtime/internal/grant";
 import { userAgentDevice } from "@vite-hub/internal/runtime/user-agent";
@@ -1258,23 +1260,16 @@ export function createAuthConsole(
   }
   async function hostSession(userId: string, request: Request): Promise<Headers> {
     const ctx = await hostContext();
-    const session = await ctx.internalAdapter.createSession(userId, false, {
-      userAgent: request.headers.get("user-agent") ?? "",
-      ipAddress: "",
+    // In an endpoint context, Better Auth writes the cookies of a normal sign-in: the name prefix, the attributes, and
+    // the cookie cache with its chunks. It also reads the address and the user agent of the session from the request.
+    const signIn = createAuthEndpoint.serverOnly({ method: "POST" }, async (endpoint) => {
+      const user = await endpoint.context.internalAdapter.findUserById(userId);
+      if (!user) throw authConsoleError(404, "User not found.");
+      const session = await endpoint.context.internalAdapter.createSession(userId);
+      await setSessionCookie(endpoint, { session, user }, false);
     });
-    const cookie = ctx.authCookies.sessionToken;
-    const attributes = record(cookie.attributes);
-    const parts = [
-      `${cookie.name}=${await signedSessionToken(ctx.secret, session.token)}`,
-      `Path=${string(attributes.path) || "/"}`,
-      `Max-Age=${ctx.sessionConfig.expiresIn}`,
-      ...(string(attributes.domain) ? [`Domain=${string(attributes.domain)}`] : []),
-      ...(attributes.httpOnly === false ? [] : ["HttpOnly"]),
-      ...(attributes.secure ? ["Secure"] : []),
-      `SameSite=${(string(attributes.sameSite) || "lax").replace(/^./, (letter) => letter.toUpperCase())}`,
-      ...(attributes.partitioned ? ["Partitioned"] : []),
-    ];
-    return new Headers([["set-cookie", parts.join("; ")]]);
+    const { headers } = await signIn({ context: ctx, headers: request.headers, returnHeaders: true });
+    return new Headers(headers.getSetCookie().map((cookie) => ["set-cookie", cookie]));
   }
   async function hostSessions(roles: readonly string[]): Promise<AuthConsoleHostSession[]> {
     const ctx = await hostContext();
