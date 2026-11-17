@@ -51,7 +51,7 @@ A Store can return `revision` from `stat()` to identify a file version. This opa
 
 Workspace shell tools block the limited `curl` by default. To allow requests to visible Source targets, pass `sourceRequests: true` to `createWorkspaceTools(workspace, { sourceRequests: true })` or `workspace.tools.inspect({ sourceRequests: true })`. The Agent `workspaceShell()` Capability turns these requests on.
 
-When the model turn is cancelled, AI SDK tool cancellation reaches the Shell provider and Workspace Session. Provider work and Source requests stop.
+When the model turn is cancelled, AI SDK tool cancellation reaches the Shell driver and Workspace Session. Driver work and Source requests stop.
 
 ### Runtime method options
 

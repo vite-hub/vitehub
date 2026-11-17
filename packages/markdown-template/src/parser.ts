@@ -1,7 +1,7 @@
 import { defineComarkPlugin } from "comark"
 import binding from "comark/plugins/binding"
 import html from "comark/plugins/html"
-import type { ComarkParseTokensState, ComarkPlugin } from "comark"
+import type { ComarkParseTokensState, ComarkPlugin, ElementNode } from "comark"
 
 const openTag = /^(\s*<\s*[A-Za-z][\w:-]*)(\s+[\s\S]*?)?(\s*\/?>\s*)$/
 // Same attribute grammar as Comark's HTML attribute reader.
@@ -62,3 +62,11 @@ const inlineHtml: ComarkPlugin = {
 export const htmlPlugins: ComarkPlugin[] = [inlineHtml, rawHtmlAttributes()]
 
 export const parserOptions = { autoClose: false, autoUnwrap: false, linkify: false, plugins: [...htmlPlugins, binding()] }
+
+const literalHtmlTags = new Set(["code", "pre", "script", "style", "textarea", "kbd", "samp", "var"])
+
+/** Whether authored HTML children are reparsed as Markdown by the template renderer. */
+export function hasMarkdownHtmlChildren([tag, attrs, ...children]: ElementNode): boolean {
+  return attrs.$?.html === 1 && attrs.$?.block === 1 && tag !== "a" && tag !== "img"
+    && !literalHtmlTags.has(tag) && children.every(child => typeof child === "string")
+}

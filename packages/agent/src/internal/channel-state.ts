@@ -17,6 +17,7 @@ import type { AgentStateCacheMutation } from "./state-lock.ts"
 import type { AgentWebhookQueue, AgentWebhookQueueDelivery, AgentWebhookQueueRegistration } from "./webhook-queue.ts"
 import { hasAgentWebhookQueue } from "./webhook-queue.ts"
 import { isResponse } from "./response.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export const channelStateLockTtlMs: number = 60_000
 export const channelStateLockWaitMs: number = 10_000
@@ -55,10 +56,10 @@ function channelStateLockLost(lock: Lock): Error {
   return new Error(`[vitehub] Channel State lock "${lock.threadId}" expired before its writes were committed.`)
 }
 
-function positiveDuration(value: number | undefined, fallback: number, name: string, allowZero = false): number {
+function positiveDuration(value: number | undefined, fallback: number, name: "ttlMs" | "waitMs", allowZero = false): number {
   if (value === undefined) return fallback
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || (!allowZero && value === 0)) {
-    throw new TypeError(`[vitehub] channelState.transaction() ${name} must be a ${allowZero ? "non-negative" : "positive"} finite number.`)
+    throw agentDiagnostics.AGENT_CHANNEL_STATE_DURATION_INVALID({ name, allowZero })
   }
   return value
 }
@@ -69,7 +70,7 @@ export async function acquireChannelStateLock(state: StateAdapter, key: string, 
   for (let delay = 10; ; delay = Math.min(delay * 2, 250)) {
     const lock = await state.acquireLock(key, ttlMs)
     if (lock) return lock
-    if (Date.now() + delay > deadline) throw new Error(`[vitehub] Channel State lock "${key}" is still held after ${waitMs} ms.`)
+    if (Date.now() + delay > deadline) throw agentDiagnostics.AGENT_CHANNEL_STATE_LOCK_BUSY({ key, waitMs })
     await new Promise(resolve => setTimeout(resolve, delay))
   }
 }
@@ -87,7 +88,7 @@ export async function commitChannelStateWrites(state: StateAdapter, writes: Agen
   }
   let queued = true
   if (writes.delivery) {
-    if (!hasAgentWebhookQueue(state)) throw new Error("[vitehub] Channel State writes with a delivery need a queue-capable State.")
+    if (!hasAgentWebhookQueue(state)) throw agentDiagnostics.AGENT_CHANNEL_STATE_QUEUE_MISSING()
     queued = await state.enqueueWebhookDelivery(writes.delivery)
   }
   if (queued) {
@@ -158,8 +159,8 @@ export async function runChannelStateTransaction<T, R>(
   run: (state: AgentChannelStateTransaction<T>) => MaybePromise<R>,
   options: AgentChannelStateTransactionOptions = {},
 ): Promise<R> {
-  if (typeof key !== "string" || !key) throw new TypeError("[vitehub] channelState.transaction() needs a non-empty key.")
-  if (typeof run !== "function") throw new TypeError("[vitehub] channelState.transaction() needs a callback.")
+  if (typeof key !== "string" || !key) throw agentDiagnostics.AGENT_CHANNEL_STATE_TRANSACTION_INVALID({ need: "a non-empty key" })
+  if (typeof run !== "function") throw agentDiagnostics.AGENT_CHANNEL_STATE_TRANSACTION_INVALID({ need: "a callback" })
   const ttlMs = positiveDuration(options.ttlMs, channelStateLockTtlMs, "ttlMs")
   const waitMs = positiveDuration(options.waitMs, channelStateLockWaitMs, "waitMs", true)
   const { state } = binding
@@ -167,7 +168,7 @@ export async function runChannelStateTransaction<T, R>(
   const lockKey = `${stateKey}:transaction`
   const into = commit && !commit.closed && commit.state === state ? commit : undefined
   if (into?.locks.some(lock => lock.threadId === lockKey)) {
-    throw new TypeError(`[vitehub] Channel State key "${key}" already has a transaction in this trigger call.`)
+    throw agentDiagnostics.AGENT_CHANNEL_STATE_TRANSACTION_NESTED({ key })
   }
   const lock = await acquireChannelStateLock(state, lockKey, ttlMs, waitMs)
   let write: AgentStateCacheMutation | undefined
@@ -238,16 +239,16 @@ export async function pullAgentChannel<TCursor extends string | number>(
   const binding = context.channelState
   const name = typeof options === "object" && options !== null && typeof options.key === "string" ? options.key : ""
   if (!binding) {
-    throw new Error(`[vitehub] Channel trigger "${context.trigger.id}" can pull only with the Channel's State. Run it through the Channel's webhook route.`)
+    throw agentDiagnostics.AGENT_CHANNEL_PULL_STATE_MISSING({ triggerId: context.trigger.id })
   }
-  if (!name) throw new TypeError("[vitehub] context.pull() needs a non-empty key.")
+  if (!name) throw agentDiagnostics.AGENT_CHANNEL_PULL_OPTIONS_INVALID({ key: "", need: "a non-empty key" })
   const cursorType = typeof options.initialCursor
   if ((cursorType !== "string" && cursorType !== "number") || (cursorType === "number" && !Number.isFinite(options.initialCursor))) {
-    throw new TypeError(`[vitehub] context.pull("${name}") needs a string or finite number initialCursor.`)
+    throw agentDiagnostics.AGENT_CHANNEL_PULL_OPTIONS_INVALID({ key: name, need: "a string or finite number initialCursor" })
   }
-  if (typeof options.fetch !== "function") throw new TypeError(`[vitehub] context.pull("${name}") needs a fetch function.`)
+  if (typeof options.fetch !== "function") throw agentDiagnostics.AGENT_CHANNEL_PULL_OPTIONS_INVALID({ key: name, need: "a fetch function" })
   if (typeof options.trigger !== "string" || !options.trigger.trim()) {
-    throw new TypeError(`[vitehub] context.pull("${name}") needs the trigger that admits its items.`)
+    throw agentDiagnostics.AGENT_CHANNEL_PULL_OPTIONS_INVALID({ key: name, need: "the trigger that admits its items" })
   }
   const { signal } = options
   const { state } = binding
@@ -256,7 +257,7 @@ export async function pullAgentChannel<TCursor extends string | number>(
   try {
     const saved = await state.get<unknown>(cursorKey)
     if (saved !== null && saved !== undefined && typeof saved !== cursorType) {
-      throw new Error(`[vitehub] The saved cursor of context.pull("${name}") is not a ${cursorType}.`)
+      throw agentDiagnostics.AGENT_CHANNEL_PULL_CURSOR_TYPE_CHANGED({ key: name, cursorType })
     }
     // SAFETY: The saved cursor has the type of `initialCursor`, checked above.
     let cursor = (saved ?? options.initialCursor) as TCursor
@@ -267,21 +268,21 @@ export async function pullAgentChannel<TCursor extends string | number>(
       const page: unknown = await options.fetch(cursor, signal)
       signal?.throwIfAborted()
       if (!isPullPage(page, cursorType)) {
-        throw new TypeError(`[vitehub] context.pull("${name}") fetch must return { items, next, more } with a ${cursorType} next cursor.`)
+        throw agentDiagnostics.AGENT_CHANNEL_PULL_PAGE_INVALID({ key: name, cursorType })
       }
       // SAFETY: `isPullPage` checked that `next` has the cursor type.
       const next = page.next as TCursor
       if (page.first !== undefined && page.first !== cursor) {
-        throw new Error(`[vitehub] context.pull("${name}") has a gap: expected cursor ${cursor}, received ${page.first}.`)
+        throw agentDiagnostics.AGENT_CHANNEL_PULL_CURSOR_INVALID({ key: name, cursor, next: page.first, kind: "gap" })
       }
       if (typeof cursor === "number" && typeof next === "number" && next < cursor) {
-        throw new Error(`[vitehub] context.pull("${name}") moved its cursor back from ${cursor} to ${next}.`)
+        throw agentDiagnostics.AGENT_CHANNEL_PULL_CURSOR_INVALID({ key: name, cursor, next, kind: "back" })
       }
       if (page.more && next === cursor) {
-        throw new Error(`[vitehub] context.pull("${name}") reported more items without advancing its cursor ${cursor}.`)
+        throw agentDiagnostics.AGENT_CHANNEL_PULL_CURSOR_INVALID({ key: name, cursor, next, kind: "stuck" })
       }
       if (page.more && visited.has(next)) {
-        throw new Error(`[vitehub] context.pull("${name}") repeated cursor ${next}.`)
+        throw agentDiagnostics.AGENT_CHANNEL_PULL_CURSOR_INVALID({ key: name, cursor, next, kind: "repeated" })
       }
       for await (const item of page.items) {
         signal?.throwIfAborted()

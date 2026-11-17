@@ -19,3 +19,10 @@
 `vitehub deployments` and the `live` line of `vitehub status` read Cloudflare, Vercel, and Netlify through their REST APIs (see `test/fixtures/host-api/README.md`), and Deno through its CLI:
 
 - Deno Deploy CLI 0.0.9909: `deno-deploy-deployments-list.txt` and `deno-deploy-apps-get.txt`. With `--json`, `deployments list` prints `{ items: [{ id, status, prod, createdAt, updatedAt, lastStep }], nextCursor, org, app }` and `apps get` prints `{ id, slug, org, productionUrl, domains, productionRevisionId, ... }` (the CLI source, `deploy/deployments.ts` and `deploy/apps.ts` in `jsr:@deno/deploy@0.0.9909`). Deno Deploy keeps no deploy message, so a Deno deployment has no commit marker.
+
+When a `deploy.check` path fails, `vitehub deploy` prints the command that rolls production back. It runs none of them. Recorded on 2026-11-16:
+
+- Wrangler 4.158.0: `wrangler-rollback.txt`. `wrangler rollback <version-id> --name <worker> --yes` takes the Worker version id.
+- Vercel CLI 65.16.0: `vercel-rollback.txt`. `vercel rollback <deployment> --yes` takes the deployment id or URL.
+- Netlify CLI 27.11.2: `netlify-api.txt`. Netlify has no rollback command; `netlify api restoreSiteDeploy --data '{"deploy_id":…,"site_id":…}'` calls `POST /sites/{site_id}/deploys/{deploy_id}/restore` (`netlify api --list` names it).
+- Deno Deploy CLI 0.0.9909: `deno-deploy.txt` lists no rollback command, so the error names the revision to promote in the dashboard.

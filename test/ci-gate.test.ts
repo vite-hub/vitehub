@@ -29,6 +29,43 @@ function runGate(results: Record<string, { result: string }>, event = "pull_requ
 const successfulJobs = Object.fromEntries(jobNames.map(name => [name, { result: "success" }]))
 
 describe("CI merge gate", () => {
+  it("selects ui-sdk browser checks for a lockfile-only version bump under pipefail", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vitehub-ui-sdk-selection-"))
+    const command = workflow.jobs["ui-sdk"]?.steps.find(step => step.name === "Select the checks")?.run
+    if (!command) throw new Error("The ui-sdk job must select its browser checks")
+    try {
+      const lockfile = readFileSync(new URL("../pnpm-lock.yaml", import.meta.url), "utf8")
+      const before = join(directory, "before.yaml")
+      const after = join(directory, "after.yaml")
+      writeFileSync(before, lockfile)
+      const version = lockfile.match(/^ {2}'@ui-sdk\/core@([^(':]+)':$/m)?.[1]
+      if (!version) throw new Error("pnpm-lock.yaml must resolve @ui-sdk/core")
+      writeFileSync(after, lockfile.replaceAll(version, `${version}-next`))
+      const diff = spawnSync("git", ["diff", "--no-index", "--exit-code", "--unified=1000", before, after], { encoding: "utf8" })
+      expect(diff.status, diff.stderr).toBe(1)
+      // Keep the real lockfile diff larger than a pipe buffer to expose early reader exits.
+      expect(diff.stdout.length).toBeGreaterThan(65_536)
+      writeFileSync(join(directory, "diff"), diff.stdout)
+      writeFileSync(join(directory, "git"), `#!/bin/sh
+if [ "$2" = "--name-only" ]; then
+  echo pnpm-lock.yaml
+else
+  cat "$SELECTION_DIFF"
+fi
+`, { mode: 0o755 })
+      const output = join(directory, "output")
+      const result = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", command], {
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, FULL_SUITE: "false", BASE_REF: "origin/main", GITHUB_OUTPUT: output, SELECTION_DIFF: join(directory, "diff") },
+      })
+      expect(result.status, result.stderr).toBe(0)
+      expect(readFileSync(output, "utf8")).toBe("run=true\n")
+    }
+    finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   it("runs standalone Node tests once across Agent shards and preserves failures", () => {
     const directory = mkdtempSync(join(tmpdir(), "vitehub-node-test-sharding-"))
     const fixture = join(directory, "fixture.test.mjs")
@@ -231,10 +268,12 @@ describe("CI merge gate", () => {
 
   const pullRequestJobs = [
     "checks",
+    "schedule-os-select",
     "workflow-lint",
     "contract-tests",
     "package-tests",
     "package-tests-success",
+    "ui-sdk",
     "service-tests",
     "docs",
     "docs-snippets",

@@ -11,7 +11,8 @@ const withFix = (fix: string) => ({ ...dynamicError, fix })
 export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/auth/diagnostics",
   codes: {
-    // Event and password errors. The event store, the events route, and the password verifier throw them.
+    // Event, password, and sign-out errors. The event store, the events route, the password verifier, and `signOut()`
+    // throw them.
     AUTH_EVENT_QUERY_INVALID: {
       why: ({ problem }: { problem: "order" | "window" }) => problem === "order"
         ? "Auth event from must be before to."
@@ -25,6 +26,16 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_PASSWORD_HASH_INVALID: {
       why: "Invalid password hash",
       fix: "The stored password hash is not `<salt>:<key>`. Hash new passwords with `hashPasswordWithNoble()` or the Better Auth hasher, and reset the password of the user whose hash is broken.",
+    },
+    AUTH_SIGN_OUT_REDIRECT_INVALID: {
+      why: ({ redirectTo }: { redirectTo: string }) => `\`signOut()\` redirects only to a path of the app, not to ${JSON.stringify(redirectTo)}.`,
+      fix: "Pass a path that starts with one `/`, for example `signOut(event, { redirectTo: '/login' })`. A value from the query string can point to another site, so check it against your own pages first.",
+    },
+
+    // Test errors. `signIn()` of `@vite-hub/auth/test` throws them.
+    AUTH_TEST_SIGN_IN_STATELESS: {
+      why: "`signIn()` writes the user and the session to the Auth database, and a Definition with the `stateless()` preset has none.",
+      fix: "Test the routes of a `stateless()` Definition through its social sign-in flow, or give the test app `database: authDatabase()` with `import { authDatabase } from '@vite-hub/auth/database'`.",
     },
 
     // Published numbered errors.
@@ -75,8 +86,8 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_C0052: withFix("Pass the Database name as one string literal, for example `authDatabase('content')`, or no argument for the `default` Database."),
     AUTH_C0053: withFix("Remove `advanced.database.generateId`, or set it to a function that returns strings. Use another Better Auth adapter for numeric or UUID IDs."),
     AUTH_C0054: withFix("Call `authDatabase()` inline as `database` in the object of `defineAuth()`, or in the one object that its callback returns. Do not select it in a branch."),
-    AUTH_C0055: withFix("Remove `additionalFields` from the model that the message names, or use another Better Auth adapter with a schema that has your fields."),
-    AUTH_C0056: withFix("Remove the `modelName` or `fieldName` change, or the plugin that adds the column. Or use another Better Auth adapter with a schema that matches your options."),
+    AUTH_C0055: withFix("Write `additionalFields` inline in `server/auth.ts`, with a literal `type` for each field, for example `user: { additionalFields: { login: { type: 'string', required: false } } }`."),
+    AUTH_C0056: withFix("Remove the `modelName` or `fieldName` change. For a plugin that adds a table or a column, call it in `server/auth.ts` so that the Auth Vite plugin adds its tables, or add its tables to the Database Definition. Then run `vitehub database generate`."),
     AUTH_C0057: withFix("Unset `VITEHUB_ADMIN_EMAILS`. List each admin's social account in `VITEHUB_ADMINS`, for example `VITEHUB_ADMINS=github:22072217`."),
     AUTH_C0058: withFix("Write each `VITEHUB_ADMINS` entry as `<provider>:<account id>`, for example `github:22072217`. Run `gh api users/<login> --jq .id` to get a GitHub account id. For an app with only email sign-in, remove `VITEHUB_ADMINS`, then run `vitehub auth claim`."),
     AUTH_C0059: withFix("Run `vitehub auth claim` and set `VITEHUB_ADMIN_CLAIM` to the `sha256:` value that it prints. Do not set the code itself."),

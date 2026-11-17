@@ -24,7 +24,7 @@ export async function kvResult<TData, TCode extends KVErrorCode = never>(
     return [undefined, await run()]
   }
   catch (cause) {
-    if (isRuntimeDiagnostic(cause) && kvConfigErrorCodes.has(cause.code)) throw cause
+    if (kvErrorDiagnostics.is(cause) && kvConfigErrorCodes.has(cause.code)) throw cause
     if (isRuntimeDiagnostic(cause) && hasCode(cause, codes)) return [toResultError(cause), undefined]
     return [kvErrorDiagnostics.KV_OPERATION_FAILED({ cause, operation, store }), undefined]
   }

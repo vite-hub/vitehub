@@ -13,17 +13,17 @@ icon: i-lucide-square-play
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports `PlaygroundRender`. In Vue with Vite, import it from `@vite-hub/ui`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports `PlaygroundRender`. In Vue with Vite, import it from `vite-hub/ui`:
 
 ```ts
-import { PlaygroundRender } from "@vite-hub/ui";
+import { PlaygroundRender } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```vue
 <script setup lang="ts">
-import type { PlaygroundFiles } from "@vite-hub/ui";
+import type { PlaygroundFiles } from "vite-hub/ui";
 import { marked } from "marked";
 
 const presets = [{ id: "hello", label: "Hello", files: { "content.md": "# Hello\n" } }];

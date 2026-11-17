@@ -1,16 +1,19 @@
 // @vitest-environment happy-dom
 
 import { mount } from "@vue/test-utils";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { AgentInvocation } from "../../src/console/runtime/components/invocation/agent-invocation.ts";
 import { invocationActivities, invocationActivityTitle } from "../../src/console/runtime/components/invocation/internal/invocation-activity.ts";
 import type { AgentInvocationView } from "../../src/console/runtime/components/invocation/types.ts";
 import { delivery, event, input, invocation, message, openDetails, openWork, threadRows, workText, workTitle } from "./fixtures.ts";
+import { loadMarkdown } from "./markdown.ts";
 
 const show = (value: AgentInvocationView, props: Record<string, unknown> = {}) => mount(AgentInvocation, { props: { invocation: value, ...props } });
 const configured = (configuration: Record<string, unknown>, attributes: Record<string, unknown> = {}) =>
   event("vitehub.agent.configured", { "vitehub.agent.configuration": configuration, ...attributes });
 const lifecycleTitles = (wrapper: ReturnType<typeof show>) => wrapper.findAll(".vh-invocation-lifecycle__title").map(title => title.text());
+
+beforeAll(loadMarkdown);
 
 describe("Agent Invocation lifecycle rows", () => {
   describe("Agent configuration", () => {

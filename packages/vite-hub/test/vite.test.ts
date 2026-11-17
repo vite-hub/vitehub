@@ -7,7 +7,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { assertFeaturePackages, forgetPackageChecks, isPackageInstalled, missingFeaturePackagesError, startPackageChecks } from "../src/internal/optional-owners.ts"
+import { assertFeaturePackages, forgetPackageChecks, isPackageInstalled, missingFeaturePackagesError, startPackageChecks, type FeatureHostPackages } from "../src/internal/optional-owners.ts"
 
 vi.mock("../src/internal/optional-owners.ts", async importOriginal => {
   const original = await importOriginal<typeof import("../src/internal/optional-owners.ts")>()
@@ -711,6 +711,7 @@ describe("vitehub", () => {
     expect(pluginNames(vitehub({ host: "node" }))).toEqual(expect.arrayContaining(["@vite-hub/database/vite", "@vite-hub/blob/vite", "@vite-hub/workspace/vite"]))
     expect(appliedPluginNames(vitehub({ host: "node" }))).toEqual([
       "vite-hub/doctor",
+      "vite-hub/hints",
       "@vite-hub/markdown-template/vite",
       "vite-hub/deployment-settings",
       "vite-hub/deployment-host",
@@ -760,6 +761,7 @@ describe("vitehub", () => {
       workspace: true,
     }))).toEqual([
       "vite-hub/doctor",
+      "vite-hub/hints",
       "@vite-hub/markdown-template/vite",
       "vite-hub/agent-channel-env",
       "vite-hub/deployment-settings",
@@ -860,6 +862,8 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       driver: "resend",
       hosting: "cloudflare-module",
+      // Generated template types augment the facade module that the app imports.
+      importBase: "vite-hub/email",
       runtimeEnvImport: expect.stringMatching(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js$/),
       workflowProvider: undefined,
     })
@@ -998,7 +1002,7 @@ describe("vitehub", () => {
 
   it("checks the Database packages of Connections as the connections feature", () => {
     vitehub({ host: "node", connections: true })
-    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["connections"])
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["connections"], {})
   })
 
   it("checks the MCP SDK only when the Console MCP client is on", () => {
@@ -1017,8 +1021,12 @@ describe("vitehub", () => {
     [{ cache: { driver: "kv" } }, ["kv"]],
     [{ queue: true }, ["queue"]],
     [{ rateLimit: true }, ["rateLimit"]],
-    [{ host: "cloudflare", sandboxTask: true }, ["sandboxTask"]],
+    [{ host: "cloudflare", sandboxTask: true }, ["sandboxTask"], { sandboxTask: ["@cloudflare/sandbox"] }],
     [{ workflow: true }, ["workflow"]],
+    // The Vercel providers of Queue and Workflow load the Vercel SDKs.
+    [{ host: "vercel", workflow: true }, ["workflow"], { workflow: ["@vercel/functions"] }],
+    [{ host: "vercel", queue: true }, ["queue"], { queue: ["@vercel/queue", "@vercel/functions"] }],
+    [{ host: "vercel", workflow: { provider: "openworkflow" } }, ["workflow"]],
     // Agents run on Workflow.
     [{ agent: true }, ["agent", "workflow"]],
     [{ agent: true, workflow: false }, ["agent"]],
@@ -1026,9 +1034,9 @@ describe("vitehub", () => {
     [{ host: "netlify", agent: { invocations: false }, workflow: false }, ["agent"]],
     [{ host: "netlify", agent: { invocations: false }, workflow: true }, ["agent", "workflow"]],
     [{ host: "netlify", agent: { invocations: false }, workflow: {} }, ["agent", "workflow"]],
-  ] as const)("checks the owner packages of %j", (options, features) => {
+  ] as const)("checks the owner packages of %j", (options, features, hostPackages?: FeatureHostPackages) => {
     vitehub({ host: "node", ...options } as ViteHubOptions)
-    expect(assertFeaturePackages).toHaveBeenLastCalledWith(features)
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(features, hostPackages ?? {})
   })
 
   it.each([undefined, false] as const)("keeps Netlify Agents inline without the Workflow peer (%s)", (workflow) => {
@@ -1039,18 +1047,18 @@ describe("vitehub", () => {
       expect(pluginNames(vitehub({ host: "netlify", agent: { invocations: false }, workflow })))
         .not.toContain("@vite-hub/workflow/vite")
       expect(integrationMocks.hubWorkflow).toHaveBeenCalledTimes(workflowCallsBefore)
-      expect(assertFeaturePackages).toHaveBeenLastCalledWith(["agent"])
+      expect(assertFeaturePackages).toHaveBeenLastCalledWith(["agent"], {})
     })
   })
 
   it("checks no owner package without features", () => {
     vitehub({ host: "node" })
-    expect(assertFeaturePackages).toHaveBeenLastCalledWith([])
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith([], {})
   })
 
   it("requires the Agent package for observability without Agents", () => {
     vitehub({ host: "node", observability: { service: "support" } })
-    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["agent"])
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["agent"], {})
   })
 
   it.each([undefined, false] as const)("keeps Workspace-only Workflow imports independent of Agent (%s)", (agent) => {
@@ -1112,6 +1120,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       ...email,
       hosting: "node-server",
+      importBase: "vite-hub/email",
       runtimeEnvImport: expect.stringMatching(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js$/),
       workflowProvider: undefined,
     })
@@ -1126,6 +1135,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       driver: "cloudflare-email",
       hosting: "cloudflare-module",
+      importBase: "vite-hub/email",
       runtimeEnvImport: expect.stringMatching(/[\\/]env[\\/]dist[\\/]internal[\\/]server\.js$/),
       workflowProvider: undefined,
     })
