@@ -12,7 +12,7 @@ icon: i-lucide-code
 
 | Argument | Does |
 | --- | --- |
-| `name` | The webhook, typed from the files of `server/webhooks/`. An unknown name throws [`WEBHOOKS_NOT_FOUND`](/docs/webhooks/limits-and-errors#webhooks_not_found). |
+| `name` | The webhook, typed from the files of `server/webhooks/`. An unknown name throws [`WEBHOOKS_NOT_FOUND`](/docs/webhooks/diagnostics/webhooks_not_found). |
 | `body` | JSON data: an object, an array, a string, a number, a boolean, or `null`. The receiver gets it as the request body. |
 | `event` | A label that the receiver gets in `x-vitehub-event`, such as `'comments.comment'`. |
 | `key` | With `debounce`, sends with the same key collapse. Default: the webhook name. See [Debounce](/docs/webhooks/configure#debounce). |

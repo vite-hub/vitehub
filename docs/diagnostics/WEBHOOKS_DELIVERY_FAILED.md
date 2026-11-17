@@ -1,1 +1,0 @@
-One attempt failed: a status that is not 2xx, no answer in 10 seconds, or a network error. The Queue handler throws it so that the Queue tries again. `lastError` of the delivery shows the same reason. Check that the receiver is up and answers with 2xx in time.

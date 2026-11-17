@@ -28,13 +28,13 @@ export default defineWebhook({
 | `signature` | `'github'` | `'github'` sends `x-hub-signature-256: sha256=<hex>`. `'stripe'` sends `stripe-signature: t=<time>,v1=<hex>`. Both are HMAC-SHA256. |
 | `debounce` | none | Wait this long after the last send, then deliver once. A duration such as `'30 minutes'`, `'10s'`, or `'1h'`, or a number of milliseconds. At most 24 hours. Without it, each send is delivered at once. |
 
-A wrong option throws [`WEBHOOKS_DEFINITION_INVALID`](/docs/webhooks/limits-and-errors#webhooks_definition_invalid) when the server loads the file. A debounce over 24 hours throws [`WEBHOOKS_DEBOUNCE_TOO_LONG`](/docs/webhooks/limits-and-errors#webhooks_debounce_too_long).
+A wrong option throws [`WEBHOOKS_DEFINITION_INVALID`](/docs/webhooks/diagnostics/webhooks_definition_invalid) when the server loads the file. A debounce over 24 hours throws [`WEBHOOKS_DEBOUNCE_TOO_LONG`](/docs/webhooks/diagnostics/webhooks_debounce_too_long).
 
 ## URL and secret
 
 `url` and `secret` are names, not values. A receiver URL often holds a token, so it stays out of your code and out of git. ViteHub reads both variables when it sends and again when it delivers: `process.env` on Node, and the bindings on Cloudflare. Set them in `.env` for `vite dev`, and as secrets on the host for production.
 
-Errors and stored fields never hold the URL, its query, or the secret. A missing variable makes `sendWebhook()` return [`WEBHOOKS_URL_UNSET`](/docs/webhooks/limits-and-errors#webhooks_url_unset) or [`WEBHOOKS_SECRET_UNSET`](/docs/webhooks/limits-and-errors#webhooks_secret_unset).
+Errors and stored fields never hold the URL, its query, or the secret. A missing variable makes `sendWebhook()` return [`WEBHOOKS_URL_UNSET`](/docs/webhooks/diagnostics/webhooks_url_unset) or [`WEBHOOKS_SECRET_UNSET`](/docs/webhooks/diagnostics/webhooks_secret_unset).
 
 To check a delivery in a ViteHub receiver, call [`verifyWebhook()`](/docs/env/webhooks) with `provider: 'github'` or `provider: 'stripe'` and the same secret.
 
@@ -67,9 +67,9 @@ The pending delivery and its due time live in the Database, and the wake lives i
 
 | Need | Why | Without it |
 | --- | --- | --- |
-| `queue` in `vitehub()` | Each delivery goes out through the internal `vitehub-webhooks` Queue. | The build fails with [`WEBHOOKS_QUEUE_OFF`](/docs/webhooks/limits-and-errors#webhooks_queue_off). |
-| `database` in `vitehub()` | Each delivery is a row of `vitehub_webhook_deliveries`. | The build fails with [`WEBHOOKS_DATABASE_OFF`](/docs/webhooks/limits-and-errors#webhooks_database_off). |
+| `queue` in `vitehub()` | Each delivery goes out through the internal `vitehub-webhooks` Queue. | The build fails with [`WEBHOOKS_QUEUE_OFF`](/docs/webhooks/diagnostics/webhooks_queue_off). |
+| `database` in `vitehub()` | Each delivery is a row of `vitehub_webhook_deliveries`. | The build fails with [`WEBHOOKS_DATABASE_OFF`](/docs/webhooks/diagnostics/webhooks_database_off). |
 | A SQLite Default Database | The table uses SQLite: a local file, libSQL such as Turso, or Cloudflare D1. | A Postgres Default Database cannot hold it. |
-| The migration | `vitehub database generate` and `vitehub database migrate` add the table. | Each send returns [`WEBHOOKS_STORE_FAILED`](/docs/webhooks/limits-and-errors#webhooks_store_failed). |
+| The migration | `vitehub database generate` and `vitehub database migrate` add the table. | Each send returns [`WEBHOOKS_STORE_FAILED`](/docs/webhooks/diagnostics/webhooks_store_failed). |
 
 Webhooks uses the Database named `default`, or the only Database of the app. See [Hosts](/docs/webhooks/hosts) for each host.

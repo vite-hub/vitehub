@@ -1,1 +1,0 @@
-The delivery is stored, but the Queue did not accept its wake job. `error.cause` holds the Queue error. When the Queue works again, call `flushWebhookDelivery()` with the id from `listPendingWebhookDeliveries()`.

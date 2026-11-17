@@ -1,1 +1,0 @@
-The server has no value for the variable that `secret` names. Set it in `.env` for `vite dev`, and as a secret on the host for production. When this happens at delivery time, the delivery is `dead`: set the variable, then redeliver.

@@ -1,1 +1,0 @@
-Webhooks is not running in this server: the app has no `server/webhooks/` files, or the code runs outside the ViteHub server. In a unit test, call `installWebhooks()` from `@vite-hub/webhooks/runtime` first.
