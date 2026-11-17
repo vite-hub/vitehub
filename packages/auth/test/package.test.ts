@@ -39,6 +39,7 @@ describe("@vite-hub/auth package contract", () => {
       "aggregateAuthEvents",
       "auth",
       "can",
+      "checkAuthMember",
       "createAuthHandler",
       "default",
       "getAuth",

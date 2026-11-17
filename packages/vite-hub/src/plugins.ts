@@ -43,6 +43,7 @@ import { healthVitePlugin, type HealthOptions } from "./health-vite.ts"
 import { viteHubSeoPlugin, type SeoOptions } from "./seo/vite.ts"
 import { requestPolicyVitePlugin, type SameOriginWritesOptions } from "./request-policy-vite.ts"
 import type { SecurityOptions } from "./security-vite.ts"
+import { redirectsVitePlugin, resolveRedirectsPolicy, type RedirectsOptions } from "./redirects-vite.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { cloudflarePkceChallengePlugin } from "./cloudflare-pkce-challenge.ts"
@@ -95,6 +96,7 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type { CacheOptions } from "./cache-storage.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
+export type { RedirectsOptions } from "./redirects-vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityLogsOptions, ObservabilityOptions } from "./observability-vite.ts"
 export type { HealthOptions } from "./health-vite.ts"
 export type { SeoOptions } from "./seo/vite.ts"
@@ -463,6 +465,14 @@ export interface ViteHubOptions {
    * unless the app configures Worker routing.
    */
   publicUrl?: string | ((agentName: string) => string)
+  /**
+   * Redirect every request to one canonical address. `host` sends other hosts, such as `www.example.com`, to
+   * `example.com`. `https` sends `http:` to `https:`. `trailingSlash` adds or removes the slash at the end of page paths.
+   * One redirect fixes all three: 301 for `GET` and `HEAD`, 308 for other methods. Local names, IP addresses, and
+   * preview hosts such as `*.workers.dev` keep their host and scheme. `vite dev` never redirects. On Cloudflare, static
+   * files run the Worker first so they redirect too. Redirect moved pages with Nitro `routeRules`. Default: off.
+   */
+  redirects?: RedirectsOptions
   /**
    * Trust the `X-Forwarded-Proto` header of a proxy that ends TLS, such as Caddy or nginx. When its first value is
    * `https` and the server sees `http:`, the request URL becomes `https:` before any middleware or route runs, so URLs
@@ -1510,6 +1520,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.trustProxy || options.sameOriginWrites || options.security) plugins.push(requestPolicyVitePlugin(options))
   if (options.health) plugins.push(healthVitePlugin(options.health === true ? {} : options.health, { database: Boolean(options.database) }))
   if (envPlugin) plugins.push(envPlugin)
+  const redirects = resolveRedirectsPolicy(options.redirects)
+  if (redirects) plugins.push(redirectsVitePlugin(redirects))
 
   const runtimeCapabilityImports = {
     blob: blobEnabled ? "vite-hub/blob" : false,
