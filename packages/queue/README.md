@@ -209,6 +209,32 @@ On Cloudflare, successful handlers acknowledge the message. Failed handlers retr
 
 `sendQueue()`, `dynamicQueue.send()`, `send()`, and `sendBatch()` return `[error, data]`. `error.code` is `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE`, or `QUEUE_UNSUPPORTED_OPTION`, and each error has `why`, `fix`, `docs`, and `cause`. Configuration errors, for example an unknown Queue name or a missing Cloudflare binding, throw. `JSON.stringify(error)` and Queue delivery reports omit `cause`, so keep credentials and provider responses there. Throw `ViteHubError` from a handler for an application code. See the [Queue error reference](https://vitehub.dev/docs/queue/limits-and-errors) for each code and the retry policy.
 
+## Add a Queue from another plugin
+
+A package can add a Queue Definition from its Vite plugin, so the app needs no file in `server/queues/`. Put the entry in `vitehub.queues`:
+
+```ts
+import { fileURLToPath } from "node:url"
+
+import type { Plugin } from "vite"
+import type { QueueContributingPlugin } from "@vite-hub/queue/vite"
+
+export function webhooks(): Plugin & QueueContributingPlugin {
+  return {
+    name: "@acme/webhooks",
+    vitehub: {
+      queues: [{
+        name: "acme-webhooks",
+        definition: { module: fileURLToPath(new URL("./deliver.js", import.meta.url)) },
+        reason: "Delivers webhooks after their delay.",
+      }],
+    },
+  }
+}
+```
+
+`definition.module` is an absolute path or `file:` URL of a module with `export default defineQueue(...)`. `vitehub.queues` can also be a function that gets `{ root, projectRoot, serverDirs }` and returns the list. Queue treats the entry like a discovered file: it goes in the registry and the generated types, and gets its Cloudflare binding, Vercel consumer route, provisioning, and inspection. `vitehub inspect` shows the plugin and the reason. A name that a file or another plugin also uses fails with `QUEUE_DEFINITION_DUPLICATE`, and an invalid entry fails with `QUEUE_CONTRIBUTION_INVALID`.
+
 ## Public imports
 
 | Import                           | Purpose                                                                             |
