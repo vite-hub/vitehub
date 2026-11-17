@@ -2,7 +2,7 @@ import { defineErrors } from "@vite-hub/runtime"
 
 // Keep published codes stable. Keep the codes of each group in alphabetical order.
 export const webhooksErrors = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/development/diagnostics",
+  docs: "https://vitehub.dev/docs/webhooks/diagnostics",
   codes: {
     // Definition and build errors. They throw.
     WEBHOOKS_DATABASE_OFF: {

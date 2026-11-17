@@ -734,6 +734,7 @@ describe("vitehub", () => {
       "@vite-hub/source/vite",
       "@vite-hub/content/vite",
       "@vite-hub/forms/vite",
+      "@vite-hub/sync/vite",
       "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
       "@vite-hub/webhooks/vite",
@@ -778,6 +779,7 @@ describe("vitehub", () => {
       "vite-hub/unavailable-services",
       "vite-hub/cloudflare-sh-syntax",
       "vite-hub/cloudflare-pkce-challenge",
+      "vite-hub/cloudflare-redirects-file",
       "vite-hub/dependencies",
       "vite-hub/error-log",
       "vite-hub/evlog-bridge",
@@ -803,6 +805,7 @@ describe("vitehub", () => {
       "@vite-hub/source/vite",
       "@vite-hub/content/vite",
       "@vite-hub/forms/vite",
+      "@vite-hub/sync/vite",
       "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
       "@vite-hub/webhooks/vite",
@@ -1001,6 +1004,18 @@ describe("vitehub", () => {
     }
     finally {
       ownerModules.formsVite = forms
+    }
+  })
+
+  it("checks Sync entries when only the Sync owner is absent", () => {
+    expect(ownerModules.formsVite).toBeDefined()
+    const sync = ownerModules.syncVite
+    try {
+      ownerModules.syncVite = undefined
+      expect(pluginNames(vitehub({ database: false, host: "node" }))).toContain("vite-hub/optional-owner-entries")
+    }
+    finally {
+      ownerModules.syncVite = sync
     }
   })
 

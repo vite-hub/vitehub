@@ -53,6 +53,7 @@ import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { cloudflarePkceChallengePlugin } from "./cloudflare-pkce-challenge.ts"
 import { cloudflareShSyntaxPlugin } from "./cloudflare-sh-syntax.ts"
+import { cloudflareRedirectsFileVitePlugin } from "./cloudflare-redirects-vite.ts"
 import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { setupDevPlugin } from "./setup-dev.ts"
@@ -181,6 +182,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/schedule": true,
   "@vite-hub/shell": true,
   "@vite-hub/source": true,
+  "@vite-hub/sync": true,
   "@vite-hub/ui": true,
   // Browser-only: generated server code never imports it.
   "@vite-hub/web-container": false,
@@ -893,6 +895,20 @@ function assertNodeScheduleWake(schedule: ViteHubOptions["schedule"]): void {
 }
 
 /**
+ * Rejects the former `provider` key of the features whose driver `vitehub()` picks from the host. The host checks run
+ * before the owner packages read their options, so without this check a host that has no such service would stop with
+ * a host error, and a host that has one would hide the old key.
+ */
+function assertNoProviderKey(options: ViteHubOptions): void {
+  for (const key of ["queue", "rateLimit", "sandboxTask"] as const) {
+    const feature: unknown = options[key]
+    if (!feature || typeof feature !== "object" || Reflect.get(feature, "driver") !== undefined || !Object.hasOwn(feature, "provider")) continue
+    const provider: unknown = Reflect.get(feature, "provider")
+    throw viteHubErrorDiagnostics.VITE_HUB_RENAMED_PROVIDER_KEY({ key, value: JSON.stringify(provider) ?? String(provider) })
+  }
+}
+
+/**
  * The Rate Limit driver of a build. On Node, Rate Limit counts in KV when the app enables KV, because KV can use Redis
  * or a Postgres Database that every instance shares. When ViteHub selects `kv` itself, a store that cannot share counts
  * falls back to memory with a warning. An explicit `driver: "kv"` on such a store fails the build.
@@ -1399,6 +1415,7 @@ function doctorPlugin(): Plugin {
 /** Builds the ViteHub plugin list for one resolved feature configuration. */
 function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires an options object." })
+  assertNoProviderKey(options)
   const host = resolveBuildHost(options.host)
   // Keep `false`: it turns the Console off, and unset keeps the development operation RPC.
   options = withConnectionsDatabase(withDataDir({ ...options, host, console: options.console === false ? false : resolveConsoleOptions(options.console) }))
@@ -1545,7 +1562,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(databaseDisabledPlugin(databaseRuntimeImports, options.database === false))
   }
   plugins.push(unavailableServicesPlugin(plan, { browser: Boolean(options.browser), realtime: Boolean(options.realtime) }))
-  if (plan.host === "cloudflare") plugins.push(cloudflareShSyntaxPlugin(), cloudflarePkceChallengePlugin())
+  if (plan.host === "cloudflare") plugins.push(cloudflareShSyntaxPlugin(), cloudflarePkceChallengePlugin(), cloudflareRedirectsFileVitePlugin())
   plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, configuredKV, kvHosting))
 
   // `logs: { source }` reads an existing pipeline, so without `service` it starts no logger.
@@ -1744,7 +1761,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       ...(options.rateLimit === true ? {} : options.rateLimit),
       ...buildRateLimitDriver(plan, options),
       kvImport: "vite-hub/kv",
-    } as RateLimitOptions)))
+    } as RateLimitOptions & { kvImport: string })))
   }
   // Comments in `server/comments.ts`, or with the `comments` option: threads in the Database, the overlay on pages in
   // comment mode, and page presence rooms where Realtime has an authority. Inert without either, and absent without its
@@ -1865,6 +1882,19 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       rateLimit: "vite-hub/rate-limit",
     },
   }))
+  // Sync in `server/sync/<name>.ts`: one route for each, the change log in the Database, and the user with Auth. Inert
+  // without the folder, and absent without its package.
+  if (ownerModules.syncVite) plugins.push(ownerModules.syncVite.hubSync({
+    database: Boolean(options.database),
+    auth: Boolean(options.auth),
+    imports: {
+      runtime: "vite-hub/sync/runtime",
+      operations: "vite-hub/sync/operations",
+      database: "vite-hub/sync/database",
+      databases: "@vite-hub/database/runtime/registry",
+      auth: "vite-hub/auth/server",
+    },
+  }))
   // Reads the `cms` preset and contributes its Workspace, Database tables, and, when the app has none, the default
   // Database. Inert without the preset.
   if (ownerModules.cmsVite) plugins.push(ownerModules.cmsVite.hubCms({
@@ -1891,7 +1921,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       types: "vite-hub/webhooks",
     },
   }))
-  if (!ownerModules.commentsVite || !ownerModules.contentVite || !ownerModules.cmsVite || !ownerModules.formsVite || !ownerModules.webhooksVite) plugins.push(optionalOwnerEntriesPlugin({ database: options.database !== false }))
+  if (!ownerModules.commentsVite || !ownerModules.contentVite || !ownerModules.cmsVite || !ownerModules.formsVite || !ownerModules.webhooksVite || !ownerModules.syncVite) plugins.push(optionalOwnerEntriesPlugin({ database: options.database !== false }))
   plugins.push(optionalOwnerImportsPlugin())
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())

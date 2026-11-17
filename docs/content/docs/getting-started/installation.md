@@ -217,7 +217,7 @@ When an installed `@vite-hub/*` package comes from another release than `vite-hu
 When another installed package has a version that your `vite-hub` release does not support, the build continues and prints a warning with the supported range and the install command:
 
 ```text [output/unsupported-package.txt]
-[vitehub] drizzle-orm 0.44.7 is installed, but vite-hub 0.1.0 supports drizzle-orm@^0.45.3. Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add 'drizzle-orm@^0.45.3'
+[vitehub] drizzle-orm 0.45.4 is installed, but vite-hub 0.2.0 supports drizzle-orm@1.0.0-rc.5 || ^1.0.0. Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add 'drizzle-orm@1.0.0-rc.5 || ^1.0.0'
 ```
 
 ::details{summary="Which features need their own package?"}
@@ -242,7 +242,7 @@ When another installed package has a version that your `vite-hub` release does n
 | `schedule` | `@vite-hub/schedule` |
 | `workflow` | `@vite-hub/workflow` |
 | `workspace` | `@vite-hub/workspace`, and `@vite-hub/shell` for shell commands |
-| `server/content.ts` | `@vite-hub/content`, and `@vite-hub/cms` for the `cms` preset. Content uses the app's `comark` and `@comark/html`, which pnpm and npm install with it |
+| `server/content.ts` | `@vite-hub/content`, and `@vite-hub/cms` for the `cms` preset. Content uses the app's `comark`, `@comark/html`, and `comark-ui`, which pnpm and npm install with it |
 | `server/comments.ts` | `@vite-hub/comments` |
 | `.template.md` imports | `@vite-hub/markdown-template` |
 | Console with Agents | `@libsql/client drizzle-orm` |
@@ -329,6 +329,6 @@ This install is smaller. For a Blob and Queue app with Nitro, H3, and Vite, usin
 
 ## Model and coding providers
 
-Install a provider package only when you use it. Model Drivers need `ai` and the credentials in [Agent Drivers](/docs/agents/agent-drivers). The built-in coding Drivers use `@openai/codex@0.149.1` or `@anthropic-ai/claude-agent-sdk@0.3.321`. ViteHub bundles their runtime, so pnpm settings do not change.
+Install a provider package only when you use it. Model Drivers need `ai` and the credentials in [Agent Drivers](/docs/agents/agent-drivers). The built-in coding Drivers use `@openai/codex@0.169.0` or `@anthropic-ai/claude-agent-sdk@0.3.321`. ViteHub bundles their runtime, so pnpm settings do not change.
 
 A Node.js build copies the native coding-provider packages for the build computer's OS, CPU, and Linux libc. Build on the same type of computer you deploy to.

@@ -97,8 +97,11 @@ export interface CommentsVitePluginOptions {
   dialect?: "postgresql" | "sqlite"
   /** Store attachments in the app's Blob store. Default `false`: uploads need `defineComments({ storeAttachment })`. */
   blob?: boolean
-  /** `false` leaves the overlay out: no `comments` page tool. The API, the operations, and the Console stay. */
-  overlay?: false
+  /**
+   * `false` leaves the overlay out: no `comments` page tool. The API, the operations, and the Console stay.
+   * `{ presence: false }` keeps the overlay without its faces and cursors, for an app that shows its own presence.
+   */
+  overlay?: false | { presence?: false }
   /**
    * ViteHub Rate Limit counts in a KV store that every server process shares: count the guest writes of
    * `defineComments({ rateLimit })` there too. Default `false`: each process counts in its memory.
@@ -341,6 +344,7 @@ export function renderCommentsHandler(input: { definition: string, content?: str
     ...(githubLogin ? [`  githubLogin: createCommentsGitHubLogin(${JSON.stringify({ ...(input.build?.repository ? { repository: input.build.repository } : {}), ...(route !== commentsRoute ? { basePath: `${route}/auth` } : {}) })}),`] : []),
     ...(input.content ? ["  content: contentModule.default ? { runtime: contentModule.default, parseField: parseContentField } : undefined,"] : []),
     `  realtime: ${input.realtime},`,
+    ...(input.session.overlay && input.session.overlay.presence === false ? ["  presence: false,"] : []),
     `  build: ${JSON.stringify(input.build ?? {})},`,
     "  components,",
     "})",

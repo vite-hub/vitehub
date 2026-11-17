@@ -48,6 +48,8 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 | `'github'` | `X-Hub-Signature-256` | none |
 | `'hmac'` | `header` | `header` (required), `prefix`, `encoding` (`'hex'` or `'base64'`), `secretEncoding` (`'utf8'` or `'base64'`) |
 
+GitHub sends the body as JSON, or as a form when the webhook's Content type is `application/x-www-form-urlencoded`. `verifyWebhook()` reads both and returns the same JSON.
+
 Use `'hmac'` for a provider that signs the raw body with HMAC-SHA256, such as Airtable:
 
 ```ts [server/api/airtable/webhook.post.ts]
@@ -74,7 +76,7 @@ export default defineEventHandler(async (event) => {
 
 - `ENV_WEBHOOK_SIGNATURE_INVALID`: the header is missing, the signature does not match the body, or a Stripe signature is too old.
 - `ENV_WEBHOOK_SECRET_UNSET`: the variable has no secret, so every delivery fails. The route never opens by mistake.
-- `ENV_WEBHOOK_BODY_INVALID`: the signature is valid, but the body is not JSON.
+- `ENV_WEBHOOK_BODY_INVALID`: the signature is valid, but the body is not JSON, or a GitHub form delivery has no `payload` field.
 
 Answer with `400` for these errors. The provider shows the failed delivery and sends it again later.
 

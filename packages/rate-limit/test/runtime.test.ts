@@ -1,5 +1,5 @@
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { HTTPError, mockEvent } from "h3"
+import { H3, HTTPError, mockEvent } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { checkRateLimit, peekRateLimit, requireRateLimit, resetRateLimit } from "../src/index.ts"
@@ -51,6 +51,20 @@ describe("managed Rate Limit guard", () => {
       expect(error).toMatchObject({ status: 429, statusText: "Too Many Requests" })
       expect(error.headers?.get("Retry-After")).toBe("30")
     }
+  })
+
+  it("sends Retry-After on the 429 response of an H3 app", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(30_000)
+    const app = new H3().post("/api/demo/session", async (event) => {
+      await requireRateLimit(event, "demo-session", { key: "visitor", limit: 1, window: "1m" })
+      return { started: true }
+    })
+    const post = () => app.fetch(new Request("https://joxi.test/api/demo/session", { method: "POST" }))
+
+    expect((await post()).status).toBe(200)
+    const limited = await post()
+    expect(limited.status).toBe(429)
+    expect(limited.headers.get("retry-after")).toBe("30")
   })
 
   it("throws the 429 with the message and code of the call", async () => {

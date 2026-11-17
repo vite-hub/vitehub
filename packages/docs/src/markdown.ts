@@ -114,8 +114,8 @@ async function renderHtmlBlocks(nodes: ComarkNode[]): Promise<void> {
   // A block reads its children by tag, as `::compare` finds its `::screenshot`s, so it renders from its source tree.
   const source = (node: ComarkNode): ComarkNode => {
     if (!isElement(node)) return node
-    const original = blocks.get(node) ?? node
-    return [original[0], original[1], ...original.slice(2).map(source)]
+    const [tag, attributes, ...children] = blocks.get(node) ?? node
+    return [tag, attributes, ...children.map(source)]
   }
   let assets = ""
   // A block inside another one renders on its own too, for a page that overrides the outer block.

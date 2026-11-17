@@ -70,6 +70,8 @@ export default defineHandler(async (event) => {
 
 The client gets `{ status: 429, message: 'Too many tries. Wait a minute and try again.', data: { code: 'errorTooManyTries' } }` and the `Retry-After` header. `message` and `code` can be runtime values, such as a translated text. They change only the `429`. The `503` of an unavailable limiter keeps its message. For a different status or body, use `checkRateLimit()`.
 
+An app error handler that builds its own response must copy `error.headers`, or the client gets no `Retry-After`. The evlog Nitro module (`evlog/nitro/v3`, up to 2.35.1) builds a new response for `/api` routes and drops the header.
+
 ## Check without throwing
 
 `checkRateLimit(event, id, options)` takes the same arguments, without `message` and `code`, and consumes the same counters as `requireRateLimit()`, but it returns an `[error, decision]` Result instead of throwing. Use it when a limited request still gets an answer, such as a cached or cheaper result.

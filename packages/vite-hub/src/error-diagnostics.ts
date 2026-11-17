@@ -563,6 +563,14 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ limit }: { limit: "entries" | "bytes" }) => limit === "entries" ? "The source exceeded the requested page size." : "The source exceeded the response size limit.",
       fix: "Return at most `query.limit` entries from `query()` of the `LogSource`, and keep one page under 4 MB of JSON.",
     },
+    VITE_HUB_REDIRECTS_FILE_RULE_SKIPPED: {
+      why: ({ rules }: { rules: string }) => `Cloudflare serves static files, such as prerendered pages, before the Worker runs, so ViteHub writes \`redirect\` route rules to the \`_redirects\` file. These rules cannot go in that file: ${rules}. The Worker still redirects their paths, but not the static files on them.`,
+      fix: "Write the route as a path with `:name` segments or one `/**` at the end, without an HTTP method, and use a 301, 302, 303, 307, or 308 status. Or do not prerender the paths of these rules.",
+    },
+    VITE_HUB_REDIRECTS_FILE_TOO_LARGE: {
+      why: ({ dynamic, static: fixed }: { dynamic: number, static: number }) => `With the \`redirect\` route rules, the \`_redirects\` file has more than Cloudflare's limit of ${fixed} static or ${dynamic} dynamic redirects, so ViteHub did not add the rules. The Worker still redirects their paths, but not the static files on them.`,
+      fix: "Join redirects of one section into one rule with `/**`, such as `'/blog/**': { redirect: { to: '/posts/**', status: 301 } }`, or remove old redirects from `public/_redirects`.",
+    },
     VITE_HUB_REDIRECTS_HOST_INVALID: {
       why: ({ value }: { value: string }) => `\`redirects.host\` must be a host name such as \`example.com\`, but it is ${value}.`,
       fix: "Set `redirects.host` to the host name only, without `https://`, a port, or a path, for example `redirects: { host: \"example.com\", https: true }`.",
@@ -574,6 +582,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_REDIRECTS_TRAILING_SLASH_INVALID: {
       why: ({ value }: { value: string }) => `\`redirects.trailingSlash\` must be \`"add"\` or \`"remove"\`, but it is ${value}.`,
       fix: "Set `redirects.trailingSlash` to `\"remove\"` to redirect `/pricing/` to `/pricing`, or to `\"add\"` for the other way. Leave it out to keep paths as they are.",
+    },
+    VITE_HUB_RENAMED_PROVIDER_KEY: {
+      why: ({ key, value }: { key: string, value: string }) => `\`${key}.provider\` is ${value}. ViteHub renamed this key to \`driver\`, and it does not read \`provider\`, so it would pick the driver of the host, or stop because the host has none.`,
+      fix: ({ key, value }: { key: string, value: string }) => `Set \`${key}: { driver: ${value} }\` in \`vitehub()\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
     },
     VITE_HUB_SANDBOX_CLI_DRAIN_TIMEOUT_INVALID: {
       why: "[vitehub] --drain-timeout must be a non-negative number of milliseconds.",
