@@ -350,7 +350,7 @@ blob: {
 
 ## Failures in logs
 
-A failed cache read or write, derived file cleanup, media record write, or `fs` hash or metadata write does not fail the operation. With the evlog Nitro module registered, Blob logs it with `blob: { op, store, driver, code }`: on the wide event of a `serve()` request, else as its own evlog event. Without evlog, it goes to the console. See [Limits and errors](https://vitehub.dev/docs/blob/limits-and-errors#see-cache-failures-in-logs).
+A failed cache read or write, derived file cleanup, media record write, or `fs` hash or metadata write does not fail the operation. With the evlog Nitro module registered, Blob logs it with `blob: { op, store, driver, code }`: on the wide event of a `serve()` request, else as its own evlog event, once per process for each `fs` op. Events never hold the error message or a pathname. Without evlog, it goes to the console. See [Limits and errors](https://vitehub.dev/docs/blob/limits-and-errors#see-cache-failures-in-logs).
 
 ## CLI
 

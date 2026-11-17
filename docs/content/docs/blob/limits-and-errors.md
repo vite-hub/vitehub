@@ -40,7 +40,7 @@ Some Blob failures do not fail the operation: a cache read or write, the cleanup
 | `store`, `driver` | The store and its driver. The `fs` driver operations have no store. |
 | `code` | The `code` of the error, such as `ENOSPC`, else its class name. |
 
-A failure in `serve()` goes on the wide event of its request. Other failures do not know their request, so each one is its own evlog event, `{ action: "blob", message, blob }`. The fields never hold a pathname or file contents. Without evlog, Blob prints the failure to the server console.
+A failure in `serve()` goes on the wide event of its request. Other failures do not know their request, so each one is its own evlog event, `{ action: "blob", message, blob }`. The event has a fixed message and the `code`, never the error's message, a pathname, or file contents. The `fs` driver logs each `op` once per process, because a broken cache folder fails for each file. Without evlog, or with evlog's `enabled: false`, Blob prints the failure to the server console.
 
 ## Limits
 
