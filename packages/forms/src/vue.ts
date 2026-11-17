@@ -218,6 +218,45 @@ const AutoFormControl = defineComponent({
   },
 })
 
+/**
+ * The honeypot field of `defineForm()`: an input that people do not see and bots fill. Put it inside your own `<form>`,
+ * such as a Nuxt UI `UForm`. A form that `useFormAction()` sends reads it by its name. When you send an object with
+ * `submitForm()`, bind it with `v-model` and send its value under the same name.
+ *
+ * ```vue
+ * <form method="post" :action="formRoute('contact')" @submit="submit">
+ *   <FormHoneypot />
+ * </form>
+ * ```
+ */
+export const FormHoneypot = defineComponent({
+  name: "FormHoneypot",
+  props: {
+    /** The `honeypot` of `defineForm()`. */
+    name: { type: String, default: "website" },
+    modelValue: { type: String, default: undefined },
+  },
+  emits: { "update:modelValue": (_value: string) => true },
+  setup(props, { emit }) {
+    // Without `v-model`, the input keeps its own value across renders.
+    const own = ref("")
+    return () => h("input", {
+      name: props.name,
+      value: props.modelValue ?? own.value,
+      onInput: (event: Event) => {
+        const value = (event.target as HTMLInputElement).value
+        own.value = value
+        emit("update:modelValue", value)
+      },
+      // Out of the tab order and the accessibility tree, and off screen: `display: none` is easy for a bot to skip.
+      tabindex: -1,
+      autocomplete: "off",
+      "aria-hidden": "true",
+      style: "position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden",
+    })
+  },
+})
+
 /** The first values of the fields: the default of the schema, else `false` for a checkbox, so a required boolean validates. */
 function initialValues(schema: unknown, fields: readonly AutoFormField[]): Record<string, unknown> {
   const entries = (schema as SchemaNode).entries ?? {}
@@ -270,7 +309,6 @@ export const AutoForm = defineComponent({
   setup(props, { emit, slots }) {
     const fields = computed(() => describeFormFields(props.schema))
     const values = ref(initialValues(props.schema, fields.value))
-    const trap = ref("")
     const { send, sent, errors: serverErrors, error: serverError, pending, clear } = formSender(props.name, {
       get anchor() { return props.anchor },
       get base() { return props.base },
@@ -396,17 +434,7 @@ export const AutoForm = defineComponent({
         error: checkErrors.value[field.key] ?? serverErrors.value[field.key],
         onEdit: (value: unknown) => edit(field.key, value),
       })),
-      props.honeypot
-        ? h("input", {
-            name: props.honeypot,
-            value: trap.value,
-            onInput: (event: Event) => { trap.value = (event.target as HTMLInputElement).value },
-            tabindex: -1,
-            autocomplete: "off",
-            "aria-hidden": "true",
-            style: "position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden",
-          })
-        : null,
+      props.honeypot ? h(FormHoneypot, { name: props.honeypot }) : null,
       formError.value ? h("p", { "data-error": "", role: "alert" }, formError.value) : null,
       // The live region is always there, so screen readers announce the text when it appears.
       h("p", { "data-sent": sent.value || returned.value === "sent" ? "" : undefined, "data-error": !sent.value && returned.value === "error" ? "" : undefined, role: "status", tabindex: "-1", ref: statusElement }, status()),

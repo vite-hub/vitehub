@@ -122,7 +122,7 @@ export default async function optimize({ width, height }: ImageInput) {
 Create `server/api/image-optimizer.post.ts`. This route sends the input to the Sandbox and returns the result.
 
 ```ts [server/api/image-optimizer.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { runSandboxTask } from 'vite-hub/sandbox/task'
 
 export default defineEventHandler(async (event) => {
@@ -130,7 +130,7 @@ export default defineEventHandler(async (event) => {
   const response = await runSandboxTask('image-optimizer', input)
 
   if (!response.ok)
-    throw createError({ statusCode: response.status, data: await response.json() })
+    throw new HTTPError({ status: response.status, data: await response.json() })
 
   return await response.json()
 })
