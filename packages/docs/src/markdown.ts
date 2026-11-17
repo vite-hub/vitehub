@@ -93,31 +93,36 @@ const phrasing = /^(?:p|h[1-6]|a|span|em|strong|del|s|mark|sup|sub|small|label)$
 /** Draw the page's HTML-only blocks in one context, so styles, fonts, and scripts are emitted once. */
 async function renderHtmlBlocks(nodes: ComarkNode[]): Promise<void> {
   const blocks = new Map<ElementNode, ElementNode>()
-  const roots: ElementNode[] = []
-  const visit = (nodes: ComarkNode[], from = 0, parent?: string, insideHtml = false) => {
+  const visit = (nodes: ComarkNode[], from = 0, parent?: string) => {
     for (let at = from; at < nodes.length; at++) {
       const node = nodes[at]!
       if (!isElement(node)) continue
       const tag = node[0]
       const html = drawsAsHtml(node)
-      visit(node as ComarkNode[], 2, tag, insideHtml || html)
+      visit(node as ComarkNode[], 2, tag)
       if (html) {
         // Keep the source props and children for app overrides, search, and heading text.
         const rendered: ElementNode = ["comark-html", { block: tag, blockProps: node[1], ...(parent && phrasing.test(parent) ? { inline: true } : {}) }, ...node.slice(2) as ComarkNode[]]
         blocks.set(rendered, node)
-        if (!insideHtml) roots.push(rendered)
         nodes[at] = rendered
       }
     }
   }
   visit(nodes)
   if (!blocks.size) return
+  // A block reads its children by tag, as `::compare` finds its `::screenshot`s, so it renders from its source tree.
+  const source = (node: ComarkNode): ComarkNode => {
+    if (!isElement(node)) return node
+    const original = blocks.get(node) ?? node
+    return [original[0], original[1], ...original.slice(2).map(source)]
+  }
   let assets = ""
-  await renderHtmlFromDocument({ nodes: roots }, {
+  // A block inside another one renders on its own too, for a page that overrides the outer block.
+  await renderHtmlFromDocument({ nodes: [...blocks.keys()].reverse() }, {
     components: {
       ...htmlBlocks,
       "comark-html": async (node, state) => {
-        let html = (await state.render([blocks.get(node)!])).trim()
+        let html = (await state.render([source(node)])).trim()
         const ranges: Array<[number, number]> = []
         walkSync(parseHtml(html), (element) => {
           if (element.type !== ELEMENT_NODE || !/^(style|script|link)$/.test(element.name)) return
