@@ -23,11 +23,11 @@ it("replaces stored descriptors and document pages in the active route", async (
   })
   const apply = (details: object) => addRoutes({ sections: ["inventory"], contributions: { inventory: details } })
   apply({ id: "inventory", label: "Inventory", view: { kind: "operation-view", operation: "inventory.old" } })
-  await router.push("/inventory?sort=name")
+  await router.push("/inventory?sort=name#row")
   apply({ id: "inventory", label: "Inventory", view: { kind: "operation-view", operation: "inventory.new" } })
   // Await the replacement navigation scheduled by reconciliation.
   await new Promise(resolve => setTimeout(resolve, 0))
-  expect(router.currentRoute.value.fullPath).toBe("/inventory?sort=name")
+  expect(router.currentRoute.value.fullPath).toBe("/inventory?sort=name#row")
   expect(router.currentRoute.value.matched[0]!.props.default).toMatchObject({
     details: { view: { operation: "inventory.new" } },
   })

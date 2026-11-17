@@ -5,6 +5,7 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
+// Retired codes. Do not reuse them: SCHEDULE_R0001, SCHEDULE_R0002, and SCHEDULE_R0036 to SCHEDULE_R0038.
 export const scheduleErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/schedule/diagnostics",
   codes: {
@@ -55,28 +56,74 @@ export const scheduleErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Write `defineSchedule({ cron, handler })`. Run `npx @vite-hub/codemods define-forms` to rewrite every Schedule.",
     },
-    SCHEDULE_R0001: dynamicError,
-    SCHEDULE_R0002: dynamicError,
-    SCHEDULE_R0003: dynamicError,
-    SCHEDULE_R0004: dynamicError,
-    SCHEDULE_R0005: dynamicError,
-    SCHEDULE_R0006: dynamicError,
-    SCHEDULE_R0022: dynamicError,
-    SCHEDULE_R0023: dynamicError,
-    SCHEDULE_R0024: dynamicError,
-    SCHEDULE_R0025: dynamicError,
-    SCHEDULE_R0026: dynamicError,
-    SCHEDULE_R0027: dynamicError,
-    SCHEDULE_R0028: dynamicError,
-    SCHEDULE_R0030: dynamicError,
-    SCHEDULE_R0031: dynamicError,
-    SCHEDULE_R0032: dynamicError,
-    SCHEDULE_R0033: dynamicError,
-    SCHEDULE_R0034: dynamicError,
-    SCHEDULE_R0035: dynamicError,
-    SCHEDULE_R0036: dynamicError,
-    SCHEDULE_R0037: dynamicError,
-    SCHEDULE_R0038: dynamicError,
+    SCHEDULE_R0003: {
+      ...dynamicError,
+      fix: "Write `cron` of `defineSchedule()` as a five-field cron string, such as `\"0 9 * * 1\"`, and `timeZone` as a string literal with an IANA name, such as `\"Europe/Madrid\"`.",
+    },
+    SCHEDULE_R0004: {
+      ...dynamicError,
+      fix: "Write `cron` of `defineSchedule()` as a string literal, such as `cron: \"0 9 * * *\"`.",
+    },
+    SCHEDULE_R0005: {
+      ...dynamicError,
+      fix: "Rename one of the two Schedule files that the message names, so that their Vercel function paths are different.",
+    },
+    SCHEDULE_R0006: {
+      ...dynamicError,
+      fix: "Rename one of the two Schedule files that the message names, so that their Netlify function files are different.",
+    },
+    SCHEDULE_R0022: {
+      ...dynamicError,
+      fix: "Set `timeZone` of the Schedule to an IANA time zone that the host supports, such as `\"Europe/Madrid\"`, or remove it to use UTC.",
+    },
+    SCHEDULE_R0023: {
+      ...dynamicError,
+      fix: "Write `cron` of the Schedule as five fields: minute, hour, day of the month, month, and day of the week.",
+    },
+    SCHEDULE_R0024: {
+      ...dynamicError,
+      fix: "Set Schedule `runtime.leaseTtlMs` and `runtime.intervalMs` to numbers greater than zero, with `intervalMs` at most 60000, and `runtime.catchUpMs` to 0 or more. Or omit them to use the defaults.",
+    },
+    SCHEDULE_R0025: {
+      ...dynamicError,
+      fix: "Set Schedule `runtime.concurrency` to a whole number of 1 or more, or omit it to run one Schedule at a time.",
+    },
+    SCHEDULE_R0026: {
+      ...dynamicError,
+      fix: "Do not call the Process Schedule Runtime after `close()`. Install a new runtime with `installProcessScheduleRuntime()` if the process must run Schedules again.",
+    },
+    SCHEDULE_R0027: {
+      ...dynamicError,
+      fix: "Send the Cloudflare scheduled event with a cron string. With `wrangler dev --test-scheduled`, call `/__scheduled?cron=*+*+*+*+*`.",
+    },
+    SCHEDULE_R0028: {
+      ...dynamicError,
+      fix: "Send the Cloudflare scheduled event with `scheduledTime` as a Unix time in milliseconds, or without `scheduledTime` to use the current time.",
+    },
+    SCHEDULE_R0030: {
+      ...dynamicError,
+      fix: "Pass a new `id` to `createAttempt()` of the Schedule Run store.",
+    },
+    SCHEDULE_R0031: {
+      ...dynamicError,
+      fix: "Pass a new `id` to `createRun()` of the Schedule Run store, or read the existing Run with `getRun(id)`.",
+    },
+    SCHEDULE_R0032: {
+      ...dynamicError,
+      fix: "Pass a new `id` to `createAttempt()` of the Schedule Run store.",
+    },
+    SCHEDULE_R0033: {
+      ...dynamicError,
+      fix: "Pass a new `id` to `createRun()` of the Schedule Run store, or read the existing Run with `getRun(id)`.",
+    },
+    SCHEDULE_R0034: {
+      ...dynamicError,
+      fix: "Deploy the output of the current build, and keep the file under `server/schedules/` of each Schedule that the host still triggers.",
+    },
+    SCHEDULE_R0035: {
+      ...dynamicError,
+      fix: "Read `error.cause` for the value that the Schedule handler threw, and fix the handler in `server/schedules/<name>.ts`. Throw an `Error` so that the run keeps its stack.",
+    },
     SCHEDULE_B0001: {
       ...dynamicError,
       fix: "Set `runtime: { driver: \"process\" }` in `hubSchedule()` or in `vitehub({ schedule })`, or remove `runtime` to let the host wake Schedules.",
