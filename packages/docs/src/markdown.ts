@@ -63,7 +63,8 @@ const themes = { light: githubLight, dark: githubDark }
  * and the rest. The site's CSS styles the prose, so comark-ui's typeset is off. Chips are off too: they turn every web
  * link into a chip and fetch its favicon. A site turns them on with `comarkUi: { chips: true }`. Kroki diagrams are
  * off: they send each D2, PlantUML, or Graphviz fence to kroki.io while the page parses. Mermaid stays on, since
- * comark-pele draws it in the process.
+ * comark-pele draws it in the process. Remove the Kroki override when comark-ui turns drawing off by default
+ * (https://github.com/onmax/comark-ui/issues/446).
  *
  * The plugins are the HTML preset's, so annotate, comments, diff, and quiz parse too, with the Vue preset's copy of
  * every plugin the two share.
@@ -113,8 +114,8 @@ async function renderHtmlBlocks(nodes: ComarkNode[]): Promise<void> {
   // A block reads its children by tag, as `::compare` finds its `::screenshot`s, so it renders from its source tree.
   const source = (node: ComarkNode): ComarkNode => {
     if (!isElement(node)) return node
-    const original = blocks.get(node) ?? node
-    return [original[0], original[1], ...original.slice(2).map(source)]
+    const [tag, attributes, ...children] = blocks.get(node) ?? node
+    return [tag, attributes, ...children.map(source)]
   }
   let assets = ""
   // A block inside another one renders on its own too, for a page that overrides the outer block.

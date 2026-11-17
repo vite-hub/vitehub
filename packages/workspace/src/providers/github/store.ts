@@ -11,6 +11,7 @@ import {
   normalizeWorkspacePath,
 } from "../../core/path.ts";
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts";
+import { workspaceStoreDiscard } from "../../storage/discard.ts";
 import { workspaceStoreTarget } from "../../storage/target.ts";
 import { workspaceRevisionMaterializer } from "../../storage/materialization.ts";
 import {
@@ -260,6 +261,14 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       repository: this.#repository,
       root: this.#root,
     }));
+  }
+
+  /** Drops the staged writes. The next call loads the branch again, as the first call does. */
+  async [workspaceStoreDiscard](): Promise<void> {
+    await this.#mutate(async () => {
+      this.#dirty = false;
+      this.#ready = undefined;
+    });
   }
 
   [workspaceStoreTarget]() {
@@ -621,6 +630,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
         deletePaths,
         files,
         message: options.name || "chore: update workspace snapshot",
+        ...(options.author ? { author: options.author } : {}),
         parentSha: this.#baselineRefSha,
         remoteModes: new Map([...this.#remoteFiles.values()].map(entry => [entry.path, entry.mode])),
         repository: this.#client,

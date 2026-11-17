@@ -260,7 +260,8 @@ const config: KnipConfiguration = {
     ".": {
       entry: [
         "scripts/*.mjs",
-        // Root tasks come from `test/tasks.ts`, which the vite-plus plugin cannot read.
+        // Root tasks come from `test/tasks.ts`, which the vite-plus plugin cannot read
+        // (https://github.com/webpro-nl/knip/issues/2406).
         "test/package-metadata.mjs",
         "test/local/*.mjs",
         // The dev playground is part of the root package.
@@ -348,6 +349,8 @@ const config: KnipConfiguration = {
         /^@iconify-json\//,
         // The docs MCP endpoint loads agents/mcp on Cloudflare.
         "agents",
+        // The generated Workflow Worker resolves h3 from .nuxt (see the demo README).
+        "h3",
         // The README runs Wrangler directly for local migrations and Worker previews.
         "wrangler",
       ],

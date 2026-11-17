@@ -733,6 +733,15 @@ describe("resolveDBViteConfig", () => {
       .toThrow(/DATABASE_BINDING_CONFLICT|same Cloudflare D1 binding/)
   })
 
+  it("rejects the former \"d1\" driver of the Vite integration", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/default.ts")
+
+    // SAFETY: An app config without types passes the former driver name.
+    expect(() => resolveDBViteConfig({ driver: "d1" } as unknown as Parameters<typeof resolveDBViteConfig>[0], rootDir))
+      .toThrow(expect.objectContaining({ code: "DATABASE_UNKNOWN_DRIVER", fix: expect.stringContaining("driver: \"cloudflare\"") }))
+  })
+
   it("checks opaque explicit bindings without an integration binding", async () => {
     const rootDir = await createTempProject()
     for (const name of ["foo-bar", "foo_bar"]) {

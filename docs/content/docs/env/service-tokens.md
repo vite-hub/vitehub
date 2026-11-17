@@ -2,7 +2,7 @@
 title: Service tokens
 navigation.title: Service tokens
 description: Protect routes that scripts, runners, and webhooks call with a bearer token from a server variable.
-navigation.order: 10
+navigation.order: 11
 icon: i-lucide-key-round
 ---
 

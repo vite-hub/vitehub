@@ -13,6 +13,10 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   codes: {
     // Event, password, and sign-out errors. The event store, the events route, the password verifier, and `signOut()`
     // throw them.
+    AUTH_EVENT_CALLBACK_FAILED: {
+      why: ({ type }: { type: string }) => `\`events.onEvent\` failed for the ${JSON.stringify(type)} auth event. Auth kept the change and the stored event.`,
+      fix: "Read `error.cause` for the error of your callback. Catch errors inside `events.onEvent`, and retry the outside call there if it can fail.",
+    },
     AUTH_EVENT_QUERY_INVALID: {
       why: ({ problem }: { problem: "order" | "window" }) => problem === "order"
         ? "Auth event from must be before to."
@@ -81,7 +85,7 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_C0047: withFix("Remove the plugin that the message names, or remove `preset: stateless()` and configure a Better Auth database."),
     AUTH_C0048: withFix("Remove the option that the message names. Pass `maxAge` to `stateless()` to change the session lifetime, for example `stateless({ maxAge: '12h' })`."),
     AUTH_C0049: withFix("Pass a positive whole number of seconds or a duration, for example `stateless({ maxAge: '7d' })` or `stateless({ maxAge: 3600 })`."),
-    AUTH_C0050: withFix("Set `events: { store: createDatabaseAuthEventStore({ db }) }`, or `events: false` to disable the log. `events.authorize` must be a function."),
+    AUTH_C0050: withFix("Set `events: { store: createDatabaseAuthEventStore({ db }) }`, or `events: false` to disable the log. `events.authorize` and `events.onEvent` must be functions."),
     AUTH_C0051: withFix("Add `admin()` from `better-auth/plugins` to the `plugins` of `defineAuth()`, or unset the variable that the message names."),
     AUTH_C0052: withFix("Pass the Database name as one string literal, for example `authDatabase('content')`, or no argument for the `default` Database."),
     AUTH_C0053: withFix("Remove `advanced.database.generateId`, or set it to a function that returns strings. Use another Better Auth adapter for numeric or UUID IDs."),

@@ -73,6 +73,14 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Set `agent: true` in the ViteHub options to run the Agents. Set `agent: false` to keep them off on purpose.",
     },
+    VITE_HUB_CACHE_STALE_IF_ERROR_INVALID: {
+      why: ({ value }: { value: string }) => `\`staleIfError\` is the number of seconds after \`maxAge\` during which a failed call returns the stored value, but it is ${value}.`,
+      fix: "Pass a number of seconds that is 0 or more, such as `staleIfError: 86400` for one day. Remove `staleIfError` to return the error at once.",
+    },
+    VITE_HUB_CACHE_STALE_IF_ERROR_WITH_SERIALIZE: {
+      why: "`staleIfError` returns the stored value, but with `serialize` the stored value is the serialized form, and ocache would serialize it again.",
+      fix: "Remove `serialize`, or remove `staleIfError` and catch the error where you call the cached function.",
+    },
     VITE_HUB_CACHE_TAG_INVALID: {
       ...dynamicError,
       fix: "Pass non-empty strings to `tags` and `invalidateTag()`, for example `[\"posts\", \"post:1\"]`.",
@@ -298,8 +306,12 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Remove `cache` from `vitehub()`, or set `cache: { driver: \"kv\" }` with `kv` enabled to keep the cache in KV on this host.",
     },
     VITE_HUB_C0004: {
-      ...dynamicError,
-      fix: "Set `cache.driver` to \"cloudflare\", \"deno-kv\", \"fs-lite\", \"kv\", or \"vercel\".",
+      why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
+        ? `\`cache.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`
+        : `\`cache.driver\` is ${driver}. It must be "cloudflare", "deno-kv", "fs-lite", "kv", or "vercel".`,
+      fix: ({ renamed }: { driver: string, renamed?: string }) => renamed
+        ? `Set \`cache: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
+        : "Set `cache.driver` to \"cloudflare\", \"deno-kv\", \"fs-lite\", \"kv\", or \"vercel\".",
     },
     VITE_HUB_R0052: {
       ...dynamicError,
@@ -550,6 +562,14 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_LOGS_SOURCE_PAGE_TOO_LARGE: {
       why: ({ limit }: { limit: "entries" | "bytes" }) => limit === "entries" ? "The source exceeded the requested page size." : "The source exceeded the response size limit.",
       fix: "Return at most `query.limit` entries from `query()` of the `LogSource`, and keep one page under 4 MB of JSON.",
+    },
+    VITE_HUB_REDIRECTS_FILE_RULE_SKIPPED: {
+      why: ({ rules }: { rules: string }) => `Cloudflare serves static files, such as prerendered pages, before the Worker runs, so ViteHub writes \`redirect\` route rules to the \`_redirects\` file. These rules cannot go in that file: ${rules}. The Worker still redirects their paths, but not the static files on them.`,
+      fix: "Write the route as a path with `:name` segments or one `/**` at the end, without an HTTP method, and use a 301, 302, 303, 307, or 308 status. Or do not prerender the paths of these rules.",
+    },
+    VITE_HUB_REDIRECTS_FILE_TOO_LARGE: {
+      why: ({ dynamic, static: fixed }: { dynamic: number, static: number }) => `With the \`redirect\` route rules, the \`_redirects\` file has more than Cloudflare's limit of ${fixed} static or ${dynamic} dynamic redirects, so ViteHub did not add the rules. The Worker still redirects their paths, but not the static files on them.`,
+      fix: "Join redirects of one section into one rule with `/**`, such as `'/blog/**': { redirect: { to: '/posts/**', status: 301 } }`, or remove old redirects from `public/_redirects`.",
     },
     VITE_HUB_REDIRECTS_HOST_INVALID: {
       why: ({ value }: { value: string }) => `\`redirects.host\` must be a host name such as \`example.com\`, but it is ${value}.`,

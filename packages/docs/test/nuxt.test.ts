@@ -177,7 +177,8 @@ describe("docs in an existing app", () => {
     const app = appWithDocs({ "docs/guide/index.md": "Guide" }, true)
     const options = await setupDocs({ dir: app.dir }, "/", false, [{ config: { srcDir: app.srcDir } }]) as Awaited<ReturnType<typeof setupDocs>> & { app: { head: Record<string, unknown> } }
     expect(options.app.head).toEqual({})
-    expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = false\n")
+    expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = false\nexport const articleLayout = \"docs-article\"\n")
+    expect(templates.get("docs/shell.d.mts")?.()).toContain("export declare const articleLayout: \"docs-article\"\n")
     // The app config keeps the app's colors and slot classes. The docs layouts scope the theme with <UTheme>.
     expect(options.appConfig).toEqual({ ui: { prose: { codeIcon: expect.any(Object) } } })
     expect(templates.get("docs/theme.mjs")?.()).toContain('"pageHeader":{')
@@ -206,7 +207,8 @@ describe("docs in an existing app", () => {
     expect(options.appConfig).toMatchObject({ ui: { colors: { primary: "neutral", neutral: "neutral" } } })
     expect(templates.get("docs/theme.mjs")?.()).toBe('export default {"ui":{},"props":{}}\n')
     expect(templates.has("docs/theme.css")).toBe(false)
-    expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = true\n")
+    expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = true\nexport const articleLayout = \"default\"\n")
+    expect(templates.get("docs/shell.d.mts")?.()).toContain("export declare const articleLayout: \"default\"\n")
     const layouts: Record<string, { file: string }> = {}
     await callHook("app:templates", { layouts, templates: [] })
     expect(Object.keys(layouts).sort()).toEqual(["default", "docs"])
@@ -823,12 +825,15 @@ describe("docs Nuxt setup", () => {
     expect(routes.some(path => path.startsWith("/portal"))).toBe(false)
     expect(handlers.map(handler => handler.route)).toEqual([
       "/api/_docs/page/**", "/api/_docs/search.json", "/sitemap.xml",
+      // The trailing-slash redirect: middleware, with no route.
+      undefined,
       "/llms.txt", "/llms-full.txt", "/sitemap.md",
       "/llms.txt", "/llms-full.txt", "/sitemap.md",
       "/mcp",
       // The Markdown copies of app pages: middleware, with no route.
       undefined,
     ])
+    expect(handlers[3]).toMatchObject({ middleware: true, handler: expect.stringMatching(/runtime\/server\/trailing-slash\.js$/) })
     expect(handlers.at(-1)).toMatchObject({ middleware: true, handler: expect.stringMatching(/runtime\/server\/markdown\.js$/) })
     // Nitro gets the raw route directly, so nuxt-agent-discovery still lets the build prerender the copies.
     expect((nitro as { handlers?: Array<{ route: string, method: string }> }).handlers?.map(handler => [handler.route, handler.method])).toEqual([["/raw/**", "get"], ["/raw/**", "head"]])

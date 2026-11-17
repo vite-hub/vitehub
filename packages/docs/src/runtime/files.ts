@@ -4,7 +4,8 @@ const decoder = new TextDecoder()
 let unpacked: Promise<Uint8Array> | undefined
 
 async function unpack(base64: string): Promise<Uint8Array> {
-  // Node, Bun, Deno, and Workers with nodejs_compat have node:zlib. It decodes faster than DecompressionStream.
+  // Node, Bun, Deno, and Workers with nodejs_compat have node:zlib. It decodes faster than DecompressionStream
+  // (https://github.com/nodejs/performance/issues/134).
   const zlib = globalThis.process?.getBuiltinModule?.("node:zlib")
   const buffer = globalThis.process?.getBuiltinModule?.("node:buffer")
   if (zlib && buffer) {
@@ -21,6 +22,7 @@ async function unpack(base64: string): Promise<Uint8Array> {
  * A Markdown file of a docs store: a content folder (`docs`, `docs-1`, ...) or the raw copies (`docs-raw`), or null.
  * A production build packs every file into one module. Nitro server assets would add one module per file, and
  * Cloudflare rejects a Worker upload with more than 5,000 modules. Development loads each file through Vite.
+ * Nitro gives no build warning for that limit (https://github.com/nitrojs/nitro/issues/5149).
  */
 export async function readDocsFile(store: string, file: string): Promise<string | null> {
   if ("read" in files) return await files.read(store, file)

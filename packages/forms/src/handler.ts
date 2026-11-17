@@ -1,5 +1,6 @@
 import { back, fail, guardRequest, json } from "./guard.ts"
 
+import { isFormsDiagnostic } from "./errors.ts"
 import { checkForm, coerceFormFields } from "./fields.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
@@ -86,7 +87,17 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
   }
 
   const message = emailMessage(name, definition, submission)
-  if (store) await store.insert(submission)
+  if (store) {
+    try {
+      await store.insert(submission)
+    }
+    catch (error) {
+      if (!isFormsDiagnostic(error)) throw error
+      // A host answers a thrown error with a bare 500, so the code and the fix would stay in the server log.
+      services.log?.(`[vitehub] The ${name} form could not store a submission.`, error)
+      return html ? back(request, page, "error", name) : json(500, { code: error.code, message: error.why, fix: error.fix })
+    }
+  }
   if (message && store) {
     // The submission is safe in the inbox, so a notification failure does not fail the request.
     if (services.email) {

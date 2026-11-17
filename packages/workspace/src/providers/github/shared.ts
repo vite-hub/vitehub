@@ -1,6 +1,6 @@
 import type { Forge, ForgeFileChange, ForgeFileMode, GitHubProvider } from "@vite-hub/forge";
 import { abortable } from "@vite-hub/internal/abort";
-import { forgeEnv, forgeErrorStatus, importForge, readForgeEnv } from "@vite-hub/internal/forge";
+import { forgeEnv, forgeErrorStatus, forgeImportError, readForgeEnv } from "@vite-hub/internal/forge";
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env";
 
 import { workspaceConflict, workspaceError } from "../../core/errors.ts";
@@ -11,7 +11,7 @@ import type { GitHubReadMemory } from "./cache.ts";
 import { workspaceErrorDiagnostics } from "../../error-diagnostics.ts";
 import { contentToBytes, normalizeSafeWorkspacePath, normalizeWorkspacePath } from "../../core/path.ts";
 
-import type { GitHubWorkspaceOption, GitHubWorkspaceRefs } from "../../core/types.ts";
+import type { GitHubWorkspaceOption, GitHubWorkspaceRefs, WorkspaceAuthor } from "../../core/types.ts";
 
 export interface GitHubWorkspaceOptions {
   branch?: GitHubWorkspaceOption;
@@ -122,7 +122,13 @@ async function sendGitHub(input: string | URL | Request, init: RequestInit): Pro
 
 /** `@vite-hub/forge`, an optional peer. A GitHub Workspace loads it on its first request. */
 export async function loadForge(): Promise<typeof import("@vite-hub/forge")> {
-  return await importForge(() => import("@vite-hub/forge"), "A GitHub Workspace");
+  // The import stays in the try, so esbuild leaves it for run time when the app did not install Forge.
+  try {
+    return await import("@vite-hub/forge");
+  }
+  catch (error) {
+    throw forgeImportError(error, "A GitHub Workspace");
+  }
 }
 
 /** How the Store signs in to GitHub: a token, or a GitHub App installation with its own rate limit. */
@@ -599,6 +605,8 @@ export async function commitGitHubChanges(input: {
   /** Remote modes, so a write that changes or keeps a mode other than `100644` sends it. */
   remoteModes?: ReadonlyMap<string, GitFileMode>;
   repository: GitHubRepository;
+  /** The Git author. Without it, the account of the token is the author. */
+  author?: WorkspaceAuthor;
 }): Promise<string> {
   // A change without a mode goes through `commitFiles()`, which cannot set a mode.
   // Send modes only when one write needs a mode other than `100644`.
@@ -613,6 +621,7 @@ export async function commitGitHubChanges(input: {
       branch: input.branch,
       changes,
       message: input.message,
+      ...(input.author ? { author: input.author } : {}),
       ...(input.branchExists ? { expectedHead: input.parentSha } : { createFrom: input.parentSha }),
     }));
   }

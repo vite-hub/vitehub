@@ -530,6 +530,34 @@ export default ({ mode }) => ({
     expect(stderr.output()).toBe("")
   })
 
+  it("answers project help from a help namespace without loading the project config", async () => {
+    const stdout = stream()
+    const stderr = stream()
+    const migrate = vi.fn((args: string[], context: { stdout: { write: (chunk: string) => unknown } }) => {
+      context.stdout.write(args.includes("--help") ? "Usage: vitehub database migrate\n" : "migrated\n")
+      return 0
+    })
+    const loadConfig = vi.fn(async () => ({
+      plugins: [{ vitehub: { cli: { namespaces: [{ features: [{ name: "migrate", run: migrate }, { name: "custom", run: () => 0 }], name: "database" }] } } }],
+      root: "/repo",
+    }))
+    const helpNamespaces = { database: vi.fn(async () => ({ description: "Database development workflows.", features: [{ name: "migrate", run: migrate }], name: "database" })) }
+
+    expect(await runViteHubCli({ args: ["database", "migrate", "--help"], cwd: "/app", helpNamespaces, loadConfig, stderr, stdout })).toBe(0)
+    expect(await runViteHubCli({ args: ["database", "-h"], cwd: "/app", helpNamespaces, loadConfig, stderr, stdout })).toBe(0)
+    expect(loadConfig).not.toHaveBeenCalled()
+    expect(stdout.output()).toContain("Usage: vitehub database migrate\n")
+    expect(stdout.output()).toContain("Usage: vitehub database <feature>")
+    expect(migrate).toHaveBeenCalledWith(["--help"], expect.objectContaining({ cwd: "/app", rootDir: "/app" }))
+
+    // A feature that only the project contributes, and a run without help, load the project.
+    expect(await runViteHubCli({ args: ["database", "custom", "--help"], cwd: "/app", helpNamespaces, loadConfig, stderr, stdout })).toBe(0)
+    expect(await runViteHubCli({ args: ["database", "migrate"], cwd: "/app", helpNamespaces, loadConfig, stderr, stdout })).toBe(0)
+    expect(loadConfig).toHaveBeenCalledTimes(2)
+    expect(stdout.output()).toContain("migrated\n")
+    expect(stderr.output()).toBe("")
+  })
+
   it("runs a runtime feature without the project config and loads it for the other features", async () => {
     const stdout = stream()
     const runtime = vi.fn(() => 0)

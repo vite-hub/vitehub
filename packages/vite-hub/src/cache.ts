@@ -1,18 +1,22 @@
 import { defineCachedFunction as defineNitroCachedFunction, defineCachedHandler as defineNitroCachedHandler } from "nitro/cache"
 import { defineHandler, toResponse, type EventHandler, type H3Event } from "nitro/h3"
-import { useKV } from "nitro/kv"
 import type { CachedFunctionOptions as NitroCachedFunctionOptions, CachedHandlerOptions as NitroCachedHandlerOptions } from "nitro/types"
-import type { CachedFunction } from "ocache"
+import type { CachedFunction, CacheEntry, StorageInterface } from "ocache"
 
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 /** Tags for one cache entry: a list, or a function of the cached function's arguments. */
 export type CacheTags<ArgsT extends unknown[]> = readonly string[] | ((...args: ArgsT) => readonly string[] | Promise<readonly string[]>)
 
-/** Nitro's cached function options, plus `tags`. */
+/** Nitro's cached function options, plus `tags` and `staleIfError`. */
 export interface CachedFunctionOptions<T = unknown, ArgsT extends unknown[] = unknown[]> extends NitroCachedFunctionOptions<T, ArgsT> {
   /** Tags for each entry. `invalidateTag()` with one of them makes the next call run the function again. */
   tags?: CacheTags<ArgsT>
+  /**
+   * Seconds after `maxAge` during which a call that throws returns the stored value instead of the error.
+   * The next call runs the function again.
+   */
+  staleIfError?: number
 }
 
 /** Nitro's cached handler options, plus `tags`. */
@@ -24,10 +28,109 @@ export interface CachedHandlerOptions extends NitroCachedHandlerOptions {
 // The cached handler stores this header with each response. Its value is the start time and the URI-encoded tags.
 const tagHeader = "x-vitehub-cache-tags"
 
-/** Like Nitro's `defineCachedFunction()`, with `tags`. */
+/** Like Nitro's `defineCachedFunction()`, with `tags` and `staleIfError`. */
 export function defineCachedFunction<T, ArgsT extends unknown[] = unknown[]>(
   fn: (...args: ArgsT) => T | Promise<T>,
   opts: CachedFunctionOptions<T, ArgsT> = {},
+): CachedFunction<T, ArgsT> {
+  const { staleIfError, ...options } = opts
+  if (staleIfError !== undefined && !(typeof staleIfError === "number" && staleIfError >= 0 && Number.isFinite(staleIfError))) {
+    throw viteHubErrorDiagnostics.VITE_HUB_CACHE_STALE_IF_ERROR_INVALID({ value: String(staleIfError) })
+  }
+  // ocache would run `serialize` again on the stored value, which is already serialized.
+  if (staleIfError && options.serialize) throw viteHubErrorDiagnostics.VITE_HUB_CACHE_STALE_IF_ERROR_WITH_SERIALIZE()
+  return staleIfError ? defineStaleIfErrorFunction(fn, options, staleIfError) : defineTaggedFunction(fn, options)
+}
+
+// ocache deletes an entry when the function throws, and its storage TTL ends at `maxAge`. So the function is wrapped:
+// when it throws, the wrapper returns the stored value, and the storage skips writing that same value back, so the
+// entry keeps its time and the next call runs the function again. The storage adds `staleIfError` to each TTL. It wraps
+// the `storage` option when there is one, and else reads and writes Nitro's KV the same way as Nitro's `kv` cache driver.
+function defineStaleIfErrorFunction<T, ArgsT extends unknown[]>(
+  fn: (...args: ArgsT) => T | Promise<T>,
+  options: Omit<CachedFunctionOptions<T, ArgsT>, "staleIfError">,
+  staleIfError: number,
+): CachedFunction<T, ArgsT> {
+  // The wrapper hides `fn` from ocache, so name and hash `fn` here the way ocache does by default.
+  const name = options.name ?? (fn.name || `anon_${hashText(String(fn))}`)
+  const integrity = options.integrity ?? hashText(`${fn}${JSON.stringify(options, (_key, value: unknown) => typeof value === "function" ? String(value) : value)}`)
+  // Storage key to the stored value that a call returned after an error.
+  const served = new Map<string, unknown>()
+  // Private resolver results distinguish fallback data from a fresh function result.
+  const fallbacks = new Map<T, { entry: CacheEntry<T>, value: T }>()
+  let inner: StorageInterface | undefined
+  const store = (): StorageInterface => inner ??= typeof options.storage === "function" ? options.storage() : options.storage ?? nitroKVStorage()
+  const storage = (): StorageInterface => ({
+    binary: store().binary,
+    maxEntryBytes: store().maxEntryBytes,
+    get: key => store().get(key),
+    set: async (key, value, opts) => {
+      const stale = served.get(key)
+      served.delete(key)
+      if (stale !== undefined && typeof value === "object" && value !== null && "value" in value && value.value === stale) return
+      await store().set(key, value, opts?.ttl ? { ttl: opts.ttl + staleIfError } : opts)
+    },
+  })
+  let keysOf: (...args: ArgsT) => Promise<string[]> = async () => []
+  const run = async (...args: ArgsT): Promise<T> => {
+    try {
+      return await fn(...args)
+    } catch (error) {
+      const keys = await keysOf(...args)
+      for (const [index, key] of keys.entries()) {
+        const entry = await store().get<CacheEntry<T>>(key)
+        if (typeof entry !== "object" || entry === null) continue
+        const value = await staleValue(entry, args)
+        if (value === undefined) break
+        if (options.onError) options.onError(error)
+        else console.warn("[vitehub] The cached function threw, so it returns the stored value.", error)
+        // ocache writes the result to the base where it found the entry and to each base before it.
+        for (const written of keys.slice(0, index + 1)) served.set(written, entry.value)
+        // SAFETY: this private token is unwrapped by serialize before ocache returns it.
+        const token = {} as T
+        fallbacks.set(token, { entry, value })
+        return token
+      }
+      throw error
+    }
+  }
+  const staleValue = async (entry: CacheEntry<T>, args: ArgsT): Promise<T | undefined> => {
+    if (entry.integrity !== integrity || entry.value === undefined || typeof entry.mtime !== "number") return undefined
+    // ocache stores `maxAge` in the entry only with `getMaxAge`. Its default is one second.
+    if (Date.now() > entry.mtime + ((entry.maxAge ?? options.maxAge ?? 1) + staleIfError) * 1000) return undefined
+    const decoded: CacheEntry<T> = entry.encoding === "base64" && typeof entry.value === "string"
+      // SAFETY: ocache stores a cached Uint8Array as base64 text. The function returned that Uint8Array.
+      ? { ...entry, encoding: undefined, value: Uint8Array.from(atob(entry.value), char => char.charCodeAt(0)) as T }
+      : entry
+    if (options.validate && await options.validate(decoded, { args }) === false) return undefined
+    return decoded.value
+  }
+  const cached = defineTaggedFunction(run, {
+    ...options,
+    integrity,
+    name,
+    storage,
+    getMaxAge: options.getMaxAge && ((entry) => {
+      const fallback = entry.value === undefined ? undefined : fallbacks.get(entry.value)
+      return fallback
+        ? { maxAge: fallback.entry.maxAge, staleMaxAge: fallback.entry.staleMaxAge }
+        : options.getMaxAge!(entry)
+    }),
+    serialize: (entry) => {
+      if (entry.value === undefined) return undefined
+      const fallback = fallbacks.get(entry.value)
+      if (!fallback) return entry.value
+      fallbacks.delete(entry.value)
+      return fallback.value
+    },
+  })
+  keysOf = cached.resolveKeys
+  return cached
+}
+
+function defineTaggedFunction<T, ArgsT extends unknown[]>(
+  fn: (...args: ArgsT) => T | Promise<T>,
+  opts: Omit<CachedFunctionOptions<T, ArgsT>, "staleIfError">,
 ): CachedFunction<T, ArgsT> {
   const { tags, validate, ...options } = opts
   if (!tags) return defineNitroCachedFunction(fn, opts)
@@ -90,7 +193,7 @@ export function defineCachedHandler(handler: EventHandler, opts: CachedHandlerOp
 export async function invalidateTag(tags: string | readonly string[]): Promise<void> {
   const list = checkTags(typeof tags === "string" ? [tags] : tags)
   const time = Date.now()
-  const storage = useKV("cache")
+  const storage = await tagStorage()
   await Promise.all(list.map(tag => storage.setItem(tagKey(tag), time)))
 }
 
@@ -105,6 +208,15 @@ function checkTags(tags: unknown): readonly string[] {
   return tags
 }
 
+// `nitro/kv` imports unstorage, which only an app with a KV store installs. The tag records load it on first use, so
+// `vite-hub/cache` imports without it. Later calls read the loaded module without a wait, so concurrent calls keep the
+// order in which they started.
+let kv: typeof import("nitro/kv") | undefined
+async function tagStorage() {
+  kv ??= await import("nitro/kv")
+  return kv.useKV("cache")
+}
+
 // One record per tag, with no TTL. The key encodes the tag, so `post` and `post:1` never share a path in fs-lite.
 function tagKey(tag: string): string {
   return `tags:${encodeURIComponent(tag)}`
@@ -113,9 +225,39 @@ function tagKey(tag: string): string {
 /** False when a tag was invalidated at or after `since`. Reads one record per tag, so it needs no key scan. */
 async function isNewerThanTags(tags: readonly string[], since: number): Promise<boolean> {
   if (tags.length === 0) return true
-  const storage = useKV("cache")
+  const storage = await tagStorage()
   const times = await Promise.all(tags.map(tag => storage.getItem(tagKey(tag))))
   return times.every(time => typeof time !== "number" || time < since)
+}
+
+// Nitro's `kv` cache driver: the cache keys start with the `cache` mount.
+function nitroKVStorage(): StorageInterface {
+  const storage = async () => {
+    kv ??= await import("nitro/kv")
+    return kv.useKV()
+  }
+  return {
+    // SAFETY: Nitro's own KV cache adapter returns what unstorage parsed, too. ocache checks the entry shape.
+    get: async <V>(key: string) => (await storage()).getItem(key) as Promise<V | null>,
+    set: async (key, value, opts) => {
+      // ocache writes an entry object, or null to delete one.
+      if (typeof value === "object") await (await storage()).setItem(key, value, opts?.ttl ? { ttl: opts.ttl } : undefined)
+    },
+  }
+}
+
+// A short, stable hash, like the one ocache uses to name an anonymous function.
+function hashText(text: string): string {
+  let h1 = 0xDEADBEEF
+  let h2 = 0x41C6CE57
+  for (let index = 0; index < text.length; index++) {
+    const char = text.charCodeAt(index)
+    h1 = Math.imul(h1 ^ char, 2654435761)
+    h2 = Math.imul(h2 ^ char, 1597334677)
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36)
 }
 
 function readTagHeader(value: string | undefined): { start: number, tags: string[] } | undefined {
@@ -131,7 +273,7 @@ function tagGeneration<T>(create: () => T): (tags: readonly string[]) => Promise
   let generation: string | undefined
   let current: T
   return async (tags) => {
-    const storage = useKV("cache")
+    const storage = await tagStorage()
     const times = await Promise.all(tags.map(tag => storage.getItem(tagKey(tag))))
     const next = JSON.stringify([tags, times])
     if (next !== generation) {

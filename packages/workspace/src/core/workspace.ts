@@ -8,6 +8,7 @@ import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
 import { createWorkspaceMetadataTarget, workspaceInternalMetadataCapability, attachWorkspaceMetadataTarget } from "../storage/metadata-target.ts"
 import { assertPublicWorkspaceMetaKey } from "../storage/metadata-keys.ts"
 import { getCachedWorkspaceStore } from "./workspace-cache.ts"
+import { trackStagedWrites } from "./request-scope.ts"
 import { createWorkspaceHistory } from "./history.ts"
 import type {
   Workspace,
@@ -22,7 +23,7 @@ type WorkspaceWithDefinitionSync = Workspace & {
 }
 
 function getStore(definition: WorkspaceDefinition) {
-  return getCachedWorkspaceStore(definition, () => createWorkspaceStoreFromProvider(definition))
+  return getCachedWorkspaceStore(definition, () => trackStagedWrites(createWorkspaceStoreFromProvider(definition)))
 }
 
 export function createWorkspace(definition: WorkspaceDefinition, options: { reuseStartupSnapshots?: boolean } = {}): Workspace {

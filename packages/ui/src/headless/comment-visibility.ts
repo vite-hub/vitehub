@@ -4,7 +4,7 @@ export type CommentVisibility = "all" | "hidden";
 export interface CommentVisibilityOptions {
   /** The first value, such as one the reader saved. Default `"all"`. */
   visibility?: CommentVisibility;
-  /** How long a comment or reply that was just sent shows while comments are hidden. Default `2500`. */
+  /** How long a comment or reply that was just sent shows while comments are hidden. The time waits while the reader is on it. Default `2500`. */
   flashMs?: number;
 }
 
@@ -16,13 +16,18 @@ export interface CommentVisibilityModel {
   readonly visibility: CommentVisibility;
   /** The ids that still show while comments are hidden: the open thread, then each one that was just sent. Empty while all show. */
   readonly only: readonly string[];
-  /** The ids that stopped showing while comments are hidden, for 180 ms. Their marks play the pop-out in that time. */
+  /** The ids that stopped showing while comments are hidden, for `commentLeaveMs`. Their marks play the pop-out in that time. */
   readonly leaving: readonly string[];
   set: (visibility: CommentVisibility) => void;
   /** The thread that is open. It shows while comments are hidden. */
   open: (id: string | null) => void;
   /** Shows the thread for `flashMs` while comments are hidden. It does nothing while all show. */
   flash: (id: string) => void;
+  /**
+   * The thread the reader points at or focuses, such as its pin. `hover(null)` when the reader leaves. Like a toast, its
+   * flash time stops while the reader is on it, and the rest of the time runs after.
+   */
+  hover: (id: string | null) => void;
   isShown: (id: string) => boolean;
   /** Calls `listener` after each change. Returns a function that stops it. */
   subscribe: (listener: () => void) => () => void;
@@ -31,17 +36,21 @@ export interface CommentVisibilityModel {
 }
 
 /** How long a mark that stops showing stays, for its pop-out. The styles of the parts use the same time. */
-export const commentLeaveMs = 180;
+export const commentLeaveMs = 130;
 
 export function createCommentVisibility(options: CommentVisibilityOptions = {}): CommentVisibilityModel {
   const flashMs = options.flashMs ?? 2500;
   let visibility: CommentVisibility = options.visibility ?? "all";
   let opened: string | null = null;
+  let hovered: string | null = null;
   let flashed: string[] = [];
   let only: readonly string[] = [];
   let leaving: string[] = [];
   const timers = new Set<ReturnType<typeof setTimeout>>();
+  // Each flash has a timer while it runs, or the time that is left while the reader is on it.
   const flashTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const flashEnds = new Map<string, number>();
+  const flashPaused = new Map<string, number>();
   const leaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const listeners = new Set<() => void>();
 
@@ -69,6 +78,28 @@ export function createCommentVisibility(options: CommentVisibilityOptions = {}):
     }
     for (const listener of listeners) listener();
   }
+  function stopFlashTimer(id: string): void {
+    const timer = flashTimers.get(id);
+    if (!timer) return;
+    clearTimeout(timer);
+    timers.delete(timer);
+    flashTimers.delete(id);
+  }
+  function runFlash(id: string, ms: number): void {
+    stopFlashTimer(id);
+    flashPaused.delete(id);
+    if (id === hovered) {
+      flashPaused.set(id, ms);
+      return;
+    }
+    flashEnds.set(id, Date.now() + ms);
+    flashTimers.set(id, later(() => {
+      flashTimers.delete(id);
+      flashEnds.delete(id);
+      flashed = flashed.filter(entry => entry !== id);
+      update();
+    }, ms));
+  }
 
   return {
     get visibility() {
@@ -84,11 +115,9 @@ export function createCommentVisibility(options: CommentVisibilityOptions = {}):
       if (next === visibility) return;
       visibility = next;
       if (next === "all") {
-        for (const timer of flashTimers.values()) {
-          clearTimeout(timer);
-          timers.delete(timer);
-        }
-        flashTimers.clear();
+        for (const id of [...flashTimers.keys()]) stopFlashTimer(id);
+        flashEnds.clear();
+        flashPaused.clear();
         flashed = [];
       }
       update();
@@ -101,19 +130,25 @@ export function createCommentVisibility(options: CommentVisibilityOptions = {}):
     flash(id) {
       if (visibility !== "hidden") return;
       // A second flash of the same thread starts its time again.
-      const before = flashTimers.get(id);
-      if (before) {
-        clearTimeout(before);
-        timers.delete(before);
-      }
-      flashTimers.set(id, later(() => {
-        flashTimers.delete(id);
-        flashed = flashed.filter(entry => entry !== id);
-        update();
-      }, flashMs));
+      runFlash(id, flashMs);
       if (!flashed.includes(id)) {
         flashed = [...flashed, id];
         update();
+      }
+    },
+    hover(id) {
+      if (id === hovered) return;
+      const left = hovered;
+      hovered = id;
+      if (left !== null) {
+        const rest = flashPaused.get(left);
+        if (rest !== undefined) runFlash(left, rest);
+      }
+      if (id !== null && flashTimers.has(id)) {
+        const rest = Math.max(0, (flashEnds.get(id) ?? 0) - Date.now());
+        stopFlashTimer(id);
+        flashEnds.delete(id);
+        flashPaused.set(id, rest);
       }
     },
     isShown: id => visibility === "all" || only.includes(id),
@@ -125,6 +160,8 @@ export function createCommentVisibility(options: CommentVisibilityOptions = {}):
       for (const timer of timers) clearTimeout(timer);
       timers.clear();
       flashTimers.clear();
+      flashEnds.clear();
+      flashPaused.clear();
       leaveTimers.clear();
     },
   };
