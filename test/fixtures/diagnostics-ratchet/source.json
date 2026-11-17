@@ -7,5 +7,7 @@
     "packages/source/src/vite.ts": 1
   },
   "codesWithoutFix": [],
-  "invariants": {}
+  "invariants": {
+    "packages/source/src/sources/github/git.ts": 2
+  }
 }
