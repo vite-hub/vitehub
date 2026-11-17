@@ -70,6 +70,11 @@ export interface AuthEventsConfiguration {
   store: AuthEventStore
   /** Enable the CLI read endpoint. A session and an explicit true result are required. A Response is sent as the rejection. */
   authorize?: AuthAccessAuthorize
+  /**
+   * Runs for each event after the store records it, for example to call `sendWebhook()`. With a host `waitUntil()`, it
+   * runs after the response. A failure is logged as `AUTH_EVENT_CALLBACK_FAILED` and never fails the auth request.
+   */
+  onEvent?: (event: AuthEvent) => void | Promise<void>
 }
 
 const text = v.pipe(v.string(), v.minLength(1), v.maxLength(256))

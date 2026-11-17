@@ -112,6 +112,19 @@ vitehub auth events --url http://localhost:5173/api/auth --aggregate \
 
 Output is JSON. List commands also take `--from`, `--to`, and `--cursor`. The CLI needs HTTPS except on loopback, does not follow redirects, and times out after 30 seconds. It uses the same readers as server code.
 
+## Run code for each event
+
+`events.onEvent` runs for each event after the store records it. Use it to send the event to another service:
+
+```ts fragment
+events: {
+  store,
+  onEvent: event => sendWebhook('https://example.com/hooks/auth', event),
+},
+```
+
+With a host `waitUntil()`, the callback runs after the response. Else Auth waits for it. A thrown error never fails the request. Auth logs it as `AUTH_EVENT_CALLBACK_FAILED`, with the error in `cause`. An event that the store could not record does not reach `onEvent`.
+
 ## Event fields
 
 Each event has `id`, `type`, `time`, `actor`, `userId`, and `metadata`. The actor is `user:<id>` or `system`. `userId` is the subject, or `null` for a failed sign-in. In impersonated actions, the actor is the admin who started it.
