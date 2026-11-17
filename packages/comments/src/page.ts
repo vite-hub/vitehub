@@ -1,3 +1,5 @@
+import { pagePathOf } from "./operations-core/path.ts"
+
 /**
  * The numbering scope of page threads: subjects of kind `page`, which the overlay pins on the app's pages. Threads on
  * subjects of your own, such as `drop`, take the scope that their subject definition gives.
@@ -24,10 +26,11 @@ export function commentsApiRoute(overlayURL: string): string {
 
 /**
  * The key of a page: its pathname without query or hash, and without a trailing slash except for `/`. Threads and
- * presence rooms belong to a page key.
+ * presence rooms belong to a page key. A full URL of the page, such as `https://site.test/pricing/`, gives the key of
+ * its path, `/pricing`.
  */
 export function normalizeCommentPage(path: string): string {
-  let pathname = path.split(/[?#]/, 1)[0] ?? ""
+  let pathname = pagePathOf(path).split(/[?#]/, 1)[0] ?? ""
   if (!pathname.startsWith("/")) pathname = `/${pathname}`
   pathname = pathname.replace(/\/{2,}/g, "/")
   if (pathname.length > 1) pathname = pathname.replace(/\/+$/, "")

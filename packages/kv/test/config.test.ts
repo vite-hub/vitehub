@@ -536,3 +536,26 @@ describe("warnVercelKVFallback", () => {
     )
   })
 })
+
+describe("renamed KV drivers", () => {
+  it("names the new driver for the former cloudflare-kv-binding", () => {
+    const expected = expect.objectContaining({
+      code: "KV_INVALID_DRIVER",
+      fix: expect.stringContaining("kv: { driver: \"cloudflare\" }"),
+      why: expect.stringContaining("renamed this driver to \"cloudflare\""),
+    })
+    // SAFETY: An app config without types passes the former driver name.
+    expect(() => normalizeKVOptions({ driver: "cloudflare-kv-binding" } as never, { env: {}, hosting: "cloudflare" })).toThrow(expected)
+    // SAFETY: An app config without types passes the former driver name.
+    expect(() => normalizeKVOptions({ stores: { default: { driver: "cloudflare-kv-binding" } } } as never, { env: {}, hosting: "cloudflare" })).toThrow(expected)
+  })
+
+  it("keeps the driver list for a name that was never a driver", () => {
+    // SAFETY: An app config without types passes an unknown driver name.
+    expect(() => normalizeKVOptions({ driver: "toString" } as never, { env: {}, hosting: "" })).toThrow(expect.objectContaining({
+      code: "KV_INVALID_DRIVER",
+      fix: expect.stringContaining("\"upstash\""),
+      why: "`kv.driver` \"toString\" is not a KV driver.",
+    }))
+  })
+})

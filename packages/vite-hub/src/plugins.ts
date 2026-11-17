@@ -183,6 +183,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/ui": true,
   // Browser-only: generated server code never imports it.
   "@vite-hub/web-container": false,
+  "@vite-hub/webhooks": true,
   "@vite-hub/workflow": true,
   "@vite-hub/workspace": true,
 } satisfies Record<FrameworkDependencyName, boolean>
@@ -824,6 +825,7 @@ function deploymentNitroModule(
     if (plan.host === "cloudflare" && nitro.options.cloudflare?.deployConfig !== false && !isDeployCommandOwned()) {
       // Nitro's `--cwd ./` relies on the `.wrangler/deploy` redirect in the project root, which a copied output lacks and a parent Wrangler config breaks.
       // `--cwd` into the server directory fails once that redirect exists, so name the config file.
+      // Remove when Nitro fixes its deploy command (https://github.com/nitrojs/nitro/issues/5147).
       const config = outputRelativeArgument(nitro.options.output.dir, join(nitro.options.output.serverDir, "wrangler.json"))
       nitro.options.commands.deploy = `npx wrangler deploy --config ${config}${sandboxTaskRequested ? " --containers-rollout=gradual" : ""}`
     }
@@ -1794,7 +1796,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(ownerModules.scheduleVite, "schedule").hubSchedule({
       ...(plan.host === "vercel" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
-      databaseImport: "@vite-hub/database/runtime/registry",
+      databaseImport: "@vite-hub/database",
       importBase: "vite-hub/schedule",
       providerImportAliases,
     } as ScheduleOptions))
@@ -1871,7 +1873,20 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }))
   if (commentsPlugin) plugins.push(commentsPlugin)
   else if (options.comments === false) plugins.push(commentsOffPlugin())
-  if (!ownerModules.commentsVite || !ownerModules.contentVite || !ownerModules.cmsVite || !ownerModules.formsVite) plugins.push(optionalOwnerEntriesPlugin({ database: options.database !== false }))
+  // Webhooks in `server/webhooks/<name>.ts`: deliveries in the Default Database, sent through the `vitehub-webhooks`
+  // Queue that the plugin contributes. Inert without the folder, and absent without its package.
+  if (ownerModules.webhooksVite) plugins.push(ownerModules.webhooksVite.hubWebhooks({
+    database: Boolean(options.database),
+    queue: Boolean(options.queue) && plan.services.queue.supported,
+    imports: {
+      runtime: "vite-hub/webhooks/runtime",
+      database: "vite-hub/webhooks/database",
+      databases: "@vite-hub/database/runtime/registry",
+      queue: "vite-hub/queue",
+      types: "vite-hub/webhooks",
+    },
+  }))
+  if (!ownerModules.commentsVite || !ownerModules.contentVite || !ownerModules.cmsVite || !ownerModules.formsVite || !ownerModules.webhooksVite) plugins.push(optionalOwnerEntriesPlugin({ database: options.database !== false }))
   plugins.push(optionalOwnerImportsPlugin())
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())

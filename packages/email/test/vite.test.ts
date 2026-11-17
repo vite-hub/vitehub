@@ -836,3 +836,23 @@ describe("hubEmail", () => {
   })
 
 })
+
+describe("renamed Email drivers", () => {
+  it("names the new driver for the former cloudflare-email", () => {
+    // SAFETY: An app config without types passes the former driver name.
+    expect(() => hubEmail({ driver: "cloudflare-email" } as never)).toThrow(expect.objectContaining({
+      code: "EMAIL_UNKNOWN_DRIVER",
+      fix: expect.stringContaining("email: { driver: \"cloudflare\" }"),
+      why: expect.stringContaining("renamed this driver to \"cloudflare\""),
+    }))
+  })
+
+  it("keeps the driver list for a name that was never a driver", () => {
+    // SAFETY: An app config without types passes an unknown driver name.
+    expect(() => hubEmail({ driver: "smtp" } as never)).toThrow(expect.objectContaining({
+      code: "EMAIL_UNKNOWN_DRIVER",
+      fix: expect.stringContaining("driver: 'log'"),
+      why: "The Email `driver` is \"smtp\". It must be \"resend\", \"cloudflare\", or \"log\".",
+    }))
+  })
+})

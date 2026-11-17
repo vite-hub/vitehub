@@ -60,6 +60,7 @@ function repositoryPath(repository: string): string {
 /**
  * Git smart HTTP remote and credentials for one repository.
  * Gap: `forges` exposes `Repo.cloneUrls` but no transport credential.
+ * Remove when forges releases it (https://github.com/danielroe/forges/issues/192).
  */
 export function forgeGitCredentials(input: ForgeGitCredentialsInput): ForgeGitCredentials {
   const url = `${instanceRoot(input.forge, input.baseUrl)}/${repositoryPath(input.repository)}.git`

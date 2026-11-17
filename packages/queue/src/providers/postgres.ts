@@ -3,6 +3,7 @@ import { hostname } from "node:os"
 
 import { invariant } from "@vite-hub/internal/invariant"
 import postgres from "postgres"
+import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 
 import { createQueueMessageId, normalizeQueueEnqueueInput } from "../enqueue.ts"
 import { queueProviderResult, queueUnsupportedOptionsError } from "../errors.ts"
@@ -327,7 +328,9 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
     try {
       const definition = await options.load(row.queue)
       if (!definition) throw options.missing(row.queue)
-      checkQueueHandlerResponse(await definition.handler({ attempts: row.attempts, id: row.message_id, payload: row.no_payload ? undefined : row.payload }))
+      await runInRunScopes(async () => {
+        checkQueueHandlerResponse(await definition.handler({ attempts: row.attempts, id: row.message_id, payload: row.no_payload ? undefined : row.payload }))
+      })
     }
     catch (error) {
       failure = { error }
