@@ -598,6 +598,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       deletePaths,
       files,
       message: options.name || "chore: update workspace snapshot",
+      ...(options.author ? { author: options.author } : {}),
       parentSha: this.#baselineRefSha,
       remoteModes: new Map([...this.#remoteFiles.values()].map(entry => [entry.path, entry.mode])),
       repository: this.#client,

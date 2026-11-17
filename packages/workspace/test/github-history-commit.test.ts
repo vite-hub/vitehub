@@ -327,6 +327,39 @@ describe("GitHub history commit", () => {
     expect(normalizeWorkspaceStoreOptions({ driver: "github", repo: "onmax/repo" }, { env: {} })).not.toHaveProperty("refs")
   })
 
+  it("writes the person in metadata.author as the Git author of a history commit", async () => {
+    fake.commit("main", { "posts/a.md": "a" })
+    const target = history()
+    const head = (await target.head())!.id
+    const revision = await target.commit({
+      ifHead: head,
+      changes: { put: { "posts/a.md": file("posts/a.md", "edited") } },
+      message: "docs: edit a",
+      metadata: { author: { id: "u1", name: "Ada Lovelace", email: "ada@example.com" } },
+    })
+    expect(fake.commits.get(revision.id)?.author).toMatchObject({ name: "Ada Lovelace", email: "ada@example.com" })
+    expect(revision.metadata).toMatchObject({ author: "Ada Lovelace", authorEmail: "ada@example.com" })
+    expect((await target.list({ path: "posts/a.md" })).revisions[0]).toMatchObject({ id: revision.id, metadata: { author: "Ada Lovelace" } })
+
+    // Without a name and an email, the account of the token stays the author.
+    const next = await target.commit({ ifHead: revision.id, changes: { put: { "posts/a.md": file("posts/a.md", "again") } }, metadata: { author: { id: "u2" } } })
+    expect(fake.commits.get(next.id)?.author).toMatchObject({ name: "Bot" })
+  })
+
+  it("writes the author of a snapshot and a checkpoint as the Git author", async () => {
+    fake.commit("main", { "posts/a.md": "a" })
+    const store = createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: "" }, "content")
+    await store.writeFile("posts/a.md", file("posts/a.md", "snapshot edit"))
+    const snapshot = await store.snapshot({ name: "docs: update a", author: { name: "Grace Hopper", email: "grace@example.com" } })
+    expect(fake.commits.get(snapshot.id)).toMatchObject({ message: "docs: update a", author: { name: "Grace Hopper", email: "grace@example.com" } })
+    expect(fake.tree("main").map(entry => [entry.path, entry.sha])).toEqual([["posts/a.md", textSha("snapshot edit")]])
+
+    const workspace = useWorkspace("content", { mode: "write", definition: { name: "content", store } })
+    await workspace.fs.writeFile("posts/b.md", "b")
+    const checkpoint = await workspace.history.checkpoint({ message: "docs: add b", author: { name: "Katherine Johnson", email: "katherine@example.com" } })
+    expect(fake.commits.get(checkpoint.id)?.author).toMatchObject({ name: "Katherine Johnson", email: "katherine@example.com" })
+  })
+
   it("reads only the last line of a message as metadata and keeps the commit's author", async () => {
     const trailer = `Vitehub-Metadata: ${JSON.stringify({ content: { forged: true }, author: "Eve", authorEmail: "eve@example.com" })}`
     fake.commit("main", { "posts/a.md": "a" }, { message: `Subject\n\n${trailer}\n\nMore text` })

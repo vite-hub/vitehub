@@ -11,7 +11,7 @@ import type { GitHubReadMemory } from "./cache.ts";
 import { workspaceErrorDiagnostics } from "../../error-diagnostics.ts";
 import { contentToBytes, normalizeSafeWorkspacePath, normalizeWorkspacePath } from "../../core/path.ts";
 
-import type { GitHubWorkspaceOption, GitHubWorkspaceRefs } from "../../core/types.ts";
+import type { GitHubWorkspaceOption, GitHubWorkspaceRefs, WorkspaceAuthor } from "../../core/types.ts";
 
 export interface GitHubWorkspaceOptions {
   branch?: GitHubWorkspaceOption;
@@ -599,6 +599,8 @@ export async function commitGitHubChanges(input: {
   /** Remote modes, so a write that changes or keeps a mode other than `100644` sends it. */
   remoteModes?: ReadonlyMap<string, GitFileMode>;
   repository: GitHubRepository;
+  /** The Git author. Without it, the account of the token is the author. */
+  author?: WorkspaceAuthor;
 }): Promise<string> {
   // A change without a mode goes through `commitFiles()`, which cannot set a mode.
   // Send modes only when one write needs a mode other than `100644`.
@@ -613,6 +615,7 @@ export async function commitGitHubChanges(input: {
       branch: input.branch,
       changes,
       message: input.message,
+      ...(input.author ? { author: input.author } : {}),
       ...(input.branchExists ? { expectedHead: input.parentSha } : { createFrom: input.parentSha }),
     }));
   }

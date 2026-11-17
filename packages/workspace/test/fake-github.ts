@@ -516,6 +516,7 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
       const ref = rest.slice("/git/trees/".length)
       const entries = trees.get(ref) ?? resolve(ref)?.tree
       if (!entries) return failure(404, "Not Found")
+      trees.set(`tree-${ref}`, entries)
       return json({ sha: `tree-${ref}`, tree: treeEntries(entries), truncated: state.truncated })
     }
     if (rest.startsWith("/git/ref/heads/") && method === "GET") {
@@ -545,7 +546,9 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
       return json({ sha }, { status: 201 })
     }
     if (rest === "/git/commits" && method === "POST") {
+      const author = request.body?.author as { email: string, name: string } | undefined
       const commit = addCommit({
+        ...(author ? { author: { date: "2026-10-15T08:00:00Z", email: author.email, name: author.name } } : {}),
         message: String(request.body?.message),
         parents: request.body?.parents as string[],
         tree: trees.get(String(request.body?.tree)) ?? [],
