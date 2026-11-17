@@ -179,11 +179,13 @@ describe("Rate Limit declarations", () => {
     expect(() => extractRateLimitDeclarations("parameter.ts", parameter)).toThrow('option "limit" must be a static literal')
   })
 
-  it("lets requireRateLimit() take a runtime message, and checkRateLimit() refuse it", () => {
-    const imported = 'import { checkRateLimit, requireRateLimit } from "@vite-hub/rate-limit"\n'
-    expect(extractRateLimitDeclarations("message.ts", `${imported}requireRateLimit(event, "uploads", { limit: 1, message: t("tooMany"), window: "1m" })`))
-      .toMatchObject([{ name: "uploads", policy: { limit: 1, window: "1m" } }])
-    expect(() => extractRateLimitDeclarations("check.ts", `${imported}checkRateLimit(event, "uploads", { limit: 1, message: "Slow down.", window: "1m" })`))
+  it("reads message and code of requireRateLimit() as runtime values", () => {
+    const source = [
+      'import { checkRateLimit, requireRateLimit } from "@vite-hub/rate-limit"',
+      'requireRateLimit(event, "sync", { code: t.code, key, limit: 3, message: t("tooManyTries"), window: "1m" })',
+    ].join("\n")
+    expect(extractRateLimitDeclarations("worded.ts", source)).toMatchObject([{ name: "sync", policy: { limit: 3, window: "1m" } }])
+    expect(() => extractRateLimitDeclarations("check.ts", 'import { checkRateLimit } from "@vite-hub/rate-limit"\ncheckRateLimit(event, "sync", { limit: 3, message: "Slow down.", window: "1m" })'))
       .toThrow('does not support the "message" option')
   })
 
