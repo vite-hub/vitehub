@@ -180,6 +180,27 @@ describe.each(dialects)("runIdempotent() on %s", (_dialect, fresh) => {
   })
 })
 
+describe.runIf(server)("runIdempotent() on Postgres with several processes", () => {
+  it("creates the table once when the first calls of many clients race", async () => {
+    await server!`DROP TABLE IF EXISTS vitehub_idempotency_keys`
+    const clients = Array.from({ length: 12 }, () => postgres(process.env.VITEHUB_TEST_POSTGRES_URL!, { max: 1, onnotice: () => {} }))
+    try {
+      await Promise.all(clients.map(client => client`SELECT 1`))
+      const fn = vi.fn(async () => "done")
+      const results = await Promise.all(clients.map(client => runIdempotent(drizzlePostgres({ client }), "same-key", fn)))
+
+      expect(fn).toHaveBeenCalledTimes(1)
+      for (const [error, value] of results) {
+        if (error) expect(error.code).toBe("DATABASE_IDEMPOTENCY_IN_PROGRESS")
+        else expect(value).toBe("done")
+      }
+    }
+    finally {
+      await Promise.all(clients.map(client => client.end()))
+    }
+  })
+})
+
 describe("withIdempotency()", () => {
   it("stores the keys in the default Database of the app", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-idempotency-"))
@@ -194,6 +215,11 @@ describe("withIdempotency()", () => {
       expect(await db.all(sql`SELECT id, claim, result FROM vitehub_idempotency_keys`)).toEqual([
         { id: "mail:welcome:ada@example.com", claim: null, result: "{\"sent\":true}" },
       ])
+
+      // A reset gives the same Database a new, empty backend.
+      await mode.reset()
+      expect(await withIdempotency("mail:welcome:ada@example.com", fn)).toEqual([undefined, { sent: true }])
+      expect(fn).toHaveBeenCalledTimes(2)
       expect(() => withIdempotency("k", fn, { database: "analytics" })).toThrow(expect.objectContaining({ code: "DATABASE_NOT_FOUND" }))
     }
     finally {

@@ -48,14 +48,39 @@ function createTable(db: IdempotencyDatabase): Promise<void> {
   if (!promise) {
     promise = (async () => {
       const expiresAt = db.execute ? sql.raw("BIGINT") : sql.raw("INTEGER")
-      await query(db, sql`CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY NOT NULL, claim TEXT, result TEXT, expires_at ${expiresAt} NOT NULL)`)
-      await query(db, sql`CREATE INDEX IF NOT EXISTS vitehub_idempotency_keys_expires_at ON ${table} (expires_at)`)
+      const create = async () => {
+        await query(db, sql`CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY NOT NULL, claim TEXT, result TEXT, expires_at ${expiresAt} NOT NULL)`)
+        await query(db, sql`CREATE INDEX IF NOT EXISTS vitehub_idempotency_keys_expires_at ON ${table} (expires_at)`)
+      }
+      // Two Postgres processes that create the table at once can fail with a unique violation in the catalog, because
+      // `IF NOT EXISTS` does not lock. The second try finds the table that the other process created.
+      await create().catch(create)
     })()
-    // A failed create, such as two Postgres processes that create the table at once, runs again on the next call.
     promise.catch(() => ready.delete(db))
     ready.set(db, promise)
   }
   return promise
+}
+
+/** Claims the key, or returns the row that holds it. The same claim ID makes a second try safe. */
+async function claimKey(db: IdempotencyDatabase, key: string, claim: string, now: number, lockedUntil: number) {
+  const expired = sql`${table}.expires_at <= ${now}`
+  const statement = sql`INSERT INTO ${table} (id, claim, result, expires_at) VALUES (${key}, ${claim}, NULL, ${lockedUntil})
+    ON CONFLICT (id) DO UPDATE SET
+      claim = CASE WHEN ${expired} THEN excluded.claim ELSE ${table}.claim END,
+      result = CASE WHEN ${expired} THEN NULL ELSE ${table}.result END,
+      expires_at = CASE WHEN ${expired} THEN excluded.expires_at ELSE ${table}.expires_at END
+    RETURNING claim, result`
+  try {
+    return (await query(db, statement))[0]
+  }
+  catch (error) {
+    // A `vite-hub/test` reset gives the same Database object a new, empty backend, so the table can be gone. Create it
+    // again and try once more; any other error fails the same way again.
+    ready.delete(db)
+    await createTable(db).catch(() => { throw error })
+    return (await query(db, statement))[0]
+  }
 }
 
 async function sweep(db: IdempotencyDatabase, now: number): Promise<void> {
@@ -88,15 +113,9 @@ export async function runIdempotent<T>(
 
   await createTable(db)
   const now = Date.now()
-  await sweep(db, now)
   const claim = crypto.randomUUID()
-  const expired = sql`${table}.expires_at <= ${now}`
-  const [row] = await query(db, sql`INSERT INTO ${table} (id, claim, result, expires_at) VALUES (${key}, ${claim}, NULL, ${now + timeout})
-    ON CONFLICT (id) DO UPDATE SET
-      claim = CASE WHEN ${expired} THEN excluded.claim ELSE ${table}.claim END,
-      result = CASE WHEN ${expired} THEN NULL ELSE ${table}.result END,
-      expires_at = CASE WHEN ${expired} THEN excluded.expires_at ELSE ${table}.expires_at END
-    RETURNING claim, result`)
+  const row = await claimKey(db, key, claim, now, now + timeout)
+  await sweep(db, now)
   if (row?.claim === null) {
     // SAFETY: the stored text is the JSON of a result of `fn` for this key.
     return [undefined, (row.result === null ? undefined : JSON.parse(String(row.result))) as Awaited<T>]
