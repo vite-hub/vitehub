@@ -72,9 +72,9 @@ export default defineAuth({
 });
 ```
 
-`authDatabase(name = "default")` is a Better Auth adapter for a `@vite-hub/database` Database. It uses the Drizzle client of each request and picks the SQLite or Postgres provider from it. The Auth Vite plugin reads the call from the Definition, so write it inline, in the object or in the object that the callback returns. The plugin then contributes the Better Auth tables to that Database through `vitehub.databases`: the core tables, the `admin()` fields, the `jwks` and `oauth*` tables that `mcpOAuth()` needs, the `organization`, `member`, and `invitation` tables and `session.activeOrganizationId` for `organization()`, the `passkey` table for `passkey()` from `@better-auth/passkey`, and the `rate_limit` table where Better Auth's limiter keeps its counters, in the dialect of the target Database (`@vite-hub/auth/schema` exports `authSqliteSchema` and `authPostgresSchema`). `vitehub database generate` writes their migration, and `vitehub inspect definitions --kind database` lists them. Without the tables, the adapter fails with `AUTH_R0019`. Tables of other plugins that only add tables go in the Database Definition.
+`authDatabase(name = "default")` is a Better Auth adapter for a `@vite-hub/database` Database. It uses the Drizzle client of each request and picks the SQLite or Postgres provider from it. The Auth Vite plugin reads the call from the Definition, so write it inline, in the object or in the object that the callback returns. The plugin then contributes the Better Auth tables to that Database through `vitehub.databases`: the core tables, the `admin()` fields, the `jwks` and `oauth*` tables that `mcpOAuth()` needs, the `organization`, `member`, and `invitation` tables and `session.activeOrganizationId` for `organization()`, the `passkey` table for `passkey()` from `@better-auth/passkey`, and the `rate_limit` table where Better Auth's limiter keeps its counters, in the dialect of the target Database (`@vite-hub/auth/schema` exports `authSqliteSchema` and `authPostgresSchema`). `vitehub database generate` writes their migration, and `vitehub inspect definitions --kind database` lists them. Without the tables, the adapter fails with `AUTH_R0019`.
 
-The owned core tables have fixed columns. `authDatabase()` rejects `additionalFields` on `user`, `session`, `account`, and `verification` with `AUTH_C0055`. It also rejects plugins that add unsupported columns to owned tables, and model or field remapping, with `AUTH_C0056`. Use another Better Auth adapter with a schema that matches those options. A Database contribution cannot extend the owned tables.
+The plugin also adds a column for each `additionalFields` entry of `user`, `session`, `account`, and `verification`, and the tables and columns of `twoFactor()`, `username()`, `anonymous()`, `phoneNumber()`, `lastLoginMethod()`, `apiKey()` from `@better-auth/api-key`, and `stripe()` from `@better-auth/stripe` when the Definition module imports and calls them. It writes them to `.vitehub/auth/schema.ts` with `createAuthSqliteSchema()` or `createAuthPostgresSchema()`. Write `additionalFields` inline with a literal `type`, or Auth fails with `AUTH_C0055`. Tables of other plugins go in the Database Definition. Before it opens the Database, the adapter compares the tables and columns that the options need with the Database, and fails with `AUTH_C0056` for a missing one or for model or field remapping.
 
 ## First admin
 
@@ -85,6 +85,14 @@ For an app without social sign-in, `vitehub auth claim` prints a one-time code a
 Set `adminClaim: false` on another Auth Definition to make it ignore the host's claim value.
 
 With a claim code set, Auth sets `verification.storeInDatabase: true`, including when sessions use `secondaryStorage`. Claim markers use only the database, so a secondary-storage outage cannot block reservation recovery. A failed role grant releases the reservation so the code can be tried again.
+
+## Members
+
+`VITEHUB_MEMBERS` lets only some people sign up and sign in. It is a comma-separated list of entries: `<provider>:<account id>` (such as `github:22072217`), an email, `@<domain>`, or `github-org:<organization>`. Email and domain entries match only an email that the provider verified. An organization entry adds the `read:org` scope to the GitHub provider and checks the membership with `checkGitHubOrgMember()`. The accounts in `VITEHUB_ADMINS` and users with the admin role always get in.
+
+Auth refuses to create a user that no entry lets in, and refuses each new session. A refusal answers `403` with `AUTH_NOT_MEMBER`, or an OAuth redirect with `?error=AUTH_NOT_MEMBER`. The list runs in the same plugin as `access.policy`, so a removed person loses a running session within five minutes and their MCP access tokens stop working. It needs stored sessions (`AUTH_MEMBERS_SESSION_STORE_REQUIRED`). An invalid entry fails with `AUTH_MEMBERS_ENTRY_INVALID`. The Auth Console lists the entries in its access notes, with the number of emails in place of the emails.
+
+`checkAuthMember(userId, event?)` from `@vite-hub/auth/server` runs the same rules for code that has a user id but no session, such as an upload ticket. It returns `[undefined, undefined]` for a member or when the variable is not set, `AUTH_NOT_MEMBER` for a refused or unknown user, and `AUTH_GITHUB_UNAVAILABLE` when GitHub cannot answer. A confirmed organization membership is reused for five minutes.
 
 ## Sessions without a database
 
@@ -164,7 +172,7 @@ When `@vite-hub/env` is installed, the Auth Definition callback receives the typ
 
 Behind a proxy that ends TLS, set Better Auth's `advanced.trustedProxyHeaders: true`. `requestOrigin`, the default `baseURL`, and the `Origin` check then use the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. Set it only when a proxy you run sets these headers. Proxy trust uses the options of the Definition, or the object that its callback returns.
 
-Each Auth request or route guard runs its Definition callback once, then once more with the forwarded origin if the effective options trust proxy headers and that origin differs. If the second run disables trust, Auth keeps the request URL's origin and disables proxy trust. The guard uses the same resolved options for session lookup, route authorization, and automatic provider sign-in. A later request resolves fresh options. Requests with equal resolved options share one Better Auth instance. Plain values compare by value. Functions, adapters, and bindings compare by identity, so an instance never keeps an object that another request created. `authDatabase()` adapters compare by Database name. A change to a variable that the instance uses, such as `VITEHUB_SECRET`, `BETTER_AUTH_SECRET`, or `VITEHUB_ADMINS`, gives a new instance on the next request. A callback that creates plugins or other adapters on each call builds a new instance on each request, so create them outside the callback when they do not depend on the request. All guards of one request share one session lookup: access routes, `requireAuth()`, `requireAuthorization()`, `withAuth()`, `withAuthorization()`, and `withAnonymousAuthorization()`.
+Each Auth request or route guard runs its Definition callback once, then once more with the forwarded origin if the effective options trust proxy headers and that origin differs. If the second run disables trust, Auth keeps the request URL's origin and disables proxy trust. The guard uses the same resolved options for session lookup, route authorization, and automatic provider sign-in. A later request resolves fresh options. Requests with equal resolved options share one Better Auth instance. Plain values compare by value. Functions, adapters, and bindings compare by identity, so an instance never keeps an object that another request created. `authDatabase()` adapters compare by Database name. A change to a variable that the instance uses, such as `VITEHUB_SECRET`, `BETTER_AUTH_SECRET`, `VITEHUB_ADMINS`, or `VITEHUB_MEMBERS`, gives a new instance on the next request. A callback that creates plugins or other adapters on each call builds a new instance on each request, so create them outside the callback when they do not depend on the request. All guards of one request share one session lookup: access routes, `requireAuth()`, `requireAuthorization()`, `withAuth()`, `withAuthorization()`, and `withAnonymousAuthorization()`.
 
 The generated Nitro middleware uses `access.signIn` when one of the configured `access.routes` needs a browser redirect. Route objects can add an `authorize` callback when a valid session is not sufficient:
 
@@ -456,7 +464,7 @@ Nuxt uses the Auth Definition's base path for the shared browser client. In othe
 
 In Nuxt, the server reads the session only for a page that needs it: a page with an `auth` guard, or a page whose components call `useUserSession()`, `useSession()`, or `useAbility()`, or render `<Can>`. It reads the session once for each page request, waits for it before it renders those components, settles their refs as soon as it has the session, so an async `setup()` can wait for `ready`, and sends it to the browser in the page payload, without the session token. `useUserSession()` and `useSession()` start from it, so a signed-in page renders signed in on the server and does not flash signed out while Better Auth loads. A call outside a component, such as in a plugin or a route middleware, cannot make the server wait, so on the server it starts pending unless the page guard already read the session. To protect a page, use the `auth` page guard. A request without a session cookie skips the lookup, so pages for signed-out visitors do not load Better Auth. A prerendered or cached page was rendered without the visitor's cookie, so its session counts as unknown.
 
-The browser downloads Better Auth's client only when the page uses it. Nuxt does not prefetch it on other pages.
+The browser downloads Better Auth's client only when the page uses it. The Auth composables come the same way: with a page that calls them or renders `<Can>`, or when the browser opens a page with an `auth` guard. The Auth plugin in the app entry is about 2 KB gzipped. Nuxt prefetches neither on other pages.
 
 The server session lookup, the page guard, and the auto-imported composables use the Auth Definition's `basePath`, below Nuxt's `app.baseURL`.
 
@@ -580,6 +588,20 @@ const error = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in to use this A
 ```
 
 `error.toJSON()` includes `name`, `code`, and `message`, while omitting `cause` and stack data. If a default Better Auth request or session operation fails, `authenticated()`, `withAuth()`, and `withAuthorization()` throw the same shared error with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. Existing ViteHub errors and structural `AbortError` objects keep their identity. Missing APIs, malformed responses, invalid Auth configuration, and invalid custom callback results use package-owned `AUTH_C####`, `AUTH_B####`, or `AUTH_R####` Nostics codes.
+
+## Test a signed-in route
+
+`signIn()` from `@vite-hub/auth/test` writes a user and a session to the Auth database and returns headers with the session cookie. Pass them to a `Request`, and `requireAuth()` accepts it. Auth creates the user when no user has this email, and other fields, such as `role`, go to the new user. It sends no email and calls no provider.
+
+```ts
+import { requireAuth } from "@vite-hub/auth/server";
+import { signIn } from "@vite-hub/auth/test";
+
+const { headers } = await signIn({ email: "ada@example.com", role: "admin" });
+const { user } = await requireAuth(new Request("http://localhost/api/me", { headers }));
+```
+
+Apps that install `vite-hub` call `hub.signIn()` from `setupViteHubTest()`. In a test, the default memory database of a Definition without `database` is emptied by `reset()`. A Definition with the `stateless()` preset has no database, so `signIn()` fails with `AUTH_TEST_SIGN_IN_STATELESS`.
 
 ## Production checks
 

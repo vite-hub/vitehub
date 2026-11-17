@@ -10,7 +10,6 @@ import { localPgliteDir, resolveLocalSqlitePath } from "../runtime/local-path.ts
 import { migratePostgres, toPostgresMigrationClient } from "../runtime/migrate-on-start.ts"
 import { runsOnPglite } from "../runtime/postgres-env.ts"
 import { invariantError } from "@vite-hub/internal/invariant"
-import { isRuntimeDiagnostic } from "@vite-hub/runtime"
 
 import { applyD1Migrations, createD1Query, listD1Migrations, readD1Ledger } from "./d1-migrations.ts"
 import { readStartMigrations } from "./migrate-on-start.ts"
@@ -19,7 +18,7 @@ import { ledgerUpgradeProblem, matchLedger, toLedgerRow } from "./migration-ledg
 import { withoutNewTableDataLoss } from "./migration-sql.ts"
 
 import type postgres from "postgres"
-import type { Result, ResultError } from "@vite-hub/runtime"
+import type { Result } from "@vite-hub/runtime"
 import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
 import type { D1HttpTarget } from "./d1-migrations.ts"
 import type { PostgresMigrationClient } from "../runtime/migrate-on-start.ts"
@@ -41,10 +40,6 @@ export type MigrationPlanErrorCode = "DATABASE_MIGRATION_CHECK_FAILED"
 
 /** Makes `DATABASE_MIGRATION_CHECK_FAILED` for one database. */
 type CheckFailure = (problem: string, cause?: unknown) => Error
-
-function isCheckFailure(error: unknown): error is ResultError<MigrationPlanErrorCode> {
-  return isRuntimeDiagnostic(error) && error.code === "DATABASE_MIGRATION_CHECK_FAILED"
-}
 
 export interface MigrationPlanOptions {
   env: NodeJS.ProcessEnv
@@ -283,7 +278,7 @@ export async function readMigrationPlan(
     return [undefined, { applied: entries.length - pending.length, database: database.name, pending: withoutNewTableDataLoss(pending, database.dialect), target: describeTarget(target, options.projectRoot) }]
   }
   catch (error) {
-    if (isCheckFailure(error)) return [error, undefined]
+    if (databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED.is(error)) return [error, undefined]
     const problem = error instanceof Error ? error.message : String(error)
     return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ cause: error, database: database.name, problem }), undefined]
   }
