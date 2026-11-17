@@ -247,7 +247,7 @@ overrides:
   mdast-util-to-markdown: 2.1.2
   # Nuxt UI asks for ^2.5.1. Before 2.6.0 the icon API returned an empty body on Nitro 3 (nuxt/icon#542).
   "@nuxt/icon": ^2.6.2
-  "@vercel/blob>undici": ^6.28.0
+  "@vercel/blob>undici": ^6.29.1
   "@voidzero-dev/vite-plus-core": 0.3.3
   "ai@>=7.0.0 <8.0.0": 7.0.130
   "glob": ^13.0.6
