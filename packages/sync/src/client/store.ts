@@ -157,6 +157,7 @@ function freezeRow(row: SyncRow): SyncRow {
  * action works, since the browser does not know the names of the server. `then` is not one, so the object is not
  * awaitable by mistake. Each name gives the same function each time.
  */
+// doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Internal action dispatch retains the argument and result types of the owning store's generated registry.
 function actionCalls<TArgs>(call: (name: string, args: unknown) => SyncWrite<unknown>): SyncActionCalls<TArgs> {
   const calls = new Map<string, (args: unknown) => SyncWrite<unknown>>()
   // SAFETY: the proxy answers every action name with a function that takes the arguments of that action.
@@ -175,6 +176,7 @@ function actionCalls<TArgs>(call: (name: string, args: unknown) => SyncWrite<unk
  * a time. Every write goes to storage before it is sent. One visible tab leads its live changes, in the live stream
  * that every store of that tab shares.
  */
+// doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Internal transport boundary: openSync supplies the route's row and action types from the generated registry.
 function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, options: SyncStoreOptions): SyncStoreWithReset<TRow, TArgs> {
   const { url, storage, environment } = options
   const where = options.where ?? {}
@@ -472,6 +474,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     pending.clear()
   }
 
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The owning store selects its row or action result type for this queued write handle.
   function track<TValue>(write: SyncNewWrite): SyncWrite<TValue> {
     let current: SyncWrite<TValue>["state"] = "queued"
     let settle!: PendingWrite["settle"]
@@ -515,6 +518,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   }
 
   /** Shows `write` at once. It goes to storage at the end of the tick, with the other writes of the tick. */
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Internal queue preserves the owning store method's row or action result type through track().
   function enqueue<TValue>(write: SyncNewWrite, replaces?: SyncQueuedWrite): SyncWrite<TValue> {
     assertOpen()
     if (replaces) {

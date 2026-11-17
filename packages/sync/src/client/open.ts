@@ -106,6 +106,7 @@ function startSending(storage: SyncStorage, fetch: typeof globalThis.fetch): voi
 }
 
 /** The store on the server: no request, no timer, no rows. */
+// doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The owning openSync call supplies registry types; this SSR store returns no rows or action results.
 function createIdleStore<TRow, TArgs>(): SyncStore<TRow, TArgs> {
   const browserOnly = () => {
     throw syncErrors.SYNC_BROWSER_ONLY()
