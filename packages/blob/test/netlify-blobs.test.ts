@@ -258,8 +258,7 @@ describe("Netlify Blobs driver", () => {
       folders: [],
       hasMore: false,
     })
-    expect(store.getMetadata).toHaveBeenCalledTimes(1)
-    expect(store.getMetadata).toHaveBeenCalledWith("one.txt", { consistency: undefined })
+    expect(store.getMetadata).not.toHaveBeenCalled()
   })
 
   it("preserves directories when blobs are omitted", async () => {
@@ -451,8 +450,9 @@ describe("Netlify Blobs driver", () => {
       size: 0,
       uploadedAt: new Date(0),
     })
+    // A listing reads no metadata: `head()` has it.
     expect(listed.blobs[0]).toMatchObject({
-      customMetadata: metadata,
+      customMetadata: {},
       httpMetadata: {},
       size: 7,
       uploadedAt: new Date("2026-08-28T12:34:56.000Z"),
@@ -486,7 +486,7 @@ describe("Netlify Blobs driver", () => {
     })
   })
 
-  it("uses provider list attributes when custom metadata has no object details", async () => {
+  it("lists only what the list answer holds", async () => {
     mockListPages({
       first: {
         blobs: [{
@@ -502,13 +502,25 @@ describe("Netlify Blobs driver", () => {
 
     const result = await createDriver(options).list()
 
-    expect(result.blobs).toEqual([expect.objectContaining({
-      customMetadata: { owner: "external-client" },
+    expect(result.blobs).toEqual([{
+      contentType: undefined,
+      customMetadata: {},
       httpEtag: "listed-etag",
+      httpMetadata: {},
       pathname: "legacy.txt",
       size: 42,
       uploadedAt: new Date("2026-08-27T12:34:56.000Z"),
-    })])
+    }])
+    expect(store.getMetadata).not.toHaveBeenCalled()
+  })
+
+  it("leaves out the size and upload time that the list answer does not hold", async () => {
+    mockListPages({ first: { blobs: [{ etag: "etag", key: "bare.txt" }], directories: [] } })
+
+    const [blob] = (await createDriver(options).list()).blobs
+
+    expect(blob).not.toHaveProperty("size")
+    expect(blob?.uploadedAt).toEqual(new Date(0))
   })
 
   it("advances folder-only pages across folded cursors", async () => {
@@ -558,48 +570,18 @@ describe("Netlify Blobs driver", () => {
     expect(third.blobs.map(blob => blob.pathname)).toEqual(["three.txt"])
   })
 
-  it("bounds concurrent metadata lookups and preserves listing order", async () => {
-    const blobs = Array.from({ length: 40 }, (_, index) => ({ etag: `etag-${index}`, key: `${index}.txt` }))
-    mockListPages({ first: { blobs, directories: [] } })
-    let active = 0
-    let maximumActive = 0
-    store.getMetadata.mockImplementation(async () => {
-      active++
-      maximumActive = Math.max(maximumActive, active)
-      await Promise.resolve()
-      active--
-      return { metadata: {} }
+  it("makes one request for each list page and none for each blob", async () => {
+    const page = (from: number) => Array.from({ length: 40 }, (_, index) => ({ etag: `etag-${from + index}`, key: `${from + index}.txt`, size: from + index }))
+    mockListPages({
+      first: { blobs: page(0), directories: [], next_cursor: "page-2" },
+      "page-2": { blobs: page(40), directories: [] },
     })
 
     const result = await createDriver(options).list()
 
-    expect(maximumActive).toBe(16)
-    expect(result.blobs.map(blob => blob.pathname)).toEqual(blobs.map(blob => blob.key))
-  })
-
-  it("stops metadata workers and awaits in-flight lookups after a failure", async () => {
-    const blobs = Array.from({ length: 40 }, (_, index) => ({ etag: `etag-${index}`, key: `${index}.txt` }))
-    mockListPages({ first: { blobs, directories: [] } })
-    let releaseInFlight: (() => void) | undefined
-    const inFlight = new Promise<void>((resolve) => { releaseInFlight = resolve })
-    store.getMetadata.mockImplementation(async (key: string) => {
-      if (key === "0.txt") {
-        while (store.getMetadata.mock.calls.length < 16) await Promise.resolve()
-        throw new Error("metadata unavailable")
-      }
-      if (Number.parseInt(key) < 16) await inFlight
-      return { metadata: {} }
-    })
-
-    const listing = createDriver(options).list()
-    let settled = false
-    void listing.finally(() => { settled = true }).catch(() => {})
-    await vi.waitFor(() => expect(store.getMetadata).toHaveBeenCalledTimes(16))
-    await Promise.resolve()
-
-    expect(settled).toBe(false)
-    releaseInFlight?.()
-    await expect(listing).rejects.toThrow("metadata unavailable")
-    expect(store.getMetadata).toHaveBeenCalledTimes(16)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(store.getMetadata).not.toHaveBeenCalled()
+    expect(result.blobs.map(blob => blob.pathname)).toEqual([...page(0), ...page(40)].map(blob => blob.key))
+    expect(result.blobs[41]).toMatchObject({ httpEtag: "etag-41", size: 41 })
   })
 })

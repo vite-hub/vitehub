@@ -123,8 +123,10 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       const provider = await withSignal(appProvider(input, id, options.refresh), options.signal)
       const cached = installationTokens.get(provider)
       if (cached && cached.expiresAt > Date.now() + Math.max(options.minLifetime ?? 0, 60_000)) return { token: cached.token, expiresAt: new Date(cached.expiresAt) }
-      // installations.token() cannot forward a signal in the pinned forges version.
-      // Keep JWT signing in the provider and pass cancellation through its transport.
+      // forges 0.3.1 installations.token() takes a signal (https://github.com/danielroe/forges/pull/195), but it reuses a
+      // cached token until 60 s before expiry, with no minimum lifetime option, and its abort only stops this caller's
+      // wait, not the shared request. Not reported upstream yet. Keep JWT signing in the provider and pass cancellation
+      // through its transport.
       const response = await withSignal(provider.request<{ token?: string, expires_at: string }>(
         "POST", `/app/installations/${id}/access_tokens`, { signal: options.signal },
       ), options.signal)
