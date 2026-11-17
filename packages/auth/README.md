@@ -72,9 +72,9 @@ export default defineAuth({
 });
 ```
 
-`authDatabase(name = "default")` is a Better Auth adapter for a `@vite-hub/database` Database. It uses the Drizzle client of each request and picks the SQLite or Postgres provider from it. The Auth Vite plugin reads the call from the Definition, so write it inline, in the object or in the object that the callback returns. The plugin then contributes the Better Auth tables to that Database through `vitehub.databases`: the core tables, the `admin()` fields, the `jwks` and `oauth*` tables that `mcpOAuth()` needs, the `organization`, `member`, and `invitation` tables and `session.activeOrganizationId` for `organization()`, the `passkey` table for `passkey()` from `@better-auth/passkey`, and the `rate_limit` table where Better Auth's limiter keeps its counters, in the dialect of the target Database (`@vite-hub/auth/schema` exports `authSqliteSchema` and `authPostgresSchema`). `vitehub database generate` writes their migration, and `vitehub inspect definitions --kind database` lists them. Without the tables, the adapter fails with `AUTH_R0019`. Tables of other plugins that only add tables go in the Database Definition.
+`authDatabase(name = "default")` is a Better Auth adapter for a `@vite-hub/database` Database. It uses the Drizzle client of each request and picks the SQLite or Postgres provider from it. The Auth Vite plugin reads the call from the Definition, so write it inline, in the object or in the object that the callback returns. The plugin then contributes the Better Auth tables to that Database through `vitehub.databases`: the core tables, the `admin()` fields, the `jwks` and `oauth*` tables that `mcpOAuth()` needs, the `organization`, `member`, and `invitation` tables and `session.activeOrganizationId` for `organization()`, the `passkey` table for `passkey()` from `@better-auth/passkey`, and the `rate_limit` table where Better Auth's limiter keeps its counters, in the dialect of the target Database (`@vite-hub/auth/schema` exports `authSqliteSchema` and `authPostgresSchema`). `vitehub database generate` writes their migration, and `vitehub inspect definitions --kind database` lists them. Without the tables, the adapter fails with `AUTH_R0019`.
 
-The owned core tables have fixed columns. `authDatabase()` rejects `additionalFields` on `user`, `session`, `account`, and `verification` with `AUTH_C0055`. It also rejects plugins that add unsupported columns to owned tables, and model or field remapping, with `AUTH_C0056`. Use another Better Auth adapter with a schema that matches those options. A Database contribution cannot extend the owned tables.
+The plugin also adds a column for each `additionalFields` entry of `user`, `session`, `account`, and `verification`, and the tables and columns of `twoFactor()`, `username()`, `anonymous()`, `phoneNumber()`, `lastLoginMethod()`, `apiKey()` from `@better-auth/api-key`, and `stripe()` from `@better-auth/stripe` when the Definition module imports and calls them. It writes them to `.vitehub/auth/schema.ts` with `createAuthSqliteSchema()` or `createAuthPostgresSchema()`. Write `additionalFields` inline with a literal `type`, or Auth fails with `AUTH_C0055`. Tables of other plugins go in the Database Definition. Before it opens the Database, the adapter compares the tables and columns that the options need with the Database, and fails with `AUTH_C0056` for a missing one or for model or field remapping.
 
 ## First admin
 
@@ -588,6 +588,20 @@ const error = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in to use this A
 ```
 
 `error.toJSON()` includes `name`, `code`, and `message`, while omitting `cause` and stack data. If a default Better Auth request or session operation fails, `authenticated()`, `withAuth()`, and `withAuthorization()` throw the same shared error with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. Existing ViteHub errors and structural `AbortError` objects keep their identity. Missing APIs, malformed responses, invalid Auth configuration, and invalid custom callback results use package-owned `AUTH_C####`, `AUTH_B####`, or `AUTH_R####` Nostics codes.
+
+## Test a signed-in route
+
+`signIn()` from `@vite-hub/auth/test` writes a user and a session to the Auth database and returns headers with the session cookie. Pass them to a `Request`, and `requireAuth()` accepts it. Auth creates the user when no user has this email, and other fields, such as `role`, go to the new user. It sends no email and calls no provider.
+
+```ts
+import { requireAuth } from "@vite-hub/auth/server";
+import { signIn } from "@vite-hub/auth/test";
+
+const { headers } = await signIn({ email: "ada@example.com", role: "admin" });
+const { user } = await requireAuth(new Request("http://localhost/api/me", { headers }));
+```
+
+Apps that install `vite-hub` call `hub.signIn()` from `setupViteHubTest()`. In a test, the default memory database of a Definition without `database` is emptied by `reset()`. A Definition with the `stateless()` preset has no database, so `signIn()` fails with `AUTH_TEST_SIGN_IN_STATELESS`.
 
 ## Production checks
 

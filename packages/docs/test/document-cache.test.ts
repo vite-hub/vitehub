@@ -9,6 +9,7 @@ const { getItem, parsed, read } = vi.hoisted(() => ({ getItem: vi.fn(), parsed: 
 vi.mock("#docs/files", () => ({ default: { read } }))
 vi.mock("#docs/content", () => ({ content: undefined }))
 vi.mock("#docs/example-sources", () => ({ default: {} }))
+vi.mock("#docs/image-sizes", () => ({ default: {} }))
 vi.mock("#docs/agent", () => ({ default: { llms: {} } }))
 vi.mock("nitro/runtime-config", () => ({ useRuntimeConfig: () => ({ public: { docs: { appBase: "/", site: { name: "Docs", url: "", description: "" }, mcp: false } } }) }))
 vi.mock("#docs/parser", () => ({ default: { plugins: [{ name: "count-parses", post: parsed }] }, githubRepo: null }))

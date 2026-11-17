@@ -9,6 +9,7 @@ import { queueWorkflowVerbs } from "./queue-workflow-verbs/index.ts"
 import { renamedApis } from "./renamed-apis/index.ts"
 import { resend } from "./resend/index.ts"
 import { runtimeContracts } from "./runtime-contracts/index.ts"
+import { shellDriver } from "./shell-driver/index.ts"
 import { t3Env } from "./t3-env/index.ts"
 import { tsconfigPaths } from "./tsconfig-paths/index.ts"
 import { vitehubOptions } from "./vitehub-options/index.ts"
@@ -34,6 +35,7 @@ export const codemods: readonly Codemod[] = [
   agentSurface,
   renamedApis,
   tsconfigPaths,
+  shellDriver,
 ]
 
 /**
@@ -54,4 +56,5 @@ export const upgradeCodemods: readonly Codemod[] = [
   agentSurface,
   renamedApis,
   tsconfigPaths,
+  shellDriver,
 ]

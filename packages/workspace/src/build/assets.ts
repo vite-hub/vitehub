@@ -13,13 +13,14 @@ import { resolveModulePath } from "exsolve"
 import { createJiti } from "jiti"
 
 import { syncWorkspaceDefinition } from "../lifecycle.ts"
+import { createSourceContext, normalizeWorkspaceSources } from "../sources/config.ts"
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
 
 import { isWorkspaceDefinitionPackageSpecifier } from "./discovery.ts"
 
 import type { DiscoveredWorkspaceDefinition } from "./discovery.ts"
-import type { ResolvedWorkspaceModuleOptions, WorkspaceContent, WorkspaceDefinitionInput, WorkspaceStore } from "../core/types.ts"
+import type { ResolvedWorkspaceModuleOptions, WorkspaceContent, WorkspaceDefinition, WorkspaceDefinitionInput, WorkspaceStore } from "../core/types.ts"
 import type { TransformOptions } from "jiti"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -227,17 +228,32 @@ export async function syncDiscoveredWorkspaceAssetBundles(
     const workspace = await loadDiscoveredWorkspaceDefinition(workspaceConfigLoader, definition, rootDir)
 
     const store = createMemoryWorkspaceStore()
-    await syncWorkspaceDefinition({
+    const synced: WorkspaceDefinition = {
       ...workspace,
       name: definition.name,
       rootDir: workspace.rootDir || rootDir,
       sourceRootDir: workspace.sourceRootDir ?? definition.sourceRootDir,
       store,
-    }, store)
+    }
+    await syncWorkspaceDefinition(synced, store)
+    await checkDeferredSourceAccess(synced)
     bundles.push(await collectWorkspaceStoreAssetBundle(definition.name, store))
   }
 
   return bundles
+}
+
+/** The build does not read `lazy` and `startup` Sources, so it checks that each one can reach its data after deploy. */
+async function checkDeferredSourceAccess(definition: WorkspaceDefinition): Promise<void> {
+  for (const source of normalizeWorkspaceSources(definition.sources)) {
+    if (source.materialize !== "lazy" && source.materialize !== "startup") continue
+    try {
+      await source.source.checkAccess?.(createSourceContext(definition, source))
+    }
+    catch (error) {
+      throw workspaceErrorDiagnostics.WORKSPACE_SOURCE_ACCESS_FAILED({ source: source.key, workspace: definition.name, cause: error })
+    }
+  }
 }
 
 export async function writeWorkspaceAssetsRegistry(registryFile: string, bundles: WorkspaceAssetBundle[]): Promise<string> {

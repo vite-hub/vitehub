@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process"
+import { randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { readFile } from "node:fs/promises"
 import { createServer } from "node:net"
@@ -8,6 +9,7 @@ import type { Socket } from "node:net"
 import type { Connection } from "ssh2"
 
 import { invariant } from "@vite-hub/internal/invariant"
+import { stopMarkedProcesses } from "@vite-hub/internal/process-sweep"
 
 import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
 import { launcherSource } from "./ssh-launcher.injected.ts"
@@ -40,6 +42,8 @@ export interface SshLaunchContext {
 }
 
 const environmentName = /^[A-Z_][A-Z0-9_]*$/
+/** Every process of one SSH command starts with this variable, so the server can stop the ones that leave its process group. */
+const commandEnvironmentKey = "VITEHUB_SSH_COMMAND"
 
 /** Launch a command on a trusted SSH host with the same working-directory path. */
 export function sshLaunch(options: SshLaunchOptions): (context: SshLaunchContext) => { command: string; args: string[]; prepare: (context: { abortSignal?: AbortSignal }) => Promise<void> } {
@@ -112,6 +116,7 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
   const clients = new Set<Connection>()
   const sockets = new Set<Socket>()
   const children = new Set<ChildProcess>()
+  const markers = new Map<ChildProcess, string>()
   const terminations = new Map<ChildProcess, Promise<void>>()
   const allowed = options.acceptEnvironment && new Set(options.acceptEnvironment)
   function stop(child: ChildProcess) {
@@ -128,6 +133,8 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
       signalGroup("SIGTERM")
       await new Promise(resolve => setTimeout(resolve, 250))
       signalGroup("SIGKILL")
+      const marker = markers.get(child)
+      if (marker) await stopMarkedProcesses(commandEnvironmentKey, marker)
     })()
     terminations.set(child, done)
     return done
@@ -153,13 +160,15 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
       session.on("exec", (acceptExec, _reject, info) => {
         const stream = acceptExec()
         stream.allowHalfOpen = true
+        const marker = randomUUID()
         const child = spawn("/bin/sh", ["-lc", info.command], {
           cwd: options.cwd,
           detached: true,
-          env: { ...process.env, ...environment },
+          env: { ...process.env, ...environment, [commandEnvironmentKey]: marker },
           stdio: ["pipe", "pipe", "pipe"],
         })
         children.add(child)
+        markers.set(child, marker)
         stream.pipe(child.stdin)
         child.stdin.on("error", () => {}) // Remote command can close stdin before the SSH peer does.
         child.stdout.pipe(stream, { end: false })
@@ -170,7 +179,7 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
         child.once("exit", terminate)
         child.once("error", () => { stream.exit(127); stream.end() })
         child.once("close", code => {
-          void stop(child).finally(() => { children.delete(child); terminations.delete(child) })
+          void stop(child).finally(() => { children.delete(child); markers.delete(child); terminations.delete(child) })
           stream.exit(code ?? 1)
           stream.end()
         })

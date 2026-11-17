@@ -3,9 +3,10 @@ import { defineErrors } from "@vite-hub/runtime"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { HTTPError } from "nitro/h3"
 
-import { runtimeEnv } from "./internal/runtime-env.ts"
+import { runtimeEnv, standardSource } from "./internal/runtime-env.ts"
 
-import type { Result, ViteHubContext } from "@vite-hub/runtime"
+import type { Result } from "@vite-hub/runtime"
+import type { RequestEvent } from "./internal/runtime-env.ts"
 
 const serviceTokenErrors = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/env/diagnostics",
@@ -31,13 +32,7 @@ export type ServiceTokenErrorCode = "ENV_SERVICE_TOKEN_INVALID" | "ENV_SERVICE_T
  * The request to check: an H3 event, another event with Standard Context, or a web `Request`. An H3 event matches
  * `{ req }` even when the app does not load the types that add `~standard` to it.
  */
-export type ServiceTokenEvent = Request | ViteHubContext | { readonly req: Request }
-
-/** An H3 event without Standard Context reads it from its Request, which carries the same host data. */
-function standardSource(event: ServiceTokenEvent): Request | ViteHubContext {
-  if ("~standard" in event) return event
-  return event instanceof Request ? event : event.req
-}
+export type ServiceTokenEvent = RequestEvent
 
 function readTokens(value: unknown): string[] {
   return typeof value === "string" ? value.split(",").map(token => token.trim()).filter(Boolean) : []
