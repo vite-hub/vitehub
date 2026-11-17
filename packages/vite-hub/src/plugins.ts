@@ -41,6 +41,7 @@ import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { vitestInlinePlugin } from "./vitest-inline.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
+import { evlogBridgeVitePlugin } from "./evlog-bridge-vite.ts"
 import { healthVitePlugin, type HealthOptions } from "./health-vite.ts"
 import { resolveDeployManifest, writeIndexNowKeyFile, type DeployOptions } from "./deploy-options.ts"
 import { viteHubSeoPlugin, type SeoOptions } from "./seo/vite.ts"
@@ -1558,6 +1559,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (observabilityLogs) plugins.push(logsVitePlugin(observabilityLogs))
   if (browserErrors) plugins.push(browserErrorsVitePlugin())
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
+  plugins.push(evlogBridgeVitePlugin())
   if (options.trustProxy || options.sameOriginWrites || options.security) plugins.push(requestPolicyVitePlugin(options))
   if (options.health) plugins.push(healthVitePlugin(options.health === true ? {} : options.health, { database: Boolean(options.database) }))
   if (envPlugin) plugins.push(envPlugin)

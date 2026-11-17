@@ -20,6 +20,19 @@ With the evlog Nitro module, ViteHub primitives add their own fields to the wide
 | `auth` | A sign-in, a Better Auth error, or a refusal of an Auth guard | [Auth](/docs/auth/server-api#see-auth-outcomes-on-each-request) |
 | `rateLimit` | A request that a Rate Limit refuses | [Rate Limit](/docs/rate-limit/server-api#see-refusals-on-each-request) |
 | `browserError` | A browser error report, with `observability.browserErrors` | [Configure](/docs/logs/configure) |
+| `blob` | A Blob cache failure in `serve()` | [Blob](/docs/blob/limits-and-errors#see-cache-failures-in-logs) |
+| `comments` | A failed `onComment` | [Comments](/docs/comments/limits-and-errors#see-hook-and-sync-failures-in-logs) |
+
+Work outside a request gets an evlog event of its own, `{ action, message, [field] }`. The event goes to evlog's drains and to the app's `evlog:drain` hooks, but not to its `evlog:enrich` hooks.
+
+| Field | Event | Read more |
+| --- | --- | --- |
+| `blob` | A Blob cache failure outside `serve()` | [Blob](/docs/blob/limits-and-errors#see-cache-failures-in-logs) |
+| `kv` | A failed delete of expired KV rows | [KV](/docs/kv/limits-and-errors#see-expiry-failures-in-logs) |
+| `schedule` | Each Schedule run, and Schedule runtime failures | [Schedule](/docs/schedule/server-api#see-schedule-runs-in-logs) |
+| `comments` | A failed `onMention` or pull request sync | [Comments](/docs/comments/limits-and-errors#see-hook-and-sync-failures-in-logs) |
+
+ViteHub sends these events only when the app installs evlog and registers its Nitro module. Without evlog, the same failures go to the server console.
 
 ## Source contract
 
