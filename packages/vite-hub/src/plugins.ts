@@ -184,6 +184,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/ui": true,
   // Browser-only: generated server code never imports it.
   "@vite-hub/web-container": false,
+  "@vite-hub/webhooks": true,
   "@vite-hub/workflow": true,
   "@vite-hub/workspace": true,
 } satisfies Record<FrameworkDependencyName, boolean>
@@ -1753,12 +1754,15 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     auth: Boolean(options.auth),
     // Attachments go to the app's Blob store.
     blob: blobEnabled,
+    // Guest writes count in Rate Limit when its KV store is shared, as Forms messages do.
+    rateLimit: Boolean(options.rateLimit) && buildRateLimitDriver(plan, options).driver === "kv",
     imports: {
       auth: generatedModules.commentsRuntimeAuth,
       blob: "vite-hub/blob",
       contentClient: "vite-hub/content/client",
       database: "vite-hub/comments/database",
       databases: "@vite-hub/database/runtime/registry",
+      rateLimit: "vite-hub/rate-limit",
       realtime: generatedModules.commentsRealtime,
       runtime: "vite-hub/comments/runtime",
     },
@@ -1796,7 +1800,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(ownerModules.scheduleVite, "schedule").hubSchedule({
       ...(plan.host === "vercel" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
-      databaseImport: "@vite-hub/database/runtime/registry",
+      databaseImport: "@vite-hub/database",
       importBase: "vite-hub/schedule",
       providerImportAliases,
     } as ScheduleOptions))
@@ -1873,7 +1877,20 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }))
   if (commentsPlugin) plugins.push(commentsPlugin)
   else if (options.comments === false) plugins.push(commentsOffPlugin())
-  if (!ownerModules.commentsVite || !ownerModules.contentVite || !ownerModules.cmsVite || !ownerModules.formsVite) plugins.push(optionalOwnerEntriesPlugin({ database: options.database !== false }))
+  // Webhooks in `server/webhooks/<name>.ts`: deliveries in the Default Database, sent through the `vitehub-webhooks`
+  // Queue that the plugin contributes. Inert without the folder, and absent without its package.
+  if (ownerModules.webhooksVite) plugins.push(ownerModules.webhooksVite.hubWebhooks({
+    database: Boolean(options.database),
+    queue: Boolean(options.queue) && plan.services.queue.supported,
+    imports: {
+      runtime: "vite-hub/webhooks/runtime",
+      database: "vite-hub/webhooks/database",
+      databases: "@vite-hub/database/runtime/registry",
+      queue: "vite-hub/queue",
+      types: "vite-hub/webhooks",
+    },
+  }))
+  if (!ownerModules.commentsVite || !ownerModules.contentVite || !ownerModules.cmsVite || !ownerModules.formsVite || !ownerModules.webhooksVite) plugins.push(optionalOwnerEntriesPlugin({ database: options.database !== false }))
   plugins.push(optionalOwnerImportsPlugin())
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())

@@ -146,6 +146,8 @@ Blob stores binary objects and small object metadata. Keep catalogs, indexes, pe
 
 Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings fail if they cannot decode the cursor.
 
+A Netlify Blobs listing makes one request for each page and returns the pathname, ETag, size, and upload time of each file, without its content type or custom metadata. Call `blob.head()` for those.
+
 With `folded: true`, files-sdk drivers (S3 and S3-compatible stores, R2, GCS, and Azure) ask the provider for the folders, so each page is one provider request. A page then holds at most `limit` blobs and folders together.
 
 With a partial prefix such as `docs/re`, a native page can be empty while `hasMore` is true. Continue with the returned cursor to reach the matching entries.

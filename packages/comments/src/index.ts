@@ -1,4 +1,7 @@
+import { clientRateLimitIssue } from "@vite-hub/internal/runtime/client-rate-limit"
+
 import { markCommentsDefinition } from "./operations-core/define.ts"
+import { commentsErrorDiagnostics } from "./operations-core/errors.ts"
 import { can, createThread, editMessage, replyToThread, scopeOf, suggest } from "./operations-core/service.ts"
 import { commentsErrors } from "./errors.ts"
 import { pendingKey, runtimeOf, runtimes } from "./installed.ts"
@@ -59,7 +62,7 @@ export interface Comments {
    * Whether the `authorize` policy allows an action. Without a policy, see `defaultPolicy()`. `gate` says what your
    * server checked before, such as Console section access; a route of your own usually passes nothing.
    */
-  can(context: { user: CommentsUser | null, action: CommentAction, thread?: CommentThread, subject?: CommentSubject }, gate?: CommentsPolicyGate): Promise<boolean>
+  can(context: { user: CommentsUser | null, action: CommentAction, thread?: CommentThread, subject?: CommentSubject, console?: boolean }, gate?: CommentsPolicyGate): Promise<boolean>
   /** People that `@` suggests to `user`, at most 20: `people`, else Auth, else the authors of threads that `user` may read. */
   people(context: { query: string, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, limit?: number, gate?: CommentsPolicyGate }): Promise<Result<CommentUser[], Codes<"COMMENTS_NOT_INSTALLED">>>
   /**
@@ -90,6 +93,8 @@ function resultError(error: unknown, id: string): ReturnType<typeof commentsErro
 
 /** Defines Comments for the app: the access policy, the people, the hooks, and the trusted server API. */
 export function defineComments(options: DefineCommentsOptions = {}): Comments {
+  const rateLimitIssue = options.rateLimit && clientRateLimitIssue(options.rateLimit)
+  if (rateLimitIssue) throw commentsErrorDiagnostics.COMMENTS_RATE_LIMIT_INVALID({ issue: rateLimitIssue })
   const pending = new Set<Promise<unknown>>()
   const runtime = () => runtimeOf(comments)
   const notInstalled = (): [ReturnType<typeof commentsErrors.COMMENTS_NOT_INSTALLED>, undefined] => [commentsErrors.COMMENTS_NOT_INSTALLED(), undefined]
