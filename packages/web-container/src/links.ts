@@ -12,6 +12,7 @@ export interface SnapshotLinks {
 
 /**
  * A Node script that restores the links and executable bits of a mounted snapshot, from the working directory.
+ * WebContainer `mount()` drops executable bits (https://github.com/stackblitz/webcontainer-core/issues/2186).
  *
  * The snapshot bytes come from the network, so the list is not trusted: a path must be relative and stay inside the
  * working directory, and so must the place that a link points to. Destination paths through symlinks are rejected.

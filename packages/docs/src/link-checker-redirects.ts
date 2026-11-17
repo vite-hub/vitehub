@@ -14,6 +14,8 @@ interface LinkCheckerNuxtOptions {
  * The link checker reads its options once, when Nuxt installs it, and reports every link to a redirect. The docs module
  * installs this module just before it, after the app's modules have added their route rules, so a link to a redirect
  * route rule passes. The docs module checks where each redirect goes instead.
+ * Upstream: the late `excludeLinks` (https://github.com/harlan-zw/nuxt-link-checker/issues/143) and the unchecked
+ * redirect target (https://github.com/harlan-zw/nuxt-link-checker/pull/142).
  */
 const linkCheckerRedirects: { (inlineOptions: Record<string, never>, nuxt: never): unknown } = defineNuxtModule({
   meta: { name: "@vite-hub/docs/link-checker-redirects" },
