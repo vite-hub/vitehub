@@ -73,6 +73,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Set `agent: true` in the ViteHub options to run the Agents. Set `agent: false` to keep them off on purpose.",
     },
+    VITE_HUB_CACHE_TAG_INVALID: {
+      ...dynamicError,
+      fix: "Pass non-empty strings to `tags` and `invalidateTag()`, for example `[\"posts\", \"post:1\"]`.",
+    },
     VITE_HUB_DEPLOY_CHECK_INVALID: {
       why: ({ value }: { value: string }) => `A \`deploy.check\` path must be a path on the deployed site that starts with one \`/\`, such as \`/api/health\`, but it is ${value}.`,
       fix: "Write each `deploy.check` entry as a path that starts with `/`, without an origin and without spaces, such as `deploy: { check: [\"/\", \"/api/products\"] }`.",
@@ -80,10 +84,6 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_DEPLOY_INDEX_NOW_PUBLIC_URL_MISSING: {
       why: "`deploy.indexNow` sends the URLs of the public site to IndexNow, and the build does not know that site: `publicUrl` is not a string.",
       fix: "Set `vitehub({ publicUrl: \"https://shop.example.com\" })` to the origin of the public site, or remove `deploy.indexNow`.",
-    },
-    VITE_HUB_CACHE_TAG_INVALID: {
-      ...dynamicError,
-      fix: "Pass non-empty strings to `tags` and `invalidateTag()`, for example `[\"posts\", \"post:1\"]`.",
     },
     VITE_HUB_MCP_AUTH_MISSING: {
       why: "The MCP server needs Auth, so that only signed-in MCP clients call its tools.",
