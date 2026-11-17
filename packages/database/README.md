@@ -72,6 +72,16 @@ const [error] = await withIdempotency(`rsvp-confirmation:${rsvpId}`, () => sendC
 if (error) return // Another delivery of this job is sending the mail.
 ```
 
+`useLeases({ database })` from `@vite-hub/database` returns the leases of the app, in the table `vitehub_leases` of the default or only Database, which the first call creates. One server at a time holds a key. `acquire(key, { ttl, owner })`, `get(key)`, `lease.renew()`, and `lease.release()` return `[error, data]`. It runs on every Database driver, D1 included: each operation is one SQL statement.
+
+```ts fragment
+const [error, lease] = await useLeases().acquire('sync:stripe-payouts', { ttl: 60 })
+if (lease) {
+  try { await syncPayouts() }
+  finally { await lease.release() }
+}
+```
+
 ## Vite Integration
 
 Database instances expose Drizzle's `batch()` method on D1, D1 HTTP, and libSQL.
