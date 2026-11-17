@@ -140,7 +140,7 @@ async function consumeRateLimit(
       limit: policy.limit,
       window: policy.window,
       driver,
-      key: options.key === undefined ? "client-address" : "option",
+      keySource: options.key === undefined ? "client-address" : "option",
       allowed: decision.allowed,
       reason: decision.reason,
       ...(decision.retryAfter === undefined ? {} : { retryAfter: decision.retryAfter }),

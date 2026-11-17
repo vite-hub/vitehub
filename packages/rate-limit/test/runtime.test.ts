@@ -414,7 +414,7 @@ describe("Rate Limit refusals on the request's wide event", () => {
       limit: 1,
       window: "1m",
       driver: "memory",
-      key: "option",
+      keySource: "option",
       allowed: false,
       reason: "limited",
       retryAfter: 30,
@@ -429,7 +429,7 @@ describe("Rate Limit refusals on the request's wide event", () => {
     await checkRateLimit(event, "previews", { limit: 1, window: "10s" })
     await checkRateLimit(event, "previews", { limit: 1, window: "10s" })
 
-    expect(log.set.mock.calls[0]![0]).toMatchObject({ rateLimit: { name: "previews", key: "client-address", allowed: false, reason: "limited" } })
+    expect(log.set.mock.calls[0]![0]).toMatchObject({ rateLimit: { name: "previews", keySource: "client-address", allowed: false, reason: "limited" } })
     expect(JSON.stringify(log.set.mock.calls)).not.toContain("192.0.2.41")
   })
 
@@ -445,7 +445,7 @@ describe("Rate Limit refusals on the request's wide event", () => {
       limit: 1,
       window: "1m",
       driver: "cloudflare",
-      key: "option",
+      keySource: "option",
       allowed: true,
       reason: "unavailable",
     } })

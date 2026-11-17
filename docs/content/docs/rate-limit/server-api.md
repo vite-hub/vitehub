@@ -142,7 +142,7 @@ With the evlog Nitro module, added through `vitehub({ observability })` or by ha
 | --- | --- |
 | `name`, `limit`, `window` | The stable ID and the policy of the Rate Limit. |
 | `driver` | The driver that counted: `memory`, `kv`, or `cloudflare`. |
-| `key` | Where the key came from: `option` for the `key` of the call, `client-address` for the client address. The key itself is not on the event, because it can be an IP address or a user id. |
+| `keySource` | Where the key came from: `option` for the `key` of the call, `client-address` for the client address. The key itself is not on the event, because it can be an IP address or a user id. |
 | `allowed` | `false` when the guard refused the request. `true` when the limiter was unavailable and the policy has `failure: "allow"`. |
 | `reason` | `limited` or `unavailable`. |
 | `retryAfter` | Seconds until the window resets, when the driver gives it. |
