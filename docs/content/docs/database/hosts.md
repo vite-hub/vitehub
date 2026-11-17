@@ -12,7 +12,7 @@ icon: i-lucide-cloud-cog
 | --- | --- | --- |
 | Local SQLite | `connection.url` or no connection config | Default for local development and generated Drizzle files. |
 | Hosted libSQL (for example Turso) | `connection.url` and optional `connection.authToken` | Keep secret URLs and tokens in Server Env. |
-| Cloudflare D1 | `cloudflare` Definition options or top-level `database.driver: 'd1'` | Uses a D1 binding on Cloudflare. Local development uses D1 only with `remote: true` or `cloudflare.http`. Vercel uses D1 only with `cloudflare.http`. |
+| Cloudflare D1 | `cloudflare` Definition options or top-level `database.driver: 'cloudflare'` | Uses a D1 binding on Cloudflare. Local development uses D1 only with `remote: true` or `cloudflare.http`. Vercel uses D1 only with `cloudflare.http`. |
 | Postgres (for example Neon) | `dialect: 'postgresql'` with `connection.url` and optional `cloudflare.hyperdriveId` | Uses a Hyperdrive binding on Cloudflare and `connection.url` elsewhere. See [Use Postgres](#use-postgres). |
 
 ### Use the real D1 database in development
@@ -104,7 +104,7 @@ export default defineDatabase({
 })
 ```
 
-In Nuxt, or for every Definition that uses the top-level resource, set it at the top level: `database: { driver: 'd1', readReplication: true }`.
+In Nuxt, or for every Definition that uses the top-level resource, set it at the top level: `database: { driver: 'cloudflare', readReplication: true }`.
 
 ViteHub then opens one D1 session per request, with the [Sessions API](https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession):
 
@@ -130,7 +130,7 @@ A Postgres Definition uses [postgres.js](https://github.com/porsager/postgres) t
 3. Outside a Cloudflare request with an empty URL, postgres.js reads `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`.
 4. In development and app tests, with none of these, [PGlite](/docs/database/configure#run-postgres-locally-with-pglite). Production output has no PGlite.
 
-Use the PG* variables on Node and container hosts that give separate credentials, not a URL. Workers ignore them, and Vercel still needs `connection.url`.
+Use the PG* variables on Node, Vercel, and container hosts that give separate credentials, not a URL. Workers ignore them.
 
 A Worker cannot use a socket from one request in another. So inside a Cloudflare request, ViteHub creates one client and reuses it for all queries of that request. Hyperdrive keeps the pool of origin connections, so a new client per request is cheap. Each client opens at most 5 connections, inside the Workers connection limit. On Node, Vercel, and local development, one client pool serves the process.
 
@@ -258,7 +258,7 @@ export default defineNuxtConfig({
   vitehub: {
     host: 'cloudflare',
     database: {
-      driver: 'd1',
+      driver: 'cloudflare',
       databaseName: 'app-content',
     },
   },
@@ -277,7 +277,7 @@ export default defineConfig({
     vitehub({
       host: 'cloudflare',
       database: {
-        driver: 'd1',
+        driver: 'cloudflare',
         databaseName: 'app-content',
       },
     }),
@@ -297,7 +297,7 @@ export default defineConfig({
     vitehub({
       host: 'cloudflare',
       database: {
-        driver: 'd1',
+        driver: 'cloudflare',
         databaseName: 'app-content',
       },
     }),

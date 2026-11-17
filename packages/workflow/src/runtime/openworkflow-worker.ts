@@ -9,6 +9,7 @@ import { createWorkflowError } from "../errors.ts"
 import type { ShutdownApp } from "@vite-hub/runtime/internal/shutdown"
 import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
+import { defaultOpenWorkflowWorkerConcurrency } from "../internal/openworkflow-defaults.ts"
 
 type OpenWorkflowWorker = ReturnType<Awaited<ReturnType<typeof getOpenWorkflowRuntime>>["client"]["newWorker"]>
 
@@ -35,8 +36,8 @@ function getProcess(): {
 /** Registers every Workflow Definition of the registry on the OpenWorkflow client, before a worker copies them. */
 async function prepareOpenWorkflowWorker(options: CreateOpenWorkflowWorkerOptions) {
   const config = options.config ?? getWorkflowRuntimeConfig()
-  if (!config || config.provider !== "openworkflow") {
-    throw workflowErrorDiagnostics.WORKFLOW_R0017({ message: "OpenWorkflow worker requires workflow.provider \"openworkflow\"." })
+  if (!config || config.driver !== "openworkflow") {
+    throw workflowErrorDiagnostics.WORKFLOW_R0017({ message: "OpenWorkflow worker requires workflow.driver \"openworkflow\"." })
   }
 
   const registry = options.registry ?? getWorkflowRuntimeRegistry() ?? {}
@@ -52,7 +53,7 @@ async function prepareOpenWorkflowWorker(options: CreateOpenWorkflowWorkerOption
   }
 
   return {
-    concurrency: options.concurrency ?? (config.worker ? config.worker.concurrency : undefined),
+    concurrency: options.concurrency ?? (config.worker ? config.worker.concurrency : undefined) ?? defaultOpenWorkflowWorkerConcurrency,
     runtime,
   }
 }
@@ -282,7 +283,7 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
  */
 export function installOpenWorkflow(app: OpenWorkflowWorkerApp, options: InstallOpenWorkflowOptions = {}): Promise<boolean> {
   const config = getWorkflowRuntimeConfig()
-  if (!config || config.provider !== "openworkflow") return Promise.resolve(false)
+  if (!config || config.driver !== "openworkflow") return Promise.resolve(false)
   useBundledOpenWorkflow()
   setOpenWorkflowDatabaseUrl(options.databaseUrl)
 

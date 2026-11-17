@@ -19,11 +19,10 @@ describe("Cloudflare Sandbox runtime provider", () => {
   it("defaults idle shutdown to five minutes", async () => {
     const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () => resolveCloudflareTaskSandbox({
       local: {},
-      provider: { provider: "cloudflare" },
+      provider: { driver: "cloudflare" },
     }))
 
     await provider.resolveSandbox(["node"])
-    expect(provider.closeAfterRun).toBe(false)
     expect(resolveCloudflareSandbox).toHaveBeenCalledWith(
       expect.objectContaining({
         namespace,
@@ -36,7 +35,7 @@ describe("Cloudflare Sandbox runtime provider", () => {
   it("preserves an explicit idle shutdown override", async () => {
     const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () => resolveCloudflareTaskSandbox({
       local: {},
-      provider: { provider: "cloudflare", sleepAfter: "30s" },
+      provider: { driver: "cloudflare", sleepAfter: "30s" },
     }))
 
     await provider.resolveSandbox(["node", "npm"])
@@ -51,7 +50,7 @@ describe("Cloudflare Sandbox runtime provider", () => {
   it("passes networkPolicy to the Cloudflare runtime", async () => {
     const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () => resolveCloudflareTaskSandbox({
       local: {},
-      provider: { provider: "cloudflare", networkPolicy: { allow: ["registry.npmjs.org"] } },
+      provider: { driver: "cloudflare", networkPolicy: { allow: ["registry.npmjs.org"] } },
     }))
 
     await provider.resolveSandbox(["node"])
@@ -61,19 +60,23 @@ describe("Cloudflare Sandbox runtime provider", () => {
     )
   })
 
-  it("closes a Sandbox session when keepAlive disables idle shutdown", async () => {
+  it("passes keepAlive to the Sandbox idle policy", async () => {
     const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () => resolveCloudflareTaskSandbox({
       local: {},
-      provider: { provider: "cloudflare", keepAlive: true },
+      provider: { driver: "cloudflare", keepAlive: true },
     }))
 
-    expect(provider.closeAfterRun).toBe(true)
+    await provider.resolveSandbox(["node"])
+    expect(resolveCloudflareSandbox).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cloudflare: expect.objectContaining({ keepAlive: true }) }),
+      ["node"],
+    )
   })
 
   it("says how to run Sandbox locally when the dev server has no binding", async () => {
     await expect(runWithActiveCloudflareEnv({ DB: {} }, () => resolveCloudflareTaskSandbox({
       local: {},
-      provider: { provider: "cloudflare" },
+      provider: { driver: "cloudflare" },
     }))).rejects.toThrow("build, then run `npx wrangler dev --config .output/server/wrangler.json`")
   })
 
@@ -83,7 +86,7 @@ describe("Cloudflare Sandbox runtime provider", () => {
 
     await expect(runWithActiveCloudflareEnv(env, () => resolveCloudflareTaskSandbox({
       local: {},
-      provider: { provider: "cloudflare", binding },
+      provider: { driver: "cloudflare", binding },
     }))).rejects.toThrow(`Cloudflare sandbox requires the ${JSON.stringify(binding)} binding`)
     expect(resolveCloudflareSandbox).not.toHaveBeenCalled()
   })

@@ -41,6 +41,10 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ driver }: { driver: string }) => `The ${driver} Email provider rate limited the request.`,
       fix: "Retry later with backoff, for example from a Queue.",
     },
+    EMAIL_TEMPLATE_RENDER_FAILED: {
+      why: ({ template }: { template: string }) => `Email template "${template}" could not render with the \`data\` of this message.`,
+      fix: "Read `error.cause` for the binding that failed. Pass a string, number, or boolean for each `{{ data.* }}` binding, and a string for each `:insert` binding.",
+    },
     EMAIL_TIMEOUT: {
       why: ({ driver }: { driver: string }) => `Email delivery through ${driver} timed out.`,
       fix: "The provider can have accepted the message. Check its delivery logs, or retry with the same `idempotencyKey`.",
@@ -78,7 +82,7 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Rename or remove one of the two Markdown files under `server/emails`.",
     },
     EMAIL_HOST_UNSUPPORTED: {
-      why: "The \"cloudflare-email\" driver needs a Cloudflare host.",
+      why: "The \"cloudflare\" driver needs a Cloudflare host.",
       fix: "Deploy to Cloudflare, or use the \"resend\" driver.",
     },
     EMAIL_INVALID_OUTBOX: {
@@ -106,8 +110,8 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Read the value with `env.source()`, for example `env({ secret: true, source: env.source('RESEND_API_KEY') })`.",
     },
     EMAIL_UNKNOWN_DRIVER: {
-      why: "The Email `driver` must be \"resend\" or \"cloudflare-email\".",
-      fix: "Set `email: { driver: 'resend' }` or `email: { driver: 'cloudflare-email' }`.",
+      why: "The Email `driver` must be \"resend\", \"cloudflare\", or \"log\".",
+      fix: "Set `email: { driver: 'resend' }` or `email: { driver: 'cloudflare' }`. Set `email: { driver: 'log' }` to print messages and send nothing.",
     },
 
     // Tool errors.

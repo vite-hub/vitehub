@@ -1,14 +1,15 @@
+import { defineErrors } from "@vite-hub/runtime"
 import { mockEvent } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { checkRateLimit, createRateLimiter, peekRateLimit, resetRateLimit } from "../src/index.ts"
 import { kvRateLimitDriver } from "../src/drivers/kv.ts"
-import { resolveRateLimitProvider, setRateLimitRuntimeConfig } from "../src/runtime.ts"
+import { resolveRateLimitDriver, setRateLimitRuntimeConfig } from "../src/runtime.ts"
 
 import type { RateLimitKVStorage } from "../src/drivers/kv.ts"
 
 afterEach(() => {
-  setRateLimitRuntimeConfig({ provider: "memory" })
+  setRateLimitRuntimeConfig({ driver: "memory" })
   vi.useRealTimers()
   vi.restoreAllMocks()
 })
@@ -42,6 +43,8 @@ function fakeKV(): FakeKV {
 }
 
 const windowStart = Date.UTC(2026, 10, 9, 12, 0, 0)
+
+const kvErrors = defineErrors({ codes: { KV_OPERATION_FAILED: { why: "The KV operation failed.", fix: "Check the KV store." } }, docs: "https://vitehub.dev/docs/kv/diagnostics" })
 
 describe("kvRateLimitDriver", () => {
   it("counts a fixed window with one increment for each request, with the window as TTL", async () => {
@@ -109,7 +112,7 @@ describe("kvRateLimitDriver", () => {
   })
 
   it.each([["deny", false], ["allow", true]] as const)("follows failure: %s when KV fails", async (failure, allowed) => {
-    const cause = new Error("connection refused")
+    const cause = kvErrors.KV_OPERATION_FAILED()
     const kv: RateLimitKVStorage = { ...fakeKV(), increment: async () => [cause, undefined] }
     const limiter = createRateLimiter({ driver: kvRateLimitDriver({ storage: kv }), failure, limit: 1, window: "1m" })
 
@@ -182,9 +185,9 @@ describe("kv provider at runtime", () => {
   it("counts in KV when the store uses a shared driver", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {})
     const kv = fakeKV()
-    setRateLimitRuntimeConfig({ provider: "kv" }, { driver: async () => "redis", storage: kv, store: "default" })
+    setRateLimitRuntimeConfig({ driver: "kv" }, { driver: async () => "redis", storage: kv, store: "default" })
 
-    await expect(resolveRateLimitProvider()).resolves.toBe("kv")
+    await expect(resolveRateLimitDriver()).resolves.toBe("kv")
     expect(info).toHaveBeenCalledWith(expect.stringContaining("KV store \"default\" (redis)"))
     await expect(checkRateLimit(event(), "uploads", { key: "user", limit: 1, window: "1m" })).resolves.toMatchObject([undefined, { allowed: true }])
     await expect(checkRateLimit(event(), "uploads", { key: "user", limit: 1, window: "1m" })).resolves.toMatchObject([undefined, { allowed: false }])
@@ -197,7 +200,7 @@ describe("kv provider at runtime", () => {
   it("counts in memory with a warning when the KV store cannot share counts", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const kv = fakeKV()
-    setRateLimitRuntimeConfig({ memoryFallback: true, provider: "kv" }, { driver: async () => "fs-lite", storage: kv, store: "default" })
+    setRateLimitRuntimeConfig({ memoryFallback: true, driver: "kv" }, { driver: async () => "fs-lite", storage: kv, store: "default" })
 
     await expect(checkRateLimit(event(), "uploads", { key: "user", limit: 1, window: "1m" })).resolves.toMatchObject([undefined, { allowed: true }])
     await expect(checkRateLimit(event(), "uploads", { key: "user", limit: 1, window: "1m" })).resolves.toMatchObject([undefined, { allowed: false }])
@@ -209,7 +212,7 @@ describe("kv provider at runtime", () => {
 
   it("fails on a KV store that cannot share counts without memoryFallback", async () => {
     const kv = fakeKV()
-    setRateLimitRuntimeConfig({ provider: "kv" }, { driver: async () => "fs-lite", storage: kv, store: "default" })
+    setRateLimitRuntimeConfig({ driver: "kv" }, { driver: async () => "fs-lite", storage: kv, store: "default" })
 
     await expect(checkRateLimit(event(), "uploads", { key: "user", limit: 1, window: "1m" })).rejects.toMatchObject({
       code: "RATE_LIMIT_KV_RUNTIME_STORE_UNSUPPORTED",
@@ -219,20 +222,20 @@ describe("kv provider at runtime", () => {
   })
 
   it("fails without a KV store, and tries the KV driver again after a failure", async () => {
-    setRateLimitRuntimeConfig({ provider: "kv" })
+    setRateLimitRuntimeConfig({ driver: "kv" })
     await expect(checkRateLimit(event(), "uploads", { key: "user", limit: 1, window: "1m" })).rejects.toMatchObject({ code: "RATE_LIMIT_R0047" })
 
     vi.spyOn(console, "info").mockImplementation(() => {})
     const driver = vi.fn<() => Promise<string>>().mockRejectedValueOnce(new Error("unknown store")).mockResolvedValue("database")
-    setRateLimitRuntimeConfig({ provider: "kv" }, { driver, storage: fakeKV(), store: "default" })
-    await expect(resolveRateLimitProvider()).rejects.toThrow("unknown store")
-    await expect(resolveRateLimitProvider()).resolves.toBe("kv")
+    setRateLimitRuntimeConfig({ driver: "kv" }, { driver, storage: fakeKV(), store: "default" })
+    await expect(resolveRateLimitDriver()).rejects.toThrow("unknown store")
+    await expect(resolveRateLimitDriver()).resolves.toBe("kv")
     expect(driver).toHaveBeenCalledTimes(2)
   })
 
   it("does not know the window of a kv counter that this process never used", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
-    setRateLimitRuntimeConfig({ provider: "kv" }, { driver: async () => "redis", storage: fakeKV(), store: "default" })
+    setRateLimitRuntimeConfig({ driver: "kv" }, { driver: async () => "redis", storage: fakeKV(), store: "default" })
 
     await expect(peekRateLimit("uploads", "user")).resolves.toMatchObject({ status: "unused" })
     await expect(resetRateLimit("uploads", "user")).resolves.toMatchObject({ status: "unsupported" })

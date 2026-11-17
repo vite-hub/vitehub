@@ -49,6 +49,19 @@ describe("Babysitter webhook redelivery", () => {
     expect(pending.size).toBe(0)
   })
 
+  it("sends results before other events and skips progress events that a later event replaces", async () => {
+    const f = setup(() => [
+      { ...delivery(1), event: "issue_comment", action: "created" },
+      { ...delivery(2), event: "check_run", action: "created" },
+      { ...delivery(3), event: "pull_request", action: "synchronize" },
+      { ...delivery(4), event: "check_suite", action: "completed" },
+      { ...delivery(5), event: "workflow_run", action: "in_progress" },
+    ])
+    expect(await f.redelivery.sweep()).toBe(3)
+    expect(f.source.redeliver.mock.calls.map(([id]) => id)).toEqual(["4", "3", "1"])
+    expect(f.event).toHaveBeenCalledWith("babysitter.webhook.redelivered", expect.objectContaining({ skipped: 2, remaining: 0 }))
+  })
+
   it("gives up on an event after three redeliveries", async () => {
     const f = setup(() => [delivery(1)])
     for (let sweep = 0; sweep < 5; sweep++) await f.redelivery.sweep()

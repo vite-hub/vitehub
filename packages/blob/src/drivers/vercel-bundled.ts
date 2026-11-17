@@ -101,7 +101,7 @@ function base64(bytes: Uint8Array): string {
 async function vercelClientToken(readWriteToken: string, payload: Record<string, unknown>): Promise<string> {
   const storeId = readWriteToken.split("_")[3]
   if (!storeId) {
-    throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel-blob\" cannot sign: the read-write token has no store ID. Use the BLOB_READ_WRITE_TOKEN of the store." })
+    throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel\" cannot sign: the read-write token has no store ID. Use the BLOB_READ_WRITE_TOKEN of the store." })
   }
   const encoder = new TextEncoder()
   const body = base64(encoder.encode(JSON.stringify(payload)))
@@ -116,11 +116,11 @@ async function vercelClientToken(readWriteToken: string, payload: Record<string,
  */
 async function signVercelUpload(options: ResolvedVercelBlobStoreConfig, pathname: string, signOptions: BlobSignOptions): Promise<BlobSignedRequest> {
   if (signOptions.method === "GET") {
-    throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel-blob\" cannot sign a GET request. Serve the object through `blob.serve()`." })
+    throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel\" cannot sign a GET request. Serve the object through `blob.serve()`." })
   }
   const token = options.token || globalThis.process?.env?.BLOB_READ_WRITE_TOKEN
   if (!token) {
-    throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel-blob\" signs uploads with a read-write token. Set BLOB_READ_WRITE_TOKEN: a store that only uses Vercel OIDC cannot sign." })
+    throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel\" signs uploads with a read-write token. Set BLOB_READ_WRITE_TOKEN: a store that only uses Vercel OIDC cannot sign." })
   }
   const allowOverwrite = !signOptions.createOnly && (options.allowOverwrite ?? true)
   const clientToken = await vercelClientToken(token, {

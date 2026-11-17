@@ -24,7 +24,7 @@ Provider output is the cron config that the build writes for your host.
 | Host | Static Schedule output |
 | --- | --- |
 | Cloudflare | Cron triggers and the Cloudflare schedule entry. |
-| Vercel | Vercel cron output. |
+| Vercel | Vercel cron output. Set `CRON_SECRET` in the Vercel project: without it, the cron function returns `401` and no schedule runs. See [Vercel Cron Jobs](/docs/guides/vercel-cron-jobs#set-cron_secret). |
 | Netlify | One scheduled function per schedule. In a Nitro build, `auto` and `nitro` write each one next to Nitro's server function with its own server bundle copy, so it has the same plugins, Database, and other primitives as a request. `standalone` bundles it outside Nitro, without them. |
 | Deno | `Deno.cron`, loaded by the generated Deno server. |
 | Node or Docker | None. The Process Runtime (`runtime: { driver: 'process' }`) runs schedules in the server process. |

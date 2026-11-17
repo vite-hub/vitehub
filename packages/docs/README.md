@@ -271,6 +271,8 @@ With `name`, the preview is a Vue file in `app/examples/`, and Code shows its so
 
 The server parses each page with Comark, and the browser renders the nodes with [comark-ui](https://comark-ui.onmax.me)'s blocks: GitHub callouts (`> [!NOTE]`, and `::note`, `::tip`, `::warning`, `::caution`, `::important`), tabs and code groups, steps, code with a copy bar, zoomable images, charts, diagrams, file trees, cards, and the rest. comark-ui's typeset is off, since the design styles the prose. Chips are off too: they turn every web link into a chip and fetch its favicon. Annotated screenshots, diffs, quizzes, and comments have no Vue components, so the server draws them as HTML in a `comark-html` node, with the block's tag in `block`.
 
+An image from `public/`, such as `![Console](/screenshots/console.png)`, gets its `width` and `height` from the file, so the page does not move when the picture loads. The build measures the pictures in the `public/` folders of the app and its layers. A side that the page sets, such as `{width=640}`, stays, and the other follows the picture's ratio. Restart the development server to measure a picture added while it runs.
+
 `::examples` and `:::example{label play}` show rendered Markdown next to its source, with underlined tabs, a Preview and Code switch, and an optional link to a playground. The parser renders the example's first fenced block as its preview, with the page's plugins. An example whose Markdown doesn't parse shows its source alone. A site's parser can still supply its own `example-preview` node. Content without a preview node stays visible.
 
 Parser options go in a module that `parser` names, since Comark plugins are functions:

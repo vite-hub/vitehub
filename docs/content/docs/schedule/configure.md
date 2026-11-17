@@ -93,7 +93,7 @@ The Process Runtime loads the discovered registry and runs each Static Schedule 
 - `runtime` and `providerOutput` are separate. Setting one does not set the other.
 
 ::warning
-Do not use this driver on request-scoped or serverless hosts that may stop between requests. It scans inside the Node.js process and does not create cron, systemd, or another operating-system schedule.
+Do not use this driver on request-scoped or serverless hosts that may stop between requests. It scans inside the Node.js process and does not create cron, systemd, or another operating-system schedule. To let the operating system start a command on the cron, see [OS timers](/docs/schedule/os-timers).
 ::
 
 ### Run on more than one server

@@ -206,7 +206,7 @@ export async function runWorkflowOperation<Name extends WorkflowOperationName>(o
     throw failure(workflowErrorDiagnostics.WORKFLOW_DISABLED())
   }
   // The runtime uses inline Vercel execution when the app installs no Workflow configuration.
-  const provider = runtimeConfig?.provider ?? "vercel"
+  const provider = runtimeConfig?.driver ?? "vercel"
   const support = resolveWorkflowOperationSupport(provider)[operation]
   if (!support.supported) {
     throw failure(workflowErrorDiagnostics.WORKFLOW_OPERATION_UNSUPPORTED({ note: support.note, operation, provider }))

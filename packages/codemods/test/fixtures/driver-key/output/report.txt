@@ -1,0 +1,17 @@
+driver-key: renamed the backend keys and driver values of 4 file(s) to `driver`
+Dry run: no files were written.
+
+Files to change (4):
+  nuxt.config.ts
+  server/api/browse.post.ts
+  server/workspaces/docs.ts
+  vite.config.ts
+
+Manual follow-ups (1):
+  1. vite.config.ts:21 `kv.driver` is not a string literal. Check its value: "cloudflare-kv-binding" is now "cloudflare".
+
+Notes:
+  - Config that a variable or a helper function builds is not rewritten. Search for `provider` and `authority` next to `queue`, `workflow`, `rateLimit`, `realtime`, `sandboxTask`, and Workspace `store` options.
+
+Next steps:
+  - Run your typecheck. The option types reject the old keys and values.

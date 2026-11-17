@@ -66,7 +66,7 @@ Without `--url`, a command calls its project's dev server unsigned. A dev server
 | Header | Value |
 | --- | --- |
 | `x-vitehub-signature` | `key=<NAME>, t=<seconds>, origin=<app origin>, body=<SHA-256>, v1=<signature>` |
-| `x-vitehub-caller` | Base64url JSON of the caller: `{"via":"cli"}`, or `{"via":"console","user":{...},"team":{...}}` from the Console. Its ViteHub MCP adds `"surface":"mcp"`, `"confirmed":true` after the person agrees to a destructive call, and `"readOnly":true` for `read_operation`. The app ignores unknown fields so newer Consoles can call older apps. |
+| `x-vitehub-caller` | Base64url JSON of the caller: `{"via":"cli"}`, or `{"via":"console","user":{...},"team":{...}}` from the Console. Its ViteHub MCP adds `"surface":"mcp"`, `"confirmed":true` after the person agrees to a destructive call, and `"readOnly":true` for `read_operation`. The app ignores unknown fields so newer Consoles can call older apps. An app with a vite-hub from before this rule refuses the MCP fields. The MCP `check_app` tool then checks the link as the Console page does, and the other MCP tools answer `CONSOLE_APP_VITEHUB_OUTDATED`. |
 
 The signature is Ed25519 over these lines, joined with a line feed:
 

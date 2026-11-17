@@ -17,7 +17,7 @@ afterEach(() => {
 async function store(repository = "onmax/repo", token = "token") {
   const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
   return createGitHubWorkspaceStore(
-    { provider: "github", repository, token, root: "docs" },
+    { driver: "github", repository, token, root: "docs" },
     "docs",
   );
 }

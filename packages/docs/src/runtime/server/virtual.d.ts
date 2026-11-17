@@ -22,6 +22,12 @@ declare module "#docs/example-sources" {
   export default examples
 }
 
+/** The size of each picture in the `public/` folders of the app and its layers, by its URL path. */
+declare module "#docs/image-sizes" {
+  const sizes: import("../../markdown.ts").DocsImageSizes
+  export default sizes
+}
+
 /** The `llms` option of the docs module. */
 declare module "#docs/agent" {
   const agent: { llms: import("../../nuxt.ts").DocsLlmsOptions }

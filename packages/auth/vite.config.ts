@@ -62,6 +62,7 @@ export default defineConfig({
       "src/nuxt.ts",
       "src/presets.ts",
       "src/schema.ts",
+      "src/test.ts",
       "src/vue.ts",
       "src/vite.ts",
     ],

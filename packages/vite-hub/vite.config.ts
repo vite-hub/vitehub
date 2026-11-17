@@ -61,13 +61,19 @@ const runtimeEntries = [
   "src/_internal/auth/runtime/server.ts",
   "src/_internal/runtime/internal/h3.ts",
   "src/_internal/runtime/request-policy.ts",
+  "src/_internal/runtime/security.ts",
   "src/internal/agent-invocations-libsql.ts",
   "src/internal/database-runtime-state.ts",
   "src/internal/disabled-upstash-driver.ts",
   "src/internal/disabled-redis-driver.ts",
+  // `vite-hub/test/register` loads these files by path: the module hooks and the worker of the Vite server.
+  "src/internal/test-loader.ts",
+  "src/internal/test-server.ts",
+  "src/_internal/runtime/redirects.ts",
   "src/task/operations.ts",
   "src/cache/operations.ts",
   "src/skills/operations.ts",
+  "src/seo/runtime.ts",
   "src/durability/operations.ts",
   "src/comments/realtime.ts",
   "src/comments/runtime/auth.ts",
@@ -149,9 +155,11 @@ const runtimeEntries = [
   "src/console/runtime/server/setup.ts",
   "src/console/runtime/server/usage.get.ts",
   "src/console/runtime/server/status.get.ts",
-  // The page tools session route, and the Auth reader that the Console page tool loads with the first session request.
+  // The page tools session route, and the Auth and Site access readers that the Console page tool loads with the first
+  // session request.
   "src/console/runtime/server/page-auth.ts",
   "src/console/runtime/server/page-session.ts",
+  "src/console/runtime/server/site-session.ts",
 ];
 
 const skillsSource = resolve(import.meta.dirname, "../../docs/skills");
@@ -165,8 +173,6 @@ export default defineConfig({
   pack: [
     {
       ...packDefaults,
-      // `project.get` reports this version, without the package manifest in the app's server output.
-      define: { __VITE_HUB_VERSION__: JSON.stringify(frameworkPackageManifest.version) },
       copy: [
         { from: "src/cloudflare-prerender.mjs", to: "dist" },
         { from: "src/error-diagnostics.ts", to: "dist" },
@@ -440,6 +446,8 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-settings-card.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-settings-value.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/client/auth-management.ts", to: "dist/console/runtime/client" },
+        { from: "src/console/runtime/client/add-primitive.ts", to: "dist/console/runtime/client" },
+        { from: "src/console/runtime/components/console-add-primitive.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/client/app-identity.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/client/sidebar.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/components/console-user-menu.vue", to: "dist/console/runtime/components" },
@@ -508,6 +516,7 @@ export default defineConfig({
         { from: "src/ui/styles.css", to: "dist/ui" },
         { from: "src/ui/theme.css", to: "dist/ui" },
         { from: "templates/cloudflare-types.d.ts", to: "dist" },
+        { from: "templates/cloudflare-workers.d.ts", to: "dist" },
       ],
       deps: {
         // Agent-only apps need the client-free journal constructor without installing the optional Database package.
@@ -631,6 +640,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/sections.get"];
           delete exports["./console/runtime/server/sections"];
           delete exports["./console/runtime/server/setup"];
+          delete exports["./console/runtime/server/site-session"];
           delete exports["./console/runtime/server/usage.get"];
           delete exports["./console/runtime/server/status.get"];
           // Generated code imports `src/internal/*` entries by path. They are not public API.
@@ -639,6 +649,7 @@ export default defineConfig({
           delete exports["./cache/operations"];
           delete exports["./skills/operations"];
           delete exports["./durability/operations"];
+          delete exports["./seo/runtime"];
           delete exports["./comments/realtime"];
           delete exports["./comments/runtime/auth"];
           delete exports["./connections/agent"];

@@ -94,7 +94,7 @@ describe("Console error fixes", () => {
   })
 
   it("answers every malformed invocations.list cursor with VITE_HUB_R0058 and its fix", async () => {
-    for (const cursor of ["[]", "{}", "{\"done\":1}", "not json"]) {
+    for (const cursor of ["[]", "{}", "{\"done\":1}", "not json", '{"done":{"toString":null}}']) {
       await expect(listConsoleInvocations({ cursor })).rejects.toMatchObject({
         code: "VITE_HUB_R0058",
         fix: expect.stringContaining("vitehub invocations list"),

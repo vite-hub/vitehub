@@ -37,7 +37,7 @@ describe("Nuxt remote Database development", () => {
         cloudflare: mode === "http" ? { http: true } : undefined,
         databaseId: "real-database-id",
         databaseName: "notes",
-        driver: "d1",
+        driver: "cloudflare",
       })(undefined, {
         hook: (event: string, callback: unknown) => {
           // SAFETY: The nitro:config hook receives Nitro's configuration object from Nuxt.

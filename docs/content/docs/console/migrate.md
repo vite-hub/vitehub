@@ -17,6 +17,7 @@ Apps no longer sign people in to the Console. `console: { auth: 'app' }`, Consol
 2. Move checks of the person to [`console.authorize`](/docs/console/access#write-authorize), which gets the signed `user` and their `team` and role.
 3. Remove `consoleMcpOAuth()` from `server/auth.ts`. Keep `mcpOAuth()` if the app serves its [own MCP server](/docs/mcp).
 4. [Link the app](/docs/console/get-started#link-a-deployed-app), set the `VITEHUB_CONSOLE_KEY_<NAME>` line, and invite the app's Console users to your team.
+   If Cloudflare Access protected the app’s Console, delete that Access application or add a Bypass policy for `/_vitehub/rpc`. Otherwise Access redirects Console calls to sign-in and the Console answers `CONSOLE_FORWARD_REDIRECT`.
 5. For the CLI, replace `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE` and `CF_ACCESS_CLIENT_ID` with a [`VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`](/docs/console/signed-requests) from `vitehub secret console-key`.
 6. Connect agents to the [ViteHub MCP](/docs/console/mcp) instead of `/_vitehub/mcp`.
 

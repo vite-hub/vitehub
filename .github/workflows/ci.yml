@@ -30,6 +30,7 @@ jobs:
       - contract-tests
       - package-tests
       - package-tests-success
+      - ui-sdk
       - service-tests
       - prepublish-contracts
       - consumer-contracts
@@ -43,6 +44,9 @@ jobs:
       - console
       - console-pixels
       - console-deploy
+      - schedule-os-select
+      - schedule-os
+      - schedule-os-success
       - verify-providers
     if: ${{ always() }}
     runs-on: ubuntu-latest
@@ -74,9 +78,13 @@ jobs:
           ])
           // Deploys run only on a push to main.
           const deployJobs = new Set(["docs-deploy", "docs-demo-deploy", "console-deploy"])
+          // OS timer checks run only when schedule-os-select says the change can affect them.
+          const scheduleOsJobs = new Set(["schedule-os", "schedule-os-success"])
+          const scheduleOsSelected = results["schedule-os-select"]?.outputs?.run === "true"
           const failures = Object.entries(results).filter(([name, job]) => {
             const maySkip = (process.env.FULL_SUITE !== "true" && skippedPullRequestJobs.has(name))
               || (process.env.GITHUB_EVENT_NAME !== "push" && deployJobs.has(name))
+              || (!scheduleOsSelected && scheduleOsJobs.has(name))
             return job.result !== "success" && !(maySkip && job.result === "skipped")
           })
           if (failures.length) {
@@ -306,6 +314,53 @@ jobs:
     permissions: {}
     steps:
       - run: echo 'All package test shards passed'
+
+  # @vite-hub/ui and @vite-hub/kit build on ui-sdk, pinned and patched in pnpm-workspace.yaml. Package tests run the
+  # kit tests when the lockfile changes, but not the two browser checks: the parity harness (ui-sdk against Reka, step
+  # by step) and the style check (every part under the kit's style family). They run here on every push, and on a pull
+  # request that changes the installed ui-sdk (its version or a patch), the kit's styles, or the checks themselves.
+  ui-sdk:
+    name: ui-sdk parity and styles
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select the checks
+        id: changed
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          if [ "$FULL_SUITE" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files="$(git diff --name-only "$BASE_REF"...HEAD)"
+          if grep -qE '^(patches/@ui-sdk__|packages/kit/(src/styles/|test/browser/|vite\.config\.ts)|packages/ui/test/browser/parity|\.github/scripts/check-ui-sdk\.mjs)' <<<"$files" \
+            || git diff "$BASE_REF"...HEAD -- pnpm-lock.yaml pnpm-workspace.yaml | grep -E '^[-+].*@ui-sdk/' > /dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "This change does not touch ui-sdk, the kit styles or the browser checks."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+      - name: Check the ui-sdk versions and patches
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        env:
+          BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
+        run: node .github/scripts/check-ui-sdk.mjs ${BASE_REF:+"$BASE_REF"}
+      - name: Install Chromium
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: ./packages/ui/node_modules/.bin/playwright-core install --with-deps --only-shell chromium
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        run: vp run --filter @vite-hub/ui test:parity
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        run: vp run --filter @vite-hub/kit test:styles
 
   # Package tests that read VITEHUB_TEST_POSTGRES_URL or VITEHUB_TEST_REDIS_URL
   # need a real Postgres and Redis. test/service-tests.mjs finds these files by
@@ -543,6 +598,9 @@ jobs:
               exit 1
             fi
           done
+          # Auth and Comments keep their tables in D1. The Worker secrets (VITEHUB_SECRET and the Console keys) stay on
+          # the Worker between deploys.
+          ./node_modules/.bin/wrangler d1 migrations apply vitehub-docs --remote --config docs/.output/server/wrangler.json
           ./node_modules/.bin/wrangler deploy --config docs/.output/server/wrangler.json
 
       - name: Check the live site
@@ -803,6 +861,114 @@ jobs:
           path: ${{ runner.temp }}/console-pixels
           retention-days: 7
           if-no-files-found: ignore
+
+  # @vite-hub/schedule/os installs real OS timers: systemd on Linux, launchd on macOS, Task Scheduler on Windows. Only a
+  # real scheduler proves the translation, so each OS and scope installs a timer, waits until the OS runs it, and
+  # removes it (packages/schedule/test/os-e2e.mjs). A pull request runs it only when it changes Schedule, the shared
+  # systemd escaping, or CI. This job decides on Linux, so a pull request without such a change starts no macOS or
+  # Windows runner.
+  schedule-os-select:
+    name: schedule os timers (select)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.changed.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select the check
+        id: changed
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          if [ "$FULL_SUITE" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BASE_REF...HEAD" -- packages/schedule packages/internal/src/systemd.ts .github/workflows/ci.yml .github/actions/setup; then
+            echo "This change does not touch Schedule, the systemd escaping, or CI."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  schedule-os:
+    name: schedule os timers (${{ matrix.os }}, ${{ matrix.scope }})
+    needs:
+      - schedule-os-select
+    if: ${{ needs.schedule-os-select.outputs.run == 'true' }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        scope:
+          - user
+          - system
+    # The default shell on Windows is PowerShell. Bash runs on every GitHub runner.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+      - name: Build Schedule and its workspace dependencies
+        run: vp run --cache -t @vite-hub/schedule#build
+      # The runner user has no login session, so it has no systemd user manager. Linger starts one, as on a server.
+      - name: Start the systemd user manager
+        if: ${{ runner.os == 'Linux' && matrix.scope == 'user' }}
+        run: |
+          sudo loginctl enable-linger "$USER"
+          runtime_dir="/run/user/$(id -u)"
+          for _ in $(seq 1 30); do
+            if [ -S "$runtime_dir/bus" ]; then break; fi
+            sleep 1
+          done
+          if [ ! -S "$runtime_dir/bus" ]; then
+            echo "::error::The systemd user manager did not start: $runtime_dir/bus is missing."
+            exit 1
+          fi
+          {
+            echo "XDG_RUNTIME_DIR=$runtime_dir"
+            echo "DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime_dir/bus"
+          } >> "$GITHUB_ENV"
+          XDG_RUNTIME_DIR="$runtime_dir" systemctl --user is-system-running --wait || true
+      # System scope needs root on Linux and macOS. The Windows runner user is an Administrator.
+      - name: Install, run, and remove an OS timer
+        env:
+          SCOPE: ${{ matrix.scope }}
+        run: |
+          if [ "$SCOPE" = "system" ] && [ "$RUNNER_OS" != "Windows" ]; then
+            sudo -E env "PATH=$PATH" node packages/schedule/test/os-e2e.mjs --scope system
+          else
+            node packages/schedule/test/os-e2e.mjs --scope "$SCOPE"
+          fi
+      - name: Install, run, and remove an OS timer from a moved home folder
+        if: ${{ matrix.scope == 'user' && runner.os != 'Windows' }}
+        run: node packages/schedule/test/os-e2e.mjs --scope user --moved-home
+
+  # Keep the default success() condition, as for package tests: needs alone can lose failed matrix jobs after a
+  # partial rerun.
+  schedule-os-success:
+    needs:
+      - schedule-os
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - run: echo 'All OS timer checks passed'
 
   # console.vitehub.dev deploys from the verified build on every push to main, like the docs site. The Production
   # environment holds the Cloudflare token, which must allow Workers, D1, and custom domains on the vitehub.dev zone.

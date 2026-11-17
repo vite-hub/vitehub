@@ -59,7 +59,7 @@ import { defineWorkspace, file, github } from "@vite-hub/workspace"
 
 export default defineWorkspace({
   store: {
-    provider: "local",
+    driver: "local",
     root: ".vitehub/workspaces/docs",
   },
   sources: {
@@ -418,7 +418,7 @@ export default defineNuxtConfig({
   vitehub: {
     workspace: {
       store: {
-        provider: "github",
+        driver: "github",
         repository: "owner/repo",
         branch: "main",
         root: ".vitehub/workspaces/docs",
@@ -436,7 +436,7 @@ import { configureCloudflareWorkspaceRuntime } from "@vite-hub/workspace/cloudfl
 configureCloudflareWorkspaceRuntime()
 ```
 
-`useWorkspace()` will then resolve `cloudflare-artifacts` Workspace Stores from the configured runtime store or the Workspace Definition's `store` option.
+`useWorkspace()` will then resolve `cloudflare` Workspace Stores from the configured runtime store or the Workspace Definition's `store` option.
 
 Select Cloudflare Artifacts explicitly when a Cloudflare Worker needs durable, versioned Workspace state:
 
@@ -448,7 +448,7 @@ import { defineConfig } from "vite"
 export default defineConfig({
   plugins: [hubWorkspace({
     store: {
-      provider: "cloudflare-artifacts",
+      driver: "cloudflare",
       binding: "WORKSPACE_ARTIFACTS",
       namespace: "vitehub",
     },
@@ -462,12 +462,12 @@ Artifacts repositories are private Git storage, not public attachment hosting. U
 
 ## Vercel Blob persistence
 
-The `vercel-blob` Store keeps Workspace files under `_vitehub/workspaces/<workspace>/`.
+The `vercel` Store keeps Workspace files under `_vitehub/workspaces/<workspace>/`.
 The optional `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, nests below
 `_vitehub/workspaces/`, so ViteHub owns every Workspace object. A prefix accepts
 letters, numbers, underscores, dashes, and single slashes.
 
-Without a `store`, a production build selects `vercel-blob` when the project has
+Without a `store`, a production build selects `vercel` when the project has
 `BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN`. With `BLOB_STORE_ID`, the store uses
 Vercel OIDC, as `@vite-hub/blob` does. Off Vercel, it uses `BLOB_READ_WRITE_TOKEN`.
 
@@ -482,7 +482,7 @@ import { defineWorkspace } from "@vite-hub/workspace"
 
 export default defineWorkspace({
   store: {
-    provider: "github",
+    driver: "github",
     repository: "owner/repo",
     branch: "main",
     root: ".vitehub/workspaces/<workspace>",
@@ -490,7 +490,7 @@ export default defineWorkspace({
 })
 ```
 
-Set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` to configure the Store location when you omit those options. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. Branch heads are revalidated with their ETag, answers for a commit sha stay in memory, and with `registerWorkspaceKV()` (Content calls it with ViteHub KV) they also go to KV for 7 days. `history.list()` reads one request per page, and `history.open(id).preload(paths)` reads many files from one archive. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot fails with a structured conflict so the caller can rebase from the current head and retry.
+The GitHub Store talks to GitHub through `@vite-hub/forge`, an optional peer. Install it with `pnpm add @vite-hub/forge`. Without it, the first request fails with `INTERNAL_FORGE_NOT_INSTALLED`. Set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` to configure the Store location when you omit those options. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. Branch heads are revalidated with their ETag, answers for a commit sha stay in memory, and with `registerWorkspaceKV()` (Content calls it with ViteHub KV) they also go to KV for 7 days. `history.list()` reads one request per page, and `history.open(id).preload(paths)` reads many files from one archive. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot fails with a structured conflict so the caller can rebase from the current head and retry.
 
 GitHub file reads share a blob cache across Store instances and history views in one isolate. Immutable blob shas identify the bytes, including across repositories. Concurrent reads of the same blob share one request when the repository and credentials match, and failed reads can be retried. A failed request does not affect readers using another repository or token. The cache retains up to 32 MiB of bytes, evicts the oldest entries first, and skips blobs larger than 4 MiB. A cold isolate or an evicted blob still needs a GitHub request.
 

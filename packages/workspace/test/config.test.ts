@@ -8,13 +8,13 @@ import { createWorkspaceStoreFromProvider } from "../src/storage/provider.ts"
 describe("workspace config", () => {
   it("rejects unknown workspace definition options", () => {
     expect(() => defineWorkspace({
-      stroe: { provider: "memory" },
+      stroe: { driver: "memory" },
     } as never)).toThrow("[vitehub] defineWorkspace does not support option: stroe.")
   })
 
   it("rejects unknown workspace module config options", () => {
     expect(() => normalizeWorkspaceOptions({
-      stores: { provider: "memory" },
+      stores: { driver: "memory" },
     } as never, {
       env: {},
       rootDir: "/repo",
@@ -71,7 +71,7 @@ describe("workspace config", () => {
     })
 
     expect(config && config.store).toEqual({
-      provider: "memory",
+      driver: "memory",
     })
   })
 
@@ -81,7 +81,7 @@ describe("workspace config", () => {
     expect(normalizeWorkspaceStoreOptions(store as never, {
       env: {},
       hosting: "cloudflare_module",
-    })).toEqual({ provider: "memory" })
+    })).toEqual({ driver: "memory" })
   })
 
   it("does not treat a non-callable own readFile as a complete workspace store", () => {
@@ -90,7 +90,7 @@ describe("workspace config", () => {
     expect(normalizeWorkspaceStoreOptions(store as never, {
       env: {},
       hosting: "cloudflare_module",
-    })).toEqual({ provider: "memory" })
+    })).toEqual({ driver: "memory" })
     expect(typeof createWorkspaceStoreFromProvider({ name: "malformed", store: store as never }).readFile).toBe("function")
   })
 
@@ -111,14 +111,14 @@ describe("workspace config", () => {
     })
 
     expect(config && config.store).toEqual({
-      provider: "memory",
+      driver: "memory",
     })
   })
 
   it("preserves explicit Cloudflare Artifacts stores", () => {
     const config = normalizeWorkspaceOptions({
       store: {
-        provider: "cloudflare-artifacts",
+        driver: "cloudflare",
       },
     }, {
       env: {
@@ -132,7 +132,7 @@ describe("workspace config", () => {
     expect(config && config.store).toEqual(expect.objectContaining({
       binding: "WORKSPACE_ARTIFACTS",
       namespace: "e2e",
-      provider: "cloudflare-artifacts",
+      driver: "cloudflare",
       repoPrefix: "workspace-",
     }))
     expect(config && config.store).not.toHaveProperty("branch")
@@ -148,7 +148,7 @@ describe("workspace config", () => {
     })
 
     expect(config && config.store).toEqual({
-      provider: "memory",
+      driver: "memory",
     })
   })
 
@@ -165,7 +165,7 @@ describe("workspace config", () => {
     expect(config && config.store).toEqual({
       access: "private",
       prefix: "workspace/e2e",
-      provider: "vercel-blob",
+      driver: "vercel",
       token: "********",
     })
   })
@@ -179,7 +179,7 @@ describe("workspace config", () => {
 
     expect(config && config.store).toStrictEqual({
       access: "private",
-      provider: "vercel-blob",
+      driver: "vercel",
       token: "********",
     })
   })
@@ -193,15 +193,15 @@ describe("workspace config", () => {
 
     expect(config && config.store).toStrictEqual({
       access: "private",
-      provider: "vercel-blob",
+      driver: "vercel",
       token: "********",
     })
   })
 
   it.each([
     ["env", {}, { VITEHUB_WORKSPACE_BLOB_PREFIX: ".vitehub/workspaces" }],
-    ["option", { store: { prefix: "../handbook", provider: "vercel-blob" as const } }, {}],
-    ["empty option", { store: { prefix: "", provider: "vercel-blob" as const } }, {}],
+    ["option", { store: { prefix: "../handbook", driver: "vercel" as const } }, {}],
+    ["empty option", { store: { prefix: "", driver: "vercel" as const } }, {}],
   ])("rejects an invalid Vercel Blob prefix from the %s", (_source, options, env) => {
     expect(() => normalizeWorkspaceOptions(options, {
       env: { BLOB_READ_WRITE_TOKEN: "runtime-token", ...env },
@@ -217,14 +217,14 @@ describe("workspace config", () => {
     })
 
     expect(config && config.store).toEqual({
-      provider: "local",
+      driver: "local",
     })
   })
 
   it("preserves explicit memory stores", () => {
     const config = normalizeWorkspaceOptions({
       store: {
-        provider: "memory",
+        driver: "memory",
       },
     }, {
       env: {
@@ -235,14 +235,14 @@ describe("workspace config", () => {
     })
 
     expect(config && config.store).toEqual({
-      provider: "memory",
+      driver: "memory",
     })
   })
 
   it("masks explicit Vercel Blob tokens in resolved config", () => {
     const config = normalizeWorkspaceOptions({
       store: {
-        provider: "vercel-blob",
+        driver: "vercel",
         token: "secret-token",
       },
     }, {
@@ -251,7 +251,7 @@ describe("workspace config", () => {
 
     expect(JSON.stringify(config)).not.toContain("secret-token")
     expect(config && config.store).toMatchObject({
-      provider: "vercel-blob",
+      driver: "vercel",
       token: "********",
     })
   })
@@ -260,7 +260,7 @@ describe("workspace config", () => {
     const config = normalizeWorkspaceOptions({
       store: {
         branch: "workspace-state",
-        provider: "github",
+        driver: "github",
         repository: "acme/app",
         root: ".vitehub/workspaces/<workspace>",
         token: "secret-token",
@@ -272,7 +272,7 @@ describe("workspace config", () => {
     expect(JSON.stringify(config)).not.toContain("secret-token")
     expect(config && config.store).toEqual({
       branch: "workspace-state",
-      provider: "github",
+      driver: "github",
       repository: "acme/app",
       root: ".vitehub/workspaces/<workspace>",
       token: "********",
@@ -282,7 +282,7 @@ describe("workspace config", () => {
   it("preserves explicit GitHub tokens while resolving runtime definitions", () => {
     const store = normalizeWorkspaceStoreOptions({
       branch: "workspace-state",
-      provider: "github",
+      driver: "github",
       repository: "acme/app",
       root: ".vitehub/workspaces/<workspace>",
       token: "secret-token",
@@ -293,7 +293,7 @@ describe("workspace config", () => {
 
     expect(store).toEqual({
       branch: "workspace-state",
-      provider: "github",
+      driver: "github",
       repository: "acme/app",
       root: ".vitehub/workspaces/<workspace>",
       token: "secret-token",
@@ -307,7 +307,7 @@ describe("workspace config", () => {
     const token = () => "secret-token"
     const store = normalizeWorkspaceStoreOptions({
       branch,
-      provider: "github",
+      driver: "github",
       repository,
       root,
       token,
@@ -318,7 +318,7 @@ describe("workspace config", () => {
 
     expect(store).toEqual({
       branch,
-      provider: "github",
+      driver: "github",
       repository,
       root,
       token,
@@ -327,7 +327,7 @@ describe("workspace config", () => {
 
   it("defers absent GitHub runtime options until bindings are active", () => {
     const store = normalizeWorkspaceStoreOptions({
-      provider: "github",
+      driver: "github",
     }, {
       env: {},
       runtime: true,
@@ -335,7 +335,7 @@ describe("workspace config", () => {
 
     expect(store).toEqual({
       branch: undefined,
-      provider: "github",
+      driver: "github",
       repository: undefined,
       root: undefined,
       token: "********",
@@ -345,7 +345,7 @@ describe("workspace config", () => {
   it("resolves GitHub store options from the environment", () => {
     const config = normalizeWorkspaceOptions({
       store: {
-        provider: "github",
+        driver: "github",
       },
     }, {
       env: {
@@ -358,7 +358,7 @@ describe("workspace config", () => {
 
     expect(config && config.store).toEqual({
       branch: "workspace-state",
-      provider: "github",
+      driver: "github",
       repository: "acme/app",
       root: "state/<workspace>",
       token: "********",
@@ -366,19 +366,19 @@ describe("workspace config", () => {
   })
 
   it("leaves the token unset at runtime so the Vercel SDK uses OIDC with BLOB_STORE_ID", () => {
-    const store = { provider: "vercel-blob" as const, token: "********" }
-    expect(resolveRuntimeVercelBlobWorkspaceStore(store, { BLOB_STORE_ID: "store_1" })).toStrictEqual({ provider: "vercel-blob" })
-    expect(resolveRuntimeVercelBlobWorkspaceStore(store, { BLOB_READ_WRITE_TOKEN: "runtime-token", BLOB_STORE_ID: "store_1" })).toStrictEqual({ provider: "vercel-blob" })
+    const store = { driver: "vercel" as const, token: "********" }
+    expect(resolveRuntimeVercelBlobWorkspaceStore(store, { BLOB_STORE_ID: "store_1" })).toStrictEqual({ driver: "vercel" })
+    expect(resolveRuntimeVercelBlobWorkspaceStore(store, { BLOB_READ_WRITE_TOKEN: "runtime-token", BLOB_STORE_ID: "store_1" })).toStrictEqual({ driver: "vercel" })
   })
 
   it("reports missing Vercel Blob credentials at runtime", () => {
-    expect(() => resolveRuntimeVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "********" }, {}))
+    expect(() => resolveRuntimeVercelBlobWorkspaceStore({ driver: "vercel", token: "********" }, {}))
       .toThrow("`BLOB_STORE_ID`")
   })
 
   it("rehydrates masked Vercel Blob tokens at runtime", () => {
     expect(resolveRuntimeVercelBlobWorkspaceStore({
-      provider: "vercel-blob",
+      driver: "vercel",
       token: "********",
     }, {
       BLOB_READ_WRITE_TOKEN: "runtime-token",

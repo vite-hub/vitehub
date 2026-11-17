@@ -30,6 +30,7 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_SIGNATURE_MISSING"
   | "CONSOLE_SIGNATURE_ORIGIN"
   | "CONSOLE_SIGNATURE_STALE"
+  | "CONSOLE_SITE_SECRET_MISSING"
   | "CONSOLE_TICKET_INVALID"
   | "CONSOLE_TICKET_MISMATCH"
   | "CONSOLE_TICKET_NO_PERSON"
@@ -144,6 +145,12 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       `${consoleGuide}/signed-requests`,
       "docs",
     ),
+    CONSOLE_SITE_SECRET_MISSING: code(
+      "Site access without Auth seals the browser's cookie with VITEHUB_SECRET, and the app has none.",
+      "Set VITEHUB_SECRET on the server. Generate one with `openssl rand -base64 32`, then restart or deploy.",
+      `${consoleGuide}/site-access#site-access-without-auth`,
+      "docs",
+    ),
     CONSOLE_TICKET_INVALID: code(
       "This one-time link expired, was used, or was changed.",
       "Open the page again from the ViteHub Console. Each link works once, within 60 seconds.",
@@ -164,7 +171,7 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ),
     CONSOLE_TICKET_STORE_MISSING: code(
       "One-time links need a store that every instance of the app shares, and the app has none.",
-      "Add app Auth with a Database, such as `defineAuth({ database: authDatabase() })`, then run `vitehub database migrate`. Its verification table keeps each link until it is used.",
+      "Add app Auth with a Database, such as `defineAuth({ database: authDatabase() })`, then run `vitehub database migrate`. Its verification table keeps each link until it is used. Without Auth, use a default KV store on Redis, Upstash, or the `database` driver.",
       `${consoleGuide}/site-access#one-time-links`,
       "docs",
     ),

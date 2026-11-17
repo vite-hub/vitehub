@@ -86,6 +86,7 @@
     "test": "vp run --cache -t @vite-hub/runtime#build && vp run --cache -t @vite-hub/ui#build && vp test",
     "test:browser": "vp run --cache -t @vite-hub/ui#build && node --test test/browser/workspace.browser.mjs",
     "test:bridge": "node --test test/browser/tailwind-bridge.browser.mjs",
+    "test:kit-parts": "node --test test/browser/kit-parts.browser.mjs",
     "test:parity": "node --test test/browser/parity.browser.mjs",
     "test:ui-sdk": "node --test test/browser/ui-sdk.browser.mjs"
   },
@@ -122,7 +123,10 @@
   },
   "devDependencies": {
     "@ai-sdk/vue": "catalog:ai",
+    "@fontsource-variable/geist": "catalog:ui",
+    "@fontsource-variable/geist-mono": "catalog:ui",
     "@iconify-json/lucide": "catalog:ui",
+    "@iconify/vue": "catalog:ui",
     "@nuxt/schema": "4.6.3",
     "@nuxt/ui": "catalog:nuxt",
     "@pierre/diffs": "1.5.2",

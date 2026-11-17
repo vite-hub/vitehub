@@ -1,6 +1,8 @@
 import { requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "./state-lock.ts"
 import * as v from "valibot"
 
+import { isRuntimeDiagnostic } from "@vite-hub/runtime"
+
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { acquireChannelStateLock } from "./channel-state.ts"
 import { redactCredentialText } from "./credential-redaction.ts"
@@ -56,24 +58,17 @@ export interface GmailRequest {
  */
 export type GmailClient = (request: GmailRequest) => Promise<unknown>
 
-/** A Gmail API or Google OAuth HTTP error. */
-export class GmailApiError extends Error {
-  readonly status: number
-
-  constructor(message: string, status: number) {
-    super(message)
-    this.name = "GmailApiError"
-    this.status = status
-  }
+/** A Gmail API or Google OAuth HTTP error, with the numeric `status` that a `GmailClient` error has. */
+function gmailRequestError(request: string, status: number, reason?: string) {
+  return Object.assign(agentDiagnostics.AGENT_GMAIL_REQUEST_FAILED({ reason, request, status }), { status })
 }
 
 /** Token refresh failures concern the account, including transport and malformed-response errors. */
-class GmailOAuthRefreshError extends GmailApiError {
-  constructor(cause: unknown) {
-    // Transport failures have no HTTP status.
-    super(cause instanceof Error ? cause.message : String(cause), gmailErrorStatus(cause) ?? 0)
-    this.cause = cause
-  }
+function gmailOAuthRefreshError(cause: unknown) {
+  if (isRuntimeDiagnostic(cause) && cause.code === "AGENT_GMAIL_OAUTH_REFRESH_FAILED") return cause
+  // Transport failures have no HTTP status.
+  const status = gmailErrorStatus(cause) ?? 0
+  return Object.assign(agentDiagnostics.AGENT_GMAIL_OAUTH_REFRESH_FAILED({ cause, detail: cause instanceof Error ? cause.message : String(cause), status }), { status })
 }
 
 /** Gmail and Pub/Sub settings. Each value comes from Server Env `gmail` or its environment variable. */
@@ -328,7 +323,7 @@ async function refreshAccessToken(credentials: GmailOAuthCredentials, fetchImpl:
   const parsed = v.safeParse(tokenSchema, body)
   if (!response.ok || !parsed.success) {
     const reason = googleErrorMessage(body)
-    throw new GmailApiError(`Google OAuth token refresh failed with HTTP ${response.status}${reason ? `: ${reason}` : ""}.`, response.status)
+    throw Object.assign(agentDiagnostics.AGENT_GMAIL_OAUTH_REFRESH_FAILED({ detail: reason, status: response.status }), { status: response.status })
   }
   return parsed.output.access_token
 }
@@ -337,7 +332,7 @@ function accessToken(credentials: GmailOAuthCredentials, fetchImpl: typeof fetch
   const cached = accessTokens.get(cacheKey)
   if (cached && !refresh && cached.expiresAt > Date.now()) return cached.token
   // Google access tokens last one hour. Refresh a minute early.
-  const token = refreshAccessToken(credentials, fetchImpl).catch((error: unknown) => { throw new GmailOAuthRefreshError(error) })
+  const token = refreshAccessToken(credentials, fetchImpl).catch((error: unknown) => { throw gmailOAuthRefreshError(error) })
   accessTokens.set(cacheKey, { expiresAt: Date.now() + 59 * 60_000, token })
   token.catch(() => {
     if (accessTokens.get(cacheKey)?.token === token) accessTokens.delete(cacheKey)
@@ -379,7 +374,7 @@ export function createGmailOAuthClient(credentials: GmailOAuthCredentials, fetch
     const body = await responseJson(response)
     if (!response.ok) {
       const reason = googleErrorMessage(body)
-      throw new GmailApiError(`Gmail ${request.method} ${request.path.split("?")[0]} failed with HTTP ${response.status}${reason ? `: ${reason}` : ""}.`, response.status)
+      throw gmailRequestError(`Gmail ${request.method} ${request.path.split("?")[0]}`, response.status, reason)
     }
     return body
   }
@@ -754,7 +749,7 @@ async function googleKeys(fetchImpl: typeof fetch, refresh: boolean): Promise<Go
   const response = await fetchImpl(googleCertsUrl, { signal: withTimeout() })
   const body = await responseJson(response)
   const parsed = v.safeParse(jwksSchema, body)
-  if (!response.ok || !parsed.success) throw new GmailApiError(`Google OAuth certificates request failed with HTTP ${response.status}.`, response.status)
+  if (!response.ok || !parsed.success) throw Object.assign(agentDiagnostics.AGENT_GMAIL_CERTIFICATES_FAILED({ status: response.status }), { status: response.status })
   const keys = parsed.output.keys.flatMap((key) => {
     const jwk = v.safeParse(jwkSchema, key)
     return jwk.success ? [jwk.output] : []
@@ -1042,7 +1037,7 @@ function failureText(error: unknown): string {
 
 /** Authentication and rate limit errors concern the account, not the message, so they do not count as attempts. */
 function isMessageFailure(error: unknown): boolean {
-  if (error instanceof GmailOAuthRefreshError) return false
+  if (isRuntimeDiagnostic(error) && error.code === "AGENT_GMAIL_OAUTH_REFRESH_FAILED") return false
   const status = gmailErrorStatus(error)
   return status !== 401 && status !== 403 && status !== 429
 }
@@ -1060,7 +1055,7 @@ async function updateSkippedMessages(
     const next = update(current)
     if (next === current) return
     const mutation: AgentStateCacheMutation = next.length ? { key, type: "set", value: next } : { key, type: "delete" }
-    if (!await state.mutateWithLock(lock, [mutation])) throw new Error("Lost the lock of the Gmail skipped messages.")
+    if (!await state.mutateWithLock(lock, [mutation])) throw agentDiagnostics.AGENT_GMAIL_LOCK_LOST({ lock: "skipped messages" })
   }
   finally {
     await state.releaseLock(lock)
@@ -1276,7 +1271,7 @@ async function syncMailboxOnce(sync: GmailMailboxSync, lease: MailboxLease, noti
     else await save(next)
   }
   if (progress.retryIds.length) {
-    if (sync.throwOnDispatchFailure) throw new Error(`Gmail message dispatch failed for ${progress.retryIds.length} message(s); saved for retry.`)
+    if (sync.throwOnDispatchFailure) throw agentDiagnostics.AGENT_GMAIL_DISPATCH_FAILED({ count: progress.retryIds.length })
     return "retrying"
   }
   if (progress.mode === "recovery") log("history.expired", { historyId: cursor, recovered: seen.size })
@@ -1327,7 +1322,7 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<GmailMai
     // The holder may have released the lock before it saw the pending mark.
     lock = await state.acquireLock(keys.lock, syncLockTtlMs)
     if (!lock) {
-      if (sync.throwOnDispatchFailure) throw new Error("Gmail mailbox synchronization is already running; retry polling after it completes.")
+      if (sync.throwOnDispatchFailure) throw agentDiagnostics.AGENT_GMAIL_SYNC_BUSY()
       // The holder reads once more. The caller still learns that no sync covered this notification yet.
       return { finished: false }
     }
@@ -1344,7 +1339,7 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<GmailMai
     let ownershipLost = false
     const lost = () => {
       ownershipLost = true
-      return new Error("Lost ownership of the Gmail mailbox lease.")
+      return agentDiagnostics.AGENT_GMAIL_LOCK_LOST({ lock: "mailbox" })
     }
     let legacy = false
     const lease: MailboxLease = {
@@ -1461,14 +1456,6 @@ const historyQuerySchema = v.object({
 
 type GmailHistoryQuery = v.InferOutput<typeof historyQuerySchema>
 
-class GmailHistoryCursorError extends Error {
-  constructor() {
-    super("Invalid Gmail page token.")
-    // `replayChannel()` reports this name as an invalid history cursor.
-    this.name = "CollectionCursorError"
-  }
-}
-
 /** Past Gmail messages from `messages.list`. The cursor is Gmail's `nextPageToken`. */
 export function gmailHistoryCollection(
   resolveClient: () => Promise<GmailClient>,
@@ -1482,7 +1469,7 @@ export function gmailHistoryCollection(
         // The cursor of an ID list is the offset of its next ID.
         const ids = [...new Set(query.ids)]
         let start = options.cursor === undefined ? 0 : Number(options.cursor)
-        if (options.cursor !== undefined && !(Number.isSafeInteger(start) && start > 0 && start < ids.length)) throw new GmailHistoryCursorError()
+        if (options.cursor !== undefined && !(Number.isSafeInteger(start) && start > 0 && start < ids.length)) throw agentDiagnostics.AGENT_R0936({ message: "[vitehub] Invalid Gmail history cursor." })
         while (true) {
           const end = Math.min(ids.length, start + Math.min(Math.max(options.limit ?? 50, 1), 100))
           const items = await getGmailMessages(client, ids.slice(start, end), bodyLimit)
@@ -1502,7 +1489,7 @@ export function gmailHistoryCollection(
           })
         }
         catch (error) {
-          if (cursor && gmailErrorStatus(error) === 400) throw new GmailHistoryCursorError()
+          if (cursor && gmailErrorStatus(error) === 400) throw agentDiagnostics.AGENT_R0936({ message: "[vitehub] Invalid Gmail history cursor." })
           throw error
         }
         const items = await getGmailMessages(client, page.ids, bodyLimit)
