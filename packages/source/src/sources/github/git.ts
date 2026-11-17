@@ -1,11 +1,11 @@
 import { Buffer } from "node:buffer"
 import { devNull } from "node:os"
 
-import { forgeGitAuthHeader } from "@vite-hub/forge"
 import type { ForgeGitCredentials } from "@vite-hub/forge"
 
 import { normalizeSourcePath } from "../../core/path.ts"
 import { parseGitHubArchive } from "./archive.ts"
+import { loadForge } from "./client.ts"
 
 import type { GitHubFile } from "./types.ts"
 
@@ -27,7 +27,7 @@ interface GitArchiveInput<TKey extends string> {
   sparsePatterns: string[]
 }
 
-function createGitEnv(home: string, credentials: ForgeGitCredentials, baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+function createGitEnv(home: string, authHeader: { key: string, value: string } | undefined, baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env = { ...baseEnv }
   for (const key of [
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
@@ -52,7 +52,6 @@ function createGitEnv(home: string, credentials: ForgeGitCredentials, baseEnv: N
     if (/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(key)) delete env[key]
   }
 
-  const authHeader = forgeGitAuthHeader(credentials)
   Object.assign(env, {
     GCM_INTERACTIVE: "Never",
     GIT_ASKPASS: "",
@@ -174,7 +173,7 @@ export async function loadGitArchiveFiles<TKey extends string>(
   ])
   const dir = await mkdtemp(join(tmpdir(), "vitehub-github-"))
   try {
-    const env = createGitEnv(dir, input.credentials, input.env)
+    const env = createGitEnv(dir, (await loadForge()).forgeGitAuthHeader(input.credentials), input.env)
     const options = { env, signal: input.signal }
     await executeGit(["init", "--quiet", dir], options)
     await executeGit([

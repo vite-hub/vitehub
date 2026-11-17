@@ -35,6 +35,7 @@ The command finds every module in the app that a codemod supports and runs those
 | [`one-entry-imports`](/docs/codemods/upgrade-vitehub#one-entry-imports) | Imports of subpaths that moved into one entry per concept, and `vite-hub/task` to `nitro/task` |
 | [`agent-surface`](/docs/codemods/upgrade-vitehub#agent-surface) | The old Agent names to `invoker`, `loadAgent()`, `agentWorkflow()`, `extends`, and the merged Agent entries |
 | [`tsconfig-paths`](/docs/codemods/upgrade-vitehub#tsconfig-paths) | `#vitehub/*` entries of tsconfig `paths` that point into `.vitehub/` or `.nuxt/`, which ViteHub now types itself |
+| [`shell-driver`](/docs/codemods/upgrade-vitehub#shell-driver) | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()` |
 
 The codemods do not upgrade Nuxt or install packages. ViteHub supports Nuxt 5 and Nitro 3 only.
 

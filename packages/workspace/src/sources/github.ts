@@ -1,4 +1,4 @@
-import { forgeEnv, readForgeEnv } from "@vite-hub/forge"
+import { forgeEnv, readForgeEnv } from "@vite-hub/internal/forge"
 import { github as createGitHubSource, type GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source"
 
 import { matchesAny } from "../core/path.ts"

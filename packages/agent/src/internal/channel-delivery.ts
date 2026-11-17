@@ -193,11 +193,37 @@ function log(event: AgentChannelDeliveryEvent, delivery: AgentChannelDelivery): 
   )
 }
 
-async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Promise<void> {
+async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Promise<string[]> {
+  const before = await state.getList<string>(indexKey)
   await state.appendToList(indexKey, deliveryId, {
     maxLength: maximumDeliveries,
     ttlMs: retentionMs,
   })
+  // Below the limit, the append trims nothing.
+  if (before.length < maximumDeliveries) return []
+  // No read can reach a delivery that leaves the index, so delete its records instead of keeping them for the full retention.
+  // An id that is still in the index, such as one admitted again as a duplicate, keeps its records.
+  const kept = new Set(await state.getList<string>(indexKey))
+  return [...new Set(before)].filter(id => !kept.has(id))
+}
+
+async function deleteDeliveryRecords(state: StateAdapter, deliveryId: string): Promise<void> {
+  const lock = await acquireDeliveryLock(state, deliveryId)
+  try {
+    // Admissions append under this same journal lock. Recheck after acquiring it:
+    // the snapshot that selected this candidate may predate a completed retry.
+    if ((await state.getList<string>(indexKey)).includes(deliveryId)) return
+    const delivery = await state.get<StoredAgentChannelDelivery>(deliveryRecordKey(deliveryId))
+    if (delivery) {
+      // A later delivery can own the same source after this record expired, so delete the source only while it points here.
+      const source = await state.get<StoredAgentChannelDelivery>(sourceKey(delivery))
+      if (source?.id === deliveryId) await state.delete(sourceKey(delivery))
+    }
+    await state.delete(deliveryEventsKey(deliveryId))
+    await state.delete(deliveryRecordKey(deliveryId))
+  } finally {
+    await state.releaseLock(lock)
+  }
 }
 
 function advanceDeliveryStatus(
@@ -273,6 +299,7 @@ async function appendEvent(
   }
   try {
     const lock = await acquireDeliveryLock(state, delivery.id)
+    let trimmed: string[] = []
     let ownershipLost = false
     const renewal = setInterval(() => {
       void state
@@ -319,7 +346,7 @@ async function appendEvent(
       await renew()
       await state.set(deliveryRecordKey(stored.id), stored, retentionMs)
       await renew()
-      if (event.type === "received" || event.type === "duplicate") await touchDeliveryIndex(state, delivery.id)
+      if (event.type === "received" || event.type === "duplicate") trimmed = await touchDeliveryIndex(state, delivery.id)
     } finally {
       clearInterval(renewal)
       try {
@@ -337,6 +364,8 @@ async function appendEvent(
         )
       }
     }
+    // Never acquire another delivery's journal lock while holding our own.
+    for (const id of trimmed) await deleteDeliveryRecords(state, id)
   } catch (error) {
     console.error(
       JSON.stringify({
@@ -419,8 +448,6 @@ export async function openAgentChannelDelivery(
   }
   const created = await state.setIfNotExists(sourceKey(candidate), candidate, retentionMs)
   const delivery = created ? candidate : (await state.get<StoredAgentChannelDelivery>(sourceKey(candidate))) || candidate
-  await state.set(sourceKey(delivery), delivery, retentionMs)
-  await state.set(deliveryRecordKey(delivery.id), delivery, retentionMs)
   const opened = tracker(state, delivery, !created)
   try {
     await opened.event({ type: opened.duplicate ? "duplicate" : "received" })
