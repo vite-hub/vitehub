@@ -455,6 +455,10 @@ export interface ViteHubOptions {
    * Without any of them, ViteHub builds for `"node"`. `vitehub deploy --host` overrides it for its build.
    */
   host?: ViteHubHost
+  /**
+   * The name of the app. Host resources, such as the Cloudflare Worker, use it in lower case with dashes, and the
+   * Console shows it as written. Default: the `name` in `package.json`.
+   */
   name?: string
   /**
    * Public origin of the deployed application, such as `https://agents.example.com`.
@@ -1551,6 +1555,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (configuredConsole || devOperationsOnly) {
     const invocationRootState = {}
     const consolePlugin = consoleVitePlugin({
+      name: options.name,
       contentImportBase: "vite-hub/content",
       blobStores: consoleBlobStores,
       console: configuredConsole || undefined,

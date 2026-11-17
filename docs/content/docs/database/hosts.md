@@ -130,7 +130,7 @@ A Postgres Definition uses [postgres.js](https://github.com/porsager/postgres) t
 3. Outside a Cloudflare request with an empty URL, postgres.js reads `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` (or `PGUSERNAME`), and `PGPASSWORD`.
 4. In development and app tests, with none of these, [PGlite](/docs/database/configure#run-postgres-locally-with-pglite). Production output has no PGlite.
 
-Use the PG* variables on Node and container hosts that give separate credentials, not a URL. Workers ignore them, and Vercel still needs `connection.url`.
+Use the PG* variables on Node, Vercel, and container hosts that give separate credentials, not a URL. Workers ignore them.
 
 A Worker cannot use a socket from one request in another. So inside a Cloudflare request, ViteHub creates one client and reuses it for all queries of that request. Hyperdrive keeps the pool of origin connections, so a new client per request is cheap. Each client opens at most 5 connections, inside the Workers connection limit. On Node, Vercel, and local development, one client pool serves the process.
 
