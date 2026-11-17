@@ -370,7 +370,12 @@ async function moveToFolderObject(root: string, path: string) {
   await assertNoSymlinkPath(root, folderObject)
   await mkdir(dirname(folderObject), { recursive: true })
   // rename() replaces an older folder object, and readers find the bytes there while `path` is missing.
-  await rename(path, folderObject).catch(ignoreNotFound)
+  await rename(path, folderObject).catch(async (error: unknown) => {
+    if (isNotFound(error)) return
+    // Another writer can promote the observed file and create its directory first.
+    if (hasCode(error, "ENOTDIR") && (await lstat(path).catch(ignoreNotFound))?.isDirectory()) return
+    throw error
+  })
 }
 
 /** Creates the folders of `dir`. A file in the way is a pathname such as `docs` next to `docs/a.txt`, so it moves. */
@@ -862,7 +867,9 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
       const sourcePath = source && (await resolvePayload(root, from))?.path
       if (!source || !sourcePath) return null
       return publish(to, async (temporary) => {
-        await copyFile(sourcePath, temporary, constants.COPYFILE_EXCL)
+        // Preparing destination folders can move an ancestor source into its folder object.
+        const payload = await resolvePayload(root, from)
+        await copyFile(payload?.path ?? sourcePath, temporary, constants.COPYFILE_EXCL)
         return sha256File(temporary)
       }, source.meta)
     },

@@ -1,14 +1,22 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, rename, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createDriver } from "../src/drivers/fs.ts"
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const fs = await importOriginal<typeof import("node:fs/promises")>()
+  return { ...fs, rename: vi.fn(fs.rename) }
+})
+
+const fs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
 
 const tempDirs: string[] = []
 
 afterEach(async () => {
+  vi.mocked(rename).mockReset().mockImplementation(fs.rename)
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
@@ -40,6 +48,47 @@ describe("fs blob driver: a pathname that is also a folder", () => {
     expect((await driver.list()).blobs.map(blob => blob.pathname)).toEqual(["docs", "docs/a.txt"])
     await expect(driver.list({ folded: true })).resolves.toMatchObject({ blobs: [{ pathname: "docs" }], folders: ["docs/"] })
     await expect(driver.list({ folded: true, prefix: "docs/" })).resolves.toMatchObject({ blobs: [{ pathname: "docs/a.txt" }], folders: [] })
+  })
+
+  it.each(["docs/a.txt", "docs/nested/a.txt"])("copies a file into its descendant %s", async (destination) => {
+    const { driver } = await store()
+    await driver.put("docs", "parent", { contentType: "text/plain", customMetadata: { name: "parent" } })
+    await expect(driver.copy!("docs", destination)).resolves.toMatchObject({ pathname: destination, contentType: "text/plain", customMetadata: { name: "parent" } })
+    for (const pathname of ["docs", destination]) {
+      expect(await text(await driver.get(pathname))).toBe("parent")
+      await expect(driver.head(pathname)).resolves.toMatchObject({ contentType: "text/plain", customMetadata: { name: "parent" } })
+    }
+  })
+
+  it("recovers when a sibling writer completes an observed promotion", async () => {
+    const { base, driver } = await store()
+    await driver.put("docs", "parent", { contentType: "text/plain", customMetadata: { name: "parent" } })
+    const paused = Promise.withResolvers<void>()
+    const resume = Promise.withResolvers<void>()
+    let intercepted = false
+    vi.mocked(rename).mockImplementation(async (...args) => {
+      if (args[0] === join(base, "docs") && !intercepted) {
+        intercepted = true
+        paused.resolve()
+        await resume.promise
+      }
+      return fs.rename(...args)
+    })
+    const first = driver.put("docs/a.txt", "first")
+    // Attach a handler before allowing the paused operation to fail on the old code.
+    const result = Promise.all([first])
+    await paused.promise
+    try {
+      await driver.put("docs/b.txt", "second")
+    }
+    finally {
+      resume.resolve()
+    }
+    await result
+    expect(await text(await driver.get("docs/a.txt"))).toBe("first")
+    expect(await text(await driver.get("docs/b.txt"))).toBe("second")
+    expect(await text(await driver.get("docs"))).toBe("parent")
+    await expect(driver.head("docs")).resolves.toMatchObject({ contentType: "text/plain", customMetadata: { name: "parent" } })
   })
 
   it("lists keys in order around a key that is also a folder, across pages", async () => {
