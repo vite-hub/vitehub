@@ -46,6 +46,7 @@ export default defineConfig({
       "src/provision.ts",
       "src/provision-state.ts",
       "src/presets.ts",
+      "src/process-sweep.ts",
       "src/secret.ts",
       "src/sitemap.ts",
       "src/standard-schema.ts",

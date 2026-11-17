@@ -3958,6 +3958,9 @@ importers:
       semver:
         specifier: ^7.8.5
         version: 7.8.5
+      srvx:
+        specifier: catalog:unjs
+        version: 1.0.8
       valibot:
         specifier: catalog:runtime
         version: 1.5.0(typescript@6.0.3)
