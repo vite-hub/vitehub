@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 
 import { join, resolve } from "pathe"
+import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 
 import { createQueueMessageId, normalizeQueueEnqueueInput } from "../enqueue.ts"
 import { cloudflareUnsupportedEnqueueOptions, localUnsupportedEnqueueOptions, postgresUnsupportedEnqueueOptions, queueProviderResult, queueUnsupportedOptionsError } from "../errors.ts"
@@ -341,7 +342,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
         concurrency.set(job.queue, Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : 1)
         // The first job of a queue reads its limit, so start the other due jobs now.
         schedule()
-        checkQueueHandlerResponse(await definition.handler({ attempts: job.attempts, id: job.id, payload: job.payload }))
+        checkQueueHandlerResponse(await runInRunScopes(() => definition.handler({ attempts: job.attempts, id: job.id, payload: job.payload })))
         handled = true
       }
       catch (error) {

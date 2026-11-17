@@ -5,6 +5,7 @@ import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 import { isScheduleDate, scheduleIdempotencyKey, validateScheduledAt } from "./date.ts"
 import { isScheduleDue, latestCronMinute } from "./due.ts"
 
@@ -167,7 +168,7 @@ export function createStaticScheduleRun(
 
 export async function executeStaticSchedule(options: ExecuteStaticScheduleOptions): Promise<unknown> {
   return await runWithScheduleWaitUntil(
-    waitUntil => options.definition.handler(createStaticScheduleRun({ ...options, waitUntil })),
+    waitUntil => runInRunScopes(() => options.definition.handler(createStaticScheduleRun({ ...options, waitUntil }))),
     options.waitUntil,
   )
 }

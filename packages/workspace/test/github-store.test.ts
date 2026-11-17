@@ -1295,6 +1295,33 @@ describe("GitHub workspace store", () => {
     ]);
   });
 
+  it("drops the staged writes of a failed Schedule or Queue run from the cached Store", async () => {
+    seedRemote(".vitehub/workspaces/docs/index.md", "# Index\n");
+    const { createWorkspace } = await import("../src/core/workspace.ts");
+    const { runInRunScopes } = await import("@vite-hub/runtime/internal/run-scope");
+    const definition: WorkspaceDefinition = {
+      name: "docs",
+      store: { driver: "github", repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
+    };
+
+    // Schedule and Queue run each handler this way. This run mirrors a record, then fails before its snapshot.
+    await expect(runInRunScopes(async () => {
+      await createWorkspace(definition).writeFile("mirror/record.md", "half synced\n");
+      throw new Error("Airtable answered 429.");
+    })).rejects.toThrow("Airtable answered 429.");
+    await runInRunScopes(async () => {
+      const workspace = createWorkspace(definition);
+      await expect(workspace.exists("mirror/record.md")).resolves.toBe(false);
+      await workspace.writeFile("saved.md", "saved\n");
+      await workspace.snapshot({ name: "sync" });
+    });
+
+    expect(fake.tree("main").map(entry => entry.path).sort()).toEqual([
+      ".vitehub/workspaces/docs/index.md",
+      ".vitehub/workspaces/docs/saved.md",
+    ]);
+  });
+
   it("drops a failed request's writes for a Workspace that outlives the request and for direct Store writes", async () => {
     seedRemote(".vitehub/workspaces/docs/index.md", "# Index\n");
     const { createWorkspace } = await import("../src/core/workspace.ts");
