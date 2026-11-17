@@ -1,5 +1,5 @@
 import type { GitHubProvider } from "@vite-hub/forge"
-import { forgeEnv, forgeErrorStatus, importForge, readForgeEnv } from "@vite-hub/internal/forge"
+import { forgeEnv, forgeErrorStatus, forgeImportError, readForgeEnv } from "@vite-hub/internal/forge"
 
 import { sourceError } from "../../core/errors.ts"
 import { isRecord } from "@vite-hub/internal/object"
@@ -8,7 +8,13 @@ import type { GitHubFileCommit, GitHubHistoryOptions, GitHubPullRequest } from "
 
 /** `@vite-hub/forge`, an optional peer. A GitHub Source loads it on its first request. */
 export async function loadForge(): Promise<typeof import("@vite-hub/forge")> {
-  return await importForge(() => import("@vite-hub/forge"), "A GitHub Source")
+  // The import stays in the try, so esbuild leaves it for run time when the app did not install Forge.
+  try {
+    return await import("@vite-hub/forge")
+  }
+  catch (error) {
+    throw forgeImportError(error, "A GitHub Source")
+  }
 }
 
 export interface GitHubClient {
