@@ -7,6 +7,7 @@ import type { DatabaseOptions } from "./types.ts"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "./types.ts"
 import type { ViteHubCliContributor as SharedViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { AdoptedMigration, MigrationPlan } from "./internal/migration-plan.ts"
+import type { SqliteSnapshot } from "./internal/snapshot-uniques.ts"
 
 import { dirname, isAbsolute, join, relative, resolve } from "pathe"
 
@@ -671,6 +672,10 @@ async function runDrizzleKit(
     }
     if (feature === "migrate" && database) await ensureLocalDatabaseDirectory(database, projectRoot, context)
     const migrationsDir = run.database?.migrationsDir ? resolve(projectRoot, run.database.migrationsDir) : undefined
+    if (feature === "generate" && migrationsDir && run.database?.dialect === "sqlite" && await hasUnrecordedUniques(migrationsDir)) {
+      // A folder that `drizzle-kit up` or an older ViteHub converted still lists each `.unique()` column as an index.
+      await recordConvertedUniques(context, { bin: drizzleKitBin, configFile: resolve(projectRoot, configFile), database: run.database.name, migrationsDir, projectRoot })
+    }
     const foldersBefore = feature === "generate" && migrationsDir ? await listMigrationFolders(migrationsDir) : []
     const result = await runDrizzleKitWithConfig(feature, args, context, { bin: drizzleKitBin, configFile: toConfigPath(projectRoot, configFile), database: run.database?.name ?? "default", projectRoot })
     if (result !== 0) return result
@@ -836,6 +841,17 @@ async function writeSchemaSnapshot(
   const copied = JSON.parse(await readFile(target, "utf8")) as { id: string, prevIds: string[] }
   await writeFile(target, JSON.stringify({ ...current, id: copied.id, prevIds: copied.prevIds }, null, 2))
   return 0
+}
+
+/** Reports whether the newest snapshot of a SQLite folder lists a `.unique()` column of Drizzle Kit 0.x as an index. */
+async function hasUnrecordedUniques(migrationsDir: string): Promise<boolean> {
+  // Contributed SQL folders can have no snapshot, so read the newest folder that has one.
+  const file = (await listMigrationFolders(migrationsDir)).sort().reverse().map(folder => join(migrationsDir, folder, "snapshot.json")).find(existsSync)
+  if (!file) return false
+  const snapshot = JSON.parse(await readFile(file, "utf8")) as Partial<SqliteSnapshot>
+  if (!Array.isArray(snapshot.ddl)) return false
+  const { hasKit0UniqueIndexes } = await import("./internal/snapshot-uniques.ts")
+  return hasKit0UniqueIndexes({ ddl: snapshot.ddl })
 }
 
 /**
