@@ -13,6 +13,7 @@ import { publishProviderSourcesToDeploymentOutputs } from "./provider-output-sou
 import { scanModule, walk } from "./scan-module.ts"
 import type { CallExpression, Expression, NewExpression, Node, ScannedModule } from "./scan-module.ts"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
+import { invariant, invariantError } from "../invariant.ts"
 import { denoDeployRunnerSource } from "./deno-deploy-runner.injected.ts"
 
 const resolvePackageJson = createRuntimePackageResolver(source => parseRuntimePackageJson(source).name)
@@ -363,7 +364,7 @@ function cookImportSpecifier(source: string): string {
       continue
     }
     const escape = source[++index]
-    if (escape === undefined) throw internalErrorDiagnostics.INTERNAL_B0009({ message: "Deno output contains an incomplete import escape sequence." })
+    invariant(escape !== undefined, "the import specifiers of bundler output are complete JavaScript module strings, so each escape sequence ends")
     if (escape === "\n") continue
     if (escape === "\r") {
       if (source[index + 1] === "\n") index++
@@ -381,14 +382,14 @@ function cookImportSpecifier(source: string): string {
     const simpleEscape = simpleEscapes[escape]
     if (simpleEscape !== undefined) {
       if (escape === "0" && /\d/.test(source[index + 1] || "")) {
-        throw internalErrorDiagnostics.INTERNAL_B0010({ message: "Deno output contains an unsupported legacy octal import escape sequence." })
+        throw invariantError("the import specifiers of bundler output are complete JavaScript module strings, which reject legacy octal escapes")
       }
       cooked += simpleEscape
       continue
     }
     if (escape === "x") {
       const digits = source.slice(index + 1, index + 3)
-      if (!/^[\dA-Fa-f]{2}$/.test(digits)) throw internalErrorDiagnostics.INTERNAL_B0011({ message: "Deno output contains an invalid hexadecimal import escape sequence." })
+      invariant(/^[\dA-Fa-f]{2}$/.test(digits), "the import specifiers of bundler output are complete JavaScript module strings, so each hexadecimal escape is valid")
       cooked += String.fromCharCode(Number.parseInt(digits, 16))
       index += 2
       continue
@@ -399,19 +400,19 @@ function cookImportSpecifier(source: string): string {
         const digits = end === -1 ? "" : source.slice(index + 2, end)
         const codePoint = /^[\dA-Fa-f]{1,6}$/.test(digits) ? Number.parseInt(digits, 16) : Number.NaN
         if (!Number.isSafeInteger(codePoint) || codePoint > 0x10FFFF) {
-          throw internalErrorDiagnostics.INTERNAL_B0012({ message: "Deno output contains an invalid Unicode import escape sequence." })
+          throw invariantError("the import specifiers of bundler output are complete JavaScript module strings, so each Unicode escape is valid")
         }
         cooked += String.fromCodePoint(codePoint)
         index = end
         continue
       }
       const digits = source.slice(index + 1, index + 5)
-      if (!/^[\dA-Fa-f]{4}$/.test(digits)) throw internalErrorDiagnostics.INTERNAL_B0013({ message: "Deno output contains an invalid Unicode import escape sequence." })
+      invariant(/^[\dA-Fa-f]{4}$/.test(digits), "the import specifiers of bundler output are complete JavaScript module strings, so each Unicode escape is valid")
       cooked += String.fromCharCode(Number.parseInt(digits, 16))
       index += 4
       continue
     }
-    if (/[1-9]/.test(escape)) throw internalErrorDiagnostics.INTERNAL_B0014({ message: "Deno output contains an unsupported legacy octal import escape sequence." })
+    invariant(!/[1-9]/.test(escape), "the import specifiers of bundler output are complete JavaScript module strings, which reject legacy octal escapes")
     cooked += escape
   }
   return cooked
@@ -1063,12 +1064,10 @@ async function finalizeStagedDenoDeploymentOutput(
   await addServerRuntimePackages(options.serverPackages, options.rootDir, resolvedPackageJsonPaths, runtimePackages)
   let entrypoint = "server/index.mjs"
   let hasSchedule = false
+  // Schedule output from an earlier build without the Schedule integration is stale. `access()` below then fails with ENOENT, which means "no Schedule output".
+  if (options.hasScheduleIntegration === false) await rm(scheduleSource, { force: true })
   try {
     await access(scheduleSource)
-    if (options.hasScheduleIntegration === false) {
-      await rm(scheduleSource, { force: true })
-      throw Object.assign(internalErrorDiagnostics.INTERNAL_B0030({ message: "stale Deno Schedule output" }), { code: "ENOENT" })
-    }
     hasSchedule = true
     await access(applicationEntrySource)
     await mkdir(join(outputDir, "schedule"), { recursive: true })

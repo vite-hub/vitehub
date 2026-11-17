@@ -28,6 +28,7 @@ export default defineConfig({
       "src/dev-token.ts",
       "src/durability.ts",
       "src/env.ts",
+      "src/hints.ts",
       "src/features.ts",
       "src/forge.ts",
       "src/http-request.ts",
