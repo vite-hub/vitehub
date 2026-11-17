@@ -32,7 +32,7 @@ Work outside a request gets an evlog event of its own, `{ action, message, [fiel
 | `schedule` | Each Schedule run, and Schedule runtime failures | [Schedule](/docs/schedule/server-api#see-schedule-runs-in-logs) |
 | `comments` | A failed `onMention` or pull request sync | [Comments](/docs/comments/limits-and-errors#see-hook-and-sync-failures-in-logs) |
 
-ViteHub sends these events only when the app installs evlog and registers its Nitro module. Without evlog, the same failures go to the server console.
+ViteHub sends these events only when the app installs evlog and registers its Nitro module. Each event has a fixed message and the `code` of the error, never its message, which can hold a path or a value. A failed Schedule handler is the exception: its event has the error, as a request's wide event has a route's error. Without evlog, or with evlog's `enabled: false`, the same failures go to the server console.
 
 ## Source contract
 

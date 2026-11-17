@@ -39,12 +39,15 @@ export interface StandaloneLogger {
   emit: () => unknown
 }
 
+/** Keeps a promise alive after the work that made it, such as a Worker's `waitUntil()`. */
+export type WaitUntil = (promise: Promise<unknown>) => void
+
 /**
  * What the `vitehub()` Nitro plugin gives ViteHub packages when the app registers evlog's Nitro module: evlog's
- * `createLogger`, and `drain`, which sends an emitted event to the app's `evlog:drain` hooks.
+ * `createLogger` and `isEnabled`, and `drain`, which sends an emitted event to the app's `evlog:drain` hooks.
  */
 export interface EvlogBridge {
-  createLogger: (fields: Record<string, unknown>) => StandaloneLogger
+  createLogger: (fields: Record<string, unknown>, options?: { waitUntil?: WaitUntil }) => StandaloneLogger
   drain?: (event: unknown) => unknown
   /** `false` when the app turned evlog off with `enabled: false`. ViteHub packages then print to the console. */
   isEnabled?: () => boolean
@@ -69,24 +72,41 @@ export function evlogBridge(): EvlogBridge | undefined {
   return isEvlogBridge(bridge) ? bridge : undefined
 }
 
-/** Sets or removes the evlog bridge of this process. The generated Nitro plugin and tests call it. */
+/** Sets or removes the evlog bridge of this process. Tests call it. */
 export function setEvlogBridge(bridge: EvlogBridge | undefined): void {
   const runtime: BridgeGlobal = globalThis
   if (bridge) runtime[Symbol.for(evlogBridgeKey)] = bridge
   else delete runtime[Symbol.for(evlogBridgeKey)]
 }
 
-/** One log event of a ViteHub package: `{ action: field, message, [field]: fields }`, such as `field: "blob"`. */
+/** The bridge when the app registers evlog and has it on. With evlog off, its request loggers drop every line too. */
+function activeBridge(): EvlogBridge | undefined {
+  const bridge = evlogBridge()
+  try {
+    return bridge && bridge.isEnabled?.() !== false ? bridge : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+/**
+ * One log event of a ViteHub package: `{ action: field, message, [field]: fields }`, such as `field: "blob"`. The
+ * message is a fixed text. `error` only gives `code`: its message and stack can hold paths, names, or values.
+ */
 export interface PrimitiveLogEvent {
   field: string
   fields: Record<string, unknown>
   level: "info" | "warn" | "error"
   message: string
   error?: unknown
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  /**
+   * Also puts the Error, with its message and stack, on the event. Only for an error that the app's own code threw and
+   * that a request's wide event would show the same way, such as a failed Schedule handler.
+   */
+  withError?: boolean
+  /** Keeps evlog's drains alive after the work that logged, such as a Worker's `waitUntil()`. */
+  waitUntil?: WaitUntil
 }
 
 /**
@@ -106,15 +126,19 @@ export function errorCode(error: unknown): string | undefined {
  * hooks. Returns `false` when the app does not register evlog or turned it off, and never throws.
  */
 export function emitLogEvent(event: PrimitiveLogEvent): boolean {
-  const bridge = evlogBridge()
+  const bridge = activeBridge()
   if (!bridge) return false
   try {
-    if (bridge.isEnabled?.() === false) return false
-    const log = bridge.createLogger({ action: event.field, message: event.message, [event.field]: event.fields })
-    if (event.level === "error") log.error(event.error instanceof Error ? event.error : event.error === undefined ? event.message : `${event.message}: ${errorText(event.error)}`)
-    else log[event.level](event.error === undefined ? event.message : `${event.message}: ${errorText(event.error)}`)
+    const log = bridge.createLogger({ action: event.field, message: event.message, [event.field]: event.fields }, event.waitUntil ? { waitUntil: event.waitUntil } : undefined)
+    if (event.level === "error") log.error(event.withError && event.error instanceof Error ? event.error : event.message)
+    else log[event.level](event.message)
     const emitted = log.emit()
-    if (emitted && bridge.drain) void Promise.resolve(bridge.drain(emitted)).catch(() => {})
+    if (emitted && bridge.drain) {
+      const drained = Promise.resolve().then(() => bridge.drain?.(emitted)).catch((error: unknown) => {
+        console.error("[evlog] drain failed:", error)
+      })
+      event.waitUntil?.(drained)
+    }
     return true
   }
   catch {
@@ -123,18 +147,19 @@ export function emitLogEvent(event: PrimitiveLogEvent): boolean {
 }
 
 /**
- * Logs a failure that the caller survives. With the evlog request logger of `request`, it sets `[field]` on the
- * request's wide event and adds a warning. Pass `request` only when the request has not answered yet: evlog drops
- * fields after it emits the wide event. Otherwise it emits an event of its own. Without evlog, it calls `fallback`,
- * which prints to the console as before. It never throws.
+ * Logs a failure that the caller survives, with a fixed message and the `code` of the error. With the evlog request
+ * logger of `request`, it sets `[field]` on the request's wide event and adds a warning. Pass `request` only when the
+ * request has not answered yet: evlog drops fields after it emits the wide event. Otherwise it emits an event of its
+ * own. Without evlog, or with evlog off, it calls `fallback`, which prints to the server console as before. It never
+ * throws.
  */
-export function logFailure(failure: Omit<PrimitiveLogEvent, "level"> & { level?: "warn" | "error", request?: unknown }, fallback: () => void): void {
+export function logFailure(failure: Omit<PrimitiveLogEvent, "level" | "withError"> & { level?: "warn" | "error", request?: unknown }, fallback: () => void): void {
   const code = errorCode(failure.error)
   const fields = { ...failure.fields, ...(code ? { code } : {}) }
-  const log = failure.request === undefined ? undefined : requestLog(failure.request)
+  const log = failure.request !== undefined && activeBridge() ? requestLog(failure.request) : undefined
   if (log) {
     try {
-      log.warn(failure.error === undefined ? failure.message : `${failure.message}: ${errorText(failure.error)}`, { [failure.field]: fields })
+      log.warn(failure.message, { [failure.field]: fields })
       return
     }
     catch {}
