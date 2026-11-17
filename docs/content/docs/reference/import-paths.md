@@ -145,7 +145,7 @@ the same behavior.
 | `vite-hub/schedule/runtime/process` | Process Runtime that runs Static Schedules in a long-lived Node process. |
 | `vite-hub/schedule/runtime/kv` | ViteHub KV storage adapter for Schedule Runs. |
 | `vite-hub/shell` | Shell runtime and command analysis APIs. |
-| `vite-hub/shell/providers/just-bash` | Just Bash Shell provider. |
+| `vite-hub/shell/providers/just-bash` | Just Bash Shell driver. |
 | `vite-hub/shell/workspace` | Workspace-backed Shell execution helpers. |
 | `vite-hub/test` | `setupViteHubTest()` for app tests: local backends for KV, Blob, Database, Queue, Email, Rate Limit, and Auth, Server Env values, signed-in users, and Channel deliveries. See [Testing](/docs/development/testing). |
 | `vite-hub/test/register` | `node --import vite-hub/test/register --test` runs app tests with Node's test runner. See [Testing](/docs/development/testing). |

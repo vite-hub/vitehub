@@ -78,6 +78,11 @@
       "import": "./dist/deployment.js",
       "default": "./dist/deployment.js"
     },
+    "./forge": {
+      "types": "./dist/forge.d.ts",
+      "import": "./dist/forge.js",
+      "default": "./dist/forge.js"
+    },
     "./features": {
       "types": "./dist/features.d.ts",
       "import": "./dist/features.js",
@@ -157,6 +162,11 @@
       "types": "./dist/provision-state.d.ts",
       "import": "./dist/provision-state.js",
       "default": "./dist/provision-state.js"
+    },
+    "./process-sweep": {
+      "types": "./dist/process-sweep.d.ts",
+      "import": "./dist/process-sweep.js",
+      "default": "./dist/process-sweep.js"
     },
     "./systemd": {
       "types": "./dist/systemd.d.ts",
