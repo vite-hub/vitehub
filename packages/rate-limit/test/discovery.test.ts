@@ -152,6 +152,16 @@ describe("Rate Limit declarations", () => {
       .toThrow('does not support the "route" option')
   })
 
+  it("reads message and code of requireRateLimit() as runtime values", () => {
+    const source = [
+      'import { checkRateLimit, requireRateLimit } from "@vite-hub/rate-limit"',
+      'requireRateLimit(event, "sync", { code: t.code, key, limit: 3, message: t("tooManyTries"), window: "1m" })',
+    ].join("\n")
+    expect(extractRateLimitDeclarations("worded.ts", source)).toMatchObject([{ name: "sync", policy: { limit: 3, window: "1m" } }])
+    expect(() => extractRateLimitDeclarations("check.ts", 'import { checkRateLimit } from "@vite-hub/rate-limit"\ncheckRateLimit(event, "sync", { limit: 3, message: "Slow down.", window: "1m" })'))
+      .toThrow('does not support the "message" option')
+  })
+
   it("unwraps transparent TypeScript assertions", () => {
     const imported = 'import { requireRateLimit } from "@vite-hub/rate-limit"\nimport type { RequireRateLimitOptions } from "@vite-hub/rate-limit"\n'
     expect(extractRateLimitDeclarations("asserted.ts", `${imported}requireRateLimit(event, "uploads", { limit: 10 as const, window: "1m" } as const)`))

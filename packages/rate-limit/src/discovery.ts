@@ -308,7 +308,8 @@ function staticPolicy(call: ESTree.CallExpression, guard: RateLimitGuard, file: 
       throw declarationError(file, source, property, `\`${guard}()\` options cannot use object spreads.`)
     }
     const name = staticPropertyName(property)
-    if (name === "key") continue
+    // `key` and the text of the `429` error are runtime values.
+    if (name === "key" || guard === "requireRateLimit" && (name === "message" || name === "code")) continue
     if (!name || !rateLimitPolicyKeys.has(name)) {
       throw declarationError(file, source, property, `\`${guard}()\` does not support the ${name ? `"${name}"` : "dynamic"} option.`)
     }

@@ -56,6 +56,7 @@ The build reads the policy of each `checkRateLimit()` and `requireRateLimit()` c
 | `RATE_LIMIT_R0010` | `checkRateLimit()` or `requireRateLimit()` has an empty ID. |
 | `RATE_LIMIT_R0011`, `RATE_LIMIT_R0012` | The call has an unknown option, or `key` is an empty string. |
 | `RATE_LIMIT_R0013` | The request has no client address and the call has no `key`. Pass a user or tenant key. |
+| `RATE_LIMIT_REFUSAL_OPTION_INVALID` | `message` or `code` of `requireRateLimit()` is not a non-empty string. |
 | `RATE_LIMIT_R0030`, `RATE_LIMIT_R0038` | A direct Rate Limiter call has an empty key. |
 
 ### Drivers
