@@ -181,7 +181,7 @@ describe("createSetupSession", () => {
     const session = createSetupSession({ env: {}, root, run: fakeRunner().run })
     const result = await session.plan({ action: "add", features: ["email"] })
     expect(result.exitCode).toBe(2)
-    expect(result.body).toMatchObject({ error: { code: "SETUP_INPUT_NEEDED" }, missing: [{ choices: ["resend"], field: "email.driver" }] })
+    expect(result.body).toMatchObject({ error: { code: "SETUP_INPUT_NEEDED" }, missing: [{ choices: ["resend", "log"], field: "email.driver" }] })
 
     const planned = await session.plan({ action: "add", features: ["email"], options: ["email.driver=resend"] })
     expect(planned.body).toMatchObject({ command: "vitehub add email --option=email.driver=resend --yes", status: "planned" })

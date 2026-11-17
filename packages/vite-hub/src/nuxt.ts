@@ -38,7 +38,7 @@ import { disabledKVConfigModule, disabledRedisDriver, disabledUpstashDriver, has
 import { consoleDevAccessNotice } from "./console/dev-access-notice.ts"
 import { importOptionalOwner, isPackageInstalled, requireOptionalOwner, startPackageChecks } from "./internal/optional-owners.ts"
 import { nuxtImageProviderDependency } from "./internal/nuxt-image.ts"
-import { ownerModules } from "./internal/owner-modules.ts"
+import { hasSyncDirectory, ownerModules } from "./internal/owner-modules.ts"
 import { discoverConsoleBuildCatalog, type ConsoleBuildCatalog } from "./console/build.ts"
 import { writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plugin.ts"
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
@@ -186,7 +186,7 @@ type NuxtLike = {
     }
     modules?: unknown[]
     nitro?: Record<string, unknown>
-    plugins?: Array<string | { src: string }>
+    plugins?: Array<string | { src: string, mode?: "client" | "server" | "all" }>
     routeRules?: Record<string, {
       headers?: Record<string, string>
       [key: string]: unknown
@@ -462,6 +462,29 @@ function configuredProjectRoots(options: ViteHubOptions, rootDir: string, viteRo
       return Boolean(value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string")
     })
     .map(([name, value]) => resolve(name === "database" ? rootDir : viteRoot, value.projectRoot))
+}
+
+/**
+ * Adds the client plugin that forgets the synced rows after a sign-out of ViteHub Auth, so the next person on the device
+ * does not see them. The plugin goes to `.vitehub/sync/`, because Nuxt clears its build directory after modules run.
+ */
+async function addSyncSignOutPlugin(nuxt: NuxtLike, projectRoot: string): Promise<void> {
+  const src = join(projectRoot, ".vitehub/sync/nuxt-sign-out.mjs")
+  await writeFileIfChanged(src, [
+    `import { defineNuxtPlugin } from "#imports"`,
+    `import { onSignOut } from "vite-hub/auth/vue"`,
+    `import { clearSync } from "vite-hub/sync/client"`,
+    ``,
+    `export default defineNuxtPlugin({`,
+    `  name: "vite-hub:sync-sign-out",`,
+    `  setup() {`,
+    `    onSignOut(() => clearSync())`,
+    `  },`,
+    `})`,
+    ``,
+  ].join("\n"))
+  const plugins = (nuxt.options.plugins ??= [])
+  if (!plugins.some(plugin => (typeof plugin === "string" ? plugin : plugin.src) === src)) plugins.push({ src, mode: "client" })
 }
 
 function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
@@ -1563,6 +1586,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   if (isPackageInstalled("@vite-hub/forms")) {
     addVueImports(nuxt, "vite-hub/forms/vue", ["useFormAction"])
     if (isPackageInstalled("@formisch/vue")) addVueImports(nuxt, "vite-hub/forms/formisch", ["useFormSubmit"])
+  }
+  // `server/sync/` turns Sync on, so `useSync()` is imported only then.
+  if (isPackageInstalled("@vite-hub/sync") && hasSyncDirectory(projectRoot, resolveNuxtServerDirs(nuxt.options))) {
+    addVueImports(nuxt, "vite-hub/sync/vue", ["useSync"])
+    addVueImports(nuxt, "vite-hub/sync/client", ["clearSync"])
+    if (effectiveAuth) await addSyncSignOutPlugin(nuxt, projectRoot)
   }
   if (options.i18n) {
     await requireOptionalOwner(ownerModules.i18nNuxt, "i18n").installI18nNuxt({ options: { plugins: (nuxt.options.plugins ??= []) } }, { importBase: "vite-hub/i18n", nitroMajorVersion: 3, projectRoot })

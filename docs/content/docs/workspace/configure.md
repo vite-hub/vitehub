@@ -66,7 +66,7 @@ export default defineConfig({
 | Custom | `WorkspaceStore` | Your own implementation of the Store contract. |
 | Blob + Database | `createBlobDatabaseWorkspaceStore({ blob, database, workspace, prefix? })` | Folder history that works on any host. Pass the returned Store to a Workspace Definition. |
 
-Any other `driver` fails with `WORKSPACE_UNKNOWN_STORE_DRIVER`. The former `cloudflare-artifacts` and `vercel-blob` are now `cloudflare` and `vercel`; `npx @vite-hub/codemods driver-key` renames them.
+Any other `driver` fails with `WORKSPACE_UNKNOWN_STORE_DRIVER`. The former `cloudflare-artifacts` and `vercel-blob` are now `cloudflare` and `vercel`, and the former `provider` key fails with `WORKSPACE_RENAMED_STORE_PROVIDER_KEY` instead of making a local Store; `npx @vite-hub/codemods driver-key` renames them.
 
 Vercel Blob keeps file bytes and JSON attributes in separate objects. In one process, writes and removals on the same path run one at a time across Store instances, including failed-write recovery. Readers can see writes in progress.
 

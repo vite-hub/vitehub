@@ -147,6 +147,13 @@ export function normalizeWorkspaceStoreOptions(
   const env = input.env || process.env
   const hosting = input.hosting || ""
 
+  // A `root` once made a Store without `driver` a local Store, so the former `provider` key would pick it silently.
+  if (store && Object.hasOwn(store, "provider") && store.driver === undefined) {
+    // SAFETY: An app config without types still passes the former `provider` key.
+    const provider = (store as { provider?: unknown }).provider
+    const driver = renamedWorkspaceStoreDrivers.get(String(provider)) ?? provider
+    throw workspaceErrorDiagnostics.WORKSPACE_RENAMED_STORE_PROVIDER_KEY({ driver: JSON.stringify(driver) ?? String(driver), provider: JSON.stringify(provider) ?? String(provider) })
+  }
   if (store?.driver !== undefined && !workspaceStoreDrivers.has(store.driver)) {
     throw workspaceErrorDiagnostics.WORKSPACE_UNKNOWN_STORE_DRIVER({ driver: JSON.stringify(store.driver), renamed: renamedWorkspaceStoreDrivers.get(String(store.driver)) })
   }

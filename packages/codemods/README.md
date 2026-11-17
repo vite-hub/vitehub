@@ -221,7 +221,7 @@ corepack pnpm exec vp run codemods:e2e
 
 ## `driver-key`
 
-`driver` is the only key that selects the backend of a resource. The codemod renames the old keys and the old names of host drivers:
+`driver` is the only key that selects the backend of a resource. An old key fails with a `*_RENAMED_*_KEY` error that names `driver`, so a config cannot fall back to another backend without a warning. The codemod renames the old keys and the old names of host drivers:
 
 | Before | After |
 | --- | --- |

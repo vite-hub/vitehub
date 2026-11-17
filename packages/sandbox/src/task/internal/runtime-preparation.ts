@@ -61,6 +61,12 @@ function normalizeSandboxTaskOptions(options: SandboxTaskOptions): AgentSandboxT
     return false
   if (!isPlainObject(options))
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0042({ message: '[vitehub] `sandboxTask` must be a plain object.' })
+  // Without `driver`, the Sandbox Task picks the host's driver, so the former `provider` key would be ignored silently.
+  if (options.driver === undefined && Object.hasOwn(options, 'provider')) {
+    // SAFETY: An app config without types still passes the former `provider` key.
+    const provider = (options as { provider?: unknown }).provider
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_RENAMED_PROVIDER_KEY({ value: JSON.stringify(provider) ?? String(provider) })
+  }
   return { ...options } as AgentSandboxTaskConfig
 }
 
