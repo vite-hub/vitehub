@@ -439,6 +439,35 @@ describe("hydration", () => {
     return { root, mismatches }
   }
 
+  it.each(["useStoredData", "useStoredFetch"] as const)("preserves setup writes through %s during hydration", async (method) => {
+    const immediate: unknown[] = []
+    const component = (page: Page) => defineComponent({
+      setup() {
+        const read = method === "useStoredData"
+          ? page.useStoredData("project", async () => "answer", { default: () => "default" })
+          : page.useStoredFetch<string>("/api/project", { default: () => "default" })
+        expect(read.data.value).toBe("default")
+        read.data.value = "edited"
+        immediate.push(read.data.value)
+        return () => h("p", `${read.data.value} ${read.status.value}`)
+      },
+    })
+    const html = await serverRender(component)
+    expect(html).toBe("<p>edited idle</p>")
+    const page = await openPage()
+    await page.openDevice()
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})))
+    try {
+      const { root, mismatches } = hydrate(html, component(page))
+      expect(immediate).toEqual(["edited", "edited"])
+      expect(root.innerHTML).toBe(html)
+      expect(mismatches()).toEqual([])
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("renders the server HTML first when the device opened before the app hydrates, then shows the stored copy", async () => {
     await visit()
     const html = await serverRender(page => list(page, async () => ["p1"]))

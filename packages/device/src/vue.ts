@@ -393,7 +393,7 @@ function useRead<TData, TDefault>(
   // answer of a component of the same key that hydrated first. Vue sets the element of a component before its setup
   // only when it hydrates that element.
   const hydrating = shallowRef(Boolean(getCurrentInstance()?.vnode.el))
-  const rendered = hydrating.value ? fallback() : undefined
+  const rendered = shallowRef(hydrating.value ? fallback() : undefined)
   // The user of the reads of this call, so the loader of this call leaves a read when the call leaves it.
   const owner = {}
   const current = shallowRef(acquire(checkKey(toValue(key)), loader, fallback, maxAge, account, device, owner, !hydrating.value))
@@ -413,7 +413,13 @@ function useRead<TData, TDefault>(
   if (getCurrentScope()) onScopeDispose(() => release(current.value, device, owner))
   return {
     // SAFETY: the shared read of a key holds the default, a stored copy, or an answer of the loader of that key.
-    data: computed({ get: () => (hydrating.value ? rendered : current.value.data.value) as TData | TDefault, set: (value) => { current.value.data.value = value } }),
+    data: computed({
+      get: () => (hydrating.value ? rendered.value : current.value.data.value) as TData | TDefault,
+      set: (value) => {
+        if (hydrating.value) rendered.value = value
+        current.value.data.value = value
+      },
+    }),
     status: computed(() => hydrating.value ? "idle" : current.value.status.value),
     error: computed(() => hydrating.value ? undefined : current.value.error.value),
     storedAt: computed(() => hydrating.value ? undefined : current.value.storedAt.value),
