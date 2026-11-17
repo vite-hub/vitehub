@@ -224,7 +224,7 @@ export async function revokeInvite(context: SiteContext, id: string): Promise<{ 
 /** `site.sessions`: the browsers of Console members and guests, most recently used first. */
 export async function listSessions(context: SiteContext): Promise<{ sessions: SiteSession[] }> {
   const api = await auth(contextRequest(context), context.event)
-  const known = new Set(memberRoles())
+  const known = new Set([consoleGrant.id, ...viteHubPageGrants().map(grant => grant.id)])
   if (!api) return { sessions: await listConsoleSiteSessions(known) }
   const rows = await unwrap(api.hostSessions([consoleGrant.id, guestRole]))
   return {
