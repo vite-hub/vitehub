@@ -13,8 +13,8 @@ const webhookErrors = /*#__PURE__*/ defineErrors({
     // Runtime errors. `verifyWebhook()` returns them as `[error, undefined]`.
     ENV_WEBHOOK_BODY_INVALID: {
       docs: "https://vitehub.dev/docs/env/diagnostics/env_webhook_body_invalid",
-      why: "The webhook has a valid signature, but its body is not JSON.",
-      fix: "Set the provider to send JSON. In GitHub webhook settings, set Content type to `application/json`.",
+      why: "The webhook has a valid signature, but its body is not JSON, or a GitHub form delivery has no JSON `payload` field.",
+      fix: "Set the provider to send JSON. GitHub can send `application/json` or `application/x-www-form-urlencoded`, and `verifyWebhook()` reads both.",
     },
     ENV_WEBHOOK_SECRET_UNSET: {
       docs: "https://vitehub.dev/docs/env/diagnostics/env_webhook_secret_unset",
@@ -79,9 +79,18 @@ function verifySignature(options: VerifyWebhookOptions, secret: string, header: 
   return verifyViteHubHmacSignature(secret, header, body, options)
 }
 
+// GitHub signs the raw form body and puts the JSON in its `payload` field when the webhook content type is form.
+function readJson(options: VerifyWebhookOptions, headers: Headers, text: string): string {
+  if (options.provider !== "github" || !headers.get("content-type")?.toLowerCase().startsWith("application/x-www-form-urlencoded")) return text
+  const payload = new URLSearchParams(text).get("payload")
+  if (payload === null) throw new SyntaxError("The form body has no `payload` field.")
+  return payload
+}
+
 /**
  * Checks the signature of a webhook that Stripe, GitHub, or another provider sends to a route, and returns
- * `[error, body]` with the parsed JSON body. It reads the raw body once, so do not read the body before you call it.
+ * `[error, body]` with the parsed JSON body. For a GitHub delivery with the form content type, `body` is the JSON
+ * of its `payload` field. It reads the raw body once, so do not read the body before you call it.
  * It reads the secret from the server variable `secret` on each request. The variable holds one secret, or a
  * comma-separated list while you rotate. It compares in constant time and runs on every host.
  *
@@ -111,7 +120,7 @@ export async function verifyWebhook<TBody = unknown>(event: RequestEvent, option
   for (const secret of secrets) valid = await verifySignature(options, secret, header, body) || valid
   if (!valid) return [webhookErrors.ENV_WEBHOOK_SIGNATURE_INVALID({ header: headerName, name }), undefined]
   try {
-    return [undefined, JSON.parse(new TextDecoder().decode(body)) as TBody]
+    return [undefined, JSON.parse(readJson(options, request.headers, new TextDecoder().decode(body))) as TBody]
   }
   catch (cause) {
     return [webhookErrors.ENV_WEBHOOK_BODY_INVALID({ cause }), undefined]
