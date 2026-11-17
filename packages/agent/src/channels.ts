@@ -879,7 +879,7 @@ export interface TelegramConnectorOptions {
   adapter?: TelegramConnectorAdapterOptions | ChatConnectorAdapter
 }
 
-/** The send options of every Chat connector, such as `teams.connector()` or `slack.connector()`. */
+/** The send options of `useChannel(name).send()` for every chat Channel, such as `teams()` or `slack()`. */
 export interface ChatSendOptions {
   /** A Chat SDK thread ID, such as a channel or chat that the bot received a message in, or `user:<id>` for a direct message. */
   recipient: string
@@ -3087,7 +3087,7 @@ function connectorKV(name: string): Promise<ConnectorKV> {
   // @vite-hub/kv is optional and loaded only when a Chat connector runs.
   // Resolve it for each operation so a native dev reload can replace or remove the installed store.
   return importOptionalKV().then(module => module.kv, (error: unknown) => {
-    throw agentDiagnostics.AGENT_R0365({ message: `[vitehub] ${name}.connector() requires @vite-hub/kv to be installed and configured.`, cause: error })
+    throw agentDiagnostics.AGENT_R0365({ message: `[vitehub] Sending with ${name}() requires @vite-hub/kv to be installed and configured.`, cause: error })
   })
 }
 

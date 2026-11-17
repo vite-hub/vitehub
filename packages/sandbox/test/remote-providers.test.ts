@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 
 import { createCloudflareRuntime, type CloudflareSandboxStub } from "../src/cloudflare.ts";
@@ -29,6 +33,30 @@ describe("remote Sandbox providers", () => {
     await session.close();
     await session.close();
     expect(cleanup).toHaveBeenCalledTimes(2);
+  });
+
+  // A login shell reads the profiles. Debian's /etc/profile, as in a custom Sandbox image, sets PATH again and drops env.PATH.
+  it("runs Vercel commands without a login shell, so a profile keeps the PATH", async () => {
+    const home = await mkdtemp(join(tmpdir(), "vitehub-vercel-profile-"));
+    try {
+      await writeFile(join(home, ".profile"), "export PATH=/from/profile\n");
+      const instance = vercelInstance();
+      instance.runCommand = async (options) => {
+        if (!options.args?.some(arg => arg.includes("printenv"))) return vercelCommand("");
+        const stdout = await new Promise<string>((resolve, reject) => execFile(options.cmd, options.args ?? [], { env: { ...options.env, HOME: home } }, (error, out) => error ? reject(error) : resolve(out)));
+        return vercelCommand(stdout);
+      };
+      const session = await (await resolveSandbox({ runtime: createVercelRuntime({ create: async () => instance }) }, {})).open();
+      try {
+        await expect(session.exec("printenv", ["PATH"], { env: { PATH: process.env.PATH! } })).resolves.toMatchObject({ stdout: `${process.env.PATH}\n` });
+      }
+      finally {
+        await session.close();
+      }
+    }
+    finally {
+      await rm(home, { force: true, recursive: true });
+    }
   });
 
   it("streams Vercel process output before exit and forwards stdin only when requested", async () => {

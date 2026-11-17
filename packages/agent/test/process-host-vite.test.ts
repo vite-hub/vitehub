@@ -1,7 +1,8 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
+import { runDrain } from '../../runtime/src/internal/drain.ts'
 import { processAgentHost } from '../src/process-host-vite.ts'
 
 it('generates the route used by the drain CLI by default', async () => {
@@ -12,8 +13,16 @@ it('generates the route used by the drain CLI by default', async () => {
     // SAFETY: This plugin config hook uses only the supplied config root, not its Vite context.
     const result = await hook.call({} as never, { root }, { command: 'build', mode: 'production' })
     const drain = await readFile(join(root, '.vitehub/process-host/drain.ts'), 'utf8')
-    const cli = await readFile(new URL('../../runtime/src/internal/drain.ts', import.meta.url), 'utf8')
-    expect(cli).toContain('/api/drain')
+    // The CLI polls its default status URL; a drained answer makes it return without signaling this process.
+    const statusUrls: string[] = []
+    vi.stubGlobal('fetch', async (url: string) => {
+      statusUrls.push(url)
+      return Response.json({ status: 'drained' })
+    })
+    try {
+      await expect(runDrain([String(process.pid)], { stderr: { write: () => true }, stdout: { write: () => true } })).resolves.toBe(0)
+    } finally { vi.unstubAllGlobals() }
+    expect(new URL(statusUrls[0]!).pathname).toBe('/api/drain')
     expect(drain).toContain('host.status()')
     // The generated Nitro route must match the CLI, as well as the handler file.
     expect(result).toMatchObject({ nitro: { handlers: [{ route: '/api/drain' }] } })
