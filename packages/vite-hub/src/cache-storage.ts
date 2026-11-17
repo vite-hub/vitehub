@@ -53,6 +53,9 @@ const hostCacheDrivers: Partial<Record<ViteHubHost, CacheDriver>> = {
   vercel: "vercel",
 }
 
+/** Unstorage driver names that ViteHub renamed to the host name. `npx @vite-hub/codemods driver-key` moves them. */
+const renamedCacheDrivers = new Map([["cloudflare-kv-binding", "cloudflare"], ["vercel-runtime-cache", "vercel"]])
+
 function trimmed(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined
 }
@@ -70,7 +73,8 @@ function readCacheDriver(cache: true | CacheOptions, host: ViteHubHost): CacheDr
     return driver
   }
   if (!isPlainObject(cache) || !isCacheDriver(cache.driver)) {
-    throw viteHubErrorDiagnostics.VITE_HUB_C0004({ message: `[vitehub] \`cache.driver\` must be "cloudflare", "deno-kv", "fs-lite", "kv", or "vercel".` })
+    const driver: unknown = isPlainObject(cache) ? cache.driver : undefined
+    throw viteHubErrorDiagnostics.VITE_HUB_C0004({ driver: JSON.stringify(driver) ?? "missing", renamed: renamedCacheDrivers.get(String(driver)) })
   }
   if (cacheDriverHosts[cache.driver] !== host) {
     throw viteHubErrorDiagnostics.CACHE_DRIVER_WRONG_HOST({ driver: cache.driver, host, required: cacheDriverHosts[cache.driver] })

@@ -132,6 +132,10 @@ export function hasVercelWorkspaceBlobEnv(env: Record<string, string | undefined
   return Boolean(readEnv(env, "BLOB_STORE_ID", "BLOB_READ_WRITE_TOKEN"))
 }
 
+const workspaceStoreDrivers = new Set<unknown>(["cloudflare", "github", "local", "memory", "vercel"])
+/** Driver names that ViteHub renamed to the host name. `npx @vite-hub/codemods driver-key` moves them. */
+const renamedWorkspaceStoreDrivers = new Map([["cloudflare-artifacts", "cloudflare"], ["vercel-blob", "vercel"]])
+
 export function normalizeWorkspaceStoreOptions(
   store: WorkspaceStoreOptions | undefined,
   input: WorkspaceResolutionInput = {},
@@ -143,6 +147,9 @@ export function normalizeWorkspaceStoreOptions(
   const env = input.env || process.env
   const hosting = input.hosting || ""
 
+  if (store?.driver !== undefined && !workspaceStoreDrivers.has(store.driver)) {
+    throw workspaceErrorDiagnostics.WORKSPACE_UNKNOWN_STORE_DRIVER({ driver: JSON.stringify(store.driver), renamed: renamedWorkspaceStoreDrivers.get(String(store.driver)) })
+  }
   if (store?.driver === "cloudflare") return resolveCloudflareArtifactsStore(store, env)
   if (store?.driver === "github") return resolveGitHubWorkspaceStore(store, env, input)
   if (store?.driver === "memory") return store

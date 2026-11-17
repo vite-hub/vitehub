@@ -411,7 +411,8 @@ export function createGitHubPullRequestOperations(
     if (finalState.pullRequest.reviewDecision === "CHANGES_REQUESTED"
       || finalState.pullRequest.latestOpinionatedReviews.nodes.some(review => review.state === "CHANGES_REQUESTED" && review.author?.__typename !== "Bot")) return { status: "blocked", reason: "changes-requested" }
     if (!await preservesChildren(finalState)) return { status: "blocked", reason: "stacked-branch-cleanup" }
-    // forges `threads.merge()` cannot enable native auto-merge: GitHub offers it only through GraphQL.
+    // forges `threads.merge()` cannot enable native auto-merge: GitHub offers it only through GraphQL
+    // (https://github.com/danielroe/forges/issues/298).
     const result = v.parse(v.object({ enablePullRequestAutoMerge: v.object({ pullRequest: v.object({ id: v.string(), state: v.string(), headRefOid: v.string(), autoMergeRequest: v.nullable(v.object({ enabledAt: v.string() })) }) }) }), await graphQL(`mutation EnablePullRequestAutoMerge($id:ID!,$method:PullRequestMergeMethod!,$head:GitObjectID!){enablePullRequestAutoMerge(input:{pullRequestId:$id,mergeMethod:$method,expectedHeadOid:$head}){pullRequest{id state headRefOid autoMergeRequest{enabledAt}}}}`, { id: pullRequest.id, method, head: pullRequest.headRefOid }))
     const confirmed = result.enablePullRequestAutoMerge.pullRequest
     if (confirmed.id !== pullRequest.id || confirmed.headRefOid !== pullRequest.headRefOid) throw presetsErrorDiagnostics.PRESETS_AUTO_MERGE_HEAD_UNCONFIRMED()
@@ -461,7 +462,7 @@ export function createGitHubPullRequestOperations(
       const { provider, repo } = await forge()
       const [checks, runsResponse] = await Promise.all([
         provider.checks.list(repo, base, { signal }),
-        // forges `ci.runs()` cannot filter by commit.
+        // forges `ci.runs()` cannot filter by commit (https://github.com/danielroe/forges/issues/302).
         provider.request<unknown>("GET", `/repos/${repository}/actions/runs`, { query: { head_sha: base, per_page: 100 }, signal }),
       ])
       if (checks.warnings?.length) throw presetsErrorDiagnostics.PRESETS_CHECKS_READ_INCOMPLETE({ warnings: checks.warnings.map(warning => warning.message).join("; ") })
