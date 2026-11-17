@@ -20,7 +20,19 @@ await requireRateLimit(event, 'image-upload', {
 })
 ```
 
-The ID, `limit`, `window`, `enforcement`, and `failure` must be static literals, because ViteHub writes the provider config before runtime. `event` and `key` are runtime values, so the identity can change per request.
+The ID, `limit`, `window`, `enforcement`, and `failure` must be literals, or a `const` with a literal value in the same file, because ViteHub writes the provider config before runtime. `event`, `key`, `message`, and `code` are runtime values, so the identity can change per request.
+
+```ts [server/utils/publish-burst.ts]
+import type { H3Event } from 'h3'
+import { checkRateLimit } from 'vite-hub/rate-limit'
+
+/** The quota page shows the same number. */
+export const PUBLISH_BURST = 30
+
+export async function publishBurst(event: H3Event, ownerId: string) {
+  return await checkRateLimit(event, 'file-upload', { key: ownerId, limit: PUBLISH_BURST, window: '1m' })
+}
+```
 
 - `event` is any request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties: an H3 2 event in a ViteHub app, or a Web `Request`, such as the one `withAuth()` passes.
 - Without `key`, the guard counts by `event['~standard'].runtime.clientAddress`. On Cloudflare, the `cf-connecting-ip` header comes first.

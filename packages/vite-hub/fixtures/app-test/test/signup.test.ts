@@ -6,11 +6,12 @@ import { dynamicQueue } from "vite-hub/queue"
 import { setupViteHubTest } from "vite-hub/test"
 import { startWorkflow } from "vite-hub/workflow"
 
+import me from "../server/api/me.get.ts"
 import signup from "../server/api/signup.post.ts"
 import resetSignups from "../server/schedules/reset-signups.ts"
 
 const hub = setupViteHubTest()
-const app = new H3().post("/api/signup", signup)
+const app = new H3().post("/api/signup", signup).get("/api/me", me)
 
 beforeEach(async () => {
   await hub.reset()
@@ -68,4 +69,18 @@ test("the nightly Schedule resets the counter", async () => {
   expect(run.status).toBe("succeeded")
   expect(await kv.get("signups")).toEqual([undefined, null])
   expect(await kv.get("last-reset")).toEqual([undefined, "2026-11-08T00:00:00.000Z"])
+})
+
+test("a signed-in user passes requireAuth(), and reset() signs everyone out", async () => {
+  expect((await app.fetch(new Request("http://localhost/api/me"))).status).toBe(401)
+
+  const { headers, user } = await hub.signIn({ email: "ada@example.com", name: "Ada" })
+  const response = await app.fetch(new Request("http://localhost/api/me", { headers }))
+
+  expect(response.status).toBe(200)
+  expect(await response.json()).toEqual({ email: "ada@example.com" })
+  expect((await hub.signIn({ email: "ada@example.com" })).user.id).toBe(user.id)
+
+  await hub.reset()
+  expect((await app.fetch(new Request("http://localhost/api/me", { headers }))).status).toBe(401)
 })

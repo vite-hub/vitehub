@@ -74,6 +74,17 @@ describe("managed Rate Limit guard", () => {
     await expect(peekRateLimit("worded-previews", "user")).resolves.toMatchObject({ status: "unused" })
   })
 
+  it("refuses with the configured message, and checkRateLimit() rejects a message", async () => {
+    const event = requestEvent("192.0.2.3")
+    const message = "Too many tries. Wait a minute and try again."
+
+    await requireRateLimit(event, "sign-in", { limit: 1, message, window: "1m" })
+    await expect(requireRateLimit(event, "sign-in", { limit: 1, message, window: "1m" })).rejects.toMatchObject({ message, status: 429, statusText: "Too Many Requests" })
+    await expect(requireRateLimit(event, "sign-in", { limit: 1, window: "1m" })).rejects.toMatchObject({ message: "Rate limit exceeded.", status: 429 })
+    // @ts-expect-error A Result has no refusal to name.
+    await expect(checkRateLimit(event, "sign-in", { limit: 1, message, window: "1m" })).rejects.toThrow('`checkRateLimit()` does not support the "message" option.')
+  })
+
   it("keeps an explicit key authoritative over request identity", async () => {
     const event = requestEvent("192.0.2.2")
 

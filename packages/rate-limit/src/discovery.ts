@@ -47,6 +47,8 @@ interface RateLimitBindings {
 }
 
 interface RateLimitScope extends RateLimitBindings {
+  /** The `const` bindings of this scope whose value is a string or number literal. */
+  constants: Map<string, string | number>
   shadows: Set<string>
 }
 
@@ -69,6 +71,16 @@ function resolveDirectGuard(name: string, scopes: RateLimitScope[]): RateLimitGu
     const scope = scopes[index]!
     const guard = scope.direct.get(name)
     if (guard) return guard
+    if (scope.shadows.has(name)) return undefined
+  }
+  return undefined
+}
+
+/** The literal value of the `const` that `name` reads in this scope, or `undefined` for any other binding. */
+function resolveConstant(name: string, scopes: RateLimitScope[]): string | number | undefined {
+  for (let index = scopes.length - 1; index >= 0; index -= 1) {
+    const scope = scopes[index]!
+    if (scope.constants.has(name)) return scope.constants.get(name)
     if (scope.shadows.has(name)) return undefined
   }
   return undefined
@@ -134,6 +146,20 @@ function addDynamicRateLimitBindingsFromStatements(statements: (ESTree.Statement
     const declaration = variableDeclaration(statement)
     if (declaration) addDynamicRateLimitBindings(declaration, scope)
   }
+}
+
+function literalConstants(statements: (ESTree.Statement | ESTree.ModuleDeclaration)[]): Map<string, string | number> {
+  const constants = new Map<string, string | number>()
+  for (const statement of statements) {
+    const declaration = variableDeclaration(statement)
+    if (declaration?.kind !== "const" || declaration.declare) continue
+    for (const { id, init } of declaration.declarations) {
+      if (id.type !== "Identifier" || !init) continue
+      const value = staticScalar(init, [])
+      if (value !== undefined) constants.set(id.name, value)
+    }
+  }
+  return constants
 }
 
 function addBindingNames(pattern: ESTree.BindingPattern | ESTree.ParamPattern, names: Set<string>): void {
@@ -295,7 +321,15 @@ function staticString(expression: ESTree.Expression): string | undefined {
   if (value.type === "TemplateLiteral" && value.expressions.length === 0) return value.quasis[0]?.value.cooked ?? value.quasis[0]?.value.raw
 }
 
-function staticPolicy(call: ESTree.CallExpression, guard: RateLimitGuard, file: string, source: string): RateLimitPolicy {
+/** A string or number literal, or an identifier that reads a `const` with one. */
+function staticScalar(expression: ESTree.Expression, scopes: RateLimitScope[]): string | number | undefined {
+  const value = unwrapStaticExpression(expression)
+  if (value.type === "Literal" && typeof value.value === "number") return value.value
+  if (value.type === "Identifier") return resolveConstant(value.name, scopes)
+  return staticString(value)
+}
+
+function staticPolicy(call: ESTree.CallExpression, guard: RateLimitGuard, scopes: RateLimitScope[], file: string, source: string): RateLimitPolicy {
   const policyArgument = call.arguments[2]
   const policyNode = policyArgument?.type === "SpreadElement" ? policyArgument : policyArgument && unwrapStaticExpression(policyArgument)
   if (!policyNode || policyNode.type !== "ObjectExpression") {
@@ -313,10 +347,9 @@ function staticPolicy(call: ESTree.CallExpression, guard: RateLimitGuard, file: 
     if (!name || !rateLimitPolicyKeys.has(name)) {
       throw declarationError(file, source, property, `\`${guard}()\` does not support the ${name ? `"${name}"` : "dynamic"} option.`)
     }
-    const value = unwrapStaticExpression(property.value)
-    const literal = value.type === "Literal" && typeof value.value === "number" ? value.value : staticString(value)
+    const literal = staticScalar(property.value, scopes)
     if (literal === undefined) {
-      throw declarationError(file, source, property.value, `\`${guard}()\` policy option "${name}" must be a static literal.`)
+      throw declarationError(file, source, property.value, `\`${guard}()\` policy option "${name}" must be a static literal, or a \`const\` with a literal value in the same file.`)
     }
     values.set(name, literal)
   }
@@ -349,11 +382,11 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
     if (!rootShadows.has(guard) && !bindings.direct.has(guard)) bindings.direct.set(guard, guard)
   }
   const declarations: RateLimitDeclaration[] = []
-  const scopes: RateLimitScope[] = [{ ...bindings, shadows: rootShadows }]
+  const scopes: RateLimitScope[] = [{ ...bindings, constants: literalConstants(parsed.program.body), shadows: rootShadows }]
   const functionBodies = new WeakSet<ESTree.BlockStatement>()
   addDynamicRateLimitBindingsFromStatements(parsed.program.body, scopes[0]!)
-  const enterScope = (shadows: Set<string>): void => {
-    scopes.push({ direct: new Map(), namespaces: new Set(), shadows })
+  const enterScope = (shadows: Set<string>, statements: (ESTree.Statement | ESTree.ModuleDeclaration)[] = []): void => {
+    scopes.push({ constants: literalConstants(statements), direct: new Map(), namespaces: new Set(), shadows })
   }
   const enterFunction = (node: ESTree.Function | ESTree.ArrowFunctionExpression): void => {
     enterScope(functionBindings(node))
@@ -366,7 +399,7 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
     ArrowFunctionExpression: enterFunction,
     "ArrowFunctionExpression:exit": exitScope,
     BlockStatement(block) {
-      enterScope(functionBodies.has(block) ? scopedStatementBindings(block.body) : blockBindings(block))
+      enterScope(functionBodies.has(block) ? scopedStatementBindings(block.body) : blockBindings(block), block.body)
       addDynamicRateLimitBindingsFromStatements(block.body, scopes.at(-1)!)
     },
     "BlockStatement:exit": exitScope,
@@ -387,15 +420,15 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
         throw declarationError(file, source, call, `\`${guard}()\` requires an event, a stable ID, and a static options object.`)
       }
       const idNode = call.arguments[1]
-      const staticId = idNode?.type === "SpreadElement" ? undefined : idNode && staticString(idNode)
-      if (!staticId?.trim()) {
+      const staticId = idNode?.type === "SpreadElement" || !idNode ? undefined : staticScalar(idNode, scopes)
+      if (typeof staticId !== "string" || !staticId.trim()) {
         throw declarationError(file, source, idNode ?? call, `\`${guard}()\` requires a non-empty static string ID.`)
       }
       const id = staticId.trim()
       const sourceLocation = location(source, call.start)
       declarations.push({
         name: id,
-        policy: staticPolicy(call, guard, file, source),
+        policy: staticPolicy(call, guard, scopes, file, source),
         source: { file, ...sourceLocation },
       })
     },
@@ -416,17 +449,17 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
     },
     "ForStatement:exit": exitScope,
     SwitchStatement(node) {
-      enterScope(switchBindings(node))
+      enterScope(switchBindings(node), node.cases.flatMap(switchCase => switchCase.consequent))
       for (const switchCase of node.cases) addDynamicRateLimitBindingsFromStatements(switchCase.consequent, scopes.at(-1)!)
     },
     "SwitchStatement:exit": exitScope,
     StaticBlock(node) {
-      enterScope(scopedStatementBindings(node.body))
+      enterScope(scopedStatementBindings(node.body), node.body)
       addDynamicRateLimitBindingsFromStatements(node.body, scopes.at(-1)!)
     },
     "StaticBlock:exit": exitScope,
     TSModuleBlock(node) {
-      enterScope(scopedStatementBindings(node.body))
+      enterScope(scopedStatementBindings(node.body), node.body)
       addDynamicRateLimitBindingsFromStatements(node.body, scopes.at(-1)!)
     },
     "TSModuleBlock:exit": exitScope,

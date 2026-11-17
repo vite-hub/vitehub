@@ -103,7 +103,7 @@ async function consumeRateLimit(
   event: RateLimitRequestEvent,
   name: string,
   options: CheckRateLimitOptions,
-  guard: "checkRateLimit" | "requireRateLimit",
+  guard: keyof typeof guardOptionKeys,
 ): Promise<Result<RateLimitDecision, CheckRateLimitErrorCode>> {
   const id = typeof name === "string" ? name.trim() : ""
   if (!id) {
