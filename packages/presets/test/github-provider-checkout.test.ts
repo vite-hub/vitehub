@@ -207,7 +207,7 @@ describe("Provider Agent Driver with a host-prepared GitHub checkout", () => {
       const threadId = `thread-launch-checkout-${provider}-${merge}`
       runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
         async onSendTurn() {
-          await writeFile(join(root, "file.txt"), "repaired\n")
+          await writeFile(join(root, "file.txt"), merge ? "base edit\nrepaired\n" : "repaired\n")
           const repairedHead = await commitGitHubPullRequestWorkspace(root, { message: "repair", paths: ["file.txt"] }, { expectedHead })
           expect(git(root, "rev-parse", `${repairedHead}^1`)).toBe(expectedHead)
           if (merge) expect(git(root, "rev-parse", `${repairedHead}^2`)).toBe(base)
@@ -215,7 +215,7 @@ describe("Provider Agent Driver with a host-prepared GitHub checkout", () => {
           expect(git(root, "show", "HEAD:AGENTS.md")).toBe("native instructions")
           expect(git(root, "show", "HEAD:CLAUDE.md")).toBe("native Claude instructions")
           expect(git(root, "ls-tree", "-r", "--name-only", "HEAD")).not.toContain("vitehub-system-prompt")
-          expect(git(root, "show", "HEAD:file.txt")).toBe("repaired")
+          expect(git(root, "show", "HEAD:file.txt")).toBe(merge ? "base edit\nrepaired" : "repaired")
         },
       })
       await createProviderAgentAdapter({

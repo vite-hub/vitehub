@@ -1,4 +1,5 @@
-import { defu } from "defu"
+// A Nuxt app maps `defu` to its package folder, where its types are `export =`. Only a default import reads them.
+import defu from "defu"
 
 type DocsThemeUi = Record<string, unknown>
 
