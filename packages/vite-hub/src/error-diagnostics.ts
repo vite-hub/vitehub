@@ -73,6 +73,18 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Set `agent: true` in the ViteHub options to run the Agents. Set `agent: false` to keep them off on purpose.",
     },
+    VITE_HUB_CACHE_TAG_INVALID: {
+      ...dynamicError,
+      fix: "Pass non-empty strings to `tags` and `invalidateTag()`, for example `[\"posts\", \"post:1\"]`.",
+    },
+    VITE_HUB_DEPLOY_CHECK_INVALID: {
+      why: ({ value }: { value: string }) => `A \`deploy.check\` path must be a path on the deployed site that starts with one \`/\`, such as \`/api/health\`, but it is ${value}.`,
+      fix: "Write each `deploy.check` entry as a path that starts with `/`, without an origin and without spaces, such as `deploy: { check: [\"/\", \"/api/products\"] }`.",
+    },
+    VITE_HUB_DEPLOY_INDEX_NOW_PUBLIC_URL_MISSING: {
+      why: "`deploy.indexNow` sends the URLs of the public site to IndexNow, and the build does not know that site: `publicUrl` is not a string.",
+      fix: "Set `vitehub({ publicUrl: \"https://shop.example.com\" })` to the origin of the public site, or remove `deploy.indexNow`.",
+    },
     VITE_HUB_MCP_AUTH_MISSING: {
       why: "The MCP server needs Auth, so that only signed-in MCP clients call its tools.",
       fix: "Set `auth` in `vitehub()` and add `mcpOAuth()` from `vite-hub/auth/mcp` to server/auth.ts, or set `mcp: { auth: false }` to let anyone call every tool.",
@@ -423,7 +435,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_B0009: {
       ...dynamicError,
-      fix: "Remove `nitro.preset` from nuxt.config.ts. ViteHub sets the Nitro preset from the `vitehub.host` option.",
+      fix: "Remove `nitro.preset` or `vitehub.host` from nuxt.config.ts, or make them name the same host. Without `vitehub.host`, ViteHub takes the host from `nitro.preset`.",
     },
     VITE_HUB_B0011: {
       ...dynamicError,
@@ -539,6 +551,18 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ limit }: { limit: "entries" | "bytes" }) => limit === "entries" ? "The source exceeded the requested page size." : "The source exceeded the response size limit.",
       fix: "Return at most `query.limit` entries from `query()` of the `LogSource`, and keep one page under 4 MB of JSON.",
     },
+    VITE_HUB_REDIRECTS_HOST_INVALID: {
+      why: ({ value }: { value: string }) => `\`redirects.host\` must be a host name such as \`example.com\`, but it is ${value}.`,
+      fix: "Set `redirects.host` to the host name only, without `https://`, a port, or a path, for example `redirects: { host: \"example.com\", https: true }`.",
+    },
+    VITE_HUB_REDIRECTS_PREVIEW_HOST_INVALID: {
+      why: ({ value }: { value: string }) => `Each \`redirects.previewHosts\` entry must be a host name such as \`staging.example.com\` or \`*.example.com\`, but one is ${value}.`,
+      fix: "Write each preview host as a host name without `https://`, a port, or a path. Start it with `*.` to match every subdomain.",
+    },
+    VITE_HUB_REDIRECTS_TRAILING_SLASH_INVALID: {
+      why: ({ value }: { value: string }) => `\`redirects.trailingSlash\` must be \`"add"\` or \`"remove"\`, but it is ${value}.`,
+      fix: "Set `redirects.trailingSlash` to `\"remove\"` to redirect `/pricing/` to `/pricing`, or to `\"add\"` for the other way. Leave it out to keep paths as they are.",
+    },
     VITE_HUB_SANDBOX_CLI_DRAIN_TIMEOUT_INVALID: {
       why: "[vitehub] --drain-timeout must be a non-negative number of milliseconds.",
       fix: "Pass `--drain-timeout` or set `VITEHUB_SANDBOX_DRAIN_TIMEOUT_MS` to a whole number of milliseconds from 0 to 2147483647.",
@@ -562,6 +586,18 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_SANDBOX_PROVIDER_HOST_UNSUPPORTED: {
       ...dynamicError,
       fix: "Use `sandboxTask: { provider: \"vercel\" }` with Vercel credentials, or use the `cloudflare` host.",
+    },
+    VITE_HUB_TEST_MODULE_NOT_LOADED: {
+      why: ({ id }: { id: string }) => `The Vite server of vite-hub/test resolved "${id}", but no plugin loads it.`,
+      fix: "Check that the plugin that adds this module is in `vite.config.ts` or `nuxt.config.ts`, and run the same test with Vitest. When only `vite-hub/test/register` fails, report it with the module id.",
+    },
+    VITE_HUB_TEST_SERVER_FAILED: {
+      why: ({ error }: { error: string }) => `The Vite server of vite-hub/test failed:\n${error}`,
+      fix: "Fix the error above in `vite.config.ts`, `nuxt.config.ts`, or the files that it names. `vite dev` or `nuxt dev` shows the same error.",
+    },
+    VITE_HUB_TEST_SERVER_TIMEOUT: {
+      why: "The Vite server of vite-hub/test did not start in 60 seconds.",
+      fix: ({ directory }: { directory: string }) => `Delete ${directory} and run the tests again. To see the server error, run one test file with \`node --import vite-hub/test/register --test-isolation=none <file>\`.`,
     },
   },
 })

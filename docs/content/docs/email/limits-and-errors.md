@@ -94,7 +94,7 @@ The Vite plugin throws these while it reads the config or templates.
 
 ### EMAIL_UNKNOWN_DRIVER
 
-Set `driver` to `"resend"` or `"cloudflare-email"`.
+Set `driver` to `"resend"`, `"cloudflare-email"`, or `"log"`.
 
 ### EMAIL_HOST_UNSUPPORTED
 
