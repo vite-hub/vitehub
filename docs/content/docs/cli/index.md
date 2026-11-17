@@ -68,6 +68,7 @@ Available namespaces:
   task        List and run Nitro tasks, such as server/tasks/seed.ts, in the running app.
   durability  Show where each primitive of this Node server keeps its state: shared, on this host, or in this process.
   types       Generate ViteHub TypeScript declarations.
+  bundle      Inspect the size of the last production build.
   i18n        Show translation coverage, and move translations to and from PO files.
   decisions   List the Decisions of the app and run one with a text. Does not load the project config.
   migrate     Rewrite the app for this ViteHub release. Does not load the project config.
@@ -154,6 +155,8 @@ Available namespaces:
 | `vitehub database tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
 | `vitehub database rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
 | `vitehub migrate` | Available | Codemods Package | Rewrite an app folder for this ViteHub release with every upgrade codemod of `@vite-hub/codemods` that applies. Usage: `vitehub migrate [dir] [--dry-run]`. `dir` defaults to the current folder, and `--dry-run` prints the diffs. Install `@vite-hub/codemods` as a development dependency first. |
+| `vitehub bundle report` | Available | Bundle Package | Show the client and server size, the startup size, and the largest groups of the last production build. `vitehub bundle` runs it. `--against <report>` compares with a saved report. Needs `bundle: true` in `vitehub()`. |
+| `vitehub bundle why` | Available | Bundle Package | Show why a package or file is in the output, or what a page route loads. |
 | `vitehub kv list` | Available | KV Package | List the keys of one KV store, one page at a time. |
 | `vitehub kv get` | Available | KV Package | Print the value of one key. |
 | `vitehub kv has` | Available | KV Package | Check if a key exists. The exit status is 0 or 1. |
