@@ -790,14 +790,15 @@ function resolveNitroHostingProvider(config: Record<string, unknown>, nuxtOption
 }
 
 async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, root: string) {
+  const file = resolve(root, generatedNitroDatabaseMiddleware)
   const kit = createNitroServerKit(config)
   // No route: Nitro runs route-less middleware for every request.
-  kit.addHandler({ handler: generatedNitroDatabaseMiddleware, middleware: true }, "start")
+  kit.addHandler({ handler: file, middleware: true }, "start")
   config.handlers = kit.config.handlers
   const rollupConfig = isRecord(config.rollupConfig) ? { ...config.rollupConfig } : {}
   rollupConfig.external = mergeNitroExternal(rollupConfig.external, "cloudflare:workers")
   config.rollupConfig = rollupConfig
-  await writeFileIfChanged(resolve(root, generatedNitroDatabaseMiddleware), [
+  await writeFileIfChanged(file, [
     "import { env as vitehubEnv } from 'cloudflare:workers'",
     "import { getRequestCloudflareEnv, runWithActiveCloudflareEnv, runWithDatabaseRequest, setActiveCloudflareEnv } from '@vite-hub/database/runtime/state'",
     "",
@@ -829,10 +830,11 @@ async function installNitroRequestStats(config: Record<string, unknown>, root: s
     if (!flags.includes("nodejs_als")) flags.push("nodejs_als")
     wrangler.compatibility_flags = flags
   }
+  const file = resolve(root, generatedNitroRequestStatsMiddleware)
   const kit = createNitroServerKit(config)
-  kit.addHandler({ handler: generatedNitroRequestStatsMiddleware, middleware: true }, "start")
+  kit.addHandler({ handler: file, middleware: true }, "start")
   config.handlers = kit.config.handlers
-  await writeFileIfChanged(resolve(root, generatedNitroRequestStatsMiddleware), [
+  await writeFileIfChanged(file, [
     `import { runWithDatabaseRequestStats } from ${JSON.stringify(resolveRuntimeModule(resolve(databaseRuntimeDir, "../.."), "runtime/request-stats"))}`,
     "",
     "export default (event: unknown, next: () => unknown) => runWithDatabaseRequestStats(event, next)",
