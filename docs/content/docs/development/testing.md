@@ -62,7 +62,7 @@ export default defineConfig({
 })
 ```
 
-If you keep a separate `vitest.config.ts`, add the same `vitehub()` plugin there.
+If you keep a separate `vitest.config.ts`, add the same `vitehub()` plugin there. It needs only the options that the tests use. For example, it can leave out `agent` when `server/agents/` has Agents, because the tests import the Agent Definitions that they check.
 
 ## Run with Node's test runner
 

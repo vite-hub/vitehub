@@ -37,7 +37,7 @@ async function waitFor(check: () => Promise<boolean>, timeout = 2_000) {
 describe("inline runs", () => {
   function inlineWorkflow() {
     const seen: unknown[] = []
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
       remind: async () => ({ default: defineWorkflow("remind", async (payload: { to: string }) => {
         seen.push(payload)
@@ -100,7 +100,7 @@ describe("inline runs", () => {
 })
 
 describe("OpenWorkflow", () => {
-  const config = { provider: "openworkflow", sqlite: { path: ":memory:" } } as const
+  const config = { driver: "openworkflow", sqlite: { path: ":memory:" } } as const
 
   it("keeps a delayed run queued until its start time", async () => {
     const seen: unknown[] = []
@@ -141,7 +141,7 @@ describe("Cloudflare", () => {
       createBatch: vi.fn(async (batch: { id: string, params: unknown }[]) => batch.map(({ id }) => ({ id, status: async () => ({ status: "queued" }) }))),
       get: vi.fn(async (id: string) => ({ id, status: async () => ({ status: "waiting" }) })),
     }
-    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
     setWorkflowRuntimeRegistry({ remind: async () => ({ default: { handler: async () => "sent" } }) })
     enterWorkflowRuntimeEvent({ req: { runtime: { cloudflare: { env: { [getCloudflareWorkflowBindingName("remind")]: binding } } } } })
     return binding
@@ -182,7 +182,7 @@ describe("Cloudflare", () => {
     const startAt = Date.now() + 3_600_000
 
     const result = await runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { instanceId: "remind-ada", payload: { "~vitehubStartAt": startAt, payload: { to: "ada" } } },
       name: "remind",
@@ -206,7 +206,7 @@ describe("Cloudflare", () => {
     const seen: unknown[] = []
 
     await runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { instanceId: "remind-now", payload: { to: "ada" } },
       name: "remind",
@@ -228,7 +228,7 @@ describe("Vercel native", () => {
       resumeHook: vi.fn(),
       start,
     }))
-    setWorkflowRuntimeConfig({ provider: "vercel" })
+    setWorkflowRuntimeConfig({ driver: "vercel" })
     return start
   }
 

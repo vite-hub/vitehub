@@ -12,6 +12,7 @@ import { getAuthenticationSession, type AuthenticationSessionSnapshot } from "..
 import { prepareSessionCookies, sendSessionCookies } from "../session-cookies.ts"
 import { getAuthRuntimeState } from "../runtime-state.ts"
 import { withSessionMarker } from "../session-marker.ts"
+import { readSetCookies } from "../set-cookie.ts"
 import { eventClientAddress, setRequestClientAddress, withClientAddress } from "../client-address.ts"
 import { createAuthAccessRouteMatcher } from "../runtime/server.ts"
 import { checkAbility } from "../ability-check.ts"
@@ -327,6 +328,38 @@ export async function assertAuthOrigin(
 
 export function handleAuth(input: AuthRequestInput): Promise<Response> {
   return handleAuthRequest(resolveDefaultDefinition(), input)
+}
+
+/** The options of `signOut()`. */
+export interface AuthSignOutOptions {
+  /** The app path to open after the sign-out, such as `/login`. Without it, `signOut()` answers `204`. */
+  redirectTo?: string
+}
+
+/**
+ * Signs out the session of a request event or a Web `Request` from server code, such as a GET `/logout` route.
+ * Better Auth deletes the session, and the response clears its cookies. Returns a `303` redirect to `redirectTo`, or
+ * `204` without it. Provider logout uses a `303` to the provider first, with `redirectTo` as its callback.
+ * A request without a session gets the same answer. Throws `AUTH_SIGN_OUT_REDIRECT_INVALID` when
+ * `redirectTo` is not a path of the app.
+ */
+export async function signOut(input: AuthRequestInput, options: AuthSignOutOptions = {}): Promise<Response> {
+  const { redirectTo } = options
+  // URL parsing removes tabs and line breaks, which can turn an app path into an external URL.
+  // eslint-disable-next-line no-control-regex
+  if (redirectTo !== undefined && (!redirectTo.startsWith("/") || /^\/[/\\]/.test(redirectTo) || /[\u0000-\u001F\u007F]/.test(redirectTo))) {
+    throw authErrorDiagnostics.AUTH_SIGN_OUT_REDIRECT_INVALID({ redirectTo })
+  }
+  const request = unwrapAuthRequest(input)
+  const result = await useAuth(input).api.signOut({ asResponse: true, headers: request.headers, body: { callbackURL: redirectTo } })
+  // Better Auth answers 400 when the request has no session. It clears the cookies then too.
+  if (!result.ok && result.status !== 400) return result
+  const headers = new Headers({ "cache-control": "no-store" })
+  for (const cookie of readSetCookies(result.headers)) headers.append("set-cookie", cookie)
+  const location = result.ok ? result.headers.get("location") ?? redirectTo : redirectTo
+  if (location === undefined) return new Response(null, { headers, status: 204 })
+  headers.set("location", location)
+  return new Response(null, { headers, status: 303 })
 }
 
 function wantsHtml(request: Pick<Request, "headers" | "method">): boolean {

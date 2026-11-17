@@ -38,6 +38,7 @@ icon: i-lucide-circle-alert
 - Frontmatter is YAML, and values must survive a JSON round trip. A `Date` is stored as an ISO string.
 - A field without a Standard JSON Schema, such as an async Valibot schema, shows as `{}` in `schema`, and `defineContent()` warns once per field. Content converts synchronous Valibot schemas itself.
 - `/api/content/**` serves published documents, or drafts with a valid [preview cookie](/docs/content/preview). With a policy, it, the SEO routes except `/robots.txt`, and preview URLs ask `authorize` for `read` first, and a denied request gets `401` or `403`. Content has no write routes, and runtime methods do not call `authorize`.
+- When a read fails, `/api/content/**` answers `500` with `{ error: "internal_error", message }`. A ViteHub error also gives its `code`, `fix`, and `docs` link, such as `WORKSPACE_R0072` for a GitHub Store without a token.
 - Without `authorize`, `content.can()` denies every action, and the Content readers serve everyone.
 - The Store retains every revision. There is no pruning.
 - [`vitehub content`](/docs/content/cli) reaches only a local Vite + Nitro Development Server. It cannot inspect or publish a deployed app.

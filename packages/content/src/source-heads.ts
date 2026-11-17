@@ -252,11 +252,6 @@ function isAllowReason(reason: ContentSourceAllowReason | ContentSourceDenyReaso
   return reason === "published" || reason === "pull" || reason === "label" || reason === "console" || reason === "token"
 }
 
-/** Whether an error is the nostics diagnostic `code`. */
-function isDiagnostic(error: unknown, code: string): boolean {
-  return error instanceof Error && Reflect.get(error, "code") === code
-}
-
 /** The KV key of a head, such as `content:head:docs`. `vitehub kv get content:head:docs` shows it. */
 function headKey(name: string): string {
   return `content:head:${name}`
@@ -945,7 +940,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
         target = typeof ref === "object" && ref ? givenRef(ref) : await resolveRef(state, parseContentRef(ref))
       }
       catch (error) {
-        if (isDiagnostic(error, "CONTENT_R0027") || isDiagnostic(error, "CONTENT_R0028")) return deny("missing")
+        if (contentErrorDiagnostics.CONTENT_R0027.is(error) || contentErrorDiagnostics.CONTENT_R0028.is(error)) return deny("missing")
         throw error
       }
       const grant = await contentRefGrant(request, state.name, target.ref)
@@ -963,7 +958,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
             facts = { ...target, pull: current.sha === target.sha ? current.pull : null }
           }
           catch (error) {
-            if (isDiagnostic(error, "CONTENT_R0028")) return deny("missing", target)
+            if (contentErrorDiagnostics.CONTENT_R0028.is(error)) return deny("missing", target)
             throw error
           }
         }

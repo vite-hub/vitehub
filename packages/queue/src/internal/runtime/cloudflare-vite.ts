@@ -44,7 +44,7 @@ export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOption
   const queueConfig = options.queue === false ? false : normalizeQueueOptions(options.queue, { hosting: "cloudflare" })!
   const registry = options.registry
   const definitions = options.definitions
-  const registryDefinitions = !definitions && queueConfig !== false && queueConfig.provider === "cloudflare"
+  const registryDefinitions = !definitions && queueConfig !== false && queueConfig.driver === "cloudflare"
     ? createRegistryDefinitionNames(registry, queueConfig.namePrefix ?? "")
     : undefined
 
@@ -65,7 +65,7 @@ export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOption
     }),
     async queue(batch, env, context) {
       applyRuntimeState()
-      if (queueConfig === false || queueConfig?.provider !== "cloudflare") {
+      if (queueConfig === false || queueConfig?.driver !== "cloudflare") {
         return
       }
 

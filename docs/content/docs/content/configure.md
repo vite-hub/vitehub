@@ -20,7 +20,7 @@ icon: i-lucide-sliders-horizontal
 | `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Access policy that every Content reader and surfaces check with `content.can()`. See [Access](#access). |
 | `route` | `boolean` | The `/api/content/**` route. `true` (default) serves it. `false` serves no `/api/content/**`. |
 | `access` | `'public'` | Serves `/api/content/**` and every other reader to everyone without asking `authorize` for `read`. `authorize` still decides writes and publishing. See [Public access](#public-access). |
-| `live` | `'auto' \| false` | Live co-editing of Markdown. `auto` (default) turns it on when Realtime is on and the host has a room authority. See [Live editing](/docs/content/editing-together#live-editing). |
+| `live` | `'auto' \| false` | Live co-editing of Markdown. `auto` (default) turns it on when Realtime is on and the host has a room driver. See [Live editing](/docs/content/editing-together#live-editing). |
 | `seo` | `{ site?, sitemap?, robots? }` | `/sitemap.xml` and `/robots.txt` from collections and Sources with a `url`. See [Sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt). |
 | `plugins` | Comark Content plugins | Used by each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` as needed. A Comark parse plugin here throws `CONTENT_PLUGINS_PARSE_PLUGIN`. |
 | `markdown` | Comark parser options | Used by each instance. Put Comark parse plugins, such as `comark-knap`, in `markdown.plugins`. |

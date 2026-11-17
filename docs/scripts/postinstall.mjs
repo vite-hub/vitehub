@@ -4,7 +4,7 @@
 import { spawnSync } from "node:child_process"
 
 const steps = [
-  ["vp", ["run", "--cache", "--filter", "@vite-hub/agent...", "--filter", "@vite-hub/ui...", "--filter", "@vite-hub/docs...", "build"]],
+  ["vp", ["run", "--cache", "--filter", "@vite-hub/agent...", "--filter", "@vite-hub/ui...", "--filter", "@vite-hub/docs...", "--filter", "vite-hub...", "build"]],
   ["nuxi", ["prepare"]],
 ]
 

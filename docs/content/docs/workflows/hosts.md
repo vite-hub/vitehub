@@ -6,9 +6,9 @@ navigation.order: 6
 icon: i-lucide-cloud-cog
 ---
 
-## Providers
+## Drivers
 
-| Host | Provider without `provider` |
+| Host | Driver without `provider` |
 | --- | --- |
 | Cloudflare | Cloudflare |
 | Vercel | Vercel |
@@ -20,11 +20,11 @@ icon: i-lucide-cloud-cog
 ViteHub infers Vercel only on Vercel. On Node and Docker, Agent turns are OpenWorkflow runs, so they survive a restart. On a host where only the Agent turns on Workflow, such as Deno, Agent Workflows run inline, and a restart loses their runs. On Node and Docker, an app without discovered Workflows or Agents starts no worker. `vitehub durability list` shows the store that the app uses.
 
 
-| Provider | Configure with | Provider output | Nuance |
+| Driver | Configure with | Driver output | Nuance |
 | --- | --- | --- | --- |
-| Cloudflare | `workflow: { provider: 'cloudflare' }` | Workflow class, binding, and runtime entry. | Runs through Cloudflare Workflow bindings. Set `binding` and `name` to match existing resources. Without the binding, only `vite dev` runs the Workflow inline. A deployed Worker fails with `WORKFLOW_R0036`. |
-| Vercel | `workflow: { provider: 'vercel' }` | Workflow runtime in the build output, on Vercel only. Other hosts get none. With Nitro or Nuxt, Nitro's server function installs the Workflows, so routes can start them. Native entries also get the Workflow DevKit functions. | A `native` entry uses Workflow DevKit for durable execution. The normal handler runs inline and stops if the function restarts. |
-| OpenWorkflow | Inferred on Node and Docker, or `workflow: { provider: 'openworkflow' }` | A Nitro plugin that loads OpenWorkflow and starts its worker. | Uses the Postgres Default Database or `OPENWORKFLOW_POSTGRES_URL`, else a SQLite file. Set `postgres.url` or `sqlite.path`, not both. |
+| Cloudflare | `workflow: { driver: 'cloudflare' }` | Workflow class, binding, and runtime entry. | Runs through Cloudflare Workflow bindings. Set `binding` and `name` to match existing resources. Without the binding, only `vite dev` runs the Workflow inline. A deployed Worker fails with `WORKFLOW_R0036`. |
+| Vercel | `workflow: { driver: 'vercel' }` | Workflow runtime in the build output, on Vercel only. Other hosts get none. With Nitro or Nuxt, Nitro's server function installs the Workflows, so routes can start them. Native entries also get the Workflow DevKit functions. | A `native` entry uses Workflow DevKit for durable execution. The normal handler runs inline and stops if the function restarts. |
+| OpenWorkflow | Inferred on Node and Docker, or `workflow: { driver: 'openworkflow' }` | A Nitro plugin that loads OpenWorkflow and starts its worker. | Uses the Postgres Default Database or `OPENWORKFLOW_POSTGRES_URL`, else a SQLite file. Set `postgres.url` or `sqlite.path`, not both. |
 
 ### Install Vercel dependencies
 

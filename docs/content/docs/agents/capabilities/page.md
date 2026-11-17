@@ -26,7 +26,7 @@ Turn on Agents and Realtime. This Node build keeps its rooms in memory, in one p
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', agent: true, realtime: { authority: 'memory' } },
+  vitehub: { host: 'node', agent: true, realtime: { driver: 'memory' } },
 })
 ```
 :::
@@ -39,7 +39,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ host: 'node', agent: true, realtime: { authority: 'memory' } }),
+    vitehub({ host: 'node', agent: true, realtime: { driver: 'memory' } }),
     nitro(),
   ],
 })
@@ -53,7 +53,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ host: 'node', agent: true, realtime: { authority: 'memory' } }),
+    vitehub({ host: 'node', agent: true, realtime: { driver: 'memory' } }),
   ],
 })
 ```
@@ -206,5 +206,5 @@ Each call is a tool call of the run. The Invocation journal records it as `agent
 ## Limits
 
 - One page is one tab: a duplicated tab gets its own id.
-- The Agent reaches pages through the Realtime room authority. On Node with Redis or Postgres, the tab and the run must use the same instance.
+- The Agent reaches pages through the Realtime driver. On Node with Redis or Postgres, the tab and the run must use the same instance.
 - An answer over 1 MiB fails with `REALTIME_ROOM_REFUSED`. ui-sdk stops a long `page_snapshot` at 100 components.

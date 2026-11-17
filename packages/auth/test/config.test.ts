@@ -546,33 +546,76 @@ describe("resolveAuthViteConfig", () => {
     expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "content" })
   })
 
+  it("reads the additional fields and the plugins that add Auth tables", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { apiKey } from '@better-auth/api-key'",
+      "import { twoFactor as secondFactor, username } from 'better-auth/plugins'",
+      "import type { lastLoginMethod } from 'better-auth/plugins'",
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "const plugins = [apiKey(), secondFactor()]",
+      "export default defineAuth(() => ({",
+      "  database: authDatabase(),",
+      "  plugins,",
+      "  user: { additionalFields: {",
+      "    login: { type: 'string', required: false },",
+      "    language: { type: ['en', 'es'], required: false, defaultValue: 'en' },",
+      "    credits: { type: 'number', required: true, defaultValue: () => 0, input: false },",
+      "  } },",
+      "  session: { additionalFields: { device: { type: 'string', index: true } } },",
+      "}))",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({
+      database: "default",
+      schema: {
+        plugins: ["apiKey", "twoFactor"],
+        additionalFields: {
+          user: { login: { type: "string" }, language: { type: "string", defaultValue: "en" }, credits: { type: "number", required: true } },
+          session: { device: { type: "string", index: true } },
+        },
+      },
+    })
+  })
+
   it.each([
-    "{ database: authDatabase(), user: { additionalFields: { plan: { type: 'string' } } } }",
-    "() => ({ database: authDatabase(), user: { additionalFields: { plan: { type: 'string' } } } })",
-    "{ database: authDatabase(), user: { additionalFields: profileFields } }",
-  ])("rejects user fields missing from the owned schema before table discovery: %s", async (options) => {
+    ["{ database: authDatabase(), user: { additionalFields: profileFields } }", /user.additionalFields must be an inline object literal/],
+    ["{ database: authDatabase(), user: { additionalFields: { plan: planField } } }", /user.additionalFields.plan must be an inline object/],
+    ["{ database: authDatabase(), user: { additionalFields: { plan: { type: planType } } } }", /user.additionalFields.plan.type must be one of/],
+    ["{ database: authDatabase(), user: { additionalFields: { plan: { type: 'string', required: isRequired } } } }", /user.additionalFields.plan.required must be/],
+    ["() => ({ database: authDatabase(), session: { additionalFields: extraFields } })", /session.additionalFields must be an inline object literal/],
+  ])("asks for additional fields that the Vite plugin can read: %s", async (options, message) => {
     const rootDir = await createTempProject()
     await writeAuthSource(rootDir, "server/auth.ts", [
       "import { defineAuth } from 'vite-hub/auth'",
       "import { authDatabase } from 'vite-hub/auth/database'",
       `export default defineAuth(${options})`,
     ])
-    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/user.additionalFields/)
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_C0055", message: expect.stringMatching(message) }))
   })
 
-  it.each(["session", "account", "verification"])("rejects %s fields missing from the owned schema before table discovery", async (model) => {
+  it("rejects a field that a table has with another type, and a renamed column", async () => {
     const rootDir = await createTempProject()
-    for (const options of [
-      `{ database: authDatabase(), ${model}: { additionalFields: { tenant: { type: 'string' } } } }`,
-      `() => ({ database: authDatabase(), ${model}: { additionalFields: extraFields } })`,
-    ]) {
+    for (const [fields, message] of [
+      ["{ role: { type: 'number' } }", /user.additionalFields declares user.role as number/],
+      ["{ login: { type: 'string', fieldName: 'github_login' } }", /fieldName cannot rename the column/],
+    ] as const) {
       await writeAuthSource(rootDir, "server/auth.ts", [
         "import { defineAuth } from 'vite-hub/auth'",
         "import { authDatabase } from 'vite-hub/auth/database'",
-        `export default defineAuth(${options})`,
+        `export default defineAuth({ database: authDatabase(), user: { additionalFields: ${fields} } })`,
       ])
-      expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(`${model}.additionalFields`)
+      expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_C0056", message: expect.stringMatching(message) }))
     }
+  })
+
+  it("keeps additional fields to Better Auth without authDatabase()", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "export default defineAuth(() => ({ database: adapter, user: { additionalFields: profileFields } }))",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toBe(false)
   })
 
   it.each(["'serial'", "'uuid'", "false"])("rejects ID strategies incompatible with owned text IDs: %s", async (strategy) => {

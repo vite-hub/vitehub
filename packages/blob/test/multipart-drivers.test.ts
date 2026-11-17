@@ -41,7 +41,7 @@ afterEach(() => {
 
 describe("Cloudflare R2 multipart uploads", () => {
   it("does not treat inherited globals as R2 bindings", () => {
-    expect(getOptionalBucket({ binding: "constructor", driver: "cloudflare-r2" })).toBeUndefined()
+    expect(getOptionalBucket({ binding: "constructor", driver: "cloudflare" })).toBeUndefined()
   })
 
   it("uses the binding's multipart API", async () => {
@@ -61,7 +61,7 @@ describe("Cloudflare R2 multipart uploads", () => {
       resumeMultipartUpload: vi.fn(() => upload),
     }
     Reflect.set(globalThis, "TEST_R2", bucket)
-    const storage = createBlobStorage(createR2Driver({ binding: "TEST_R2", driver: "cloudflare-r2" }), "default")
+    const storage = createBlobStorage(createR2Driver({ binding: "TEST_R2", driver: "cloudflare" }), "default")
 
     const created = ok(await storage.createMultipartUpload("notes/a.txt", { customMetadata: { owner: "u1" } }))
     expect(bucket.createMultipartUpload).toHaveBeenCalledWith("notes/a.txt", { customMetadata: { owner: "u1" }, httpMetadata: { contentType: "text/plain; charset=utf-8" } })
@@ -84,7 +84,7 @@ describe("Cloudflare R2 multipart uploads", () => {
       list: vi.fn(async () => ({ objects: [], ...page })),
     }
     Reflect.set(globalThis, "TEST_R2", bucket)
-    const driver = createR2Driver({ binding: "TEST_R2", driver: "cloudflare-r2" })
+    const driver = createR2Driver({ binding: "TEST_R2", driver: "cloudflare" })
 
     await expect(driver.list()).rejects.toMatchObject({
       code: "BLOB_R0033",
@@ -93,7 +93,7 @@ describe("Cloudflare R2 multipart uploads", () => {
 })
 
 describe("Vercel Blob multipart uploads", () => {
-  const options = { access: "public", driver: "vercel-blob", token: "token" } as const
+  const options = { access: "public", driver: "vercel", token: "token" } as const
 
   it.each([false, true])("rejects edited completion types (route override: %s)", async (override) => {
     const storage = createBlobStorage(createVercelDriver(options), "default")

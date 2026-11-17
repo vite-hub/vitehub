@@ -160,8 +160,10 @@
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
+    "@better-auth/api-key": "catalog:auth",
     "@better-auth/oauth-provider": "catalog:auth",
     "@better-auth/passkey": "catalog:auth",
+    "@better-auth/stripe": "catalog:auth",
     "@cloudflare/workers-types": "^5.20261016.1",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
@@ -174,6 +176,7 @@
     "miniflare": "4.20260730.0",
     "nitro": "catalog:unjs",
     "publint": "catalog:tooling",
+    "stripe": "23.1.0",
     "typescript": "catalog:tooling",
     "undici": "8.12.2",
     "vite": "catalog:vite",

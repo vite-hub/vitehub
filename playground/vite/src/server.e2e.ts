@@ -64,11 +64,11 @@ function resolveWorkflowId(body: { id?: string, marker?: string } | undefined, m
 }
 
 function resolveKVProvider(event: unknown) {
-  return getCloudflareEnv(event) ? "cloudflare-kv-binding" : "upstash"
+  return getCloudflareEnv(event) ? "cloudflare" : "upstash"
 }
 
 function resolveWorkspaceProvider(_event: unknown) {
-  return getWorkspaceRuntimeConfig()?.store.provider ?? "memory"
+  return getWorkspaceRuntimeConfig()?.store.driver ?? "memory"
 }
 
 function resolveSandboxTaskHosting(event: { req: { runtime?: { name?: string }, waitUntil?: unknown } }) {

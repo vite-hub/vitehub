@@ -45,7 +45,7 @@ describe("Cloudflare Workflow step stub", () => {
     })
 
     const result = await runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       env: {},
       event: { instanceId: "run-1", payload: { name: "ada" } },
       name: "nap",

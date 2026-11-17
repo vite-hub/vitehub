@@ -374,28 +374,28 @@ async function waitUntilTime(startAt: number | undefined): Promise<void> {
 
 function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
   return {
-    cancel: () => unsupportedOperation(config.provider, "cancellation"),
+    cancel: () => unsupportedOperation(config.driver, "cancellation"),
     async get({ id, name }: GetWorkflowAdapterContext): Promise<WorkflowRun<unknown, unknown>> {
       const run = getWorkflowRunState(name, id)
       if (run) {
         if (run.status === "running") {
           return {
             id,
-            provider: config.provider,
+            provider: config.driver,
             status: run.startAt === undefined ? "running" : "queued",
           }
         }
         return {
           ...(run.status === "failed" ? { error: toWorkflowRunError(run.error) } : {}),
           id,
-          provider: config.provider,
+          provider: config.driver,
           result: isSerializedResponse(run.result) ? deserializeResponse(run.result) : run.result,
           status: run.status,
         }
       }
       return {
         id,
-        provider: config.provider,
+        provider: config.driver,
         status: "unknown",
       }
     },
@@ -405,21 +405,21 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
         return {
           ...(existing.status === "failed" ? { error: toWorkflowRunError(existing.error) } : {}),
           id,
-          metadata: config.provider === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined,
+          metadata: config.driver === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined,
           payload: existing.payload as TPayload | undefined,
-          provider: config.provider,
+          provider: config.driver,
           result: (isSerializedResponse(existing.result) ? deserializeResponse(existing.result) : existing.result) as TResult | undefined,
           status: existing.status === "running" ? "queued" : existing.status,
         }
       }
       resolveDispatchObserver(event)?.()
       // Only `vite dev` has a recorder. It records the run in the dev history.
-      const recordRun = getWorkflowDevRecorder()?.start(name, id, config.provider)
+      const recordRun = getWorkflowDevRecorder()?.start(name, id, config.driver)
       const execute = () => runSerializedWorkflowHandler({
         id,
         name,
         payload,
-        provider: config.provider,
+        provider: config.driver,
       // SAFETY: Workflow provider normalization establishes the asserted run contract.
       }, definition as never)
       // A timer holds a delayed run in this process. It is not durable: a restart loses the run.
@@ -441,13 +441,13 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
 
       return {
         id,
-        metadata: config.provider === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined,
+        metadata: config.driver === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined,
         payload,
-        provider: config.provider,
+        provider: config.driver,
         status: "queued",
       }
     },
-    resume: () => unsupportedOperation(config.provider, "signals"),
+    resume: () => unsupportedOperation(config.driver, "signals"),
   }
 }
 
@@ -486,14 +486,14 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
     },
     async resume(token, payload) {
       // `vite dev` runs every Workflow inline, and an inline run never waits for a signal.
-      if (getWorkflowDevRecorder()) unsupportedOperation(config.provider, "signals")
+      if (getWorkflowDevRecorder()) unsupportedOperation(config.driver, "signals")
       try {
         return await resumeVercelWorkflowSignal(token, payload)
       }
       catch (error) {
         // Without the Workflow DevKit, an app with no native entry runs only inline. Installing the SDK does not help.
         if (getViteHubErrorShape(error)?.code === "VERCEL_WORKFLOW_SDK_LOAD_FAILED" && !await hasNativeWorkflowDefinition()) {
-          unsupportedOperation(config.provider, "signals")
+          unsupportedOperation(config.driver, "signals")
         }
         throw error
       }
@@ -509,10 +509,10 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
 }
 
 export function getWorkflowRuntimeAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
-  if (config.provider === "cloudflare") {
+  if (config.driver === "cloudflare") {
     return createCloudflareAdapter(config)
   }
-  if (config.provider === "openworkflow") {
+  if (config.driver === "openworkflow") {
     return createOpenWorkflowAdapter(config)
   }
   return createVercelAdapter(config)
