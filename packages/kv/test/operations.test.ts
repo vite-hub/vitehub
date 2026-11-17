@@ -2,12 +2,12 @@ import { rm } from "node:fs/promises"
 
 import { afterAll, describe, expect, it, vi } from "vitest"
 
-import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
+import { createOperationRegistry, runOperation, toOperationFailure } from "@vite-hub/internal/operations"
 
 import { kvErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { kv } from "../src/index.ts"
 import { kvOperations } from "../src/operations.ts"
-import { KVOperationError, listKVDevStores, runKVOperation } from "../src/runtime/operations.ts"
+import { listKVDevStores, runKVOperation } from "../src/runtime/operations.ts"
 
 import type { KVDevStore } from "../src/runtime/operations.ts"
 
@@ -47,8 +47,8 @@ async function handle(body: Record<string, unknown>, stores?: readonly KVDevStor
       return { json: async () => value as Record<string, unknown>, status: 200 }
     }
     catch (error) {
-      if (!(error instanceof KVOperationError)) throw error
-      return { json: async () => ({ error: { code: error.code, fix: error.fix, message: error.message } }), status: error.status }
+      const failure = toOperationFailure(error)
+      return { json: async () => ({ error: { code: failure.code, fix: failure.fix, message: failure.message } }), status: failure.status }
     }
   }
   const result = await runOperation(registry, `kv.${String(operation)}`, input, { access, surface: "cli", user: null })
@@ -227,7 +227,7 @@ describe("kv operations", () => {
     expect((await kv.get("vitehub:state"))[1]).toBe("x")
   })
 
-  it("says whether a key can expire, since no driver reports the time left", async () => {
+  it("says that a key can expire, since no driver reports the time left", async () => {
     await run({ key: "ephemeral", operation: "set", value: "x" })
     expect((await run({ key: "ephemeral", operation: "get" })).body).toMatchObject({ expiry: "unknown" })
     for (const driver of ["cloudflare-kv-binding", "upstash", "deno-kv"] as const) {

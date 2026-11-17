@@ -14,8 +14,11 @@ import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from 
 import type { Dialect, HubDatabaseOptions } from "./config.ts"
 import type { SchemaMove } from "./database.ts"
 
-/** The lowest Drizzle ORM and Kit that `@vite-hub/database` accepts. */
-const drizzleMinimum = "1.0.0-rc.5"
+/**
+ * The Drizzle ORM and Kit versions that `@vite-hub/database` accepts. Not `^1.0.0-rc.5`: Drizzle publishes snapshot
+ * builds such as `1.0.0-rc.5-ab785fc`, which that range allows and which sort above the release.
+ */
+const drizzleRange = "1.0.0-rc.5 || ^1.0.0"
 
 /** The command that runs a package binary, from the install command. */
 function runner(installCommand: string): string {
@@ -78,7 +81,7 @@ async function migrate({ cwd, dependencyRoot = cwd }: CodemodContext): Promise<C
   const packageResult = await editPackageJson(cwd, packageJson.version, {
     remove: [moduleName],
     add: features.database ? ["vite-hub", "@vite-hub/database"] : ["vite-hub"],
-    atLeast: features.database ? { "drizzle-orm": drizzleMinimum, "drizzle-kit": drizzleMinimum } : undefined,
+    within: features.database ? { "drizzle-orm": drizzleRange, "drizzle-kit": drizzleRange } : undefined,
   })
   const run = runner(packageResult.installCommand)
 

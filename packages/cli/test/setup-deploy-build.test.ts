@@ -66,14 +66,17 @@ it("builds a `vitehub init` Cloudflare app for real and uploads it with a fake W
 
   const calls = await hosts.calls()
   expect(calls.map(call => [call.argv, call.stdin, call.cwd])).toEqual([
-    [["deploy", "--config", "./server/wrangler.json"], "", output],
+    [["deploy", "--config", "./server/wrangler.json", "--keep-vars"], "", output],
   ])
   const url = `https://${wrangler.name}.example.workers.dev`
+  // The build lists VITEHUB_SECRET as optional. A first deploy reads no host names, so it is missing and warned about.
   expect(result.json).toEqual({
+    env: { checked: ["VITEHUB_SECRET"], missing: [{ names: ["VITEHUB_SECRET"], owners: ["env"], secret: true }], pushed: [], stage: "production" },
     host: "cloudflare",
     schemaVersion: 1,
     url,
     version: "version-1",
   })
+  expect(result.stderr).toContain("Warning: optional env not set on cloudflare: VITEHUB_SECRET (env).")
   expectNoLeak(calls, result.stdout + result.stderr, ["cf-token-1"])
 }, 600_000)

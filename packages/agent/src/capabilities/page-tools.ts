@@ -1,4 +1,4 @@
-// The page tools as ui-sdk 0.1.0-beta.2 defines them in `agentTools` (`@ui-sdk/core/agent`), with
+// The page tools as ui-sdk 0.1.0-beta.5 defines them in `agentTools` (`@ui-sdk/core/agent`), with
 // the names prefixed by `page_` and the names in each description rewritten to match. The server keeps this copy, so an
 // Agent does not load ui-sdk. `test/page-capability.test.ts` fails when ui-sdk changes them.
 import type { JSONSchema7 } from "json-schema"

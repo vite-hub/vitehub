@@ -77,6 +77,26 @@ describe.skipIf(process.platform === "win32")("snapshot installs", () => {
     expect(await readFile(join(dir, "package.json"), "utf8")).toBe(manifest)
   })
 
+  it("reports a lockfile that installs a file: package the app no longer has, before npm ci", async () => {
+    // A packed workspace package that became an optional peer is no longer packed, but an older lockfile still lists it.
+    const lockfile = JSON.stringify({ packages: { "": {}, "node_modules/@vite-hub/forge": { version: "0.1.0", resolved: "file:tarballs/vite-hub-forge-0.1.0.tgz" } } })
+    const calls = npm.mock.calls.length
+    await expect(createNodeModulesSnapshot({ dir, lockfile })).rejects.toThrow(new SnapshotLockfileMismatchError("The lockfile installs tarballs/vite-hub-forge-0.1.0.tgz, which the app does not have. Pass frozenLockfile: false to update it."))
+    expect(npm.mock.calls.length).toBe(calls)
+    expect(await readFile(join(dir, "package.json"), "utf8")).toBe(manifest)
+
+    // The update reads the tarballs again: npm would install the dependencies that the lockfile records for them.
+    const seen: unknown[] = []
+    const install = npm.getMockImplementation()!
+    npm.mockImplementation(async (command: string, args: string[]) => {
+      seen.push(JSON.parse(await readFile(join(dir, "package-lock.json"), "utf8")).packages)
+      await install(command, args)
+    })
+    await createNodeModulesSnapshot({ dir, lockfile, frozenLockfile: false })
+    expect(npm.mock.calls.at(-1)?.[1][0]).toBe("install")
+    expect(seen[0]).toEqual({ "": {} })
+  })
+
   it.each([
     "npm error code ETIMEDOUT\nnpm error registry unavailable",
     "npm error code EUSAGE\nnpm error The npm ci command can only install with an existing package-lock.json",

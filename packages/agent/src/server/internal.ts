@@ -1,5 +1,5 @@
 // The Console status route and the generated Nitro dev handler of `vitehub agent invocations cancel` still use these.
-export { createError, defineEventHandler } from "h3"
+export { createError, defineEventHandler } from "nitro/h3"
 
 export {
   createAgentHealthHandler,
@@ -38,7 +38,7 @@ export { setAgentWorkflowCapabilityLoaders, setAgentWorkflowRuntimeLoaders } fro
 export { setAgentHostCapabilities } from "../internal/host-capabilities.ts"
 export type { AgentWorkflowCapabilityLoaders, AgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
 
-export { ChannelUnknownError, installChannelsConsoleHost } from "../channels-console-host.ts"
+export { installChannelsConsoleHost } from "../channels-console-host.ts"
 export { channelConversationArchive } from "../internal/channel-conversation.ts"
 export type { AgentChannelConversation, AgentChannelInfo, AgentChannelRetention } from "./routes.ts"
 

@@ -1746,6 +1746,55 @@ describe("sources and loaders", () => {
     await expect(registry.docs.readFile("AGENTS.md")).rejects.toThrow("Workspace file does not exist")
   })
 
+  async function syncCachedGitHubWorkspace(source: string) {
+    const root = await createRoot()
+    const directory = join(root, "server", "workspaces", "forecasting")
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, "config.mjs"), [
+      `import { github } from '${workspaceSourceImport}'`,
+      `export default { sources: { engine: ${source} } }`,
+      "",
+    ].join("\n"))
+    return await syncWorkspaceBuildAssets([{
+      handler: join(directory, "config.mjs"),
+      name: "forecasting",
+      path: join(directory, "config.mjs"),
+      source: "test",
+    }], root, {
+      root: join(root, ".vitehub", "workspaces"),
+      store: { provider: "memory" },
+      assets: true,
+    }, join(root, ".vitehub", "workspace", "assets", "registry.mjs"))
+  }
+
+  it.each([
+    [401, "github({ auth: 'revoked-token', cache: { maxAge: 3600 }, repo: 'acme/forecasting-engine' })"],
+    [404, "github({ auth: 'revoked-token', cache: { maxAge: 3600 }, repo: 'acme/forecasting-engine' })"],
+    [404, "{ auth: 'revoked-token', cache: { maxAge: 3600 }, repo: 'acme/forecasting-engine' }"],
+  ])("fails the build when a cached GitHub Source cannot read its private repository (%i, %s)", async (status, source) => {
+    stubGitHubSource({}, status)
+
+    const error = await syncCachedGitHubWorkspace(source).then(() => undefined, (error: unknown) => error)
+
+    expect(error).toMatchObject({ code: "WORKSPACE_SOURCE_ACCESS_FAILED" })
+    expect(String((error as Error).message)).toContain("Source \"engine\" of Workspace \"forecasting\"")
+    expect(String(((error as Error).cause as Error).message)).toContain("acme/forecasting-engine")
+  })
+
+  it("leaves a cached GitHub Source to the deployed app when the build has no token", async () => {
+    stubGitHubSource({}, 404)
+    // The config module loads outside the `node:child_process` mock, so hide the real `gh` from it.
+    vi.stubEnv("PATH", "")
+    try {
+      await syncCachedGitHubWorkspace("github({ cache: { maxAge: 3600 }, repo: 'acme/forecasting-engine' })")
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it("reports inaccessible GitHub repositories with a source-specific error", async () => {
     stubGitHubSource({}, 404)
 

@@ -11,9 +11,9 @@ icon: i-lucide-message-circle
 
 The parts show state and call a transport. They do not store data or check access. The transport talks to the server:
 
-- `createMemoryTransport()` from `@vite-hub/comments/testing` is for tests and examples.
-- `createRestTransport()` from `@vite-hub/comments/client` connects to the [Comments API](/docs/comments/server-api#rest-transport) of the app.
-- `createRpcTransport()` from `@vite-hub/comments/rpc` connects to the [Comments operations](/docs/comments/operations/server-api#browser-transport) on a development server only.
+- `createMemoryTransport()` from `vite-hub/comments/testing` is for tests and examples.
+- `createRestTransport()` from `vite-hub/comments/client` connects to the [Comments API](/docs/comments/server-api#rest-transport) of the app.
+- `createRpcTransport()` from `vite-hub/comments/rpc` connects to the [Comments operations](/docs/comments/operations/server-api#browser-transport) on a development server only.
 
 The built-in live-site overlay uses a different thread and anchor format.
 
@@ -28,17 +28,17 @@ Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows, then add 
 pnpm add @vite-hub/comments drizzle-orm@1.0.0-rc.5
 ```
 
-`vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
+`vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `vite-hub/ui`:
 
 ```ts
-import { CommentLayer } from "@vite-hub/ui";
+import { CommentLayer } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```ts
-import { createCommentsClient } from "@vite-hub/comments/client";
-import { createMemoryTransport } from "@vite-hub/comments/testing";
+import { createCommentsClient } from "vite-hub/comments/client";
+import { createMemoryTransport } from "vite-hub/comments/testing";
 
 const user = { id: "ana", name: "Ana Ruiz" };
 const client = createCommentsClient({ transport: createMemoryTransport({ user }), user });
@@ -98,7 +98,7 @@ CommentPanel
 └── CommentComposer (a comment on the whole page)
 ```
 
-Every part has a `data-slot`, as in shadcn/ui: `comment-layer`, `comment-pin`, `comment-thread`, `comment-reply`, `comment-composer`, `comment-mention`, `comment-list`, `comment-filters`, `comment-toolbar`, and `comment-panel`. The default styles sit in the `components` layer of `@vite-hub/ui/styles.css`, so utility classes override them.
+Every part has a `data-slot`, as in shadcn/ui: `comment-layer`, `comment-pin`, `comment-thread`, `comment-reply`, `comment-composer`, `comment-mention`, `comment-list`, `comment-filters`, `comment-toolbar`, and `comment-panel`. The default styles sit in the `components` layer of `vite-hub/ui/styles.css`, so utility classes override them.
 
 ## Build your own layout
 
@@ -115,10 +115,10 @@ Every part has a `data-slot`, as in shadcn/ui: `comment-layer`, `comment-pin`, `
 </template>
 ```
 
-Without the layer, call `useComments()` from `@vite-hub/ui/headless`. It needs no Nuxt UI. Pass the state it returns as the `comments` prop:
+Without the layer, call `useComments()` from `vite-hub/ui/headless`. It needs no Nuxt UI. Pass the state it returns as the `comments` prop:
 
 ```ts fragment
-import { useComments } from "@vite-hub/ui/headless";
+import { useComments } from "vite-hub/ui/headless";
 
 const comments = useComments({ client, subject: { kind: "page", id: "/pricing" } });
 comments.pageThreads.value; // The threads of this page, after the filters.
@@ -142,6 +142,50 @@ comments.people.value; // The people that the state knows, for mention names.
 | `subjectUrl` | The page URL of a subject, for thread links. Page subjects use their id as the path. Other subjects link to the current page unless you give it. |
 | `autoStart` | Load threads and listen for keys on mount. Default `true`. When `false`, call `start()` yourself. |
 | `can` | What the user may do in a thread. See [Permissions](#permissions). |
+| `visibility` | `"all"` or `"hidden"`. Default `"all"`. Pass a ref to keep the reader's choice. See [Hide comments](#hide-comments). |
+| `flashMs` | How long a comment just sent shows while comments are hidden. Default `2500`. |
+
+## Hide comments
+
+A reader can hide the comments on the page and still write them. Set `visibility` to `"hidden"`. Pins, areas, and highlights then show only:
+
+- the open thread, such as one opened from the list,
+- the comment being written,
+- a comment or reply just sent, for `flashMs`. Then it pops out: it shrinks and fades in 180 ms, or only fades under `prefers-reduced-motion`.
+
+Writing or opening a comment never changes `visibility`. Pass a ref to keep the choice, such as one saved in `localStorage`:
+
+```ts fragment
+import { useComments } from "vite-hub/ui/headless";
+import { ref, watch } from "vue";
+
+const visibility = ref(localStorage.getItem("comments") === "hidden" ? "hidden" : "all");
+watch(visibility, (value) => localStorage.setItem("comments", value));
+
+const comments = useComments({ client, subject, visibility });
+comments.shown.value; // The ids of the threads of this page that get a pin.
+comments.leaving.value; // The ids that just stopped showing, for their pop-out.
+comments.flash(id); // Show a thread for a moment. send(), create(), and reply() do it.
+```
+
+`CommentPanel` keeps its selected thread’s page marks visible while comments are hidden, without opening a page popover. Returning to the list or unmounting the panel releases that exception. Custom panels can call `const release = comments.retainMark(id)` and call `release()` when they close or switch threads; active flashes keep their own timers.
+
+`CommentLayer` follows the state: a pin that stops showing keeps its place for 180 ms with `data-leaving="true"`. The ViteHub pill has an eye next to **Comments** for people who may comment, and keeps the choice in this browser.
+
+To draw marks somewhere else, such as in a frame, use `createCommentVisibility()`. It has no framework, so a page can keep one and send its `only` list to the frame:
+
+```ts fragment
+import { createCommentVisibility } from "vite-hub/ui/headless";
+
+const visibility = createCommentVisibility({ visibility: "hidden", flashMs: 2500 });
+visibility.subscribe(() => frame.postMessage({ only: visibility.only, leaving: visibility.leaving }));
+visibility.open(threadId); // The open thread shows. open(null) closes it.
+visibility.flash(sent.id); // A comment just sent shows for flashMs.
+visibility.set("all"); // Every comment shows again.
+visibility.stop(); // Clears the timers.
+```
+
+`only` lists the ids that still show while comments are hidden, and is empty while all show. `leaving` lists the ids that stopped showing in the last 180 ms. `isShown(id)` answers for one id.
 
 ## Side panel
 
@@ -225,6 +269,7 @@ A composer takes files from paste, drop, and the file button. It sends them as `
 - `accept` limits the file types, such as `image/*`.
 - A new comment needs text unless you set `allowEmpty`. A reply can send files without text.
 - `v-model:files` lets the parent clear the files after a send.
+- In the box, a picture shows as a small square with a round Remove button on its corner. Other files show their name.
 
 `CommentThread` passes the files to `onReply` as the third argument. `CommentLayer` and `CommentPanel` take files only with `upload`: a function that stores the files and returns their keys, such as Blob keys. They send the keys as the message `attachments`.
 
@@ -301,7 +346,39 @@ Or set the tokens on your own class:
 
 The buttons read their icons from the app's icon config: Nuxt UI's `appConfig.ui.icons` for names such as `check` and `close`, and `appConfig.viteHubUI.icons` for `edit`, `delete`, `reopen`, and the toolbar. See [Icons](/docs/ui/installation#icons) for every name.
 
-`--vh-ui-comment-mark` sets the color of a drawn area. It defaults to the focus blue (`--vh-focus`), else Nuxt UI's `--ui-info`, so an area shows on a dark page and on a white image in it.
+`--vh-ui-comment-mark` sets the color of a drawn area. It defaults to the focus blue (`--vh-focus`), else the ViteHub blue, so an area shows on a dark page and on a white image in it. The pins and areas take their look from [`comment-marks.css`](#comment-marks-without-vue), so `--vh-ui-comment-pin-size` and the other tokens there change them too.
+
+## Comment marks without Vue
+
+`@vite-hub/ui/comment-marks.css` draws the pins, the areas, and the text highlights of comments with plain CSS. `styles.css` includes it, so `CommentLayer` needs nothing more. A page or a frame without Vue loads it on its own and sets data attributes. It works in the page and in a shadow root. Import it from `@vite-hub/ui`, because `?raw` reads the file itself and `vite-hub` has no copy of it:
+
+```ts
+import marks from "@vite-hub/ui/comment-marks.css?raw";
+
+const host = document.createElement("page-comments");
+const root = host.attachShadow({ mode: "open" });
+root.innerHTML = `<style>${marks}</style>`;
+// The highlights draw on the page's own text, so the page needs the file too.
+document.head.append(Object.assign(document.createElement("style"), { textContent: marks }));
+```
+
+| Element | Attributes | Look |
+| --- | --- | --- |
+| `data-slot="comment-mark-pin"` | `data-shape="point"` or `"round"`, `data-active="true"`, `data-status="resolved"` | A 28px pin. A point is a drop whose small bottom-left corner is the spot. A round pin is for an area or an image. An `<img>` child fills it. |
+| `data-slot="comment-mark-area"` | `data-active="true"`, `data-status="resolved"`, `data-draft="true"` | A 1px blue line at half strength with no fill. Active is full blue with a tint, resolved is dashed and grey, and a draft is 2px with a fill. |
+| `data-slot="comment-mark-handle"` | `data-corner="top-left"`, `"top-right"`, `"bottom-left"`, or `"bottom-right"` | A round handle on a corner of its area. |
+| A pin or an area | `data-leaving="true"` | It shrinks and fades in 180ms. Remove it after that. With reduced motion, it only fades. |
+
+Place a pin with `left` and `top`, and an area with `left`, `top`, `width`, and `height`. Highlight commented text with the CSS Custom Highlight API and these names:
+
+```ts fragment
+CSS.highlights.set("vh-comment", new Highlight(...openRanges));
+CSS.highlights.set("vh-comment-resolved", new Highlight(...resolvedRanges));
+CSS.highlights.set("vh-comment-active", new Highlight(activeRange));
+CSS.highlights.set("vh-comment-draft", new Highlight(draftRange));
+```
+
+The marks use the ViteHub theme tokens when the page has them, else the theme's own values. Add the `dark` class or `data-theme="dark"` to the root or the shadow host for dark mode. Set `--vh-ui-comment-mark`, `--vh-ui-comment-pin`, `--vh-ui-comment-pin-text`, `--vh-ui-comment-surface`, `--vh-ui-comment-muted`, `--vh-ui-comment-ink` (the text color that highlights tint), or `--vh-ui-comment-pin-size` to change one. Inside a scaled layer, set `--vh-comment-zoom` to the inverse of its scale, so the marks keep their size on screen.
 
 ## Sizes
 
@@ -342,7 +419,8 @@ Read more in the [`@vite-hub/comments` README](https://github.com/vite-hub/viteh
 - In `CommentPanel`, threads are buttons in a list. Back moves focus to the thread that was open. The Open and Resolved filters have `aria-pressed`.
 - Deleting the first message asks first, because it deletes the thread.
 - The toolbar is a `toolbar`. The comment button has `aria-pressed` and `aria-keyshortcuts="C"`.
-- Under `prefers-reduced-motion` the composer does not shake. Its border flashes.
+- Under `prefers-reduced-motion` the composer does not shake. Its border flashes. A pin that stops showing fades without shrinking.
+- A pin that stops showing is `inert` during its pop-out.
 
 ## API Reference
 

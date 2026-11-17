@@ -42,7 +42,7 @@ Capabilities, and other app APIs come from feature subpaths.
 | `@vite-hub/env` | Env Declarations, Public, Server, and Secret Env, generated env access | `@vite-hub/env`, `@vite-hub/env/vite`, `@vite-hub/env/server`, `@vite-hub/env/bridge`, `@vite-hub/env/database`, `@vite-hub/env/seal` |
 | `@vite-hub/gateways` | [AI Gateways](/docs/gateways): Driver routes for Codex and Claude Code, AI SDK models with `languageModel()`, `ask()` and its question builders for TypeSafe Jev. No Agent, Vite, or Nitro code. | `@vite-hub/gateways`, `@vite-hub/gateways/ai-sdk` |
 | `@vite-hub/i18n` | [i18n](/docs/i18n): messages in the source language with no keys, PO catalogs, message IDs at build time, and one locale for each request on Nitro 3 | `@vite-hub/i18n`, `@vite-hub/i18n/vue`, `@vite-hub/i18n/vite`, `@vite-hub/i18n/nuxt` |
-| `@vite-hub/kit` | The headless Vue parts that [ui-sdk](https://ui-sdk.dev) does not have, a Nuxt module that auto-imports them, and a plain CSS style family on shadcn token names. Import every other part from `@ui-sdk/vue`. | The `tags-input`, `form`, and `nuxt` subpaths, and `styles/tokens.css` and `styles/default.css` |
+| `@vite-hub/kit` | The headless Vue parts that [ui-sdk](https://ui-sdk.dev) does not have, a Nuxt module that auto-imports them, and a style family for apps without Nuxt UI: ui-sdk's `web.css` on shadcn token names. Import every other part from `@ui-sdk/vue`. | The `tags-input`, `form`, and `nuxt` subpaths, and `styles/tokens.css` and `styles/default.css` |
 | `@vite-hub/kv` | KV Runtime Helper and configured KV Stores | `@vite-hub/kv`, `@vite-hub/kv/vite` |
 | `@vite-hub/markdown-template` | Markdown with data bindings, conditions, and fragments | `@vite-hub/markdown-template` |
 | `@vite-hub/mcp` | [MCP server](/docs/mcp): app MCP server, tool Definitions, Standard Schema validation, and MCP OAuth integration | `@vite-hub/mcp`, `@vite-hub/mcp/vite` |
@@ -51,7 +51,7 @@ Capabilities, and other app APIs come from feature subpaths.
 | `@vite-hub/realtime` | Realtime documents, server routes, history, Vue bindings | `@vite-hub/realtime`, `@vite-hub/realtime/server`, `@vite-hub/realtime/vue`, `@vite-hub/realtime/vite` |
 | `@vite-hub/runtime` | Runtime Host Context, Capability handles, Policy Decisions, approvals, Trace Events, leases | `@vite-hub/runtime` |
 | `@vite-hub/schedule` | Static schedules, manual runs, cron Provider Output | `@vite-hub/schedule`, `@vite-hub/schedule/runtime`, `@vite-hub/schedule/vite` |
-| `@vite-hub/shell` | Shell execution providers and Workspace shell helpers | `@vite-hub/shell`, `@vite-hub/shell/workspace` |
+| `@vite-hub/shell` | Shell drivers and Workspace shell helpers | `@vite-hub/shell`, `@vite-hub/shell/workspace` |
 | `@vite-hub/source` | Source Definitions and Loaders for file, glob, markdown, GitHub, custom, and MCP resources | `@vite-hub/source`, `@vite-hub/source/*` |
 | `@vite-hub/ui` | AI SDK Vue and Nuxt components, headless message scrolling, shadcn/ui parts, Pierre code views | `@vite-hub/ui`, `@vite-hub/ui/headless`, `@vite-hub/ui/markdown-editor`, `@vite-hub/ui/workspace`, `@vite-hub/ui/playground`, `@vite-hub/ui/theme`, `@vite-hub/ui/vite` |
 | `@vite-hub/web-container` | [WebContainer](/docs/web-container): WebContainer lifecycle, app commands, preview status, snapshots, isolation headers, connection metadata | `@vite-hub/web-container`, `@vite-hub/web-container/vue`, `@vite-hub/web-container/vite`, `@vite-hub/web-container/env`, `@vite-hub/web-container/connect` |
@@ -77,7 +77,7 @@ Capabilities, and other app APIs come from feature subpaths.
 
 ## Package tutorials
 
-- [Build your first UI view](/docs/ui/get-started) for `@vite-hub/ui`.
+- [Build your first chat view](/docs/ui/chat-tutorial) for `@vite-hub/ui`.
 - [Run your first Sandbox](/docs/agents/sandbox-tutorial) for `@vite-hub/sandbox`.
 - [Render your first Markdown template](/docs/reference/markdown-template-tutorial) for `@vite-hub/markdown-template`.
 

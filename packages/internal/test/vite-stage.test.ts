@@ -5,7 +5,7 @@ import { join } from "node:path"
 import * as vite from "vite"
 import { expect, it } from "vitest"
 
-import { withViteStageServer } from "../src/vite-stage.ts"
+import { loadAllEnv, withViteStageServer } from "../src/vite-stage.ts"
 
 it.each([undefined, "config", false] as const)("loads Channel stage values from the resolved envDir (%s)", async (directory) => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-stage-env-"))
@@ -31,4 +31,23 @@ it.each([undefined, "config", false] as const)("loads Channel stage values from 
   finally {
     await rm(rootDir, { force: true, recursive: true })
   }
+})
+
+it("drops the stderr writes of loadEnv and restores stderr after it, also when loadEnv throws", () => {
+  const write = process.stderr.write
+  const loadEnv = (mode: string, envDir: string | false, prefixes: string) => {
+    process.stderr.write("vite:env using resolved env: { TOKEN: 'secret-canary' }\n")
+    return { mode, envDir: String(envDir), prefixes }
+  }
+  const writes: unknown[] = []
+  process.stderr.write = ((chunk: unknown) => writes.push(chunk) > 0) as typeof process.stderr.write
+  try {
+    expect(loadAllEnv(loadEnv, "production", "/app")).toEqual({ mode: "production", envDir: "/app", prefixes: "" })
+    expect(() => loadAllEnv(() => { throw new Error("bad env file") }, "production", false)).toThrow("bad env file")
+    process.stderr.write("after\n")
+  }
+  finally {
+    process.stderr.write = write
+  }
+  expect(writes).toEqual(["after\n"])
 })

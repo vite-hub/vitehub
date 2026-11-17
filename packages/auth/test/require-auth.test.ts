@@ -7,6 +7,7 @@ import { requireAuth, requireAuthorization } from "../src/server.ts"
 import type { AccessAuthorizeOption } from "@vite-hub/runtime"
 import type { H3Event } from "h3"
 import type { AuthDefinition } from "../src/types.ts"
+import { returnHeaders } from "./session-result.ts"
 
 const providerMocks = vi.hoisted(() => ({
   betterAuth: vi.fn(),
@@ -46,7 +47,7 @@ describe("Auth inline guards", () => {
     providerMocks.getSession.mockReset()
     providerMocks.handler.mockReset()
     providerMocks.betterAuth.mockReturnValue({
-      api: { getSession: providerMocks.getSession },
+      api: { getSession: returnHeaders(providerMocks.getSession) },
       handler: providerMocks.handler,
     })
   })
@@ -103,7 +104,7 @@ describe("Auth inline guards", () => {
       // The session marker reads the session cookie name from the context when a response sets cookies.
       providerMocks.betterAuth.mockReturnValue({
         $context: Promise.resolve({ authCookies: { sessionToken: { name: "session" } }, options: {} }),
-        api: { getSession: providerMocks.getSession },
+        api: { getSession: returnHeaders(providerMocks.getSession) },
         handler: providerMocks.handler,
       })
       const signIn = Response.json({ url: "https://github.com/login/oauth/authorize" })

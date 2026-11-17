@@ -1,0 +1,14 @@
+shell-driver: renamed the Shell provider to driver in 4 file(s)
+Dry run: no files were written.
+
+Files to change (4):
+  server/api/tools.post.ts
+  server/utils/docs-shell.ts
+  server/utils/lazy.ts
+  server/utils/namespace.ts
+
+Manual follow-ups (1):
+  1. server/utils/docs-shell.ts:25 Shell renamed `provider` to `driver`. Rename it in the options that this `createShellRuntime()` call gets.
+
+Next steps:
+  - Run your typecheck.

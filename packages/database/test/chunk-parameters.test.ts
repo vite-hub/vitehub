@@ -58,10 +58,14 @@ describe("chunkParameters", () => {
   })
 
   it("throws when one value does not fit, or a count is not a whole number", () => {
-    expect(() => chunkParameters([1], { per: 60, reserved: 50 })).toThrow("chunkParameters() cannot fit one value: it takes 60 bound parameters and the statement has 50 more, over the limit of 100.")
-    expect(() => chunkParameters([1], { per: 0 })).toThrow(TypeError)
-    expect(() => chunkParameters([1], { reserved: -1 })).toThrow(TypeError)
-    expect(() => chunkParameters([1], { limit: 1.5 })).toThrow(TypeError)
+    expect(() => chunkParameters([1], { per: 60, reserved: 50 })).toThrow(expect.objectContaining({
+      code: "DATABASE_CHUNK_VALUE_TOO_LARGE",
+      fix: expect.stringContaining("`per` plus `reserved`"),
+      message: "chunkParameters() cannot fit one value: it takes 60 bound parameters and the statement has 50 more, over the limit of 100.",
+    }))
+    expect(() => chunkParameters([1], { per: 0 })).toThrow(expect.objectContaining({ code: "DATABASE_CHUNK_INVALID_COUNT" }))
+    expect(() => chunkParameters([1], { reserved: -1 })).toThrow(expect.objectContaining({ code: "DATABASE_CHUNK_INVALID_COUNT" }))
+    expect(() => chunkParameters([1], { limit: 1.5 })).toThrow(expect.objectContaining({ code: "DATABASE_CHUNK_INVALID_COUNT", fix: expect.stringContaining("`reserved` of 0 or more") }))
   })
 
   it("gives Drizzle queries that bind at most 100 parameters", async () => {

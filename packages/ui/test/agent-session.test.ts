@@ -94,6 +94,7 @@ it("keeps uncontrolled user changes in stored layout", async () => {
   await wrapper.get("[aria-label='Maximize panel']").trigger("click");
   wrapper.unmount();
   wrapper = session({ storageKey: "session-layout" });
+  await flushPromises();
   expect(wrapper.find("[data-slot='agent-session-panel']").exists()).toBe(true);
   expect(wrapper.attributes("data-maximized")).toBe("");
   expect(wrapper.get("[role='tab'][aria-selected='true']").text()).toBe("Workspace");

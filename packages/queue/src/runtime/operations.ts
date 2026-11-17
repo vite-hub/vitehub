@@ -63,25 +63,24 @@ export interface QueueSendOperationInput {
   queue: string
 }
 
-/** A failure with the fields that every surface reports. */
-class QueueOperationError extends Error {
-  constructor(message: string, readonly status: number, readonly code: string, readonly fix?: string) {
-    super(redactInspectionText(message))
-  }
-}
-
+/** The HTTP status that the CLI, the Console, and Agents report for each code of a failed operation. */
 const statuses: Readonly<Record<string, number>> = {
+  QUEUE_DEFINITION_NAME_INVALID: 400,
   QUEUE_DEFINITION_NOT_FOUND: 404,
   QUEUE_DISABLED: 409,
+  QUEUE_JOB_DUPLICATE: 409,
+  QUEUE_JOBS_UNAVAILABLE: 409,
+  QUEUE_JOB_NOT_FOUND: 404,
+  QUEUE_JOB_RUNNING: 409,
   QUEUE_PROVIDER_FAILED: 502,
   QUEUE_PROVIDER_INVALID_RESPONSE: 502,
   QUEUE_UNSUPPORTED_OPTION: 400,
 }
 
-/** Gives a Queue catalog error the status that the Console RPC reports. */
+/** Gives a Queue catalog error the status and the redacted message that the CLI and the Console report. */
 function failure(error: unknown): unknown {
   if (!isQueueError(error)) return error
-  return new QueueOperationError(error.message, statuses[error.code] ?? 500, error.code, error.fix)
+  return Object.assign(error, { status: statuses[error.code] ?? 500, statusMessage: redactInspectionText(error.message) })
 }
 
 export async function listQueues(): Promise<QueueListResult> {
@@ -110,7 +109,7 @@ export async function listQueues(): Promise<QueueListResult> {
 
 export async function sendToQueue(input: QueueSendOperationInput): Promise<QueueSendOperationResult> {
   const queue = normalizePublicQueueIdentifier(input.queue)
-  if (!queue) throw new QueueOperationError("The queue name is not a valid Queue Definition name.", 400, "QUEUE_INVALID_NAME", "Pass the name of a Queue Definition. `vitehub queue list` shows them.")
+  if (!queue) throw failure(queueErrorDiagnostics.QUEUE_DEFINITION_NAME_INVALID())
   const options: QueueEnqueueOptions = {
     ...(input.delaySeconds === undefined ? {} : { delaySeconds: input.delaySeconds }),
     ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
@@ -144,13 +143,13 @@ async function localJobs(): Promise<QueueJobStore> {
     ? await getQueueRuntimeJobStore()
     : config ? (await import("../internal/runtime/local-client.ts")).useLocalQueueEngine(config) : undefined
   if (!store) {
-    throw new QueueOperationError(`The ${config?.provider ?? "configured"} queue provider does not let the app read its jobs. Only the local and postgres providers store jobs that ViteHub can list.`, 409, "QUEUE_JOBS_UNAVAILABLE", "Run the app with `vite dev`, which runs every job in the dev server, or on a Node server with the local or postgres provider. Read hosted jobs in the Cloudflare or Vercel dashboard.")
+    throw failure(queueErrorDiagnostics.QUEUE_JOBS_UNAVAILABLE({ provider: config?.provider ?? "configured" }))
   }
   return store
 }
 
-function jobNotFound(): QueueOperationError {
-  return new QueueOperationError("No stored job has this message ID. The local and postgres providers delete a job when its handler succeeds.", 404, "QUEUE_JOB_NOT_FOUND", "Run `vitehub queue jobs list` for the IDs of the pending, running, and dead jobs.")
+function jobNotFound(): unknown {
+  return failure(queueErrorDiagnostics.QUEUE_JOB_NOT_FOUND())
 }
 
 export async function listQueueJobs(input: QueueJobsListInput): Promise<QueueJobsListResult> {
@@ -168,8 +167,8 @@ export async function showQueueJob(id: string): Promise<{ job: LocalQueueJobDeta
 export async function retryQueueJob(id: string): Promise<{ job: LocalQueueJob }> {
   const result = await (await localJobs()).retry(id)
   if (result === "missing") throw jobNotFound()
-  if (result === "running") throw new QueueOperationError("The job is running now.", 409, "QUEUE_JOB_RUNNING", "Wait for the attempt to end, then run `vitehub queue jobs show` for its state.")
-  if (result === "duplicate") throw new QueueOperationError("A newer pending or running job has the idempotency key of this dead job, so the dead job cannot run again.", 409, "QUEUE_JOB_DUPLICATE", "Wait for the newer job to end, or remove the dead job with `vitehub queue jobs clear --state dead`.")
+  if (result === "running") throw failure(queueErrorDiagnostics.QUEUE_JOB_RUNNING())
+  if (result === "duplicate") throw failure(queueErrorDiagnostics.QUEUE_JOB_DUPLICATE())
   return { job: result }
 }
 

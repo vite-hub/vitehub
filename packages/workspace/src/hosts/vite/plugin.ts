@@ -18,7 +18,7 @@ import { workspaceSuffixPattern } from "../../build/workspace-config.ts"
 import { createWorkspaceCliContributor } from "../../cli.ts"
 import { normalizeWorkspaceOptions } from "../../config.ts"
 import { workspaceOperations } from "../../operations.ts"
-import { normalizeWorkspaceDefinition } from "../../core/registry.ts"
+import { normalizeWorkspaceDefinition, workspaceRegistryLoadError } from "../../core/registry.ts"
 import { installHostedWorkspaceRuntime } from "../../hosted.ts"
 import { installHostedVercelBlobWorkspaceRuntime } from "../../hosted-vercel-blob.ts"
 import { inspectWorkspaceDefinitions } from "../../inspect.ts"
@@ -586,9 +586,12 @@ async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMes
   }
   const mod = await server.ssrLoadModule(WORKSPACE_REGISTRY_ID) as { default?: unknown }
   const registry = isWorkspaceRegistry(mod.default) ? mod.default : {}
-  const load = registry[command.workspace]
-  if (!load) return new Response(`Unknown Workspace Dev target: ${command.workspace}`, { status: 404 })
-  const definition = (await load()).default
+  const workspace = command.workspace
+  const load = registry[workspace]
+  if (!load) return new Response(`Unknown Workspace Dev target: ${workspace}`, { status: 404 })
+  const definition = (await (async () => load())().catch((error: unknown) => {
+    throw workspaceRegistryLoadError(workspace, error)
+  })).default
   if (command.args !== undefined && (!Array.isArray(command.args) || command.args.some(arg => typeof arg !== "string"))) {
     return new Response("Workspace Dev command args must be strings.", { status: 400 })
   }
@@ -780,7 +783,8 @@ function renderNitroWorkspacePlugin(
     "setWorkspaceRuntimeRegistry(registry)",
     "",
     "export default function vitehubWorkspacePlugin() {",
-    ...(cloudflareRuntime ? ["  setActiveCloudflareEnv(vitehubEnv)"] : []),
+    // `Cloudflare.Env` from `cloudflare:workers` has no index signature.
+    ...(cloudflareRuntime ? ["  setActiveCloudflareEnv(vitehubEnv as unknown as Record<string, unknown>)"] : []),
     ...runtimeSetup,
     "}",
     "",
@@ -1112,13 +1116,13 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
         const definitions = discoverDefinitions({ projectRoot: root, viteRoot: viteRoot ?? root }, serverDirs, contributions)
         const config = shouldConfigureRuntime(publicOptions, resolvedOptions) ? resolvedOptions : false
         writeFileIfChangedSync(module, [
-          `import { workspaceDefinitionsDurability } from ${JSON.stringify(ownModule(import.meta.url, "durability"))}`,
+          `import { workspaceDefinitionsDurability${definitions.length ? ", workspaceRegistryDefinitions" : ""} } from ${JSON.stringify(ownModule(import.meta.url, "durability"))}`,
           ...(definitions.length ? [
             `import registry from ${JSON.stringify(registry)}`,
           ] : []),
           "export function workspaceDurability(_input, context) {",
           definitions.length
-            ? "  const definitions = Object.fromEntries(Object.entries(registry).map(([name, load]) => [name, load().default]))"
+            ? "  const definitions = workspaceRegistryDefinitions(registry)"
             : "  const definitions = {}",
           `  return workspaceDefinitionsDurability(definitions, ${renderRuntimeValue(config)}, context)`,
           "}",
