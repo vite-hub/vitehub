@@ -1,0 +1,57 @@
+/* The Console's stylesheet: Tailwind, Nuxt UI, and the ViteHub theme. */
+@import "tailwindcss";
+@import "@nuxt/ui";
+@import "../../../theme.css";
+/* The classes of `vitehubTheme`, which theme.css reads from its built copy, and the "today" press of main.ts. */
+@source "../../../src/theme.ts";
+@source "./main.ts";
+
+body {
+  margin: 0;
+}
+
+.page {
+  display: grid;
+  gap: 24px;
+  padding: 24px;
+  max-width: 720px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.row > h2 {
+  width: 100%;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ui-text-muted);
+}
+
+/* Plain elements for each role, drawn like an outline button, so a press shows. */
+.plain {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--ui-border-accented);
+  border-radius: 6px;
+  background: var(--ui-bg);
+  color: var(--ui-text-highlighted);
+  font: 500 12px/1 var(--font-sans, sans-serif);
+  cursor: pointer;
+  user-select: none;
+}
+
+summary.plain {
+  list-style: none;
+}
+
+/* A hand-written press of the allowlist: it keeps its own until its wave moves it onto the layer. */
+.own-press {
+  transition: scale 150ms ease-out;
+}

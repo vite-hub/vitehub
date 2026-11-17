@@ -42,15 +42,47 @@ When a component does something that is not in this list, add the interaction an
 
 ## How a component gets its motion
 
-1. **From the motion layer, by role.** `@vite-hub/ui` attaches press, toggle, select, drag, and appear motion to elements by their role: `button`, `link`, `tab`, `radio`, `menuitem`, `option`, `switch`, `checkbox`, `slider`, `separator`, and `tooltip`. Nuxt UI, kit, and our own components already render those roles, so they move with no code of their own. A new component gets the same motion when it uses the right element or role, which it must do anyway for keyboard and screen reader users.
+1. **From the motion layer, by role.** `installMotion()` from `@vite-hub/ui/motion` attaches press, toggle, select, drag, and appear motion to elements by their role: `button`, `link`, `tab`, `radio`, `menuitem`, `option`, `switch`, `checkbox`, `slider`, `separator`, and `tooltip`. `createViteHubUI()` installs it in the browser, and the Nuxt module does it through the same plugin, so every app that uses `@vite-hub/ui` has it. Nuxt UI, kit, and our own components already render those roles, so they move with no code of their own. A new component gets the same motion when it uses the right element or role, which it must do anyway for keyboard and screen reader users.
 2. **From a helper, for what only the component knows.** A label that changes, a count, progress, a list that changes, and a delete that can be undone are events of the component, not of an element. Call the helper for each: the label morph, the digit roll, the progress bar, the list mover, and hold to delete, all from `@vite-hub/ui`.
 3. **Never by hand.** Do not write a local spring, a `setTimeout` letter loop, a `requestAnimationFrame` loop, or a CSS `transition`, `animation`, or `@keyframes` that imitates one of these effects. `test/design-rules.test.ts` fails on them outside the motion layer.
 
-A surface that draws its own motion, such as a hero figure or a canvas, sets `data-motion="none"` on its root. The motion layer then skips that element and everything inside it.
+A surface that draws its own motion, such as a hero figure or a canvas, sets `data-motion="none"` on its root. The motion layer then skips that element and everything inside it. A plain TypeScript surface, such as the page pill, imports `installMotion` from `@vite-hub/ui/motion` (it has no Vue) and passes its shadow root, so the layer also sees the state attributes inside it.
+
+### What the layer does
+
+- **One listener, one observer.** `installMotion(root?)` adds one set of capture listeners on the document (`pointerdown`, `pointerup`, `pointercancel`, and `keydown`/`keyup` for Space and Enter) and one `MutationObserver` for `aria-checked`, `aria-selected`, `aria-pressed`, `aria-expanded`, `data-state`, `data-checked`, and `data-open`. The listeners read `event.composedPath()`, so they reach elements in shadow DOM. A second call adds nothing; each call returns its own uninstall.
+- **One frame loop.** Every spring runs in one shared `requestAnimationFrame` loop that stops when nothing moves. A spring that gets a new target keeps its speed. `springs.snappy` (stiffness 520, damping 34) moves and resizes. `springs.soft` (380, 20) wobbles and settles.
+- **Only its own properties.** The layer writes the separate CSS properties `scale`, `translate`, and `rotate`, and `filter` or `opacity` where an effect needs them, never `transform`, so it adds to a component's own transform. It removes what it wrote when the spring settles. A component must not set `scale`, `translate`, or `rotate` inline itself.
+- **Press.** On pointer down, or Space or Enter on the focused control, the pressed control squashes with a stiff spring (900, 40) and springs back past rest with a loose one (380, 14) on release. It squashes by 3% from 40px high, 4% from 32px, and 5% below. An icon-only control squashes its icon by 15% and keeps its background still. Disabled controls and `aria-disabled="true"` do not squash.
+- **Reduced motion.** `prefersReducedMotion()` follows the system setting live, and `forceReducedMotion()` sets it from an app setting or a test. Under it, a press does nothing and a spring jumps to its target. A helper that must still show a change passes `{ tween: 0.15 }` to `spring.to()` for the 150ms crossfade.
+- **¼×.** `setMotionSlowFactor(4)` runs every spring four times slower, to record or study an effect.
+
+### Spinners and fades
+
+A loading spinner that turns forever (`animate-spin`, or `@keyframes` that only rotate) shows that work runs, so it is not hand-written motion. The same is true for a skeleton pulse (`animate-pulse`) and for any color or opacity fade. Rule 5 still applies when a spinner becomes a check: draw the stroke with the helper.
 
 ## Adding a component
 
 1. List its interactions from the table above.
 2. Render the right element or role for each one, so the motion layer picks it up.
 3. Call the helper for each label, count, progress, list, or delete event.
-4. Add it to the motion page of the UI playground, and attach a short ¼× recording to the pull request.
+4. Add it to the motion page, `packages/ui/test/browser/motion/`, and assert its effect in `test/browser/motion.browser.mjs` (`pnpm --filter @vite-hub/ui test:motion`). Record it at ¼× with `MOTION_RECORD=<dir>` and attach the recording to the pull request.
+
+## Adding an effect
+
+An interaction that the layer does not cover yet gets an effect of its own: a `MotionEffect` in a file in `packages/ui/src/motion/effects/`, listed in `builtInEffects`. The core does not change. An app adds one with `defineMotionEffect`, which takes the same object:
+
+```ts
+import { createSpring, defineMotionEffect, springs, writeMotionStyle } from "@vite-hub/ui/motion";
+
+defineMotionEffect({
+  name: "toggle",
+  selector: "[role=switch], [aria-pressed]",
+  // A pointer or key press. Return { release, move? } to hear the rest of it.
+  press(element, event) {},
+  // One of the state attributes changed. Also runs under reduced motion: keep the meaning.
+  state(element, { attribute, oldValue, value }) {},
+  // The element was added to the page, such as a tooltip.
+  enter(element) {},
+});
+```

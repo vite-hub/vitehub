@@ -94,14 +94,15 @@ export const vitehubTheme = {
       },
     },
   },
-  // Buttons are black and white. A press scales the button to 97%; reduced motion keeps it still.
+  // Buttons are black and white. The motion layer of `@vite-hub/ui/motion` gives them their press, so the theme only fades
+  // their colors.
   button: {
     defaultVariants: {
       color: "neutral",
       size: "sm",
     },
     slots: {
-      base: "rounded-md font-medium disabled:opacity-50 aria-disabled:opacity-50 transition-[color,background-color,box-shadow,transform] duration-150 ease-out motion-safe:active:not-disabled:scale-[.97] motion-reduce:transition-none",
+      base: "rounded-md font-medium disabled:opacity-50 aria-disabled:opacity-50 transition-[color,background-color,box-shadow] duration-150 ease-out motion-reduce:transition-none",
       leadingIcon: "size-4 opacity-80",
       trailingIcon: "size-3.5 opacity-75",
     },
