@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto"
 import { readFile, rename, rm, stat, writeFile } from "node:fs/promises"
-import { resolve } from "node:path"
+import { join, resolve } from "node:path"
 
 import * as v from "valibot"
 
-import { askOnTerminal, parseCliPositiveInteger, readCliOptionValue, readViteHubDevTargetOption, writeCliFailure } from "@vite-hub/internal/cli"
+import { askOnTerminal, listSeedFiles, parseCliPositiveInteger, readCliOptionValue, readViteHubDevTargetOption, writeCliFailure } from "@vite-hub/internal/cli"
 import { callOperationFromCli, table as formatTable } from "@vite-hub/internal/operations"
 
 import {
@@ -15,7 +15,7 @@ import {
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { sanitizeMediaRecord } from "./media/records.ts"
 
-import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliFailure, ViteHubCliStreams } from "@vite-hub/internal/cli"
+import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliFailure, ViteHubCliSeed, ViteHubCliSeedOptions, ViteHubCliStreams } from "@vite-hub/internal/cli"
 import type { BlobDevOperation } from "./results.ts"
 import type { BlobDevDeleteResult, BlobDevGetResult, BlobDevHeadResult, BlobDevListResult, BlobDevMediaResult, BlobDevObject, BlobDevPutResult, BlobDevVariantsResult } from "./runtime/operations.ts"
 
@@ -433,6 +433,36 @@ export async function runBlobCli(args: string[], context: BlobCliContext, option
     return 1
   }
   return await runBlobCommand(command, rest, context, options)
+}
+
+/** The folder of the Blob seed files, relative to the project root. */
+const blobSeedDir = "server/seed/blob"
+
+/**
+ * Uploads each file in `server/seed/blob/` to the default Blob store with `blob put`. The pathname is the path in the
+ * folder, so `server/seed/blob/video/intro.mp4` is the blob `video/intro.mp4`. The store sets the content type from the
+ * extension.
+ */
+async function runBlobSeed(seed: ViteHubCliSeedOptions, context: ViteHubCliContext, options: BlobCliOptions): Promise<number | undefined> {
+  const dir = resolve(context.rootDir, blobSeedDir)
+  const files = await listSeedFiles(dir)
+  if (!files?.length) return undefined
+  if (seed.remote && !seed.url) {
+    context.stderr.write("[vitehub] The Blob seed with --remote writes the deployed app. Pass --url <url>, or set `vitehub({ publicUrl })`.\n")
+    return 1
+  }
+  const put = blobCommands.find(command => command.name === "put")!
+  for (const file of files) {
+    const flags = [...seed.url ? ["--url", seed.url] : [], ...seed.timeout ? ["--timeout", String(seed.timeout)] : []]
+    const code = await runBlobCommand(put, [...flags, "--", file, join(dir, file)], context, options)
+    if (code !== 0) return code
+  }
+  return 0
+}
+
+/** The `vitehub seed` entry of Blob: the files in `server/seed/blob/`. */
+export function createBlobCliSeeds(options: BlobCliOptions = {}): ViteHubCliSeed[] {
+  return [{ files: `${blobSeedDir}/<pathname>`, name: "blob", run: async (seed, context) => await runBlobSeed(seed, context, options) }]
 }
 
 /** Returns the `blob` CLI namespace. */

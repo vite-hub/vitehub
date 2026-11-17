@@ -69,7 +69,7 @@ export default defineConfig({
 | `database.cli.export` | `false` | enabled | Turns off `database export`. |
 | `database.cli.generate` | `false` | enabled | Turns off `database generate`. |
 | `database.cli.migrate` | `false` | enabled | Turns off `database migrate`. |
-| `database.cli.seed` | `false` | enabled | Turns off `database seed`. |
+| `database.cli.seed` | `false` | enabled | Leaves the Database out of `vitehub seed`. |
 | `database.cli.sql` | `false` | enabled | Turns off `database sql`. |
 | `database.cli.up` | `false` | enabled | Turns off `database up`. |
 | `database.connection` | `DatabaseConnectionConfig` | local SQLite | Hosted libSQL connection for Definitions that set none. Values in a Definition win. |
@@ -453,9 +453,10 @@ For a named database, write `DatabaseSeed<'analytics'>`. Then apply the migratio
 
 ```bash [commands/seed]
 pnpm vitehub database migrate
-pnpm vitehub database seed                       # each database that has a seed file
-pnpm vitehub database seed --database analytics
-pnpm vitehub database seed --remote --stage staging
+pnpm vitehub seed                       # each database that has a seed file, and the KV and Blob seed files
+pnpm vitehub seed database              # only the databases
+pnpm vitehub seed --database analytics
+pnpm vitehub seed --remote --stage staging
 ```
 
 Without `--remote`, the command writes only the local database that `vitehub database migrate` uses: the SQLite file, or the PGlite folder of a Postgres Database. A remote database needs `--remote`, so a seed never reaches production by accident. With `--remote`, it connects like `vitehub database export --remote`: Cloudflare D1 through the Cloudflare API, D1 HTTP, remote libSQL, or Postgres. `--stage <name>` loads the Vite env files of that mode.

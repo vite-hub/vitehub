@@ -543,9 +543,10 @@ export function hubBlob(options?: BlobOptions, internalOptions: InternalBlobModu
       // The Console, `vitehub blob`, and agents run these.
       operations: [{ export: "blobOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).blobOperations, module: operationsModule }],
       cli: async () => {
-        const { createBlobCliNamespaces } = await import(/* @vite-ignore */ "./cli.js")
+        const { createBlobCliNamespaces, createBlobCliSeeds } = await import(/* @vite-ignore */ "./cli.js")
         return {
           namespaces: createBlobCliNamespaces(),
+          seeds: createBlobCliSeeds(),
           provision: [createBlobCloudflareProvisionStep(() => blob), createBlobVercelProvisionStep(() => blob)],
         }
       },

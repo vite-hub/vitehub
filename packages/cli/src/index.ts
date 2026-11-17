@@ -12,6 +12,7 @@ import { drainCommand } from "./drain.ts"
 import { createInspectNamespace } from "./inspect.ts"
 import { createOperationNamespaces, loadCliOperations, mergeOperationNamespaces } from "./operations.ts"
 import { createProvisionNamespace } from "./provision.ts"
+import { createSeedNamespace } from "./seed.ts"
 
 import type { InlineConfig } from "vite"
 import type { ViteHubCliCommand, ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliProvision } from "@vite-hub/internal/cli"
@@ -338,6 +339,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     ...mergeOperationNamespaces(contribution.namespaces, createOperationNamespaces(operations)).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name) && !runtimeNames.has(namespace.name)),
     createInspectNamespace(plugins, operations),
     createProvisionNamespace(contribution.provision),
+    createSeedNamespace(contribution.seeds),
     ...runtimeNamespaces,
   ]
   // Help lists `env diff`, `env push`, and `env pull` next to the `env` features of `hubEnv()`.
