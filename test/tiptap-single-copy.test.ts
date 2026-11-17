@@ -20,7 +20,9 @@ async function manifest(directory: string): Promise<Manifest> {
 // gave the app two copies and editors that did not fit its components.
 it.each(["realtime", "content"])("@vite-hub/%s takes Tiptap and Yjs from the app", async (directory) => {
   const { dependencies = {}, peerDependencies = {}, peerDependenciesMeta = {} } = await manifest(directory)
-  const shared = (name: string) => name.startsWith("@tiptap/") || name === "yjs"
+  // Realtime bundles the collaboration extension and y-tiptap into its own files, so they stay dependencies.
+  const bundled = new Set(["@tiptap/extension-collaboration", "@tiptap/y-tiptap"])
+  const shared = (name: string) => (name.startsWith("@tiptap/") || name === "yjs") && !(directory === "realtime" && bundled.has(name))
   expect(Object.keys(dependencies).filter(shared)).toEqual([])
   expect(Object.keys(peerDependencies).filter(shared)).toContain("@tiptap/core")
   expect(Object.keys(peerDependenciesMeta).filter(name => shared(name) && peerDependenciesMeta[name]?.optional)).toEqual([])

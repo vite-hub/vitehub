@@ -3294,6 +3294,12 @@ importers:
 
   packages/realtime:
     dependencies:
+      '@tiptap/extension-collaboration':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(@tiptap/y-tiptap@3.0.9(prosemirror-model@1.25.12)(prosemirror-state@1.4.4)(prosemirror-view@1.42.6)(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33))(yjs@13.6.33)
+      '@tiptap/y-tiptap':
+        specifier: catalog:realtime
+        version: 3.0.9(prosemirror-model@1.25.12)(prosemirror-state@1.4.4)(prosemirror-view@1.42.6)(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33)
       '@vite-hub/auth':
         specifier: workspace:*
         version: link:../auth
@@ -3352,9 +3358,6 @@ importers:
       '@tiptap/extension-code':
         specifier: catalog:realtime
         version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))
-      '@tiptap/extension-collaboration':
-        specifier: catalog:realtime
-        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(@tiptap/y-tiptap@3.0.9(prosemirror-model@1.25.12)(prosemirror-state@1.4.4)(prosemirror-view@1.42.6)(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33))(yjs@13.6.33)
       '@tiptap/extension-document':
         specifier: catalog:realtime
         version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))
@@ -3373,9 +3376,6 @@ importers:
       '@tiptap/starter-kit':
         specifier: catalog:realtime
         version: 3.31.4
-      '@tiptap/y-tiptap':
-        specifier: catalog:realtime
-        version: 3.0.9(prosemirror-model@1.25.12)(prosemirror-state@1.4.4)(prosemirror-view@1.42.6)(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33)
       '@types/json-schema':
         specifier: catalog:ai
         version: 7.0.15
