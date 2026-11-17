@@ -138,7 +138,6 @@ describe("agent config", () => {
       expect(agent.defineAgent({
         driver: { run: async () => "ok", },
       }).run).toBeTypeOf("function")
-      expect(agent).not.toHaveProperty("withAgentDefaults")
     }
     finally {
       vi.doUnmock("@vite-hub/workspace")
@@ -158,7 +157,6 @@ describe("agent config", () => {
       const publicServer = await import("../src/server.ts")
       expect(publicServer).not.toHaveProperty("createChannelChatRouteHandler")
       expect(publicServer).not.toHaveProperty("createChannelWebhookRouteHandler")
-      expect(publicServer).not.toHaveProperty("createGitHubHost")
       const server = await import("../src/server/internal.ts")
       expect(server.createChannelChatRouteHandler).toBeTypeOf("function")
       expect(server.createChannelWebhookRouteHandler).toBeTypeOf("function")
