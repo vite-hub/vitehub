@@ -368,7 +368,7 @@ export async function verifyMcpRequest(request: Pick<Request, "headers" | "url">
   if (!isRecord(user) || typeof user.id !== "string" || banned(user)) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "the user does not exist or is banned." }), undefined]
   const policy = findAccessPolicyPlugin(context.options.plugins)
   // SAFETY: `findUserById` returns the Auth user record, and its `id` is checked above.
-  if (policy && !await policy.allows(user as Parameters<typeof policy.allows>[0], `mcp:${user.id}`)) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "`access.policy` does not allow the user." }), undefined]
+  if (policy && !await policy.allows(user as Parameters<typeof policy.allows>[0], `mcp:${user.id}`)) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "`access.policy` or `VITEHUB_MEMBERS` does not allow the user." }), undefined]
   const clientId = typeof payload.azp === "string" ? payload.azp : typeof payload.client_id === "string" ? payload.client_id : undefined
   const client = clientId ? await context.adapter.findOne({ model: "oauthClient", where: [{ field: "clientId", value: clientId }] }) : undefined
   if (!isRecord(client) || client.disabled) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "the OAuth client does not exist or is disabled." }), undefined]
