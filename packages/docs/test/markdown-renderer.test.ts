@@ -27,7 +27,7 @@ function renderer(content: Record<string, () => Promise<{ default: vue.Component
     require: (id: string) => {
       if (id === "vue") return vue
       if (id === "@comark/vue/components/MarkdownDocument") return { MarkdownDocument }
-      if (id === "#docs/blocks") return { __esModule: true, default: blockMap }
+      if (id === "comark-ui/vue/lazy") return { components: blockMap }
       if (id === "#docs/components") return { __esModule: true, default: content }
       if (id === "#docs/custom-components") return { __esModule: true, default: custom }
       throw new Error(`Unexpected component import: ${id}`)

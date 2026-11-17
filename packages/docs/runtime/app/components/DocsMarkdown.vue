@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { MarkdownDocument } from "@comark/vue/components/MarkdownDocument"
+import { components as blocks } from "comark-ui/vue/lazy"
 import { camelize, capitalize, defineAsyncComponent } from "vue"
-import blocks from "#docs/blocks"
 import customComponents from "#docs/custom-components"
 import contentComponents from "#docs/components"
 
