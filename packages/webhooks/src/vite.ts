@@ -245,3 +245,5 @@ export function hubWebhooks(options: HubWebhooksOptions = {}): Plugin & {
     },
   }
 }
+
+export { webhooksConsoleSection } from "./console.ts"

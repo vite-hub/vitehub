@@ -584,6 +584,10 @@
   --vh-primitive-icon-motion: translateY(-1px);
 }
 
+.vh-primitive-icon[data-icon="webhooks"] {
+  --vh-primitive-icon-motion: translate(1px, -1px);
+}
+
 .vh-primitive-icon[data-icon="workflow"] {
   --vh-primitive-icon-motion: translateX(1.5px);
 }
