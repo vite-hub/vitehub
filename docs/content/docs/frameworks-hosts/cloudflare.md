@@ -135,6 +135,8 @@ test -f .output/server/wrangler.json
 find .output -maxdepth 4 -type f | sort
 ```
 
+Some generated server files under `.vitehub/nitro/`, such as the Database middleware, import `cloudflare:workers`. In Nuxt, ViteHub adds the types of that module to the app's TypeScript config, so `nuxt typecheck` passes without `@cloudflare/workers-types`. When the app installs `@cloudflare/workers-types`, ViteHub adds its full types instead. You do not need a `declare module "cloudflare:workers"` file in the app.
+
 ### A project Wrangler config
 
 A project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` can declare bindings that ViteHub also writes, for example in a Deploy to Cloudflare template. Nitro merges that file into the generated config and joins the arrays. ViteHub then keeps one entry per name in `kv_namespaces`, `r2_buckets`, `ratelimits`, `hyperdrive`, `containers` (by matching `class_name` or `name`, with entries containing both linking the two forms), `durable_objects.bindings`, `migrations`, `queues`, `workflows`, `services`, `send_email`, and `analytics_engine_datasets`, at the top level and in each `env`. The Database integration does the same for `d1_databases`; see [Database hosts](/docs/database/hosts). It also removes repeated `compatibility_flags` and `secrets.required` names.

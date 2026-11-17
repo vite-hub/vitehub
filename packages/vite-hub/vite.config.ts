@@ -514,6 +514,7 @@ export default defineConfig({
         { from: "src/ui/styles.css", to: "dist/ui" },
         { from: "src/ui/theme.css", to: "dist/ui" },
         { from: "templates/cloudflare-types.d.ts", to: "dist" },
+        { from: "templates/cloudflare-workers.d.ts", to: "dist" },
       ],
       deps: {
         // Agent-only apps need the client-free journal constructor without installing the optional Database package.

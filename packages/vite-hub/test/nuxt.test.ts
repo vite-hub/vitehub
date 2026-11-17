@@ -3125,6 +3125,18 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(nitroOptions(nuxt)).toMatchObject({ preset: "vercel" })
   })
 
+  it.each(["cloudflare-module", "cloudflare_module"])("builds for the host of nitro.preset %s when host is omitted", async (preset) => {
+    for (const name of ["VITEHUB_HOST", "NITRO_PRESET", "SERVER_PRESET", "WORKERS_CI", "NETLIFY", "NOW_BUILDER", "VERCEL_ENV", "DENO_DEPLOY", "DENO_DEPLOYMENT_ID"]) vi.stubEnv(name, "")
+    // Nitro uses its configured preset before the provider variables, so ViteHub does the same.
+    vi.stubEnv("VERCEL", "1")
+    const { nuxt } = createNuxt()
+    Object.assign(nuxt.options, { nitro: { preset } })
+
+    await viteHubNuxtModule({}, nuxt)
+
+    expect(nitroOptions(nuxt)).toMatchObject({ preset: "cloudflare-module", wasm: { lazy: true } })
+  })
+
   it("rejects a conflicting Nitro preset during Nuxt module setup", async () => {
     const { nuxt } = createNuxt()
     Object.assign(nuxt.options, { nitro: { preset: "vercel" } })
@@ -3695,7 +3707,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     })
   })
 
-  it("adds no Cloudflare types when the app does not install @cloudflare/workers-types", async () => {
+  it("declares cloudflare:workers for generated files when the app does not install @cloudflare/workers-types", async () => {
     const installed = vi.mocked(isPackageInstalled).getMockImplementation()!
     vi.mocked(isPackageInstalled).mockImplementation(name => name !== "@cloudflare/workers-types" && installed(name))
     try {
@@ -3703,7 +3715,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
 
       await viteHubNuxtModule({ host: "cloudflare" }, nuxt)
 
-      const typescript = { tsConfig: { include: ["../.vitehub/types.d.ts"] } }
+      const typescript = { tsConfig: { include: ["../.vitehub/types.d.ts", expect.stringContaining("cloudflare-workers.d.ts")] } }
       expect(nuxt.options).toMatchObject({ nitro: { typescript }, typescript: { ...typescript, sharedTsConfig: typescript.tsConfig } })
     }
     finally {
@@ -4417,7 +4429,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       { from: "#app", name: "useAppConfig" },
       ...names("vite-hub/blob", "blob"),
       ...names("vite-hub/database", "db", "schema", "useDatabase"),
-      ...names("vite-hub/env", "checkServiceToken", "requireServiceToken", "useServerEnv"),
+      ...names("vite-hub/env", "checkServiceToken", "requireServiceToken", "useServerEnv", "verifyWebhook"),
       ...names("vite-hub/kv", "kv"),
       ...names("vite-hub/queue", "defineQueue", "deferQueue", "useQueue", "sendQueue"),
       ...names("vite-hub/rate-limit", "checkRateLimit", "peekRateLimit", "requireRateLimit", "resetRateLimit"),
@@ -4441,6 +4453,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       { from: "vite-hub/env", name: "checkServiceToken", priority: -1 },
       { from: "vite-hub/env", name: "requireServiceToken", priority: -1 },
       { from: "vite-hub/env", name: "useServerEnv", priority: -1 },
+      { from: "vite-hub/env", name: "verifyWebhook", priority: -1 },
     ])
 
     // A host without a Queue service does not install the Queue package, so it gets no Queue helpers.

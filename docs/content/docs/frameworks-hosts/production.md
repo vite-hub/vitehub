@@ -23,7 +23,7 @@ Primitives give different guarantees. Start with the smallest one that fits.
 | Deliver a job after a request returns | [Queue](/docs/queue) | Retry behavior, duplicate delivery, and failed-job handling. |
 | Resume and inspect long-running work | [Workflow](/docs/workflows) | Durable provider setup and retry-safe steps. Vercel inline handlers do not survive a function restart. |
 | Start work at a time or on a recurring schedule | [Schedule](/docs/schedule) | Who wakes the target, where records persist, and whether two runners can run the same occurrence. |
-| Execute commands | [Shell](/docs/shell) | Commands, file access, network access, and timeouts the execution provider allows. |
+| Execute commands | [Shell](/docs/shell) | Commands, file access, network access, and timeouts the Shell driver allows. |
 | Isolate a process from the application host | [Sandbox](/docs/sandbox) | The provider's isolation and resource limits. Command parsing and Workspace rules do not isolate a host process. |
 
 Check the [test status](/docs/frameworks-hosts/support-matrix#test-status) of each host and primitive. Live tested, Tested locally, and Experimental prove different things. A live test shows what CI checks on the host, not that your deployment works.
