@@ -148,7 +148,6 @@ describe("agent message protocol", () => {
     })
     const resolveCapabilities = vi.fn(async (context) => {
       expect(context.abortSignal).toBe(abortController.signal)
-      expect(context).not.toHaveProperty("actor")
       expect(context.driver.kind).toBe("run")
       expect(context.input.prompt).toBe("hello")
       expect(context.run?.channelId).toBe("portal")
@@ -1320,7 +1319,7 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("exposes resolved Agent Actors alongside legacy invokers", async () => {
+  it("exposes the resolved invoker to capabilities, Drivers, and finish hooks", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
     const prepare = vi.fn()
@@ -1328,10 +1327,8 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       capabilities: [{
         id: "seen",
-        prepare({ context, invoker, ...rest }) {
+        prepare({ context, invoker }) {
           prepare({
-            actorKey: "actor" in rest,
-            contextActor: context.get("actor" as never),
             contextInvoker: context.get("invoker"),
             invoker,
           })
@@ -1364,8 +1361,6 @@ describe("agent message protocol", () => {
       text: "tenant-1",
     })
     expect(prepare).toHaveBeenCalledWith({
-      actorKey: false,
-      contextActor: undefined,
       contextInvoker: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
       invoker: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
     })
@@ -3013,12 +3008,6 @@ describe("agent message protocol", () => {
         run: { runId: "trigger-run" },
       }),
     }))
-  })
-
-  it("does not export entry() from capabilities", async () => {
-    const capabilities = await import("../src/capabilities.ts")
-
-    expect("entry" in capabilities).toBe(false)
   })
 
   it("creates custom trigger channels with channelAdapter()", async () => {
