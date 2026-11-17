@@ -576,7 +576,8 @@ storage driver for Nitro's `cache` mount. In ViteHub, set `cache: true`.
 
 The `cache` option accepts only the drivers above and `kv`. NuxtHub accepted
 any unstorage driver, but `cache: { driver: "redis" }` fails the build with
-`VITE_HUB_C0004`. To keep another driver, remove `cache` and mount it in Nitro:
+`VITE_HUB_C0004`. NuxtHub's `cloudflare-kv-binding` and `vercel-runtime-cache` are
+`cloudflare` and `vercel` here, and the error says so. To keep another driver, remove `cache` and mount it in Nitro:
 
 ```diff [nuxt.config.ts]
  export default defineNuxtConfig({
