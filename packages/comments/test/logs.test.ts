@@ -29,25 +29,27 @@ describe("Comments failures in logs", () => {
     vi.restoreAllMocks()
   })
 
-  it("puts a failed onComment on the request's wide event, and keeps the comment", async () => {
+  it("puts a failed onComment on the request's wide event, without the error or the comment, and keeps the comment", async () => {
+    setEvlogBridge({ createLogger: vi.fn() })
     const console = vi.spyOn(globalThis.console, "error").mockImplementation(() => {})
     const log = { set: vi.fn(), warn: vi.fn(), error: vi.fn() }
 
-    const { response, body } = await postThread({ onComment: () => { throw Object.assign(new Error("SMTP refused"), { code: "EMAIL_REFUSED" }) } }, log)
+    const { response, body } = await postThread({ onComment: () => { throw Object.assign(new Error("SMTP refused mail to ada@acme.dev"), { code: "EMAIL_REFUSED" }) } }, log)
 
     expect(response.status).toBe(200)
-    expect(log.warn).toHaveBeenCalledWith("Comments onComment failed: SMTP refused", {
+    expect(log.warn.mock.calls).toEqual([["Comments onComment failed", {
       comments: { hook: "onComment", thread: body.data!.id, code: "EMAIL_REFUSED" },
-    })
-    expect(JSON.stringify(log.warn.mock.calls)).not.toContain("The price is wrong")
+    }]])
+    expect(JSON.stringify([log.set.mock.calls, log.warn.mock.calls, log.error.mock.calls])).not.toMatch(/ada@acme\.dev|SMTP|The price is wrong/)
     expect(console).not.toHaveBeenCalled()
   })
 
   it("emits its own event for a failed onMention, which runs after the answer", async () => {
-    const events: Array<Record<string, unknown>> = []
-    setEvlogBridge({ createLogger: (fields) => { events.push(fields); return { info() {}, warn() {}, error() {}, emit: () => fields } } })
+    const events: unknown[] = []
+    const kept: unknown[] = []
+    setEvlogBridge({ createLogger: (fields, options) => { events.push(fields); if (options?.waitUntil) kept.push(options.waitUntil); return { info() {}, warn() {}, error: error => events.push(error), emit: () => fields } } })
     const console = vi.spyOn(globalThis.console, "error").mockImplementation(() => {})
-    const comments = await createComments({ onMention: () => { throw new Error("push service down") } })
+    const comments = await createComments({ onMention: () => { throw new Error("push to grace@acme.dev failed") } })
     // Grace must have written before, so that `@Grace` names a known person.
     await comments.create({ page: "/", anchor, body: "Hello", author: grace })
 
@@ -56,6 +58,7 @@ describe("Comments failures in logs", () => {
 
     expect(error).toBeUndefined()
     expect(events).toEqual([{ action: "comments", message: "Comments onMention failed", comments: { hook: "onMention", thread: thread!.id } }])
+    expect(kept).toHaveLength(1)
     expect(console).not.toHaveBeenCalled()
   })
 

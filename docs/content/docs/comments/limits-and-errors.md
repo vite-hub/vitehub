@@ -71,7 +71,7 @@ A failure in `onComment`, `onMention`, or the pull request sync never fails the 
 | `thread` | The thread id. |
 | `code` | The `code` of the error, else its class name. |
 
-`onComment` runs before the answer, so its failure goes on the wide event of the request. `onMention` and the sync run after the answer, so each failure is its own evlog event, `{ action: "comments", message, comments }`. The fields never hold the comment text or a token. Without evlog, Comments prints the failure to the server console.
+`onComment` runs before the answer, so its failure goes on the wide event of the request. `onMention` and the sync run after the answer, so each failure is its own evlog event, `{ action: "comments", message, comments }`. The event has a fixed message and the `code`, never the error's message, the comment text, or a token. Without evlog, or with evlog's `enabled: false`, Comments prints the failure to the server console.
 
 ## Runtime errors
 

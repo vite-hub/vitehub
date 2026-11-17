@@ -326,13 +326,17 @@ async function announce(runtime: CommentsRuntime, thread: CommentThread, message
   }
   if (!onMention || !fresh.length) return
   const link = subjectDefinition(runtime, thread.subject.kind)?.link?.(thread)
+  const keep = (promise: Promise<unknown>) => {
+    options.waitUntil?.(promise)
+    runtime.background?.(promise)
+  }
   const task = (async () => {
     try {
       await onMention({ message, thread, users: fresh, ...(link ? { link } : {}) })
     }
     catch (error) {
       // onMention runs after the answer, when the wide event of the request is gone. It gets an event of its own.
-      logFailure({ field: "comments", fields: { hook: "onMention", thread: thread.id }, message: "Comments onMention failed", error }, () => globalThis.console.error("[vitehub] Comments onMention failed:", error))
+      logFailure({ field: "comments", fields: { hook: "onMention", thread: thread.id }, message: "Comments onMention failed", error, waitUntil: keep }, () => globalThis.console.error("[vitehub] Comments onMention failed:", error))
     }
   })()
   options.waitUntil?.(task)
