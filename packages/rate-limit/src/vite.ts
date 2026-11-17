@@ -130,6 +130,12 @@ function resolveRateLimitNamespace(configured?: string): string | undefined {
 }
 
 function resolveDriver(options: RateLimitOptions, command: "build" | "serve", nitro: unknown, deferUnknown = false): ResolvedRateLimitDriver | undefined {
+  // Without `driver`, Rate Limit picks the host's driver, so the former `provider` key would be ignored silently.
+  if (options.driver === undefined && Object.hasOwn(options, "provider")) {
+    // SAFETY: An app config without types still passes the former `provider` key.
+    const provider = (options as { provider?: unknown }).provider
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_RENAMED_PROVIDER_KEY({ value: JSON.stringify(provider) ?? String(provider) })
+  }
   if (options.driver && options.driver !== "auto") return options.driver
   if (command === "serve") return "memory"
   const hosting = getHostingProvider(resolveHost({ nitro }))

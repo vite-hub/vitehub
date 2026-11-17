@@ -200,6 +200,12 @@ const realtimeAvailabilityId = "#vitehub/realtime/availability"
 const resolvedRealtimeAvailabilityId = `\0${realtimeAvailabilityId}`
 
 export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVitePlugin {
+  // Without `driver`, Realtime picks the host's driver, so the former `authority` key would be ignored silently.
+  if (options.driver === undefined && Object.hasOwn(options, "authority")) {
+    // SAFETY: An app config without types still passes the former `authority` key.
+    const authority = (options as { authority?: unknown }).authority
+    throw realtimeErrorDiagnostics.REALTIME_RENAMED_AUTHORITY_KEY({ value: JSON.stringify(authority) ?? String(authority) })
+  }
   const importBase = options.importBase ?? "@vite-hub/realtime"
   let inspectionRoot: string | undefined
   let inspectionServerDirs: string[] | undefined
