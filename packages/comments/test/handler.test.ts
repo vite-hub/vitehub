@@ -510,6 +510,16 @@ describe("Comments API", () => {
     expect(nameless.body.error?.code).toBe("COMMENTS_FORBIDDEN")
   })
 
+  it("answers 429 with retry-after to a guest over defineComments({ rateLimit })", async () => {
+    const { call } = await setup({ user: null, options: { authorize: () => true, rateLimit: { limit: 1, window: "1m" } } })
+    const guest = { "x-vitehub-comments-guest-id": "g1", "x-vitehub-comments-guest-name": "Lin" }
+    expect((await call("/threads", { method: "POST", json: { page: "/", anchor, body: "Hi" }, headers: guest })).response.status).toBe(200)
+    const limited = await call("/threads", { method: "POST", json: { page: "/", anchor, body: "Hi" }, headers: guest })
+    expect(limited.response.status).toBe(429)
+    expect(limited.body.error?.code).toBe("COMMENTS_GUEST_RATE_LIMITED")
+    expect(Number(limited.response.headers.get("retry-after"))).toBeGreaterThan(0)
+  })
+
   it("rejects guest deletion even when a visible author ID is copied", async () => {
     const { comments, call } = await setup({ options: { identify: undefined, authorize: () => true } })
     const headers = { "x-vitehub-comments-guest-id": "victim", "x-vitehub-comments-guest-name": "Visitor" }

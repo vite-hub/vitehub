@@ -1067,6 +1067,23 @@ index 0a5024561ec68097c6885e44c11131584ab1248b..09699752b7e832cd97fbca5511a0ee0a
    };
  }
  function layerContains(layer, target) {
+diff --git a/dist/foundation/platform/platform.js b/dist/foundation/platform/platform.js
+index 4631355dec43c64f5a9a337d967bb8c991c8dce1..615b1423ad227a2b4fd93345655062a46f4702d9 100644
+--- a/dist/foundation/platform/platform.js
++++ b/dist/foundation/platform/platform.js
+@@ -161,7 +161,11 @@ function matchesShortcut(event, shortcut, apple2 = isApple()) {
+   if (!keys) {
+     cache.set(shortcut, keys = ariaKeyshortcuts(shortcut, apple2).split("+"));
+   }
+-  return matchesKey(event, keys.at(-1)) && event.metaKey === keys.includes("Meta") && event.ctrlKey === keys.includes("Control") && event.altKey === keys.includes("Alt") && event.shiftKey === keys.includes("Shift");
++  const last = keys.at(-1);
++  return matchesKey(event, last) && event.metaKey === keys.includes("Meta") && event.ctrlKey === keys.includes("Control") && event.altKey === keys.includes("Alt") && (event.shiftKey === keys.includes("Shift") || typesWithShift(last, keys));
++}
++function typesWithShift(key, keys) {
++  return key.length === 1 && !/^[A-Z0-9]$/.test(key) && !keys.includes("Shift");
+ }
+ function hasCommandModifier(keys) {
+   return /(^|\+)(Meta|Control|Alt)(\+|$)/.test(ariaKeyshortcuts(keys, true));
 diff --git a/dist/foundation/popups/popup-features.js b/dist/foundation/popups/popup-features.js
 index eab2beaa42b085f926aaec23c80926950fc2d0d3..3af3f600c9afc33fbbcc610873020e4133d24a02 100644
 --- a/dist/foundation/popups/popup-features.js
