@@ -180,6 +180,26 @@ describe.each(dialects)("runIdempotent() on %s", (_dialect, fresh) => {
   })
 })
 
+it("recovers when table and index creation each encounter Postgres catalog contention", async () => {
+  const backend = new PGlite()
+  const db = drizzlePglite({ client: backend })
+  let calls = 0
+  const contended: IdempotencyDatabase = {
+    async execute(statement) {
+      calls++
+      // Another instance can win table creation, then a different instance can win index creation.
+      if (calls === 1 || calls === 3) throw Object.assign(new Error("catalog contention"), { code: "23505" })
+      return await db.execute(statement)
+    },
+  }
+  try {
+    expect(await runIdempotent(contended, "first-use", () => "done")).toEqual([undefined, "done"])
+  }
+  finally {
+    await backend.close()
+  }
+})
+
 describe.runIf(server)("runIdempotent() on Postgres with several processes", () => {
   it("creates the table once when the first calls of many clients race", async () => {
     await server!`DROP TABLE IF EXISTS vitehub_idempotency_keys`

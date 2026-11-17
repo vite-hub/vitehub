@@ -48,13 +48,13 @@ function createTable(db: IdempotencyDatabase): Promise<void> {
   if (!promise) {
     promise = (async () => {
       const expiresAt = db.execute ? sql.raw("BIGINT") : sql.raw("INTEGER")
-      const create = async () => {
-        await query(db, sql`CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY NOT NULL, claim TEXT, result TEXT, expires_at ${expiresAt} NOT NULL)`)
-        await query(db, sql`CREATE INDEX IF NOT EXISTS vitehub_idempotency_keys_expires_at ON ${table} (expires_at)`)
+      // `IF NOT EXISTS` does not serialize Postgres catalog writes. A losing creator retries after the winner commits.
+      // Retry each statement separately: a caller can lose both the table race and the subsequent index race.
+      const create = async (statement: SQL) => {
+        await query(db, statement).catch(() => query(db, statement))
       }
-      // Two Postgres processes that create the table at once can fail with a unique violation in the catalog, because
-      // `IF NOT EXISTS` does not lock. The second try finds the table that the other process created.
-      await create().catch(create)
+      await create(sql`CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY NOT NULL, claim TEXT, result TEXT, expires_at ${expiresAt} NOT NULL)`)
+      await create(sql`CREATE INDEX IF NOT EXISTS vitehub_idempotency_keys_expires_at ON ${table} (expires_at)`)
     })()
     promise.catch(() => ready.delete(db))
     ready.set(db, promise)
