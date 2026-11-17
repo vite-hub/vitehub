@@ -248,7 +248,7 @@ describe("generated operation commands", () => {
     expect(operationRpcRequest(fetch.mock.calls[0]![1]!.body).input).toEqual({})
   })
 
-  it.each(["inspect", "provision"])("diagnoses a generated command in the reserved %s namespace", async namespace => {
+  it.each(["inspect", "provision", "seed"])("diagnoses a generated command in the reserved %s namespace", async namespace => {
     const operation = defineOperation({ ...list, name: "reports.custom", cli: { namespace } })
     await expect(run([namespace, "custom"], { operations: [operation] })).rejects.toMatchObject({ code: "INTERNAL_R0020", message: expect.stringContaining("reserved") })
   })

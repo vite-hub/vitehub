@@ -11,7 +11,8 @@ export interface ForgeArchiveOptions {
 
 /**
  * The repository tree at `ref` as a gzipped tarball stream.
- * Gap: `forges` has no `contents.archive()`. Proposed upstream as `provider.contents.archive(repo, options)`.
+ * Gap: `forges` has no `contents.archive()`. Proposed upstream as `provider.contents.archive(repo, options)`
+ * (https://github.com/danielroe/forges/issues/191).
  */
 export async function forgeArchive(provider: ForgeProvider, repo: RepoRef, options: ForgeArchiveOptions): Promise<ReadableStream<Uint8Array>> {
   if (provider.forge !== "github") {

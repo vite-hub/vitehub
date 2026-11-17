@@ -289,7 +289,7 @@ describe("operations", () => {
 })
 
 
-it.each(["inspect", "provision"])("rejects %s as an operation namespace in the registry", namespace => {
+it.each(["inspect", "provision", "seed"])("rejects %s as an operation namespace in the registry", namespace => {
   const operation = defineOperation({
     name: `${namespace}.custom`, description: "Reserved namespace.", kind: "read", section: namespace,
     input: v.object({}), run: () => true,

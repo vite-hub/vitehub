@@ -1,7 +1,8 @@
 /**
  * Proof that a development request came from this machine, for dev servers that run the app behind a proxy.
  *
- * Nitro 3 runs the app in a worker behind a proxy. The worker never sees the client's address:
+ * Nitro 3 runs the app in a worker behind an env-runner proxy. The worker never sees the client's address
+ * (https://github.com/unjs/env-runner/issues/113):
  * over a Unix socket it sees none, and over TCP it sees the proxy on `127.0.0.1`. The proxy forwards a client
  * `x-forwarded-for` as is. The front process sees the real socket, so its Nitro dev handler removes any client copy
  * of {@link viteHubDevPeerHeader} and, for a loopback socket only, adds an HMAC over the method, the path, a

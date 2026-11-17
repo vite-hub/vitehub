@@ -268,6 +268,34 @@ describe("SQL lease store", () => {
     expect(error?.message).toContain("could not acquire the lease \"job\"")
   })
 
+  it("creates the table again when it is gone, as after a test reset", async () => {
+    const db = new DatabaseSync(":memory:")
+    const store = createSqlLeaseStore({ dialect: "sqlite", query: async (sql, params) => db.prepare(sql).all(...params) })
+    ok(await store.acquire("job", { ttl: 30 }))
+
+    db.exec(`drop table ${leaseTable}`)
+
+    expect(ok(await store.get("job"))).toBeNull()
+    expect(ok(await store.acquire("job", { ttl: 30 }))).not.toBeNull()
+  })
+
+  it("runs a statement again on SQLITE_BUSY that a driver wraps in `cause`, as Drizzle does", async () => {
+    const db = new DatabaseSync(":memory:")
+    let busy = 1
+    const store = createSqlLeaseStore({
+      dialect: "sqlite",
+      async query(sql, params) {
+        if (sql.startsWith("insert") && busy-- > 0) {
+          throw new Error(`Failed query: ${sql}`, { cause: Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" }) })
+        }
+        return db.prepare(sql).all(...params)
+      },
+    })
+
+    expect(ok(await store.acquire("job", { ttl: 30 }))).not.toBeNull()
+    expect(busy).toBe(-1)
+  })
+
   it("writes Postgres placeholders in order and creates the table once under a lock", async () => {
     const statements: { sql: string, params: unknown[] }[] = []
     const store = createSqlLeaseStore({

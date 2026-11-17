@@ -10,7 +10,6 @@ class Element implements SimulatorForm, SimulatorTextArea {
   clientHeight = 0
   scrollHeight = 0
   scrollTop = 0
-  style = { height: "" }
   textContent = ""
   value = ""
   listeners = new Map<string, (event: SimulatorEvent) => void>()
