@@ -93,6 +93,10 @@ export const overlayStyles = `
   top: auto; bottom: calc(var(--pin-y) * -1 + 4px); border-radius: 16px 16px 16px 6px; transform-origin: 0 100%;
 }
 [data-slot="comment-layer-popover"][data-floating="true"] { border-radius: 16px; }
+/* The overlay places a card beside its pin itself, so it turns off the CSS anchor placement of @vite-hub/ui/styles.css. */
+[data-slot="comment-layer-item"]:not([data-draft]) > [data-slot="comment-layer-popover"]:not([data-margin], [data-floating]) {
+  position: absolute; margin: 0; position-area: none; position-try-fallbacks: none;
+}
 
 /*
  * On a touch screen the small buttons of a card, such as Resolve and Close, take a 44px hit area. The box's own toolbar
