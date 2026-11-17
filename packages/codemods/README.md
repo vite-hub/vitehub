@@ -28,7 +28,7 @@ The command exits with `0` when every codemod completes, also when they report f
 vitehub migrate [dir] [--dry-run]
 ```
 
-`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `agent-surface`, `renamed-apis`, and `tsconfig-paths`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
+`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `agent-surface`, `renamed-apis`, `tsconfig-paths`, and `shell-driver`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
 ## Run one codemod
 
@@ -54,6 +54,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `one-entry-imports` | Imports of subpaths that moved into one entry per concept, and `vite-hub/task` to `nitro/task` |
 | `vitehub-options` | The options that moved in `vitehub()`: `preset` to `host`, `logs` into `observability`, Env declarations into `vitehub({ env })`, and `devtools` and `contentImportBase` removed |
 | `tsconfig-paths` | `#vitehub/*` entries of tsconfig `paths` that point into `.vitehub/` or `.nuxt/`, which ViteHub now types itself |
+| `shell-driver` | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()`. `vitehub migrate` runs it. |
 
 ## `runtime-contracts`
 
@@ -272,6 +273,34 @@ The codemod moves each import of a subpath that ViteHub folded into one entry. I
 The same moves apply to the `@vite-hub/*` paths. The report lists strings that name an old path, such as aliases and test stubs. When an app moves to `nitro/task` and lists neither `nitro` nor `nuxt` in `package.json`, the report asks to add `nitro`.
 
 For `blob/content-type`, only explicit server files use the Blob root. Browser, shared, and unclassified files use `blob/client`, which also works on the server. `env/server` stays separate for operations on an explicit Env registry; the Env root reads the generated app registry.
+
+## `shell-driver`
+
+Shell now uses `driver` for the key that selects its backend, like Browser and the other primitives:
+
+| Old | New |
+| --- | --- |
+| `createShellRuntime({ provider })` | `createShellRuntime({ driver })` |
+| `ShellExecutionProvider` from `vite-hub/shell` | `ShellDriver` |
+| `createJustBashProvider()` and `JustBashProviderOptions` from `vite-hub/shell/providers/just-bash` | `createJustBashDriver()` and `JustBashDriverOptions` |
+| `createWorkspaceTools(workspace, { executionProvider })` | `createWorkspaceTools(workspace, { shellDriver })` |
+
+```diff
+ import { createShellRuntime } from "vite-hub/shell"
+-import { createJustBashProvider } from "vite-hub/shell/providers/just-bash"
++import { createJustBashDriver } from "vite-hub/shell/providers/just-bash"
+
+ export const shell = createShellRuntime({
+-  provider: createJustBashProvider({ commands: ["ls", "cat"], fs }),
++  driver: createJustBashDriver({ commands: ["ls", "cat"], fs }),
+ })
+```
+
+The same renames apply to the `@vite-hub/*` paths, to namespace imports, and to `const { createJustBashProvider } = await import(...)`. The codemod changes only calls of the imported `createShellRuntime()` and `createWorkspaceTools()`, so a `provider` key of another API stays. The report lists a call whose options it cannot see, such as a variable or a spread object.
+
+```sh
+npx @vite-hub/codemods shell-driver [dir] [--dry-run]
+```
 
 ## Check real apps
 

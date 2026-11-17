@@ -18,7 +18,7 @@ import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
 const guardOptionKeys = {
   checkRateLimit: new Set([...rateLimitPolicyKeys, "key"]),
-  requireRateLimit: new Set([...rateLimitPolicyKeys, "key", "message"]),
+  requireRateLimit: new Set([...rateLimitPolicyKeys, "code", "key", "message"]),
 }
 
 function isCloudflareBinding(value: unknown): value is CloudflareRateLimitBinding {
@@ -145,13 +145,24 @@ export async function checkRateLimit(event: RateLimitRequestEvent, name: string,
   return await consumeRateLimit(event, name, options, "checkRateLimit")
 }
 
+function refusalText(options: RequireRateLimitOptions, option: "code" | "message"): string | undefined {
+  const value: unknown = options?.[option]
+  if (value === undefined) return
+  if (typeof value !== "string" || !value.trim()) {
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_REFUSAL_OPTION_INVALID({ message: `\`requireRateLimit()\` ${option} must be a non-empty string.` })
+  }
+  return value
+}
+
 /**
  * Consumes one request from a managed Rate Limit inside a handler. Returns when the request is allowed. Otherwise
- * it throws an HTTP error: `429` with `Retry-After` when the limit is reached, with `options.message` when set, and
- * `503` when the limiter is unavailable.
- * It also throws the errors that `checkRateLimit()` returns.
+ * it throws an HTTP error: `429` with `Retry-After` when the limit is reached, `503` when the limiter is unavailable.
+ * `message` and `code` set the message and `data.code` of the `429` error. It also throws the errors that
+ * `checkRateLimit()` returns.
  */
 export async function requireRateLimit(event: RateLimitRequestEvent, name: string, options: RequireRateLimitOptions): Promise<void> {
+  const message = refusalText(options, "message")
+  const code = refusalText(options, "code")
   const [error, decision] = await consumeRateLimit(event, name, options, "requireRateLimit")
   if (error) throw error
   if (decision.allowed) return
@@ -166,10 +177,11 @@ export async function requireRateLimit(event: RateLimitRequestEvent, name: strin
   }
 
   throw createError({
+    ...(code === undefined ? {} : { data: { code } }),
     headers: decision.retryAfter === undefined
       ? undefined
       : { "Retry-After": String(decision.retryAfter) },
-    message: options.message ?? "Rate limit exceeded.",
+    message: message ?? "Rate limit exceeded.",
     status: 429,
     statusText: "Too Many Requests",
   })
