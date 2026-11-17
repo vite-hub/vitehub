@@ -142,7 +142,8 @@ describe("Realtime log events after the upgrade", () => {
       message: "A Realtime connection failed.",
       realtime: { definition: "docs", room: "guides/welcome.md", failed: "peer" },
     })
-    expect(evlog.events[0]!.error).toHaveBeenCalledWith(failure)
+    // The event has a fixed message, never the socket error's own message.
+    expect(evlog.events[0]!.error).toHaveBeenCalledWith("A Realtime connection failed.")
     expect(evlog.events[0]!.emit).toHaveBeenCalledOnce()
   })
 
@@ -216,12 +217,13 @@ describe("Realtime log events: one per failure, and none lost", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
     const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const evlog = fakeEvlog()
-    const failure = new Error("Redis is not reachable.")
+    const failure = Object.assign(new Error("connect ECONNREFUSED redis://admin:hunter2@cache.internal:6379"), { code: "ECONNREFUSED" })
 
     logRealtime("error", "Realtime could not send a room message to the other instances.", { definition: "docs", failed: "bus-publish" }, failure)
     expect(evlog.events).toHaveLength(1)
-    expect(evlog.events[0]!.fields).toEqual({ action: "realtime", message: "Realtime could not send a room message to the other instances.", realtime: { definition: "docs", failed: "bus-publish" } })
-    expect(evlog.events[0]!.error).toHaveBeenCalledWith(failure)
+    expect(evlog.events[0]!.fields).toEqual({ action: "realtime", message: "Realtime could not send a room message to the other instances.", realtime: { definition: "docs", failed: "bus-publish", code: "ECONNREFUSED" } })
+    expect(evlog.events[0]!.error).toHaveBeenCalledWith("Realtime could not send a room message to the other instances.")
+    expect(JSON.stringify([evlog.events[0]!.fields, evlog.events[0]!.error.mock.calls])).not.toContain("hunter2")
     expect(consoleError).not.toHaveBeenCalled()
 
     evlog.enabled.value = false

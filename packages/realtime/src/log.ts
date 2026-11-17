@@ -53,8 +53,9 @@ export function realtimeRoomFields(key: string, presence: boolean): RealtimeLogF
 
 /**
  * Logs one Realtime failure as its own evlog event, `{ action: "realtime", message, realtime: fields }`, when the app
- * registers evlog and has it on. Otherwise it prints to the console, unless `console` is false. It never throws: it
- * also runs inside a Durable Object and in socket callbacks.
+ * registers evlog and has it on. The event has the fixed `message` and the error's `code`, never its message. Otherwise
+ * it prints to the console, with the error, unless `console` is false. It never throws: it also runs inside a Durable
+ * Object and in socket callbacks, which have no `waitUntil()`.
  */
 export function logRealtime(level: "warn" | "error", message: string, fields: RealtimeLogFields, error?: unknown, options: { console?: boolean } = {}): void {
   if (typeof error === "object" && error !== null) {
