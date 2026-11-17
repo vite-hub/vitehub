@@ -72,6 +72,32 @@ describe("root-accessors edge cases", () => {
     expect((await detectCodemods(root)).map(entry => entry.detection.reason)).toEqual(["server/api/one.ts calls Drizzle methods on the result of useDatabase()"])
   })
 
+  it("preserves unrelated and ambiguous accessor bindings and their results", async () => {
+    const files = {
+      "server/unrelated.ts": "import { useDatabase } from 'other-database'\nconst database = useDatabase()\nexport const rows = [database.select(), useDatabase().select()]\n",
+      "server/local.ts": "function useDatabase() { return { select: () => 'rows' } }\nconst database = useDatabase()\nexport const rows = [database.select(), useDatabase().select()]\n",
+      "server/shadowed.ts": "import { useDatabase } from 'vite-hub/database'\nexport function query(useDatabase: () => { select: () => string }) { const database = useDatabase(); return [useDatabase().select(), database.select()] }\nexport const rows = useDatabase().select()\n",
+    }
+    const { after, run } = await migrate(files)
+    expect(after).toEqual({})
+    expect(run.result.followUps).toHaveLength(3)
+    expect(run.result.followUps.every(item => item.file === "server/shadowed.ts" && item.message.includes("binding"))).toBe(true)
+    expect((await detectCodemods(root)).map(entry => entry.codemod.name)).toEqual(["root-accessors"])
+  })
+
+  it("migrates and detects generic and whitespace-separated accessor calls", async () => {
+    const source = "import { useDatabase } from 'vite-hub/database'\nexport const rows = [useDatabase<'primary'>().select(), useDatabase ('primary').select()]\n"
+    const { after } = await migrate({ "server/queries.ts": source })
+    expect(after["server/queries.ts"]).toBe(source.replaceAll(".select()", ".db.select()"))
+    expect((await detectCodemods(root)).map(entry => entry.codemod.name)).toContain("root-accessors")
+  })
+
+  it.each(["vite-hub/database", "@vite-hub/database", "vite-hub/database/drizzle", "@vite-hub/database/drizzle"])("recognizes accessor aliases from %s", async (module) => {
+    const source = `import { useDatabase as getDatabase } from '${module}'\nconst database = getDatabase('primary')\nexport const rows = [database.select(), getDatabase('primary').select()]\n`
+    const { after } = await migrate({ "server/queries.ts": source })
+    expect(after["server/queries.ts"]).toBe(source.replace("/drizzle", "").replaceAll(".select()", ".db.select()"))
+  })
+
   it("does not detect browser Public Env or current accessor paths", async () => {
     await migrate({
       "app/env.ts": "import { usePublicEnv } from '#vitehub/env/public'\nexport { usePublicEnv }\n",

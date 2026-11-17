@@ -225,7 +225,7 @@ function localDeclarations(program: File, names: ReadonlySet<string>): Map<strin
   walk(program, (node) => {
     if (node.type === "VariableDeclarator") addPattern(node.id)
     else if (node.type === "CatchClause") addPattern(node.param)
-    else if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression" || node.type === "ObjectMethod" || node.type === "ClassMethod") {
+    else if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression" || node.type === "ObjectMethod" || node.type === "ClassMethod" || node.type === "ClassPrivateMethod" || node.type === "TSDeclareFunction") {
       if ("id" in node) addPattern(node.id)
       node.params.forEach(addPattern)
     }
@@ -237,31 +237,47 @@ function localDeclarations(program: File, names: ReadonlySet<string>): Map<strin
 /** Methods of a Drizzle client. `useDatabase()` returns `{ db, schema, relations }`, so these calls go through `db`. */
 const drizzleMethods = new Set(["$count", "$with", "all", "batch", "delete", "execute", "get", "insert", "query", "run", "select", "selectDistinct", "selectDistinctOn", "transaction", "update", "values", "with"])
 
-function isUseDatabaseCall(node: Node | null | undefined): boolean {
-  return node?.type === "CallExpression" && node.callee.type === "Identifier" && node.callee.name === "useDatabase"
-}
-
 /**
- * Finds Drizzle methods read from the result of `useDatabase()`, such as `useDatabase("notes").select()`, or
- * `database.select()` after `const database = useDatabase("notes")`. `insertAt` lists where `.db` goes. A name that
- * the file declares again is in `shadowed`: the codemod has no scope analysis, so it leaves those reads.
+ * Use explicit ViteHub imports or the unbound auto-import name. A second declaration makes an imported accessor
+ * ambiguous: without scope analysis, keep those calls and their results for manual follow-up.
  */
-function databaseQueries(program: File): { insertAt: number[], shadowed: Array<{ node: Node, name: string, method: string }> } {
-  const bindings = new Set<string>()
+function databaseQueries(program: File): { insertAt: number[], shadowed: Array<{ node: Node, name: string, method: string, accessor?: string }> } {
+  const modules = new Set(["vite-hub/database", "@vite-hub/database", "vite-hub/database/drizzle", "@vite-hub/database/drizzle"])
+  const accessors = new Set<string>()
+  const imported = new Set<string>()
+  for (const statement of program.program.body) {
+    if (statement.type !== "ImportDeclaration") continue
+    for (const specifier of statement.specifiers) {
+      imported.add(specifier.local.name)
+      if (modules.has(statement.source.value) && statement.importKind !== "type" && specifier.type === "ImportSpecifier"
+        && specifier.importKind !== "type" && keyName(specifier.imported) === "useDatabase") accessors.add(specifier.local.name)
+    }
+  }
+  const names = new Set([...accessors, "useDatabase"])
+  const accessorDeclarations = localDeclarations(program, names)
+  if (!imported.has("useDatabase") && !accessorDeclarations.has("useDatabase")) accessors.add("useDatabase")
+  const accessorName = (node: Node | null | undefined) =>
+    node?.type === "CallExpression" && node.callee.type === "Identifier" && accessors.has(node.callee.name) ? node.callee.name : undefined
+
+  const bindings = new Map<string, string>()
   walk(program, (node) => {
-    if (node.type === "VariableDeclarator" && node.id.type === "Identifier" && isUseDatabaseCall(node.init)) bindings.add(node.id.name)
+    if (node.type !== "VariableDeclarator" || node.id.type !== "Identifier") return
+    const accessor = accessorName(node.init)
+    if (accessor) bindings.set(node.id.name, accessor)
   })
-  const declarations = bindings.size ? localDeclarations(program, bindings) : new Map<string, number>()
+  const declarations = bindings.size ? localDeclarations(program, new Set(bindings.keys())) : new Map<string, number>()
   const insertAt: number[] = []
-  const shadowed: Array<{ node: Node, name: string, method: string }> = []
+  const shadowed: Array<{ node: Node, name: string, method: string, accessor?: string }> = []
   walk(program, (node) => {
     if (node.type !== "MemberExpression" || node.computed || node.property.type !== "Identifier" || !drizzleMethods.has(node.property.name)) return
     const { object } = node
-    if (isUseDatabaseCall(object)) insertAt.push(end(object))
-    else if (object.type === "Identifier" && bindings.has(object.name)) {
-      if (declarations.get(object.name) === 1) insertAt.push(end(object))
-      else shadowed.push({ node, name: object.name, method: node.property.name })
-    }
+    const direct = accessorName(object)
+    const accessor = direct ?? (object.type === "Identifier" ? bindings.get(object.name) : undefined)
+    if (!accessor) return
+    const name = direct ? `${direct}()` : object.type === "Identifier" ? object.name : ""
+    if (accessorDeclarations.has(accessor)) shadowed.push({ node, name, method: node.property.name, accessor })
+    else if (direct || declarations.get(name) === 1) insertAt.push(end(object))
+    else shadowed.push({ node, name, method: node.property.name })
   })
   return { insertAt, shadowed }
 }
@@ -270,7 +286,11 @@ function databaseQueries(program: File): { insertAt: number[], shadowed: Array<{
 function rewriteDatabaseQueries(context: FileContext): number {
   const { insertAt, shadowed } = databaseQueries(context.program)
   for (const at of insertAt) context.output.appendLeft(context.block.offset + at, ".db")
-  for (const { node, name, method } of shadowed) {
+  for (const { node, name, method, accessor } of shadowed) {
+    if (accessor) {
+      followUp(context, node, `The binding of \`${accessor}\` is ambiguous because this file also declares that name. If \`${name}\` holds a ViteHub Database entry, call \`${name}.db.${method}()\`.`)
+      continue
+    }
     followUp(context, node, `\`${name}\` is declared more than once in this file, so the codemod left this call. If \`${name}\` holds the result of \`useDatabase()\`, call \`${name}.db.${method}()\`: \`useDatabase()\` returns \`{ db, schema, relations }\`.`)
   }
   return insertAt.length
@@ -489,7 +509,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
 
   for (const file of files) {
     const source = await readFile(join(cwd, file), "utf8")
-    if (!needles.some(needle => source.includes(needle)) && !source.includes("useDatabase(")) continue
+    if (!needles.some(needle => source.includes(needle)) && !source.includes("useDatabase")) continue
     const output = new MagicString(source)
     let changed = false
     for (const block of scriptBlocks(file, source)) {
@@ -539,7 +559,7 @@ export const rootAccessors: Codemod = {
       const source = await readFile(join(cwd, file), "utf8")
       const move = paths.find(move => source.includes(move.from) && (!move.serverOnly || isServerFile(file, source)))
       if (move) return { reason: `${file} uses ${move.from}` }
-      if (!source.includes("useDatabase(")) continue
+      if (!source.includes("useDatabase")) continue
       for (const block of scriptBlocks(file, source)) {
         let program: File
         try {
@@ -548,7 +568,8 @@ export const rootAccessors: Codemod = {
         catch {
           continue
         }
-        if (databaseQueries(program).insertAt.length) return { reason: `${file} calls Drizzle methods on the result of useDatabase()` }
+        const queries = databaseQueries(program)
+        if (queries.insertAt.length || queries.shadowed.some(query => query.accessor)) return { reason: `${file} calls Drizzle methods on the result of useDatabase()` }
       }
     }
     if ((await packageImportsFollowUps(cwd)).length) return { reason: "package.json maps the former Env imports" }
