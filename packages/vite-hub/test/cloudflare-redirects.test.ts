@@ -5,7 +5,7 @@ import { addRedirectsToFile, routeRuleRedirects } from "../src/cloudflare-redire
 const moved = (to: string, status = 301) => ({ redirect: { to, status } })
 
 describe("routeRuleRedirects", () => {
-  it("writes exact paths, placeholders, and a trailing splat with their status", () => {
+  it("writes exact paths, placeholders, and a trailing splat with their status, in each form that Nitro matches", () => {
     expect(routeRuleRedirects({
       "/getting-started": moved("/guide/installation"),
       "/blog/**": moved("/posts/**", 308),
@@ -15,8 +15,13 @@ describe("routeRuleRedirects", () => {
     }, "/")).toEqual({
       lines: [
         "/getting-started /guide/installation 301",
+        "/getting-started/ /guide/installation 301",
         "/old/:segment1 /new 301",
+        "/old/:segment1/ /new 301",
         "/docs/:version/intro https://docs.example.com/intro 302",
+        "/docs/:version/intro/ https://docs.example.com/intro 302",
+        "/blog /posts 308",
+        "/blog/ /posts 308",
         "/blog/* /posts/:splat 308",
       ],
       skipped: [],
@@ -30,13 +35,17 @@ describe("routeRuleRedirects", () => {
       "/blog/hello": moved("/posts/hello"),
     }, "/").lines).toEqual([
       "/blog/hello /posts/hello 301",
+      "/blog/hello/ /posts/hello 301",
       "/blog/:slug /posts 301",
+      "/blog/:slug/ /posts 301",
+      "/blog /posts 301",
+      "/blog/ /posts 301",
       "/blog/* /posts/:splat 301",
     ])
   })
 
   it("adds the base URL to the source only, as Nitro does", () => {
-    expect(routeRuleRedirects({ "/old": moved("/docs/new") }, "/docs/").lines).toEqual(["/docs/old /docs/new 301"])
+    expect(routeRuleRedirects({ "/old": moved("/docs/new") }, "/docs/").lines).toEqual(["/docs/old /docs/new 301", "/docs/old/ /docs/new 301"])
   })
 
   it("skips rules that Cloudflare cannot match like Nitro, and the wider rules that would match their paths first", () => {
@@ -48,10 +57,14 @@ describe("routeRuleRedirects", () => {
       "/legacy": moved("/new", 418),
       "/**": moved("/en/**"),
       "/shop": moved("/store/**"),
+      "/promo": moved("/sale?from=promo"),
+      "/docs/**": moved("/v2/**/index"),
       "/kept": moved("/still-here"),
     }, "/")
-    expect(lines).toEqual(["/kept /still-here 301"])
-    expect(skipped.map(({ route }) => route).sort()).toEqual(["/**", "/files/*.pdf", "/legacy", "/shop", "/team/**", "/team/jobs", "GET /login"])
+    expect(lines).toEqual(["/kept /still-here 301", "/kept/ /still-here 301"])
+    expect(skipped.map(({ route }) => route).sort()).toEqual(["/**", "/docs/**", "/files/*.pdf", "/legacy", "/promo", "/shop", "/team/**", "/team/jobs", "GET /login"])
+    // Nitro adds the query of the request to the target's query. Cloudflare would drop it.
+    expect(skipped.find(({ route }) => route === "/promo")?.reason).toContain("query")
     expect(skipped.find(({ route }) => route === "/team/**")?.reason).toContain("`/team/jobs`")
   })
 

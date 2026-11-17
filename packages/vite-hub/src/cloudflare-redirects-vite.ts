@@ -30,6 +30,7 @@ const catchAll = /^\*\*(?::[A-Za-z]\w*)?$/
 const maxStatic = 2000
 const maxDynamic = 100
 const maxLine = 1000
+const moduleName = "vite-hub/cloudflare-redirects-file"
 
 type Segment = { kind: "static", value: string } | { kind: "param", name?: string } | { kind: "catchAll" } | { kind: "other" }
 
@@ -69,8 +70,12 @@ function overlaps(a: Segment[], b: Segment[]): boolean {
   }
 }
 
-/** The `_redirects` source of a route, or the reason why Cloudflare cannot match it like Nitro does. */
-function source(route: string, baseURL: string): { from: string, names: string[] } | { reason: string } {
+/**
+ * The `_redirects` sources of a route, or the reason why Cloudflare cannot match it like Nitro does. Nitro also matches
+ * `/old/` for `/old`, and `/blog` and `/blog/` for `/blog/**`, so these get lines of their own: Cloudflare matches only
+ * the path as written, and its `/blog/*` needs the slash.
+ */
+function source(route: string, baseURL: string): { exact: string[], splat?: string, names: string[] } | { reason: string } {
   if (methodKey.test(route)) return { reason: "it matches one HTTP method, and `_redirects` matches every method" }
   const names: string[] = []
   const parts = segments(route).map((segment, index) => {
@@ -83,19 +88,28 @@ function source(route: string, baseURL: string): { from: string, names: string[]
     return `:${name}`
   })
   if (parts.includes(undefined)) return { reason: "Cloudflare cannot match its pattern" }
-  const base = baseURL.replace(/\/+$/, "")
-  return { from: `${base}/${parts.join("/")}`, names }
+  const path = `${baseURL.replace(/\/+$/, "")}/${parts.join("/")}`
+  if (!path.endsWith("/*")) return { exact: path.endsWith("/") ? [path] : [path, `${path}/`], names }
+  const prefix = path.slice(0, -2)
+  return { exact: prefix ? [prefix, `${prefix}/`] : ["/"], splat: path, names }
 }
 
-/** The `_redirects` target of a rule, or the reason why Cloudflare cannot build it like Nitro does. */
-function target(route: string, to: string, names: string[]): { to: string } | { reason: string } {
-  if (to.includes("**") && !segments(route).some(segment => segment.kind === "catchAll")) {
-    return { reason: "its target uses `**` but its route does not end with `/**`" }
+/**
+ * The `_redirects` targets of a rule: `exact` for the exact sources and `splat` for the splat source. Or the reason why
+ * Cloudflare cannot build them like Nitro does.
+ */
+function target(to: string, splat: boolean, names: string[]): { exact: string, splat: string } | { reason: string } {
+  // Cloudflare drops the query of the request when the target has one. Nitro adds it to the target's query.
+  if (to.includes("?")) return { reason: "its target has a query, and Cloudflare would drop the query of the request" }
+  if (to.includes("**") && !(splat && to.endsWith("/**") && to.indexOf("**") === to.length - 2)) {
+    return { reason: "Cloudflare can put the rest of the path only at the end of the target, after a route that ends with `/**`" }
   }
   if ([...names, "splat"].some(name => new RegExp(`:${name}(?!\\w)`).test(to))) {
     return { reason: "its target holds a `:name` that Cloudflare would replace and Nitro keeps" }
   }
-  return { to: to.replaceAll("**", ":splat") }
+  // Nitro sends `/blog` and `/blog/` of `/blog/** -> /posts/**` to `/posts`.
+  if (!to.endsWith("/**")) return { exact: to, splat: to }
+  return { exact: to.slice(0, -3) || "/", splat: `${to.slice(0, -3)}/:splat` }
 }
 
 /**
@@ -131,21 +145,24 @@ export function routeRuleRedirects(routeRules: Record<string, { redirect?: Redir
       skip(from.reason)
       continue
     }
-    const to = target(route, redirect.to, from.names)
+    const to = target(redirect.to, from.splat !== undefined, from.names)
     if ("reason" in to) {
       skip(to.reason)
       continue
     }
-    if (to.to.startsWith("/") && !to.to.startsWith("//") && overlaps(pattern, segments(new URL(to.to, "http://h").pathname.replaceAll(":splat", "**")))) {
+    if (to.splat.startsWith("/") && !to.splat.startsWith("//") && overlaps(pattern, segments(new URL(to.splat, "http://h").pathname.replace(/:splat$/, "**")))) {
       skip("its target matches its own route, so Cloudflare would redirect in a loop")
       continue
     }
-    const line = `${from.from} ${to.to} ${redirect.status}`
-    if (line.length > maxLine) {
+    const ruleLines = [
+      ...from.exact.map(path => `${path} ${to.exact} ${redirect.status}`),
+      ...from.splat ? [`${from.splat} ${to.splat} ${redirect.status}`] : [],
+    ]
+    if (ruleLines.some(line => line.length > maxLine)) {
       skip(`its line is longer than Cloudflare's limit of ${maxLine} characters`)
       continue
     }
-    lines.push(line)
+    lines.push(...ruleLines)
   }
   return { lines, skipped: skipped.map(({ route, reason }) => ({ route, reason })) }
 }
@@ -223,11 +240,14 @@ export function cloudflareRedirectsFileVitePlugin(): Plugin {
   }
   return {
     name: "vite-hub/cloudflare-redirects-file",
-    config(config) {
+    config(config, env) {
+      if (env.command !== "build") return
       // SAFETY: Nitro's Vite plugin reads its options from this documented top-level key.
       const viteConfig = config as typeof config & { nitro?: Record<string, unknown> }
       const nitro = viteConfig.nitro ??= {}
-      nitro.modules = [...Array.isArray(nitro.modules) ? nitro.modules : [], cloudflareRedirectsFileNitroModule(report)]
+      const modules = Array.isArray(nitro.modules) ? nitro.modules : []
+      if (modules.some(module => module && typeof module === "object" && Reflect.get(module, "name") === moduleName)) return
+      nitro.modules = [...modules, { name: moduleName, setup: cloudflareRedirectsFileNitroModule(report) }]
     },
     configResolved(config) {
       resolved = config

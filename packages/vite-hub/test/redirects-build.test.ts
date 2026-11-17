@@ -108,7 +108,11 @@ describe("route rule redirects on Cloudflare", () => {
     expect(await readFile(join(root, ".output/public/_redirects"), "utf8")).toBe([
       "/home / 301",
       "/getting-started /guide/installation 301",
+      "/getting-started/ /guide/installation 301",
       "/blog/:slug /posts 307",
+      "/blog/:slug/ /posts 307",
+      "/blog /posts 308",
+      "/blog/ /posts 308",
       "/blog/* /posts/:splat 308",
       "",
     ].join("\n"))
