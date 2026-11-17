@@ -697,6 +697,11 @@
       "import": "./dist/test.js",
       "default": "./dist/test.js"
     },
+    "./test/register": {
+      "types": "./dist/test/register.d.ts",
+      "import": "./dist/test/register.js",
+      "default": "./dist/test/register.js"
+    },
     "./seo": {
       "types": "./dist/seo.d.ts",
       "import": "./dist/seo.js",

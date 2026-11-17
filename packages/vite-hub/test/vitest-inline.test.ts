@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { vitehub } from "../src/index.ts"
+import { cloudflareWorkersDevShimSource } from "../src/cloudflare-workers-dev-shim.injected.ts"
 import { viteHubPackagePath, vitestInlinePlugin } from "../src/vitest-inline.ts"
 
 import type { Plugin, PluginOption } from "vite"
@@ -39,5 +40,18 @@ describe("vitehub() in Vitest", () => {
 
   it("keeps an inline: true of the app", () => {
     expect(configOf({ test: { server: { deps: { inline: true } } } })).toBeUndefined()
+  })
+
+  it("gives code generated for a Cloudflare host the cloudflare:workers stub of Node development", async () => {
+    const plugin = vitestInlinePlugin()
+    const call = (hook: Plugin["resolveId"] | Plugin["load"], id: string) => typeof hook === "function" ? Reflect.apply(hook, {}, [id, undefined, {}]) : undefined
+    const id = call(plugin.resolveId, "cloudflare:workers")
+    expect(call(plugin.load, id)).toBe(cloudflareWorkersDevShimSource)
+    expect(call(plugin.resolveId, "cloudflare:email")).toBeUndefined()
+
+    const { env } = await import(`data:text/javascript,${encodeURIComponent(cloudflareWorkersDevShimSource)}`)
+    process.env.VITEHUB_TEST_SHIM = "read"
+    expect(env.VITEHUB_TEST_SHIM).toBe("read")
+    delete process.env.VITEHUB_TEST_SHIM
   })
 })
