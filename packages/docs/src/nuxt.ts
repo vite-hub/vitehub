@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
+import { readdir, readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -21,6 +22,7 @@ import {
 } from "@nuxt/kit"
 import { findContentEntry } from "@vite-hub/source/vite"
 import { vitehubTheme } from "@vite-hub/ui/theme"
+import { sizeOf } from "comark-zoom/size"
 import { defu } from "defu"
 import { addRoute, createRouter, findAllRoutes, routeToRegExp } from "rou3"
 
@@ -44,6 +46,7 @@ import type { Nuxt, PublicRuntimeConfig } from "nuxt/schema"
 
 import type { DocsContentSnapshot, DocsSourceInput } from "./manifest.ts"
 import type { DocsSectionFile } from "./schema.ts"
+import type { DocsImageSizes } from "./markdown.ts"
 import type { DocsPage } from "./types.ts"
 
 export { DocsAssistantSetupError } from "./assistant-nuxt.ts"
@@ -555,6 +558,17 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       getContents: () => `${parserEntry ? `export { default } from ${JSON.stringify(parserEntry)}` : "export default {}"}\nexport const githubRepo = ${JSON.stringify(options.github ? options.github.repo : null)}\n`,
     }).dst
 
+    // comark-ui cannot measure an image of the site, such as `/screenshots/console.png`, from its path, so the picture
+    // took its room only once it loaded and pushed the page down. The build measures the pictures of every public
+    // folder, and the parser gives each image its size. The app's own file wins over a layer's. The Worker that parses
+    // drafts has no files, so it reads the sizes from this module too.
+    const publicDirs = () => nuxt.options._layers.map(layer => resolve(layer.cwd, layer.config.dir?.public ?? "public"))
+    const imageSizesFile = addTemplate({
+      filename: "docs/image-sizes.mjs",
+      write: true,
+      getContents: async () => `export default ${JSON.stringify(await publicImageSizes(publicDirs()))}\n`,
+    }).dst
+
     const componentsEntry = options.components ? resolve(nuxt.options.rootDir, options.components) : null
     nuxt.options.alias["#docs/custom-components"] = addTemplate({ filename: "docs/custom-components.mjs", write: true, getContents: () => componentsEntry ? `export { default } from ${JSON.stringify(componentsEntry)}\n` : "export default {}\n" }).dst
     addTemplate({ filename: "docs/custom-components.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const components: Record<string, Component>\nexport default components\n` })
@@ -845,7 +859,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // The `/raw/**` route goes to Nitro directly: nuxt-agent-discovery skips the prerender of raw copies that an app
       // route of Nuxt serves, and the build prerenders them.
       nitro.handlers = [...nitro.handlers ?? [], ...(["get", "head"] as const).map(method => ({ route: "/raw/**", method, handler: resolver.resolve("./runtime/server/raw.js") }))]
-      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile, "#docs/agent": agentFile }
+      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile, "#docs/image-sizes": imageSizesFile, "#docs/agent": agentFile }
       // Pack production files into one module to stay below Cloudflare's module limit. Development imports each file
       // through Vite: Nitro server assets read the folders from disk, and the Cloudflare dev server runs in workerd.
       const stores = [...sourceDirs ? sourceDirs.map((dir, index) => ({ name: `docs-${index}`, dir })) : [{ name: "docs", dir: contentDir }], { name: "docs-agent", dir: agentDir }]
@@ -934,6 +948,23 @@ function setDocsHead(head: Nuxt["options"]["app"]["head"], siteName: string): vo
   head.htmlAttrs = { lang: "en", dir: "ltr", ...head.htmlAttrs, class: [head.htmlAttrs?.class, "vh-docs"].filter(Boolean).join(" ") }
   // `app.vue` sets the full title template. The error page uses this one: "Page not found · ViteHub".
   head.titleTemplate ??= `%s · ${siteName}`
+}
+
+const pictures = /\.(?:avif|gif|jpe?g|png|svg|webp)$/i
+
+/** The size of each picture in the folders, by its URL path, such as `/screenshots/console.png`. The first folder wins. */
+async function publicImageSizes(dirs: string[]): Promise<DocsImageSizes> {
+  const sizes: Record<string, [number, number]> = {}
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue
+    for (const file of await readdir(dir, { recursive: true })) {
+      const path = encodeURI(`/${file.split(sep).join("/")}`)
+      if (!pictures.test(file) || sizes[path]) continue
+      const size = await sizeOf(await readFile(join(dir, file)))
+      if (size) sizes[path] = [size.width, size.height]
+    }
+  }
+  return sizes
 }
 
 /** Whether a layer has an `app.vue`, as Nuxt looks for it: `app` or `App` with any Nuxt extension. */
