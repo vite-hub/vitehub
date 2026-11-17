@@ -33,6 +33,9 @@ export type CommentComposerVariant = "comment" | "reply" | "edit";
 /** `md` fits a panel. `sm` is for a small floating card: 14px text, a shorter field, and smaller buttons. */
 export type CommentComposerSize = "sm" | "md";
 
+/** `field` draws the field's edge while it has the focus. `none` leaves the frame and its focus to the parent. */
+export type CommentComposerFrame = "field" | "none";
+
 /** What `submit` sends: the text, the ids of the people mentioned in it, and the attached files. */
 export interface CommentComposerSubmit {
   body: string;
@@ -151,6 +154,12 @@ export const CommentComposer = defineComponent({
     /** `sm` is a compact box for a small card: a shorter field, smaller buttons, and a focus edge without a halo. */
     // SAFETY: Vue's runtime constructor cannot express this string literal union.
     size: { default: "md", type: String as PropType<CommentComposerSize> },
+    /**
+     * `none` is for a parent that is itself the frame, such as a bubble around a one-line box: the field draws no edge
+     * while it has the focus, so the parent shows the focus instead.
+     */
+    // SAFETY: Vue's runtime constructor cannot express this string literal union.
+    frame: { default: "field", type: String as PropType<CommentComposerFrame> },
   },
   emits: ["update:modelValue", "update:mentions", "update:files", "submit", "cancel"],
   // SAFETY: Vue uses Object as its runtime slots marker.
@@ -237,6 +246,33 @@ export const CommentComposer = defineComponent({
     const hasContent = () => hasText() || files.value.length > 0;
     const focus = () => textarea()?.focus();
 
+    // A row box puts attach and send on a row under the text once the text wraps, so each line uses the full width. It
+    // goes back to one row only when the text fits beside the buttons again, so the two layouts never alternate.
+    const multiline = ref(false);
+    let buttonsWidth = 0;
+    function measureLines() {
+      const field = textarea();
+      const group = field?.parentElement;
+      if (props.layout !== "row" || !field || !group || !props.modelValue) {
+        multiline.value = false;
+        return;
+      }
+      const style = getComputedStyle(field);
+      const line = Number.parseFloat(style.lineHeight);
+      if (!(line > 0)) return;
+      if (multiline.value) {
+        // Measure the text at the width it has beside the buttons. The styles go back before the browser paints.
+        field.style.boxSizing = "border-box";
+        field.style.maxWidth = `${group.clientWidth - buttonsWidth}px`;
+      } else buttonsWidth = group.clientWidth - field.offsetWidth;
+      const text = field.scrollHeight - Number.parseFloat(style.paddingTop) - Number.parseFloat(style.paddingBottom);
+      field.style.removeProperty("box-sizing");
+      field.style.removeProperty("max-width");
+      multiline.value = text > line * 1.5;
+    }
+    const lines = typeof ResizeObserver === "function" ? new ResizeObserver(() => measureLines()) : undefined;
+    watch([() => props.modelValue, () => props.layout, () => props.size], measureLines, { flush: "post" });
+
     async function shake() {
       const reduced = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       // Clear first, so a second shake restarts the animation.
@@ -254,9 +290,13 @@ export const CommentComposer = defineComponent({
     };
     onMounted(() => {
       root.value?.addEventListener(shakeEventName, onShake);
+      const group = textarea()?.parentElement;
+      if (group) lines?.observe(group);
+      measureLines();
       if (props.autofocus) void nextTick(focus);
     });
     onBeforeUnmount(() => {
+      lines?.disconnect();
       root.value?.removeEventListener(shakeEventName, onShake);
       clearTimeout(timer);
       clearTimeout(escapeTimer);
@@ -425,7 +465,9 @@ export const CommentComposer = defineComponent({
           "data-busy": props.busy ? "true" : undefined,
           "data-dirty": hasContent() ? "true" : undefined,
           "data-dragging": dragging.value ? "true" : undefined,
+          "data-frame": props.frame,
           "data-layout": props.layout,
+          "data-multiline": multiline.value ? "true" : undefined,
           "data-shake": shaking.value ?? undefined,
           "data-size": props.size,
           "data-slot": "comment-composer",
