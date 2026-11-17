@@ -283,15 +283,26 @@ export const CommentLayer = defineComponent({
     // that it picked, so the corner that points at the pin follows. Without it, they guess the side, and CSS follows them.
     const picked = reactive(new Map<string, { x: boolean; y: boolean }>());
     const placedItems = new Map<string, HTMLElement>();
+    const observedCards = new Map<string, HTMLElement>();
+    const observeCard = (key: string, card: HTMLElement | null) => {
+      const previous = observedCards.get(key);
+      if (previous === card) return;
+      if (previous) cardSizes?.unobserve(previous);
+      observedCards.delete(key);
+      if (card) {
+        observedCards.set(key, card);
+        cardSizes?.observe(card);
+      }
+    };
     const readSides = () => {
       for (const [key, item] of placedItems) {
         const card = item.querySelector<HTMLElement>(":scope > [data-slot='comment-layer-popover']");
         const area = card ? getComputedStyle(card).getPropertyValue("position-area") : "";
+        observeCard(key, card && area && area !== "none" ? card : null);
         if (!card || !area || area === "none") {
           picked.delete(key);
           continue;
         }
-        cardSizes?.observe(card);
         const spot = item.getBoundingClientRect();
         const box = card.getBoundingClientRect();
         // A card that the browser moved inside the screen points from its side of the spot.
@@ -323,7 +334,11 @@ export const CommentLayer = defineComponent({
     });
     const placedItem = (key: string) => (element: unknown) => {
       if (element instanceof HTMLElement) placedItems.set(key, element);
-      else placedItems.delete(key);
+      else {
+        placedItems.delete(key);
+        observeCard(key, null);
+        picked.delete(key);
+      }
     };
     const side = (x: number, y: number, key?: string) => {
       const seen = key === undefined ? undefined : picked.get(key);
