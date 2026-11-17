@@ -93,6 +93,8 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | Behavior against a real Postgres or Redis | `corepack pnpm exec vp run test:services` with `VITEHUB_TEST_POSTGRES_URL` and `VITEHUB_TEST_REDIS_URL` set |
 | User documentation links | `corepack pnpm exec vp run --filter vitehub-docs test:links` |
 | Comments overlay in the page | `corepack pnpm --filter @vite-hub/comments exec playwright-core install chromium-headless-shell` once, then `corepack pnpm --filter @vite-hub/comments test:browser` (not in CI) |
+| The kit Tailwind bridge against Nuxt UI | `corepack pnpm --filter @vite-hub/ui test:bridge` (needs Chromium as above, not in CI) |
+| Console styles that must not move pixels | `node packages/vite-hub/test/console-pixels.browser.mjs capture <dir>` on the base and on the branch, then `compare <base> <head>` (see the [Console playground](playground/console/README.md)). CI runs it on a pull request that changes the Console, its playground, the kit styles, or `packages/ui/theme.css`. Add the `console-pixels:expected` label when pixels change on purpose |
 | Headless UI parts, such as Tabs, Collapsible, Toast, or Dialog | `corepack pnpm --filter @vite-hub/ui test:parity` (needs Chromium as above, not in CI) |
 | Repository-wide impact | `corepack pnpm exec vp run verify` |
 
@@ -142,9 +144,10 @@ Every primitive follows one error contract. `@vite-hub/runtime` owns it: `Result
 
 1. A runtime operation returns `[error, data]`. Errors before a stream starts are in the tuple; errors after it starts go into the stream.
 2. Definition and config errors throw, at build time, at define time, or when an operation starts.
-3. Define a small catalog with `defineErrors()`. Each code has a guessable name (`KV_INVALID_CURSOR`), a real `why`, and a real `fix`. Do not pass a free `message` as the `why`.
+3. Define a small catalog with `defineErrors()`. Each code has a guessable name (`KV_INVALID_CURSOR`), a real `why`, and a real `fix`. Keep the keys in alphabetical order. Do not pass a free `message` as the `why`.
 4. Type each method with the union of the codes it can return, and check the union in a `*.test-d.ts` file.
-5. Give each code a heading on `docs/content/docs/<primitive>/limits-and-errors.md`, so `error.docs` opens it.
+5. Let the docs build write the page of each code from its `why` and `fix`; `error.docs` opens it. Put more text in `docs/diagnostics/<CODE>.md`, not on `limits-and-errors.md`.
+6. Every thrown error is a diagnostic. For a state that only a ViteHub bug can reach, call `invariant(condition, what)` or throw `invariantError(what)` from `@vite-hub/internal/invariant`. Both raise `INTERNAL_INVARIANT_FAILED`, whose fix asks for a bug report. When a developer can cause the error or fix it, throw a code from the package catalog instead.
 
 ### Documentation structure
 
@@ -241,7 +244,7 @@ The fix is complete when the consumer works without the patch. Retire combined p
 - Make interface, layout, and copy changes directly. Create a mock only when the task asks for one.
 - When T3 Code is the named reference, inspect its current source and screenshots. Do not copy it from memory.
 - Use Nuxt UI components when they fit. Match ViteHub's compact spacing and T3 Code's interaction patterns.
-- Prefer dense layouts, small icons, minimal copy, true black in dark mode, white primary text, and few borders.
+- Prefer dense layouts, small icons, minimal copy, a near black page in dark mode (the tokens of `@vite-hub/ui/theme.css`), white primary text, and few borders.
 - Avoid decorative cards, pills, shadows, and subtitle rows.
 - Avoid continuously repainting animations such as pulse, shimmer, blur, and spinning loaders.
 - Check overflow, narrow widths, long tab lists, empty states, keyboard access, and panel resizing when they apply.
@@ -250,6 +253,8 @@ The fix is complete when the consumer works without the patch. Retire combined p
 ## Releases
 
 ViteHub publishes all public packages at one version. The checked-in root and public package versions are the release baseline. A push to `main` uses conventional commits since the latest `v*` tag to open or update a draft `release/vX.Y.Z` PR. The required checks run on that release branch even though GitHub creates the PR with `GITHUB_TOKEN`.
+
+A release PR is always open. We release every Friday when we merge it. Never push commits to a `release/v*` branch. uppt owns these branches and rebuilds them from `main` on each push. It does not rebuild a branch that has other commits, so the PR stops updating. For the same reason, a workspace package names another ViteHub package with a `workspace:` range, or with `*` when a `workspace:` range makes a build cycle. Never use a version range. The release workflow writes the exact version when it packs, and `.github/scripts/check-release-candidate.mjs` fails on a version range.
 
 Review the version, package changes, CI result, and release notes before merging the release PR. After merge, the release workflow verifies the exact merge commit, creates its tag, and dispatches `release.yml` on that tag. The existing package workflow builds and tests immutable tarballs, publishes to npm, verifies the registry, and then creates the GitHub release. A manual dispatch on a branch remains a dry run. A manual dispatch on a `v*` tag resumes publication for that tag.
 

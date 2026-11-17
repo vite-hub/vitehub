@@ -1,7 +1,7 @@
 import { kvStorageDriver as kvCacheDriver } from "@vite-hub/kv/vite"
 import { describe, expect, it } from "vitest"
 
-import { applyCacheStorage, resolveCacheStorage } from "../src/cache.ts"
+import { applyCacheStorage, resolveCacheStorage } from "../src/cache-storage.ts"
 
 describe("resolveCacheStorage", () => {
   it("applies explicit binding, namespace, and base options", () => {
@@ -50,14 +50,14 @@ describe("applyCacheStorage", () => {
 
   it("rejects a Cloudflare cache without a namespace ID", () => {
     expect(() => applyCacheStorage({}, resolveCacheStorage(true, "cloudflare")))
-      .toThrow("needs a namespace ID")
+      .toThrow(expect.objectContaining({ code: "CACHE_NAMESPACE_ID_MISSING", fix: expect.stringContaining("cache.namespaceId") }))
   })
 
   it("rejects a conflicting existing Cloudflare namespace ID", () => {
     const cache = resolveCacheStorage({ driver: "cloudflare-kv-binding", namespaceId: "cache-id" }, "cloudflare")
     expect(() => applyCacheStorage({
       cloudflare: { wrangler: { kv_namespaces: [{ binding: "CACHE", id: "other-id" }] } },
-    }, cache)).toThrow("already uses namespace")
+    }, cache)).toThrow(expect.objectContaining({ code: "CACHE_NAMESPACE_ID_CONFLICT" }))
   })
 
   it("uses Nitro KV mounts in production, development and prerendering", () => {

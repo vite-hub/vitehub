@@ -13,16 +13,16 @@ icon: i-lucide-files
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). Import it from `@vite-hub/ui`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). Import it from `vite-hub/ui`:
 
 ```ts
-import { useAgentAttachments } from "@vite-hub/ui";
+import { useAgentAttachments } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```ts
-import { useAgentAttachments } from "@vite-hub/ui";
+import { useAgentAttachments } from "vite-hub/ui";
 ```
 
 ```ts fragment
@@ -118,7 +118,7 @@ function useAgentAttachments(options?: UseAgentAttachmentsOptions): AgentAttachm
 
 ### Helpers
 
-`@vite-hub/ui` also exports the two functions that `toFileParts()` uses.
+`vite-hub/ui` also exports the two functions that `toFileParts()` uses.
 
 | Function        | Signature                             | Description                               |
 | --------------- | ------------------------------------- | ----------------------------------------- |

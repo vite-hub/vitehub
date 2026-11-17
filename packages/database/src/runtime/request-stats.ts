@@ -192,3 +192,27 @@ export function trackPgliteClient<TClient extends object>(client: TClient): TCli
     },
   })
 }
+
+/** A node-postgres pool, or a client of it, that counts each promise query for the active request. */
+export function trackNodePostgresClient<TClient extends object>(client: TClient): TClient {
+  return new Proxy(client, {
+    get(target, property) {
+      const value: unknown = Reflect.get(target, property, target)
+      if (typeof value !== "function") return value
+      if (property === "query") {
+        // A query with a callback returns no promise. Run it as it is.
+        return (...args: unknown[]) => typeof args.at(-1) === "function"
+          ? Reflect.apply(value, target, args)
+          : trackDatabaseCall(() => Reflect.apply(value, target, args) as PromiseLike<unknown>)
+      }
+      // Drizzle runs a transaction on a client that it takes from the pool.
+      if (property === "connect") {
+        return (...args: unknown[]) => {
+          const connected: unknown = Reflect.apply(value, target, args)
+          return connected instanceof Promise ? connected.then(poolClient => trackNodePostgresClient(Object(poolClient))) : connected
+        }
+      }
+      return value.bind(target)
+    },
+  })
+}

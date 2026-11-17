@@ -1,7 +1,9 @@
 import { validateAgentStaticRoute } from "../src/internal/routes.ts"
 import { describe, expect, it, vi } from "vitest"
 
-import { normalizeAgentOptions } from "../src/config.ts"
+import { env } from "@vite-hub/env"
+
+import { agentStateAuthTokenEnvNames, normalizeAgentOptions } from "../src/config.ts"
 
 describe("agent config", () => {
   it("defaults Agent Definitions to workflows with an inline opt-out", async () => {
@@ -48,6 +50,26 @@ describe("agent config", () => {
       },
       runtime: "cloudflare-agents",
     })
+  })
+
+  it("accepts only the State drivers and keys that ViteHub reads", () => {
+    const authToken = env({ secret: true, source: env.source("TURSO_AUTH_TOKEN") })
+    expect(normalizeAgentOptions({ providers: { state: { driver: "libsql", authToken, url: "libsql://state.example.com" } } })).toMatchObject({
+      providers: { state: { authToken, driver: "libsql", url: "libsql://state.example.com" } },
+    })
+    expect(normalizeAgentOptions({ providers: { state: { driver: "memory" } } })).toMatchObject({ providers: { state: { driver: "memory" } } })
+    expect(agentStateAuthTokenEnvNames(env({ secret: true, source: env.source(["TURSO_AUTH_TOKEN", "LIBSQL_AUTH_TOKEN"]) }))).toEqual(["TURSO_AUTH_TOKEN", "LIBSQL_AUTH_TOKEN"])
+
+    // Untyped JS config can still pass these shapes. Each one used to select in-memory state or drop the token without a word.
+    const untyped = (state: Record<string, unknown>) => () => normalizeAgentOptions({ providers: { state } } as never)
+    expect(untyped({ driver: "postgres" })).toThrow(/AGENT_B0005|driver "postgres" is not a State driver/)
+    expect(untyped({ driver: "cloudflare-agents" })).toThrow(/Use one of: auto, cloudflare, libsql, memory, sqlite/)
+    expect(untyped({ driver: "memory", url: "libsql://state.example.com" })).toThrow(/driver "memory" does not read url/)
+    expect(untyped({ driver: "cloudflare", tablePrefix: "state_" })).toThrow(/driver "cloudflare" does not read tablePrefix/)
+    expect(untyped({ driver: "libsql", token: "secret" })).toThrow(/driver "libsql" does not read token/)
+    expect(untyped({ driver: "libsql", journalMode: "truncate" })).toThrow(/journalMode must be "wal" or "delete"/)
+    expect(untyped({ driver: "libsql", authToken: "secret-token" })).toThrow(/authToken must be an env\(\) declaration/)
+    expect(untyped({ driver: "libsql", authToken: env({ secret: true, default: "secret-token", source: env.source("TURSO_AUTH_TOKEN") }) })).toThrow(/has no default/)
   })
 
   it("normalizes the optional Discord Gateway route with the required webhook route", () => {

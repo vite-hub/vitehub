@@ -206,13 +206,15 @@ Each feature is off until you turn it on in the ViteHub options, for example `kv
 
 ## Add feature packages
 
-Each feature other than Env, Source, and Logs needs its own package. When you turn on a feature and its package is missing, the build stops and prints the install command:
+Each feature other than Env, Source, and Logs needs its own package. When you turn on a feature and its package is missing, the build stops and prints one install command for every package that the feature needs, also one that another dependency already brings:
 
 ```text [output/missing-package.txt]
-[vitehub] The agent feature needs @vite-hub/agent. The workflow feature needs @vite-hub/workflow. Install the missing packages in your app with: pnpm add @vite-hub/agent @vite-hub/workflow
+[vitehub] The agent feature needs @vite-hub/agent. The workflow feature needs @vite-hub/workflow. Install them in your app with: pnpm add @vite-hub/agent @vite-hub/workflow
 ```
 
-When an installed package has a version that your `vite-hub` release does not support, the build continues and prints a warning with the supported range and the install command:
+When an installed `@vite-hub/*` package comes from another release than `vite-hub`, the build stops with [`VITE_HUB_PACKAGE_VERSION_UNSUPPORTED`](/docs/development/diagnostics/vite_hub_package_version_unsupported). Install the packages of the same release, and change pnpm `overrides` that pin them too.
+
+When another installed package has a version that your `vite-hub` release does not support, the build continues and prints a warning with the supported range and the install command:
 
 ```text [output/unsupported-package.txt]
 [vitehub] drizzle-orm 0.44.7 is installed, but vite-hub 0.1.0 supports drizzle-orm@^0.45.3. Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add 'drizzle-orm@^0.45.3'
@@ -240,7 +242,7 @@ When an installed package has a version that your `vite-hub` release does not su
 | `schedule` | `@vite-hub/schedule` |
 | `workflow` | `@vite-hub/workflow` |
 | `workspace` | `@vite-hub/workspace`, and `@vite-hub/shell` for shell commands |
-| `server/content.ts` | `@vite-hub/content`, and `@vite-hub/cms` for the `cms` preset |
+| `server/content.ts` | `@vite-hub/content`, and `@vite-hub/cms` for the `cms` preset. Content uses the app's `comark` and `@comark/html`, which pnpm and npm install with it |
 | `server/comments.ts` | `@vite-hub/comments` |
 | `.template.md` imports | `@vite-hub/markdown-template` |
 | Console with Agents | `@libsql/client drizzle-orm` |
@@ -255,8 +257,31 @@ When an installed package has a version that your `vite-hub` release does not su
 
 Agent also turns on Workflow, unless you set `workflow: false`. Env is on by default. If the host cannot run a feature you turned on, the build fails. See [Frameworks and hosts](/docs/frameworks-hosts).
 
-Each provider's guide lists its SDKs. [Vercel Workflow](/docs/workflows/hosts) needs `@vercel/functions` for all definitions; add `workflow` and `@workflow/builders` for native durable definitions. A Sandbox Task needs `typescript` and its provider's SDK.
+Some hosts and providers add an SDK, and the build names it in the same error. On Vercel, [Workflow](/docs/workflows/hosts) needs `@vercel/functions`, and Queue needs `@vercel/queue` and `@vercel/functions`. A Sandbox Task needs `@vercel/sandbox` on Vercel or `@cloudflare/sandbox` on Cloudflare, and also `typescript`. `queue: { provider: "postgres" }` needs `postgres`. A [native Vercel Workflow](/docs/workflows/configure#add-a-durable-vercel-entry), such as a Workflow folder, also needs `workflow` and `@workflow/builders`. When they are missing, the build stops with `WORKFLOW_R0006` and prints the install command.
 ::
+
+## Update ViteHub
+
+Move `vite-hub` and every `@vite-hub/*` package to the latest release together:
+
+```bash [commands/update]
+pnpm update --latest vite-hub "@vite-hub/*"
+```
+
+To try a [pkg.pr.new](https://pkg.pr.new) preview, put its URLs in `package.json`, such as `https://pkg.pr.new/vite-hub/vitehub/vite-hub@<commit>`, for every ViteHub package. Then run:
+
+```bash [commands/update-preview]
+pnpm update vite-hub "@vite-hub/*"
+```
+
+A preview also accepts the npm release of each ViteHub package that it uses, so `pnpm install` can keep the npm packages from `pnpm-lock.yaml` next to the preview. `pnpm update` resolves them again and keeps the URLs. To check, run `pnpm why @vite-hub/env`. With a stale lockfile, it lists two versions:
+
+```text [output/pnpm-why-stale.txt]
+@vite-hub/env@0.0.0-preview-156a885
+@vite-hub/env@0.1.0 peer#1f85 (2 variations)
+```
+
+After the update command, it lists only the preview.
 
 ## Build for production
 

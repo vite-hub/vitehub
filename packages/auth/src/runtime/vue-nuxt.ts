@@ -5,10 +5,12 @@ import { addRouteMiddleware, createError, defineNuxtPlugin, navigateTo, tryUseNu
 import { viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { resolveAuthMountPath } from "../application-path.ts"
-import { authClient, setDefaultAuthBasePath, setNuxtAppResolver, setNuxtErrorFactory, setRequestFetchResolver, setSessionSeedResolver, setSignOutHandler, useUserSession } from "../vue.ts"
+// The composables stay out of this plugin, so a page that uses no Auth composable and no Auth page guard does not
+// download them. The plugin installs its hooks through the bridge, and the browser guard loads them on demand.
+import { setDefaultAuthBasePath, setNuxtAppResolver, setNuxtErrorFactory, setRequestFetchResolver, setSessionSeedResolver, setSignOutHandler } from "../nuxt-bridge.ts"
 
 import type { AuthPageMeta, AuthRedirects } from "../nuxt-types.ts"
-import type { RequestFetch } from "../vue.ts"
+import type { RequestFetch } from "../nuxt-bridge.ts"
 
 type NuxtApp = {
   runWithContext<T>(run: () => T): T
@@ -194,16 +196,15 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       // navigations read the session into the state that `useUserSession()` and `useSession()` share, so the page and
       // the guard see the same answer.
       const session = serverSession?.()
+      // Keep the Nuxt app for the session read and the navigation after it answers.
+      const app = tryUseNuxtApp() as NuxtApp | undefined
+      const inApp = <T>(run: () => T): T => app ? app.runWithContext(run) : run()
       const loggedIn = !serverSession
-        ? useUserSession().refresh().then(current => Boolean(current?.session && current?.user))
+        ? import("../vue.ts").then(({ useUserSession }) => inApp(() => useUserSession().refresh())).then(current => Boolean(current?.session && current?.user))
         : session instanceof Promise ? session.then(Boolean) : Boolean(session)
       if (typeof loggedIn === "boolean") return decide(loggedIn)
-      // Keep the Nuxt app for the navigation after the session read answers.
-      const app = tryUseNuxtApp() as NuxtApp | undefined
-      return loggedIn.then(value => app ? app.runWithContext(() => decide(value)) : decide(value))
+      return loggedIn.then(value => inApp(() => decide(value)))
     }, { global: true })
-    // `useAuthClient()` finds the shared default client here, also outside a component.
-    return { provide: { vitehubAuthClient: authClient } }
   },
 })
 

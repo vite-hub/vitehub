@@ -7,6 +7,7 @@ import { consoleAddablePrimitives, consoleAddCommand, consoleAddPrimitiveChoice,
 import { consoleAddPrimitiveOpen } from "../client/sidebar";
 import { useConsoleToast } from "../client/toast";
 import { consolePrimitives } from "../sections";
+import Icon from "./console-icon.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
 
 /**
@@ -80,7 +81,7 @@ function copyFailed(): void {
           </p>
         </section>
         <p v-else class="flex gap-2 rounded-md bg-elevated/60 px-3 py-2.5 text-sm text-pretty text-muted">
-          <UIcon name="i-lucide-info" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <Icon name="i-lucide-info" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <span><code class="font-mono text-xs">vitehub add</code> cannot set up {{ chosen.label }}. Your coding agent can, with this prompt.</span>
         </p>
 

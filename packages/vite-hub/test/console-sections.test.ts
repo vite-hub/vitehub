@@ -117,7 +117,8 @@ describe("Console section routes", () => {
     }
     expect(client).toContain("subscribeConsoleNavigation(sectionsBase, addContributedRoutes)")
     expect(client).toContain("const name = consoleSectionRouteName(section)")
-    expect(client).toContain('return router.resolve(to.fullPath).matched.length > 0 ? to.fullPath : { name: "vitehub-console" }')
+    expect(client).toContain("consolePendingSectionRoute,")
+    expect(client).toContain("return resolveConsoleSectionDeepLink(router, to, async () => {")
   })
 })
 
@@ -147,6 +148,7 @@ describe("Console section groups", () => {
     expect(consoleSectionGroupIds.map(group => consoleSectionGroupLabels[group])).toEqual(["Site", "Data", "Users", "AI", "Runtime", "More"])
     expect(resolveConsoleSectionGroup("usage")).toBe("ai")
     expect(resolveConsoleSectionGroup("schedules")).toBe("runtime")
+    expect(resolveConsoleSectionGroup("connections")).toBe("runtime")
     expect(resolveConsoleSectionGroup("custom-tool")).toBe("more")
     expect(resolveConsoleSectionGroup("constructor")).toBe("more")
   })
@@ -179,6 +181,7 @@ describe("Console Go to shortcuts", () => {
       "mcp-client": "g p",
       databases: "g d",
       kv: "g k",
+      cache: "g j",
       logs: "g l",
       blob: "g b",
       workspaces: "g w",

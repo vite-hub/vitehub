@@ -54,7 +54,9 @@ Email does not retry. A timeout or lost response can happen after the provider a
 
 ViteHub or the driver rejected the message, for example for an empty address, a missing `from`, a non-HTTPS unsubscribe URL, or a message without `text` and `html`. `cause` names the field.
 
-ViteHub also rejects fields that no driver sends, such as `template`, `react`, `mjml`, `preheader`, or `personalizations`. Render the body yourself and pass it as `html` or `text`.
+ViteHub also rejects fields that no driver sends, such as `react`, `mjml`, `preheader`, or `personalizations`. Render the body yourself and pass it as `html` or `text`. A `createEmail()` client also rejects `template`. Only `email.send()` renders templates.
+
+A template send can also return [`EMAIL_TEMPLATE_RENDER_FAILED`](/docs/email/diagnostics/email_template_render_failed), and an unknown template name throws [`EMAIL_TEMPLATE_NOT_FOUND`](/docs/email/diagnostics/email_template_not_found).
 
 ### EMAIL_AUTHENTICATION
 
@@ -92,7 +94,7 @@ The Vite plugin throws these while it reads the config or templates.
 
 ### EMAIL_UNKNOWN_DRIVER
 
-Set `driver` to `"resend"` or `"cloudflare-email"`.
+Set `driver` to `"resend"`, `"cloudflare-email"`, or `"log"`.
 
 ### EMAIL_HOST_UNSUPPORTED
 

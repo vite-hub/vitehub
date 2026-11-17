@@ -22,6 +22,7 @@ host output.
 | Agent changed behaviour | Agent Eval result and Agent Usage Record | [Agent Evals](/docs/agents/evals) |
 | Agent check times out | Dev-loop `--timeout`, `agent.eval.testTimeout`, or stuck provider/session setup | [CLI](/docs/development/cli) and [Agent Evals](/docs/agents/evals) |
 | Runtime error lacks context | Package error family and diagnostics output | [Errors and diagnostics](/docs/reference/errors-diagnostics) |
+| A build printed a warning with a code | The `fix` under it, or `.vitehub/hints.json` | The `docs` link of the code |
 
 ## Discovery failures
 
@@ -49,7 +50,7 @@ A provider failure is usually missing credentials, missing Provision State
 for the host). Dry-run provisioning, then build and inspect the output.
 
 ```bash [Terminal]
-pnpm vitehub provision run --provider cloudflare --dry-run
+pnpm vitehub provision run --host cloudflare --dry-run
 pnpm build
 pnpm vitehub inspect output
 ```

@@ -200,7 +200,7 @@ With `authorize`, a preview URL also asks it for `read`, as `/api/content/**` do
 
 A preview response has `X-Robots-Tag: noindex` and a canonical `Link` header to the production URL. Its `Cache-Control` is `private, no-store` for the cookie or a signed link, `immutable` for a `/blob` commit in the published history, and one minute for other refs. These are upper bounds: shorter application `max-age` and `s-maxage` values and revalidation directives stay in place. A response with its own cache policy does not become immutable only because the Source commit is published. A response that your route marks `private`, `no-store`, or `no-cache`, or that sets a cookie, stays private. Nitro's cache skips preview requests. A ref that a signed link opened keeps the link token on its internal links and redirects.
 
-In Nuxt, the client router does not know the prefix yet. A page that reads its route on the client sees the preview URL after hydration.
+In Nuxt, the app base is the prefix during a preview request. The router reads the production path, and links and `$fetch` data requests stay in the preview. Build assets load from the app root. A signed link also sets a cookie for the prefix, so the page's own data requests keep the link. In `nuxt dev`, client data requests read production.
 
 ### Links for a pull request
 
@@ -222,7 +222,7 @@ The revisions of the Blob + Database store have no `/blob/<id>` URL. Their ids a
 
 `vitehub content previews comment --pr 12` prints the links as a Markdown comment. With `--post`, it creates one comment on the pull request and updates it on the next run. See [the CLI](/docs/content/cli#pull-request-previews).
 
-ViteHub does not add a workflow for you, and deploys stay local. To comment from CI, add this workflow yourself. It [signs requests to the deployed app](/docs/development/console#sign-console-requests) and posts with the token of the workflow. Run `vitehub secret console-key ci`, set `VITEHUB_CONSOLE_KEY_CI` on the app with `console: { auth: 'token' }`, and store `VITEHUB_CONSOLE_PRIVATE_KEY_CI` as a GitHub Actions secret:
+ViteHub does not add a workflow for you, and deploys stay local. To comment from CI, add this workflow yourself. It [signs requests to the deployed app](/docs/development/console#sign-console-requests) and posts with the token of the workflow. Run `vitehub secret console-key ci`, set `VITEHUB_CONSOLE_KEY_CI` on the app with `console: true`, and store `VITEHUB_CONSOLE_PRIVATE_KEY_CI` as a GitHub Actions secret:
 
 ```yaml [.github/workflows/content-previews.yml]
 name: Content previews

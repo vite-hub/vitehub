@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant";
 import { createHash } from "node:crypto";
 import type { Check, Page } from "@vite-hub/forge";
 import type { GitHubEvidence } from "./inbox/types.ts";
@@ -11,6 +12,7 @@ import { newestCheckRun } from "./inbox/ci-evidence.ts";
 import { isBabysitterCheckRun } from "./check-run.ts";
 import { hasGitHubLogin } from "./pull-request-filter.ts";
 import { reviewerLabeledSevere } from "../github/index.ts";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const pending = new Set(["queued", "in_progress", "pending", "waiting", "requested", "rerequested", "created"]);
@@ -243,6 +245,40 @@ export function reviewPushBudgetWork(s: Snapshot, policy: BabysitterWaitPolicy, 
   return work;
 }
 
+/**
+ * An unresolved review thread that needs a pass. Held threads wait for a person, and once bot threads
+ * are settled only a person's comment counts.
+ */
+function hasActionableThread(s: Snapshot, policy: Pick<BabysitterWaitPolicy, "workerAuthors" | "reviewPushBudget" | "ignoreAssessedBotThreads" | "heldThreads">): boolean {
+  const botThreadsSettled = policy.ignoreAssessedBotThreads === true || reviewPushBudgetSpent(s, policy);
+  return s.threads.some(thread => thread.isResolved !== true && !policy.heldThreads?.has(String(thread.node_id ?? thread.id))
+    && (!botThreadsSettled || hasHumanComment(thread, policy.workerAuthors)));
+}
+
+/**
+ * Why a conflicting PR needs a model pass besides its conflict. Empty means the pass would only resolve
+ * the conflict, so a merge whose every conflict the host resolved can be pushed without one.
+ * `checks.inheritedCheckIds` are failing checks that the base fails the same way; they are the base's
+ * work. `assessedFeedback` holds the fingerprints of feedback that an earlier pass assessed.
+ */
+export function conflictOnlyBlockers(s: Snapshot, checks: { state: GitHubRequiredCheckState; inheritedCheckIds: readonly number[] }, policy: BabysitterWaitPolicy, assessedFeedback: ReadonlySet<string>): string[] {
+  const work: string[] = [];
+  // pull_request CI does not run while a PR conflicts, so these are the checks of its last clean merge.
+  // Any failure there that the base does not share is model work, required or not.
+  const inherited = new Set(checks.inheritedCheckIds);
+  const settledReviews = reviewPushBudgetSpent(s, policy) ? policy.pendingReviewChecks : undefined;
+  if (checks.state === "failed" || latestCheckSignals(s).some(signal => failed.has(String(signal.conclusion ?? signal.state))
+    && !inherited.has(Number(signal.id)) && !settledReviews?.has(String(signal.name).toLowerCase()))) work.push("failed-check");
+  if ((s.humanFeedbackGeneration ?? 0) > s.handled) work.push("human-feedback");
+  const feedbackPolicy = { ...policy, automatedReviewSettled: reviewPushBudgetSpent(s, policy), severeReviewSettled: severeReviewSettled(s, policy) };
+  const legacy = feedbackFingerprints(s, feedbackPolicy, true);
+  if (feedbackFingerprints(s, feedbackPolicy).some((id, index) => !assessedFeedback.has(id) && !assessedFeedback.has(legacy[index] ?? ""))) work.push("feedback");
+  if (hasActionableThread(s, policy)) work.push("unresolved-thread");
+  // The last pass failed, was interrupted or parked without a gate, and nothing changed since: it left work.
+  if (s.attempts > 0) work.push("unfinished-pass");
+  return work;
+}
+
 /** The daily pass exemption for a person's feedback. The record's `human` generation tracks it, not `exemptions`. */
 export const humanFeedbackExemption = "human-feedback";
 
@@ -310,9 +346,7 @@ export function wakeReasons(s: Snapshot, requiredChecks: GitHubRequiredCheckStat
   // Maintainer feedback or PR intent/base changes still resume the work.
   if (wait.kind === "external" || wait.wake) return reasons;
   if (s.pr.mergeable === false || s.pr.mergeable_state === "dirty") reasons.push("merge-conflict");
-  const botThreadsSettled = policy.ignoreAssessedBotThreads === true || reviewPushBudgetSpent(s, policy);
-  if (s.threads.some(thread => thread.isResolved !== true && !policy.heldThreads?.has(String(thread.node_id ?? thread.id))
-    && (!botThreadsSettled || hasHumanComment(thread, policy.workerAuthors)))) reasons.push("unresolved-thread");
+  if (hasActionableThread(s, policy)) reasons.push("unresolved-thread");
   if (actionableFailureKeys(s, policy).some(key => !known.has(key))) reasons.push("new-failure");
   if (reasons.length) return reasons;
   // The same failures are not new repair work. A later green result wakes below.
@@ -330,9 +364,9 @@ export function hasPendingChecks(snapshot: Snapshot, _policy: BabysitterWaitPoli
 
 /** A digest of every check run and commit status of a dependency's head, from forges `checks.list()`. */
 export function checksDependencyEvidence(checks: Page<Check>): string {
-  if (checks.warnings?.length) throw new Error(`Dependency checks are incomplete: ${checks.warnings.map(warning => warning.message).join("; ")}`);
+  if (checks.warnings?.length) throw presetsErrorDiagnostics.PRESETS_DEPENDENCY_CHECKS_INCOMPLETE({ warnings: checks.warnings.map(warning => warning.message).join("; ") });
   const records = (type: Check["ref"]["type"]) => checks.items.filter(check => check.ref.type === type).map(check => {
-    if (!isRuntimeRecord(check.raw)) throw new Error("Invalid dependency check evidence.");
+    invariant(isRuntimeRecord(check.raw), "Forge keeps the GitHub JSON object of each check as raw");
     return check.raw;
   }).filter(check => !isBabysitterCheckRun(check));
   return hash({

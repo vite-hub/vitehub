@@ -1,14 +1,13 @@
 import { Buffer } from "node:buffer"
 import { devNull } from "node:os"
 
-import { forgeGitAuthHeader } from "@vite-hub/forge"
 import type { ForgeGitCredentials } from "@vite-hub/forge"
 
 import { normalizeSourcePath } from "../../core/path.ts"
 import { parseGitHubArchive } from "./archive.ts"
+import { loadForge } from "./client.ts"
 
 import type { GitHubFile } from "./types.ts"
-import { sourceErrorDiagnostics } from "../../error-diagnostics.ts"
 
 interface GitOptions {
   env?: NodeJS.ProcessEnv
@@ -28,7 +27,7 @@ interface GitArchiveInput<TKey extends string> {
   sparsePatterns: string[]
 }
 
-function createGitEnv(home: string, credentials: ForgeGitCredentials, baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+function createGitEnv(home: string, authHeader: { key: string, value: string } | undefined, baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env = { ...baseEnv }
   for (const key of [
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
@@ -53,7 +52,6 @@ function createGitEnv(home: string, credentials: ForgeGitCredentials, baseEnv: N
     if (/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(key)) delete env[key]
   }
 
-  const authHeader = forgeGitAuthHeader(credentials)
   Object.assign(env, {
     GCM_INTERACTIVE: "Never",
     GIT_ASKPASS: "",
@@ -93,7 +91,8 @@ async function runGit(args: string[], options: GitOptions = {}): Promise<Uint8Ar
         return
       }
       const command = args[0] === "-C" ? args[2] : args[0]
-      reject(sourceErrorDiagnostics.SOURCE_R0019({ message: `git ${command || "command"} exited with ${code ?? "an unknown status"}.` }))
+      // Internal invariant: github() catches every error of loadGitArchiveFiles() and reads the GitHub archive instead.
+      reject(new Error(`git ${command || "command"} exited with ${code ?? "an unknown status"}.`))
     })
   })
 }
@@ -149,7 +148,8 @@ async function readGitArchiveFiles<TKey extends string>(
       const key = input.keyForRepoPath(entry.path)
       if (!key || !input.shouldInclude(key)) return
       if (isGitLfsPointer(entry.content)) {
-        throw sourceErrorDiagnostics.SOURCE_R0020({ message: "git archive contained a Git LFS pointer; use the GitHub archive instead." })
+        // Internal invariant: github() catches every error of loadGitArchiveFiles() and reads the GitHub archive instead.
+        throw new Error("git archive contained a Git LFS pointer; use the GitHub archive instead.")
       }
       return {
         content: entry.content,
@@ -173,7 +173,7 @@ export async function loadGitArchiveFiles<TKey extends string>(
   ])
   const dir = await mkdtemp(join(tmpdir(), "vitehub-github-"))
   try {
-    const env = createGitEnv(dir, input.credentials, input.env)
+    const env = createGitEnv(dir, (await loadForge()).forgeGitAuthHeader(input.credentials), input.env)
     const options = { env, signal: input.signal }
     await executeGit(["init", "--quiet", dir], options)
     await executeGit([

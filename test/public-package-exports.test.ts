@@ -6,7 +6,8 @@ import { describe, expect, it } from "vitest"
 import { parse } from "valibot"
 
 import { publicPackageBinContracts, publicPackageExportContracts } from "./public-package-exports"
-import { packageDir, packageInfos, packageManifestSchema, readPackageManifest, repoRoot } from "./utils/repo"
+import { listWorkspacePackageInfos } from "../packages/internal/src/workspace-inventory.ts"
+import { packageDir, packageInfos, packageManifestSchema, readPackageManifest, repoRoot, toRepoPath, walkFiles } from "./utils/repo"
 
 describe("public package export contracts", () => {
   it("limits the OAuth Provider peer to the MCP Auth subpaths", () => {
@@ -179,9 +180,6 @@ describe("public package export contracts", () => {
       ["@vite-hub/queue/vite", "vite"],
       ["@vite-hub/realtime/vite", "vite"],
       ["@vite-hub/sandbox/task/vite", "vite"],
-      ["@vite-hub/workflow/runtime/openworkflow", "openworkflow"],
-      ["@vite-hub/workflow/openworkflow", "openworkflow"],
-      ["vite-hub/workflow/openworkflow", "openworkflow"],
       ["@vite-hub/workspace/vite", "vite"],
       ["vite-hub/browser/controllers/playwright", "playwright-core"],
     ])
@@ -253,9 +251,13 @@ describe("public package export contracts", () => {
     expect(manifest.peerDependenciesMeta?.["@cloudflare/workers-types"]?.optional).toBe(true)
   })
 
-  it("keeps Blob declarations independent from H3 host declarations", () => {
+  it("declares H3 for Blob serve authorization callbacks", () => {
     const source = readFileSync(join(packageDir("blob"), "src/types.ts"), "utf8")
-    expect(source).not.toMatch(/from ["']h3["']/)
+    // Generated authorized serve routes are H3 handlers, so callbacks can use the app's H3 helpers.
+    // Keep the declaration dependency available even for consumers without a Nitro installation.
+    expect(readPackageManifest("blob").dependencies?.h3).toBeDefined()
+    expect(source).toContain("export type BlobServeAuthorize = AccessAuthorize<H3Event>")
+    expect(source).toContain("export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize<H3Event>")
   })
 
   it("keeps Realtime's public handler contract independent from H3 host declarations", () => {
@@ -268,6 +270,16 @@ describe("public package export contracts", () => {
     const source = readFileSync(join(packageDir("sandbox"), "src/task/internal/shared/request-payload.ts"), "utf8")
     expect(source).toMatch(/event: ViteHubContext/)
     expect(source).toContain("getStandardContext(event).req.json()")
+  })
+
+  it("bundles private workspace packages into every published dist", () => {
+    // npm has no private packages, so an import of one fails in the consumer's install (`Cannot find package`).
+    const privateNames = listWorkspacePackageInfos(repoRoot).filter(info => info.private).map(info => info.packageName.replace("/", "\\/"))
+    const privateImport = new RegExp(`(?:\\bfrom|\\bimport|\\brequire\\s*\\()\\s*["'](${privateNames.join("|")})(?:\\/[^"']*)?["']`, "g")
+    const found = packageInfos.flatMap(info => walkFiles(join(packageDir(info.name), "dist"), { extensions: new Set(["cjs", "js", "mjs", "ts", "mts", "cts", "vue"]) })
+      .flatMap(file => [...readFileSync(file, "utf8").matchAll(privateImport)].map(match => `${toRepoPath(file)} imports ${match[1]}`)))
+
+    expect(found).toEqual([])
   })
 
   it("points every contract at a built artifact", () => {

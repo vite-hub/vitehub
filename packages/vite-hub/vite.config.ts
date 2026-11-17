@@ -61,12 +61,19 @@ const runtimeEntries = [
   "src/_internal/auth/runtime/server.ts",
   "src/_internal/runtime/internal/h3.ts",
   "src/_internal/runtime/request-policy.ts",
+  "src/_internal/runtime/security.ts",
   "src/internal/agent-invocations-libsql.ts",
   "src/internal/database-runtime-state.ts",
   "src/internal/disabled-upstash-driver.ts",
   "src/internal/disabled-redis-driver.ts",
+  // `vite-hub/test/register` loads these files by path: the module hooks and the worker of the Vite server.
+  "src/internal/test-loader.ts",
+  "src/internal/test-server.ts",
+  "src/_internal/runtime/redirects.ts",
   "src/task/operations.ts",
+  "src/cache/operations.ts",
   "src/skills/operations.ts",
+  "src/seo/runtime.ts",
   "src/durability/operations.ts",
   "src/comments/realtime.ts",
   "src/comments/runtime/auth.ts",
@@ -141,6 +148,7 @@ const runtimeEntries = [
   "src/console/runtime/server/env.get.ts",
   "src/console/runtime/server/auth.ts",
   "src/console/runtime/server/tickets.ts",
+  "src/console/runtime/server/site-entry.ts",
   "src/console/runtime/server/logs.get.ts",
   "src/console/runtime/server/search.get.ts",
   "src/console/runtime/server/sections.get.ts",
@@ -163,11 +171,10 @@ export default defineConfig({
   pack: [
     {
       ...packDefaults,
-      // `project.get` reports this version, without the package manifest in the app's server output.
-      define: { __VITE_HUB_VERSION__: JSON.stringify(frameworkPackageManifest.version) },
       copy: [
         { from: "src/cloudflare-prerender.mjs", to: "dist" },
         { from: "src/error-diagnostics.ts", to: "dist" },
+        { from: "src/console/runtime/diagnostics.ts", to: "dist/console/runtime" },
         {
           from: "src/console/runtime/components/console-lazy-views.ts",
           to: "dist/console/runtime/components",
@@ -257,6 +264,14 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
+          from: "src/console/runtime/components/console-account-api-keys.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-env.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-account-settings.vue",
           to: "dist/console/runtime/components",
         },
@@ -285,6 +300,10 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
+          from: "src/console/runtime/components/console-cache.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-site.vue",
           to: "dist/console/runtime/components",
         },
@@ -306,6 +325,10 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-search-palette.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-icon.vue",
           to: "dist/console/runtime/components",
         },
         {
@@ -415,7 +438,22 @@ export default defineConfig({
           from: "src/console/runtime/components/console-auth-action.vue",
           to: "dist/console/runtime/components",
         },
+        { from: "src/console/runtime/components/console-account-team-settings.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-app-settings.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-settings.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-settings-card.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-settings-value.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/client/auth-management.ts", to: "dist/console/runtime/client" },
+        { from: "src/console/runtime/client/add-primitive.ts", to: "dist/console/runtime/client" },
+        { from: "src/console/runtime/components/console-add-primitive.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/client/app-identity.ts", to: "dist/console/runtime/client" },
+        { from: "src/console/runtime/client/sidebar.ts", to: "dist/console/runtime/client" },
+        { from: "src/console/runtime/components/console-user-menu.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-sidebar.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-sidebar-trigger.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-sidebar-item.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-app-logo.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-app-crumb.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/client/document-cache.ts", to: "dist/console/runtime/client" },
         // The copied invocation helpers import the formatters as TypeScript.
         { from: "src/console/runtime/client/format.ts", to: "dist/console/runtime/client" },
@@ -474,7 +512,9 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-blob-detail.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-toaster.vue", to: "dist/console/runtime/components" },
         { from: "src/ui/styles.css", to: "dist/ui" },
+        { from: "src/ui/theme.css", to: "dist/ui" },
         { from: "templates/cloudflare-types.d.ts", to: "dist" },
+        { from: "templates/cloudflare-workers.d.ts", to: "dist" },
       ],
       deps: {
         // Agent-only apps need the client-free journal constructor without installing the optional Database package.
@@ -583,6 +623,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/env.get"];
           delete exports["./console/runtime/server/auth"];
           delete exports["./console/runtime/server/tickets"];
+          delete exports["./console/runtime/server/site-entry"];
           delete exports["./console/runtime/server/env"];
           delete exports["./console/runtime/server/logs.get"];
           delete exports["./console/runtime/server/mcp-client-operations"];
@@ -602,8 +643,10 @@ export default defineConfig({
           // Generated code imports `src/internal/*` entries by path. They are not public API.
           for (const key of Object.keys(exports)) if (/^\.\/_?internal\//.test(key)) delete exports[key];
           delete exports["./task/operations"];
+          delete exports["./cache/operations"];
           delete exports["./skills/operations"];
           delete exports["./durability/operations"];
+          delete exports["./seo/runtime"];
           delete exports["./comments/realtime"];
           delete exports["./comments/runtime/auth"];
           delete exports["./connections/agent"];
@@ -614,6 +657,7 @@ export default defineConfig({
             // A browser script, not a module: no types and no `import` condition.
             "./page/pill.js": { default: "./dist/page/pill.iife.js" },
             "./ui/styles.css": "./dist/ui/styles.css",
+            "./ui/theme.css": "./dist/ui/theme.css",
             "./tsconfig": "./tsconfig.json",
           });
         },

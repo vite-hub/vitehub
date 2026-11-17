@@ -14,6 +14,7 @@ describe("ViteHub Source collection adapter", () => {
       },
     }
     const collection = defineCollection(loader, {
+      route: false,
       cursor: (item: { id: number }) => item.id,
       cursorSchema,
       defaultLimit: 3,

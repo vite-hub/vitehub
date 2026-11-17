@@ -12,7 +12,7 @@ import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { normalizeBlobOptions } from "../config.ts"
 import { setServedBlobRoute } from "../served.ts"
 
-export { setBlobPhotonLoader } from "../media/photon-module.ts"
+export { loadWorkerPhoton, setBlobPhotonLoader } from "../media/photon-module.ts"
 export { setBlobSharpModule } from "../media/sharp-module.ts"
 export { setBlobRequestBodyLimit } from "../internal/host-limits.ts"
 

@@ -1,3 +1,4 @@
+import { defineErrors } from "@vite-hub/runtime"
 import { mockEvent } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -42,6 +43,8 @@ function fakeKV(): FakeKV {
 }
 
 const windowStart = Date.UTC(2026, 10, 9, 12, 0, 0)
+
+const kvErrors = defineErrors({ codes: { KV_OPERATION_FAILED: { why: "The KV operation failed.", fix: "Check the KV store." } }, docs: "https://vitehub.dev/docs/kv/diagnostics" })
 
 describe("kvRateLimitDriver", () => {
   it("counts a fixed window with one increment for each request, with the window as TTL", async () => {
@@ -109,7 +112,7 @@ describe("kvRateLimitDriver", () => {
   })
 
   it.each([["deny", false], ["allow", true]] as const)("follows failure: %s when KV fails", async (failure, allowed) => {
-    const cause = new Error("connection refused")
+    const cause = kvErrors.KV_OPERATION_FAILED()
     const kv: RateLimitKVStorage = { ...fakeKV(), increment: async () => [cause, undefined] }
     const limiter = createRateLimiter({ driver: kvRateLimitDriver({ storage: kv }), failure, limit: 1, window: "1m" })
 
@@ -197,7 +200,7 @@ describe("kv provider at runtime", () => {
   it("counts in memory with a warning when the KV store cannot share counts", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const kv = fakeKV()
-    setRateLimitRuntimeConfig({ provider: "kv" }, { driver: async () => "fs-lite", storage: kv, store: "default" })
+    setRateLimitRuntimeConfig({ memoryFallback: true, provider: "kv" }, { driver: async () => "fs-lite", storage: kv, store: "default" })
 
     await expect(checkRateLimit(event(), "uploads", { key: "user", limit: 1, window: "1m" })).resolves.toMatchObject([undefined, { allowed: true }])
     await expect(checkRateLimit(event(), "uploads", { key: "user", limit: 1, window: "1m" })).resolves.toMatchObject([undefined, { allowed: false }])
@@ -205,6 +208,17 @@ describe("kv provider at runtime", () => {
     expect(warn).toHaveBeenCalledTimes(1)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("uses fs-lite, which has no shared atomic increment"))
     await expect(peekRateLimit("uploads", "user")).resolves.toMatchObject({ provider: "memory", scope: "process" })
+  })
+
+  it("fails on a KV store that cannot share counts without memoryFallback", async () => {
+    const kv = fakeKV()
+    setRateLimitRuntimeConfig({ provider: "kv" }, { driver: async () => "fs-lite", storage: kv, store: "default" })
+
+    await expect(checkRateLimit(event(), "uploads", { key: "user", limit: 1, window: "1m" })).rejects.toMatchObject({
+      code: "RATE_LIMIT_KV_RUNTIME_STORE_UNSUPPORTED",
+      message: expect.stringContaining('the KV store "default" uses fs-lite'),
+    })
+    expect(kv.values.size).toBe(0)
   })
 
   it("fails without a KV store, and tries the KV driver again after a failure", async () => {

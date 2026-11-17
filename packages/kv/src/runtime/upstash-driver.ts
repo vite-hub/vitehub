@@ -1,23 +1,29 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import { normalizeKey } from "unstorage"
 import createDriver from "unstorage/drivers/upstash"
 
 import type { ResolvedUpstashKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
+import { chunks } from "./batch.ts"
 import { createPortableRedisKeyLister, escapeRedisGlob, redisDeleteIfEqualsScript, redisIncrementResult, redisIncrementScript, redisTTLSeconds } from "./redis-shared.ts"
 
 interface UpstashClient {
+  del: (...keys: string[]) => Promise<number>
   eval: (script: string, keys: string[], args: string[]) => Promise<number>
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This models the caller-typed Upstash read command used by the unstorage adapter.
   getdel: <T = unknown>(key: string) => Promise<T | null>
+  mget: (...keys: string[]) => Promise<(string | null)[]>
   scan: (cursor: string, options: { count: number; match: string }) => Promise<[number | string, string[]]>
   set: (key: string, value: string, options?: { ex?: number; nx?: true }) => Promise<"OK" | null>
 }
 
+// Upstash limits the size of one request, so MGET and DEL send at most this many keys each.
+const keyBatchSize = 1000
+
 export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreConfig): KVRuntimeDriver {
   const base = normalizeKey(options.base)
-  // Internal invariant: resolveUpstashStore() always gets a non-empty prefix to keep clear() inside this store.
-  if (!base) throw new TypeError("An Upstash KV store needs a non-empty `base`.")
+  invariant(base, "resolveUpstashStore() gives an Upstash KV store a non-empty `base`, which keeps clear() inside the store")
   // Let unstorage decode reads so typed text reads and GETDEL preserve the stored text, including "null".
   // unstorage prefixes the keys of its own methods with `base`. The methods below prefix theirs.
   // SAFETY: The unstorage Upstash driver exposes getInstance and this adapter installs listKeys before returning.
@@ -31,6 +37,21 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
     const ttl = setOptions?.ttl
     if (ttl !== undefined && ttl !== null && ttl !== 0 && typeof ttl !== "number") throw kvErrorDiagnostics.KV_INVALID_TTL()
     await (await client()).set(prefixed(key), value, typeof ttl === "number" && ttl !== 0 ? { ex: redisTTLSeconds(ttl) } : undefined)
+  }
+  driver.getItems = async (items) => {
+    const values: (string | null)[] = []
+    for (const batch of chunks(items, keyBatchSize)) values.push(...await (await client()).mget(...batch.map(item => prefixed(item.key))))
+    return items.map((item, index) => ({ key: item.key, value: values[index] ?? null }))
+  }
+  driver.clear = async (prefix) => {
+    const keys: string[] = []
+    let cursor = "0"
+    do {
+      const [next, page] = await (await client()).scan(cursor, { count: keyBatchSize, match: `${escapeRedisGlob(prefixed(prefix ?? ""))}*` })
+      cursor = String(next)
+      keys.push(...page)
+    } while (cursor !== "0")
+    for (const batch of chunks(keys, keyBatchSize)) await (await client()).del(...batch)
   }
   driver.getAndDeleteItem = async key => (await client()).getdel(prefixed(key))
   driver.incrementItem = async (key, ttl) => redisIncrementResult(await (await client()).eval(redisIncrementScript, [prefixed(key)], [String(redisTTLSeconds(ttl))]))

@@ -418,6 +418,13 @@ describe("env CLI with Vite stage files", () => {
     const json = captureContext(root, { ...process.env, ENV_CLI_REGION: "process-region" })
     expect(await realFeature("inspect").run(["--stage", "staging", "--json"], json.context)).toBe(0)
     expect(JSON.parse(json.output.stdout)).toMatchObject({ ok: true, stage: "staging" })
+    const names = Object.fromEntries(JSON.parse(json.output.stdout).entries.map((entry: { path: string, names?: string[] }) => [entry.path, entry.names]))
+    expect(names).toEqual({
+      "env.server.apiToken": ["VITEHUB_API_TOKEN", "ENV_CLI_API_TOKEN"],
+      "env.server.label": ["VITEHUB_LABEL", "ENV_CLI_LABEL"],
+      "env.server.region": ["VITEHUB_REGION", "ENV_CLI_REGION"],
+      "env.server.regionToken": undefined,
+    })
 
     for (const text of [human.output.stdout, human.output.stderr, json.output.stdout, json.output.stderr]) {
       expect(text).not.toContain(secretValue)

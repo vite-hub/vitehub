@@ -27,6 +27,7 @@ import { viteHubTypesPlugin } from "../src/internal/types.ts";
 import { consoleOperations } from "../src/console/runtime/server/operations.ts";
 import { taskOperations } from "../src/task/operations.ts";
 import { viteHubTaskPlugin } from "../src/task/vite.ts";
+import { viteHubCachePlugin } from "../src/cache/vite.ts";
 import { viteHubDurabilityPlugin } from "../src/durability/vite.ts";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
@@ -97,6 +98,8 @@ describe("CLI documentation contract", () => {
       workspacePlugin,
       viteHubTaskPlugin(),
       viteHubDurabilityPlugin(),
+      // `vitehub({ cache })` adds this plugin.
+      viteHubCachePlugin(),
       // The task plugin contributes these only for an app that has tasks.
       { vitehub: { operations: [{ export: "taskOperations", load: async () => taskOperations, module: ownModule(import.meta.url, "task/operations") }] } },
       // The Console plugin contributes every Console operation; the reference documents the Database ones and `agent usage`.
@@ -135,7 +138,7 @@ describe("CLI documentation contract", () => {
     }
 
     const projectCommands = helpNames(rootHelp.output().split("Available namespaces:\n", 1)[0]!, "Project:");
-    expect(projectCommands).toEqual(["init", "add", "remove", "catalog", "status", "link", "unlink", "deploy", "deployments", "drain"]);
+    expect(projectCommands).toEqual(["init", "add", "remove", "catalog", "status", "link", "unlink", "deploy", "deployments", "login", "logout", "whoami", "drain"]);
     expect(documentedProjectCommands()).toEqual([...projectCommands].sort());
     expect(documentedNamespaces()).toEqual([...namespaces].sort());
     expect(documentedCommands()).toEqual(commands.sort());

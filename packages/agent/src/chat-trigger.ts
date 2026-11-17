@@ -560,7 +560,7 @@ export function defineChatCapability<
           name: skipReplyToolName,
           async execute(input) {
             const reason = isRuntimeRecord(input) && typeof input.reason === "string" ? input.reason.trim() : ""
-            if (!reason) throw new TypeError(`[vitehub] ${skipReplyToolName} requires a non-empty reason.`)
+            if (!reason) throw agentDiagnostics.AGENT_CHANNEL_SKIP_REPLY_REASON_MISSING({ name: skipReplyToolName })
             silentReplies.set(context.context, reason)
             if (context.runtimeContext) await agentChannelDeliveryTracker(context.runtimeContext)?.setMarker?.(silentReplyContextKey, reason)
             const currentInput = context.input.get()

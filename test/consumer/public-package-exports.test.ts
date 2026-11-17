@@ -148,11 +148,13 @@ async function requiredPeerSpecs() {
     ...browserCatalog,
     ...chatCatalog,
     ...await catalogDependencySpecs("nuxt", ["nuxt"]),
+    ...await catalogDependencySpecs("runtime", ["zod"]),
     ...vercelCatalog,
     ...workflowCatalog,
     "@comark/html": await installedVersion(join(repoRoot, "packages/docs/node_modules/@comark/html/package.json")),
     "@comark/vue": await installedVersion(join(repoRoot, "packages/docs/node_modules/@comark/vue/package.json")),
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/docs/node_modules/@nuxt/ui/package.json")),
+    "@ui-sdk/vue": await installedVersion(join(repoRoot, "packages/agent/node_modules/@ui-sdk/vue/package.json")),
     ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
     "@types/json-schema": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/json-schema/package.json")),
     "@types/mdast": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/mdast/package.json")),
@@ -628,7 +630,6 @@ async function assertResolution(appDir: string, specifiers: readonly string[], e
 
 async function addOptionalPeers(appDir: string) {
   const agentManifest = await readManifest(join(appDir, "node_modules/@vite-hub/agent/package.json"))
-  const viteHubManifest = await readManifest(join(appDir, "node_modules/vite-hub/package.json"))
   const tiptapVersion = await installedVersion(join(repoRoot, "packages/ui/node_modules/@tiptap/vue-3/package.json"))
   const peers = {
     "@formisch/vue": await installedVersion(join(repoRoot, "packages/forms/node_modules/@formisch/vue/package.json")),
@@ -642,12 +643,12 @@ async function addOptionalPeers(appDir: string) {
     "@vueuse/core": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@vueuse/core/package.json")),
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
     evlog: agentManifest.peerDependencies!.evlog!,
-    nuxt: await installedVersion(join(repoRoot, "packages/kit/node_modules/nuxt/package.json")),
+    ...await catalogDependencySpecs("nuxt", ["nuxt"]),
     openworkflow: await installedVersion(join(repoRoot, "packages/workflow/node_modules/openworkflow/package.json")),
     "playwright-core": await installedVersion(join(repoRoot, "packages/browser/node_modules/playwright-core/package.json")),
     "posthog-node": agentManifest.peerDependencies!["posthog-node"]!,
     postgres: await installedVersion(join(repoRoot, "packages/database/node_modules/postgres/package.json")),
-    "reka-ui": viteHubManifest.peerDependencies!["reka-ui"]!,
+    "reka-ui": await installedVersion(join(repoRoot, "packages/ui/node_modules/reka-ui/package.json")),
     vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
     "vite-doctor": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/vite-doctor/package.json")),
     vitest: agentManifest.peerDependencies!.vitest!,
@@ -903,6 +904,24 @@ describe("published declaration diagnostics", () => {
     expect(optionalContractPeers("vite-hub")).toEqual(expect.arrayContaining(["evalite", "vitest"]))
   })
 
+  it("provides install specs for every facade feature peer", async () => {
+    const manifest = await readManifest(join(repoRoot, "packages/vite-hub/package.json"))
+    const peerSpecs = {
+      ...await resolvedPeerDependencySpecs(manifest.peerDependencies || {}),
+      ...await requiredPeerSpecs(),
+      ...Object.fromEntries(optionalPeers.map(name => [name, "1.0.0"])),
+    }
+    const specs = Object.fromEntries(packageInfos.map(info => [info.packageName, `file:${info.name}.tgz`]))
+    expect(() => mixedPeerFixtureSpecs(
+      "vite-hub",
+      "vite",
+      [],
+      [...Object.keys(manifest.peerDependencies || {}), ...optionalContractPeers("vite-hub")],
+      specs,
+      peerSpecs,
+    )).not.toThrow()
+  })
+
   it("provides install specs for Docs' required external peers", async () => {
     const manifest = await readManifest(join(repoRoot, "packages/docs/package.json"))
     const peerSpecs = await requiredPeerSpecs()
@@ -952,7 +971,7 @@ describe("published declaration diagnostics", () => {
       "@vite-hub/agent",
       "vite",
       ["@types/json-schema", "@types/mdast"],
-      ["@agntn/web", "@chat-adapter/discord", "@vercel/functions", "evalite", "vite"],
+      ["@agntn/web", "@chat-adapter/discord", "@vercel/functions", "evalite", "vite", "zod"],
       {},
       { ...peerSpecs, evalite: "1.0.0-beta.16", vite: "8.0.8" },
     )
@@ -961,6 +980,7 @@ describe("published declaration diagnostics", () => {
       "@agntn/web": peerSpecs["@agntn/web"],
       "@chat-adapter/discord": peerSpecs["@chat-adapter/discord"],
       "@vercel/functions": peerSpecs["@vercel/functions"],
+      zod: expect.any(String),
     })
     expect(fixtureSpecs).not.toHaveProperty("vite")
   })

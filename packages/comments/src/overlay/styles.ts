@@ -1,20 +1,21 @@
 /**
  * Styles of the overlay's own pieces. The comment parts bring theirs from `@vite-hub/ui/styles.css`. All of them live
  * in shadow roots, so the host page's CSS does not reach them: the overlay, its toolbar in the page tools pill, and
- * the list in the pill's window. The overlay uses the system sans-serif font, as Drop does, and follows the page's light or dark scheme. It sets the Nuxt UI
+ * the list in the pill's window. The overlay takes ViteHub's theme, as Drop does: Geist when the page has it (else the system
+ * sans-serif), the neutral primary, and the comment blue. It follows the page's light or dark scheme. It sets the Nuxt UI
  * tokens that the parts read, because their fallbacks follow `currentColor`, which is white inside a pin.
  */
 export const overlayStyles = `
 :host {
   all: initial;
   --ui-bg: #fff; --ui-bg-elevated: #f5f5f5; --ui-bg-accented: #e5e5e5; --ui-bg-muted: #fafafa; --ui-border: #e5e5e5;
-  --ui-text: #404040; --ui-text-muted: #737373; --ui-text-highlighted: #171717; --ui-text-inverted: #fff; --ui-primary: #2563eb;
+  --ui-text: #404040; --ui-text-muted: #737373; --ui-text-highlighted: #171717; --ui-text-inverted: #fff; --ui-primary: #171717;
 }
 :host(.dark) {
   --ui-bg: #171717; --ui-bg-elevated: #262626; --ui-bg-accented: #404040; --ui-bg-muted: #1f1f1f; --ui-border: rgb(255 255 255 / 12%);
-  --ui-text: #e5e5e5; --ui-text-muted: #a3a3a3; --ui-text-highlighted: #fafafa; --ui-text-inverted: #171717; --ui-primary: #60a5fa;
+  --ui-text: #e5e5e5; --ui-text-muted: #a3a3a3; --ui-text-highlighted: #fafafa; --ui-text-inverted: #171717; --ui-primary: #fafafa;
 }
-.root { position: fixed; inset: 0; pointer-events: none; z-index: 2147482999; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+.root { position: fixed; inset: 0; pointer-events: none; z-index: 2147482999; font-family: "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
 .root > * { pointer-events: auto; }
 /* The comment layer covers the page. Only its parts and the comment mode overlay take the pointer, as @vite-hub/ui styles them. */
 .root > .cursors, .root > .outlines, .root > .areas, .root > [data-slot="comment-layer"] { pointer-events: none; }
@@ -25,10 +26,10 @@ export const overlayStyles = `
 .cursor svg { display: block; filter: drop-shadow(0 1px 1px rgb(0 0 0 / .25)); }
 .cursor span { display: inline-block; margin: 2px 0 0 12px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; color: #18181b; white-space: nowrap; box-shadow: 0 1px 3px rgb(0 0 0 / .2); }
 
-.outline { position: fixed; border: 2px solid var(--vh-primary); border-radius: 4px; }
+.outline { position: fixed; border: 2px solid var(--vh-comment-mark); border-radius: 4px; }
 .outline[data-kind="draft"] { border-style: dashed; border-color: #f59e0b; }
 .tag { position: fixed; transform: translateY(-100%); padding: 2px 6px; border-radius: 4px 4px 0 0; background: #f59e0b; color: #18181b; font-size: 11px; font-weight: 600; }
-.outline[data-kind="hover"] + .tag { background: var(--vh-primary); color: #fff; }
+.outline[data-kind="hover"] + .tag { background: var(--vh-comment-mark); color: #fff; }
 
 .card { position: fixed; left: 50%; bottom: 68px; translate: -50% 0; z-index: 2147483001; width: min(320px, calc(100vw - 32px)); display: grid; gap: 8px; padding: 12px; background: var(--vh-bg); color: var(--vh-text); border: 1px solid var(--vh-border); border-radius: calc(var(--vh-radius) * 1.5); box-shadow: 0 8px 24px rgb(0 0 0 / .16); font-size: 13px; }
 .card label { display: grid; gap: 4px; font-weight: 500; }
@@ -43,32 +44,19 @@ export const overlayStyles = `
 .toast > span { padding: 4px 0; }
 
 /*
- * Drop's comment marks. A pin is the author's avatar in a 28px drop whose sharp corner points at the spot: in the gutter
- * right of a quote's block, level with its last line; at the corner of an area; at the point of a click. --pin-x and --pin-y
- * place the pin's corner from the spot, and the card opens beside the pin, level with it, or under it near the right
- * edge of the screen.
+ * Where the pins go. Their look is Drop's, in @vite-hub/ui/comment-marks.css. A pin sits in the gutter right of a
+ * quote's block, level with its last line; at the corner of an area; at the point of a click. --pin-x and --pin-y place
+ * the pin's corner from the spot, and the card opens beside the pin, level with it, or under it near the right edge of
+ * the screen.
  */
-[data-slot="comment-layer-item"] { --pin-x: 0px; --pin-y: -28px; }
-[data-slot="comment-layer-item"][data-kind="text"] { --pin-x: 0px; --pin-y: -14px; }
-[data-slot="comment-layer-item"]:is([data-kind="area"], [data-kind="image"]) { --pin-x: -14px; --pin-y: -14px; }
-[data-slot="comment-pin"] {
-  width: 28px; height: 28px; border: 0; border-radius: 14px 14px 14px 4px; touch-action: manipulation;
-  background: var(--ui-text-highlighted); color: var(--ui-text-inverted);
-  box-shadow: 0 0 0 2px var(--ui-bg), 0 2px 8px rgb(0 0 0 / .18);
-  transform: translate(var(--pin-x), var(--pin-y)); transform-origin: 0 100%;
-  transition: scale 120ms ease-out, opacity 150ms ease-out;
-}
+[data-slot="comment-layer-item"] { --pin-x: 0px; --pin-y: calc(var(--vh-comment-pin-size) * -1); }
+[data-slot="comment-layer-item"][data-kind="text"] { --pin-x: 0px; --pin-y: calc(var(--vh-comment-pin-size) / -2); }
+[data-slot="comment-layer-item"]:is([data-kind="area"], [data-kind="image"]) { --pin-x: calc(var(--vh-comment-pin-size) / -2); --pin-y: calc(var(--vh-comment-pin-size) / -2); }
+[data-slot="comment-pin"] { touch-action: manipulation; transform: translate(var(--pin-x), var(--pin-y)); }
 [data-kind="text"] > [data-slot="comment-pin"] { transform-origin: 0 50%; }
-:is([data-kind="area"], [data-kind="image"]) > [data-slot="comment-pin"] { border-radius: 14px; transform-origin: 50% 50%; }
-/* The pin stays 28px, and its hit area is 44px. */
-[data-slot="comment-pin"]::before { content: ""; position: absolute; inset: -8px; border-radius: 50%; }
-[data-slot="comment-pin"]:is(:hover, :focus-visible, [data-active="true"]) { scale: 1.06; }
-/* A tap must not leave the pin grown, so only a fine pointer grows it on hover. */
-@media not ((hover: hover) and (pointer: fine)) { [data-slot="comment-pin"]:hover:not(:focus-visible, [data-active="true"]) { scale: none; } }
-[data-slot="comment-pin"] [data-slot="avatar-stack"] { --vh-avatar-size: 28px; }
-[data-slot="comment-pin"] [data-slot="avatar-stack"] { display: block; }
+[data-slot="comment-pin"] [data-slot="avatar-stack"] { --vh-avatar-size: var(--vh-comment-pin-size); display: block; }
 [data-slot="comment-pin"] [data-slot="avatar-stack-item"] {
-  border-radius: inherit; box-shadow: none; background: none; color: inherit; font: 600 11px/28px ui-sans-serif, system-ui, sans-serif; letter-spacing: .02em;
+  border-radius: inherit; box-shadow: none; background: none; color: inherit; font: 600 11px/var(--vh-comment-pin-size) "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; letter-spacing: .02em;
 }
 /* A new comment is one small surface, as in Drop: the line grows with the text, with the attach and send buttons beside it. */
 [data-draft="true"] [data-slot="comment-composer"] { padding: 4px; }
@@ -77,7 +65,6 @@ export const overlayStyles = `
 [data-draft="true"] [data-slot="prompt-input-textarea"] { flex: 1; min-width: 0; min-height: 2.25rem; padding: .5rem .25rem .375rem .625rem; }
 [data-draft="true"] [data-slot="prompt-input-toolbar"] { padding: .25rem; }
 [data-slot="comment-pin-number"] { display: none; }
-[data-slot="comment-pin"][data-status="resolved"] { opacity: .55; filter: grayscale(1); }
 [data-slot="comment-pin"][data-draft="true"] { outline: none; }
 
 /*
@@ -119,18 +106,16 @@ export const overlayStyles = `
   }
 }
 
-/* The area that a drag in comment mode draws. The areas of threads are in areaStyles, under the page's floating controls. */
-[data-slot="comment-layer-area"] {
-  position: fixed; box-sizing: border-box; border: 1.5px solid var(--ui-text-highlighted); border-radius: 3px;
-  background: color-mix(in oklab, var(--ui-text-highlighted) 14%, transparent); pointer-events: none;
-}
+/* The area that a drag in comment mode draws, as comment-marks.css draws it. The overlay is fixed to the screen. The
+   areas of threads are in their own root, under the page's floating controls (see areaStyles). */
+[data-slot="comment-layer-area"] { position: fixed; }
 
 /* The bar over selected text: the pill's dark glass on a light page, its light twin on a dark one. */
 .selection-bar {
   position: fixed; z-index: 2147483001; translate: -50% -100%; display: flex; gap: 4px; padding: 4px;
   border: 1px solid rgb(255 255 255 / 12%); border-radius: 12px; background: rgb(17 17 17 / 92%);
   box-shadow: 0 8px 24px rgb(0 0 0 / 25%); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
-  font: 500 12px/1 ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased;
+  font: 500 12px/1 "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased;
   --bar-text: #d4d4d4; --bar-strong: #fafafa; --bar-hover: rgb(255 255 255 / 8%);
   transform-origin: 50% 100%; animation: vitehub-comments-pop 140ms cubic-bezier(.23, 1, .32, 1);
 }
@@ -154,7 +139,6 @@ export const overlayStyles = `
 .toast, .card { animation: vitehub-comments-enter 180ms cubic-bezier(.23, 1, .32, 1); }
 @media (prefers-reduced-motion: reduce) {
   .toast, .card, .selection-bar, [data-slot="comment-layer-popover"] { animation: none; }
-  [data-slot="comment-pin"] { transition: none; }
   .selection-bar button { transition-property: background-color, color; }
   .selection-bar button:active { scale: none; }
   .cursor { transition: none; }
@@ -169,7 +153,7 @@ export const panelStyles = `
 :host {
   all: initial; display: block; height: 100%; color-scheme: dark;
   --ui-bg: #0a0a0a; --ui-bg-elevated: #171717; --ui-bg-accented: #262626; --ui-bg-muted: #171717; --ui-border: rgb(255 255 255 / 12%);
-  --ui-text: #e5e5e5; --ui-text-muted: #a3a3a3; --ui-text-highlighted: #fafafa; --ui-text-inverted: #0a0a0a; --ui-primary: #60a5fa;
+  --ui-text: #e5e5e5; --ui-text-muted: #a3a3a3; --ui-text-highlighted: #fafafa; --ui-text-inverted: #0a0a0a; --ui-primary: #fafafa;
 }
 .panel-root { height: 100%; }
 [data-slot="comment-panel"] { height: 100%; background: var(--vh-bg); }
@@ -189,7 +173,7 @@ export const pillBarStyles = `
 button[aria-pressed="true"] .count, button[aria-expanded="true"] .count { display: none; }
 /* The tips and the colors stay rows of square buttons, also when the pill docks to a side and stacks the other controls. */
 .swatches { display: flex; gap: 2px; }
-.swatch, .icon { width: 28px; padding: 0; justify-content: center; }
+.swatch, .icon, .eye { width: 28px; padding: 0; justify-content: center; }
 .icon { align-self: flex-start; }
 .swatch span { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 20%); }
 .swatch[aria-pressed="true"] { background: var(--vitehub-pill-hover); box-shadow: inset 0 0 0 1.5px var(--vitehub-pill-strong); color: inherit; }
@@ -203,29 +187,20 @@ img.me { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; }
 `
 
 /**
- * Rules in the host document: edit mode, scoped to classes on `<html>`, and the highlights of commented text, as in Drop.
- * Highlights draw on the page itself, so they take a grey that shows on light and dark pages.
+ * Rules in the host document: edit mode, scoped to classes on `<html>`. The overlay puts them after
+ * `@vite-hub/ui/comment-marks.css`, which colors the highlights of commented text.
  */
 export const documentStyles = `
-::highlight(vitehub-comment) { background-color: rgb(128 128 128 / 18%); }
-::highlight(vitehub-comment-resolved) { background-color: rgb(128 128 128 / 8%); }
-::highlight(vitehub-comment-active) { background-color: rgb(128 128 128 / 34%); }
 html.vitehub-edit-mode [data-content-field] { cursor: text !important; }
 [data-vitehub-editing] { outline: 2px solid #2563eb !important; outline-offset: 2px; border-radius: 2px; }
 `
 
 /**
- * The areas that threads point at, in their own element at z-index 1 of the page: over its text, under its own
- * floating controls, such as a menu button, which a box must not cross. A resolved area is dashed and faint.
+ * The root of the areas that threads point at: an element at z-index 1 of the page, over its text and under its own
+ * floating controls, such as a menu button, which a box must not cross. It covers the screen, so an area's `left` and
+ * `top` are client coordinates. The areas themselves are `comment-mark-area`, as `@vite-hub/ui/comment-marks.css`
+ * draws them for the pill and for Drop.
  */
 export const areaStyles = `
-:host { all: initial; position: fixed; inset: 0; z-index: 1; pointer-events: none; --ink: #171717; --muted: #737373; }
-:host(.dark) { --ink: #fafafa; --muted: #a3a3a3; }
-.area {
-  position: fixed; box-sizing: border-box; border: 1.5px solid var(--ink); border-radius: 3px;
-  background: color-mix(in oklab, var(--ink) 6%, transparent); transition: background-color 120ms ease-out;
-}
-.area[data-status="active"] { background: color-mix(in oklab, var(--ink) 14%, transparent); }
-.area[data-status="resolved"] { border-style: dashed; border-color: var(--muted); background: none; opacity: .6; }
-@media (prefers-reduced-motion: reduce) { .area { transition: none; } }
+:host { all: initial; position: fixed; inset: 0; z-index: 1; pointer-events: none; }
 `

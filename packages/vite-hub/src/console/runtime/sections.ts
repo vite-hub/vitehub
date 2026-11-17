@@ -1,7 +1,7 @@
 import type { FeatureId } from "@vite-hub/internal/features"
 
 /** Sections that the Console UI in `vite-hub` renders with its own components. Owner packages contribute the others. */
-export const consoleBuiltinSectionIds = ["env", "agents", "skills", "usage", "channels", "mcp-client", "logs", "blob", "databases", "kv", "site", "setup"] as const
+export const consoleBuiltinSectionIds = ["env", "agents", "skills", "usage", "channels", "mcp-client", "logs", "blob", "databases", "kv", "cache", "site", "setup"] as const
 
 /**
  * Sections that are tools, not primitives, so the Overview does not offer them: Setup, which only a development server
@@ -68,6 +68,12 @@ export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, Con
     label: "KV",
     routeName: "vitehub-console-kv",
   },
+  cache: {
+    description: "List, read, and invalidate the entries of Nitro's cache.",
+    icon: "i-vitehub-cache",
+    label: "Cache",
+    routeName: "vitehub-console-cache",
+  },
   site: {
     description: "Sign your browsers and invited guests in to the site, for the page tools.",
     icon: "i-lucide-globe-lock",
@@ -93,6 +99,7 @@ const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupI
   forms: "site",
   databases: "data",
   kv: "data",
+  cache: "data",
   blob: "data",
   workspaces: "data",
   auth: "users",
@@ -110,6 +117,7 @@ const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupI
   "sandbox-tasks": "runtime",
   logs: "runtime",
   env: "runtime",
+  connections: "runtime",
   "rate-limits": "runtime",
   setup: "runtime",
 }
@@ -194,6 +202,7 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("databases", "Databases", consoleSectionDetails.databases.icon, "database", "Define relational data with Drizzle and query it through generated imports.", { feature: "database" }),
   primitive("email", "Email", "i-vitehub-email", "email", "Send transactional email through a provider-neutral driver, with safe test capture.", { feature: "email" }),
   primitive("kv", "KV", consoleSectionDetails.kv.icon, "kv", "Store and read small values by key through one key-value API.", { feature: "kv" }),
+  primitive("cache", "Cache", consoleSectionDetails.cache.icon, "reference/config-options", "Keep the results of cached functions and handlers in a store of your host.", { feature: "cache", setup: "kv/configure" }),
   primitive("rate-limits", "Rate Limits", "i-vitehub-rate-limit", "rate-limit", "Require request budgets through an H3 guard and atomic drivers.", { feature: "rateLimit" }),
   primitive("sandbox-tasks", "Sandbox Tasks", "i-vitehub-sandbox", "sandbox", "Run named package projects as Sandbox Tasks in an isolated Cloudflare or Vercel Sandbox.", { feature: "sandboxTask" }),
   primitive("workspaces", "Workspaces", "i-vitehub-workspace", "workspace", "Build persistent file-tree state with rules, Source Bindings, snapshots, and diffs.", { feature: "workspace" }),
@@ -237,6 +246,7 @@ export const consoleSectionShortcutKeys: Readonly<Record<string, string>> = {
   logs: "l",
   databases: "d",
   kv: "k",
+  cache: "j",
   blob: "b",
   workspaces: "w",
   workflows: "f",
@@ -335,7 +345,9 @@ export function resolveConsoleSectionIds(options: {
   console?: unknown;
   agent?: unknown;
   blob?: unknown;
+  cache?: unknown;
   comments?: unknown;
+  connections?: unknown;
   database?: unknown;
   email?: unknown;
   host?: unknown;
@@ -360,9 +372,11 @@ export function resolveConsoleSectionIds(options: {
     ...(options.blob ? ["blob"] : []),
     // Without the option, `server/comments.ts` turns the section on through discovery.
     ...(options.comments ? ["comments"] : []),
+    ...(options.connections ? ["connections"] : []),
     ...(options.database ? ["databases"] : []),
     ...(options.email ? ["email"] : []),
     ...(options.kv ? ["kv"] : []),
+    ...(options.cache ? ["cache"] : []),
     ...(options.rateLimit ? ["rate-limits"] : []),
     ...(options.sandboxTask ? ["sandbox-tasks"] : []),
     ...(options.workspace ? ["workspaces"] : []),

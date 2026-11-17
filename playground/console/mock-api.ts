@@ -52,6 +52,7 @@ const sections = [
   "databases",
   "email",
   "kv",
+  "cache",
   "rate-limits",
   "sandbox-tasks",
   "workspaces",
@@ -447,9 +448,9 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
-  if (path === "/_vitehub/api/env") {
+  if (path === "/_vitehub/api/env" || path === "/_vitehub/api/env-inspect") {
     // Grouped by namespace like a real app: providers, nested literals, top-level values, and undisclosed names.
-    const envEntries = [
+    const envEntries: Array<{ path?: string, names?: string[], source: string, provider?: string, secret: boolean, required: boolean, hasDefault: boolean, type?: string }> = [
       { path: "env.server.typesafe.apiKey", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
       { path: "env.server.typesafe.model", source: "env", secret: false, required: false, hasDefault: true, type: "string" },
       { path: "env.server.typesafe.provider", source: "literal", secret: false, required: false, hasDefault: false },
@@ -473,13 +474,32 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
       { source: "literal", secret: false, required: false, hasDefault: false },
       { source: "literal", secret: false, required: false, hasDefault: false },
     ]
-    // `?status=1` answers like inspectServerEnv: two required values are missing and the vault fails once.
+    // Env declarations read the canonical name first, then the name without the prefix, as `describeServerEnv()` lists them.
+    const hostName = (path: string) => path.replace(/^env\.server\./, "").split(".").map(part => part.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase()).join("_")
+    const described = envEntries.map(entry => entry.source === "env" && entry.path ? { ...entry, names: [`VITEHUB_${hostName(entry.path)}`, hostName(entry.path)] } : entry)
+    if (path === "/_vitehub/api/env") {
+      json(response, { entries: described })
+      return true
+    }
+    // `env.inspect` answers like the Env operation: two required values are missing and the vault fails once.
     const missing = new Set(["env.server.pubsub.audience", "env.server.labeller.adminToken"])
-    json(response, { entries: envEntries, status: url.searchParams.has("status") ? envEntries.map(entry => ({
-      blocking: missing.has(entry.path ?? "") || entry.path === "env.server.openai.apiKey",
-      path: entry.path,
-      status: missing.has(entry.path ?? "") ? "missing" : entry.path === "env.server.openai.apiKey" ? "error" : entry.hasDefault && entry.path === "env.server.typesafe.model" ? "defaulted" : "available",
-    })) : undefined })
+    const entries = described.map((entry) => {
+      const status = missing.has(entry.path ?? "") ? "missing" : entry.path === "env.server.openai.apiKey" ? "error" : entry.hasDefault && entry.path === "env.server.typesafe.model" ? "defaulted" : "available"
+      // A value from the host comes from one of its names: the short name for most, the canonical one for a few.
+      const name = status === "available" ? entry.names?.[entry.path === "env.server.executor.url" ? 0 : 1] : undefined
+      return {
+        blocking: missing.has(entry.path ?? "") || entry.path === "env.server.openai.apiKey",
+        ...(entry.path ? { path: entry.path } : {}),
+        ...(entry.names ? { names: entry.names } : {}),
+        ...(name ? { name } : {}),
+        source: entry.source,
+        ...(entry.provider ? { provider: entry.provider } : {}),
+        required: entry.required,
+        secret: entry.secret,
+        status,
+      }
+    })
+    json(response, { entries, host: "cloudflare", ok: !entries.some(entry => entry.blocking) })
     return true
   }
   if (path === "/_vitehub/api/logs") {
