@@ -68,7 +68,8 @@ describe("built-in host integration", () => {
     vi.stubEnv("VITEST", undefined)
     onTestFinished(() => { vi.unstubAllEnvs() })
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-"))
-    onTestFinished(() => rm(root, { force: true, recursive: true }))
+    // Vite rejects at the first failed configResolved hook while the other hooks still write type files, so retry.
+    onTestFinished(() => rm(root, { force: true, maxRetries: 5, recursive: true }))
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "labeller.ts"), "export default {}\n")
     const resolve = () => resolveConfig({
@@ -96,7 +97,8 @@ describe("built-in host integration", () => {
     vi.stubEnv("VITEST", vitest)
     onTestFinished(() => { vi.unstubAllEnvs() })
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-test-"))
-    onTestFinished(() => rm(root, { force: true, recursive: true }))
+    // Vite rejects at the first failed configResolved hook while the other hooks still write type files, so retry.
+    onTestFinished(() => rm(root, { force: true, maxRetries: 5, recursive: true }))
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "labeller.ts"), "export default {}\n")
     const config = resolveConfig({
