@@ -329,6 +329,27 @@ Run `vitehub database generate` again after you change the fields or the plugins
 - `genericOAuth()` adds no tables, so it works without a change.
 - For other plugins, add their tables to the Database Definition. When the options need a table or a column that the Database does not have, the adapter fails with `AUTH_C0056` and names it, before it opens the Database.
 
+### Move your own Better Auth tables to `authDatabase()`
+
+An app that wrote the Better Auth tables itself can switch to `authDatabase()`. Delete your tables from the Database Definition, keep their migrations, and import the tables from `vite-hub/auth/schema` where your own tables reference them:
+
+```ts [server/databases/default.ts]
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { authSqliteSchema } from 'vite-hub/auth/schema'
+import { defineDatabase } from 'vite-hub/database'
+
+export const budget = sqliteTable('budget', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => authSqliteSchema.user.id, { onDelete: 'cascade' }),
+})
+
+export default defineDatabase({ schema: { budget } })
+```
+
+Then run `vitehub database generate`. On SQLite, libSQL, and Cloudflare D1, Auth reads its tables from the latest migration and keeps what SQLite changes only with a table rebuild: column defaults, unique keys and indexes, and foreign keys. The migration then adds columns, tables, and indexes. A rebuild drops the old table, and D1 deletes the rows of each table that references it with `ON DELETE CASCADE`. A column that Auth adds to an existing table is nullable, because SQLite adds a `NOT NULL` column only with a default. `vitehub database migrate` refuses a migration that rebuilds a table that other tables reference with an `ON DELETE` action.
+
+The tables of `authSqliteSchema` and `authPostgresSchema` are typed, so queries on them and foreign keys to them type-check.
+
 Better Auth's own adapters still work. To use another database, return one from the Definition callback.
 
 ## Rate limiting

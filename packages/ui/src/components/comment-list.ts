@@ -2,7 +2,6 @@ import type { CommentThread } from "@vite-hub/comments/client";
 import { defineComponent, h, type PropType, type SlotsType } from "vue";
 import { type CommentFilterState, type CommentsState, useCommentsContext } from "../headless/comments.ts";
 import { rowSlotScope, threadRow } from "../internal/comment-row.ts";
-import { useRelativeTime } from "../internal/relative-time.ts";
 import { AvatarStack, type AvatarStackPerson } from "./avatar-stack.ts";
 import type { CommentRowSlots } from "./comment-panel.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
@@ -57,7 +56,6 @@ export const CommentList = defineComponent({
   setup(props, { emit, slots }) {
     const UButton = useUIComponent("UButton");
     const comments = useCommentsContext(props.comments);
-    const time = useRelativeTime();
 
     function select(thread: CommentThread, event?: MouseEvent) {
       emit("select", thread);
@@ -116,7 +114,7 @@ export const CommentList = defineComponent({
                       href: comments.link(thread),
                       onClick: (event: MouseEvent) => select(thread, event),
                     },
-                    slots.row?.(rowSlotScope(thread)) ?? threadRow(thread, time, { detached, preview: slots.preview?.(rowSlotScope(thread)), site: comments.scope.value === "site" }),
+                    slots.row?.(rowSlotScope(thread)) ?? threadRow(thread, { detached, preview: slots.preview?.(rowSlotScope(thread)), site: comments.scope.value === "site" }),
                   ),
                 ]);
               }),
