@@ -71,7 +71,7 @@ A client can send `complete` of a [direct upload](/docs/blob/server-api#direct-u
 
 ## Content: a publish
 
-Content has no publish callback. Send after `content.publish()` returns a new revision:
+Content runs `onPublish` listeners inside its runtime, but the `content` object of `defineContent()` does not expose them. So send from the code that calls `content.publish()`, after it returns a new revision:
 
 ```ts [server/content.ts]
 import { defineContent } from 'vite-hub/content'
@@ -100,7 +100,7 @@ export async function publishPosts() {
 }
 ```
 
-With `publish: 'pr'`, `pending` is `true` until the pull request merges, so the code above sends nothing then.
+With `publish: 'pr'`, `pending` is `true` until the pull request merges, so the code above sends nothing then. A publish from the Console, the CLI, or a schedule does not run this code.
 
 ## Auth: an Auth event
 
