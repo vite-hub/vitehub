@@ -46,17 +46,26 @@ vi.mock("node:fs", async (importOriginal) => ({
   ...await importOriginal<typeof import("node:fs")>(),
   watch: watchContent,
 }))
-// The test runner resolves workspace packages from anywhere, so resolve only from the app's own node_modules.
-vi.mock("node:module", async (importOriginal) => ({
-  ...await importOriginal<typeof import("node:module")>(),
-  createRequire: (from: string) => ({
-    resolve: (id: string) => {
-      const file = join(dirname(from), "node_modules", id)
-      if (existsSync(file)) return file
-      throw new Error(`Cannot find module '${id}'`)
-    },
-  }),
-}))
+// Resolve Comments only from the app, while keeping real resolution for the docs module's dependencies.
+// `comarkApp.root` supplies the app's comark-ui fixture when set.
+const comarkApp = vi.hoisted(() => ({ root: "" }))
+vi.mock("node:module", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:module")>()
+  return {
+    ...original,
+    createRequire: (from: string) => ({
+      resolve: (id: string) => {
+        if (comarkApp.root && String(from).endsWith("/src/nuxt.ts") && id.startsWith("comark-ui/")) {
+          return original.createRequire(join(comarkApp.root, "app.js")).resolve(id)
+        }
+        if (id !== "@vite-hub/comments/package.json" && !id.startsWith("comark-ui/")) return original.createRequire(from).resolve(id)
+        const file = join(dirname(from), "node_modules", id)
+        if (existsSync(file)) return file
+        throw new Error(`Cannot find module '${id}'`)
+      },
+    }),
+  }
+})
 const { default: setup, DocsCommentsSetupError } = await import("../src/nuxt.ts")
 const { extendPages } = await import("@nuxt/kit")
 // SAFETY: the @nuxt/kit mock above keeps the module definition's moduleDependencies on the setup function.
@@ -298,6 +307,21 @@ describe("docs Nuxt setup", () => {
     expect(readdirSync(stylesDir)).toEqual([file])
   })
 
+  it("bundles the icons that pages name, so no page loads one from the icon endpoint", async () => {
+    const app = appWithDocs({ "docs/guide/index.md": "Guide" })
+    writeFileSync(join(app.dir, "docs/guide/index.md"), [
+      "---", "title: Guide", "---", "",
+      ":::product-feature-item{title=\"Locks\" icon=\"i-lucide-lock\"}", ":::", "",
+      "Runs on :icon{name=\"i-simple-icons-nodedotjs\"} Node, not on multi-step-ui or i-.", "",
+    ].join("\n"))
+    await setupDocs({ dir: app.dir })
+    const icons = new Set<string>()
+    await callHook("icon:clientBundleIcons", icons)
+    expect(icons).toContain("lucide:lock")
+    expect(icons).toContain("simple-icons:nodedotjs")
+    expect([...icons].filter(icon => icon.startsWith("step"))).toEqual([])
+  })
+
   it("prefetches a link when the reader points at it or focuses it, not when it scrolls into view", async () => {
     const options = await setupDocs({})
     expect(options.experimental.defaults.nuxtLink.prefetchOn).toEqual({ visibility: false, interaction: true })
@@ -312,8 +336,26 @@ describe("docs Nuxt setup", () => {
   it("links the comark-ui stylesheet at runtime, below the base of the running server", async () => {
     const options = await setupDocs({})
     const [file] = readdirSync(join(options.buildDir, "docs/styles"))
-    expect(templates.get("docs/comark-css.mjs")?.()).toBe(`export default ${JSON.stringify(file)}\n`)
+    expect(templates.get("docs/comark-css.mjs")?.()).toBe(`export default ${JSON.stringify(file)}\nexport const names = []\n`)
     expect(JSON.stringify(options.app.head)).not.toContain("/_docs/")
+  })
+
+  it("links comark-ui's style.css with the layer order first, marked for each package but comark-time", async () => {
+    const root = mkdtempSync(join(tmpdir(), "docs-comark-"))
+    roots.push(root)
+    mkdirSync(join(root, "node_modules/comark-ui/dist"), { recursive: true })
+    writeFileSync(join(root, "node_modules/comark-ui/package.json"), JSON.stringify({
+      name: "comark-ui",
+      dependencies: { "comark-zoom": "*", "comark-time": "*", "comark-include": "*", "shiki": "*" },
+      exports: { "./package.json": "./package.json", "./style.css": "./dist/style.css" },
+    }))
+    writeFileSync(join(root, "node_modules/comark-ui/dist/style.css"), ".cz{}\n.ctm{}\n.cmm{}")
+    comarkApp.root = root
+    onTestFinished(() => { comarkApp.root = "" })
+    const options = await setupDocs({})
+    const [file] = readdirSync(join(options.buildDir, "docs/styles"))
+    expect(readFileSync(join(options.buildDir, "docs/styles", file!), "utf8")).toBe("@layer theme, base, comark, components, utilities;\n.cz{}\n.ctm{}\n.cmm{}")
+    expect(templates.get("docs/comark-css.mjs")?.()).toBe(`export default ${JSON.stringify(file)}\nexport const names = ["zoom","include","mermaid","issues"]\n`)
   })
 
   it("gives app pages a Markdown copy unless markdownPages is false", async () => {
@@ -829,7 +871,7 @@ describe("docs Comments", () => {
       mkdirSync(join(rootDir, "node_modules/@vite-hub/comments"), { recursive: true })
       writeFileSync(join(rootDir, "node_modules/@vite-hub/comments/package.json"), JSON.stringify({ name: "@vite-hub/comments", exports: { "./package.json": "./package.json" } }))
     }
-    return { options: { rootDir, modules, ...(docs ? { docs } : {}) } }
+    return { options: { rootDir, modules, alias: {}, ...(docs ? { docs } : {}) } }
   }
   const docsModule = Object.assign(() => undefined, { getMeta: async () => ({ name: "@vite-hub/docs" }) })
 
