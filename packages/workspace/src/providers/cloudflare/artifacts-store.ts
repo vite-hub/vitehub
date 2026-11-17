@@ -5,6 +5,7 @@ import { assertWorkspaceDigest, workspaceConflict, workspaceError } from "../../
 import { copyJsonFileMetadata } from "../../core/file-metadata.ts"
 import { contentToBytes, isExcludedWorkspacePath, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
 import { createWorkspaceGlobMatcher } from "../../core/glob.ts"
+import { workspaceStoreDiscard } from "../../storage/discard.ts"
 import { MemoryFS } from "../../storage/memory-fs.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts"
 
@@ -160,6 +161,19 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   #token: { expiresAt: number, value: string } | undefined
 
   constructor(private options: CloudflareArtifactsWorkspaceStoreOptions, private workspaceName: string) {}
+
+  /** Drops the staged writes. The next call clones the branch again, as the first call does. */
+  async [workspaceStoreDiscard](): Promise<void> {
+    await this.#mutate(async () => {
+      // A read that already waited for the checkout keeps it. The next load replaces it.
+      this.#files = new Map()
+      this.#head = undefined
+      this.#pendingCommit = undefined
+      this.#ready = undefined
+      this.#staged = false
+      this.#stagedMeta = new Map()
+    })
+  }
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
     const normalized = normalizeSafeWorkspacePath(path)

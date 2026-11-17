@@ -804,7 +804,8 @@ export default await createProcessAgentHost({
 ```
 
 Use the host's `capacity`, `invocations`, and `providerSessionStorePath` in the
-Agent Definition. `host.health()` reports provider availability and stale records.
+Agent Definition. `host.deleteProviderSession(threadId)` deletes the stored
+provider sessions of one run thread when no run continues it. `host.health()` reports provider availability and stale records.
 `host.wake()` requests discovery after work completes. `host.start()` is idempotent;
 `host.close()` stops admission and waits for tracked work.
 

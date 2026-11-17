@@ -2140,7 +2140,13 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
-  it("ends the pass at the first write that new evidence refuses", async () => {
+  it.each([false, true])("ends the pass at the first write that new evidence refuses (cancellation delayed: %s)", async (delayCancellation) => {
+    const abort = AbortController.prototype.abort;
+    const cancellation = vi.spyOn(AbortController.prototype, "abort").mockImplementation(function (this: AbortController, reason?: unknown) {
+      // Let the provider finish before the deferred evidence-change cancellation.
+      if (delayCancellation && reason instanceof DOMException && reason.message === "Pull request evidence changed.") return;
+      abort.call(this, reason);
+    });
     const f = await fixture(false, false, { expectedOperationErrorAt: 0 });
     f.choose("updatePullRequest", { title: "Fix value now" });
     f.onRepair(async () => {
@@ -2156,7 +2162,10 @@ describe("Babysitter preset runtime", () => {
       const current = (await f.runtime.inbox.get("acme/app", 12))!;
       expect(current.status).toBe("ready");
       expect(current.lastResult).toBe("Pass interrupted; current webhook state retained.");
-    } finally { await f.runtime.inbox.close(); }
+    } finally {
+      cancellation.mockRestore();
+      await f.runtime.inbox.close();
+    }
   });
 
   it("gives back the worker slot before the install when the PR changed while the pass waited for it", async () => {

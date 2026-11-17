@@ -52,7 +52,7 @@ function handleKind(r: Resolver, node: unknown, seen = new Set<unknown>()): Hand
 }
 
 /** A display name such as `kv.get()` when `call` returns an `[error, value]` tuple. */
-function tupleCall(r: Resolver, call: AstNode): string | undefined {
+function tupleCall(r: Resolver, call: { callee: unknown }): string | undefined {
   const callee = unwrap(call.callee)
   if (isNodeType(callee, "MemberExpression") && callee.computed !== true && isIdentifier(callee.property)) {
     const kind = handleKind(r, callee.object)
@@ -95,7 +95,7 @@ function readsAsTuple(r: Resolver, target: unknown): boolean {
 }
 
 /** How the awaited tuple is used, when the use treats it as the value. */
-function misuseOf(r: Resolver, awaited: AstNode): Misuse | undefined {
+function misuseOf(r: Resolver, awaited: unknown): Misuse | undefined {
   const { parent, child } = semanticParent(awaited)
   if (!parent) return
   switch (parent.type) {
@@ -148,8 +148,7 @@ export const destructureResultTuples: DoctorRule = createRule({
   create(ctx) {
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression")) return
+      CallExpression(node) {
         const name = tupleCall(r, node)
         if (!name) return
         const { parent } = semanticParent(node)

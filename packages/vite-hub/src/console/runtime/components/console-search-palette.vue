@@ -931,7 +931,7 @@ onBeforeUnmount(() => {
       <DialogContent
         :final-focus="finalFocus"
         initial-focus="input"
-        class="fixed top-1/2 left-1/2 m-0 flex h-full max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-xl border-0 bg-default p-0 text-sm/6 text-default shadow-(--vh-shadow-dialog) transition-[opacity,scale] duration-200 ease-out focus:outline-none data-starting-style:scale-95 data-starting-style:opacity-0 data-ending-style:scale-95 data-ending-style:opacity-0 sm:h-[28rem] sm:max-h-[calc(100dvh-4rem)] sm:max-w-3xl"
+        class="fixed top-1/2 left-1/2 m-0 flex h-full max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-xl border-0 bg-default p-0 text-sm/6 text-default shadow-(--vh-shadow-dialog) transition-[opacity,scale] duration-200 ease-out data-starting-style:scale-95 data-starting-style:opacity-0 data-ending-style:scale-95 data-ending-style:opacity-0 sm:h-[28rem] sm:max-h-[calc(100dvh-4rem)] sm:max-w-3xl"
       >
         <DialogTitle class="sr-only">Search console</DialogTitle>
         <DialogDescription class="sr-only">Run actions and search pages, documents, Agents, definitions, KV keys, and sessions.</DialogDescription>
@@ -948,7 +948,7 @@ onBeforeUnmount(() => {
         >
           <div ref="inputRow" class="relative m-0 inline-flex items-center p-0">
             <span class="absolute inset-y-0 start-0 flex items-center ps-2.5">
-              <button v-if="pages.length" type="button" aria-label="Back" class="inline-flex items-center rounded-md p-0 text-xs text-muted outline-inverted/25 hover:text-default focus-visible:outline-3" @click="back">
+              <button v-if="pages.length" type="button" aria-label="Back" class="inline-flex items-center rounded-md p-0 text-xs text-muted hover:text-default" @click="back">
                 <Icon name="i-lucide-arrow-left" class="size-4 shrink-0 opacity-80" />
               </button>
               <Icon v-else-if="loading" name="i-lucide-loader-circle" class="size-4 shrink-0 animate-spin text-dimmed opacity-80" />
@@ -958,17 +958,17 @@ onBeforeUnmount(() => {
               aria-label="Search the Console"
               :placeholder="placeholder"
               autocomplete="off"
-              class="h-12 w-full appearance-none rounded-md border-0 bg-transparent px-2.5 py-1.5 ps-8 pe-8 text-sm/4 text-highlighted placeholder:text-dimmed focus:outline-none pointer-coarse:text-base"
+              class="h-12 w-full appearance-none rounded-md border-0 bg-transparent px-2.5 py-1.5 ps-8 pe-8 text-sm/4 text-highlighted placeholder:text-dimmed pointer-coarse:text-base"
               @keydown="onInputKeydown"
             />
             <span class="absolute inset-y-0 end-0 flex items-center pe-2.5">
-              <DialogClose aria-label="Close" class="inline-flex h-auto items-center gap-1.5 rounded-md border-0 bg-transparent p-1.5 text-xs font-medium text-default outline-inverted/25 transition-[color,background-color,box-shadow,transform] duration-150 ease-out hover:bg-elevated focus-visible:outline-3 active:bg-elevated motion-safe:active:scale-[.97] motion-reduce:transition-none">
+              <DialogClose aria-label="Close" class="inline-flex h-auto items-center gap-1.5 rounded-md border-0 bg-transparent p-1.5 text-xs font-medium text-default transition-[color,background-color,box-shadow,transform] duration-150 ease-out hover:bg-elevated active:bg-elevated motion-safe:active:scale-[.97] motion-reduce:transition-none">
                 <Icon name="i-lucide-x" class="size-4 shrink-0 opacity-80" />
               </DialogClose>
             </span>
           </div>
           <div class="relative flex flex-1 flex-col overflow-hidden">
-            <CommandList v-show="shownGroups.length" aria-label="Results" class="relative max-h-none flex-1 scroll-py-1 divide-y divide-default overflow-y-auto p-0 focus:outline-none">
+            <CommandList v-show="shownGroups.length" aria-label="Results" class="relative max-h-none flex-1 scroll-py-1 divide-y divide-default overflow-y-auto p-0">
               <CommandPage :key="pages.at(-1) ?? ''" :value="pages.at(-1)">
                 <CommandGroup v-for="group in shownGroups" :key="group.id" class="isolate p-1">
                   <CommandGroupLabel class="p-1.5 text-xs font-semibold text-highlighted">{{ group.label }}</CommandGroupLabel>

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto"
 import { existsSync } from "node:fs"
 import { resolve } from "node:path"
 
@@ -19,13 +18,11 @@ import { insertConsoleSection, isConsoleMcpClientEnabled, type ConsoleSectionId 
 import { discoverConsoleBuildCatalog } from "./build.ts"
 import { consoleRuntimeRoot, consoleSkillsRoot, writeConsoleNitroPlugin, type ConsoleAccessBuild, type ConsoleNitroPluginOptions } from "./plugin.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
-import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
 import { addConsolePageToolRoutes, addConsoleRpcHandler } from "./nitro.ts"
 import { consoleOperationFeaturesFilter, transformConsoleOperationFeatures } from "./operation-features.ts"
 import { consoleDevAccessNotice } from "./dev-access-notice.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
-const frameworkAgentSpecifier = "vite-hub/agent"
 const generatedConsolePlugin = ".vitehub/nitro/console/plugin.mjs"
 const generatedDevelopmentConsolePlugin = ".vitehub/nitro/console/plugin-dev.mjs"
 
@@ -172,33 +169,9 @@ export interface ConsoleVitePluginOptions {
   workspaceDiscoveryRoot?: string
 }
 
+/** Whether the server environments of the Agent invocation Console closed. A closed one writes no generated plugin. */
 export interface ConsoleInvocationRootState {
-  binding?: string
   closed?: boolean
-  identity?: string
-  projectRoot?: string
-}
-
-export function createConsoleInvocationRootState(): ConsoleInvocationRootState {
-  return { binding: randomUUID() }
-}
-
-export async function closeConsoleInvocationRootState(state: ConsoleInvocationRootState): Promise<void> {
-  if (state.closed) return
-  state.closed = true
-  if (state.binding) releaseConsoleInvocationsBinding(state.binding)
-}
-
-export function updateConsoleInvocationRootState(
-  state: ConsoleInvocationRootState,
-  projectRoot: string,
-  identity: string,
-): void {
-  if (state.closed) return
-  state.binding ??= randomUUID()
-  state.identity = identity
-  state.projectRoot = projectRoot
-  bindConsoleInvocationsIdentity(state.binding, identity, projectRoot)
 }
 
 function configureConsoleNitroRoutes(
@@ -335,8 +308,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     if (!generatedPlugin || !projectRoot || !root) return
     const catalog = await discoverConsoleBuildCatalog({ contentImportBase: options.contentImportBase, databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, plugins: resolvedPlugins, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
     consoleBuildCatalogs.set(projectRoot, catalog)
-    const identity = await writeConsoleNitroPlugin({ ...consolePluginOptions(), catalog, file: generatedPlugin, projectRoot })
-    if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
+    await writeConsoleNitroPlugin({ ...consolePluginOptions(), catalog, file: generatedPlugin, projectRoot })
   })
 
   function resolveKVRegistration(kv: unknown, plugins?: readonly Plugin[]): void {
@@ -584,30 +556,16 @@ function publishDevServer(server: ViteDevServer): void {
   http.once("close", remove)
 }
 
-function normalizeModuleId(id: string): string {
-  const queryIndex = id.indexOf("?")
-  const path = queryIndex === -1 ? id : id.slice(0, queryIndex)
-  return path.replace(/\\/g, "/")
-}
-
-export function consoleInvocationRootPlugin(
-  configuredProjectRoot?: string,
-  configuredIdentity?: string,
-  state: ConsoleInvocationRootState = {},
-): Plugin {
-  const frameworkAgentEntries = new Set<string>()
+/**
+ * Keeps `vite-hub` in the server environments of an app with Agents, so the Console and the app read one Agent
+ * Invocation journal, and records when those environments close, so a closed server writes no generated plugin.
+ */
+export function consoleInvocationRootPlugin(state: ConsoleInvocationRootState = {}): Plugin {
   const activeEnvironments = new Set<Environment>()
-  let projectRoot = configuredProjectRoot
-  let identity = configuredIdentity
 
-  function rememberFrameworkAgent(id: string): void {
-    frameworkAgentEntries.add(normalizeModuleId(id))
-  }
-
-  async function closeEnvironment(environment: Environment | undefined): Promise<void> {
+  function closeEnvironment(environment: Environment | undefined): void {
     if (environment) activeEnvironments.delete(environment)
-    if (activeEnvironments.size > 0) return
-    await closeConsoleInvocationRootState(state)
+    if (activeEnvironments.size === 0) state.closed = true
   }
 
   return {
@@ -618,51 +576,23 @@ export function consoleInvocationRootPlugin(
       if (config.consumer !== "server") return
       return { resolve: { noExternal: ["vite-hub"] } }
     },
-    async configResolved(config) {
-      projectRoot ||= resolveViteHubProjectRoot(config.root)
-      identity = state.identity ?? createConsoleInvocationsIdentity(projectRoot)
-      updateConsoleInvocationRootState(state, projectRoot, identity)
+    closeBundle() {
+      closeEnvironment(this.environment)
     },
-    async closeBundle() {
-      await closeEnvironment(this.environment)
+    buildEnd(error) {
+      if (error) closeEnvironment(this.environment)
     },
-    async buildEnd(error) {
-      if (error) await closeEnvironment(this.environment)
-    },
-    async buildStart() {
+    buildStart() {
       if (this.environment) activeEnvironments.add(this.environment)
-      if (state.closed) {
-        state.closed = false
-        if (state.binding && state.identity && state.projectRoot) {
-          bindConsoleInvocationsIdentity(state.binding, state.identity, state.projectRoot)
-        }
-      }
-      const resolved = await this.resolve(frameworkAgentSpecifier, undefined, { skipSelf: true })
-      if (!resolved) this.error(`[vitehub] Could not resolve ${JSON.stringify(frameworkAgentSpecifier)} for the Agent invocation console.`)
-      rememberFrameworkAgent(resolved.id)
+      state.closed = false
     },
     resolveId: {
       filter: { id: /^vite-hub\/agent$/ },
       async handler(source, importer, options) {
-        if (source !== frameworkAgentSpecifier) return
         const resolved = await this.resolve(source, importer, { ...options, skipSelf: true })
-        if (!resolved) this.error(`[vitehub] Could not resolve ${JSON.stringify(frameworkAgentSpecifier)} for the Agent invocation console.`)
-        rememberFrameworkAgent(resolved.id)
+        if (!resolved) this.error(`[vitehub] Could not resolve ${JSON.stringify(source)} for the Agent invocation console.`)
         return { ...resolved, external: false }
       },
-    },
-    transform(code, id) {
-      if (!frameworkAgentEntries.has(normalizeModuleId(id))) return
-      if (!projectRoot) this.error("[vitehub] Could not resolve the project root for the Agent invocation console.")
-      return [
-        `globalThis[Symbol.for("vitehub.console.invocations.root")] = ${JSON.stringify(projectRoot)}`,
-        `globalThis[Symbol.for("vitehub.console.invocations.identity")] = ${JSON.stringify(state.identity ?? identity)}`,
-        `globalThis[Symbol.for("vitehub.console.invocations.identity-root")] = ${JSON.stringify(projectRoot)}`,
-        ...(state.binding
-          ? [`globalThis[Symbol.for("vitehub.console.invocations.binding")] = ${JSON.stringify(state.binding)}`]
-          : []),
-        code,
-      ].join("\n")
     },
   }
 }

@@ -1701,6 +1701,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         let pushedAt: ReturnType<typeof setTimeout> | undefined;
         schedulerEvent("babysitter.owner.started", { maxOwners: ownerLimit, ...owner });
         const passController = new AbortController();
+        let evidenceChanged: DOMException | undefined;
         const passSignal = AbortSignal.any([
           AbortSignal.timeout(60 * 60 * 1000),
           passController.signal,
@@ -2253,9 +2254,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 if (current.generation !== inboxClaim.generation
                   && !((selfHead || repairOperation.getStore()) && repairEvidenceKey(current) === repairEvidenceKey(inboxClaim.snapshot, current))) {
                   // Every later write would be refused too, so end the pass and let the claim requeue.
-                  const changed = new DOMException("Pull request evidence changed.", "AbortError");
+                  const changed = evidenceChanged ??= new DOMException("Pull request evidence changed.", "AbortError");
                   schedulerEvent("babysitter.pass.evidence_changed", { ...owner, head_sha: pullRequest.headRefOid, observed_head: observedHead });
-                  passController.abort(changed);
+                  // End the pass on the next turn of the event loop. Ending it now closes the tool server before it
+                  // sends this refusal, and the Agent gets a dropped connection instead of the reason.
+                  setTimeout(() => passController.abort(changed), 0);
                   throw changed;
                 }
                 return current;
@@ -2820,6 +2823,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                       schedule: { ...schedule, runId },
                     },
                   );
+                  // The provider can finish before deferred cancellation runs. Never accept
+                  // its normal result after a write has refused changed evidence.
+                  if (evidenceChanged) throw evidenceChanged;
                   // Provider retry and abort handling read the original failure.
                   if (error) throw error.cause ?? error;
                   return result.output;
