@@ -154,6 +154,14 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
     // No section registers Forms, so the folder turns it on here.
     if (!entries.includes("forms")) entries.push("forms")
   }
+  // `server/webhooks/` runs the webhooks operations, so the Console section lists webhooks and deliveries through them.
+  const webhooksVite = ownerModules.webhooksVite
+  if (webhooksVite?.usesWebhooks({ projectRoot, ...(serverDirs ? { serverDirs } : {}) })) {
+    content.webhooks = await readViteHubConsoleSection(webhooksVite.webhooksConsoleSection, undefined)
+    sectionOverrides.webhooks = describeViteHubConsoleSection(webhooksVite.webhooksConsoleSection)
+    // No section registers Webhooks, so the folder turns it on here.
+    if (!entries.includes("webhooks")) entries.push("webhooks")
+  }
   // `server/skills.ts` runs the served skill operations, so the Console section lists the skills with a switch each.
   if (findServedSkillsEntry({ projectRoot, ...(serverDirs ? { serverDirs } : {}) })) {
     content["served-skills"] = await readViteHubConsoleSection(servedSkillsConsoleSection, undefined)

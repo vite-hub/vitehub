@@ -100,11 +100,18 @@ function requireInstalled(): InstalledWebhooks {
   return installed
 }
 
-/** The Database that `name` names, else `default`, else the only one. */
-export function selectDefaultDatabase(databases: Record<string, { db: WebhooksDatabase } | undefined>): WebhooksDatabase {
-  const db = databases.default?.db ?? (Object.keys(databases).length === 1 ? Object.values(databases)[0]?.db : undefined)
-  if (!db) throw webhooksErrors.WEBHOOKS_DATABASE_MISSING()
-  return db
+/**
+ * The Database that keeps the deliveries: the one that `useDatabase()` of `@vite-hub/database/runtime/registry` returns
+ * without a name. That is the Database that `vitehub database generate` adds the table to: `default`, else the only one.
+ * The registry also holds a placeholder `default` that throws, so code must not pick from it by name.
+ */
+export function selectDefaultDatabase(useDatabase: () => { db: WebhooksDatabase }): WebhooksDatabase {
+  try {
+    return useDatabase().db
+  }
+  catch (cause) {
+    throw webhooksErrors.WEBHOOKS_DATABASE_MISSING({ cause })
+  }
 }
 
 /** The server variables: Node's `process.env`, the Cloudflare bindings, and the values of `setEnv()` in app tests. */

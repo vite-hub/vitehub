@@ -91,6 +91,8 @@ vitehub webhooks redeliver whd_...
 
 `list`, `deliveries`, `pending`, and `get` only read, so MCP marks them read-only. The output shows the host of a URL, never its path, query, or the secret.
 
+The Webhooks section of the Console shows each webhook with its host, signature, debounce, and the names of its URL and secret variables, then the pending timers with a countdown and the delivery log. Its buttons run Send test, Send now, Cancel, and Redeliver through the same operations. Set the variables in the Env section.
+
 ## Public imports
 
 | Import | Purpose |
@@ -99,6 +101,6 @@ vitehub webhooks redeliver whd_...
 | `@vite-hub/webhooks/runtime` | The delivery functions above, `installWebhooks()` for tests, and the Queue handler |
 | `@vite-hub/webhooks/operations` | `webhooksOperations`, the operations of the Console, `vitehub webhooks`, and MCP |
 | `@vite-hub/webhooks/database` | The table as `webhooksSchema`, as SQL in `webhooksTables`, and `createDrizzleWebhookStore(db)` |
-| `@vite-hub/webhooks/vite` | `hubWebhooks()`, which `vite-hub` adds for you |
+| `@vite-hub/webhooks/vite` | `hubWebhooks()`, which `vite-hub` adds for you, and `webhooksConsoleSection` |
 
 In a ViteHub app, import the same functions from `vite-hub/webhooks`.
