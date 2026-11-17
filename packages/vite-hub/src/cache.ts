@@ -57,6 +57,8 @@ function defineStaleIfErrorFunction<T, ArgsT extends unknown[]>(
   const integrity = options.integrity ?? hashText(`${fn}${JSON.stringify(options, (_key, value: unknown) => typeof value === "function" ? String(value) : value)}`)
   // Storage key to the stored value that a call returned after an error.
   const served = new Map<string, unknown>()
+  // Private resolver results distinguish fallback data from a fresh function result.
+  const fallbacks = new Map<T, { entry: CacheEntry<T>, value: T }>()
   let inner: StorageInterface | undefined
   const store = (): StorageInterface => inner ??= typeof options.storage === "function" ? options.storage() : options.storage ?? nitroKVStorage()
   const storage = (): StorageInterface => ({
@@ -85,7 +87,10 @@ function defineStaleIfErrorFunction<T, ArgsT extends unknown[]>(
         else console.warn("[vitehub] The cached function threw, so it returns the stored value.", error)
         // ocache writes the result to the base where it found the entry and to each base before it.
         for (const written of keys.slice(0, index + 1)) served.set(written, entry.value)
-        return value
+        // SAFETY: this private token is unwrapped by serialize before ocache returns it.
+        const token = {} as T
+        fallbacks.set(token, { entry, value })
+        return token
       }
       throw error
     }
@@ -101,7 +106,24 @@ function defineStaleIfErrorFunction<T, ArgsT extends unknown[]>(
     if (options.validate && await options.validate(decoded, { args }) === false) return undefined
     return decoded.value
   }
-  const cached = defineTaggedFunction(run, { ...options, integrity, name, storage })
+  const cached = defineTaggedFunction(run, {
+    ...options,
+    integrity,
+    name,
+    storage,
+    getMaxAge: options.getMaxAge && ((entry) => {
+      const fallback = fallbacks.get(entry.value)
+      return fallback
+        ? { maxAge: fallback.entry.maxAge, staleMaxAge: fallback.entry.staleMaxAge }
+        : options.getMaxAge!(entry)
+    }),
+    serialize: (entry) => {
+      const fallback = fallbacks.get(entry.value)
+      if (!fallback) return entry.value
+      fallbacks.delete(entry.value)
+      return fallback.value
+    },
+  })
   keysOf = cached.resolveKeys
   return cached
 }

@@ -201,6 +201,25 @@ describe.each([
     expect(source.calls).toBe(2)
   })
 
+  it("does not rerun getMaxAge on a failed refresh or renew its dynamic lifetime", async () => {
+    const { fetchRates, source } = ratesSource()
+    const getMaxAge = vi.fn(() => ({ maxAge: 60, staleMaxAge: 30 }))
+    const getRates = defineCachedFunction(fetchRates, { getKey: base => base, getMaxAge, onError, staleIfError: 3600, waitUntil })
+
+    await getRates("USD")
+    await settle()
+    const key = (await getRates.resolveKeys("USD"))[0]!
+    const original = await root().getItem(key)
+    advance(120)
+    source.down = true
+    expect(await getRates("USD")).toEqual({ base: "USD", EUR: 0.9 })
+    await settle()
+    expect(getMaxAge).toHaveBeenCalledTimes(1)
+    expect(await root().getItem(key)).toEqual(original)
+    advance(3541)
+    await expect(getRates("USD")).rejects.toThrow("Frankfurter answered 503")
+  })
+
   it("runs the function again when the entry it served came from a later base", async () => {
     const { fetchRates, source } = ratesSource()
     const getRates = defineCachedFunction(fetchRates, { base: ["/cache/first", "/cache/second"], getKey: base => base, maxAge: 60, onError, staleIfError: 3600, waitUntil })
