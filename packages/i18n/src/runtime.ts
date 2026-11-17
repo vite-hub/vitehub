@@ -1,4 +1,5 @@
 import { setupI18n } from "@lingui/core"
+import { isRecord } from "@vite-hub/internal/object"
 
 import { i18nErrorDiagnostics } from "./errors.ts"
 import { matchLocale, parseAcceptLanguage, readCookie } from "./locales.ts"
@@ -98,20 +99,39 @@ export function getLocales(): readonly string[] {
   return state().config?.locales ?? [getLocale()]
 }
 
+/** Each message is text, or a compiled list of tokens where each token is text or a placeholder list. */
+function isMessages(value: unknown): value is Messages {
+  return isRecord(value) && Object.values(value).every(message => typeof message === "string"
+    || (Array.isArray(message) && message.every(token => typeof token === "string" || Array.isArray(token))))
+}
+
+/** The body of the live catalog route: `{ revision, messages }`. */
+function readLiveCatalog(body: unknown): { revision: string, messages: Messages } | undefined {
+  if (!isRecord(body) || typeof body.revision !== "string") return
+  const messages = body.messages ?? {}
+  return isMessages(messages) ? { revision: body.revision, messages } : undefined
+}
+
 /**
  * Translations that a Workspace published after the build. The route answers with an ETag, so the browser downloads a
  * catalog again only after a publish. When the route fails, the page keeps the catalog of the build.
  */
 async function liveMessages(live: string, locale: string): Promise<Messages> {
+  let body: unknown
   try {
     const response = await fetch(`${live}/${encodeURIComponent(locale)}.json`)
     if (!response.ok) return {}
-    const body = await response.json() as { revision?: string, messages?: Messages }
-    return body.revision === "build" ? {} : body.messages ?? {}
+    body = await response.json()
   }
   catch {
     return {}
   }
+  const catalog = readLiveCatalog(body)
+  if (!catalog) {
+    console.warn(i18nErrorDiagnostics.I18N_LIVE_CATALOG_INVALID({ locale, route: live }))
+    return {}
+  }
+  return catalog.revision === "build" ? {} : catalog.messages
 }
 
 async function loadMessages(config: I18nRuntimeConfig | undefined, locale: string): Promise<Messages> {

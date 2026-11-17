@@ -527,6 +527,31 @@ describe("the browser with a Workspace", () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it.each([
+    ["messages that are not a record", { revision: "rev-2", messages: "Publica tu agente" }],
+    ["a message that is not compiled", { revision: "rev-2", messages: { [deploy.id]: 42 } }],
+    ["a revision that is not a string", { revision: 2, messages: {} }],
+    ["a body that is not an object", ["Publica tu agente"]],
+  ])("keeps the build catalog and warns I18N_LIVE_CATALOG_INVALID for %s", async (_name, body) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    vi.stubGlobal("document", { cookie: "", documentElement: { lang: "en" } })
+    vi.stubGlobal("fetch", async () => Response.json(body))
+    try {
+      configureI18n({
+        ...config,
+        live: "/_vitehub/i18n",
+        catalogs: { es: async () => ({ messages: { [deploy.id]: ["Despliega tu agente"] } }) },
+      })
+      expect(await setLocale("es")).toEqual([undefined, "es"])
+      expect(getI18n()._(deploy)).toBe("Despliega tu agente")
+      expect(warn).toHaveBeenCalledWith(expect.objectContaining({ code: "I18N_LIVE_CATALOG_INVALID" }))
+    }
+    finally {
+      warn.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
 })
 
 describe("missing translations for Agents", () => {
