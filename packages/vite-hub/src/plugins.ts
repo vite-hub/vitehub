@@ -1839,12 +1839,14 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   // Adds the `vitehub content` commands, the Content operations, and the Content inspector. Inert without server/content.ts.
   // The app installs only `vite-hub`, so the KV and snapshot registrations that it adds to server/content.ts import `vite-hub/content`.
   if (ownerModules.contentVite) plugins.push(ownerModules.contentVite.hubContent({ importBase: "vite-hub/content" }))
-  // Forms in `server/forms/<name>.ts`: one route for each, submissions in the Database, email with Email, and the user
-  // with Auth. Inert without the folder, and absent without its package.
+  // Forms in `server/forms/<name>.ts`: one route for each, submissions in the Database, email with Email, the user
+  // with Auth, and the message counts in Rate Limit when its KV store is shared. Inert without the folder, and absent
+  // without its package.
   if (ownerModules.formsVite) plugins.push(ownerModules.formsVite.hubForms({
     database: Boolean(options.database),
     email: Boolean(options.email),
     auth: Boolean(options.auth),
+    rateLimit: Boolean(options.rateLimit) && buildRateLimitDriver(plan, options).driver === "kv",
     imports: {
       runtime: "vite-hub/forms/runtime",
       operations: "vite-hub/forms/operations",
@@ -1853,6 +1855,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       email: "vite-hub/email",
       auth: "vite-hub/auth/server",
       standard: "vite-hub/runtime",
+      rateLimit: "vite-hub/rate-limit",
     },
   }))
   // Reads the `cms` preset and contributes its Workspace, Database tables, and, when the app has none, the default

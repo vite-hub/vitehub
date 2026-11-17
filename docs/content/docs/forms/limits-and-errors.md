@@ -13,12 +13,14 @@ Set `maxBytes` and `rateLimit` in `defineForm()` to change the body and message 
 | Limit | Default |
 | --- | --- |
 | Body | 64 KB |
-| Messages from one address | 5 a minute, in each server process |
+| Messages from one address | 5 a minute |
 | Page path | 2,000 characters |
 | Selected text (`_anchor.exact`) | 1,000 characters |
 | `forms.list` page | 100, at most 500 |
 
 The address is the peer address that the host reports, and an IPv6 address counts as its /64 network. Behind a reverse proxy, such as nginx, Caddy, or a Docker ingress, the peer is the proxy, so all visitors share one budget. Raise `rateLimit` there, or turn it off and limit at the proxy.
+
+Each server process counts messages in its own memory. On Cloudflare, each Worker isolate counts alone. When Rate Limit counts in a shared KV store, Forms counts there too, so all your Node instances share one budget. Turn on `rateLimit` and `kv` in `vitehub()`, with a Redis KV store or a Postgres Database. Forms then counts under the Rate Limit name `forms`, one counter for each form and address. If the store does not answer, Forms counts that message in memory and logs the error.
 
 ## Errors
 
