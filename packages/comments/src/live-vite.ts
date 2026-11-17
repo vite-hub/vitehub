@@ -49,6 +49,8 @@ export interface CommentsImports {
   connect: string
   /** Exports `blob`, the Blob store that attachments go to when the app has Blob. */
   blob: string
+  /** Exports `checkRateLimit`, which counts guest writes when Rate Limit counts in a shared KV store. */
+  rateLimit: string
 }
 
 /** Options of `comments()`, for apps that use Comments without `vite-hub`. */
@@ -97,6 +99,11 @@ export interface CommentsVitePluginOptions {
   blob?: boolean
   /** `false` leaves the overlay out: no `comments` page tool. The API, the operations, and the Console stay. */
   overlay?: false
+  /**
+   * ViteHub Rate Limit counts in a KV store that every server process shares: count the guest writes of
+   * `defineComments({ rateLimit })` there too. Default `false`: each process counts in its memory.
+   */
+  rateLimit?: boolean
 }
 
 export interface CommentsRealtimeContributionContext {
@@ -137,6 +144,7 @@ const defaultImports: CommentsImports = {
   contentClient: "@vite-hub/content/client",
   connect: "@vite-hub/comments/runtime/connect",
   blob: "@vite-hub/blob",
+  rateLimit: "@vite-hub/rate-limit",
 }
 
 /**
@@ -374,6 +382,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
     // With Auth, `@` suggests the users of Auth.
     ...(input.session?.auth ? [`import { commentsAuthUsers } from ${JSON.stringify(input.imports.auth)}`] : []),
     ...(input.session?.blob ? [`import { blob } from ${JSON.stringify(input.imports.blob)}`] : []),
+    ...(input.session?.rateLimit ? [`import { checkRateLimit } from ${JSON.stringify(input.imports.rateLimit)}`] : []),
     ...(postgres ? [`import { commentsPostgresSchema as schema } from ${JSON.stringify(`${input.imports.database}/postgres`)}`] : []),
     `export default defineCommentsPlugin({ ${[
       "comments",
@@ -382,6 +391,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
       ...(session.githubLogin ? ["githubLogin"] : []),
       ...(input.session?.auth ? ["users: commentsAuthUsers"] : []),
       ...(input.session?.blob ? ["attachments: blob"] : []),
+      ...(input.session?.rateLimit ? ["rateLimit: checkRateLimit"] : []),
       ...(postgres ? ["dialect: \"postgresql\"", "tables: { commentCounters: schema.vitehubCommentCounters, commentMessages: schema.vitehubCommentMessages, commentThreads: schema.vitehubCommentThreads, commentForge: schema.vitehubCommentForge }"] : []),
       `development: ${input.development === true}`,
       `overlay: ${overlay}`,
