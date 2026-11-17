@@ -177,13 +177,13 @@ export default defineEventHandler(async (event) => {
 });
 ```
 
-`provider` is `"stripe"` (`Stripe-Signature`, at most `toleranceSeconds` old, default 300), `"github"` (`X-Hub-Signature-256`), or `"hmac"` with a `header` and optional `prefix`, `encoding`, and `secretEncoding`. The codes are `ENV_WEBHOOK_SIGNATURE_INVALID`, `ENV_WEBHOOK_SECRET_UNSET`, and `ENV_WEBHOOK_BODY_INVALID`. The variable holds one secret, or a comma-separated list while you rotate. See [Verify webhooks](https://vitehub.dev/docs/env/webhooks).
+`provider` is `"stripe"` (`Stripe-Signature`, at most `toleranceSeconds` old, default 300), `"github"` (`X-Hub-Signature-256`, with a JSON or form body), or `"hmac"` with a `header` and optional `prefix`, `encoding`, and `secretEncoding`. The codes are `ENV_WEBHOOK_SIGNATURE_INVALID`, `ENV_WEBHOOK_SECRET_UNSET`, and `ENV_WEBHOOK_BODY_INVALID`. The variable holds one secret, or a comma-separated list while you rotate. See [Verify webhooks](https://vitehub.dev/docs/env/webhooks).
 
 `signWebhook(body, { provider, secret })` signs an outgoing body and returns the headers to send with it. `provider` is `"github"` (`x-hub-signature-256: sha256=<hex>`) or `"stripe"` (`stripe-signature: t=<unix>,v1=<hex>`). Here `secret` is the secret itself, not a variable name. Send the exact body that you signed, so `verifyWebhook()` and other standard receivers accept it.
 
 ## Typed server values
 
-Host variables are strings. Declare `env.boolean()`, `env.number()`, or `env.enum()` when server code needs another type. ViteHub parses the value when Server Env resolves and generates the exact type.
+Host variables are strings. Declare `env.boolean()`, `env.number()`, `env.enum()`, `env.list()`, or `env.json()` when server code needs another type. ViteHub parses the value when Server Env resolves and generates the exact type.
 
 ```ts fragment
 // vite.config.ts
@@ -197,6 +197,21 @@ env: {
 ```
 
 `useServerEnv().dryRun` is a `boolean`, `minConfidence` is a `number`, and `mode` is `"draft" | "send"`. Defaults use the parsed type. `env.enum()` cannot be secret because its allowed values are public metadata. An invalid value throws `ENV_RUNTIME_VALUE_INVALID` with the declaration path; the value is never included.
+
+`env.list()` reads items separated by commas or line breaks: it trims each item and drops empty items. `env.list(env.number())` parses each item with the item helper. `env.json()` reads JSON text, and `env.json(env.schemaFrom("./server/env.schema.ts", "settings"))` checks it with a Standard Schema from a module:
+
+```ts fragment
+// vite.config.ts
+env: {
+  server: {
+    adminEmails: env.list({ default: [] }), // string[]
+    ports: env.list(env.number()), // number[]
+    settings: env.json(env.schemaFrom("./server/env.schema.ts", "settings")), // schema output
+  },
+}
+```
+
+Put `default`, `secret`, `source`, and `optional` on the list, not on the item helper. Text that is not JSON fails with `ENV_RUNTIME_VALUE_INVALID`. See [Lists and JSON values](https://vitehub.dev/docs/env/configure#lists-and-json-values).
 
 For a pattern, a custom refinement, or a transform, export a Standard Schema from a module and point the declaration at it. The server build imports the module and runs the schema on the raw value:
 

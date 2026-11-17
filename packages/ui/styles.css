@@ -2192,6 +2192,47 @@
     border-radius: var(--vh-comment-card-radius) var(--vh-comment-card-radius) 0.375rem;
   }
 
+  /* With CSS anchor positioning, the browser puts a thread's card and its preview on the side of the spot that has
+     room for their real size: under it to the right, then to the left, then above the pin, then under or above it,
+     moved inside the screen. Without it, `data-flip-x` and `data-flip-y` guess the side from the card's usual size.
+     The box of a new comment keeps its own placement, because its corners point at the pin. The `@position-try`
+     rules stay outside `@supports`, where Firefox ignores them. */
+  @position-try --vh-comment-above {
+    margin: 0 0 2.5rem 0.5rem;
+    position-area: top right;
+  }
+
+  @position-try --vh-comment-above-left {
+    margin: 0 0.5rem 2.5rem 0;
+    position-area: top left;
+  }
+
+  @position-try --vh-comment-below-inside {
+    margin: 0.5rem 0.5rem 0;
+    position-area: bottom span-all;
+  }
+
+  @position-try --vh-comment-above-inside {
+    margin: 0 0.5rem 2.5rem;
+    position-area: top span-all;
+  }
+
+  @supports (anchor-name: --a) {
+    [data-slot="comment-layer-item"] {
+      anchor-name: --vh-comment-spot;
+      anchor-scope: --vh-comment-spot;
+    }
+
+    [data-slot="comment-layer-item"]:not([data-draft]) > [data-slot="comment-layer-popover"]:not([data-margin], [data-floating]) {
+      inset: auto;
+      margin: 0.5rem 0 0 0.5rem;
+      position: fixed;
+      position-anchor: --vh-comment-spot;
+      position-area: bottom right;
+      position-try-fallbacks: flip-inline, --vh-comment-above, --vh-comment-above-left, --vh-comment-below-inside, --vh-comment-above-inside;
+    }
+  }
+
   [data-slot="comment-layer-popover"][data-preview="true"] {
     pointer-events: none;
     width: 18rem;
@@ -3730,6 +3771,71 @@
 }
 
 /*
+ * The editor parts of the ui-sdk set (`uiSdkComponents`). The kit style family draws their ui-sdk parts, and these
+ * rules give them the shape of Nuxt UI's editor parts. Nuxt UI's parts carry none of these classes.
+ */
+@layer components {
+  /* The bubble toolbar floats as a popup does: a ring and a soft shadow, no border. */
+  .vh-editor-toolbar[data-layout="bubble"] {
+    background: var(--popover, var(--vh-bg));
+    border-width: 0;
+    box-shadow: var(--shadow-popover, 0 0 0 1px var(--vh-border));
+    color: var(--popover-foreground, var(--vh-text));
+    padding: 0.25rem;
+  }
+  .vh-editor-toolbar-root { z-index: 50; }
+
+  /* The "/" list is one popup: Nuxt UI's width, and at most 24rem tall. */
+  .vh-editor-suggestion-menu {
+    max-height: min(24rem, var(--available-height));
+    max-width: 15rem;
+    min-width: 12rem;
+  }
+  /* web.css styles a menu's group labels and separators, but not a trigger menu's. These match the menu's. */
+  .vh-editor-suggestion-menu [data-slot="trigger-menu-group-label"] {
+    color: var(--ui-muted-foreground, var(--vh-muted));
+    font-size: 0.75rem;
+    padding: 0.375rem 0.5rem 0.25rem;
+  }
+  .vh-editor-suggestion-menu [data-slot="trigger-menu-separator"] {
+    background: var(--ui-border, var(--vh-border));
+    height: 1px;
+    margin: 0.25rem -0.25rem;
+  }
+  [data-slot="editor-suggestion-text"] { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+  :is([data-slot="editor-suggestion-label"], [data-slot="editor-suggestion-description"]) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  [data-slot="editor-suggestion-description"] { color: var(--muted-foreground, var(--vh-muted)); font-size: 0.75rem; }
+  /* Screen readers hear the count from the status. It takes no room. */
+  .vh-editor-suggestion-menu__status {
+    block-size: 1px;
+    clip-path: inset(50%);
+    inline-size: 1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+  }
+
+  /* The handle glides to the block under the pointer. A narrow screen has no room beside the text, as in Nuxt UI. */
+  .vh-editor-drag-handle {
+    align-items: center;
+    display: flex;
+    justify-content: center;
+    transition: top 200ms ease-out, left 200ms ease-out;
+  }
+  .vh-editor-drag-handle__handle { cursor: grab; padding-inline: 0.25rem; }
+  @media (prefers-reduced-motion: reduce) {
+    .vh-editor-drag-handle { transition: none; }
+  }
+  @media (max-width: 639.98px) {
+    .vh-editor-drag-handle { display: none; }
+  }
+}
+
+/*
  * AgentSession: T3 Code's thread layout (MIT, T3 Tools Inc.). A 52px header, a timeline lane of at most 46rem, a 17.5rem
  * details card at the top right (flat, not T3's glass, like every Console surface), and a right panel of surface tabs whose toggle stays in the top right corner.
  */
@@ -3840,6 +3946,30 @@
     position: absolute;
     width: var(--vh-agent-details-width);
     z-index: 20;
+  }
+  /* On a narrow column the card is a native popover in the top layer. CSS anchor positioning puts it where the inline
+     card goes, over the top end corner of the body. Where that fails, AgentSession places it from the body's box. */
+  .vh-agent-session__details[popover] {
+    background: none;
+    border: 0;
+    color: inherit;
+    max-height: calc(100dvh - 2rem);
+    overflow: visible;
+    padding: 0;
+    position: fixed;
+    z-index: auto;
+  }
+  @supports (anchor-name: --a) {
+    .vh-agent-session { anchor-scope: --vh-agent-session-body; }
+    .vh-agent-session__body { anchor-name: --vh-agent-session-body; }
+    .vh-agent-session__details[popover] {
+      inset: auto;
+      inset-block-start: anchor(start);
+      inset-inline-end: calc(anchor(end) + 0.75rem);
+      margin: 0;
+      max-height: calc(anchor-size(block) - 0.75rem);
+      position-anchor: --vh-agent-session-body;
+    }
   }
   .vh-agent-session__details-card {
     background: var(--vh-bg-elevated);

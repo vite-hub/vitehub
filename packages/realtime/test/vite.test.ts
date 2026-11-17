@@ -20,6 +20,15 @@ afterEach(async () => {
 })
 
 describe("hubRealtime", () => {
+  it("rejects the former authority key instead of picking the host driver", async () => {
+    const { hubRealtime } = await import("../src/vite.ts")
+    // SAFETY: An app config without types still passes the former key.
+    expect(() => hubRealtime({ authority: "redis" } as never)).toThrow(expect.objectContaining({
+      code: "REALTIME_RENAMED_AUTHORITY_KEY",
+      fix: expect.stringContaining('`realtime: { driver: "redis" }`'),
+    }))
+  })
+
   it.each([
     { base: "/", nitro: {}, route: "/api/_vitehub/realtime/**" },
     { base: "/portal/", nitro: {}, route: "/portal/api/_vitehub/realtime/**" },
