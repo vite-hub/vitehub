@@ -347,13 +347,13 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
-  it("does not replay Cloudflare definitions whose handler errors look transient", async () => {
+  it.each(["container is starting", "Network connection lost."])("does not replay handler errors containing %s", async (message) => {
     setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition.mockImplementation(async (...args) => {
       const lifecycle = args[6] as { onCommandStart?: () => void }
       lifecycle.onCommandStart?.()
-      throw sandboxTaskError("[vitehub] Cloudflare Sandbox exists timed out after 15000ms.", {
+      throw sandboxTaskError(message, {
         code: "SANDBOX_TASK_HANDLER_ERROR",
         provider: "cloudflare",
       })
@@ -445,7 +445,7 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.sleep).not.toHaveBeenCalled()
   })
 
-  it("reruns the Task on a cold start after a command was sent", async () => {
+  it("does not rerun the Task after command cold-start retries are exhausted", async () => {
     setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
     runtimeMocks.executeSandboxTaskDefinition
@@ -456,10 +456,29 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(true)
-    expect(await result.json()).toEqual({ ok: true })
-    expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledTimes(2)
-    expect(runtimeMocks.sleep).toHaveBeenCalledWith(1000)
+    expect(result.ok).toBe(false)
+    expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledOnce()
+    expect(runtimeMocks.sleep).not.toHaveBeenCalled()
+  })
+
+  it("does not repeat a successful install when a later command gets a cold start", async () => {
+    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeRegistry({ example: definition })
+    const install = vi.fn()
+    runtimeMocks.executeSandboxTaskDefinition.mockImplementation(async (...args) => {
+      const lifecycle = args[6] as { onCommandStart: () => void }
+      lifecycle.onCommandStart()
+      install()
+      lifecycle.onCommandStart()
+      throw cloudflareRequestError("exec", new Error("container is starting"))
+    })
+
+    const result = await runSandboxTaskRuntime("example")
+
+    expect(result.ok).toBe(false)
+    expect(install).toHaveBeenCalledOnce()
+    expect(runtimeMocks.open).toHaveBeenCalledOnce()
+    expect(runtimeMocks.sleep).not.toHaveBeenCalled()
   })
 
   it.each([

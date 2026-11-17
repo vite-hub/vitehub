@@ -36,7 +36,7 @@ The Cloudflare runtime retries only requests that are safe to repeat: session cl
 
 The runtime does not retry `session.exec()`, a new process, a file move, or a port exposure once the request can reach the Container. If the response is lost, the command may have run, and a retry could run it twice. A Container that is still starting never got the command, so ViteHub retries that case. The error keeps the Cloudflare flag in `error.data.retryable` and the original error in `error.cause`. Retry yourself only when running twice is safe.
 
-`runSandboxTask()` on Cloudflare follows the same rule for the whole run. A failed run starts again in a new Sandbox only until the package install, the project setup, or the handler command can reach the Container. After that, only a Container that is still starting starts the run again.
+`runSandboxTask()` on Cloudflare follows the same rule for the whole run. A failed run starts again in a new Sandbox only until the package install, the project setup, or the handler command can reach the Container. After a command starts, the Task does not start again. The transport can retry an individual command on a cold start without repeating earlier commands. Handler errors never start the Task again.
 
 ## Production checks
 

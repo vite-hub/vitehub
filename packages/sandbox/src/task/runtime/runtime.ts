@@ -82,10 +82,12 @@ async function serializeCloudflareRun<TResult>(id: string | undefined, run: () =
 }
 
 /**
- * A new run repeats every command of the failed one. After a command may have reached the Container, only a cold start
- * proves that it did not run, so only a cold start reruns the Task.
+ * A new run repeats every command of the failed one. Once a command starts, only the transport
+ * can retry that request on a cold start without replaying earlier work.
  */
 function canRerunCloudflareTask(error: unknown, commandMayHaveRun: boolean) {
+  if (commandMayHaveRun)
+    return false
   // A cleanup failure must not decide whether the primary failure can retry.
   if (isSandboxTaskError(error) && error.cause instanceof AggregateError)
     error = error.cause.errors[0]
@@ -96,14 +98,14 @@ function canRerunCloudflareTask(error: unknown, commandMayHaveRun: boolean) {
   const provider = metadata?.provider
   if (provider && provider !== 'cloudflare')
     return false
-  if (metadata?.code === 'SANDBOX_TASK_TIMEOUT')
+  if (metadata?.code === 'SANDBOX_TASK_TIMEOUT' || metadata?.code === 'SANDBOX_TASK_HANDLER_ERROR')
     return false
 
   const failure = readCloudflareFailure(error)
   // Before the Task starts a command, its requests are safe to repeat, so a request deadline also reruns it.
-  if (!commandMayHaveRun && failure.timedOut)
+  if (failure.timedOut)
     return true
-  return canRetryCloudflareRequest(failure, !commandMayHaveRun)
+  return canRetryCloudflareRequest(failure, true)
 }
 
 export interface SandboxTaskRunner {
