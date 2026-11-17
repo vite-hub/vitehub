@@ -20,10 +20,10 @@ const files = {
   "public/robots.txt": "User-agent: *\n",
 }
 
-async function build(options: ViteHubOptions): Promise<string> {
-  const root = await createProject(files)
+async function build(options: ViteHubOptions, extra: Record<string, string> = {}, nitroConfig: Record<string, unknown> = {}): Promise<string> {
+  const root = await createProject({ ...files, ...extra })
   const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown }
-  const builder = await createBuilder({ cacheDir: `${root}.vite-cache`, logLevel: "silent", plugins: [vitehub(options), nitro()], root } as never)
+  const builder = await createBuilder({ cacheDir: `${root}.vite-cache`, logLevel: "silent", plugins: [vitehub(options), nitro()], root, nitro: nitroConfig } as never)
   await builder.buildApp()
   return root
 }
@@ -93,4 +93,31 @@ describe("redirects on Cloudflare", () => {
       await worker.dispose()
     }
   }, 300_000)
+})
+
+describe("route rule redirects on Cloudflare", () => {
+  it("writes them after the app's own _redirects file, and reports the rules that cannot go there", async () => {
+    const root = await build({ host: "cloudflare" }, { "public/_redirects": "/home / 301\n" }, {
+      routeRules: {
+        "/getting-started": { redirect: { to: "/guide/installation", status: 301 } },
+        "/blog/**": { redirect: { to: "/posts/**", status: 308 } },
+        "/blog/:slug": { redirect: "/posts" },
+        "GET /login": { redirect: "/sign-in" },
+      },
+    })
+    expect(await readFile(join(root, ".output/public/_redirects"), "utf8")).toBe([
+      "/home / 301",
+      "/getting-started /guide/installation 301",
+      "/blog/:slug /posts 307",
+      "/blog/* /posts/:splat 308",
+      "",
+    ].join("\n"))
+    const hints = JSON.parse(await readFile(join(root, ".vitehub/hints.json"), "utf8")) as { hints: Array<{ code: string, why: string }> }
+    expect(hints.hints).toEqual(expect.arrayContaining([expect.objectContaining({ code: "VITE_HUB_REDIRECTS_FILE_RULE_SKIPPED", why: expect.stringContaining("`GET /login`") })]))
+  }, 180_000)
+
+  it("leaves the static files alone without redirect route rules", async () => {
+    const root = await build({ host: "cloudflare" })
+    await expect(readFile(join(root, ".output/public/_redirects"), "utf8")).rejects.toThrow("ENOENT")
+  }, 180_000)
 })
