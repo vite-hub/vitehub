@@ -39,6 +39,7 @@ const serverPrimitiveSections = [
   "schedule",
   "shell",
   "source",
+  "sync",
   "webhooks",
   "workflows",
   "workspace",
@@ -220,7 +221,7 @@ describe("docs product navigation", () => {
     expect(docsManifest.pages.map(page => page.path)).toEqual(expect.arrayContaining(["/", "/about", "/contact", "/privacy"]));
   });
 
-  it("redirects each removed page, its trailing-slash form, and its raw Markdown copy to a published page", () => {
+  it("redirects each removed page and its raw Markdown copy to a published page, with one rule for both slash forms", () => {
     const routeRules = createDocsRedirectRouteRules();
 
     expect(docsPageRedirects["/docs/server-primitives/kv"]).toBe("/docs/kv");
@@ -231,7 +232,7 @@ describe("docs product navigation", () => {
       expect(findDocsPage(docsManifest, from), from).toBeNull();
       expect(findDocsPage(docsManifest, to), to).not.toBeNull();
       expect(routeRules[from]).toEqual({ redirect: { status: 301, to } });
-      expect(routeRules[`${from}/`]).toEqual({ redirect: { status: 301, to } });
+      expect(routeRules[`${from}/`]).toBeUndefined();
       expect(routeRules[`/raw${from}.md`]).toEqual({ redirect: { status: 301, to: `/raw${to}.md` } });
     }
   });

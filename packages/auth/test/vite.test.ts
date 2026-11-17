@@ -745,6 +745,27 @@ describe("Auth tables in the app Database", () => {
     await expect(readFile(module, "utf8")).rejects.toThrow()
   })
 
+  it("keeps the Auth tables of the latest migration as they are", async () => {
+    const root = await createTempProject()
+    await writeAuthDatabase(root, "authDatabase()")
+    const migration = join(root, "server", "databases", "default", "migrations", "20260101000000_hand")
+    await mkdir(migration, { recursive: true })
+    // The hand-written `organization` table of ViteHub Finance: a column default and a unique index, not a UNIQUE key.
+    await writeFile(join(migration, "snapshot.json"), JSON.stringify({ dialect: "sqlite", ddl: [
+      { entityType: "tables", name: "organization" },
+      { entityType: "columns", table: "organization", name: "created_at", notNull: true, default: "(cast(unixepoch('subsecond') * 1000 as integer))" },
+      { entityType: "indexes", table: "organization", name: "organization_slug_idx", columns: [{ value: "slug", isExpression: false }], isUnique: true },
+      { entityType: "tables", name: "notes" },
+    ] }))
+    const { tables } = await contributions(root)
+    const module = join(root, ".vitehub", "auth", "schema.ts")
+    expect(tables).toMatchObject([{ definition: { export: "authSqliteSchema", module } }])
+    const source = await readFile(module, "utf8")
+    expect(source).toContain("createAuthSqliteSchema({}, {\"organization\":{\"columns\":{\"created_at\":{\"notNull\":true,\"default\":")
+    expect(source).toContain("\"name\":\"organization_slug_idx\"")
+    expect(source).not.toContain("notes")
+  })
+
   it("adds no tables without authDatabase()", async () => {
     const root = await createTempProject()
     await writeAuth(root)
