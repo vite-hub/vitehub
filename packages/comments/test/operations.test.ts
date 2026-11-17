@@ -352,6 +352,24 @@ it("returns only the public session identity", async () => {
   expect(result).toEqual({ ok: true, value: { canRead: true, canWrite: true, user: { id: member.id, name: member.name, image: "/ana.png" } } })
 })
 
+it("preserves Console admission for author suggestions and mention writes", async () => {
+  setup(defineComments({ authorize: ({ console }) => console === true, canMention: () => true }))
+  await create(admin)
+  const thread = await create()
+  expect(await call("comments.users", { query: "Admin", threadId: thread.id })).toEqual({ ok: true, value: [{ id: admin.id, name: admin.name }] })
+  for (const operation of ["create", "reply", "edit"]) {
+    const target = operation === "create" ? input : { threadId: thread.id, ...(operation === "edit" ? { messageId: thread.messages[0]!.id } : {}) }
+    expect(await call(`comments.${operation}`, { ...target, body: "Hello @Admin", mentions: [admin.id] })).toMatchObject({ ok: true })
+  }
+})
+
+it("does not give mentioned recipients the writer's Console admission", async () => {
+  setup(defineComments({ authorize: ({ console }) => console === true }))
+  await create(admin)
+  expect(await call("comments.users", { query: "Admin" })).toEqual({ ok: true, value: [] })
+  expect(await call("comments.create", { ...input, body: "Hello @Admin", mentions: [admin.id] })).toMatchObject({ ok: false, code: "COMMENTS_R0007" })
+})
+
 it("checks read access before searching mention suggestions", async () => {
   const search = vi.fn(async () => [member])
   setup(defineComments({ authorize: ({ action }) => action !== "read" }), { byIds: async () => [], search })

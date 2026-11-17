@@ -53,7 +53,7 @@ Custom `identify` names the user of every surface, and `authorize` decides; Comm
 
 `authorize` gets `console: true` when the Console admitted the caller to its Comments section: the comment operations of the Console, the CLI, and ViteHub MCP, and `commentsMcpTools(comments, { console: true })`. With `identify`, these calls have no app user, so `authorize` must allow them itself:
 
-```ts
+```ts fragment
 // Console callers, and the app's editors on the page.
 authorize: ({ console, user }) => console === true || user?.role === "editor",
 ```

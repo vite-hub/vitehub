@@ -157,7 +157,7 @@ function author(who: CommentsCaller): CommentUser {
 }
 
 function writeOptions(who: CommentsCaller) {
-  return { gate: who.gate, user: who.user, ...(who.waitUntil ? { waitUntil: who.waitUntil } : {}) }
+  return { console: who.console, gate: who.gate, user: who.user, ...(who.waitUntil ? { waitUntil: who.waitUntil } : {}) }
 }
 
 /** A thread that does not exist and one that the caller may not read look the same: not found. */
@@ -354,7 +354,7 @@ export const commentActions = {
     await allow(who, "write", target)
     const query = input.query.trim()
     if (query.length < (options.minimum ?? minimumQuery)) return []
-    return suggest(who.runtime, { gate: who.gate, limit: Math.min(input.limit ?? 5, maximumSuggestions), query, user: who.user, ...target })
+    return suggest(who.runtime, { console: who.console, gate: who.gate, limit: Math.min(input.limit ?? 5, maximumSuggestions), query, user: who.user, ...target })
   },
 
   async upload(input: CommentUploadInput, who: CommentsCaller): Promise<CommentAttachment> {
