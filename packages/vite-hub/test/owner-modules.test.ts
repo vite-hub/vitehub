@@ -68,6 +68,19 @@ it.each([undefined, false])("checks Sync and the Database with database: %s", as
   }
 })
 
+it("checks Sync and Webhooks together with their Database owner", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-optional-sync-webhooks-"))
+  try {
+    await mkdir(join(root, "server/sync"), { recursive: true })
+    await mkdir(join(root, "server/webhooks"), { recursive: true })
+    await resolveConfig({ configFile: false, root, plugins: [optionalOwnerEntriesPlugin()] }, "build")
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["sync", "database", "webhooks"])
+  }
+  finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 it("checks the owner package of each vite-hub facade that the app imports", () => {
   const { resolveId } = optionalOwnerImportsPlugin()
   if (!resolveId || typeof resolveId !== "object" || !(resolveId.filter?.id instanceof RegExp)) throw new TypeError("Expected a filtered resolver")

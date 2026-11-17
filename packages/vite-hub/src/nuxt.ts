@@ -31,11 +31,11 @@ import { mergeConfig } from "vite"
 
 import { isIncludedNitroPlugin } from "@vite-hub/internal/build/included-nitro-registry"
 import { resolveSandboxTaskDriver, viteHubPlugins, type ViteHubOptions } from "./plugins.ts"
+import { installBrowserErrorsNuxt } from "./browser-errors-vite.ts"
 import { installStaleChunkReloadNuxt, staleChunkReloadPluginName } from "./stale-chunk-reload.ts"
 import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
 import { disabledKVConfigModule, disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { consoleDevAccessNotice } from "./console/dev-access-notice.ts"
-import { createConsoleInvocationsIdentity } from "./console/internal.ts"
 import { importOptionalOwner, isPackageInstalled, requireOptionalOwner, startPackageChecks } from "./internal/optional-owners.ts"
 import { nuxtImageProviderDependency } from "./internal/nuxt-image.ts"
 import { hasSyncDirectory, ownerModules } from "./internal/owner-modules.ts"
@@ -48,7 +48,7 @@ import { insertConsoleSection, resolveConsoleSectionIds, type ConsoleSectionId }
 import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections, isConsoleContributedSectionId } from "./console/contributions.ts"
 import { addConsoleAppRoutes, addConsoleRpcHandler } from "./console/nitro.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
-import { assertConsoleAccess, assertConsoleProductionAuth, resolveConsoleOptions, consoleInvocationRootPlugin, consoleOperationContributions, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveConsoleAccessBuild, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
+import { assertConsoleAccess, assertConsoleProductionAuth, resolveConsoleOptions, consoleInvocationRootPlugin, consoleOperationContributions, generatedConsolePluginRegistration, resolveConsoleAccessBuild, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState } from "./console/vite.ts"
 
 import type { BundleVitePlugin, NuxtPageLike } from "@vite-hub/bundle/vite"
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
@@ -535,12 +535,11 @@ interface NuxtConsoleInstallOptions {
   discovery: Omit<Parameters<typeof discoverConsoleBuildCatalog>[0], "projectRoot" | "sections">
   /** Write the generated plugin at setup and on development changes. CLI discovery writes nothing. */
   writeGeneratedPlugin: boolean
-  invocationRootState: ConsoleInvocationRootState
   /** Whether Nitro config is resolved, so discovery can read Database and contributed section definitions. */
   canDiscoverDefinitions: () => boolean
   access?: ConsoleAccessBuild
   /** Writes the generated Console Nitro plugin. The `nitro:config` hook writes it with the same writer. */
-  writePlugin: (file: string, catalog: ConsoleBuildCatalog) => Promise<string>
+  writePlugin: (file: string, catalog: ConsoleBuildCatalog) => Promise<void>
 }
 
 async function installConsole({
@@ -550,7 +549,6 @@ async function installConsole({
   sections,
   discovery,
   writeGeneratedPlugin,
-  invocationRootState,
   canDiscoverDefinitions,
   access,
   writePlugin,
@@ -589,8 +587,7 @@ async function installConsole({
       ? sections
       : sections.filter(section => section !== "databases" && !isConsoleContributedSectionId(section))
     const catalog = await discoverConsoleBuildCatalog({ ...discovery, projectRoot, sections: discoverySections })
-    const identity = await writePlugin(plugin, catalog)
-    updateConsoleInvocationRootState(invocationRootState, projectRoot, identity)
+    await writePlugin(plugin, catalog)
   })
   if (writeGeneratedPlugin) await refreshAgentDefinitions()
   if (nuxt.options.dev && writeGeneratedPlugin) {
@@ -1101,7 +1098,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ...ownerModules.emailVite ? { email: "vite-hub/email" } : {},
     ...ownerModules.kvVite ? { kv: "vite-hub/kv" } : {},
   } satisfies Record<string, false | string>
-  const consoleInvocationRootState = createConsoleInvocationRootState()
+  const consoleInvocationRootState: ConsoleInvocationRootState = {}
   const consoleInvokeEnabled = consoleOptions ? consoleOptions.invoke ?? Boolean(nuxt.options.dev) : false
   let generatedConsolePluginPath: string | undefined
   let consoleWorkflowConfigResolved = false
@@ -1221,11 +1218,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       name: "vite-hub/console-operations",
       vitehub: { operations: () => consoleOperationContributions(() => consoleSections) },
     }] : []),
-    ...(consoleOptions && options.agent ? [consoleInvocationRootPlugin(
-      projectRoot,
-      createConsoleInvocationsIdentity(projectRoot),
-      consoleInvocationRootState,
-    )] : []),
+    ...(consoleOptions && options.agent ? [consoleInvocationRootPlugin(consoleInvocationRootState)] : []),
   ]
   const existing = withoutDeploymentOutput(
     Array.isArray(nuxt.options.vite?.plugins) ? nuxt.options.vite.plugins : [],
@@ -1418,6 +1411,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   // Registered after every module's own hook. @nuxtjs/mcp-toolkit points `h3` at nitropack's H3 1 on every Nitro, and
   // Nitro 3's runtime then cannot import `h3/rules`. Nuxt 5 gives Nitro 2 modules H3 1 through its compatibility layer.
+  // Remove when @nuxtjs/mcp-toolkit releases https://github.com/nuxt-modules/mcp-toolkit/pull/416.
   nuxt.hook?.("modules:done", () => {
     nuxt.hook?.("nitro:config", async (config) => {
       const alias = isRecord(config.alias) ? config.alias : undefined
@@ -1584,6 +1578,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (!include.includes("vite-hub/agent/vue")) include.push("vite-hub/agent/vue")
   }
   addVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
+  if (options.observability && options.observability !== true && options.observability.browserErrors) await installBrowserErrorsNuxt(nuxt, projectRoot)
   await installStaleChunkReloadNuxt(nuxt, projectRoot)
   if (isPackageInstalled("@vite-hub/decisions")) addVueImports(nuxt, "vite-hub/decisions/vue", ["useChoices"])
   if (isPackageInstalled("@vite-hub/forms")) {
@@ -1657,7 +1652,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, options.workspace),
       },
       writeGeneratedPlugin: !nuxt.options.vitehubCliDiscovery,
-      invocationRootState: consoleInvocationRootState,
       canDiscoverDefinitions: () => consoleWorkflowConfigResolved,
       access: consoleAccess,
       writePlugin: writeNuxtConsolePlugin,

@@ -10,6 +10,9 @@ import type { IdempotencyDatabase, WithIdempotencyErrorCode, WithIdempotencyOpti
 // `execute()`, SQLite has `all()`. At runtime, `useDatabase()` takes any name and throws `DATABASE_NOT_FOUND`.
 const lookup = useDatabase as unknown as (name?: string) => { db: IdempotencyDatabase }
 
+/** `useDatabase()` with a runtime name, for helpers such as `useLeases()` that take `{ database }`. */
+export { lookup as lookupDrizzleDatabase }
+
 export type { WithIdempotencyErrorCode, WithIdempotencyOptions } from "./runtime/idempotency.ts"
 
 /**

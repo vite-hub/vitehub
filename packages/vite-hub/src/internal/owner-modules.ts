@@ -40,6 +40,7 @@ const [
   sandboxTaskVite,
   scheduleVite,
   syncVite,
+  webhooksVite,
   workflowVite,
   workspaceVite,
 ] = await Promise.all([
@@ -68,6 +69,7 @@ const [
   importOptionalOwner("@vite-hub/sandbox", () => import("@vite-hub/sandbox/task/vite")),
   importOptionalOwner("@vite-hub/schedule", () => import("@vite-hub/schedule/vite")),
   importOptionalOwner("@vite-hub/sync", () => import("@vite-hub/sync/vite")),
+  importOptionalOwner("@vite-hub/webhooks", () => import("@vite-hub/webhooks/vite")),
   importOptionalOwner("@vite-hub/workflow", () => import("@vite-hub/workflow/vite")),
   importOptionalOwner("@vite-hub/workspace", () => import("@vite-hub/workspace/vite")),
 ])
@@ -98,6 +100,7 @@ export const ownerModules = {
   sandboxTaskVite,
   scheduleVite,
   syncVite,
+  webhooksVite,
   workflowVite,
   workspaceVite,
 }
@@ -119,6 +122,11 @@ export function hasFormsDirectory(projectRoot: string, serverDirs: readonly stri
 /** Whether the app has a `server/sync/` folder. Sync then needs its package. */
 export function hasSyncDirectory(projectRoot: string, serverDirs: readonly string[] | undefined): boolean {
   return (serverDirs ?? ["server"]).some(directory => existsSync(resolve(projectRoot, directory, "sync")))
+}
+
+/** Whether the app has a `server/webhooks/` folder. Webhooks then needs its package. */
+export function hasWebhooksDirectory(projectRoot: string, serverDirs: readonly string[] | undefined): boolean {
+  return (serverDirs ?? ["server"]).some(directory => existsSync(resolve(projectRoot, directory, "webhooks")))
 }
 
 /** Follow the relative Content re-exports accepted by CMS discovery, without loading an optional owner. */
@@ -144,8 +152,9 @@ function importsCmsPreset(file: string, seen = new Set<string>()): boolean {
 }
 
 /**
- * Comments, Forms, Sync, Content, and the `cms` preset are on when the app has `server/comments.ts`, `server/forms/`,
- * `server/sync/`, or `server/content.ts`. This plugin fails the build when such a file exists but its package is not installed.
+ * Comments, Forms, Sync, Webhooks, Content, and the `cms` preset are on when the app has `server/comments.ts`,
+ * `server/forms/`, `server/sync/`, `server/webhooks/`, or `server/content.ts`. This plugin fails the build when such a file
+ * exists but its package is not installed.
  */
 export function optionalOwnerEntriesPlugin(options: { database?: boolean } = {}): Plugin {
   return {
@@ -164,6 +173,7 @@ export function optionalOwnerEntriesPlugin(options: { database?: boolean } = {})
       }
       // Sync keeps its change log in the Database, so it needs the Database package even with `database: false`.
       if (hasSyncDirectory(projectRoot, serverDirs)) features.push("sync", "database")
+      if (hasWebhooksDirectory(projectRoot, serverDirs)) features.push("webhooks")
       if (content) features.push("content")
       if (content && importsCmsPreset(content)) features.push("cms", "database", "workspace")
       assertFeaturePackages([...new Set(features)])
@@ -207,6 +217,7 @@ const ownerFacadeFeatures = new Map<string, OptionalFeature>(Object.entries({
   "shell": "shell",
   "sync": "sync",
   "ui": "ui",
+  "webhooks": "webhooks",
   "workflow": "workflow",
 } satisfies Record<string, OptionalFeature>))
 

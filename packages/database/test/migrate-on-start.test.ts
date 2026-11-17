@@ -96,7 +96,7 @@ async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOpt
       },
     }],
   })
-  return { config, start: () => execFileAsync(process.execPath, [output], { cwd: root }) }
+  return { config, start: (env: Record<string, string> = {}) => execFileAsync(process.execPath, [output], { cwd: root, env: { ...process.env, ...env } }) }
 }
 
 /** Runs the Nitro modules that the hooks added, like Nitro does after it resolves the preset. */
@@ -385,6 +385,21 @@ describe("database.migrateOnStart", () => {
     expect(await readLedger(url)).toEqual([init.when, seed.when, dropLegacy.when])
   })
 
+  it("accepts the data loss at start when VITEHUB_DATABASE_ALLOW_DATA_LOSS=1 is set", { timeout: 60_000 }, async () => {
+    const root = await createProject()
+    const url = `file:${join(root, "data/app.sqlite")}`
+    await writeMigrations(root, [init, seed])
+    await (await buildNodeServer(root, { connection: { url }, migrateOnStart: true })).start()
+
+    // A container image is built once, so the operator accepts the loss with an environment variable at start.
+    await writeMigrations(root, [init, seed, dropLegacy])
+    const server = await buildNodeServer(root, { connection: { url }, migrateOnStart: true })
+    await expect(server.start({ VITEHUB_DATABASE_ALLOW_DATA_LOSS: "true" })).rejects.toThrow(/VITEHUB_DATABASE_ALLOW_DATA_LOSS=1/)
+    expect(await readLedger(url)).toEqual([init.when, seed.when])
+    expect((await server.start({ VITEHUB_DATABASE_ALLOW_DATA_LOSS: "1" })).stdout).toContain('[vitehub] Database "default": applied 20231114221322_drop_legacy.')
+    expect(await readLedger(url)).toEqual([init.when, seed.when, dropLegacy.when])
+  })
+
   it("applies a drop of a table that the same start creates, without allowDataLoss", { timeout: 60_000 }, async () => {
     const root = await createProject()
     const migrationsDir = await writeMigrations(root, [init, seed, dropLegacy])
@@ -447,7 +462,8 @@ describe("database.migrateOnStart", () => {
     }
     expect(await setup({ preset: "node-server" })).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
     expect(await setup({})).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
-    expect(await setup({ dev: true, preset: "node-server" })).toBeUndefined()
+    // `vite dev` gets only the plugin that shares the app's Databases with packages that Node loads.
+    expect(await setup({ dev: true, preset: "node-server" })).toEqual([join(root, ".vitehub/nitro/database/dev-registry.mjs")])
     expect(await setup({ preset: "nitro-prerender" })).toBeUndefined()
     await expect(setup({ preset: "cloudflare-module" })).rejects.toMatchObject({ code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED" })
     for (const preset of ["bun", "static"]) {

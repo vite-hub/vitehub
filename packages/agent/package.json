@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Agent DX layer and Vite integration for ViteHub.",
   "keywords": [
     "agent",
@@ -280,8 +280,8 @@
     "posthog-node": "^5.56.2",
     "@t3tools/provider-runtime": "catalog:",
     "forges": "catalog:",
-    "@json-render/core": "0.21.0",
-    "@json-render/vue": "0.21.0",
+    "@json-render/core": "0.22.0",
+    "@json-render/vue": "0.22.0",
     "@ui-sdk/vue": "0.1.0-beta.5",
     "@vite-hub/forms": "workspace:*"
   },
@@ -312,8 +312,8 @@
     "evlog": "^2.29.0",
     "posthog-node": "^5.55.0",
     "@vite-hub/connections": "workspace:*",
-    "@json-render/core": "0.21.0",
-    "@json-render/vue": "0.21.0",
+    "@json-render/core": "0.22.0",
+    "@json-render/vue": "0.22.0",
     "@ui-sdk/vue": "0.1.0-beta.5",
     "@vite-hub/forms": "workspace:*",
     "zod": "^4.3.6",

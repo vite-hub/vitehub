@@ -39,6 +39,8 @@ export const diagnosticSections: Record<string, string> = {
   "sync": "sync",
   "ui": "ui",
   "vite-hub": "development",
+  // Until Webhooks has its docs section.
+  "webhooks": "development",
   "web-container": "web-container",
   "workflow": "workflows",
   "workspace": "workspace",

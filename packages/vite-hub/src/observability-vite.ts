@@ -80,10 +80,15 @@ export interface ObservabilityOptions {
    * build needs `{ source }`, which reads an existing backend and starts no logger unless `service` is set.
    */
   logs?: boolean | ObservabilityLogsOptions
+  /**
+   * Send uncaught browser errors to `POST /api/_vitehub/browser-errors`. The server logs each one as an error on the
+   * request's Evlog event. Same origin only, 16 KiB at most, and 20 reports a minute for each address.
+   */
+  browserErrors?: boolean
 }
 
 /** Observability options with a service name, which install `useObservability()`. */
-type ObservabilityTelemetryOptions = Omit<ObservabilityOptions, "logs"> & { service: string }
+type ObservabilityTelemetryOptions = Omit<ObservabilityOptions, "logs" | "browserErrors"> & { service: string }
 
 const generatedObservabilityPlugin = ".vitehub/nitro/observability/plugin.mjs"
 
@@ -130,7 +135,7 @@ async function writeIfChanged(file: string, contents: string): Promise<void> {
  * Register the evlog Nitro module. With a service name, also register a generated plugin that installs
  * `useObservability()`. `logs` is not read here: `logsVitePlugin()` installs the log source.
  */
-export function observabilityVitePlugin(options: Omit<ObservabilityOptions, "logs">, target: {
+export function observabilityVitePlugin(options: Omit<ObservabilityOptions, "logs" | "browserErrors">, target: {
   agent?: boolean | { runtime?: string }
   hosting?: string
 } = {}): Plugin {

@@ -22,7 +22,10 @@ writeFileSync(scoped, scopeStyles(inlineWebCss(
   readFileSync(new URL("src/styles/default.css", kit), "utf8"),
   readFileSync(require.resolve("@ui-sdk/core/web.css"), "utf8"),
 )))
-const html = `<html><head><script type="module">import '/packages/vite-hub/src/console/runtime/client/styles.css'</script></head>
+// ui-sdk puts its own <style> with a \`ui-sdk\` layer first in <head> when a part mounts, such as the Console toaster. The
+// style comes before the Console stylesheet, as in the Console.
+const html = `<html><head><style id="ui-sdk-popover-reset">@layer ui-sdk { :where([data-slot="toast-region"][popover]) { margin: 0 } }</style>
+<script type="module">import '/packages/vite-hub/src/console/runtime/client/styles.css'</script></head>
 <body><button id="outside">Nuxt UI host</button><section class="ui-sdk">
 <button id="solid" data-slot="button" data-variant="solid">Save changes</button>
 <input id="input" data-slot="input" placeholder="Name">
@@ -68,6 +71,8 @@ for (const mode of ["light", "dark"]) {
           input: style("input").borderTopColor,
           inputToken: style("input").getPropertyValue("--ui-input").trim(),
           popup: style("popup").backgroundColor,
+          // Preflight sets the padding to 0. The kit's button padding must win.
+          padding: style("solid").paddingInlineStart,
           shadow: style("popup").boxShadow,
           outsideRadius: style("outside").getPropertyValue("--ui-radius").trim(),
           outsidePrimary: style("outside").getPropertyValue("--ui-primary").trim(),
@@ -79,6 +84,7 @@ for (const mode of ["light", "dark"]) {
       assert.notEqual(values.input, "rgba(0, 0, 0, 0)")
       assert.notEqual(values.popup, "rgba(0, 0, 0, 0)")
       assert.notEqual(values.shadow, "none")
+      assert.equal(values.padding, "12px")
       assert.equal(values.outsideRadius, "0.25rem")
       assert.equal(values.outsidePrimary, values.primary)
     } finally { await page.close() }

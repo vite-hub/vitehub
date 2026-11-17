@@ -14,6 +14,7 @@ import {
   type EnvVariableDeclaration,
   type ServerEnvInspection,
   type ServiceTokenErrorCode,
+  signWebhook,
   verifyWebhook,
   type WebhookErrorCode,
 } from "../src/index.ts"
@@ -34,6 +35,12 @@ describe("types", () => {
     expectTypeOf(verifyWebhook(request, { provider: "github", secret: "GITHUB_WEBHOOK_SECRET" })).toEqualTypeOf<Promise<Result<unknown, WebhookErrorCode>>>()
     // @ts-expect-error A custom HMAC needs the header that carries the signature.
     void verifyWebhook(request, { provider: "hmac", secret: "LULU_WEBHOOK_SECRET" })
+  })
+
+  it("types signWebhook()", () => {
+    expectTypeOf(signWebhook("{}", { provider: "github", secret: "s" })).toEqualTypeOf<Promise<Record<string, string>>>()
+    // @ts-expect-error Only GitHub and Stripe signatures can be created.
+    void signWebhook("{}", { provider: "hmac", secret: "s" })
   })
 
   it("types Vite integration and declarations", () => {

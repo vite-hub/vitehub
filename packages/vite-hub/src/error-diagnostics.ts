@@ -73,6 +73,14 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Set `agent: true` in the ViteHub options to run the Agents. Set `agent: false` to keep them off on purpose.",
     },
+    VITE_HUB_CACHE_STALE_IF_ERROR_INVALID: {
+      why: ({ value }: { value: string }) => `\`staleIfError\` is the number of seconds after \`maxAge\` during which a failed call returns the stored value, but it is ${value}.`,
+      fix: "Pass a number of seconds that is 0 or more, such as `staleIfError: 86400` for one day. Remove `staleIfError` to return the error at once.",
+    },
+    VITE_HUB_CACHE_STALE_IF_ERROR_WITH_SERIALIZE: {
+      why: "`staleIfError` returns the stored value, but with `serialize` the stored value is the serialized form, and ocache would serialize it again.",
+      fix: "Remove `serialize`, or remove `staleIfError` and catch the error where you call the cached function.",
+    },
     VITE_HUB_CACHE_TAG_INVALID: {
       ...dynamicError,
       fix: "Pass non-empty strings to `tags` and `invalidateTag()`, for example `[\"posts\", \"post:1\"]`.",
@@ -298,8 +306,12 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Remove `cache` from `vitehub()`, or set `cache: { driver: \"kv\" }` with `kv` enabled to keep the cache in KV on this host.",
     },
     VITE_HUB_C0004: {
-      ...dynamicError,
-      fix: "Set `cache.driver` to \"cloudflare\", \"deno-kv\", \"fs-lite\", \"kv\", or \"vercel\".",
+      why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
+        ? `\`cache.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`
+        : `\`cache.driver\` is ${driver}. It must be "cloudflare", "deno-kv", "fs-lite", "kv", or "vercel".`,
+      fix: ({ renamed }: { driver: string, renamed?: string }) => renamed
+        ? `Set \`cache: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
+        : "Set `cache.driver` to \"cloudflare\", \"deno-kv\", \"fs-lite\", \"kv\", or \"vercel\".",
     },
     VITE_HUB_R0052: {
       ...dynamicError,

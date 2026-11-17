@@ -54,8 +54,7 @@ export const knownDefinitionNames: DoctorRule = createRule({
       if (name) localWorkflows.add(name)
     })
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression")) return
+      CallExpression(node) {
         const reference = r.callee(node)
         const entry = namedCall(reference)
         if (!reference || !entry) return
@@ -94,8 +93,8 @@ export const definitionDefaultExport: DoctorRule = createRule({
     const step = viteHubInventory(ctx).definitions.workflow?.find(workflow => workflow.steps?.includes(ctx.file.relativePath))
     if (!(discovered && defaultExportKinds.has(discovered.kind)) && !step) return
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "Program") || defaultExport(ctx)) return
+      Program() {
+        if (defaultExport(ctx)) return
         ctx.report(diagnostics.VHUB0014({
           why: step
             ? `\`${ctx.file.relativePath}\` is a step of the \`${step.name}\` Workflow, but it has no default export. The Workflow calls the default export, so the step fails when it runs.`
@@ -139,8 +138,7 @@ export const definitionLocation: DoctorRule = createRule({
     const r = resolver(ctx)
     const { definitions } = viteHubInventory(ctx)
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "Program")) return
+      Program() {
         const exported = defaultExport(ctx)
         const value = unwrap(exported?.value)
         if (!exported || !isNodeType(value, "CallExpression")) return
@@ -180,8 +178,8 @@ export const queuePayloadOptions: DoctorRule = createRule({
   create(ctx) {
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression") || !isQueueEnqueue(r.callee(node))) return
+      CallExpression(node) {
+        if (!isQueueEnqueue(r.callee(node))) return
         const args = callArguments(node)
         if (args.length !== 2 || !objectValue(args[1], "payload")) return
         const options = objectProperties(args[1]).map(property => propertyName(property)).filter(key => key !== undefined && queueOptionKeys.has(key))
@@ -214,8 +212,8 @@ export const noModuleScopeDispatch: DoctorRule = createRule({
     if (isTestFile(ctx.file.relativePath)) return
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression") || enclosingFunction(node)) return
+      CallExpression(node) {
+        if (enclosingFunction(node)) return
         const reference = r.callee(node)
         if (!reference || !dispatchCalls.some(entry => isExport(reference, entry.modules, entry.names))) return
         ctx.report(diagnostics.VHUB0017({
@@ -237,7 +235,7 @@ function nonTupleResult(r: Resolver, call: unknown): { name: string, kind: "resp
     || isExport(reference, ["schedule"], "runSchedule")) return { name: reference.name, kind: "value" }
 }
 
-function arrayPatternTarget(awaited: AstNode): AstNode | undefined {
+function arrayPatternTarget(awaited: unknown): AstNode | undefined {
   const { parent, child } = semanticParent(awaited)
   if (isNodeType(parent, "VariableDeclarator") && parent.init === child && isNodeType(parent.id, "ArrayPattern")) return parent.id
   if (isNodeType(parent, "AssignmentExpression") && parent.right === child && isNodeType(parent.left, "ArrayPattern")) return parent.left
@@ -254,8 +252,7 @@ export const noDestructureNonTuples: DoctorRule = createRule({
   create(ctx) {
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "AwaitExpression")) return
+      AwaitExpression(node) {
         const result = nonTupleResult(r, unwrap(node.argument))
         const pattern = result && arrayPatternTarget(node)
         if (!result || !pattern) return
@@ -302,16 +299,16 @@ export const checkResponseResults: DoctorRule = createRule({
       }), { range: ctx.range(node) })
     }
     return {
-      ScriptNode(node) {
-        if (isNodeType(node, "VariableDeclarator") && isNodeType(node.id, "ObjectPattern")) {
-          const name = responseCall(r, node.init)
-          if (!name) return
-          const properties = Array.isArray(node.id.properties) ? node.id.properties.filter(isNode) : []
-          const member = properties.map(property => propertyName(property)).find(key => key !== undefined && !responseMembers.has(key))
-          if (member) report(node.id, name, member)
-          return
-        }
-        if (!isNodeType(node, "MemberExpression") || node.computed === true || !isIdentifier(node.property) || responseMembers.has(node.property.name)) return
+      VariableDeclarator(node) {
+        if (!isNodeType(node.id, "ObjectPattern")) return
+        const name = responseCall(r, node.init)
+        if (!name) return
+        const properties = Array.isArray(node.id.properties) ? node.id.properties.filter(isNode) : []
+        const member = properties.map(property => propertyName(property)).find(key => key !== undefined && !responseMembers.has(key))
+        if (member) report(node.id, name, member)
+      },
+      MemberExpression(node) {
+        if (node.computed === true || !isIdentifier(node.property) || responseMembers.has(node.property.name)) return
         const object = unwrap(node.object)
         let name = responseCall(r, object)
         if (!name && isIdentifier(object)) {
@@ -379,8 +376,7 @@ export const workflowStepNames: DoctorRule = createRule({
       const files = owners.get(name) ?? []
       if (name && files.length < 2) return
       return {
-        ScriptNode(node) {
-          if (!isNodeType(node, "Program")) return
+        Program() {
           ctx.report(diagnostics.VHUB0020({
             why: name
               ? `The step files ${quoteList(files)} of the \`${indexless.name}\` Workflow all become the \`steps.${name}\` property. The Workflow fails when it runs.`
@@ -395,20 +391,19 @@ export const workflowStepNames: DoctorRule = createRule({
     const r = resolver(ctx)
     const handler = workflowHandler(ctx, r)
     return {
-      ScriptNode(node) {
-        if (isNodeType(node, "Program")) {
-          for (const [name, files] of owners) {
-            if (name && files.length < 2) continue
-            ctx.report(diagnostics.VHUB0020({
-              why: name
-                ? `The step files ${quoteList(files)} all become the \`steps.${name}\` property. The Workflow fails when it runs.`
-                : `The step file ${quoteList(files)} has no name after its number prefix, so it has no \`steps\` property. The Workflow fails when it runs.`,
-              fix: "Rename the step files so that each one has a unique name after its number prefix, for example `01.create-user.ts`.",
-            }))
-          }
-          return
+      Program() {
+        for (const [name, files] of owners) {
+          if (name && files.length < 2) continue
+          ctx.report(diagnostics.VHUB0020({
+            why: name
+              ? `The step files ${quoteList(files)} all become the \`steps.${name}\` property. The Workflow fails when it runs.`
+              : `The step file ${quoteList(files)} has no name after its number prefix, so it has no \`steps\` property. The Workflow fails when it runs.`,
+            fix: "Rename the step files so that each one has a unique name after its number prefix, for example `01.create-user.ts`.",
+          }))
         }
-        if (!isNodeType(node, "MemberExpression") || node.computed === true || !isIdentifier(node.property)) return
+      },
+      MemberExpression(node) {
+        if (node.computed === true || !isIdentifier(node.property)) return
         const objectPath = memberPath(node.object)
         if (!objectPath || objectPath.length > 2) return
         // Steps come from the Workflow handler's argument, as `{ steps }` or `ctx.steps`. Other `steps` are other data.
@@ -476,8 +471,8 @@ export const validScheduleCron: DoctorRule = createRule({
   create(ctx) {
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression") || !isExport(r.callee(node), ["schedule"], "defineSchedule")) return
+      CallExpression(node) {
+        if (!isExport(r.callee(node), ["schedule"], "defineSchedule")) return
         const [first] = callArguments(node)
         const cronNode = objectValue(first, "cron")
         const cron = stringValue(cronNode)
@@ -506,8 +501,8 @@ export const manualScheduleRun: DoctorRule = createRule({
     const schedules = viteHubInventory(ctx).definitions.schedule
     if (!schedules?.length) return
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression") || !isExport(r.callee(node), ["schedule"], "runSchedule")) return
+      CallExpression(node) {
+        if (!isExport(r.callee(node), ["schedule"], "runSchedule")) return
         const argument = callArguments(node)[0]
         const name = stringValue(argument)
         const schedule = schedules.find(definition => definition.name === name)
@@ -534,8 +529,8 @@ export const validChannel: DoctorRule = createRule({
   create(ctx) {
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression") || !isExport(r.callee(node), ["channels"], "defineChannel")) return
+      CallExpression(node) {
+        if (!isExport(r.callee(node), ["channels"], "defineChannel")) return
         const definition = unwrap(callArguments(node)[0])
         if (!isNodeType(definition, "ObjectExpression") || objectProperties(definition).some(property => property.type === "SpreadElement")) return
         const fail = (target: unknown, why: string, fix: string) => ctx.report(diagnostics.VHUB0023({ why, fix }), { range: ctx.range(target) })

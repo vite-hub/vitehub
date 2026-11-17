@@ -138,10 +138,16 @@ function resolveStoreDriver(store: KVStoreConfig, env: Record<string, string | u
     case "fs-lite": return resolveFsLiteStore(store, name)
     case "redis": return resolveRedisStore(store, name)
     case "upstash": return resolveUpstashStore(store, resolveStoreBase(store.base, name))
-    // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
-    default: throw kvErrorDiagnostics.KV_INVALID_DRIVER({ driver: JSON.stringify((store as { driver: unknown }).driver) })
+    default: {
+      // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
+      const driver = (store as { driver: unknown }).driver
+      throw kvErrorDiagnostics.KV_INVALID_DRIVER({ driver: JSON.stringify(driver) ?? String(driver), renamed: renamedKVDrivers.get(String(driver)) })
+    }
   }
 }
+
+/** Driver names that ViteHub renamed to the host name. `npx @vite-hub/codemods driver-key` moves them. */
+const renamedKVDrivers = new Map([["cloudflare-kv-binding", "cloudflare"]])
 
 function createResolvedConfig(store: ResolvedKVModuleOptions["store"], stores?: Record<string, ResolvedKVModuleOptions["store"]>): ResolvedKVModuleOptions {
   return stores ? { store, stores: { default: store, ...stores } } : { store }

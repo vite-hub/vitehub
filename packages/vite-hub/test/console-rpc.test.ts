@@ -4,9 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineOperation } from "@vite-hub/internal/operations"
 
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
-import { consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootIdentityRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback } from "../src/console/internal.ts"
+import { consoleStateKey } from "../src/console/internal.ts"
 
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
+import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
@@ -25,10 +26,7 @@ function call(body: string, init: RequestInit = {}): Promise<Response> {
 
 afterEach(() => {
   vi.unstubAllGlobals()
-  for (const key of [consoleInvocationsKey, consoleInvocationsRootKey, consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsRegistryKey, consoleInvocationsRootIdentityRegistryKey]) {
-    Reflect.deleteProperty(globalThis, key)
-    Reflect.deleteProperty(process, key)
-  }
+  Reflect.deleteProperty(globalThis, consoleStateKey)
 })
 
 describe("Console RPC", () => {
@@ -36,7 +34,7 @@ describe("Console RPC", () => {
     const store = createMemoryAgentInvocationStore()
     const timestamp = "2026-08-23T12:00:00.000Z"
     await store.create({ id, createdAt: timestamp, updatedAt: timestamp, status: "completed", observations: [], traceId: "trace-rpc-encoded" })
-    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    installConsoleInvocations(process.cwd(), defineAgentInvocations({ store }))
     const response = await call(operationRpcBody("invocations.get", { id }))
     expect(response.status).toBe(200)
     await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ ok: true, value: { invocation: { id } } })

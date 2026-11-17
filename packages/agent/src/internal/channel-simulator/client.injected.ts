@@ -168,7 +168,6 @@ export function channelSimulatorClient(
       if (busy) return
       if (input.value.trim() === text) {
         input.value = ""
-        grow()
       }
       void send(text)
     })
@@ -213,7 +212,6 @@ export function channelSimulatorClient(
         nodes.delete(user.id)
         if (!input.value.trim()) {
           input.value = text
-          grow()
         }
       }
       fail(text, error instanceof Error ? error.message : String(error))
@@ -225,15 +223,9 @@ export function channelSimulatorClient(
     }
   }
 
-  function grow(): void {
-    input.style.height = "auto"
-    input.style.height = `${Math.min(input.scrollHeight, 200)}px`
-  }
-
   scroller.addEventListener("scroll", () => {
     stick = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48
   })
-  input.addEventListener("input", grow)
   input.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" || event.shiftKey || event.isComposing) return
     event.preventDefault()
@@ -244,7 +236,6 @@ export function channelSimulatorClient(
     const text = input.value.trim()
     if (busy || !text) return
     input.value = ""
-    grow()
     void send(text)
   })
   render()

@@ -102,6 +102,15 @@ export function docsAppPath(path: string, appBase = "/"): string {
   return base ? `/${base}${path}` : path
 }
 
+/**
+ * The one URL that search engines index for an app path: the site origin, the app base, and no trailing slash or
+ * `/index`. The home of the app keeps its slash, as `https://example.com/portal/`: Nitro serves an app below its base
+ * only. The canonical link, the sitemap, and the trailing-slash redirect all use it, so they name one URL per page.
+ */
+export function docsCanonicalUrl(siteUrl: string, path: string, appBase = "/"): string {
+  return `${siteUrl}${docsAppPath(normalizeDocsPath(path), appBase)}`
+}
+
 /** A docs base with one leading slash and no trailing slash: `docs/` is `/docs`, and `/` stays `/`. */
 export function normalizeDocsBase(base: string): string {
   const trimmed = base.replace(/\/+$/, "")
@@ -422,7 +431,8 @@ export function docsRailIcon(icons: DocsIcons, section: Pick<DocsSection<DocsApp
 /**
  * Draws a 2px line icon with `stroke` instead. @nuxt/icon passes only the icon body in its CSS mode, so the icon is
  * recognized by its body: Lucide draws `stroke-width="2"` with round joins. Filled icons, such as brand logos, have no
- * stroke and stay as they are.
+ * stroke and stay as they are. Not reported upstream yet (fix branch:
+ * https://github.com/onmax/icon/tree/fix/customize-name-css-mode).
  */
 export function docsIconStroke(body: string, stroke: number): string {
   if (!body.includes('stroke-linejoin="round"')) return body
