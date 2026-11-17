@@ -229,8 +229,16 @@ export async function deliverWebhookWake(payload: unknown): Promise<void> {
   const { store } = installed
   const now = Date.now()
   const claim = await store.claim(payload.id, payload.revision, now, now - claimLeaseMs)
-  // A newer send, a finished delivery, or another server that posts it now.
-  if (!claim) return
+  if (!claim) {
+    const current = await store.get(payload.id)
+    if (current?.revision === payload.revision && current.state === "sending") {
+      // A restarted Queue may recover its job before the interrupted claim expires. Replace the wake before
+      // acknowledging this job; throwing here would spend Queue retries while the lease is still active.
+      const error = await wake(installed, current, current.updatedAt + claimLeaseMs + 1 - Date.now())
+      if (error) throw error
+    }
+    return
+  }
   const definition = installed.webhooks.get(claim.webhook)
   if (!definition) {
     await store.failed(claim, { status: null, error: `No webhook is named ${JSON.stringify(claim.webhook)} in this build.` }, Date.now(), true)

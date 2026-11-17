@@ -69,7 +69,6 @@
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "@vite-hub/queue": "workspace:*",
     "drizzle-orm": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
