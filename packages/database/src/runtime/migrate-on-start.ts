@@ -1,7 +1,7 @@
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { ledgerUpgradeProblem, matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
+import { ledgerUpgradeProblem, ledgerUpgradeStatements, matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
 import { withoutNewTableDataLoss } from "../internal/migration-sql.ts"
 
 import type { LedgerMatch, LedgerRow } from "../internal/migration-ledger.ts"
@@ -88,15 +88,7 @@ async function readLedger(client: LibsqlMigrationClient, databases: readonly Sta
   if (problem) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: databases[0]!.name, problem })
   const hashes = ledgerHashes(rows, match.backfill)
   if (named) return { ...match, hashes, upgrade: [] }
-  return {
-    ...match,
-    hashes,
-    upgrade: [
-      `ALTER TABLE "${migrationsTable}" ADD COLUMN "name" text`,
-      `ALTER TABLE "${migrationsTable}" ADD COLUMN "applied_at" TEXT`,
-      ...match.backfill.map(({ column, name, value }) => ({ args: [name, value], sql: `UPDATE "${migrationsTable}" SET "name" = ?, "applied_at" = NULL WHERE "${column}" = ?` })),
-    ],
-  }
+  return { ...match, hashes, upgrade: ledgerUpgradeStatements(migrationsTable, match) }
 }
 
 type PendingEntry = { migration: StartMigration, name: string }

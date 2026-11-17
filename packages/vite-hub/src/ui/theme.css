@@ -1,0 +1,2 @@
+/* `vite-hub/ui/theme.css` is the design system of the installed `@vite-hub/ui`, so the two cannot differ. */
+@import "@vite-hub/ui/theme.css";

@@ -27,7 +27,7 @@ A Capability is an ability attached to an Agent, such as chat or a tool; only th
 | Term | Describes |
 | --- | --- |
 | Channel | Message origin and delivery facts around an Invocation. |
-| Workflow Run | Durable work that can continue across waits or server restarts. |
+| Workflow Run | Durable work that a provider stores and retries. An Agent turn that stops during its Driver fails and does not run again. |
 | Agent Memory | Persistent context stored outside the Invocation. |
 
 A Channel can start many Invocations, and a Workflow Run can carry one, but each keeps its own record. `vitehub agent info` shows the resolved Definition, and `vitehub agent dev` talks to the Agent through a running Vite dev server. [Runtime policy, approvals, and traces](/docs/agents/runtime-policy) covers run records.
@@ -413,9 +413,10 @@ Pass extra Agent Capabilities in `capabilities`: `runAgent(agent, { prompt }, { 
 [Recover interrupted Invocations](/docs/agents/invocation-storage#recover-interrupted-invocations) explains recovery, which depends on who owns the store and the host lifecycle. When no process owns an Invocation:
 
 - An expired execution lease does not prove that its Driver stopped.
+- A Workflow retry of an Agent turn whose record is `running` does not run the Driver again, even when the lease has expired. It fails with `AGENT_INVOCATION_DRIVER_INTERRUPTED`, and the record shows `failed`. Further attempts of the same run also stop before the Driver, including when the stored error is redacted.
 - Cancelling a running one stores a durable request until the run owner sees it.
 - Cancelling a pending one stores a durable request that a later worker reads, and records, before it starts its Driver.
-- A pending journal status does not prove that an earlier Driver never started.
+- A pending journal status does not prove that an earlier Driver never started. A Workflow-backed Agent turn is the exception: it starts its Driver only after the record is `running`.
 
 ### Link to a run before it starts
 

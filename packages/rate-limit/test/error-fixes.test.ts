@@ -57,6 +57,6 @@ it("names the provider option when the production host has no Rate Limit driver"
 
   await expect(configResolved({ build: { outDir: "dist" }, command: "build", plugins: [], resolve: { alias: [] }, root })).rejects.toMatchObject({
     code: "RATE_LIMIT_B0002",
-    fix: expect.stringContaining("`provider: \"kv\"`"),
+    fix: expect.stringContaining("`driver: \"kv\"`"),
   })
 })

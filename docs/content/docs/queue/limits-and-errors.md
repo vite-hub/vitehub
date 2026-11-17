@@ -51,8 +51,8 @@ Config errors throw instead, such as an unknown queue name or a missing Cloudfla
 | `QUEUE_PROVIDER_FAILED` | Every send method | `useQueue()`, when the client cannot start |
 | `QUEUE_PROVIDER_INVALID_RESPONSE` | Vercel `send()`, `sendQueue()` | |
 | `QUEUE_UNSUPPORTED_OPTION` | Every send method | |
-| `QUEUE_BINDING_NOT_FOUND`, `QUEUE_DEFINITION_LOAD_FAILED`, `QUEUE_DEFINITION_NOT_FOUND`, `QUEUE_DISABLED`, `QUEUE_INVALID_BINDING`, `QUEUE_LOCAL_MODE_MISMATCH`, `QUEUE_MISSING_QUEUE`, `QUEUE_MISSING_REGION`, `QUEUE_MISSING_TOPIC`, `QUEUE_POSTGRES_CLOSING`, `QUEUE_POSTGRES_INVALID_URL`, `QUEUE_POSTGRES_MISSING_CONNECTION`, `QUEUE_PROVIDER_MISMATCH`, `QUEUE_RUNTIME_NOT_INSTALLED`, `QUEUE_VERCEL_SDK_INVALID`, `QUEUE_VERCEL_SDK_UNAVAILABLE` | | When an operation starts |
-| `QUEUE_BINDING_CONFLICT`, `QUEUE_CRYPTO_UNAVAILABLE`, `QUEUE_DEFINITIONS_CHANGED`, `QUEUE_INVALID_CONFIG`, `QUEUE_INVALID_DEFINITION`, `QUEUE_INVALID_NAME`, `QUEUE_INVALID_PROVIDER`, `QUEUE_MISSING_PROVIDER`, `QUEUE_NAME_COLLISION`, `QUEUE_PLUGIN_INCOMPATIBLE`, `QUEUE_PROVISION_FAILED` | | At define time, at Vite config, or at build |
+| `QUEUE_BINDING_NOT_FOUND`, `QUEUE_DEFINITION_LOAD_FAILED`, `QUEUE_DEFINITION_NOT_FOUND`, `QUEUE_DISABLED`, `QUEUE_INVALID_BINDING`, `QUEUE_LOCAL_MODE_MISMATCH`, `QUEUE_MISSING_QUEUE`, `QUEUE_MISSING_REGION`, `QUEUE_MISSING_TOPIC`, `QUEUE_POSTGRES_CLOSING`, `QUEUE_POSTGRES_INVALID_URL`, `QUEUE_POSTGRES_MISSING_CONNECTION`, `QUEUE_DRIVER_MISMATCH`, `QUEUE_RUNTIME_NOT_INSTALLED`, `QUEUE_VERCEL_SDK_INVALID`, `QUEUE_VERCEL_SDK_UNAVAILABLE` | | When an operation starts |
+| `QUEUE_BINDING_CONFLICT`, `QUEUE_CRYPTO_UNAVAILABLE`, `QUEUE_DEFINITIONS_CHANGED`, `QUEUE_INVALID_CONFIG`, `QUEUE_INVALID_DEFINITION`, `QUEUE_INVALID_NAME`, `QUEUE_INVALID_DRIVER`, `QUEUE_MISSING_DRIVER`, `QUEUE_NAME_COLLISION`, `QUEUE_PLUGIN_INCOMPATIBLE`, `QUEUE_PROVISION_FAILED` | | At define time, at Vite config, or at build |
 
 ### Errors in a Queue handler
 
@@ -97,7 +97,7 @@ No queue has this name, or a Cloudflare queue maps to no Queue Definition. `erro
 
 ### QUEUE_DISABLED
 
-The Queue config that this runtime installed is `false`. The generated Vitest setup installs `false` when `hubQueue()` gets `false`, or when `queue.provider` does not match the host. A dev or built server registers no Queue runtime in these cases, so Queue calls throw [`QUEUE_DEFINITION_NOT_FOUND`](#queue_definition_not_found) there.
+The Queue config that this runtime installed is `false`. The generated Vitest setup installs `false` when `hubQueue()` gets `false`, or when `queue.driver` does not match the host. A dev or built server registers no Queue runtime in these cases, so Queue calls throw [`QUEUE_DEFINITION_NOT_FOUND`](#queue_definition_not_found) there.
 
 ### QUEUE_INVALID_BINDING
 
@@ -109,7 +109,7 @@ A process has one local engine per folder. Clients that ask for different dev er
 
 ### QUEUE_MISSING_QUEUE
 
-A direct local client from `createQueueClient({ provider: 'local' })` needs `queue`, the name of the queue that runs the jobs. `useQueue()` sets it for you.
+A direct local client from `createQueueClient({ driver: 'local' })` needs `queue`, the name of the queue that runs the jobs. `useQueue()` sets it for you.
 
 ### QUEUE_MISSING_REGION
 
@@ -131,9 +131,9 @@ The Postgres Queue runtime is shutting down. It rejects new sends and connection
 
 The postgres provider has no connection. It uses the Default Database's connection when the build found it on Postgres, and `QUEUE_POSTGRES_URL` otherwise. Add a Default Database with `dialect: 'postgresql'` and build again, or set `QUEUE_POSTGRES_URL` on the server.
 
-### QUEUE_PROVIDER_MISMATCH
+### QUEUE_DRIVER_MISMATCH
 
-The generated runtime got another provider. Set `queue.provider` to match the deployment host, and build again.
+The generated runtime got another driver. Set `queue.driver` to match the deployment host, and build again.
 
 ### QUEUE_RUNTIME_NOT_INSTALLED
 
@@ -173,13 +173,13 @@ Queue files changed after Vite resolved the config. Generate them before that.
 
 The generated Cloudflare queue name has characters that Cloudflare rejects. Use only letters, numbers, and dashes in `queue.namePrefix`.
 
-### QUEUE_INVALID_PROVIDER
+### QUEUE_INVALID_DRIVER
 
-`queue.provider` is not `cloudflare`, `vercel`, or `local`.
+`queue.driver` is not `cloudflare`, `local`, `postgres`, or `vercel`.
 
-### QUEUE_MISSING_PROVIDER
+### QUEUE_MISSING_DRIVER
 
-ViteHub cannot pick a provider for the host, such as Netlify or Deno. Set `queue.provider`, use the Cloudflare, Vercel, or Node host, or set `queue: false`.
+ViteHub cannot pick a driver for the host, such as Netlify or Deno. Set `queue.driver`, use the Cloudflare, Vercel, or Node host, or set `queue: false`.
 
 ### QUEUE_NAME_COLLISION
 
@@ -195,7 +195,7 @@ The `hubQueue()` plugin does not expose the Queue Nitro config, because the app 
 
 ## Local delivery
 
-The local provider is the Node host's provider when the app has no Postgres Database. It runs in the server process, so it works with `node .output/server/index.mjs`, in Docker, in `vite dev`, and in a StackBlitz WebContainer. Cloudflare, Vercel, and postgres apps also use it in `vite dev`, with the [Dev delivery](#dev-delivery) rules.
+The local driver is the Node host's driver when the app has no Postgres Database. It runs in the server process, so it works with `node .output/server/index.mjs`, in Docker, in `vite dev`, and in a StackBlitz WebContainer. Cloudflare, Vercel, and postgres apps also use it in `vite dev`, with the [Dev delivery](#dev-delivery) rules.
 
 - `sendQueue()` writes the job to a file in `.vitehub/data/queue` and returns. The server then runs the queue.
 - A failed job runs again after 1, 2, and 4 seconds. After 4 attempts, or a Queue error that a retry cannot fix, it becomes a dead job. A dead job stays in its file with the last error. The provider keeps the 100 newest dead jobs per queue and deletes older ones. `vitehub queue list` counts them and shows the limit as `deadLimit`. `vitehub queue jobs retry <message-id>` runs a dead job again, and `vitehub queue jobs clear --state dead` removes them.
@@ -254,6 +254,6 @@ On Cloudflare and Vercel, the job commands fail with `QUEUE_JOBS_UNAVAILABLE`, b
 
 - A successful `sendQueue()` means the provider accepted the job. Track results in your own storage, or use [Workflows](/docs/workflows) when the caller needs run status.
 - A job can arrive more than once. Make handlers safe to rerun after a partial side effect.
-- Cloudflare needs a deployed binding and an existing queue. With account credentials, `vitehub provision run --provider cloudflare` can create the queues. See [Provisioning](/docs/development/provisioning).
+- Cloudflare needs a deployed binding and an existing queue. With account credentials, `vitehub provision run --host cloudflare` can create the queues. See [Provisioning](/docs/development/provisioning).
 - The local provider keeps jobs on one host. See [Local delivery](#local-delivery).
 - Vercel needs the generated topic, the `@vercel/queue` runtime, and a region if your SDK version needs one.

@@ -22,7 +22,7 @@ export function configureCloudflareKV(
   provisionState: ProvisionState = {},
 ): void {
   for (const [storeName, store] of Object.entries(config.stores || { default: config.store })) {
-    if (store.driver !== "cloudflare-kv-binding") continue
+    if (store.driver !== "cloudflare") continue
 
     const { binding } = store
     const namespaceId = store.namespaceId ?? readProvisionedId(provisionState, "cloudflare", KV_CLOUDFLARE_PROVISION_CATEGORY, storeName)

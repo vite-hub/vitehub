@@ -47,7 +47,7 @@ it("rejects a connection replacement from a send whose Definition finishes loadi
   const loading = gate()
   const drain = gate()
   const draining = gate()
-  const config = { provider: "postgres" } as const
+  const config = { driver: "postgres" } as const
   let holdDefinition = false
   setQueueRuntimeRegistry({ jobs: async () => {
     if (holdDefinition) { loading.resolve(); await definition.promise }
@@ -86,7 +86,7 @@ it("does not publish a connection whose resolution was pending when shutdown beg
   const resolving = gate()
   const connection = gate()
   const replacement = postgres("postgres://localhost/queue")
-  const config = { database: "default", provider: "postgres" } as const
+  const config = { database: "default", driver: "postgres" } as const
   startPostgresQueue(config, async () => { resolving.resolve(); await connection.promise; return { default: { db: { $client: replacement } } } })
   await createPostgresQueueRuntimeClient({ ...config, queue: "jobs" })
   vi.stubEnv("QUEUE_POSTGRES_URL", "")

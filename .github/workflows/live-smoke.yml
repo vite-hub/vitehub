@@ -228,7 +228,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           VITEHUB_HOST: cloudflare
           VITEHUB_VITE_MODE: e2e
-        run: vp run playground:vite:provision --provider cloudflare
+        run: vp run playground:vite:provision --host cloudflare
 
       - name: Provision Vercel resources
         if: matrix.provider == 'vercel'
@@ -239,7 +239,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VITEHUB_HOST: vercel
           VITEHUB_VITE_MODE: e2e
-        run: vp run playground:vite:provision --provider vercel
+        run: vp run playground:vite:provision --host vercel
 
       - name: Enter build stage
         run: echo "LIVE_SMOKE_STAGE=build" >> "$GITHUB_ENV"

@@ -26,7 +26,7 @@ it("lists the definitions and their changes without row data", async () => {
   await recordSyncChanges("notes", { put: ["n1", "n2"] })
 
   const summary = await operation("sync.list").run({}, undefined as never)
-  expect(summary).toEqual([{ name: "notes", table: "notes", key: "id", write: "no", rows: 2, changes: 2, floor: 0, lastSeq: 2 }])
+  expect(summary).toEqual([{ name: "notes", table: "notes", key: "id", write: "no", rows: 2, changes: 2, floor: 1, lastSeq: 2 }])
   expect(operation("sync.list").cli.format(summary as never)).toContain("notes")
 
   const changes = await operation("sync.changes").run({ name: "notes", limit: 1 }, undefined as never)

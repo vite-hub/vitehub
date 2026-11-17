@@ -159,6 +159,22 @@ describe.skipIf(process.platform === "win32")("SSH command runner", () => {
     await expectStopped(Number(result.stdout.trim()))
   }, 15000)
 
+  it.skipIf(process.platform !== "linux")("stops commands that left the process group after the command exits", async () => {
+    const { launch } = await fixture()
+    const child = launch(["-e", `require("node:child_process").execSync("setsid sh -c 'echo $$; exec sleep 600 >/dev/null 2>&1' &", { stdio: "inherit" })`])
+    child.child.stdin.end()
+    const result = await child.done
+    expect(result.code).toBe(0)
+    const leftover = Number(result.stdout.trim())
+    try {
+      await expectStopped(leftover)
+    }
+    finally {
+      try { process.kill(leftover, "SIGKILL") }
+      catch {}
+    }
+  }, 15000)
+
   it("uses a caller-managed known_hosts file", async () => {
     const { root, options, launch } = await fixture()
     const knownHostsFile = join(root, "known_hosts")

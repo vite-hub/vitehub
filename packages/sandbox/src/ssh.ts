@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process"
+import { randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { readFile } from "node:fs/promises"
 import { createServer } from "node:net"
@@ -6,6 +7,12 @@ import { promisify } from "node:util"
 import type { ChildProcess } from "node:child_process"
 import type { Socket } from "node:net"
 import type { Connection } from "ssh2"
+
+import { invariant } from "@vite-hub/internal/invariant"
+import { stopMarkedProcesses } from "@vite-hub/internal/process-sweep"
+
+import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
+import { launcherSource } from "./ssh-launcher.injected.ts"
 
 const maxTimeoutMs = 2_147_483_647
 
@@ -35,109 +42,26 @@ export interface SshLaunchContext {
 }
 
 const environmentName = /^[A-Z_][A-Z0-9_]*$/
-
-// The launcher runs outside the application bundle. It needs only Node and OpenSSH.
-const launcherSource = String.raw`
-import { spawn } from "node:child_process"
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-const config = JSON.parse(process.argv[1])
-const quote = value => "'" + value.replaceAll("'", "'\"'\"'") + "'"
-const temporary = await mkdtemp(join(tmpdir(), "vitehub-ssh-"))
-try {
-  const diagnostics = join(temporary, "diagnostics")
-  let knownHostsFile = config.knownHostsFile
-  if (config.hostKeyFile) {
-    knownHostsFile = join(temporary, "known_hosts")
-    const key = (await readFile(config.hostKeyFile, "utf8")).trim()
-    if (!/^(ssh-ed25519|ssh-rsa|ecdsa-sha2-\S+) [A-Za-z0-9+/=]+(?: .*)?$/.test(key)) throw new Error("Invalid SSH host public key")
-    await writeFile(knownHostsFile, "vitehub-runner " + key + "\n", { mode: 0o600 })
-  }
-  const sshArgs = [
-    "-E", diagnostics, "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
-    "-o", "LogLevel=ERROR", "-o", "ServerAliveInterval=30",
-    "-o", "ServerAliveCountMax=3", "-o", "StrictHostKeyChecking=yes",
-    ...(knownHostsFile ? ["-o", "UserKnownHostsFile=" + knownHostsFile] : []),
-    ...(config.hostKeyFile ? ["-o", "HostKeyAlias=vitehub-runner"] : []),
-    "-i", config.identityFile, "-p", String(config.port),
-    ...config.forwardEnvironment.flatMap(name => ["-o", "SendEnv=" + name]),
-    config.user + "@" + config.host,
-    "cd " + quote(config.cwd) + " && exec " + [config.command, ...process.argv.slice(2)].map(quote).join(" "),
-  ]
-  // -E separates local OpenSSH diagnostics from remote stderr, which may itself contain an SSH refusal.
-  // Only a local connection refusal establishes that the remote command did not start.
-  const refused = /^ssh: connect to host \S+ port \d+: Connection refused\r?$/m
-  const deadline = Date.now() + config.connectRetryMs
-  let child
-  let stopped
-  let wake
-  const handlers = new Map(["SIGINT", "SIGTERM", "SIGHUP"].map(signal => [signal, () => {
-    stopped = signal
-    if (child) child.kill(signal)
-    wake?.()
-  }]))
-  for (const [signal, handler] of handlers) process.on(signal, handler)
-  try {
-    for (let delay = 250; ; delay = Math.min(delay * 2, 4000)) {
-      await writeFile(diagnostics, "", { mode: 0o600 })
-      if (stopped) {
-        process.exitCode = 255
-        break
-      }
-      child = spawn("ssh", sshArgs, { stdio: ["inherit", "inherit", "pipe"] })
-      child.stderr.on("data", chunk => {
-        if (!process.stderr.write(chunk)) {
-          child.stderr.pause()
-          process.stderr.once("drain", () => child.stderr.resume())
-        }
-      })
-      const result = await new Promise((resolve, reject) => {
-        child.once("error", reject)
-        child.once("close", (code, signal) => resolve({ code, signal }))
-      })
-      const localDiagnostics = await readFile(diagnostics, "utf8")
-      process.stderr.write(localDiagnostics)
-      const wait = Math.min(delay, deadline - Date.now())
-      if (stopped || result.code !== 255 || !refused.test(localDiagnostics) || wait <= 0) {
-        process.exitCode = result.code ?? 1
-        break
-      }
-      await new Promise(resolve => {
-        const timer = setTimeout(resolve, wait)
-        wake = () => { clearTimeout(timer); resolve() }
-      })
-      wake = undefined
-      if (stopped) {
-        process.exitCode = 255
-        break
-      }
-    }
-  } finally {
-    for (const [signal, handler] of handlers) process.off(signal, handler)
-  }
-} finally {
-  if (temporary) await rm(temporary, { recursive: true, force: true })
-}
-`
+/** Every process of one SSH command starts with this variable, so the server can stop the ones that leave its process group. */
+const commandEnvironmentKey = "VITEHUB_SSH_COMMAND"
 
 /** Launch a command on a trusted SSH host with the same working-directory path. */
 export function sshLaunch(options: SshLaunchOptions): (context: SshLaunchContext) => { command: string; args: string[]; prepare: (context: { abortSignal?: AbortSignal }) => Promise<void> } {
-  if (!options.host || options.host.startsWith("-") || /[\s\0]/.test(options.host)) throw new TypeError("[vitehub] SSH host is invalid.")
-  if (!/^[a-zA-Z_][a-zA-Z0-9_.-]*$/.test(options.user)) throw new TypeError("[vitehub] SSH user is invalid.")
-  if (!options.identityFile || options.identityFile.includes("\0")) throw new TypeError("[vitehub] SSH identityFile is required.")
+  if (!options.host || options.host.startsWith("-") || /[\s\0]/.test(options.host)) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "host" })
+  if (!/^[a-zA-Z_][a-zA-Z0-9_.-]*$/.test(options.user)) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "user" })
+  if (!options.identityFile || options.identityFile.includes("\0")) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "identityFile" })
   const port = options.port ?? 22
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new TypeError("[vitehub] SSH port must be between 1 and 65535.")
-  if (options.hostKeyFile && options.knownHostsFile) throw new TypeError("[vitehub] Select hostKeyFile or knownHostsFile.")
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "port" })
+  if (options.hostKeyFile && options.knownHostsFile) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "hostKey" })
   const connectRetryMs = options.connectRetryMs ?? 30_000
-  if (!Number.isSafeInteger(connectRetryMs) || connectRetryMs < 0) throw new TypeError("[vitehub] SSH connectRetryMs must be a non-negative integer of milliseconds.")
+  if (!Number.isSafeInteger(connectRetryMs) || connectRetryMs < 0) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "connectRetryMs" })
   const forwardEnvironment = [...new Set(options.forwardEnvironment ?? [])]
-  if (forwardEnvironment.some(name => !environmentName.test(name))) throw new TypeError("[vitehub] SSH environment names must be uppercase shell identifiers.")
+  if (forwardEnvironment.some(name => !environmentName.test(name))) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "environment" })
   return ({ command, cwd, environment, requiredEnvironment }: SshLaunchContext) => {
     const names = options.forwardEnvironment === undefined ? Object.keys(environment || {}).filter(name => environmentName.test(name)) : forwardEnvironment
     const forwarded = [...new Set([...names, ...(requiredEnvironment || [])])]
-    if (forwarded.some(name => !environmentName.test(name))) throw new TypeError("[vitehub] SSH environment names must be uppercase shell identifiers.")
-    if (!command || !cwd || command.includes("\0") || cwd.includes("\0")) throw new TypeError("[vitehub] SSH command and cwd are required and cannot contain NUL.")
+    if (forwarded.some(name => !environmentName.test(name))) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "environment" })
+    if (!command || !cwd || command.includes("\0") || cwd.includes("\0")) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "command" })
     const args = (command: string, cwd: string) => ["--input-type=module", "-e", launcherSource, JSON.stringify({ ...options, port, connectRetryMs, forwardEnvironment: forwarded, command, cwd })]
     return {
       command: process.execPath,
@@ -183,7 +107,7 @@ export interface SshServer {
 
 /** An authenticated command server, not a filesystem or network sandbox. */
 export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
-  if (process.platform === "win32") throw new Error("[vitehub] SSH command supervision requires a POSIX host.")
+  if (process.platform === "win32") throw sandboxErrorDiagnostics.SANDBOX_SSH_POSIX_REQUIRED()
   const { default: ssh2 } = await import("ssh2")
   const [hostKey, authorizedKey] = await Promise.all([readFile(options.hostKeyFile), readFile(options.authorizedKeyFile)])
   const parsedKey = ssh2.utils.parseKey(authorizedKey)
@@ -192,6 +116,7 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
   const clients = new Set<Connection>()
   const sockets = new Set<Socket>()
   const children = new Set<ChildProcess>()
+  const markers = new Map<ChildProcess, string>()
   const terminations = new Map<ChildProcess, Promise<void>>()
   const allowed = options.acceptEnvironment && new Set(options.acceptEnvironment)
   function stop(child: ChildProcess) {
@@ -208,6 +133,8 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
       signalGroup("SIGTERM")
       await new Promise(resolve => setTimeout(resolve, 250))
       signalGroup("SIGKILL")
+      const marker = markers.get(child)
+      if (marker) await stopMarkedProcesses(commandEnvironmentKey, marker)
     })()
     terminations.set(child, done)
     return done
@@ -233,13 +160,15 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
       session.on("exec", (acceptExec, _reject, info) => {
         const stream = acceptExec()
         stream.allowHalfOpen = true
+        const marker = randomUUID()
         const child = spawn("/bin/sh", ["-lc", info.command], {
           cwd: options.cwd,
           detached: true,
-          env: { ...process.env, ...environment },
+          env: { ...process.env, ...environment, [commandEnvironmentKey]: marker },
           stdio: ["pipe", "pipe", "pipe"],
         })
         children.add(child)
+        markers.set(child, marker)
         stream.pipe(child.stdin)
         child.stdin.on("error", () => {}) // Remote command can close stdin before the SSH peer does.
         child.stdout.pipe(stream, { end: false })
@@ -250,7 +179,7 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
         child.once("exit", terminate)
         child.once("error", () => { stream.exit(127); stream.end() })
         child.once("close", code => {
-          void stop(child).finally(() => { children.delete(child); terminations.delete(child) })
+          void stop(child).finally(() => { children.delete(child); markers.delete(child); terminations.delete(child) })
           stream.exit(code ?? 1)
           stream.end()
         })
@@ -271,7 +200,7 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
   listener.listen(options.port ?? 2222, options.host ?? "127.0.0.1")
   await listening
   const address = listener.address()
-  if (!address || !(address instanceof Object)) throw new Error("[vitehub] SSH listener has no TCP address.")
+  invariant(address && address instanceof Object, "an SSH listener on a TCP host and port has a TCP address")
   let closing: Promise<void> | undefined
   return {
     port: address.port,
@@ -279,7 +208,7 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
       return sockets.size
     },
     close({ drainTimeoutMs = 0 } = {}) {
-      if (!Number.isSafeInteger(drainTimeoutMs) || drainTimeoutMs < 0 || drainTimeoutMs > maxTimeoutMs) throw new TypeError("[vitehub] drainTimeoutMs must be a non-negative integer of milliseconds.")
+      if (!Number.isSafeInteger(drainTimeoutMs) || drainTimeoutMs < 0 || drainTimeoutMs > maxTimeoutMs) throw sandboxErrorDiagnostics.SANDBOX_SSH_DRAIN_TIMEOUT_INVALID()
       if (closing) {
         if (!drainTimeoutMs) endDrain?.()
         return closing

@@ -44,7 +44,7 @@ function formRequest(bytes: number) {
 
 describe("Cloudflare R2 object keys", () => {
   it("returns BLOB_PATHNAME_TOO_LONG above 1024 UTF-8 bytes, before the driver call", async () => {
-    const { driver, puts } = memoryDriver("cloudflare-r2")
+    const { driver, puts } = memoryDriver("cloudflare")
     const storage = createBlobStorage(driver, "default")
 
     const [error] = await storage.put("k".repeat(1025), "x")
@@ -54,7 +54,7 @@ describe("Cloudflare R2 object keys", () => {
       name: "BLOB_PATHNAME_TOO_LONG",
       why: "The pathname is 1025 bytes in UTF-8. Cloudflare R2 accepts object keys of at most 1024 bytes.",
     })
-    expect(error?.cause).toHaveProperty("message", "The pathname is 1025 bytes in UTF-8. Cloudflare R2 accepts object keys of at most 1024 bytes.")
+    expect(error?.fix).toContain("shorter pathname")
     expect(puts).toEqual([])
     // Two bytes per character in UTF-8, so 513 characters are 1026 bytes.
     expect((await storage.put("é".repeat(513), "x"))[0]?.code).toBe("BLOB_PATHNAME_TOO_LONG")
@@ -85,7 +85,7 @@ describe.each(["H3", "Standard Context"] as const)("request body limit of a dev 
   }
 
   it("answers 413 for an upload above 4.5 MB, as Vercel does", async () => {
-    const { driver, puts } = memoryDriver("vercel-blob")
+    const { driver, puts } = memoryDriver("vercel")
     const storage = createBlobStorage(driver, "default")
     setBlobRequestBodyLimit(4_500_000)
 
@@ -106,7 +106,7 @@ describe.each(["H3", "Standard Context"] as const)("request body limit of a dev 
   })
 
   it("reads any body size without a limit", async () => {
-    const { driver } = memoryDriver("vercel-blob")
+    const { driver } = memoryDriver("vercel")
     const [error] = await createBlobStorage(driver, "default").handleUpload(event(formRequest(5 * mb)))
     expect(error).toBeUndefined()
   })

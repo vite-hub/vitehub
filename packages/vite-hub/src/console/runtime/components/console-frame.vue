@@ -11,7 +11,7 @@ defineProps<{
 </script>
 
 <template>
-  <!-- Local storage keeps sidebar sizes and collapsed state across reloads; the cookie storage needs Nuxt to persist. -->
+  <!-- Local storage keeps the sizes of section sidebars across reloads; the cookie storage needs Nuxt to persist. -->
   <UDashboardGroup class="vitehub-console" unit="rem" storage="local" storage-key="vitehub-console-v2">
     <ConsoleRail :active="active" :sections-base="sectionsBase" />
     <!-- Every page has a skip target, including pages without a main landmark or heading. -->
@@ -24,8 +24,9 @@ defineProps<{
 
 <style>
 .vitehub-console {
-  /* Sidebar and detail headers use the 44px height of the page header, so their titles and hairlines line up. */
-  --ui-header-height: 2.75rem;
+  /* The sidebar brand row, section sidebars, and detail headers use the 52px height of the page header, so their titles
+     and hairlines line up. */
+  --ui-header-height: 3.25rem;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
@@ -33,18 +34,18 @@ defineProps<{
 
 .vitehub-console__nav[data-slot="root"] {
   background: var(--ui-bg-muted);
-  border-inline-end: 1px solid var(--ui-border);
+  border-inline-end: 1px solid var(--border);
 }
 
 .vitehub-console__nav [data-slot="header"] {
-  min-height: 2.75rem;
+  min-height: var(--ui-header-height);
   padding-inline: 0.5rem;
 }
 
 /* A context panel opens with the section title, like the panel headers in Linear and Featurebase. */
 .vitehub-console__panel-title {
   align-items: center;
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   display: flex;
   font-size: 0.875rem;
   font-weight: 600;
@@ -89,7 +90,7 @@ defineProps<{
 .vitehub-console__section-link {
   align-items: center;
   border-radius: 0.375rem;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: flex;
   font-size: 0.8125rem;
   font-weight: 500;
@@ -101,14 +102,14 @@ defineProps<{
 }
 
 .vitehub-console__section-link:hover {
-  background: var(--ui-bg-elevated);
+  background: var(--muted);
   color: var(--ui-text);
 }
 
 .vitehub-console__section-link[aria-current="page"],
 .vitehub-console__section-link[aria-current="true"] {
   background: var(--ui-bg-accented);
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 .vitehub-console__section-nav.is-collapsed .vitehub-console__section-link {
@@ -147,8 +148,8 @@ defineProps<{
 }
 
 .vitehub-console__section-link[aria-current="page"] .vitehub-console__collection-mark {
-  border-color: var(--ui-text-muted);
-  color: var(--ui-text-highlighted);
+  border-color: var(--muted-foreground);
+  color: var(--foreground);
 }
 
 .vitehub-console__section-heading {
@@ -159,7 +160,7 @@ defineProps<{
 }
 
 .vitehub-console__section-rule {
-  border-top: 1px solid var(--ui-border);
+  border-top: 1px solid var(--border);
   margin: 0.375rem 0.5rem;
 }
 

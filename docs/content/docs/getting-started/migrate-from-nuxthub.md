@@ -27,9 +27,9 @@ through [Capabilities](/docs/agents/capabilities).
 | `hub.db.driver: 'd1-http'` | `cloudflare: { databaseId, http: true }` | Rename `NUXT_HUB_CLOUDFLARE_ACCOUNT_ID`, `NUXT_HUB_CLOUDFLARE_API_TOKEN`, and `NUXT_HUB_CLOUDFLARE_DATABASE_ID` to `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_D1_DATABASE_ID`. |
 | `hub.db.casing` | `snakeCase.table()` per table | Drizzle 1.0 has no casing for a database. See [Name columns in snake_case](/docs/database/configure#name-columns-in-snake_case). |
 | `hub.db: 'mysql'` | Not supported | Keep NuxtHub or Drizzle for MySQL. |
-| `hub.kv` with any unstorage driver | `kv` with `cloudflare-kv-binding`, `database`, `deno-kv`, `fs-lite`, `redis`, or `upstash` | Another driver fails the build with `KV_INVALID_DRIVER`. |
+| `hub.kv` with any unstorage driver | `kv` with `cloudflare`, `database`, `deno-kv`, `fs-lite`, `redis`, or `upstash` | Another driver fails the build with `KV_INVALID_DRIVER`. |
 | `hub.cache` | `cache` option | Mounts Nitro's `cache` storage on the host's store. `defineCachedHandler` and `defineCachedFunction` from `nitro/cache` use it. Another unstorage driver fails the build. See [Keep the cache](#keep-the-cache). |
-| `handleUpload`, multipart helpers, `useUpload`, `useMultipartUpload` | Same names on `blob` and in `vite-hub/blob/vue` | Methods return `[error, value]`. Multipart works with `fs`, `cloudflare-r2` (binding), and `vercel-blob`. NuxtHub's `s3` driver had multipart. ViteHub's `s3` does not, and returns `BLOB_R0030`. |
+| `handleUpload`, multipart helpers, `useUpload`, `useMultipartUpload` | Same names on `blob` and in `vite-hub/blob/vue` | Methods return `[error, value]`. Multipart works with `fs`, `cloudflare` (binding), and `vercel`. NuxtHub's `s3` driver had multipart. ViteHub's `s3` does not, and returns `BLOB_R0030`. |
 | `hosting` auto-detection | `host` | Set the host, or let ViteHub detect it from the build variables. |
 | `.data/` | `.vitehub/data/` | Local development data does not move automatically. See [Move local data](#move-local-data). |
 | Auto-imported `kv`, `blob`, `db`, `schema` | Auto-imported in Nuxt server code | On Nuxt 5, the module adds them, and the helpers of every other enabled feature. See [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). Explicit imports also work. |
@@ -208,8 +208,8 @@ Check client return values, not only imports:
 - Multipart options use `concurrency` instead of NuxtHub's `concurrent`.
 - Update the multipart client and server together, because their request and response formats differ.
 
-Multipart uploads work with the `fs`, `cloudflare-r2` (binding), and
-`vercel-blob` drivers. Direct `PUT` uploads with `blob.sign()` on Cloudflare
+Multipart uploads work with the `fs`, `cloudflare` (binding), and
+`vercel` drivers. Direct `PUT` uploads with `blob.sign()` on Cloudflare
 also need `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` at
 runtime, because an R2 binding alone cannot sign requests. To serve files
 without your own route, set `blob: { serve: { access: "public" } }` for public
@@ -404,6 +404,13 @@ Definition, in `server/databases/default/migrations/`. It applies them with driz
 for SQLite and libSQL, and with Wrangler for Cloudflare D1. These runners use
 different history tables by default.
 
+For SQLite, libSQL, and D1 HTTP, you can keep NuxtHub's migration files. Move
+them to `server/databases/default/migrations/`, run `pnpm vitehub database up`,
+and run `pnpm vitehub database migrate`. It reads `_hub_migrations` and does not
+run the migrations that NuxtHub applied. See
+[Keep an existing migrations table](/docs/database/configure#keep-an-existing-migrations-table).
+The baseline sections below start a new migration history instead.
+
 ::warning
 Do not set Wrangler's history table to `_hub_migrations` to skip the baseline.
 NuxtHub records normalized migration names, and Wrangler records filenames, so
@@ -594,13 +601,64 @@ export default defineNuxtConfig({
   vitehub: {
     host: "cloudflare",
     cache: {
-      driver: "cloudflare-kv-binding",
+      driver: "cloudflare",
       binding: "CACHE",
       namespaceId: process.env.CLOUDFLARE_CACHE_NAMESPACE_ID,
     },
   },
 })
 ```
+
+### Cache tags
+
+Tags clear related cache entries together. Import `defineCachedFunction()` and
+`defineCachedHandler()` from `vite-hub/cache`. They take Nitro's options, plus
+`tags`:
+
+```ts [server/utils/posts.ts]
+import { defineCachedFunction } from "vite-hub/cache"
+
+export const getPost = defineCachedFunction(
+  async (id: string) => {
+    const response = await fetch(`https://api.example.com/posts/${id}`)
+    return response.json()
+  },
+  { maxAge: 3600, getKey: (id: string) => id, tags: (id: string) => ["posts", `post:${id}`] },
+)
+```
+
+Call `invalidateTag()` after the data changes:
+
+```ts [server/api/posts/[id].put.ts]
+import { defineHandler, getRouterParam } from "nitro/h3"
+import { invalidateTag } from "vite-hub/cache"
+
+export default defineHandler(async (event) => {
+  // Save the post, then:
+  await invalidateTag(`post:${getRouterParam(event, "id")}`)
+  return { ok: true }
+})
+```
+
+- `tags` is a list, or a function of the cached function's arguments. For
+  `defineCachedHandler()`, the function gets the event.
+- `invalidateTag()` takes one tag or a list. The next call of each entry with
+  one of these tags runs the function again. It does not serve the old value,
+  also with `swr: true`. Entries without these tags do not change.
+- A result is not stored when one of its tags is invalidated while the function
+  runs.
+- ViteHub stores one record per tag in the `cache` mount, under `tags:` and
+  the URI-encoded tag, with no TTL. Each read of a tagged entry reads its tag records. It
+  never lists keys, so tags work with every `cache` driver.
+- Cloudflare KV can take up to 60 seconds to show a new tag record in other
+  locations. Until then, those locations can serve the old entry.
+- Vercel Runtime Cache can evict any record, also a tag record. An entry whose
+  tag record was evicted can come back until its `maxAge` ends.
+- Without the `cache` option, Nitro keeps the cache in memory, and the tag
+  records too. Each server instance then has its own tags.
+- In Nuxt, `invalidateTag()` is auto-imported when `cache` is on. Nitro's
+  `defineCachedFunction()` and `defineCachedHandler()` stay auto-imported and
+  have no `tags`, so import the ViteHub ones from `vite-hub/cache`.
 
 ## Modules that expect NuxtHub
 
@@ -697,12 +755,12 @@ export default defineNuxtConfig({
     host: "cloudflare",
     database: true,
     kv: {
-      driver: "cloudflare-kv-binding",
+      driver: "cloudflare",
       binding: "KV",
       namespaceId: process.env.CLOUDFLARE_KV_NAMESPACE_ID,
     },
     blob: {
-      driver: "cloudflare-r2",
+      driver: "cloudflare",
       binding: "BLOB",
       bucketName: process.env.CLOUDFLARE_R2_BUCKET_NAME,
     },
@@ -712,7 +770,7 @@ export default defineNuxtConfig({
 
 | Host | What changes |
 | --- | --- |
-| Cloudflare | Set `host: "cloudflare"`. Run `pnpm vitehub provision run --provider cloudflare` to resolve the D1 database ID. |
+| Cloudflare | Set `host: "cloudflare"`. Run `pnpm vitehub provision run --host cloudflare` to resolve the D1 database ID. |
 | Vercel | Set `host: "vercel"`. KV reads `KV_REST_API_URL` and `KV_REST_API_TOKEN`, then `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`. Blob uses OIDC with `BLOB_STORE_ID`, then `BLOB_READ_WRITE_TOKEN`. |
 | Node | Set `host: "node"`. KV and Blob use the file system under `.vitehub/data/`. |
 

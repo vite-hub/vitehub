@@ -94,7 +94,7 @@ function largeEnvelopePrefix(body: string): { maximumBytes: number, operation: s
  * signature of a signed request covers: the bytes must match it before the message is parsed.
  */
 async function readConsoleEnvelope(request: Request, bodySha256?: string): Promise<unknown> {
-  if (!request.body) throw new SyntaxError("Request body is unavailable.")
+  if (!request.body) throw consoleRequestError(400, "Request body is unavailable.")
   const reader = request.body.getReader()
   const decoder = new TextDecoder()
   const chunks: Uint8Array[] = []
@@ -190,6 +190,10 @@ async function runConsoleOperation(operation: AnyOperation, rawInput: unknown, r
   // A read-only grant (`"<section>:read"`) runs only the operations, and the calls, that read.
   if (section !== false && !operationAccessAllows(context.access, section, classification)) {
     throw consoleRequestError(403, `This Console access to the "${section}" section is read-only, and ${operation.name} is a ${operation.kind} operation.`, "CONSOLE_ACCESS_DENIED")
+  }
+  // A read-only caller, such as read_operation of the ViteHub MCP, runs only the operations, and the calls, that read.
+  if (context.access.readOnly && classification.kind !== "read" && !classification.readOnly) {
+    throw consoleRequestError(403, `${operation.name} is a ${classification.kind} operation, and this caller may only read.`, "CONSOLE_ACCESS_DENIED")
   }
   assertOperationConfirmation(request, classification)
   // An MCP call is unconfirmed unless the signed caller says that the person agreed.

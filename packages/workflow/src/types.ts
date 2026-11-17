@@ -1,4 +1,4 @@
-export type WorkflowProvider = "cloudflare" | "openworkflow" | "vercel"
+export type WorkflowDriver = "cloudflare" | "openworkflow" | "vercel"
 
 export interface CloudflareWorkflowBinding<TPayload = unknown> {
   createBatch: (batch: Array<{ id: string, params?: TPayload }>) => Promise<CloudflareWorkflowInstance[]>
@@ -8,6 +8,8 @@ export interface CloudflareWorkflowBinding<TPayload = unknown> {
 export interface CloudflareWorkflowInstance {
   id: string
   status: () => Promise<unknown>
+  /** Stops the instance. Cloudflare rejects the call when the instance has already finished. */
+  terminate: () => Promise<void>
 }
 
 export interface WorkflowSharedOptions {
@@ -15,12 +17,12 @@ export interface WorkflowSharedOptions {
   name?: string
 }
 
-export interface CloudflareWorkflowProviderOptions extends WorkflowSharedOptions {
-  provider: "cloudflare"
+export interface CloudflareWorkflowDriverOptions extends WorkflowSharedOptions {
+  driver: "cloudflare"
 }
 
-export interface VercelWorkflowProviderOptions extends WorkflowSharedOptions {
-  provider: "vercel"
+export interface VercelWorkflowDriverOptions extends WorkflowSharedOptions {
+  driver: "vercel"
 }
 
 export interface OpenWorkflowPostgresOptions {
@@ -49,6 +51,7 @@ export interface OpenWorkflowSqliteOptions {
 }
 
 export interface OpenWorkflowWorkerOptions {
+  /** How many runs one worker executes at once. Defaults to 10. Each Agent turn uses two runs. */
   concurrency?: number
 }
 
@@ -58,9 +61,9 @@ export interface OpenWorkflowWorkerOptions {
  */
 export type OpenWorkflowWorkerOption = false | OpenWorkflowWorkerOptions
 
-export interface OpenWorkflowProviderOptions extends WorkflowSharedOptions {
+export interface OpenWorkflowDriverOptions extends WorkflowSharedOptions {
   postgres?: OpenWorkflowPostgresOptions
-  provider: "openworkflow"
+  driver: "openworkflow"
   /**
    * `vite dev` keeps runs in the local SQLite file, even when `DATABASE_URL` or `OPENWORKFLOW_POSTGRES_URL` is set.
    * `true` lets it use that storage, so the dev server can run the runs of a shared database. Builds ignore it.
@@ -70,35 +73,46 @@ export interface OpenWorkflowProviderOptions extends WorkflowSharedOptions {
   worker?: OpenWorkflowWorkerOption
 }
 
-export interface InferredWorkflowProviderOptions extends WorkflowSharedOptions {
+export interface InferredWorkflowDriverOptions extends WorkflowSharedOptions {
   postgres?: OpenWorkflowPostgresOptions
-  provider?: undefined
+  driver?: undefined
   /** See `OpenWorkflowProviderOptions.remote`. */
   remote?: boolean
   sqlite?: OpenWorkflowSqliteOptions
   worker?: OpenWorkflowWorkerOption
 }
 
-export type WorkflowProviderOptions =
-  | CloudflareWorkflowProviderOptions
-  | OpenWorkflowProviderOptions
-  | VercelWorkflowProviderOptions
+export type WorkflowDriverOptions =
+  | CloudflareWorkflowDriverOptions
+  | OpenWorkflowDriverOptions
+  | VercelWorkflowDriverOptions
 
-export type WorkflowModuleProviderOptions =
-  | InferredWorkflowProviderOptions
-  | WorkflowProviderOptions
+export type WorkflowModuleDriverOptions =
+  | InferredWorkflowDriverOptions
+  | WorkflowDriverOptions
 
 export type WorkflowOptions =
   | false
-  | WorkflowModuleProviderOptions
+  | WorkflowModuleDriverOptions
 
-export type ResolvedWorkflowOptions = WorkflowProviderOptions
+export type ResolvedWorkflowOptions = WorkflowDriverOptions
+
+/** The failure of a failed Workflow Run. Every provider fills it, and it is safe to send as JSON. */
+export interface WorkflowRunError {
+  /** Code of the thrown error, when it has one. */
+  code?: string
+  message: string
+  /** Name of the thrown error, when it is not `Error`. */
+  name?: string
+}
 
 export interface WorkflowRun<TPayload = unknown, TResult = unknown> {
   completedAt?: Date
   createdAt?: Date
+  /** Set when `status` is `failed`. */
+  error?: WorkflowRunError
   id: string
-  provider: WorkflowProvider
+  provider: WorkflowDriver
   result?: TResult
   startedAt?: Date
   status: WorkflowRunStatus
@@ -115,6 +129,8 @@ export interface WorkflowRunStep {
   error?: { code?: string; message: string }
   id: string
   name: string
+  /** The time a sleep step wakes. Only a `context.sleep()` step has it. */
+  sleepUntil?: Date
   startedAt?: Date
   status: WorkflowRunStatus
 }
@@ -135,8 +151,19 @@ export interface WorkflowProviderStep {
     options: WorkflowStepOptions,
     run: () => TResult | Promise<TResult>,
   ) => Promise<TResult>
-  sleep?: (name: string, duration: string) => Promise<void>
+  /** Sleeps for a number of milliseconds. ViteHub names each sleep by call order. */
+  sleep?: (name: string, milliseconds: number) => Promise<void>
+  /** Sleeps until a date. Without it, ViteHub sleeps for the time that is left until the date. */
+  sleepUntil?: (name: string, date: Date) => Promise<void>
 }
+
+export type WorkflowDurationUnit = "second" | "minute" | "hour" | "day" | "week" | "month" | "year"
+
+/**
+ * A sleep duration: milliseconds, or a string such as `'30 seconds'` or `'1 day'`. Cloudflare and OpenWorkflow read
+ * this form the same way. A month is 30 days and a year is 365.25 days.
+ */
+export type WorkflowDuration = number | `${number} ${WorkflowDurationUnit}` | `${number} ${WorkflowDurationUnit}s`
 
 /**
  * The step files of each folder Workflow, by Workflow name and step name. ViteHub writes it to
@@ -159,12 +186,20 @@ export interface WorkflowProviderContext<TPayload = unknown> {
   id?: string
   name: string
   payload: TPayload
-  provider: WorkflowProvider
+  provider: WorkflowDriver
   step?: WorkflowProviderStep
 }
 
-export interface WorkflowExecutionContext<TPayload = unknown, TName extends string = string> extends WorkflowProviderContext<TPayload> {
+export interface WorkflowExecutionContext<TPayload = unknown, TName extends string = string> extends Omit<WorkflowProviderContext<TPayload>, "step"> {
   name: TName
+  /** The provider step runner. Use `context.sleep()` to sleep. */
+  step?: Omit<WorkflowProviderStep, "sleep" | "sleepUntil">
+  /**
+   * Sleeps for a duration such as `'1 day'` or a number of milliseconds, or until a `Date`. Only a folder Workflow's
+   * `index.ts` can sleep. In a single-file Workflow it throws `WORKFLOW_ROOT_STEP_SLEEP`. The sleep is durable on
+   * Cloudflare and OpenWorkflow. Inline runs (`vite dev` and Vercel handlers) wait with a timer, which is not durable.
+   */
+  sleep: (until: WorkflowDuration | Date) => Promise<void>
   /** Step functions from the numbered files in the Workflow folder. Empty when the Workflow has no step files. */
   steps: WorkflowSteps<TName>
 }
@@ -186,6 +221,8 @@ export type WorkflowRunIdValue =
 export interface WorkflowCreateOptions<TPayload = unknown, TResult = unknown> {
   handler?: WorkflowHandler<TPayload, TResult>
   id?: (context: { name: string, payload?: TPayload }) => Promise<WorkflowRunIdValue> | WorkflowRunIdValue
+  /** @internal Identifies the Agent Workflow handler that the Agent package creates for an Agent turn. */
+  internalAgentWorkflow?: true
   name?: string
   rootStep?: boolean
 }
@@ -200,6 +237,8 @@ export interface WorkflowDefinitionOptions<TPayload = unknown, TResult = unknown
 export interface WorkflowDefinition<TPayload = unknown, TResult = unknown, TName extends string = string> {
   /** @internal Identifies provider-generated Agent invocation recovery definitions. */
   internalAgentInvocationRecovery?: true
+  /** @internal Identifies the inline Agent Workflow handler that the Agent package creates for an Agent turn. */
+  internalAgentWorkflow?: true
   handler: WorkflowHandler<TPayload, TResult, TName>
   /** The discovered Workflow name. `defineWorkflow()` sets it; inline and generated definitions may leave it out. */
   name?: string
@@ -220,13 +259,18 @@ export interface WorkflowHandle<TPayload = unknown, TResult = unknown> {
   start: (...args: WorkflowStartArguments<TPayload>) => Promise<WorkflowRun<TPayload, TResult>>
 }
 
+/** Milliseconds, a duration such as `"30 minutes"` or `"3 days"`, or a `Date` that the run must not start before. */
+export type WorkflowStartDelay = number | string | Date
+
 export interface WorkflowStartOptions {
+  /** Starts the run later. A `Date` in the past starts it now. */
+  delay?: WorkflowStartDelay
   id?: string
 }
 
 export interface WorkflowSignalResult {
   id: string
-  provider: WorkflowProvider
+  provider: WorkflowDriver
 }
 
 /**

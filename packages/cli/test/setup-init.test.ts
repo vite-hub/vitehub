@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises"
 import { join, relative } from "node:path"
@@ -69,6 +70,18 @@ describe("vitehub init", () => {
     expect(status.json.host).toEqual({ name: host, source: "config" })
     for (const id of features) expect(status.json.features.find(item => item.id === id)?.enabled).toBe("on")
     expect(status.json.stack).toEqual({ command: `pnpm dlx vite-hub init my-app --host ${host} --features ${features.join(",")} --yes` })
+  })
+
+  it("ignores every .env file of a new app except .env.example", async () => {
+    const parent = await createProject()
+    const result = await init(["my-app", "--host", "node", "--features", "kv", "--no-install", "--yes"], parent)
+    expect(result.exitCode, result.stdout).toBe(0)
+    const root = join(parent, "my-app")
+    execFileSync("git", ["init", "--quiet"], { cwd: root, env: { ...process.env, LC_ALL: "C" } })
+    const files = [".env", ".env.local", ".env.production", ".env.staging.local", ".env.example"]
+    // `git check-ignore` prints the ignored paths and exits 1 when none is ignored.
+    const ignored = execFileSync("git", ["check-ignore", ...files], { cwd: root, encoding: "utf8", env: { ...process.env, LC_ALL: "C" } })
+    expect(ignored.trim().split("\n")).toEqual([".env", ".env.local", ".env.production", ".env.staging.local"])
   })
 
   it("is a no-op when the same command runs again", async () => {
@@ -198,7 +211,7 @@ describe("vitehub init", () => {
   })
 
   it.each(["vite", "nuxt"] as const)("leaves host migration of an existing %s stack manual", async (framework) => {
-    for (const options of ["browser: true", 'cache: { driver: "cloudflare-kv-binding" }', "browser: browserOptions"]) {
+    for (const options of ["browser: true", 'cache: { driver: "cloudflare" }', "browser: browserOptions"]) {
       const config = framework === "nuxt"
         ? `export default { modules: [["vite-hub/nuxt", { host: "cloudflare", ${options} }]] }\n`
         : `import { vitehub } from "vite-hub"\nexport default { plugins: [vitehub({ host: "cloudflare", ${options} })] }\n`

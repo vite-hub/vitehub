@@ -106,7 +106,6 @@ const bundledInternal: Record<string, string[]> = {
   agent: ["@sqlite.org/sqlite-wasm", "@valibot/to-json-schema", "@vercel/nft", "birpc"],
   blob: ["@valibot/to-json-schema", "birpc"],
   cli: ["@babel/parser", "birpc"],
-  codemods: ["@babel/parser"],
   comments: ["@valibot/to-json-schema", "birpc"],
   content: ["@valibot/to-json-schema", "birpc"],
   database: ["@sqlite.org/sqlite-wasm"],
@@ -125,7 +124,7 @@ const bundledInternal: Record<string, string[]> = {
 };
 
 // `vp pack` runs publint because their config sets `publint`. Knip does not see that use in these packages.
-const packsWithPublint = ["forge", "gateways", "kit", "presets", "runtime", "shell"];
+const packsWithPublint = ["forge", "gateways", "presets", "runtime", "shell"];
 
 // Settings that no manifest, config or script states.
 const packageOverrides: Record<string, WorkspaceProjectConfig> = {
@@ -134,6 +133,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
     entry: ["test/browser-smoke-cleanup.test.mjs"],
     // The real SSH provider tests use the host's OpenSSH key generator.
     ignoreBinaries: ["ssh-keygen"],
+    // The storage regression test resolves unstorage from the KV package that owns it.
+    ignoreDependencies: ["unstorage"],
   },
   // The tsconfig lists `node` in `types` and the tests import `node:` modules, but Knip does not count it here.
   auth: { ignoreDependencies: ["@types/node"] },
@@ -159,6 +160,7 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
     entry: ["runtime/**/*.{ts,vue,css}"],
     ignoreDependencies: [
       // The module installs these Nuxt modules by name from `moduleDependencies`.
+      "@nuxt/fonts",
       "nuxt-agent-discovery",
       "nuxt-og-image",
       "nuxt-site-config",
@@ -182,6 +184,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   realtime: { ignoreDependencies: ["prosemirror-transform"] },
   // The generated Durable Object imports it, and the tests build that output.
   sandbox: { ignoreDependencies: ["@cloudflare/sandbox"] },
+  // The OS timer tests check the generated files with the OS tools, when the machine has them.
+  schedule: { ignoreBinaries: ["plutil", "systemd-analyze"] },
   ui: {
     ignoreDependencies: [
       // `#app` resolves to the Nuxt nightly package installed under the declared `nuxt` alias.
@@ -195,8 +199,6 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   "vite-hub": {
     // `console.vite.config.ts` aliases `shiki/wasm` to this file by path.
     entry: ["src/console/runtime/client/shiki-wasm.ts"],
-    // `test/agent-page.browser.mjs` writes fixture apps that import ui-sdk, as source text.
-    ignoreDependencies: ["@ui-sdk/core", "@ui-sdk/vue"],
   },
 };
 
@@ -212,7 +214,9 @@ function packageWorkspace(name: string): WorkspaceProjectConfig {
     ...override,
     entry: matching(dir, [
       ...manifestEntries(dir),
-      ...existsSync(join(root, dir, "vite.config.ts")) ? viteConfigEntries(dir) : [],
+      ...existsSync(join(root, dir, "vite.config.ts")) ? viteConfigEntries(dir).filter(entry =>
+        // The Nuxt module graph reaches these test helpers. They need no separate roots.
+        name !== "vite-hub" || !["src/internal/test-loader.ts", "src/internal/test-server.ts"].includes(entry)) : [],
       ...packageEntries,
       ...[override.entry ?? []].flat(),
     ]),
@@ -281,6 +285,8 @@ const config: KnipConfiguration = {
     ...packageWorkspaces,
     docs: {
       entry: [
+        // ViteHub discovers the site's Server Primitive Definitions by convention.
+        ...matching("docs", viteHubAppEntries),
         // Markdown pages render these components by name.
         "app/components/content/**/*.vue",
         "app/examples/**/*.vue",
@@ -307,6 +313,8 @@ const config: KnipConfiguration = {
     },
     // A type contract that `tsc` checks. Nothing imports it.
     "packages/env/examples/schema-lab": { entry: ["src/type-contract.ts"] },
+    // `icons.html` loads `icons.ts`, the icon parity page that `packages/vite-hub/test/console-icon.browser.mjs` opens.
+    "playground/console": { entry: ["icons.ts"] },
     // These app configs import `vite-hub` from its build output, which Knip cannot load before a build.
     "playground/content": {
       entry: appEntries("playground/content"),

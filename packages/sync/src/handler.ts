@@ -188,7 +188,7 @@ async function pull(scoped: Scoped, cursor: number | undefined, clientScope: str
         .limit(pageSize + 1),
       // A join, not `key IN (...)`: the statement has a fixed number of parameters, so D1's limit of 100 never applies.
       // The first `pageSize` puts in scope cover every put in scope of the page above.
-      db.select({ row: getTableColumns(table), seq: sql<number>`${syncChanges.seq}`.as("vitehub_sync_seq") })
+      db.select(getTableColumns(table))
         .from(table)
         .innerJoin(syncChanges, and(eq(syncChanges.name, name), eq(syncChanges.key, column(scoped.table, key))))
         .where(and(gt(syncChanges.seq, cursor), eq(syncChanges.op, "put"), where))
@@ -201,12 +201,13 @@ async function pull(scoped: Scoped, cursor: number | undefined, clientScope: str
     if (cursor >= lowest && cursor <= highest) {
       const changes = page.slice(0, pageSize)
       const next = changes.at(-1)?.seq ?? cursor
+      const putKeys = new Set(changes.filter(change => change.op === "put").map(change => change.key))
       return {
         key,
         scope,
         cursor: next,
         reset: false,
-        rows: puts.filter(put => put.seq <= next).map(put => put.row),
+        rows: puts.filter(row => putKeys.has(String(row[key]))),
         deleted: changes.filter(change => change.op === "delete" && change.row !== null && inScope(parseRow(change.row), scope.values)).map(change => change.key),
         more: page.length > pageSize,
       }
@@ -487,7 +488,7 @@ export interface SyncChanges {
 }
 
 /** Writes change log entries for writes that server code made to the table itself. */
-export async function recordChanges(name: string, definition: SyncDefinition, db: SyncDatabase, changes: SyncChanges, now: number): Promise<number> {
+export async function recordChanges<TTable, TRow>(name: string, definition: SyncDefinition<TTable, TRow>, db: SyncDatabase, changes: SyncChanges, now: number): Promise<number> {
   const table = describeSyncTable(definition.options.table)
   const target = { name, db, now }
   const statements = []

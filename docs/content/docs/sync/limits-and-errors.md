@@ -27,42 +27,4 @@ icon: i-lucide-circle-alert
 
 A refused pull or push answers with the ViteHub error body and a `SYNC_*` code. A refused write in a push has the status `rejected` and its own `error`. The other writes of the push still apply.
 
-### SYNC_UNAUTHORIZED
-
-`where` returned `false` and the caller has no user. Sign the person in, then pull again.
-
-### SYNC_FORBIDDEN
-
-`where` returned `false` for a signed-in user, or a push came from another origin. Check `where`, or show the page only to people who may use it.
-
-### SYNC_SCOPE_CHANGED
-
-The writes were made for another scope, such as before a sign-in as another person. The server wrote nothing. Pull again without a cursor, and do not send the writes of the old scope.
-
-### SYNC_READ_ONLY
-
-The definition has `write: false`, or its `write` function returned `false` for this write.
-
-### SYNC_INVALID
-
-The row did not pass `schema`, or the write has a column that the table does not have. `issues` tells each problem. Fix the value, then write again.
-
-### SYNC_NOT_FOUND
-
-An update found no row with this key in the caller's scope. Another person may have deleted it.
-
-### SYNC_KEY_EXISTS
-
-An insert used a key that a row already has. Make a new key with `crypto.randomUUID()`.
-
-### SYNC_OUT_OF_SCOPE
-
-A write set a `where` column to another value, such as `ownerId` of another person. Leave the scope columns out: the server writes them.
-
-### SYNC_TOO_MANY_MUTATIONS
-
-A push had more than 100 writes. Send them in parts of 100 or fewer.
-
-### SYNC_BAD_REQUEST
-
-The request is not a valid pull or push. Sending it again gives the same answer.
+See the [Sync diagnostic catalog](/docs/sync/diagnostics) for causes and fixes.

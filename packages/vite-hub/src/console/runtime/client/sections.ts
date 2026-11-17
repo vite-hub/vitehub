@@ -1,5 +1,6 @@
 import type { ConsoleContributedSection } from "../definitions"
 import type { ConsoleSectionDetails, ConsoleSectionId } from "../sections"
+import type { RouteLocationNormalized, RouteLocationRaw, RouteRecordRaw, Router } from "vue-router"
 
 import { parseConsoleContributedSection } from "../definitions"
 import { consoleSectionDetails, consoleSectionRouteName, isConsoleBuiltinSectionId, isConsoleSectionId } from "../sections"
@@ -20,11 +21,18 @@ export interface ConsoleNavigation {
   setup?: string
 }
 
+/** The Console path of `sections.list`. Views pass it as `sectionsBase`, and the navigation cache keys on it. */
+export const consoleSectionsPath = "/_vitehub/api/sections"
+
 const navigationRequests = new Map<string, Promise<ConsoleNavigation | undefined>>()
 const navigationSubscribers = new Map<string, Set<(navigation: ConsoleNavigation) => void>>()
 const navigationErrors = new Map<string, unknown>()
+// The last navigation of each base, so a subscriber that comes after a load or a seed, such as the router of
+// `main.js`, still gets it.
+const navigationValues = new Map<string, ConsoleNavigation>()
 
-function parseConsoleNavigation(value: unknown): ConsoleNavigation {
+/** Read an untrusted `sections.list` answer. Unknown sections and fields are left out. */
+export function parseConsoleNavigation(value: unknown): ConsoleNavigation {
   // SAFETY: Reading an optional property is safe for every non-null JavaScript value; the property remains unknown until validated below.
   const response = value as { contributions?: unknown, operations?: unknown, projectName?: unknown, readOnly?: unknown, scoped?: unknown, sections?: unknown, setup?: unknown } | null | undefined
   const contributions: Record<ConsoleSectionId, ConsoleContributedSection> = {}
@@ -68,6 +76,7 @@ export async function loadConsoleNavigation(base: string): Promise<ConsoleNaviga
       .then((value) => {
         navigationErrors.delete(base)
         const navigation = parseConsoleNavigation(value)
+        navigationValues.set(base, navigation)
         for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
         return navigation
       })
@@ -79,6 +88,18 @@ export async function loadConsoleNavigation(base: string): Promise<ConsoleNaviga
     navigationRequests.set(base, request)
   }
   return await request
+}
+
+/**
+ * Keep the navigation that `project.get` sent with the project, so the rail and the Overview show it without a
+ * `sections.list` call. A load that already started keeps its own answer.
+ */
+export function seedConsoleNavigation(base: string, navigation: ConsoleNavigation): void {
+  if (navigationRequests.has(base)) return
+  navigationErrors.delete(base)
+  navigationRequests.set(base, Promise.resolve(navigation))
+  navigationValues.set(base, navigation)
+  for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
 }
 
 /** Why the last navigation request of `base` failed, such as a 401 when no one is signed in. */
@@ -93,6 +114,8 @@ export function subscribeConsoleNavigation(
   const subscribers = navigationSubscribers.get(base) || new Set()
   subscribers.add(subscriber)
   navigationSubscribers.set(base, subscribers)
+  const known = navigationValues.get(base)
+  if (known) subscriber(known)
   return () => {
     subscribers.delete(subscriber)
     if (subscribers.size === 0) navigationSubscribers.delete(base)
@@ -101,4 +124,29 @@ export function subscribeConsoleNavigation(
 
 export function createConsoleSectionLoader(base: string): () => Promise<ConsoleSectionId[] | undefined> {
   return async () => (await loadConsoleNavigation(base))?.sections
+}
+
+/**
+ * Matches every path until the navigation response adds the routes of the contributed sections, so a deep link such
+ * as `/queues` does not log a Vue Router "No match found" warning. It never renders: the guard of
+ * `resolveConsoleSectionDeepLink` always sends the navigation on.
+ */
+export const consolePendingSectionRoute: RouteRecordRaw & { name: string } = {
+  component: { render: () => null },
+  name: "vitehub-console-pending-section",
+  path: "/:pathMatch(.*)*",
+}
+
+/**
+ * Router guard step for a path that only `consolePendingSectionRoute` matches. It waits for `addSectionRoutes`, then
+ * sends the navigation to the real route, or to the Overview when the path is still unknown.
+ */
+export async function resolveConsoleSectionDeepLink(
+  router: Router,
+  to: RouteLocationNormalized,
+  addSectionRoutes: () => Promise<void>,
+): Promise<RouteLocationRaw | undefined> {
+  if (to.name !== consolePendingSectionRoute.name) return undefined
+  await addSectionRoutes()
+  return router.resolve(to.fullPath).name === consolePendingSectionRoute.name ? { name: "vitehub-console" } : to.fullPath
 }

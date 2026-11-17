@@ -35,10 +35,10 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 | Database | SQLite | D1 | libSQL / D1 / Postgres | libSQL / D1 / Postgres | libSQL / D1 / Postgres | Nuxt D1 | SQLite / libSQL / Postgres |
 | Email | Resend | Cloudflare Email | Resend | Resend | Resend | Host driver | Resend / custom |
 | KV | fs-lite | Workers KV | Upstash | Upstash / Redis | Deno KV | Host driver | Redis / Postgres / fs-lite |
-| Queue | Local provider | Queues | Vercel Queues | — | — | Cloudflare / Vercel | Postgres / local provider |
+| Queue | Local driver | Queues | Vercel Queues | — | — | Cloudflare / Vercel | Postgres / local driver |
 | Rate Limit | memory | Cloudflare | — | — | — | Cloudflare | memory, or KV |
-| Realtime | memory | Durable Objects | — | — | — | Host authority | Postgres or Redis |
-| Sandbox | — | CF Sandbox | Vercel Sandbox | — | — | Cloudflare / Vercel | — |
+| Realtime | memory | Durable Objects | — | — | — | Host driver | Postgres or Redis |
+| Sandbox | — | CF Sandbox | Vercel Sandbox | Vercel Sandbox | — | Cloudflare / Vercel | Vercel Sandbox |
 | Schedule | Local / process | Cron triggers | Vercel Cron | Scheduled fn | — | Provider Wake | process |
 | Workflow | OpenWorkflow | CF Workflows | Vercel Workflow | OpenWorkflow | OpenWorkflow | Host provider | OpenWorkflow |
 | Workspace | local / memory | Artifacts / GitHub | memory / Blob / GitHub | GitHub | GitHub | Host store | local / GitHub |
@@ -78,15 +78,15 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 
 The table names built-in providers or adapters.
 
-- **Browser:** Browser Definitions require the Cloudflare host. Local Wrangler can reach Browser Run in remote mode. Trusted local and self-hosted Node processes can call `createBrowser({ provider: localBrowser({ executablePath }) })`, but Browser Definitions do not select that provider.
+- **Browser:** Browser Definitions require the Cloudflare host. Local Wrangler can reach Browser Run in remote mode. Trusted local and self-hosted Node processes can call `createBrowser({ driver: localBrowser({ executablePath }) })`, but Browser Definitions do not select that driver.
 - **Email:** `email: true` selects Cloudflare Email only on the Cloudflare host; every other host requires the explicit built-in Resend driver or a programmatic custom driver.
 - **Realtime:** Production uses Cloudflare Durable Objects, or memory that you select on a single-process Node server; distributed Vercel, Netlify, and Deno hosts reject memory.
 
-Local Vite delivers Queue Jobs in the dev server through the local provider, which stores jobs in `.vitehub/data/queue`. For every Queue Provider, development follows the retry, delay, and size rules of the provider of the build, and `vitehub queue jobs list` shows the jobs. The build still generates the hosted provider output. `vitehub({ queue: true })` fails on Netlify because `queue` has no provider option. Compose `hubQueue({ provider })` to select the Cloudflare or Vercel Queue Provider there. `vitehub({ sandboxTask: true })` fails on the Netlify and Node hosts. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials. Do not use Cloudflare Sandbox there: the Cloudflare Sandbox provider requires a Cloudflare binding and cannot run on Netlify.
+Local Vite delivers Queue Jobs in the dev server through the local driver, which stores jobs in `.vitehub/data/queue`. For every Queue driver, development follows the retry, delay, and size rules of the driver of the build, and `vitehub queue jobs list` shows the jobs. The build still generates the hosted driver output. `vitehub({ queue: true })` fails on Netlify because `queue` has no driver option. Compose `hubQueue({ driver })` to select the Cloudflare or Vercel Queue driver there. `vitehub({ sandboxTask: true })` fails on the Netlify and Node hosts. Set `sandboxTask: { driver: 'vercel' }` to use Vercel Sandbox with Vercel credentials. Cloudflare Sandbox works only on the Cloudflare host, because it needs a Cloudflare binding.
 
-Workspace on Cloudflare uses the memory store by default, so its state stays in one Worker isolate. Select the Cloudflare Artifacts or GitHub Workspace Store for durable state. Workspace on Vercel also defaults to process-local memory; a non-empty `BLOB_READ_WRITE_TOKEN` selects Vercel Blob, or the app can select GitHub explicitly. Realtime on Node needs `realtime: { authority: "memory" }` for a build, and that authority is safe only for a single-process server.
+Workspace on Cloudflare uses the memory store by default, so its state stays in one Worker isolate. Select the Cloudflare Artifacts or GitHub Workspace Store for durable state. Workspace on Vercel also defaults to process-local memory; a non-empty `BLOB_READ_WRITE_TOKEN` selects Vercel Blob, or the app can select GitHub explicitly. Realtime on Node needs `realtime: { driver: "memory" }` for a build, and that driver is safe only for a single-process server.
 
-Workflow defaults to OpenWorkflow on Node and in Local Vite with the `node` preset, and each server runs the OpenWorkflow worker. It uses `OPENWORKFLOW_POSTGRES_URL`, then the app's Postgres Default Database, else a SQLite file on one host. Local Vite uses the SQLite file unless `workflow.remote` is `true`. Deno builds require a provider or OpenWorkflow storage; development and Agent-only Workflows can run inline. Netlify requires an explicit `workflow.provider`. An explicit `workflow.provider` always wins.
+Workflow defaults to OpenWorkflow on Node and in Local Vite with the `node` preset, and each server runs the OpenWorkflow worker. It uses `OPENWORKFLOW_POSTGRES_URL`, then the app's Postgres Default Database, else a SQLite file on one host. Local Vite uses the SQLite file unless `workflow.remote` is `true`. On Node, Agent turns are OpenWorkflow runs: any server's worker executes them, and a queued turn runs after a restart. Deno builds require a driver or OpenWorkflow storage; development and Agent-only Workflows can run inline. Netlify requires an explicit `workflow.driver`. An explicit `workflow.driver` always wins.
 
 ## Test status
 

@@ -74,7 +74,7 @@ export default defineConfig({
 | --- | --- |
 | `kv: false` | Turns KV off. |
 | `kv: { driver: 'fs-lite', base?: string }` | Saves values as local files. Default `base`: `.vitehub/data/kv` for the default store and `.vitehub/data/kv-stores/<store>` for a named store, so stores never share keys. |
-| `kv: { driver: 'cloudflare-kv-binding', binding?: string, namespaceId?: string }` | Uses Cloudflare KV. Default `binding`: `KV`. `namespaceId` can come from `KV_NAMESPACE_ID`. |
+| `kv: { driver: 'cloudflare', binding?: string, namespaceId?: string }` | Uses Cloudflare KV. Default `binding`: `KV`. `namespaceId` can come from `KV_NAMESPACE_ID`. |
 | `kv: { driver: 'deno-kv', path?: string }` | Uses native Deno KV through `Deno.openKv()`. |
 | `kv: { driver: 'redis', url?: string, base?: string }` | Uses a Redis server over TCP. Default `url`: `env:REDIS_URL`, which the server reads when the store starts. `env:<NAME>` reads another variable. A literal URL goes into the build output. `base` prefixes the keys. Default `base`: `vitehub:kv:<store>`, so keys that are not ViteHub's stay apart, and `kv.clear()` deletes only this store. Two ViteHub apps on one Redis database share the default, so give each app its own database or `base`. |
 | `kv: { driver: 'database', database?: string }` | Keeps the keys in the table `vitehub_kv` of a Database. Default `database`: `default`. The store creates the table when it is missing. Works on Postgres and libSQL, not on D1. |
@@ -82,7 +82,7 @@ export default defineConfig({
 | `kv: { remote?: boolean }` | Infers the driver from the host and the env. `remote: true` lets `vite dev` use the inferred hosted store. See [Development stays local](#development-stays-local). |
 | `kv: { stores: Record<string, KVStoreConfig> }` | Defines named KV Stores. `stores.default` is required. |
 
-`cloudflare-kv-binding` and `upstash` stores also accept `remote`. Builds ignore it.
+`cloudflare` and `upstash` stores also accept `remote`. Builds ignore it.
 
 ## Providers
 
@@ -91,7 +91,7 @@ export default defineConfig({
 | Redis | `redis` | Selected with `driver: 'redis'`; the server reads the URL at runtime. |
 | Database | `database` | Used on Node when the app has a Postgres Default Database. |
 | Local filesystem | `fs-lite` | Used on Node when neither applies. |
-| Cloudflare KV | `cloudflare-kv-binding` | Used on Cloudflare hosting. |
+| Cloudflare KV | `cloudflare` | Used on Cloudflare hosting. |
 | Deno KV | `deno-kv` | Used on Deno hosting. |
 | Upstash | `upstash` | Used when Upstash env vars are present during the build or when Vercel hosting is detected. |
 
@@ -131,7 +131,7 @@ The loop also checks records with a numeric suffix. If any command fails, keep t
 
 In `vite dev` (and `nuxt dev`), a KV store is local unless it sets `remote: true`. Upstash env vars in `.env` and the Vercel host do not select Upstash in development. The inferred store is `fs-lite` in `.vitehub/data/kv`.
 
-On the Cloudflare host, a store uses the KV binding of the dev runtime when there is one, for example on the workerd runner (`nitro.devServer.runner: 'miniflare'`). That binding is a local emulation. Nitro's default Node runner has no binding, so the store uses `fs-lite` in `.vitehub/data/kv-cloudflare/<binding>`. It applies the [Workers KV limits](/docs/kv/limits-and-errors#limits) and does not support `setIfAbsent()`, like Cloudflare KV. It expires keys as Cloudflare does: `ttl` is at least 60 seconds, and `expirationTtl` or `expiration` apply as given.
+On the Cloudflare host, a store uses the KV binding of the dev runtime when there is one, for example on the workerd runner (`nitro.devServer.runner: 'miniflare'`). That binding is a local emulation. Nitro's default Node runner has no binding, so the store uses `fs-lite` in `.vitehub/data/kv-cloudflare/<binding>`. It applies the [Workers KV limits](/docs/kv/limits-and-errors#limits), raises a `ttl` below 60 seconds to 60, and does not support `setIfAbsent()`, like Cloudflare KV.
 
 Set `remote: true` to use the real store in development:
 

@@ -147,6 +147,7 @@ describe("docs product navigation", () => {
     const groups = docsSidebarGroups(section("ui"));
     expect(groups.map(group => group.label)).toEqual([
       "Start",
+      "AI components",
       "Blocks",
       "Parts",
       "Chat",

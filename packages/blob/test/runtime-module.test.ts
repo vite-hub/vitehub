@@ -167,13 +167,13 @@ describe("Blob Nitro runtime module", () => {
     Object.assign(process.env, testCredentialEnv)
     const resolved = normalizeBlobOptions({
       stores: {
-        default: { binding: "BLOB", bucketName: "local-assets", driver: "cloudflare-r2" },
+        default: { binding: "BLOB", bucketName: "local-assets", driver: "cloudflare" },
         remote: {
           accountId: "account",
           accessKeyId: "access-key",
           binding: "REMOTE_BLOB",
           bucketName: "assets",
-          driver: "cloudflare-r2",
+          driver: "cloudflare",
           publicBaseUrl: "https://assets.example.test",
           remote: true,
           secretAccessKey: "secret-key",
@@ -217,7 +217,7 @@ describe("Blob Nitro runtime module", () => {
   it("uses the R2 binding in generated output without the HTTP credential env variables that the config names", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-r2-binding-secrets-")
     // Test values only. The binding does not use the HTTP credentials, so the server can leave them out.
-    const resolved = normalizeBlobOptions({ accessKeyId: "test-key", binding: "MEDIA", bucketName: "media", driver: "cloudflare-r2", secretAccessKey: "test-secret" }, {
+    const resolved = normalizeBlobOptions({ accessKeyId: "test-key", binding: "MEDIA", bucketName: "media", driver: "cloudflare", secretAccessKey: "test-secret" }, {
       env: { TEST_MEDIA_KEY: "test-key", TEST_MEDIA_SECRET: "test-secret" },
     })
     if (!resolved) throw new Error("Blob config must resolve to a store.")
@@ -248,7 +248,7 @@ describe("Blob Nitro runtime module", () => {
     vi.stubGlobal("fetch", anonymousFetch)
     const driver = createInternalVercelBlobDriver({
       access: objectAccess,
-      driver: "vercel-blob",
+      driver: "vercel",
       token: "vercel_blob_rw_test",
     })
 
@@ -267,7 +267,7 @@ describe("Blob Nitro runtime module", () => {
     vercelBlobMock.head.mockRejectedValueOnce(new BlobNotFoundError())
     const driver = createBundledVercelBlobDriver({
       access: "private",
-      driver: "vercel-blob",
+      driver: "vercel",
       token: "vercel_blob_rw_test",
     })
 
@@ -281,7 +281,7 @@ describe("Blob Nitro runtime module", () => {
   it("rejects custom metadata that Vercel Blob cannot persist", async () => {
     const driver = createBundledVercelBlobDriver({
       access: "private",
-      driver: "vercel-blob",
+      driver: "vercel",
       token: "vercel_blob_rw_test",
     })
 
@@ -328,7 +328,7 @@ describe("Blob Nitro runtime module", () => {
     await writeFile(entryFile, [
       `import { blob } from ${JSON.stringify(resolve(import.meta.dirname, "../src/index.ts"))}`,
       `import { setBlobRuntimeConfig } from ${JSON.stringify(resolve(import.meta.dirname, "../src/runtime/state.ts"))}`,
-      "setBlobRuntimeConfig({ store: { binding: 'BLOB', driver: 'cloudflare-r2' } })",
+      "setBlobRuntimeConfig({ store: { binding: 'BLOB', driver: 'cloudflare' } })",
       "const [error] = await blob.put('proof.txt', 'ok')",
       "if (error) throw error",
       "",
@@ -347,7 +347,7 @@ describe("Blob Nitro runtime module", () => {
 
     const bundled = await readFile(bundleFile, "utf8")
     expect(bundled).not.toContain("@vite-hub/blob/drivers/cloudflare")
-    expect(bundled).toContain("config.driver === \"cloudflare-r2\"")
+    expect(bundled).toContain("config.driver === \"cloudflare\"")
     expect(bundled).toContain("R2 binding")
     expect(bundled).not.toContain("files-sdk")
     expect(bundled).not.toContain("@aws-sdk/")
@@ -392,12 +392,12 @@ describe("Blob Nitro runtime module", () => {
       stores: {
         assets: {
           access: "public",
-          driver: "vercel-blob",
+          driver: "vercel",
           token: "assets-token",
         },
         default: {
           access: "public",
-          driver: "vercel-blob",
+          driver: "vercel",
           token: "default-token",
         },
       },
@@ -454,7 +454,7 @@ describe("Blob Nitro runtime module", () => {
           accessKeyId: "access-key",
           binding: "BLOB",
           bucketName: "reports",
-          driver: "cloudflare-r2",
+          driver: "cloudflare",
           secretAccessKey: "secret-key",
         },
       },

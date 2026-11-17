@@ -12,17 +12,17 @@ const kv = (store: string, scope: Durability["scope"]): Durability => ({ primiti
 
 describe("rateLimitDurability", () => {
   it("reports memory and Cloudflare by provider", () => {
-    expect(rateLimitDurability({ provider: "memory" }, context())).toMatchObject([{ store: "memory", scope: "process" }])
-    expect(rateLimitDurability({ provider: "cloudflare" }, context())).toMatchObject([{ store: "cloudflare", scope: "shared", reason: expect.stringContaining("Cloudflare") }])
+    expect(rateLimitDurability({ driver: "memory" }, context())).toMatchObject([{ store: "memory", scope: "process" }])
+    expect(rateLimitDurability({ driver: "cloudflare" }, context())).toMatchObject([{ store: "cloudflare", scope: "shared", reason: expect.stringContaining("Cloudflare") }])
   })
 
   it("follows the default KV store with the kv provider", () => {
-    expect(rateLimitDurability({ provider: "kv" }, context({}, [kv("redis", "shared")]))).toMatchObject([{ store: "kv (redis)", scope: "shared" }])
-    expect(rateLimitDurability({ provider: "kv" }, context({}, [kv("database (postgres)", "shared")]))).toMatchObject([{ store: "kv (database (postgres))", scope: "shared" }])
-    expect(rateLimitDurability({ provider: "kv" }, context({}, [kv("database (sqlite)", "host")]))).toMatchObject([{ scope: "host" }])
+    expect(rateLimitDurability({ driver: "kv" }, context({}, [kv("redis", "shared")]))).toMatchObject([{ store: "kv (redis)", scope: "shared" }])
+    expect(rateLimitDurability({ driver: "kv" }, context({}, [kv("database (postgres)", "shared")]))).toMatchObject([{ store: "kv (database (postgres))", scope: "shared" }])
+    expect(rateLimitDurability({ driver: "kv" }, context({}, [kv("database (sqlite)", "host")]))).toMatchObject([{ scope: "host" }])
   })
 
   it("falls back to memory when the default KV store is a file store", () => {
-    expect(rateLimitDurability({ provider: "kv" }, context({}, [kv("fs-lite", "host")]))).toMatchObject([{ store: "memory", scope: "process", reason: expect.stringContaining("fs-lite") }])
+    expect(rateLimitDurability({ driver: "kv" }, context({}, [kv("fs-lite", "host")]))).toMatchObject([{ store: "memory", scope: "process", reason: expect.stringContaining("fs-lite") }])
   })
 })

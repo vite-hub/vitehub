@@ -13,6 +13,8 @@ import { publishProviderSourcesToDeploymentOutputs } from "./provider-output-sou
 import { scanModule, walk } from "./scan-module.ts"
 import type { CallExpression, Expression, NewExpression, Node, ScannedModule } from "./scan-module.ts"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
+import { invariant, invariantError } from "../invariant.ts"
+import { denoDeployRunnerSource } from "./deno-deploy-runner.injected.ts"
 
 const resolvePackageJson = createRuntimePackageResolver(source => parseRuntimePackageJson(source).name)
 
@@ -362,7 +364,7 @@ function cookImportSpecifier(source: string): string {
       continue
     }
     const escape = source[++index]
-    if (escape === undefined) throw internalErrorDiagnostics.INTERNAL_B0009({ message: "Deno output contains an incomplete import escape sequence." })
+    invariant(escape !== undefined, "the import specifiers of bundler output are complete JavaScript module strings, so each escape sequence ends")
     if (escape === "\n") continue
     if (escape === "\r") {
       if (source[index + 1] === "\n") index++
@@ -380,14 +382,14 @@ function cookImportSpecifier(source: string): string {
     const simpleEscape = simpleEscapes[escape]
     if (simpleEscape !== undefined) {
       if (escape === "0" && /\d/.test(source[index + 1] || "")) {
-        throw internalErrorDiagnostics.INTERNAL_B0010({ message: "Deno output contains an unsupported legacy octal import escape sequence." })
+        throw invariantError("the import specifiers of bundler output are complete JavaScript module strings, which reject legacy octal escapes")
       }
       cooked += simpleEscape
       continue
     }
     if (escape === "x") {
       const digits = source.slice(index + 1, index + 3)
-      if (!/^[\dA-Fa-f]{2}$/.test(digits)) throw internalErrorDiagnostics.INTERNAL_B0011({ message: "Deno output contains an invalid hexadecimal import escape sequence." })
+      invariant(/^[\dA-Fa-f]{2}$/.test(digits), "the import specifiers of bundler output are complete JavaScript module strings, so each hexadecimal escape is valid")
       cooked += String.fromCharCode(Number.parseInt(digits, 16))
       index += 2
       continue
@@ -398,19 +400,19 @@ function cookImportSpecifier(source: string): string {
         const digits = end === -1 ? "" : source.slice(index + 2, end)
         const codePoint = /^[\dA-Fa-f]{1,6}$/.test(digits) ? Number.parseInt(digits, 16) : Number.NaN
         if (!Number.isSafeInteger(codePoint) || codePoint > 0x10FFFF) {
-          throw internalErrorDiagnostics.INTERNAL_B0012({ message: "Deno output contains an invalid Unicode import escape sequence." })
+          throw invariantError("the import specifiers of bundler output are complete JavaScript module strings, so each Unicode escape is valid")
         }
         cooked += String.fromCodePoint(codePoint)
         index = end
         continue
       }
       const digits = source.slice(index + 1, index + 5)
-      if (!/^[\dA-Fa-f]{4}$/.test(digits)) throw internalErrorDiagnostics.INTERNAL_B0013({ message: "Deno output contains an invalid Unicode import escape sequence." })
+      invariant(/^[\dA-Fa-f]{4}$/.test(digits), "the import specifiers of bundler output are complete JavaScript module strings, so each Unicode escape is valid")
       cooked += String.fromCharCode(Number.parseInt(digits, 16))
       index += 4
       continue
     }
-    if (/[1-9]/.test(escape)) throw internalErrorDiagnostics.INTERNAL_B0014({ message: "Deno output contains an unsupported legacy octal import escape sequence." })
+    invariant(!/[1-9]/.test(escape), "the import specifiers of bundler output are complete JavaScript module strings, which reject legacy octal escapes")
     cooked += escape
   }
   return cooked
@@ -919,98 +921,6 @@ function hasRelocatableStaticImport(source: string, specifier: string): boolean 
     .some(match => cookImportSpecifier(match[1]!) === specifier))
 }
 
-function denoDeployRunnerSource(deploymentName: string | undefined, entrypoint: string): string {
-  return `import { spawn } from "node:child_process"
-import { access, cp, mkdtemp, realpath, rm } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { dirname, isAbsolute, join, relative, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
-
-const organization = process.env.DENO_DEPLOY_ORG
-const app = process.env.DENO_DEPLOY_APP || ${JSON.stringify(deploymentName)}
-const region = process.env.DENO_DEPLOY_REGION || "global"
-const entrypoint = ${JSON.stringify(entrypoint)}
-
-if (!organization || !app) {
-  throw new Error("DENO_DEPLOY_ORG and DENO_DEPLOY_APP are required.")
-}
-
-let activeChild
-
-function run(args, cwd) {
-  return new Promise((resolve, reject) => {
-    const child = spawn("deno", args, { cwd, stdio: "inherit" })
-    activeChild = child
-    child.on("error", reject)
-    child.on("exit", (code, signal) => {
-      activeChild = undefined
-      resolve({ code, signal })
-    })
-  })
-}
-
-async function enclosingGitRoot(path) {
-  let current = resolve(path)
-  while (true) {
-    try {
-      await access(join(current, ".git"))
-      return current
-    } catch (error) {
-      if (error?.code !== "ENOENT") throw error
-    }
-    const parent = dirname(current)
-    if (parent === current) return
-    current = parent
-  }
-}
-
-function contains(parent, child) {
-  const path = relative(parent, child)
-  return path === "" || (!path.startsWith("..") && !isAbsolute(path))
-}
-
-const sourceRoot = await realpath(fileURLToPath(new URL(".", import.meta.url)))
-const uploadRoot = await realpath(await mkdtemp(join(tmpdir(), "vitehub-deno-deploy-")))
-const signals = ["SIGINT", "SIGTERM"]
-let interrupted = false
-const handleSignal = (signal) => {
-  interrupted = true
-  activeChild?.kill(signal)
-  void rm(uploadRoot, { force: true, recursive: true }).finally(() => {
-    process.kill(process.pid, signal)
-  })
-}
-for (const signal of signals) process.once(signal, handleSignal)
-
-try {
-  if (contains(sourceRoot, uploadRoot) || await enclosingGitRoot(uploadRoot)) {
-    throw new Error("Deno deployment staging must be outside the generated output and any enclosing Git repository. Set TMPDIR to an external directory.")
-  }
-  await cp(sourceRoot, uploadRoot, { recursive: true })
-
-  if (!interrupted) {
-    const common = ["--allow-node-modules", "--org", organization, "--app", app]
-    const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", entrypoint, "--working-directory", ".", "--region", region, ...common], uploadRoot)
-    if (creation.signal != null && !interrupted) {
-      throw new Error("deno deploy create exited with " + creation.signal)
-    }
-    if (!interrupted && creation.code !== 0) {
-      const deployment = await run(["deploy", ".", "--prod", "--config", "deno.json", ...common], uploadRoot)
-      if (deployment.code !== 0) {
-        throw new Error("deno deploy exited with " + (deployment.signal || "code " + deployment.code))
-      }
-    }
-  }
-} finally {
-  try {
-    await rm(uploadRoot, { force: true, recursive: true })
-  } finally {
-    for (const signal of signals) process.off(signal, handleSignal)
-  }
-}
-`
-}
-
 export async function finalizeDenoDeploymentOutput(
   options: FinalizeDenoDeploymentOutputOptions,
 ): Promise<void> {
@@ -1154,12 +1064,10 @@ async function finalizeStagedDenoDeploymentOutput(
   await addServerRuntimePackages(options.serverPackages, options.rootDir, resolvedPackageJsonPaths, runtimePackages)
   let entrypoint = "server/index.mjs"
   let hasSchedule = false
+  // Schedule output from an earlier build without the Schedule integration is stale. `access()` below then fails with ENOENT, which means "no Schedule output".
+  if (options.hasScheduleIntegration === false) await rm(scheduleSource, { force: true })
   try {
     await access(scheduleSource)
-    if (options.hasScheduleIntegration === false) {
-      await rm(scheduleSource, { force: true })
-      throw Object.assign(internalErrorDiagnostics.INTERNAL_B0030({ message: "stale Deno Schedule output" }), { code: "ENOENT" })
-    }
     hasSchedule = true
     await access(applicationEntrySource)
     await mkdir(join(outputDir, "schedule"), { recursive: true })

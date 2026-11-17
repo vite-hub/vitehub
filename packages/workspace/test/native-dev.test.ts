@@ -16,7 +16,7 @@ it("installs the native Workspace registry before an existing plugin reads it at
   try {
     const consumer = join(root, "consumer.mjs")
     await mkdir(join(root, "server/workspaces/mirror"), { recursive: true })
-    await writeFile(join(root, "server/workspaces/mirror/config.ts"), 'export default { store: { provider: "memory" } }\n')
+    await writeFile(join(root, "server/workspaces/mirror/config.ts"), 'export default { store: { driver: "memory" } }\n')
     const plugin = hubWorkspace()
     const hook = typeof plugin.config === "function" ? plugin.config : plugin.config!.handler
     const config = { root, nitro: { plugins: [consumer] } }

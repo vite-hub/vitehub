@@ -6,6 +6,7 @@ const { db } = useDatabase("default");
 const { schema } = database;
 
 export const meals = defineCollection({
+  access: "public",
   source: table({
     db,
     defaultLimit: 24,
