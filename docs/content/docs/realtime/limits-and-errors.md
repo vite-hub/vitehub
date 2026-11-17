@@ -45,6 +45,34 @@ Room errors happen after the WebSocket opens, so the server closes the connectio
 - One peer can own at most 1,024 awareness clients.
 - One process keeps at most 128 active rooms, also when Node instances share rooms.
 
+## See refusals and failures in logs
+
+With the evlog Nitro module, added through `vitehub({ observability })` or by hand, Realtime puts each refused connection and each refused save, checkpoint, or refresh on the request's wide event, in a `realtime` field:
+
+```json
+{ "path": "/api/_vitehub/realtime/pages/guides/welcome.md", "status": 403, "realtime": { "definition": "pages", "room": "guides/welcome.md", "refused": "authorize", "status": 403 } }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `definition`, `room` | The Realtime Definition and the room id. The room id of a `document: false` Definition can be a token, such as a page id, so the event has a short hash of it: `#3f2a9c1e`. |
+| `refused` | `path`, `definition`, `origin`, `session`, `identify`, `authorize`, or `room` (the room could not open). `error` for other failures. |
+| `status` | The HTTP status that the browser got. |
+| `code` | The diagnostic code of the cause, such as `AUTH_R0007` when the Auth origin check refused the request. |
+
+When `authorize()`, `identify()`, or the room throws during a connection, the wide event also gets the error. The fields do not include tokens, cookies, or user data.
+
+Failures after the WebSocket opens have no request. Realtime logs each one as its own evlog event, `{ action: "realtime", message, realtime }`:
+
+| `realtime` field | Event |
+| --- | --- |
+| `closed` | The server closed the connection with a close code from the table above, or `4403` for a write without access, or `1013` for updates that come too quickly. Level `warn`. |
+| `failed: "peer"` | The connection failed. Level `error`, with the error. |
+| `failed: "bus-publish"`, `"bus-receive"`, `"bus-repair"`, `"bus-reset"`, `"bus-record"`, `"bus-lock"` | Node instances could not share a room through Redis or Postgres. Level `error`, except `bus-lock` (`warn`). |
+| `failed: "save"`, `"hold"`, `"release"`, `"refresh"` | The document adapter failed in a save, `hold()`, or `release()` that runs on its own, or a refresh failed. Level `warn`. |
+
+Realtime sends these events to evlog only when the app installs evlog and its requests have an evlog request logger. Without evlog, Realtime prints the failures of instances and adapters to the console, and does not log closes or connection errors.
+
 ## Request errors
 
 ### REALTIME_DISABLED

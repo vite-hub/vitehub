@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 
 import { decodeRealtimeBusMessage, encodeRealtimeBusMessage } from "./bus-protocol.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
+import { logRealtime, realtimeRoomFields } from "./log.ts"
 
 import type { RealtimeBus, RealtimeBusMessage, RealtimeRoomRecord } from "./bus-protocol.ts"
 
@@ -200,7 +201,7 @@ function createDelivery(instance: string, read: (raw: string | Uint8Array) => Pr
         if (!message || message.instance === instance) return
         for (const listener of listeners) await listener(message)
       }).catch((error: unknown) => {
-        console.error("[vitehub] Realtime could not apply a message from another instance.", error)
+        logRealtime("error", "Realtime could not apply a message from another instance.", { failed: "bus-receive" }, error)
       })
     },
   }
@@ -474,7 +475,10 @@ export async function createRedisRealtimeBus(url: string, options: { namespace?:
         await new Promise(resolve => setTimeout(resolve, 25 + Math.random() * 50))
       }
       const renew = setInterval(() => {
-        client.eval(redisRenewLockScript, 1, key, token, redisLockMs).catch(() => {})
+        // The lock ends 30 seconds after the last renewal. Then another instance can save the room at the same time.
+        client.eval(redisRenewLockScript, 1, key, token, redisLockMs).catch((error: unknown) => {
+          logRealtime("warn", "Realtime could not renew a room lock.", { ...realtimeRoomFields(room, false), failed: "bus-lock" }, error)
+        })
       }, redisLockRenewMs)
       try {
         return await task()

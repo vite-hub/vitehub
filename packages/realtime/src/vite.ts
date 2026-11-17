@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
-import { basename, dirname, relative, resolve } from "node:path"
+import { basename, dirname, join, relative, resolve } from "node:path"
 
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { durabilityModuleFile } from "@vite-hub/internal/durability"
@@ -155,21 +155,22 @@ type RealtimeNodeDriver = "auto" | "postgres" | "redis"
  * The handler and the Nitro plugin of a Node build. `database` is the module that exports the app's `databases`, when
  * the Default Database is on Postgres: the bus then borrows the postgres.js client of that Database.
  */
-function renderNodeFiles(input: { busPlugin?: string, database?: string, handlerFile: string, importBase: string, namespace: string, nodeDriver?: RealtimeNodeDriver, registryFile: string }): Array<[string, string]> {
-  const { busPlugin, database, handlerFile, importBase, namespace, nodeDriver, registryFile } = input
+function renderNodeFiles(input: { busPlugin?: string, database?: string, evlog?: boolean, handlerFile: string, importBase: string, namespace: string, nodeDriver?: RealtimeNodeDriver, registryFile: string }): Array<[string, string]> {
+  const { busPlugin, database, evlog, handlerFile, importBase, namespace, nodeDriver, registryFile } = input
   const busOptions = `, { ${database ? `databases: () => import(${JSON.stringify(database)}).then(module => module.databases), ` : ""}namespace: ${JSON.stringify(namespace)} }`
   const logOptions = `{ ${database ? "database: true, " : ""}namespace: ${JSON.stringify(namespace)} }`
+  const handlerOptions = [
+    ...nodeDriver ? [`bus: () => useRealtimeBus(${JSON.stringify(nodeDriver)}${busOptions})`] : [],
+    ...evlog ? ["evlog: () => import(\"evlog\")"] : [],
+  ]
   const handler = [
     `import registry from ${JSON.stringify(moduleSpecifier(handlerFile, registryFile))}`,
     `import { createRealtimeHandler } from ${JSON.stringify(`${importBase}/server`)}`,
-    ...nodeDriver
-      ? [
-          `import { useRealtimeBus } from ${JSON.stringify(`${importBase}/bus`)}`,
-          "",
-          "// Shares rooms with the other instances of this app. The server picks the bus when it starts.",
-          `export default createRealtimeHandler(registry, { bus: () => useRealtimeBus(${JSON.stringify(nodeDriver)}${busOptions}) })`,
-        ]
-      : ["", "export default createRealtimeHandler(registry)"],
+    ...nodeDriver ? [`import { useRealtimeBus } from ${JSON.stringify(`${importBase}/bus`)}`] : [],
+    "",
+    ...nodeDriver ? ["// Shares rooms with the other instances of this app. The server picks the bus when it starts."] : [],
+    ...evlog ? ["// Logs peer errors, protocol closes, and sync failures as evlog events when the app registers evlog."] : [],
+    `export default createRealtimeHandler(registry${handlerOptions.length ? `, { ${handlerOptions.join(", ")} }` : ""})`,
     "",
   ].join("\n")
   if (!busPlugin || !nodeDriver) return [[handlerFile, handler]]
@@ -184,6 +185,18 @@ function renderNodeFiles(input: { busPlugin?: string, database?: string, handler
     "}",
     "",
   ].join("\n")]]
+}
+
+/**
+ * Whether the app at `root` installs evlog, in its own `node_modules` or one of its parents. The generated handler then
+ * imports it when the first failure needs a log. `require.resolve` would also read `NODE_PATH`, which pnpm bin scripts
+ * point at every hoisted package.
+ */
+function installsEvlog(root: string): boolean {
+  for (let directory = resolve(root); ; directory = dirname(directory)) {
+    if (existsSync(join(directory, "node_modules", "evlog", "package.json"))) return true
+    if (dirname(directory) === directory) return false
+  }
 }
 
 /** The app name: the `name` in the root `package.json`, else the root folder name. */
@@ -211,7 +224,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
   // The Default Database is on Postgres. Read when the config is made, and again at `buildStart`.
   let postgresDatabase = false
   // The files of a Node build, to write again when the Default Database turns out to be on Postgres.
-  let nodeWrite: { busPlugin?: string, handlerFile: string, namespace: string, nodeDriver: RealtimeNodeDriver, postgres: boolean, registryFile: string } | undefined
+  let nodeWrite: { busPlugin?: string, evlog: boolean, handlerFile: string, namespace: string, nodeDriver: RealtimeNodeDriver, postgres: boolean, registryFile: string } | undefined
   return {
     name: "@vite-hub/realtime/vite",
     enforce: "pre",
@@ -303,14 +316,16 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       databasePlugin = findDatabasePlugin(config.plugins) ?? databasePlugin
       postgresDatabase = !!nodeDriver && hasPostgresDefaultDatabase(databasePlugin)
       const namespace = options.namespace?.trim() || defaultNamespace(root)
+      const evlog = installsEvlog(root)
       const nodeFiles = (files: { busPlugin?: string, handlerFile: string, registryFile: string }) => renderNodeFiles({
         ...files,
         database: postgresDatabase ? databaseImport : undefined,
+        evlog,
         importBase,
         namespace,
         nodeDriver,
       })
-      nodeWrite = nodeDriver ? { busPlugin, handlerFile, namespace, nodeDriver, postgres: postgresDatabase, registryFile } : undefined
+      nodeWrite = nodeDriver ? { busPlugin, evlog, handlerFile, namespace, nodeDriver, postgres: postgresDatabase, registryFile } : undefined
       await mkdir(directory, { recursive: true })
       await Promise.all([
         writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions)),

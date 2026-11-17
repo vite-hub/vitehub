@@ -323,6 +323,23 @@ describe("hubRealtime", () => {
     expect((config.nitro as { plugins?: string[] }).plugins ?? []).not.toContain(join(root, ".vitehub/nitro/realtime/bus.mjs"))
   })
 
+  it("passes evlog to the handler when the app installs it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
+    tempDirs.push(root)
+    await mkdir(join(root, "server/realtime"), { recursive: true })
+    await writeFile(join(root, "server/realtime/document.ts"), "export default {}\n")
+    await mkdir(join(root, "node_modules/evlog"), { recursive: true })
+    await writeFile(join(root, "node_modules/evlog/package.json"), JSON.stringify({ name: "evlog", type: "module", exports: { ".": "./index.mjs" } }))
+    await writeFile(join(root, "node_modules/evlog/index.mjs"), "export function createLogger() {}\n")
+
+    const { hubRealtime } = await import("../src/vite.ts")
+    const hook = hubRealtime().config as unknown as (config: Record<string, unknown>, environment: { command: string }) => Promise<void>
+    await hook({ root, nitro: { preset: "cloudflare-module" } }, { command: "build" })
+
+    const { readFile } = await import("node:fs/promises")
+    expect(await readFile(join(root, ".vitehub/nitro/realtime/handler.ts"), "utf8")).toContain("export default createRealtimeHandler(registry, { evlog: () => import(\"evlog\") })\n")
+  })
+
   it("rejects a Postgres driver outside the Node preset", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
     tempDirs.push(root)
