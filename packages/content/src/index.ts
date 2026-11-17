@@ -43,6 +43,7 @@ import { contentSearchSections } from "./search-sections.ts"
 import { contentRssChannel, contentRssItems, contentRssLimit, renderContentRss } from "./rss.ts"
 import { contentLlmsFile } from "./llms.ts"
 import { contentReadDenied, contentReadGated, contentReadResponse } from "./read-gate.ts"
+import { contentRouteLogger, withContentRouteErrors } from "./route-errors.ts"
 import type { ContentHandlerOptions, ContentReadAccess } from "./read-gate.ts"
 import type { ContentLlmsOptions } from "./llms.ts"
 import type {
@@ -548,6 +549,7 @@ export function defineContent<
   const replaced = new Set(customPlugins.filter(Boolean).map(plugin => plugin.name))
   const presetPlugins = preset === false ? [] : comarkUi(contentMarkdownPreset).plugins.filter(plugin => !replaced.has(plugin.name))
   sharedOptions.markdown = { ...markdownOptions, plugins: [...presetPlugins, ...customPlugins] }
+  sharedOptions.logger = contentRouteLogger(sharedOptions.logger)
   const seo = normalizeSeoOptions(seoOptions)
   const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)
   const workspace = options.workspace ?? presetDefaults.workspace
@@ -697,7 +699,7 @@ export function defineContent<
     instances.push(instance)
     collectionInstances.push({ instance, source: historySource })
   }
-  const hub = contentHub(instances, { basePath: "/api/content", logger: options.logger })
+  const hub = contentHub(instances, { basePath: "/api/content", logger: sharedOptions.logger })
   const readScope = createContentReadScope(hub.names, hub.basePath)
 
   // A preview request reads a second hub whose collection instances are pinned to `draft` with their own cache namespace.
@@ -752,7 +754,7 @@ export function defineContent<
     if (!byBase) viewHubs.set(view, byBase = new WeakMap())
     let composed = byBase.get(base)
     if (!composed) {
-      composed = contentHub(base.instances.map(instance => instance.name === view.name ? view : instance), { basePath: "/api/content", logger: options.logger })
+      composed = contentHub(base.instances.map(instance => instance.name === view.name ? view : instance), { basePath: "/api/content", logger: sharedOptions.logger })
       byBase.set(base, composed)
     }
     return composed
@@ -1237,7 +1239,7 @@ export function defineContent<
     // SAFETY: The wrapper forwards the path and options without changing the generic document result.
     get: fresh((target, key: string, opts?: Parameters<ContentHub["get"]>[1]) => target.get(key, opts), readScope.key, rewriteContentLinks) as ContentHub["get"],
     navigation: fresh((target, names?: Parameters<ContentHub["navigation"]>[0]) => target.navigation(names), readScope.names),
-    handler: fresh((target, request: Request) => target.handler(request), readScope.request, rewriteJsonLinks),
+    handler: fresh((target, request: Request) => withContentRouteErrors(() => target.handler(request)), readScope.request, rewriteJsonLinks),
     // SAFETY: The wrapper forwards the names unchanged, so Comark's registry types of the result hold.
     list: fresh((target, names?: string | readonly string[]) => target.list(names === undefined ? undefined : [names].flat()), readScope.names) as ContentRuntimeList,
     searchSections: fresh(async (target, names?: string | readonly string[], opts?: ContentSearchSectionsOptions) => {
