@@ -777,6 +777,7 @@ describe("vitehub", () => {
       "vite-hub/unavailable-services",
       "vite-hub/cloudflare-sh-syntax",
       "vite-hub/cloudflare-pkce-challenge",
+      "vite-hub/cloudflare-redirects-file",
       "vite-hub/dependencies",
       "vite-hub/error-log",
       "@vite-hub/env/vite",
@@ -882,7 +883,7 @@ describe("vitehub", () => {
       providerImportSpecifier: "vite-hub/sandbox/task",
     })
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith({
-      databaseImport: "@vite-hub/database/runtime/registry",
+      databaseImport: "@vite-hub/database",
       importBase: "vite-hub/schedule",
       providerImportAliases: {
         "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-redis-driver\.(?:ts|js)$/),

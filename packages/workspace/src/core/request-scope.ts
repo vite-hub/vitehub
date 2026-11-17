@@ -1,5 +1,7 @@
 import type { AsyncLocalStorage } from "node:async_hooks"
 
+import { registerRunScope } from "@vite-hub/runtime/internal/run-scope"
+
 import { workspaceStoreDiscard } from "../storage/discard.ts"
 import type { WorkspaceStoreDiscardCarrier } from "../storage/discard.ts"
 import type { WorkspaceStore } from "./types.ts"
@@ -15,7 +17,7 @@ type DiscardableStore = WorkspaceStore & Required<WorkspaceStoreDiscardCarrier>
 const runtimeGlobal = globalThis as typeof globalThis & Record<symbol, unknown>
 const storageKey = Symbol.for("vitehub.workspace.request")
 const writersKey = Symbol.for("vitehub.workspace.writers")
-/** Writes made outside a request, such as in a Queue job, which no request may drop. */
+/** Writes made outside a request and a run, such as at startup, which no request may drop. */
 const outsideRequest: WorkspaceRequest = { staged: new Set() }
 
 function requestStorage(): AsyncLocalStorage<WorkspaceRequest> | undefined {
@@ -90,3 +92,6 @@ export async function runWorkspaceRequest<T>(next: () => T): Promise<Awaited<T>>
     throw error
   }
 }
+
+// A Schedule run and a Queue job are units of work like a request: a run that throws drops its staged writes too.
+registerRunScope(runWorkspaceRequest)

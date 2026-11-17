@@ -135,7 +135,8 @@ function diagnosticResponse(error: unknown): Response {
   const status = Reflect.get(Object(error), "status")
   if (!(error instanceof Error) || typeof code !== "string" || !code.startsWith("COMMENTS_") || typeof status !== "number") throw error
   const fix = Reflect.get(error, "fix")
-  return json({ error: { code, why: Reflect.get(error, "why") ?? error.message, ...(typeof fix === "string" ? { fix } : {}) } }, { status })
+  const retryAfter = Reflect.get(error, "retryAfter")
+  return json({ error: { code, why: Reflect.get(error, "why") ?? error.message, ...(typeof fix === "string" ? { fix } : {}) } }, { status, ...(typeof retryAfter === "number" ? { headers: { "retry-after": String(Math.ceil(retryAfter)) } } : {}) })
 }
 
 /** The REST code of a diagnostic of the comment actions. Codes without one, such as `COMMENTS_R0019`, stay as they are. */

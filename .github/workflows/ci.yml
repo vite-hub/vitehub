@@ -539,6 +539,8 @@ jobs:
       # Snippet checker tests import the built framework and its discovery plugins.
       - run: vp run --cache -t vite-hub#build
       - run: vp run --filter vitehub-docs test
+      # The same docs typecheck that `vp run verify` runs before a release.
+      - run: vp run --filter vitehub-docs typecheck
       - run: vp run docs:build
       - run: vp run --filter vitehub-docs test:artifact
       - name: Verify Worker bundle
