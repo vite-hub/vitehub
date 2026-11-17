@@ -283,6 +283,11 @@
       "import": "./dist/secret.js",
       "default": "./dist/secret.js"
     },
+    "./runtime/user-agent": {
+      "types": "./dist/runtime/user-agent.d.ts",
+      "import": "./dist/runtime/user-agent.js",
+      "default": "./dist/runtime/user-agent.js"
+    },
     "./sitemap": {
       "types": "./dist/sitemap.d.ts",
       "import": "./dist/sitemap.js",
