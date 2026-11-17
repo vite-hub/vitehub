@@ -912,9 +912,22 @@ export interface ChatSendOptions {
  */
 export type ChatMessage = AdapterPostableMessage
 
+/** A raw Adaptive Card that the Teams adapter sends as is, for card features that Chat SDK cards don't cover, such as `Badge`. */
+export interface TeamsAdaptiveCardMessage {
+  /** The card's JSON, or a card built with `@microsoft/teams.cards`. */
+  adaptiveCard: object
+  /** Shown in notifications and in clients that cannot render the card. */
+  fallbackText?: string
+  aiGenerated?: boolean
+  files?: FileUpload[]
+}
+
+/** What `useChannel("teams").send()` sends: a `ChatMessage` or a raw Adaptive Card. */
+export type TeamsChatMessage = ChatMessage | TeamsAdaptiveCardMessage
+
 /** An outbound connector that sends through a Chat SDK adapter. */
-export interface ChatConnector {
-  send: (message: ChatMessage, options: ChatSendOptions) => Promise<{ id: string }>
+export interface ChatConnector<TMessage = ChatMessage> {
+  send: (message: TMessage, options: ChatSendOptions) => Promise<{ id: string }>
 }
 
 type TelegramChannelValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
@@ -3122,16 +3135,20 @@ async function deleteConnectorReceipt(platform: ChatConnectorPlatform, adapter: 
   if (error) throw error
 }
 
-/** Text is Markdown. The Chat SDK reads a plain string as raw text, so wrap it. */
-function chatPostable(message: ChatMessage): AdapterPostableMessage {
-  return typeof message === "string" ? { markdown: message } : message
+/**
+ * Text is Markdown. The Chat SDK reads a plain string as raw text, so wrap it. A platform message, such as a raw Teams
+ * Adaptive Card, goes to its own adapter as is.
+ */
+function chatPostable(message: TeamsChatMessage): AdapterPostableMessage {
+  // SAFETY: Only `teams()` sends `TeamsAdaptiveCardMessage`, and the Teams adapter takes it in place of a Chat SDK message.
+  return typeof message === "string" ? { markdown: message } : message as AdapterPostableMessage
 }
 
 /**
  * An outbound connector that sends through one Chat SDK adapter.
  * Thread roots and idempotent receipts are stored in `@vite-hub/kv` under `<channel>:`.
  */
-function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => MaybePromise<Adapter>): ChatConnector {
+function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => MaybePromise<Adapter>): ChatConnector<TeamsChatMessage> {
   const { label, name } = platform
   let adapter: Promise<Adapter> | undefined
   const useAdapter = (): Promise<Adapter> => {
@@ -3233,15 +3250,15 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
 }
 
 /** A chat adapter that also sends: `useChannel(name).send(message, options)` posts through it. */
-export type ChatChannelAdapter<TChannel> = TChannel & {
-  send: (message: ChatMessage, options: ChatSendOptions) => Promise<{ id: string }>
+export type ChatChannelAdapter<TChannel, TMessage = ChatMessage> = TChannel & {
+  send: (message: TMessage, options: ChatSendOptions) => Promise<{ id: string }>
 }
 
 /** Adds `send` to a chat adapter. The connector is built on the first send, from the adapter's own options. */
-function withChatSend<TChannel extends object>(channel: TChannel, createConnector: () => ChatConnector): ChatChannelAdapter<TChannel> {
-  let connector: ChatConnector | undefined
+function withChatSend<TChannel extends object, TMessage = ChatMessage>(channel: TChannel, createConnector: () => ChatConnector<TMessage>): ChatChannelAdapter<TChannel, TMessage> {
+  let connector: ChatConnector<TMessage> | undefined
   return Object.assign(channel, {
-    send: async (message: ChatMessage, options: ChatSendOptions) => await (connector ??= createConnector()).send(message, options),
+    send: async (message: TMessage, options: ChatSendOptions) => await (connector ??= createConnector()).send(message, options),
   })
 }
 
@@ -3294,7 +3311,7 @@ const teamsConnectorPlatform: ChatConnectorPlatform = {
 }
 
 /** Sends Markdown to Microsoft Teams. It builds one adapter like `teams()`. Roots and receipts live in KV under `teams:`. */
-function teamsConnector(options: TeamsConnectorOptions = {}): ChatConnector {
+function teamsConnector(options: TeamsConnectorOptions = {}): ChatConnector<TeamsChatMessage> {
   return chatConnector(teamsConnectorPlatform, connectorAdapter(options.adapter, input => createTeamsConnectorAdapterFromEnv(input ?? {})))
 }
 
@@ -5016,9 +5033,9 @@ function slackChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
  */
 export const slack: typeof slackChannel = slackChannel
 
-function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>>
-function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>>
-function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {}): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>> {
+function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>, TeamsChatMessage>
+function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>, TeamsChatMessage>
+function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {}): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>, TeamsChatMessage> {
   return withChatSend(defineMessageChannelInstructions(channelAdapter("teams", { ...options, adapter: teamsAdapterResolver(options.adapter) }), "Write formulas for Microsoft Teams as readable plain text, using words, Unicode symbols, or inline code. Teams does not render LaTeX math delimiters or Mermaid diagrams. Explain variables in short bullets; use a numbered flow instead of diagram syntax. Cite sources with descriptive Markdown links to verified URLs. Never emit native citation markers or internal source IDs. If a source URL is unavailable, name the source without inventing a link."), () => teamsConnector({ adapter: chatSendAdapterInput<TeamsConnectorOptions["adapter"]>(options.adapter) }))
 }
 
