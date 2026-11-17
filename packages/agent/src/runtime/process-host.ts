@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
@@ -48,6 +49,11 @@ export interface ProcessAgentHost {
   capacity: AgentDriverCapacityOptions;
   invocations: AgentInvocations;
   providerSessionStorePath: string;
+  /**
+   * Deletes the stored provider sessions of one run thread (`run.threadId`) from `providerSessionStorePath`, for every
+   * invoker. Call it when no run continues that thread, such as when its pull request closes.
+   */
+  deleteProviderSession(threadId: string): Promise<void>;
   event(event: string, detail?: Record<string, unknown>): void;
   error(event: string, error: unknown, detail?: Record<string, unknown>): void;
   start(): void;
@@ -87,6 +93,7 @@ export async function createProcessAgentHost(
       recover: invocation => invocation.agentName === invocationAgentName,
     });
   }
+  const providerSessionStorePath = join(dataDir, "provider-sessions.sqlite");
   let reconciler: ProcessReconciler | undefined;
   let accepting = false;
   let closed = false;
@@ -110,7 +117,8 @@ export async function createProcessAgentHost(
     error,
     capacity,
     invocations,
-    providerSessionStorePath: join(dataDir, "provider-sessions.sqlite"),
+    providerSessionStorePath,
+    deleteProviderSession: threadId => deleteStoredProviderSession(providerSessionStorePath, threadId),
     start() {
       if (reconciler || closed) return;
       accepting = true;
@@ -155,4 +163,23 @@ export async function createProcessAgentHost(
       };
     },
   };
+}
+
+/**
+ * The provider Driver keys each stored session by `[origin, invoker kind, invoker id, thread]` in the SQLite store of
+ * `@t3tools/provider-runtime`, which deletes only by full key. A host knows the thread, not the invoker.
+ */
+async function deleteStoredProviderSession(path: string, threadId: string): Promise<void> {
+  if (!existsSync(path)) return
+  const { DatabaseSync } = await import("node:sqlite")
+  const database = new DatabaseSync(path)
+  try {
+    database.exec("PRAGMA busy_timeout = 5000")
+    const table = database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 't3_provider_runtime_sessions'").get()
+    if (!table) return
+    database.prepare("DELETE FROM t3_provider_runtime_sessions WHERE json_valid(thread_id) AND json_extract(thread_id, '$[3]') = ?").run(threadId)
+  }
+  finally {
+    database.close()
+  }
 }

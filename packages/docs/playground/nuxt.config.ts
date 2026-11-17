@@ -69,6 +69,7 @@ export default defineNuxtConfig({
   // Static assets answer before the Worker on Cloudflare. The Console preview of a draft and the Markdown answer to
   // `Accept: text/markdown` need the Worker, so it runs first for the pages and the page JSON. vitehub.dev gets the same
   // rules from a local patch of nuxt-agent-discovery that installed apps do not get.
+  // Remove when nuxt-agent-discovery releases https://github.com/benjamincanac/nuxt-agent-discovery/pull/65.
   nitro: {
     cloudflare: { wrangler: { assets: { run_worker_first: ["/", "/about", "/docs", "/docs/*", "/api/_docs/*"] } } },
     // The crawler follows the links of the prerendered pages. These routes read the CMS or the media library, which the

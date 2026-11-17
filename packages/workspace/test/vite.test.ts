@@ -446,9 +446,10 @@ describe("hubWorkspace", () => {
     const config = mergedConfigHook(plugin.config) as (
       config: { nitro?: Record<string, unknown>, root: string },
       env: { command: "build" | "serve", mode: string },
-    ) => Promise<{ nitro?: { handlers?: Array<{ route: string }> } }>
+    ) => Promise<{ nitro?: { handlers?: Array<{ route?: string }> } }>
     const served = await config({ nitro: {}, root }, { command: "serve", mode: "development" })
-    expect(served.nitro?.handlers ?? []).toEqual([])
+    // Only the middleware that drops the staged writes of a failed request.
+    expect(served.nitro?.handlers ?? []).toEqual([{ handler: ownModule(import.meta.url, "runtime/request"), middleware: true }])
     await expect(readdir(join(root, ".vitehub", "nitro", "workspace", "history-dev"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 

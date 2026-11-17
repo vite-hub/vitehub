@@ -31,6 +31,7 @@ import { mergeConfig } from "vite"
 
 import { isIncludedNitroPlugin } from "@vite-hub/internal/build/included-nitro-registry"
 import { resolveSandboxTaskDriver, viteHubPlugins, type ViteHubOptions } from "./plugins.ts"
+import { installBrowserErrorsNuxt } from "./browser-errors-vite.ts"
 import { installStaleChunkReloadNuxt, staleChunkReloadPluginName } from "./stale-chunk-reload.ts"
 import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
 import { disabledKVConfigModule, disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
@@ -1387,6 +1388,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   // Registered after every module's own hook. @nuxtjs/mcp-toolkit points `h3` at nitropack's H3 1 on every Nitro, and
   // Nitro 3's runtime then cannot import `h3/rules`. Nuxt 5 gives Nitro 2 modules H3 1 through its compatibility layer.
+  // Remove when @nuxtjs/mcp-toolkit releases https://github.com/nuxt-modules/mcp-toolkit/pull/416.
   nuxt.hook?.("modules:done", () => {
     nuxt.hook?.("nitro:config", async (config) => {
       const alias = isRecord(config.alias) ? config.alias : undefined
@@ -1553,6 +1555,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (!include.includes("vite-hub/agent/vue")) include.push("vite-hub/agent/vue")
   }
   addVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
+  if (options.observability && options.observability !== true && options.observability.browserErrors) await installBrowserErrorsNuxt(nuxt, projectRoot)
   await installStaleChunkReloadNuxt(nuxt, projectRoot)
   if (isPackageInstalled("@vite-hub/decisions")) addVueImports(nuxt, "vite-hub/decisions/vue", ["useChoices"])
   if (isPackageInstalled("@vite-hub/forms")) {

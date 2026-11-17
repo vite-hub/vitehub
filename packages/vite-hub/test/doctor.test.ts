@@ -189,7 +189,7 @@ describe("vitehub/destructure-result-tuples", () => {
       create(ctx) {
         const r = resolver(ctx)
         return {
-          ScriptNode(node) {
+          CallExpression(node) {
             const reference = r.callee(node)
             if (reference) references.push(reference)
           },

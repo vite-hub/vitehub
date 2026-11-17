@@ -73,6 +73,7 @@ Available namespaces:
   sandbox     Serve and check an SSH Sandbox runner. Does not load the project config.
   inspect     Inspect discovered Definitions, host resources, and generated Provider Output.
   provision   Idempotently create missing provider resources.
+  seed        Write the seed files of Database, KV, and Blob.
 ```
 
 ## Commands
@@ -147,7 +148,8 @@ Available namespaces:
 | `vitehub database export` | Available | Database Package | Write a SQL dump of the local SQLite file, or of the deployed database with `--remote`. |
 | `vitehub database sql` | Available | Database Package | Run SQL from an argument or stdin on the local database, or on the deployed one with `--remote`, and print the rows. |
 | `vitehub database drop` | Available | Database Package | Drop every table of a database and its migrations table, after a confirmation or with `--force`. |
-| `vitehub database seed` | Available | Database Package | Run the seed file of each database on the local database, or on the deployed database with `--remote`. |
+| `vitehub database reset` | Available | Database Package | Drop every table of a database, then apply its migrations again, after a confirmation or with `--force`. |
+| `vitehub seed` | Available | CLI Package | Write the Database seed files and the files in `server/seed/kv/` and `server/seed/blob/`, locally or with `--remote` on the deployed app. |
 | `vitehub database tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
 | `vitehub database rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
 | `vitehub migrate` | Available | Codemods Package | Rewrite an app folder for this ViteHub release with every upgrade codemod of `@vite-hub/codemods` that applies. Usage: `vitehub migrate [dir] [--dry-run]`. `dir` defaults to the current folder, and `--dry-run` prints the diffs. Install `@vite-hub/codemods` as a development dependency first. |
@@ -1313,12 +1315,13 @@ See [Export a database](/docs/database/configure#export-a-database) for each dri
 
 ## Run SQL on a Database
 
-`database sql` runs SQL on one database and prints the rows of each statement as a table. Without a SQL argument, it reads stdin. `database drop` drops every table of one database and its migrations table. It asks first, and needs `--force` without a terminal. Both use the local SQLite file or PGlite folder by default. Any other database needs `--remote`.
+`database sql` runs SQL on one database and prints the rows of each statement as a table. Without a SQL argument, it reads stdin. `database drop` drops every table of one database and its migrations table. It asks first, and needs `--force` without a terminal. `database reset` drops the same way, then applies the migrations of that database again. They use the local SQLite file or PGlite folder by default. Any other database needs `--remote`.
 
 ```bash [Terminal]
 pnpm vitehub database sql "select id, email from users limit 5"
 pnpm vitehub database sql --json < report.sql
 pnpm vitehub database drop --force
+pnpm vitehub database reset --force
 ```
 
 | Option | Description |
@@ -1327,26 +1330,30 @@ pnpm vitehub database drop --force
 | `--stage <name>` | Load the Vite env files of this mode. Process variables win. |
 | `--database <name>` | The database to use. Needed when the app has several. |
 | `--json` | `sql` only. Print one JSON array with `{ columns, rows, rowsAffected }` for each statement. |
-| `--force` | `drop` only. Drop without asking. |
+| `--force` | `drop` and `reset` only. Drop without asking. |
 
 See [Run SQL and drop tables](/docs/database/configure#run-sql-and-drop-tables) for what `drop` drops on each driver.
 
-## Seed a Database
+## Seed data
 
-`database seed` runs the seed file of each database, `server/databases/<name>/seed.ts`, with no build. Its default export gets `{ db, schema }`. It writes the local database by default, and refuses a database with pending migrations.
+`vitehub seed` writes the starting data of the app: the seed file of each Database, the KV values in `server/seed/kv/`, and the Blob files in `server/seed/blob/`. It writes local data by default.
 
 ```bash [Terminal]
-pnpm vitehub database seed
-pnpm vitehub database seed --remote --stage staging --database analytics
+pnpm vitehub seed
+pnpm vitehub seed kv blob
+pnpm vitehub seed --remote --stage production
 ```
 
 | Option | Description |
 | --- | --- |
-| `--remote` | Write the remote database. Needed for a database that is not local. |
+| `<primitive>...` | Seed only these: `database`, `kv`, or `blob`. |
+| `--remote` | Write the deployed data. KV and Blob call the deployed app, like `vitehub kv set --url`. |
+| `--url <url>` | The deployed app for `--remote`. Defaults to `vitehub({ publicUrl })`. |
 | `--stage <name>` | Load the Vite env files of this mode. Process variables win. |
 | `--database <name>` | Seed only this database. |
+| `--timeout <ms>` | Request timeout of each call to the app. |
 
-See [Seed data](/docs/database/configure#seed-data) for the seed file.
+Without `--remote`, KV and Blob write the stores of the running dev server, so start `vite dev` first. The Database seed needs no server. See [Seed data](/docs/database/configure#seed-data) for the seed file of a Database, [Seed values](/docs/kv/configure#seed-values) for KV, and [Seed files](/docs/blob/configure#seed-files) for Blob.
 
 ## Browse Database tables
 

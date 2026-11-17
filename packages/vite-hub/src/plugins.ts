@@ -64,6 +64,7 @@ import { viteHubTaskPlugin } from "./task/vite.ts"
 import { viteHubCachePlugin } from "./cache/vite.ts"
 import { viteHubServedSkillsPlugin } from "./skills/vite.ts"
 import { viteHubDurabilityPlugin } from "./durability/vite.ts"
+import { browserErrorsVitePlugin } from "./browser-errors-vite.ts"
 import { logsVitePlugin } from "./logs-vite.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
 import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "./console/runtime/sections.ts"
@@ -823,6 +824,7 @@ function deploymentNitroModule(
     if (plan.host === "cloudflare" && nitro.options.cloudflare?.deployConfig !== false && !isDeployCommandOwned()) {
       // Nitro's `--cwd ./` relies on the `.wrangler/deploy` redirect in the project root, which a copied output lacks and a parent Wrangler config breaks.
       // `--cwd` into the server directory fails once that redirect exists, so name the config file.
+      // Remove when Nitro fixes its deploy command (https://github.com/nitrojs/nitro/issues/5147).
       const config = outputRelativeArgument(nitro.options.output.dir, join(nitro.options.output.serverDir, "wrangler.json"))
       nitro.options.commands.deploy = `npx wrangler deploy --config ${config}${sandboxTaskRequested ? " --containers-rollout=gradual" : ""}`
     }
@@ -1428,7 +1430,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const configuredQueue = options.queue && options.queue !== true ? options.queue : undefined
   assertNodeQueueDriver(options.queue, plan.host)
   const observability = options.observability === true ? {} : options.observability || undefined
-  const { logs: logsOption, ...observabilityOptions } = observability ?? {}
+  const { logs: logsOption, browserErrors, ...observabilityOptions } = observability ?? {}
   const observabilityLogs = logsOption === true ? {} : logsOption || undefined
   const telemetry = Boolean(observabilityOptions.service)
   const workflowEnabled = options.workflow !== false
@@ -1553,6 +1555,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     if (evlogRegistered) plugins.push(observabilityVitePlugin(observabilityOptions, { agent: options.agent, hosting: plan.nitroPreset }))
   }
   if (observabilityLogs) plugins.push(logsVitePlugin(observabilityLogs))
+  if (browserErrors) plugins.push(browserErrorsVitePlugin())
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
   if (options.trustProxy || options.sameOriginWrites || options.security) plugins.push(requestPolicyVitePlugin(options))
   if (options.health) plugins.push(healthVitePlugin(options.health === true ? {} : options.health, { database: Boolean(options.database) }))
@@ -1837,12 +1840,14 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   // Adds the `vitehub content` commands, the Content operations, and the Content inspector. Inert without server/content.ts.
   // The app installs only `vite-hub`, so the KV and snapshot registrations that it adds to server/content.ts import `vite-hub/content`.
   if (ownerModules.contentVite) plugins.push(ownerModules.contentVite.hubContent({ importBase: "vite-hub/content" }))
-  // Forms in `server/forms/<name>.ts`: one route for each, submissions in the Database, email with Email, and the user
-  // with Auth. Inert without the folder, and absent without its package.
+  // Forms in `server/forms/<name>.ts`: one route for each, submissions in the Database, email with Email, the user
+  // with Auth, and the message counts in Rate Limit when its KV store is shared. Inert without the folder, and absent
+  // without its package.
   if (ownerModules.formsVite) plugins.push(ownerModules.formsVite.hubForms({
     database: Boolean(options.database),
     email: Boolean(options.email),
     auth: Boolean(options.auth),
+    rateLimit: Boolean(options.rateLimit) && buildRateLimitDriver(plan, options).driver === "kv",
     imports: {
       runtime: "vite-hub/forms/runtime",
       operations: "vite-hub/forms/operations",
@@ -1851,6 +1856,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       email: "vite-hub/email",
       auth: "vite-hub/auth/server",
       standard: "vite-hub/runtime",
+      rateLimit: "vite-hub/rate-limit",
     },
   }))
   // Reads the `cms` preset and contributes its Workspace, Database tables, and, when the app has none, the default
