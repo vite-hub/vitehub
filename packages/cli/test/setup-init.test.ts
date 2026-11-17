@@ -154,7 +154,7 @@ describe("vitehub init", () => {
     const parent = await createProject()
     const result = await init(["app", "--host", "vercel", "--features", "email", "--no-install", "--yes"], parent)
     expect(result.exitCode).toBe(2)
-    expect(result.json.missing).toEqual([{ choices: ["resend"], field: "email.driver" }])
+    expect(result.json.missing).toEqual([{ choices: ["resend", "log"], field: "email.driver" }])
     expect(result.json.rerun).toBe("pnpm dlx vite-hub init app --host vercel --features email --option email.driver=resend --no-install --yes --json")
     expect(existsSync(join(parent, "app"))).toBe(false)
   })
