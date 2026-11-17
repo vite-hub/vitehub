@@ -1,0 +1,1 @@
+The definition has `write: false`, so the browser cannot insert, update, or delete rows. The actions of the definition still run. An action of another definition that writes it with `sync(name)` is refused with this code. A `write` function that returns `false` gives `SYNC_FORBIDDEN`.

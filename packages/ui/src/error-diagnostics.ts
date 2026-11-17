@@ -20,6 +20,14 @@ export const uiErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ route, file }: { route: string, file: string }) => `${route} stored ${file} without a URL. Serve the Blob store with \`blob.serve\` so the editor can link it.`,
       fix: "Add `serve` to the Blob options, such as `vitehub({ blob: { serve: { access: 'public' } } })`, so the upload route returns a URL for each file that it stores.",
     },
+    UI_RELATIVE_TIME_NOW_INVALID: {
+      why: "RelativeTime cannot read the supplied clock value.",
+      fix: "Pass a valid Date, an ISO date string, or milliseconds as now.",
+    },
+    UI_RELATIVE_TIME_THRESHOLD_INVALID: {
+      why: ({ threshold }: { threshold: string }) => `RelativeTime threshold "${threshold}" is not a duration.`,
+      fix: 'Pass a number and a unit, such as "3w", or "none" as threshold.',
+    },
     UI_ZIP_PATH_UNSAFE: {
       why: "ZIP files must use safe project-relative paths.",
       fix: "Pass `zipFiles()` and `downloadZip()` a folder name and file paths that are relative to the project, without empty, `.`, or `..` segments, `:`, or a backslash.",

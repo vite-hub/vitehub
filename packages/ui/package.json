@@ -95,6 +95,7 @@
     "test:editor": "node --test test/browser/editor.browser.mjs"
   },
   "dependencies": {
+    "reka-ui": "catalog:ui",
     "@comark/vue": "0.9.0",
     "comark-chat": "catalog:",
     "@nuxt/kit": "4.6.2",
@@ -147,7 +148,6 @@
     "happy-dom": "21.0.3",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
-    "reka-ui": "catalog:ui",
     "tailwindcss": "^4.3.3",
     "typescript": "catalog:tooling",
     "vega-canvas": "^2.0.0",
