@@ -212,7 +212,8 @@ async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | un
   return await import("@workflow/builders") as VercelWorkflowBuilders
 }
 
-export async function createVercelWorkflowTransformPlugin(rootDir: string): Promise<Plugin | undefined> {
+/** Workflow and step IDs are source paths relative to `idRoot`, which is `rootDir` unless a copy of the sources must keep the IDs of another path. */
+export async function createVercelWorkflowTransformPlugin(rootDir: string, idRoot = rootDir): Promise<Plugin | undefined> {
   const builders = await loadVercelWorkflowBuilders()
   if (!builders) return undefined
   const plugin = builders.createSwcPlugin({ mode: "workflow", projectRoot: rootDir })
@@ -222,7 +223,7 @@ export async function createVercelWorkflowTransformPlugin(rootDir: string): Prom
     setup: build => plugin.setup({
       ...build,
       // Workflow and step IDs are paths relative to this directory. Match the native Workflow build, not the process directory.
-      initialOptions: { ...build.initialOptions, absWorkingDir: rootDir },
+      initialOptions: { ...build.initialOptions, absWorkingDir: idRoot },
       onLoad: (options, callback) => build.onLoad(options, async (args) => {
         const source = await readFile(args.path, "utf8")
         return builders.shouldTransformFile(args.path, builders.detectWorkflowPatterns(source)) ? await callback(args) : undefined
@@ -1089,8 +1090,32 @@ function renderWorkflowRegistryEntry(
   ].filter(Boolean).join("\n")
 }
 
+/**
+ * Adds the invocation recovery Workflow of each discovered Agent Workflow. Every Agent turn starts the turn and its
+ * recovery run, so a registry that has one of them must have both.
+ */
+export function withAgentInvocationRecoveryDefinitions(definitions: DiscoveredWorkflowDefinition[]): DiscoveredWorkflowDefinition[] {
+  const definitionNames = new Set(definitions.map(definition => definition.name))
+  for (const definition of definitions) {
+    if (definition.source !== "agent-workflow") continue
+    const recoveryName = getAgentInvocationRecoveryWorkflowName(definition.name)
+    if (definitionNames.has(recoveryName)) {
+      throw workflowErrorDiagnostics.WORKFLOW_R0008({ message: `Workflow name ${JSON.stringify(recoveryName)} conflicts with the generated Agent invocation recovery Workflow for ${JSON.stringify(definition.name)}.` })
+    }
+  }
+  return definitions.flatMap(definition => definition.source === "agent-workflow"
+    ? [definition, {
+        ...definition,
+        agentIdentity: definition.agentIdentity || definition.name,
+        name: getAgentInvocationRecoveryWorkflowName(definition.name),
+        // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
+        source: "agent-workflow-recovery" as const,
+      }]
+    : [definition])
+}
+
 /** Without `hubAgent()`, Agent Workflows load the Agent package that the app installs, by the paths it hands out. */
-async function installedAgentWorkflowModules(rootDir: string): Promise<AgentWorkflowModules | undefined> {
+export async function installedAgentWorkflowModules(rootDir: string): Promise<AgentWorkflowModules | undefined> {
   let agentVite: string
   try {
     agentVite = createRequire(resolve(rootDir, "package.json")).resolve("@vite-hub/agent/vite")
@@ -1293,23 +1318,7 @@ export async function writeProviderEntries(
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const definitions = discoverWorkflowDefinitions({ rootDir: definitionRootDir, serverDirs })
-  const definitionNames = new Set(definitions.map(definition => definition.name))
-  for (const definition of definitions) {
-    if (definition.source !== "agent-workflow") continue
-    const recoveryName = getAgentInvocationRecoveryWorkflowName(definition.name)
-    if (definitionNames.has(recoveryName)) {
-      throw workflowErrorDiagnostics.WORKFLOW_R0008({ message: `Workflow name ${JSON.stringify(recoveryName)} conflicts with the generated Agent invocation recovery Workflow for ${JSON.stringify(definition.name)}.` })
-    }
-  }
-  const providerDefinitions = definitions.flatMap(definition => definition.source === "agent-workflow"
-    ? [definition, {
-        ...definition,
-        agentIdentity: definition.agentIdentity || definition.name,
-        name: getAgentInvocationRecoveryWorkflowName(definition.name),
-        // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
-        source: "agent-workflow-recovery" as const,
-      }]
-    : [definition])
+  const providerDefinitions = withAgentInvocationRecoveryDefinitions(definitions)
   const userAppEntry = includeUserAppEntry ? resolveWorkflowUserAppEntry(definitionRootDir, includeUserAppEntry) : undefined
   const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
 

@@ -1,4 +1,5 @@
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import { blobHttpError } from "../errors.ts"
 
 // eslint-disable-next-line no-control-regex -- the check must match control characters.
 const controlCharacters = /[\u0000-\u001F\u007F]/
@@ -38,11 +39,8 @@ export function pathnameIssue(pathname: string, { prefix = false } = {}): string
 export function assertValidPathname(pathname: string, { prefix = false } = {}): string {
   const issue = pathnameIssue(pathname, { prefix })
   if (issue) {
-    // H3 reads `statusCode`, so a route that lets this error through answers 400.
-    throw Object.assign(
-      blobErrorDiagnostics.BLOB_R0034({ message: `Invalid blob ${prefix ? "prefix" : "pathname"} ${JSON.stringify(pathname)}: it ${issue}.` }),
-      { statusCode: 400 },
-    )
+    // An H3 `HTTPError`, so a route that lets this error through answers 400.
+    throw blobHttpError(400, blobErrorDiagnostics.BLOB_R0034({ message: `Invalid blob ${prefix ? "prefix" : "pathname"} ${JSON.stringify(pathname)}: it ${issue}.` }))
   }
   return pathname
 }
