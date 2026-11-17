@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createShellRuntime } from "@vite-hub/shell"
-import { createJustBashProvider } from "@vite-hub/shell/providers/just-bash"
+import { createJustBashDriver } from "@vite-hub/shell/providers/just-bash"
 import { createReadonlyWorkspaceFs, createWritableWorkspaceFs } from "@vite-hub/shell/workspace"
 import { defineWorkspace, useWorkspace } from "../src/index.ts"
 import { registerWorkspace } from "../src/test.ts"
@@ -25,7 +25,7 @@ describe("Workspace Shell root directories", () => {
     await expect(createReadonlyWorkspaceFs(workspace.fs).exists(path)).resolves.toBe(true)
     await fs.mkdir(path, { recursive: true })
     await expect(fs.mkdir(path)).rejects.toThrow("already exists")
-    const runtime = createShellRuntime({ provider: createJustBashProvider({ commands: ["mkdir"], cwd: "/workspace", fs }) })
+    const runtime = createShellRuntime({ driver: createJustBashDriver({ commands: ["mkdir"], cwd: "/workspace", fs }) })
     await expect(runtime.exec(`mkdir -p ${path}`)).resolves.toMatchObject({ exitCode: 0, stderr: "" })
 
     expect(exists).not.toHaveBeenCalled()

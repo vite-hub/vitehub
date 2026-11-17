@@ -1,8 +1,13 @@
-import { describe, expect, it } from "vitest"
+import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { osScheduleErrors } from "../src/os/errors.ts"
-import { generatedHeader } from "../src/os/host.ts"
+import { createNodeHost, generatedHeader } from "../src/os/host.ts"
 import { createOsSchedules } from "../src/os/schedules.ts"
+import { userUnitDirectory } from "../src/os/systemd.ts"
 
 import type { ExecResult, OsHost } from "../src/os/host.ts"
 import type { InstallOsScheduleOptions } from "../src/os/schedules.ts"
@@ -17,6 +22,14 @@ function fakeHost(platform: string, respond: (command: string, args: readonly st
   const files = new Map<string, string>()
   const directories = new Set<string>()
   const calls: Call[] = []
+  // Symbolic links of folders, as `/var` → `/private/var` on macOS.
+  const links = new Map<string, string>()
+  const resolve = (path: string) => {
+    for (const [from, to] of links) {
+      if (path === from || path.startsWith(`${from}/`)) return `${to}${path.slice(from.length)}`
+    }
+    return path
+  }
   const host: OsHost = {
     platform,
     uid: 1000,
@@ -43,10 +56,11 @@ function fakeHost(platform: string, respond: (command: string, args: readonly st
       rmdirIfEmpty: async (path) => {
         if (![...files.keys()].some(file => file.startsWith(`${path}/`) || file.startsWith(`${path}\\`))) directories.delete(path)
       },
+      realpath: async path => resolve(path),
     },
     ...overrides,
   }
-  return { host, files, directories, calls, commands: () => calls.splice(0).map(call => call.command) }
+  return { host, files, directories, calls, links, resolve, commands: () => calls.splice(0).map(call => call.command) }
 }
 
 const command: InstallOsScheduleOptions["command"] = ["/usr/bin/node", "/home/maxi/skync/bin.mjs", "sync"]
@@ -134,6 +148,9 @@ ExecMainCode=0
 ExecMainStatus=0
 `
 
+// `systemctl --user show -p UnitPath --value` on systemd 259. The user manager has its own HOME and XDG_CONFIG_HOME.
+const unitPath = "/home/maxi/.config/systemd/user.control /run/user/1000/systemd/user.control /run/user/1000/systemd/transient /run/user/1000/systemd/generator.early /home/maxi/.config/systemd/user /etc/systemd/user /run/user/1000/systemd/user /run/systemd/user /run/user/1000/systemd/generator /home/maxi/.local/share/systemd/user /usr/local/share/systemd/user /usr/share/systemd/user /usr/local/lib/systemd/user /usr/lib/systemd/user /run/user/1000/systemd/generator.late"
+
 /** A systemd that remembers whether the timer is enabled and active. */
 function systemd(overrides: Partial<OsHost> = {}) {
   let enabled = false
@@ -144,6 +161,7 @@ function systemd(overrides: Partial<OsHost> = {}) {
     if (line.endsWith("is-enabled skync.timer")) return enabled ? { stdout: "enabled\n" } : { code: 1, stdout: "disabled\n" }
     if (line.endsWith("is-active skync.timer")) return enabled ? { stdout: "active\n" } : { code: 3, stdout: "inactive\n" }
     if (line.startsWith("loginctl show-user maxi")) return { stdout: "yes\n" }
+    if (line.endsWith(" show -p UnitPath --value")) return { stdout: `${unitPath}\n` }
     if (line.includes(" show skync.timer skync.service ")) return { stdout: show }
     return undefined
   }, overrides)
@@ -165,6 +183,7 @@ describe("systemd driver", () => {
     expect(machine.files.get(timer)).toContain("OnCalendar=Mon..Fri *-*-* 09:00:00 Europe/Madrid\n")
     expect(machine.files.get(service)).toContain("WorkingDirectory=/home/maxi\n")
     expect(machine.commands()).toEqual([
+      "systemctl --user show -p UnitPath --value",
       "systemctl --user show skync.service skync.timer -p Id,LoadState,FragmentPath",
       "systemctl --user daemon-reload",
       "systemctl --user enable skync.timer",
@@ -176,7 +195,7 @@ describe("systemd driver", () => {
 
     const [, again] = await installOsSchedule("skync", { cron: "0 9 * * 1-5", timeZone: "Europe/Madrid" }, { command })
     expect(again?.changed).toBe(false)
-    expect(machine.commands()).toEqual(["systemctl --user show skync.service skync.timer -p Id,LoadState,FragmentPath", "systemctl --user is-enabled skync.timer", "systemctl --user is-active skync.timer", "loginctl show-user maxi -p Linger --value"])
+    expect(machine.commands()).toEqual(["systemctl --user show -p UnitPath --value", "systemctl --user show skync.service skync.timer -p Id,LoadState,FragmentPath", "systemctl --user is-enabled skync.timer", "systemctl --user is-active skync.timer", "loginctl show-user maxi -p Linger --value"])
 
     const [, changed] = await installOsSchedule("skync", { cron: "0 10 * * 1-5", timeZone: "Europe/Madrid" }, { command })
     expect(changed?.changed).toBe(true)
@@ -219,6 +238,7 @@ describe("systemd driver", () => {
     expect(removal).toEqual({ name: "skync", platform: "linux", scope: "user", removed: [timer, service, "/home/maxi/.local/state/skync/skync.log"], existed: true })
     expect([...machine.files.keys()]).toEqual([])
     expect(machine.commands()).toEqual([
+      "systemctl --user show -p UnitPath --value",
       "systemctl --user show skync.service skync.timer -p Id,LoadState,FragmentPath",
       "systemctl --user disable --now skync.timer",
       "systemctl --user stop skync.service",
@@ -227,7 +247,7 @@ describe("systemd driver", () => {
       "systemctl --user reset-failed skync.service skync.timer",
     ])
     expect((await uninstallOsSchedule("skync"))[1]).toEqual({ name: "skync", platform: "linux", scope: "user", removed: [], existed: false })
-    expect(machine.commands()).toEqual([])
+    expect(machine.commands()).toEqual(["systemctl --user show -p UnitPath --value"])
   })
 
   it("writes system units as root, and needs root for them", async () => {
@@ -240,6 +260,25 @@ describe("systemd driver", () => {
     expect(unit).toMatchObject({ scope: "system", files: ["/etc/systemd/system/skync.service", "/etc/systemd/system/skync.timer"] })
     expect(unit).not.toHaveProperty("linger")
     expect(machine.commands()).toContain("systemctl enable skync.timer")
+  })
+
+  it("writes user units where the user manager reads them, also when this process has another HOME or XDG_CONFIG_HOME", async () => {
+    const machine = systemd({ homedir: "/tmp/sandbox-home", env: { XDG_RUNTIME_DIR: "/run/user/1000", XDG_CONFIG_HOME: "/tmp/sandbox-home/.config" } })
+    const { installOsSchedule, osScheduleStatus, uninstallOsSchedule } = createOsSchedules(machine.host)
+    const [error, unit] = await installOsSchedule("skync", { cron: "0 * * * *" }, { command })
+    expect(error).toBeUndefined()
+    expect(unit?.files).toEqual([service, timer])
+    expect([...machine.files.keys()]).toEqual([service, timer])
+    machine.setShow(showBefore)
+    expect((await osScheduleStatus("skync"))[1]).toMatchObject({ installed: true })
+    expect((await uninstallOsSchedule("skync"))[1]).toMatchObject({ removed: [timer, service], existed: true })
+  })
+
+  it("uses the systemd default folder when the user manager does not say", () => {
+    expect(userUnitDirectory(unitPath)).toBe("/home/maxi/.config/systemd/user")
+    expect(userUnitDirectory("/etc/systemd/user /usr/lib/systemd/user")).toBeUndefined()
+    // A space in the home folder splits the list. The relative part is not the folder.
+    expect(userUnitDirectory("/home/a b/.config/systemd/user.control /home/a b/.config/systemd/user")).toBeUndefined()
   })
 
   it("finds the user manager when XDG_RUNTIME_DIR is not set", async () => {
@@ -316,16 +355,19 @@ const launchctlPrint = `gui/501/skync = {
 }
 `
 
+/** A launchd that loads the plists that `launchctl bootstrap` gets, and prints their real paths, as launchd does. */
 function launchd(overrides: Partial<OsHost> = {}, respond: (line: string) => Partial<ExecResult> | undefined = () => undefined) {
-  const loaded = new Set<string>()
-  return fakeHost("darwin", (line, args) => {
+  const loaded = new Map<string, string>()
+  const machine = fakeHost("darwin", (line, args) => {
     const answer = respond(line)
     if (answer) return answer
-    if (args[0] === "print") return loaded.has(args[1]!) ? { stdout: launchctlPrint.replaceAll("gui/501", args[1]!.split("/").slice(0, 2).join("/")) } : { code: 113, stderr: `Could not find service "skync" in domain for user gui: 501\n` }
-    if (args[0] === "bootstrap") loaded.add(`${args[1]}/skync`)
+    const plist = loaded.get(args[1]!)
+    if (args[0] === "print") return plist ? { stdout: launchctlPrint.replaceAll("gui/501", args[1]!.split("/").slice(0, 2).join("/")).replace("/Users/maxi/Library/LaunchAgents/skync.plist", machine.resolve(plist)) } : { code: 113, stderr: `Could not find service "skync" in domain for user gui: 501\n` }
+    if (args[0] === "bootstrap") loaded.set(`${args[1]}/skync`, args[2]!)
     if (args[0] === "bootout") loaded.delete(args[1]!)
     return undefined
   }, { uid: 501, user: "maxi", homedir: "/Users/maxi", machineTimeZone: "Europe/Madrid", ...overrides })
+  return machine
 }
 
 describe("launchd driver", () => {
@@ -398,6 +440,25 @@ describe("launchd driver", () => {
     expect((await osScheduleStatus("skync"))[1]).toEqual({ name: "skync", platform: "darwin", scope: "user", installed: false, running: false })
   })
 
+  it("owns its job when the home folder is under a symbolic link", async () => {
+    // On macOS /var links to /private/var, and `launchctl print` shows the plist under /private/var.
+    const home = "/var/folders/xy/T/home"
+    const linked = `${home}/Library/LaunchAgents/skync.plist`
+    const machine = launchd({ homedir: home })
+    machine.links.set("/var", "/private/var")
+    const { installOsSchedule, osScheduleStatus, uninstallOsSchedule } = createOsSchedules(machine.host)
+    const [error, unit] = await installOsSchedule("skync", { cron: "0 * * * *" }, { command })
+    expect(error).toBeUndefined()
+    expect(unit?.files[0]).toBe(linked)
+    const [againError, again] = await installOsSchedule("skync", { cron: "0 * * * *" }, { command })
+    expect(againError).toBeUndefined()
+    expect(again?.changed).toBe(false)
+    expect((await osScheduleStatus("skync"))[1]).toMatchObject({ installed: true })
+    machine.commands()
+    expect((await uninstallOsSchedule("skync"))[1]).toMatchObject({ removed: [linked], existed: true })
+    expect(machine.commands()).toContain("launchctl bootout gui/501/skync")
+  })
+
   it.each([
     [{ catchUp: false }, "catchUp"],
     [{ randomDelaySeconds: 30 }, "randomDelaySeconds"],
@@ -410,6 +471,7 @@ describe("launchd driver", () => {
     const { installOsSchedule } = createOsSchedules(launchd().host)
     const [zoneError] = await installOsSchedule("skync", { cron: "0 9 * * *" }, { command })
     expect(osScheduleErrors.SCHEDULE_OS_TIME_ZONE_UNSUPPORTED.is(zoneError) && zoneError.data).toEqual({ platform: "darwin", timeZone: "UTC", machineTimeZone: "Europe/Madrid" })
+    expect(zoneError?.fix).toContain("`timeZone: \"local\"`")
     const [cronError] = await installOsSchedule("skync", { cron: "0-58 0-22 * * *", timeZone: "Europe/Madrid" }, { command })
     expect(osScheduleErrors.SCHEDULE_OS_CRON_UNSUPPORTED.is(cronError)).toBe(true)
   })
@@ -525,6 +587,30 @@ describe("Task Scheduler driver", () => {
   })
 })
 
+describe("timeZone: \"local\"", () => {
+  const local = { cron: "0 9 * * *", timeZone: "local" }
+
+  it("runs the cron in the machine time zone on macOS", async () => {
+    const machine = launchd()
+    const [error] = await createOsSchedules(machine.host).installOsSchedule("skync", local, { command })
+    expect(error).toBeUndefined()
+    expect(machine.files.get("/Users/maxi/Library/LaunchAgents/skync.plist")).toContain("<key>Hour</key>\n\t\t\t<integer>9</integer>")
+  })
+
+  it("runs the cron in the machine time zone on Windows", async () => {
+    const machine = taskScheduler({ machineTimeZone: "America/New_York" })
+    const [error] = await createOsSchedules(machine.host).installOsSchedule("skync", local, { command: ["C:\\node.exe"] })
+    expect(error).toBeUndefined()
+    expect(machine.scripts.at(-1)).toContain("Register-ScheduledTask")
+  })
+
+  it("leaves the zone out of OnCalendar=, so systemd uses the machine time zone", async () => {
+    const machine = systemd()
+    await createOsSchedules(machine.host).installOsSchedule("skync", local, { command })
+    expect(machine.files.get("/home/maxi/.config/systemd/user/skync.timer")).toContain("OnCalendar=*-*-* 09:00:00\n")
+  })
+})
+
 describe("options", () => {
   const install = (name: string, schedule: object, options: object, platform = "linux") => createOsSchedules(systemd({ platform }).host).installOsSchedule(name, schedule, options as InstallOsScheduleOptions)
 
@@ -581,9 +667,9 @@ describe("a name that ViteHub did not install", () => {
     const { installOsSchedule, osScheduleStatus, uninstallOsSchedule } = createOsSchedules(machine.host)
     const [error] = await installOsSchedule("skync", { cron: "0 * * * *" }, { command })
     expect(osScheduleErrors.SCHEDULE_OS_NAME_TAKEN.is(error) && error.data).toEqual({ platform: "linux", name: "skync", scope: "user", resource: service })
-    expect(machine.commands()).toEqual([])
+    expect(machine.commands()).toEqual(["systemctl --user show -p UnitPath --value"])
     expect((await uninstallOsSchedule("skync"))[1]).toEqual({ name: "skync", platform: "linux", scope: "user", removed: [], existed: false })
-    expect(machine.commands()).toEqual([])
+    expect(machine.commands()).toEqual(["systemctl --user show -p UnitPath --value"])
     expect((await osScheduleStatus("skync"))[1]).toEqual({ name: "skync", platform: "linux", scope: "user", installed: false, running: false, linger: true })
     expect([...machine.files]).toEqual([[service, handMade]])
   })
@@ -595,7 +681,7 @@ describe("a name that ViteHub did not install", () => {
     const [error] = await installOsSchedule("skync", { cron: "0 * * * *" }, { command })
     expect(osScheduleErrors.SCHEDULE_OS_NAME_TAKEN.is(error) && error.data).toEqual({ platform: "linux", name: "skync", scope: "user", resource: "/usr/lib/systemd/user/skync.service" })
     expect(machine.files.size).toBe(0)
-    expect(machine.commands()).toEqual(["systemctl --user show skync.service skync.timer -p Id,LoadState,FragmentPath"])
+    expect(machine.commands()).toEqual(["systemctl --user show -p UnitPath --value", "systemctl --user show skync.service skync.timer -p Id,LoadState,FragmentPath"])
   })
 
   it("systemd: does not stop a unit of another file that shadows our files", async () => {
@@ -608,9 +694,23 @@ describe("a name that ViteHub did not install", () => {
     machine.files.set(timer, ours)
     const { osScheduleStatus, uninstallOsSchedule } = createOsSchedules(machine.host)
     expect((await uninstallOsSchedule("skync"))[1]).toEqual({ name: "skync", platform: "linux", scope: "user", removed: [], existed: false })
-    expect(machine.commands()).toEqual(["systemctl --user show skync.service skync.timer -p Id,LoadState,FragmentPath"])
+    expect(machine.commands()).toEqual(["systemctl --user show -p UnitPath --value", "systemctl --user show skync.service skync.timer -p Id,LoadState,FragmentPath"])
     expect(machine.files.size).toBe(2)
     expect((await osScheduleStatus("skync"))[1]).toMatchObject({ installed: false, running: false })
+  })
+
+  it("systemd: owns its units when systemd prints their path with links resolved", async () => {
+    // A dotfiles manager can link ~/.config/systemd to another folder.
+    const dotfiles = "/home/maxi/dotfiles/systemd/user"
+    const machine = systemd()
+    machine.links.set("/home/maxi/.config/systemd", "/home/maxi/dotfiles/systemd")
+    const { installOsSchedule, osScheduleStatus } = createOsSchedules(machine.host)
+    await installOsSchedule("skync", { cron: "0 * * * *" }, { command })
+    machine.setShow(showBefore.replaceAll("/home/maxi/.config/systemd/user", dotfiles))
+    const [error, again] = await installOsSchedule("skync", { cron: "0 * * * *" }, { command })
+    expect(error).toBeUndefined()
+    expect(again?.changed).toBe(false)
+    expect((await osScheduleStatus("skync"))[1]).toMatchObject({ installed: true })
   })
 
   it("launchd: leaves a plist without the ViteHub header", async () => {
@@ -653,5 +753,30 @@ describe("a name that ViteHub did not install", () => {
     expect((await osScheduleStatus("skync", { scope }))[1]).toEqual({ name: "skync", platform: "win32", scope, installed: false, running: false })
     expect(machine.scripts.some(script => /\b(?:Unr|R)egister-ScheduledTask\b/.test(script))).toBe(false)
     expect(machine.files.size).toBe(0)
+  })
+})
+
+describe.skipIf(process.platform === "win32")("node host", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it("reads the home folder on each call", () => {
+    const host = createNodeHost()
+    vi.stubEnv("HOME", "/tmp/another-home")
+    expect(host.homedir).toBe("/tmp/another-home")
+  })
+
+  it("resolves symbolic links, also in a path that does not exist yet", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vitehub-os-host-"))
+    try {
+      await mkdir(join(dir, "real"))
+      await symlink(join(dir, "real"), join(dir, "link"), "dir")
+      const real = join(await realpath(dir), "real", "Library", "skync.plist")
+      expect(await createNodeHost().fs.realpath(join(dir, "link", "Library", "skync.plist"))).toBe(real)
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 })

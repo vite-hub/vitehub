@@ -1029,7 +1029,7 @@ describe("vitehub", () => {
     // The Vercel providers of Queue and Workflow load the Vercel SDKs.
     [{ host: "vercel", workflow: true }, ["workflow"], { workflow: ["@vercel/functions"] }],
     [{ host: "vercel", queue: true }, ["queue"], { queue: ["@vercel/queue", "@vercel/functions"] }],
-    [{ host: "vercel", workflow: { provider: "openworkflow" } }, ["workflow"]],
+    [{ host: "vercel", workflow: { driver: "openworkflow" } }, ["workflow"]],
     // Agents run on Workflow.
     [{ agent: true }, ["agent", "workflow"]],
     [{ agent: true, workflow: false }, ["agent"]],

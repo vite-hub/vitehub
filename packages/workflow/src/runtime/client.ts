@@ -145,6 +145,7 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
     registerInlineWorkflowDefinition(name, {
       // SAFETY: Workflow definition registration establishes the handler's erased registry payload contract.
       handler: handler as WorkflowHandler,
+      ...(createOptions?.internalAgentWorkflow ? { internalAgentWorkflow: true } : {}),
       ...(createOptions?.rootStep === undefined ? {} : { options: { rootStep: createOptions.rootStep } }),
     })
   }

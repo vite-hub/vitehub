@@ -8,6 +8,7 @@ import { isAbsolute, join, posix, relative, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
+import { parse as parseYaml } from "yaml"
 
 import { filesSdkDriverPeers } from "../../packages/blob/src/internal/files-sdk-peers.ts"
 import { packedWorkspacePackages } from "../../packages/internal/test-utils/published-types.ts"
@@ -415,6 +416,21 @@ function workspaceConfig(specs: Record<string, string>, additionalOverrides: Rec
   ].join("\n")
 }
 
+/**
+ * Installs a consumer app and checks that every ViteHub package that the app's dependencies require comes from a packed
+ * tarball. A registry copy tests an older release instead of this checkout, and on a release branch the new version is
+ * not on npm yet. pnpm still adds a registry copy of an optional peer that it finds elsewhere in the graph, even when an
+ * override packs that package. Such a copy is marked optional and pnpm skips it when the version is not on npm.
+ */
+async function installApp(appDir: string, peers: "--strict-peer-dependencies" | "--no-strict-peer-dependencies") {
+  await run("pnpm", ["install", "--no-hoist", peers], appDir)
+  const lockfile = parseYaml(await readFile(join(appDir, "pnpm-lock.yaml"), "utf8")) as { snapshots?: Record<string, { optional?: boolean }> }
+  const fromRegistry = Object.entries(lockfile.snapshots ?? {})
+    .filter(([id, snapshot]) => /^(?:vite-hub|@vite-hub\/[^@]+)@\d/.test(id) && !snapshot.optional)
+    .map(([id]) => id)
+  expect(fromRegistry, "ViteHub packages that pnpm installed from npm instead of a packed tarball").toEqual([])
+}
+
 function isViteHubPackage(name: string) {
   return name === "vite-hub" || name.startsWith("@vite-hub/")
 }
@@ -521,7 +537,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         }, null, 2), "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
       ])
-      await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
+      await installApp(appDir, "--strict-peer-dependencies")
       const hostKey = join(root, "host")
       const identity = join(root, "identity")
       await Promise.all([hostKey, identity].map(path => run("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", path], appDir)))
@@ -573,10 +589,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
     try {
       await Promise.all([mkdir(join(appDir, "server/queues"), { recursive: true }), mkdir(packDir)])
       const specs = await packWorkspacePackages(packDir)
-      const framework = JSON.parse(await readFile(join(repoRoot, "packages/vite-hub/package.json"), "utf8")) as PackageManifest
-      const optionalPeers = Object.keys(framework.peerDependenciesMeta ?? {})
-      // pnpm installs an overridden optional peer, so override only the packages that `vite-hub` requires.
-      const requiredSpecs = Object.fromEntries(Object.entries(specs).filter(([name]) => !optionalPeers.includes(name)))
+      // pnpm installs an overridden optional peer, so override only the ViteHub packages that the app's dependencies
+      // require. That set includes optional peers of `vite-hub` that another package depends on, such as Forge for Source.
+      const required = new Set(await packedWorkspacePackages(repoRoot, ["blob", "queue", "vite-hub"]))
+      const requiredSpecs = Object.fromEntries(Object.entries(specs).filter(([name]) => required.has(name.replace(/^@vite-hub\//, ""))))
       const config = (features: string) => `
         import { defineConfig } from "vite"
         import { vitehub } from "vite-hub"
@@ -607,7 +623,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         }, null, 2), "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(requiredSpecs), "utf8"),
       ])
-      await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
+      await installApp(appDir, "--no-strict-peer-dependencies")
 
       const installed = await readdir(join(appDir, "node_modules/.pnpm"))
       const featurePackages = ["@vite-hub+agent@", "@vite-hub+auth@", "@vite-hub+realtime@", "@vite-hub+shell@", "@vite-hub+ui@", "better-auth@", "@tiptap+core@", "drizzle-orm@", "drizzle-kit@", "@libsql+client@", "ssh2@", "shiki@", "workflow@", "just-bash@", "effect@"]
@@ -671,7 +687,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           "nitro>h3": "2.0.8",
         }), "utf8"),
       ])
-      await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
+      await installApp(appDir, "--strict-peer-dependencies")
       expect(existsSync(join(appDir, "node_modules/@types/node")), "the app must not own Node declarations").toBe(false)
 
       await run("pnpm", ["exec", "vite", "build"], appDir)
@@ -740,7 +756,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         })),
       ])
-      await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
+      await installApp(appDir, "--no-strict-peer-dependencies")
       // Markdown Template is the only feature package that this app installs.
       expect(await readdir(join(appDir, "node_modules/@vite-hub"))).toEqual(["markdown-template"])
       await run("pnpm", ["run", "typecheck"], appDir)
@@ -819,7 +835,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         })),
       ])
-      await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
+      await installApp(appDir, "--no-strict-peer-dependencies")
       await run("pnpm", ["run", "typecheck"], appDir)
       await run("pnpm", ["run", "build"], appDir)
       await withNodeServer(join(appDir, ".output/server/index.mjs"), appDir, async (origin) => {
@@ -889,7 +905,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         })),
       ])
-      await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
+      await installApp(appDir, "--no-strict-peer-dependencies")
       await run("pnpm", ["run", "build"], appDir)
 
       // The default fs-lite KV store keeps files on one host, so 3 instances must not start.
@@ -995,7 +1011,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         })),
       ])
-      await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
+      await installApp(appDir, "--no-strict-peer-dependencies")
       await run("pnpm", ["run", "typecheck"], appDir)
       // Nuxt writes the server auto-imports and their types here.
       const declarations = await readFile(join(appDir, ".nuxt/types/server-imports.d.ts"), "utf8")
@@ -1131,7 +1147,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         }), "utf8"),
       ])
 
-      await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
+      await installApp(appDir, "--no-strict-peer-dependencies")
       await assertOnlyViteHubDependencies(appDir, ["@vite-hub/agent", "@vite-hub/database", "@vite-hub/workflow", "vite-hub"])
       await run("pnpm", ["run", "typecheck"], appDir)
       await run("pnpm", ["run", "build"], appDir)
@@ -1238,7 +1254,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         }), "utf8"),
       ])
-      await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
+      await installApp(appDir, "--no-strict-peer-dependencies")
 
       const server = await withDevServer("pnpm", ["exec", "nuxt", "dev", "--no-fork"], appDir, /Ready in/, async (origin) => {
         const sections = await fetch(`${origin}/_vitehub/rpc`, {
@@ -1323,7 +1339,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         }), "utf8"),
       ])
-      await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
+      await installApp(appDir, "--no-strict-peer-dependencies")
 
       await assertOnlyViteHubDependencies(appDir, ["@vite-hub/database", "vite-hub"])
       await run("pnpm", ["run", "build"], appDir)
@@ -1395,7 +1411,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         }, null, 2), "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
       ])
-      await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
+      await installApp(appDir, "--strict-peer-dependencies")
       await assertOnlyViteHubDependencies(appDir, ["@vite-hub/browser"])
       const { stdout: prodDependencies } = await run("pnpm", ["list", "--depth", "Infinity", "--prod", "--json"], appDir)
       expect(prodDependencies).not.toContain("@cloudflare/playwright")
@@ -1474,7 +1490,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         }, null, 2), "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
       ])
-      await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
+      await installApp(appDir, "--strict-peer-dependencies")
       await run(process.execPath, [
         resolve(repoRoot, "node_modules/typescript/bin/tsc"),
         "--module",
@@ -1534,7 +1550,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const specs = await packWorkspacePackages(packDir)
       await usePackedPeerManifests(appDir, specs)
       await writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8")
-      await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
+      await installApp(appDir, "--strict-peer-dependencies")
 
       // The owner packages of opt-in features come from the app. `vite-hub` installs its own packages out of sight.
       await run("node", [

@@ -51,6 +51,7 @@ export interface OpenWorkflowSqliteOptions {
 }
 
 export interface OpenWorkflowWorkerOptions {
+  /** How many runs one worker executes at once. Defaults to 10. Each Agent turn uses two runs. */
   concurrency?: number
 }
 
@@ -220,6 +221,8 @@ export type WorkflowRunIdValue =
 export interface WorkflowCreateOptions<TPayload = unknown, TResult = unknown> {
   handler?: WorkflowHandler<TPayload, TResult>
   id?: (context: { name: string, payload?: TPayload }) => Promise<WorkflowRunIdValue> | WorkflowRunIdValue
+  /** @internal Identifies the Agent Workflow handler that the Agent package creates for an Agent turn. */
+  internalAgentWorkflow?: true
   name?: string
   rootStep?: boolean
 }
@@ -234,6 +237,8 @@ export interface WorkflowDefinitionOptions<TPayload = unknown, TResult = unknown
 export interface WorkflowDefinition<TPayload = unknown, TResult = unknown, TName extends string = string> {
   /** @internal Identifies provider-generated Agent invocation recovery definitions. */
   internalAgentInvocationRecovery?: true
+  /** @internal Identifies the inline Agent Workflow handler that the Agent package creates for an Agent turn. */
+  internalAgentWorkflow?: true
   handler: WorkflowHandler<TPayload, TResult, TName>
   /** The discovered Workflow name. `defineWorkflow()` sets it; inline and generated definitions may leave it out. */
   name?: string

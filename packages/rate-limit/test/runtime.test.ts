@@ -53,6 +53,38 @@ describe("managed Rate Limit guard", () => {
     }
   })
 
+  it("throws the 429 with the message and code of the call", async () => {
+    const event = requestEvent("192.0.2.5")
+    const options = { code: "errorTooManyTries", key: "user", limit: 1, message: "Too many tries. Wait a minute and try again.", window: "1m" } as const
+
+    await requireRateLimit(event, "worded-uploads", options)
+    const error = await requireRateLimit(event, "worded-uploads", options).catch((error: unknown) => error)
+    expect(error).toBeInstanceOf(HTTPError)
+    expect(error).toMatchObject({ data: { code: "errorTooManyTries" }, message: "Too many tries. Wait a minute and try again.", status: 429 })
+    expect((error as HTTPError).headers?.get("Retry-After")).toBeTruthy()
+  })
+
+  it("rejects an empty message or code before it consumes a token", async () => {
+    const event = requestEvent("192.0.2.6")
+
+    await expect(requireRateLimit(event, "worded-previews", { key: "user", limit: 1, message: " ", window: "1m" }))
+      .rejects.toMatchObject({ code: "RATE_LIMIT_REFUSAL_OPTION_INVALID" })
+    await expect(requireRateLimit(event, "worded-previews", { code: 42 as never, key: "user", limit: 1, window: "1m" }))
+      .rejects.toMatchObject({ code: "RATE_LIMIT_REFUSAL_OPTION_INVALID" })
+    await expect(peekRateLimit("worded-previews", "user")).resolves.toMatchObject({ status: "unused" })
+  })
+
+  it("refuses with the configured message, and checkRateLimit() rejects a message", async () => {
+    const event = requestEvent("192.0.2.3")
+    const message = "Too many tries. Wait a minute and try again."
+
+    await requireRateLimit(event, "sign-in", { limit: 1, message, window: "1m" })
+    await expect(requireRateLimit(event, "sign-in", { limit: 1, message, window: "1m" })).rejects.toMatchObject({ message, status: 429, statusText: "Too Many Requests" })
+    await expect(requireRateLimit(event, "sign-in", { limit: 1, window: "1m" })).rejects.toMatchObject({ message: "Rate limit exceeded.", status: 429 })
+    // @ts-expect-error A Result has no refusal to name.
+    await expect(checkRateLimit(event, "sign-in", { limit: 1, message, window: "1m" })).rejects.toThrow('`checkRateLimit()` does not support the "message" option.')
+  })
+
   it("keeps an explicit key authoritative over request identity", async () => {
     const event = requestEvent("192.0.2.2")
 
@@ -353,5 +385,7 @@ describe("non-throwing Rate Limit check", () => {
     const event = requestEvent("192.0.2.32")
     await expect(checkRateLimit(event, "", { limit: 1, window: "1m" })).rejects.toThrow("`checkRateLimit()` requires a non-empty stable ID")
     await expect(checkRateLimit(event, "previews", { limit: 1, window: "1m", extra: true } as never)).rejects.toThrow("does not support")
+    // checkRateLimit() throws no HTTP error, so it has no message to set.
+    await expect(checkRateLimit(event, "previews", { limit: 1, message: "Slow down.", window: "1m" } as never)).rejects.toThrow('does not support the "message" option')
   })
 })

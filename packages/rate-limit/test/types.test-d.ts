@@ -28,6 +28,9 @@ it("types the portable Rate Limit contract", async () => {
   expectTypeOf(await limiter.consume({ key: "user" })).toEqualTypeOf<RateLimitDecision>()
   expectTypeOf(limiter.capabilities.enforcement).toEqualTypeOf<"best-effort" | "strict">()
 
+  expectTypeOf(await requireRateLimit(event, "uploads", { code: "errorTooManyTries", limit: 10, message: "Too many tries.", window: "1m" })).toEqualTypeOf<void>()
+  // @ts-expect-error checkRateLimit() throws no HTTP error, so it has no message.
+  checkRateLimit(event, "uploads", { limit: 10, message: "Too many tries.", window: "1m" })
   // @ts-expect-error a managed Rate Limit requires a window.
   requireRateLimit(event, "uploads", { limit: 10 })
   expectTypeOf(await requireRateLimit(new Request("https://example.com"), "uploads", { key: "user", limit: 10, window: "1m" })).toEqualTypeOf<void>()

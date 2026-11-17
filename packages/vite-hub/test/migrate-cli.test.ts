@@ -75,6 +75,7 @@ describe("vitehub migrate", () => {
       "nuxt.config.ts": "export default defineNuxtConfig({\n  modules: ['vite-hub/nuxt', 'nuxt-og-image'],\n  vitehub: { preset: process.env.VERCEL ? 'vercel' : 'cloudflare' },\n})\n",
       "package.json": "{\"dependencies\":{\"nuxt\":\"npm:nuxt-nightly@5x\",\"nuxt-og-image\":\"^5.0.0\",\"vite-hub\":\"0.0.9\"}}\n",
       "scripts/kv.vite.config.ts": "import { hubKv } from '@vite-hub/kv/vite'\nexport default { plugins: [hubKv()] }\n",
+      "server/utils/shell.ts": "import { createShellRuntime } from 'vite-hub/shell'\nimport { createJustBashProvider } from 'vite-hub/shell/providers/just-bash'\nexport const shell = (fs) => createShellRuntime({ provider: createJustBashProvider({ fs }) })\n",
       "server/api/sync.post.ts": [
         "import { runWorkflow } from 'vite-hub/workflow'",
         "import { useServerEnv } from '#vitehub/env/server'",
@@ -109,9 +110,10 @@ describe("vitehub migrate", () => {
       "",
     ].join("\n"))
     expect(await readFile(join(root, "scripts/kv.vite.config.ts"), "utf8")).toBe("import { hubKV } from '@vite-hub/kv/vite'\nexport default { plugins: [hubKV()] }\n")
+    expect(await readFile(join(root, "server/utils/shell.ts"), "utf8")).toBe("import { createShellRuntime } from 'vite-hub/shell'\nimport { createJustBashDriver } from 'vite-hub/shell/providers/just-bash'\nexport const shell = (fs) => createShellRuntime({ driver: createJustBashDriver({ fs }) })\n")
     expect(await readFile(join(root, "tsconfig.json"), "utf8")).toBe("{\n  \"extends\": \"./.nuxt/tsconfig.json\",\n  \"compilerOptions\": {\n  }\n}\n")
     expect(await readFile(join(root, ".env.example"), "utf8")).toBe(files[".env.example"])
-    for (const name of ["vitehub-options", "root-accessors", "queue-workflow-verbs", "renamed-apis", "tsconfig-paths"]) expect(result.stdout).toContain(`\n${name} (`)
+    for (const name of ["vitehub-options", "root-accessors", "queue-workflow-verbs", "renamed-apis", "tsconfig-paths", "shell-driver"]) expect(result.stdout).toContain(`\n${name} (`)
     expect(result.stdout).toContain("Keep `NUXT_APP_SECRET` when another module, such as nuxt-og-image, reads it.")
     expect(result.stdout).toContain("Rule VHUB0003 lists Result calls whose error the code drops, such as `await email.send(...)`")
 

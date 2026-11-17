@@ -89,7 +89,7 @@ Create `server/api/search-docs.get.ts`. This route writes `README.md` to the Wor
 ```ts [server/api/search-docs.get.ts]
 import { defineEventHandler } from 'h3'
 import { createShellRuntime } from 'vite-hub/shell'
-import { createJustBashProvider } from 'vite-hub/shell/providers/just-bash'
+import { createJustBashDriver } from 'vite-hub/shell/providers/just-bash'
 import { createReadonlyWorkspaceFs, workspaceMountPoint } from 'vite-hub/shell/workspace'
 import { useWorkspace } from 'vite-hub/workspace'
 
@@ -99,7 +99,7 @@ export default defineEventHandler(async () => {
 
   const shell = createShellRuntime({
     policy: { maxOutputLength: 10_000, maxShellCalls: 1, timeout: 30_000 },
-    provider: createJustBashProvider({
+    driver: createJustBashDriver({
       commands: ['pwd', 'ls', 'cat', 'rg'],
       cwd: workspaceMountPoint,
       fs: createReadonlyWorkspaceFs(workspace.fs),
@@ -157,6 +157,6 @@ Keep a Shell session open and check a command before it runs.
 :::
 
 :::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/shell/configure"}
-Set the provider, its limits, and network access.
+Set the driver, its limits, and network access.
 :::
 ::

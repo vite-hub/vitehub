@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url"
 
 import { viteHubEnvServerModulePath } from "@vite-hub/internal/build/vite"
 import { createCliDiscoveryNitroCloser } from "@vite-hub/internal/cli"
-import { withViteStageServer } from "@vite-hub/internal/vite-stage"
+import { loadAllEnv, withViteStageServer } from "@vite-hub/internal/vite-stage"
 
 import type { ViteStageServerConfig } from "@vite-hub/internal/vite-stage"
 import type { ViteHubCliContext, ViteHubCliContributor } from "@vite-hub/internal/cli"
@@ -157,7 +157,7 @@ async function inspectStage(input: EnvCliInspectInput): Promise<ServerEnvInspect
       const kit = await import(pathToFileURL(require.resolve("nuxt/kit")).href) as {
         loadNuxt: (options: { cwd: string, dev: true, envName: string, overrides: { devtools: { enabled: false }, vite: { mode: string }, vitehubCliDiscovery: true }, ready: true }) => Promise<{ close: () => Promise<void>, options: { vite?: import("vite").InlineConfig } }>
       }
-      Object.assign(process.env, vite.loadEnv(input.stage, projectRoot, ""))
+      Object.assign(process.env, loadAllEnv(vite.loadEnv, input.stage, projectRoot))
       for (const [key, value] of Object.entries(explicitEnv)) if (value !== undefined) process.env[key] = value
       const nuxt = await kit.loadNuxt({ cwd: projectRoot, dev: true, envName: input.stage, overrides: { devtools: { enabled: false }, vite: { mode: input.stage }, vitehubCliDiscovery: true }, ready: true })
       try {

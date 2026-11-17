@@ -57,7 +57,7 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     RATE_LIMIT_R0011: {
       ...dynamicError,
-      fix: "Pass only `key`, `limit`, `window`, `enforcement`, and `failure` in the options of `requireRateLimit()` or `checkRateLimit()`.",
+      fix: "Pass only `key`, `limit`, `window`, `enforcement`, and `failure` in the options of `checkRateLimit()`. `requireRateLimit()` also accepts `message` and `code`.",
     },
     RATE_LIMIT_R0012: {
       ...dynamicError,
@@ -210,6 +210,10 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     RATE_LIMIT_MEMORY_STRICT_UNSUPPORTED: {
       ...dynamicError,
       fix: "Count in a shared store: on Node, set `rateLimit: { driver: 'kv' }` with a Redis or Postgres KV store. Or set `enforcement: 'best-effort'` on the Rate Limit.",
+    },
+    RATE_LIMIT_REFUSAL_OPTION_INVALID: {
+      ...dynamicError,
+      fix: "Pass `message` and `code` of `requireRateLimit()` as non-empty strings, such as `message: \"Too many tries. Wait a minute.\"`, or remove them to use the default `429` error.",
     },
   },
 })

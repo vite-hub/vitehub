@@ -4,7 +4,6 @@ import type { SandboxTaskDriver } from '../module-types'
 import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface ResolvedTaskSandbox {
-  closeAfterRun?: boolean
   provider: SandboxTaskDriver
   resolveSandbox: (requirements: readonly string[]) => Promise<Sandbox>
   sandboxId?: string

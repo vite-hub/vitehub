@@ -1047,7 +1047,7 @@ async function getAgentWorkflowHandle<
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInlineWithContext as never) as AgentWorkflowOutput<TOutput>
-      }, { rootStep: false })
+      }, { internalAgentWorkflow: true, rootStep: false })
   agentWorkflowNames.add(name)
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   handles.set(cacheKey, handle as WorkflowHandle<AgentWorkflowInvocationPayload, unknown>)

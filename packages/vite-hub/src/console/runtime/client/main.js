@@ -38,7 +38,7 @@ import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } 
 import { addViteHubIcons, deferLucideIcons } from "./icons";
 import { consoleProjectReady, openConsoleProject, openConsoleSite, startConsoleAccount, startConsoleProjects, useConsoleProjects } from "./project-session";
 import { memoryProjectStorage } from "./projects";
-import { consoleSectionsPath, createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
+import { consolePendingSectionRoute, consoleSectionsPath, createConsoleSectionLoader, loadConsoleNavigation, resolveConsoleSectionDeepLink, subscribeConsoleNavigation } from "./sections";
 
 // The Console app marks its page `account`: people sign in, and the Console server signs and forwards the calls of
 // their team's projects. Otherwise the page and the app share one origin, as in the Console playground, and the Console
@@ -129,6 +129,7 @@ const capabilitiesBase = "/_vitehub/api/invocation-capabilities";
 const router = createRouter({
   history: createWebHistory(consoleBase),
   routes: [
+    consolePendingSectionRoute,
     { component: ConsoleLogs, name: "vitehub-console-logs", path: "/logs", meta: { consoleSection: "logs", title: "Logs · ViteHub Console" }, props: { logsBase: "/_vitehub/api/logs", sectionsBase } },
     { component: ConsoleEnv, name: "vitehub-console-env", path: "/env", meta: { consoleSection: "env", title: "Env · ViteHub Console" }, props: { agentsBase: "/_vitehub/api/agents", definitionsBase: "/_vitehub/api/definitions", kvBase: "/_vitehub/api/kv", envBase: "/_vitehub/api/env", searchBase: "/_vitehub/api/search", sectionsBase } },
     {
@@ -452,12 +453,11 @@ subscribeConsoleNavigation(sectionsBase, addContributedRoutes);
 router.beforeEach(async (to) => {
   // The first page waits until the project opens, so its requests go to the open project.
   await consoleProjectReady();
-  if (to.matched.length === 0) {
-    // Contributed section routes exist only after the navigation response arrives.
+  // Contributed section routes exist only after the navigation response arrives.
+  return resolveConsoleSectionDeepLink(router, to, async () => {
     const navigation = await loadConsoleNavigation(sectionsBase);
     if (navigation) addContributedRoutes(navigation);
-    return router.resolve(to.fullPath).matched.length > 0 ? to.fullPath : { name: "vitehub-console" };
-  }
+  });
 });
 
 router.afterEach((to, _from, failure) => {
