@@ -2901,7 +2901,7 @@
   }
 
   /* The sm reply box is a soft filled field with no divider above it: the card's edge already bounds it, and a line over
-     a field read as two borders. Its border shows only while it has the focus, in the rule after this layer. */
+     a field read as two borders. Its border shows only while it has the focus, in theme-focus-ring.css. */
   [data-slot="comment-thread"][data-size="sm"] > [data-slot="comment-composer"] {
     border-block-start: 0;
 
@@ -3002,15 +3002,6 @@
     flex: 1;
     max-height: none;
   }
-}
-
-/* The focused sm reply box shows the accented border on the page color, without the row's 3px halo. The row's focus
-   rule in theme-focus-ring.css is outside the layers, so this rule is too, and it is more specific. A drag keeps the
-   drag highlight. */
-[data-slot="comment-thread"][data-size="sm"] > [data-slot="comment-composer"][data-layout="row"]:not([data-dragging="true"]) [data-slot="prompt-input-group"]:has([data-slot="prompt-input-textarea"]:focus-visible) {
-  background: var(--vh-bg);
-  border-color: var(--vh-border-accented);
-  box-shadow: none;
 }
 
 /*

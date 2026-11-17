@@ -44,11 +44,11 @@ it("draws the sm reply box as a soft field with no divider, and its accented edg
   const field = /\[data-slot="comment-thread"\]\[data-size="sm"\] > \[data-slot="comment-composer"\] \{([\s\S]*?)\n  \}\n/.exec(stylesheet)?.[1];
   expect(field).toContain("border-block-start: 0;");
   expect(field).toMatch(/\[data-slot="prompt-input-group"\] \{[^}]*background: var\(--vh-bg-elevated\);[^}]*border-color: transparent;/);
-  // theme-focus-ring.css is outside the layers, so the focus rule is too, after the last layer opens.
+  // Focus styles live in theme-focus-ring.css, after the row box's own focus edge, which this rule outranks.
   const focus = '\n[data-slot="comment-thread"][data-size="sm"] > [data-slot="comment-composer"][data-layout="row"]:not([data-dragging="true"]) [data-slot="prompt-input-group"]:has([data-slot="prompt-input-textarea"]:focus-visible) {';
-  const at = stylesheet.indexOf(focus);
-  expect(at).toBeGreaterThan(-1);
-  expect(stylesheet.slice(at, stylesheet.indexOf("}", at))).toContain("border-color: var(--vh-border-accented);");
+  const at = focusRing.indexOf(focus);
+  expect(at).toBeGreaterThan(focusRing.indexOf('[data-slot="comment-composer"][data-layout="row"] {'));
+  expect(focusRing.slice(at, focusRing.indexOf("}", at))).toContain("border-color: var(--vh-border-accented);");
   expect(stylesheet).toContain("--vh-border-accented: var(--vh-ui-border-accented, var(--ui-border-accented, ");
 });
 
