@@ -206,7 +206,7 @@ export default defineConfig({
 :::
 ::
 
-The `deno` host does not support Schedule. [Hosts](/docs/schedule/hosts) shows the output for each host.
+On the `deno` host, `vitehub({ schedule })` fails. Add `hubSchedule()` directly, as [Deno](/docs/frameworks-hosts/deno#configure-the-host) shows. [Hosts](/docs/schedule/hosts) shows the output for each host.
 
 ## Next steps
 
