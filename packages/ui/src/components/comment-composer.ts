@@ -248,6 +248,8 @@ export const CommentComposer = defineComponent({
 
     // A row box puts attach and send on a row under the text once the text wraps, so each line uses the full width. It
     // goes back to one row only when the text fits beside the buttons again, so the two layouts never alternate.
+    // `field-sizing: content` with `flex-wrap` can't do this alone: attach comes before the text in the row, so a wrap
+    // puts attach, the text, and send on three rows (tested in Chromium 153, Firefox 155, and WebKit 26.6).
     const multiline = ref(false);
     let buttonsWidth = 0;
     function measureLines() {

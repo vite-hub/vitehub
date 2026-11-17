@@ -27,6 +27,13 @@
   }
 }
 
+/* The reply box of an sm thread is a soft filled field (styles.css). On focus it shows the accented border on the page
+   color, without the halo. */
+[data-slot="comment-thread"][data-size="sm"] > [data-slot="comment-composer"][data-layout="row"]:not([data-dragging="true"]) [data-slot="prompt-input-group"]:has([data-slot="prompt-input-textarea"]:focus-visible) {
+  background: var(--vh-bg);
+  border-color: var(--vh-border-accented);
+}
+
 /* A box with `frame="none"` sits in a parent that is its frame, such as the bubble of a new comment. The field draws no
    edge of its own on focus, so there is one frame, and the parent shows the focus. The drag highlight stays. */
 [data-slot="comment-composer"][data-frame="none"]:not([data-dragging="true"]) [data-slot="prompt-input-group"]:has([data-slot="prompt-input-textarea"]:focus-visible) {

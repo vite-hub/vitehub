@@ -7,9 +7,9 @@
  * - `comment-mark-pin`: a 28px pin. `data-shape="point"` is a drop whose small bottom-left corner is the spot, and
  *   `data-shape="round"` is a circle, for an area or an image. An `<img>` child fills it. `data-active="true"` makes it
  *   larger, and `data-status="resolved"` makes it faded and grey.
- * - `comment-mark-area`: a 1px comment-blue line at half strength, with no fill. `data-active="true"` makes it full blue
- *   with a faint tint, `data-status="resolved"` makes it dashed and grey, and `data-draft="true"` is the area being drawn
- *   or written on: 2px full blue with a fill. Its `comment-mark-handle` children, with `data-corner="top-left"` and the
+ * - `comment-mark-area`: a 1px neutral line, a 22% tint of the ink, with no fill. `data-active="true"` makes the line
+ *   firmer (45%), `data-status="resolved"` makes it dashed and grey, and `data-draft="true"` is the area being drawn or
+ *   written on: 2px comment blue with a fill. Its `comment-mark-handle` children, with `data-corner="top-left"` and the
  *   other three corners, are round handles.
  * - `data-leaving="true"` on a pin or an area: it shrinks and fades out in 130ms (`commentLeaveMs` of `vite-hub/ui/headless`), then the page removes it.
  * The page places a pin with `left` and `top`, and an area with `left`, `top`, `width`, and `height`.
@@ -38,7 +38,7 @@
 :root,
 :host,
 :where([data-slot^="comment-mark"], [data-slot="comment-pin"], [data-slot^="comment-layer-area"]) {
-  /* The comment blue of areas and quotes. It is the focus blue of the theme, which shows on light and dark pages and on images. */
+  /* The comment blue of the area being drawn and of quotes. It is the focus blue of the theme, which shows on light and dark pages and on images. */
   --vh-comment-mark: var(--vh-ui-comment-mark, var(--vh-focus, var(--vh-comment-default-mark)));
   /* The face of a pin without an avatar, and its initials. */
   --vh-comment-pin: var(--vh-ui-comment-pin, var(--vh-primary, var(--vh-comment-default-pin)));
@@ -47,7 +47,7 @@
   --vh-comment-surface: var(--vh-ui-comment-surface, var(--vh-bg, var(--vh-comment-default-surface)));
   /* The grey of resolved marks. */
   --vh-comment-muted: var(--vh-ui-comment-muted, var(--vh-muted, var(--vh-comment-default-muted)));
-  /* The text color that highlights tint. */
+  /* The text color that highlights and saved areas tint. */
   --vh-comment-ink: var(--vh-ui-comment-ink, var(--vh-highlighted, var(--vh-comment-default-ink)));
   --vh-comment-pin-size: var(--vh-ui-comment-pin-size, 28px);
 }
@@ -144,11 +144,12 @@
 }
 
 /*
- * An area. A page with many of them stays readable, so a saved area is a thin line with no fill. `comment-layer-area`
- * is the area that a drag in CommentLayer's comment mode draws.
+ * An area. A page with many of them stays readable, so a saved area is a thin neutral line with no fill, a tint of the
+ * ink as commented text is. Only the area being drawn is comment blue. `comment-layer-area` is the area that a drag in
+ * CommentLayer's comment mode draws.
  */
 :is([data-slot="comment-mark-area"], [data-slot="comment-layer-area"]) {
-  border: calc(1px * var(--vh-comment-zoom, 1)) solid color-mix(in oklab, var(--vh-comment-mark) 50%, transparent);
+  border: calc(1px * var(--vh-comment-zoom, 1)) solid color-mix(in oklab, var(--vh-comment-ink) 22%, transparent);
   border-radius: 4px;
   box-sizing: border-box;
   pointer-events: none;
@@ -162,8 +163,7 @@
 }
 
 [data-slot="comment-mark-area"][data-active="true"] {
-  background: color-mix(in oklab, var(--vh-comment-mark) 8%, transparent);
-  border-color: var(--vh-comment-mark);
+  border-color: color-mix(in oklab, var(--vh-comment-ink) 45%, transparent);
   border-style: solid;
 }
 

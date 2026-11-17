@@ -37,6 +37,17 @@ describe("@vite-hub/ui/comment-marks.css", () => {
     expect(reduced).toMatch(/\[data-leaving="true"\] > \* \{\s*animation: none;\s*opacity: 0;/);
   });
 
+  it("draws a saved area as a neutral line, and keeps the comment blue for the area being drawn", () => {
+    const rule = (selector: string) => new RegExp(`\\n${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\{([^}]*)\\}`).exec(marks)?.[1];
+    const saved = rule(':is([data-slot="comment-mark-area"], [data-slot="comment-layer-area"])');
+    expect(saved).toContain("solid color-mix(in oklab, var(--vh-comment-ink) 22%, transparent);");
+    const active = rule('[data-slot="comment-mark-area"][data-active="true"]');
+    expect(active).toContain("border-color: color-mix(in oklab, var(--vh-comment-ink) 45%, transparent);");
+    expect(active).not.toContain("background");
+    expect(`${saved}${active}`).not.toContain("--vh-comment-mark");
+    expect(rule(':is([data-slot="comment-mark-area"][data-draft="true"], [data-slot="comment-layer-area"])')).toContain("solid var(--vh-comment-mark);");
+  });
+
   it("colors the four highlights of commented text", () => {
     const names = [...marks.matchAll(/::highlight\(([\w-]+)\)/g)].map(([, name]) => name);
     expect(names).toEqual(["vh-comment", "vh-comment-resolved", "vh-comment-active", "vh-comment-draft"]);
