@@ -1488,7 +1488,7 @@ describe("provider deployment outputs", () => {
       },
       clientOutDir: "dist/client",
       rootDir,
-    })).rejects.toThrow("Cloudflare output file conflicts with bundle outfile")
+    })).rejects.toMatchObject({ code: "INTERNAL_INVARIANT_FAILED", message: expect.stringContaining("the name of the bundle file") })
   })
 
   it("copies Vercel function runtime package dependency closures", async () => {

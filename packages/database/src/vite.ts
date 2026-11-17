@@ -342,7 +342,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
 
   function integrationReadReplication() {
     const database = resolvedOptions()
-    return database && database.driver === "d1" ? database.readReplication : undefined
+    return database && database.driver === "cloudflare" ? database.readReplication : undefined
   }
 
   function databaseRoot() {
@@ -736,7 +736,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
           const options = resolvedOptions()
           return `export default ${serializeGeneratedRegistry({
             ...runtimeConfig?.definitionDefaults ?? {
-              ...(options && options.driver === "d1" ? { cloudflare: cloudflareOptions(options) ?? {} } : {}),
+              ...(options && options.driver === "cloudflare" ? { cloudflare: cloudflareOptions(options) ?? {} } : {}),
               ...(options && options.connection ? { connection: options.connection } : {}),
             },
             ...(resolved?.command === "serve" ? { dev: true } : {}),

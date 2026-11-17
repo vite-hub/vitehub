@@ -55,7 +55,7 @@ async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ 
       kv: true,
       host: "node",
       schedule: { providerOutput: false },
-      workflow: { provider: "vercel" },
+      workflow: { driver: "vercel" },
     }),
     root,
   }, "build", "production")
@@ -78,6 +78,7 @@ async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ 
  */
 const consoleRoutes = [
   "route ALL /_vitehub console/server/site-entry.js",
+  "route ALL /_vitehub/** console/server/site-entry.js",
   "route ALL /_vitehub/rpc console/server/rpc.js",
 ]
 

@@ -16,6 +16,7 @@ it("constructs the Setup route with the project API paths", () => {
     consoleDatabasesTablePath: "/databases/:table?",
     sectionsBase: "/_vitehub/api/sections",
     capabilitiesBase: "/_vitehub/api/invocation-capabilities",
+    consolePendingSectionRoute: {},
   })
   expect(JSON.parse(JSON.stringify(router.routes.find(route => route.path === "/setup")?.props))).toEqual({
     agentsBase: "/_vitehub/api/agents",

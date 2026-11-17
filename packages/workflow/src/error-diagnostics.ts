@@ -9,6 +9,10 @@ const dynamicError = {
 export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/workflows/diagnostics",
   codes: {
+    WORKFLOW_AGENT_NOT_DISCOVERED: {
+      why: ({ name }: { name: string }) => `[vitehub] The Agent Workflow ${JSON.stringify(name)} is not a discovered Agent, so OpenWorkflow workers cannot run its turns.`,
+      fix: "Move the Agent to server/agents/, so that the build adds its Workflow to the registry that every OpenWorkflow worker loads. To run it without a Workflow, call runAgent().",
+    },
     // Operation errors. The `workflow.*` operations of the CLI, the Console, and Agents throw them with an HTTP status.
     WORKFLOW_DEFINITION_NOT_FOUND: {
       why: ({ available, workflow }: { available?: string, workflow?: string }) => workflow === undefined ? "Workflow definition was not found." : `Unknown Workflow: ${workflow}.${available ?? ""}`,
@@ -80,11 +84,11 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     WORKFLOW_C0008: {
       ...dynamicError,
-      fix: "On Netlify, set `workflow: { provider: \"openworkflow\" }` with `workflow.sqlite.path` or `workflow.postgres.url`, or set `workflow: false`.",
+      fix: "On Netlify, set `workflow: { driver: \"openworkflow\" }` with `workflow.sqlite.path` or `workflow.postgres.url`, or set `workflow: false`.",
     },
     WORKFLOW_C0009: {
       ...dynamicError,
-      fix: "Set `workflow.provider` to `\"cloudflare\"`, `\"openworkflow\"`, or `\"vercel\"`, or remove it to let ViteHub select the provider of the host.",
+      fix: "Set `workflow.driver` to `\"cloudflare\"`, `\"openworkflow\"`, or `\"vercel\"`, or remove it to let ViteHub select the driver of the host.",
     },
     WORKFLOW_C0010: {
       ...dynamicError,
@@ -100,7 +104,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     WORKFLOW_C0013: {
       ...dynamicError,
-      fix: "Set `workflow` to an object, such as `{ provider: \"openworkflow\" }`, or remove it.",
+      fix: "Set `workflow` to an object, such as `{ driver: \"openworkflow\" }`, or remove it.",
     },
     WORKFLOW_C0014: {
       ...dynamicError,
@@ -128,7 +132,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     WORKFLOW_C0020: {
       ...dynamicError,
-      fix: "Set `workflow: { provider: \"openworkflow\", sqlite: { path: \".vitehub/data/workflow.sqlite\" } }` or `workflow.postgres.url`, and start the worker with `startOpenWorkflowWorker()`.",
+      fix: "Set `workflow: { driver: \"openworkflow\", sqlite: { path: \".vitehub/data/workflow.sqlite\" } }` or `workflow.postgres.url`, and start the worker with `startOpenWorkflowWorker()`.",
     },
     WORKFLOW_CLOUDFLARE_RUN_ID_INVALID: {
       why: ({ id }: { id: string }) => `[vitehub] Cloudflare does not accept the run id ${JSON.stringify(id)}. A Cloudflare instance id starts with a letter, a digit, or \`_\`, then uses only letters, digits, \`-\`, and \`_\`, up to 100 characters.`,
@@ -204,7 +208,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     WORKFLOW_R0017: {
       ...dynamicError,
-      fix: "Set `workflow: { provider: \"openworkflow\" }` in `vitehub()`, or pass a `config` with that provider to `createOpenWorkflowWorker()`.",
+      fix: "Set `workflow: { driver: \"openworkflow\" }` in `vitehub()`, or pass a `config` with that driver to `createOpenWorkflowWorker()`.",
     },
     WORKFLOW_R0018: {
       ...dynamicError,
@@ -216,7 +220,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     WORKFLOW_R0020: {
       ...dynamicError,
-      fix: "Set `workflow: { provider: \"openworkflow\" }` in `vitehub()` before you use the OpenWorkflow runtime.",
+      fix: "Set `workflow: { driver: \"openworkflow\" }` in `vitehub()` before you use the OpenWorkflow runtime.",
     },
     WORKFLOW_R0021: {
       ...dynamicError,

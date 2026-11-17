@@ -185,6 +185,10 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
         ? `package.json has no \`build\` script, so \`${String(command)}\` cannot build the app.`
         : `\`${String(command)}\` exited with code ${String(exitCode)}.`,
     },
+    SETUP_DEPLOY_CHECK_FAILED: {
+      fix: ({ rollback }: { failed?: unknown, rollback?: unknown, url?: unknown }) => `${String(rollback)} Then fix the app and deploy again. Pass --no-check only when the check itself is wrong.`,
+      why: ({ failed, url }: { failed?: unknown, rollback?: unknown, url?: unknown }) => `The app is deployed to ${String(url)}, but a \`deploy.check\` path did not answer with a 2xx status: ${String(failed)}.`,
+    },
     SETUP_DEPLOY_OUTPUT_MISSING: {
       fix: "Build the app with vitehub() for this host, then run the command again without --no-build.",
       why: ({ file }: { file?: unknown }) => `The build output has no ${String(file)}.`,

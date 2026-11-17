@@ -19,7 +19,7 @@ Find the message you got, then apply the fix. Every CLI error code also has its 
 | `Option --provider is now --host` | The command uses the old flag. | Run the command in the `fix:` line. |
 | Provision fails before applying actions | Provider credentials are missing. | Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, or `VERCEL_TOKEN`. |
 | Provision dry run reports no actions | A package skipped the provider lookup because its read credentials are missing. | Set the provider credentials. `--dry-run` still never applies. |
-| Vercel Provision reports no Blob resources | `VERCEL_PROJECT_ID` is missing, or the Blob store is not `vercel-blob`. | Set the project id and the Vercel Blob driver, then run again. |
+| Vercel Provision reports no Blob resources | `VERCEL_PROJECT_ID` is missing, or the Blob store is not `vercel`. | Set the project id and the Vercel Blob driver, then run again. |
 | Agent eval CLI is disabled | `agent.eval` or `agent.cli` turns the eval runner off. | Turn the option back on for local development. |
 | Agent eval times out | The case, model call, or provider run takes longer than `agent.eval.testTimeout`. | Raise `agent.eval.testTimeout`, or make the case smaller. |
 | Vite config fails to load a ViteHub plugin import | A new npm project loads `vite.config.ts` as CommonJS, but ViteHub packages are ESM-only. | Set `"type": "module"` in `package.json`, or rename the config to `vite.config.mts`. |

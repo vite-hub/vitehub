@@ -331,8 +331,8 @@ describe("host packages", () => {
       sandboxTask: ["@vercel/sandbox"],
       workflow: ["@vercel/functions"],
     })
-    expect(hostFeaturePackages(["queue"], "node", { queue: { provider: "postgres" } })).toEqual({ queue: ["postgres"] })
-    expect(hostFeaturePackages(["workflow"], "vercel", { workflow: { provider: "openworkflow" } })).toEqual({})
+    expect(hostFeaturePackages(["queue"], "node", { queue: { driver: "postgres" } })).toEqual({ queue: ["postgres"] })
+    expect(hostFeaturePackages(["workflow"], "vercel", { workflow: { driver: "openworkflow" } })).toEqual({})
     expect(hostFeaturePackages(["queue", "workflow"], "node", { queue: true, workflow: true })).toEqual({})
   })
 

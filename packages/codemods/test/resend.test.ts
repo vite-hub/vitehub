@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url"
 import { afterAll, describe, expect, it } from "vitest"
 
 import { detectCodemods, formatReport, runCodemod } from "../src/index.ts"
+import { withVersionPlaceholder } from "./fixture-version.ts"
 
 const fixtures = fileURLToPath(new URL("./fixtures/", import.meta.url))
 const scratch = fileURLToPath(new URL("../.tmp/resend-test/", import.meta.url))
@@ -200,7 +201,7 @@ describe.each([
     const run = await runCodemod("resend", { cwd: input, dryRun: true })
     for (const edit of run.result.edits) {
       expect(edit.before).toBe(await readFile(join(input, edit.path), "utf8"))
-      await expect(edit.after ?? "(deleted)\n").toMatchFileSnapshot(join(fixtures, name, "output", edit.path))
+      await expect(withVersionPlaceholder(edit.after ?? "(deleted)\n")).toMatchFileSnapshot(join(fixtures, name, "output", edit.path))
     }
     await expect(formatReport(run)).toMatchFileSnapshot(join(fixtures, name, "output", "report.txt"))
   })

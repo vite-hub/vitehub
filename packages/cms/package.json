@@ -57,6 +57,7 @@
     "nostics": "catalog:runtime"
   },
   "devDependencies": {
+    "@comark/html": "catalog:markdown-ui",
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
     "@vite-hub/comments": "workspace:*",
@@ -64,6 +65,7 @@
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "better-auth": "catalog:auth",
+    "comark": "catalog:markdown-ui",
     "drizzle-orm": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -73,11 +75,13 @@
     "zod": "catalog:runtime"
   },
   "peerDependencies": {
+    "@comark/html": "catalog:markdown-ui",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "better-auth": "catalog:auth",
+    "comark": "catalog:markdown-ui",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {

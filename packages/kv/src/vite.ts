@@ -21,6 +21,7 @@ import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, r
 import { isPlainObject } from "@vite-hub/internal/object"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
+import { loadAllEnv } from "@vite-hub/internal/vite-stage"
 
 import { configureCloudflareKV } from "./integrations/cloudflare.ts"
 import { inspectKVResources, inspectKVStores } from "./inspect.ts"
@@ -144,12 +145,12 @@ function serializeVirtualConfig(config: KVViteRuntimeConfig, databaseImport: str
 function isCloudflareKVConfig(kv: KVViteRuntimeConfig["kv"]): kv is ResolvedKVModuleOptions {
   if (!kv) return false
   return Object.values(kv.stores || { default: kv.store })
-    .every(store => store.driver === "cloudflare-kv-binding")
+    .every(store => store.driver === "cloudflare")
 }
 
 function hasCloudflareKVStore(kv: KVViteRuntimeConfig["kv"]): boolean {
   if (!kv) return false
-  return Object.values(kv.stores || { default: kv.store }).some(store => store.driver === "cloudflare-kv-binding")
+  return Object.values(kv.stores || { default: kv.store }).some(store => store.driver === "cloudflare")
 }
 
 /**
@@ -463,7 +464,7 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
         mode = env?.mode ?? config.mode ?? (command === "serve" ? "development" : "production")
         runtimeConfig = undefined
         projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
-        viteEnv = (await import("vite")).loadEnv(mode, config.envDir === false ? false : resolve(config.root || process.cwd(), config.envDir ?? "."), "")
+        viteEnv = loadAllEnv((await import("vite")).loadEnv, mode, config.envDir === false ? false : resolve(config.root || process.cwd(), config.envDir ?? "."))
         nitroOwned = configureNitroCloudflareKV(config, options, resolutionInput(), ownedNitroNamespaces, readProvisionStateSync(projectRoot))
         return installStandaloneOperationRpc(config, env?.command ?? "build", operationsModule)
       },
@@ -476,7 +477,7 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
         if (config.command) command = config.command
         mode = config.mode ?? mode
         projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
-        viteEnv = (await import("vite")).loadEnv(mode, config.envDir === false ? false : resolve(config.root || process.cwd(), config.envDir ?? "."), "")
+        viteEnv = loadAllEnv((await import("vite")).loadEnv, mode, config.envDir === false ? false : resolve(config.root || process.cwd(), config.envDir ?? "."))
         databasePlugin = findDatabasePlugin(config.plugins)
         providerOutput = useProviderOutputCatalog(config)
         runtimeConfig = resolveKVViteConfig(options, resolutionInput())

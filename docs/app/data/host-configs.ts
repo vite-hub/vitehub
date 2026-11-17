@@ -78,14 +78,14 @@ export const hostConfigs: Partial<Record<FeatureId, HostConfigs>> = {
     cloudflare: { options: { rateLimit: { comment: "On Cloudflare, a binding keeps counts", value: "true" } } },
     node: { options: { rateLimit: { comment: "On Node, counts stay in memory. Turn on shared KV to share them.", value: "true" } } },
   },
-  // realtime/configure.md, "Choose a room authority": `auto` selects Durable Objects, or Redis or Postgres on Node.
+  // realtime/configure.md, "Choose a room driver": `auto` selects Durable Objects, or Redis or Postgres on Node.
   realtime: {
     cloudflare: { options: { realtime: { comment: "Keep rooms in Durable Objects", value: "true" } } },
     node: { options: { realtime: { comment: "Share rooms through Redis (REDIS_URL) or a Postgres Default Database", value: "true" } } },
   },
   sandboxTask: {
-    netlify: { options: { sandboxTask: { comment: "Run remotely with Vercel credentials", value: "{ provider: 'vercel' }" } } },
-    node: { options: { sandboxTask: { comment: "Run remotely with Vercel credentials", value: "{ provider: 'vercel' }" } } },
+    netlify: { options: { sandboxTask: { comment: "Run remotely with Vercel credentials", value: "{ driver: 'vercel' }" } } },
+    node: { options: { sandboxTask: { comment: "Run remotely with Vercel credentials", value: "{ driver: 'vercel' }" } } },
     cloudflare: { options: { sandboxTask: { comment: "Each run starts a Cloudflare Sandbox", value: "true" } } },
     vercel: { options: { sandboxTask: { comment: "Each run starts a Vercel Sandbox", value: "true" } } },
   },

@@ -48,16 +48,16 @@ it("gives each Workflow definition and config code a fix and its own docs page",
   }
 })
 
-it("lists the providers in the fix of an unknown provider", async () => {
-  await expect(buildConfig({ provider: "temporal" } as never)).rejects.toMatchObject({
+it("lists the drivers in the fix of an unknown driver", async () => {
+  await expect(buildConfig({ driver: "temporal" } as never)).rejects.toMatchObject({
     code: "WORKFLOW_C0009",
-    fix: expect.stringContaining("`workflow.provider`"),
-    message: "Unknown `workflow.provider`: \"temporal\". Expected \"cloudflare\", \"openworkflow\", or \"vercel\".",
+    fix: expect.stringContaining("`workflow.driver`"),
+    message: "Unknown `workflow.driver`: \"temporal\". Expected \"cloudflare\", \"openworkflow\", or \"vercel\".",
   })
 })
 
 it("names both storage options in the fix of two OpenWorkflow stores", async () => {
-  await expect(buildConfig({ postgres: { url: "postgres://localhost/app" }, provider: "openworkflow", sqlite: { path: ".vitehub/data/workflow.sqlite" } })).rejects.toMatchObject({
+  await expect(buildConfig({ postgres: { url: "postgres://localhost/app" }, driver: "openworkflow", sqlite: { path: ".vitehub/data/workflow.sqlite" } })).rejects.toMatchObject({
     code: "WORKFLOW_C0012",
     fix: expect.stringContaining("`workflow.postgres.url` and `workflow.sqlite.path`"),
   })

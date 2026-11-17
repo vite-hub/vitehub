@@ -36,31 +36,31 @@ async function accessSent(options: BlobOptions): Promise<unknown> {
 
 describe("Vercel Blob store access", () => {
   it("writes private objects when the serve route requires authorization", async () => {
-    expect(await accessSent({ driver: "vercel-blob", serve: { authorize: true } })).toBe("private")
+    expect(await accessSent({ driver: "vercel", serve: { authorize: true } })).toBe("private")
   })
 
   it("writes private objects when no route serves the store", async () => {
-    expect(await accessSent({ driver: "vercel-blob" })).toBe("private")
-    expect(await accessSent({ stores: { default: { driver: "fs" }, drafts: { driver: "vercel-blob" } }, serve: { access: "public" } })).toBe("private")
+    expect(await accessSent({ driver: "vercel" })).toBe("private")
+    expect(await accessSent({ stores: { default: { driver: "fs" }, drafts: { driver: "vercel" } }, serve: { access: "public" } })).toBe("private")
   })
 
   it("writes public objects only when the store or its route says public", async () => {
-    expect(await accessSent({ driver: "vercel-blob", serve: { access: "public" } })).toBe("public")
-    expect(await accessSent({ access: "public", driver: "vercel-blob" })).toBe("public")
-    expect(await accessSent({ access: "public", driver: "vercel-blob", serve: { access: "public" } })).toBe("public")
-    expect(await accessSent({ access: "private", driver: "vercel-blob", serve: { access: "public" } })).toBe("private")
+    expect(await accessSent({ driver: "vercel", serve: { access: "public" } })).toBe("public")
+    expect(await accessSent({ access: "public", driver: "vercel" })).toBe("public")
+    expect(await accessSent({ access: "public", driver: "vercel", serve: { access: "public" } })).toBe("public")
+    expect(await accessSent({ access: "private", driver: "vercel", serve: { access: "public" } })).toBe("private")
   })
 
   it("rejects a public provider store behind an authorized route", () => {
-    expect(() => normalizeBlobOptions({ access: "public", driver: "vercel-blob", serve: { authorize: true } }, { env }))
+    expect(() => normalizeBlobOptions({ access: "public", driver: "vercel", serve: { authorize: true } }, { env }))
       .toThrow(expect.objectContaining({ code: "BLOB_C0022" }))
-    expect(() => normalizeBlobOptions({ serve: { authorize: true, store: "files" }, stores: { default: { driver: "fs" }, files: { access: "public", driver: "vercel-blob" } } }, { env }))
+    expect(() => normalizeBlobOptions({ serve: { authorize: true, store: "files" }, stores: { default: { driver: "fs" }, files: { access: "public", driver: "vercel" } } }, { env }))
       .toThrow(expect.objectContaining({ code: "BLOB_C0022" }))
   })
 
   it("saves a Realtime blobDocument draft as a private object", async () => {
     vi.stubEnv("BLOB_READ_WRITE_TOKEN", env.BLOB_READ_WRITE_TOKEN)
-    setBlobRuntimeConfig(normalizeBlobOptions({ driver: "vercel-blob", serve: { authorize: true } }, { env }))
+    setBlobRuntimeConfig(normalizeBlobOptions({ driver: "vercel", serve: { authorize: true } }, { env }))
     vercel.head.mockRejectedValue(new (await import("@vercel/blob")).BlobNotFoundError())
     const adapter = blobDocument(blob, { prefix: "drafts/" })
 

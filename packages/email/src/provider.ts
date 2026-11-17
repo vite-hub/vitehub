@@ -1,6 +1,6 @@
 import type { EmailProviderError, EmailProviderErrorCode } from "./types.ts"
 
-const emailProviderErrorCodes = new Set<EmailProviderErrorCode>([
+const emailProviderErrorCodes: ReadonlySet<unknown> = new Set<EmailProviderErrorCode>([
   "AUTH",
   "CANCELLED",
   "INVALID_OPTIONS",
@@ -34,5 +34,5 @@ export function isEmailProviderError(value: unknown): value is EmailProviderErro
   return typeof error.message === "string"
     && typeof error.driver === "string"
     && error.driver.trim().length > 0
-    && emailProviderErrorCodes.has(error.code as EmailProviderErrorCode)
+    && emailProviderErrorCodes.has(error.code)
 }

@@ -5,7 +5,7 @@ import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 
 import type { WorkflowProviderAcknowledgement } from "../errors.ts"
 
-type WorkflowProvider = "cloudflare" | "openworkflow" | "vercel"
+type WorkflowDriver = "cloudflare" | "openworkflow" | "vercel"
 
 type WorkflowProviderOperation =
   | "cancel"
@@ -86,7 +86,7 @@ function isDevelopment(): boolean {
 }
 
 export async function runWorkflowProviderOperation<T>(
-  provider: WorkflowProvider,
+  provider: WorkflowDriver,
   operation: WorkflowProviderOperation,
   run: () => T | PromiseLike<T>,
   options: {
@@ -110,7 +110,7 @@ export async function runWorkflowProviderOperation<T>(
     const details: {
       acknowledgement?: WorkflowProviderAcknowledgement
       operation: WorkflowProviderOperation
-      provider: WorkflowProvider
+      provider: WorkflowDriver
       reason?: string
       status?: number
     } = {

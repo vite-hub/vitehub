@@ -26,6 +26,8 @@ pnpm vitehub database up
 
 `database up` converts each Drizzle Kit 0.x migrations folder, with `meta/_journal.json`, to the Drizzle Kit 1.0 layout of one folder per migration. `generate` and `migrate` refuse a 0.x folder with `DATABASE_MIGRATIONS_OLD_LAYOUT`.
 
+When a change can be a rename, Drizzle Kit asks in a terminal. Without a terminal, with `CI` set, or with `--non-interactive`, `database generate` does not ask: it exits with code 2 and `DATABASE_GENERATE_AMBIGUOUS_CHANGE`, which prints the `--hints` command for each answer. Read [Rename a column or table](/docs/database/configure#rename-a-column-or-table).
+
 ## Export a Database
 
 `database export` writes a SQL dump of each database. It reads the local SQLite file by default, and with `--remote` it reads Cloudflare D1 (through the Cloudflare API), D1 HTTP, remote libSQL, or Postgres (through `pg_dump`).
@@ -43,6 +45,26 @@ pnpm vitehub database export --remote --stage production --output backups/databa
 | `--output <file>` | Write this file. The default is `.vitehub/exports/database/<name>-<local\|remote>-<time>.sql`. |
 
 See [Export a database](/docs/database/configure#export-a-database) for each driver and the dump format.
+
+## Run SQL on a Database
+
+`database sql` runs SQL on one database and prints the rows of each statement as a table. Without a SQL argument, it reads stdin. `database drop` drops every table of one database and its migrations table. It asks first, and needs `--force` without a terminal. Both use the local SQLite file or PGlite folder by default. Any other database needs `--remote`.
+
+```bash [Terminal]
+pnpm vitehub database sql "select id, email from users limit 5"
+pnpm vitehub database sql --json < report.sql
+pnpm vitehub database drop --force
+```
+
+| Option | Description |
+| --- | --- |
+| `--remote` | Use the remote database. Needed for a database that is not a local file or folder. |
+| `--stage <name>` | Load the Vite env files of this mode. Process variables win. |
+| `--database <name>` | The database to use. Needed when the app has several. |
+| `--json` | `sql` only. Print one JSON array with `{ columns, rows, rowsAffected }` for each statement. |
+| `--force` | `drop` only. Drop without asking. |
+
+See [Run SQL and drop tables](/docs/database/configure#run-sql-and-drop-tables) for what `drop` drops on each driver.
 
 ## Seed a Database
 

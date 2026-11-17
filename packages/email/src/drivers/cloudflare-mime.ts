@@ -7,7 +7,7 @@ function safeHeader(value: string): string {
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u0008\u000A-\u001F\u007F]/.test(value)) {
     throw emailProviderError(
-      "cloudflare-email",
+      "cloudflare",
       "INVALID_OPTIONS",
       "Email headers cannot contain control characters.",
     );
@@ -18,7 +18,7 @@ function safeHeader(value: string): string {
 function headerLine(name: string, value: string): string {
   if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(name)) {
     throw emailProviderError(
-      "cloudflare-email",
+      "cloudflare",
       "INVALID_OPTIONS",
       `${name} is not a valid email header name.`,
     );
@@ -26,7 +26,7 @@ function headerLine(name: string, value: string): string {
   const line = `${safeHeader(name)}: ${safeHeader(value)}`;
   if (new TextEncoder().encode(line).length > 998) {
     throw emailProviderError(
-      "cloudflare-email",
+      "cloudflare",
       "INVALID_OPTIONS",
       `Cloudflare Email cannot encode an overlong ${name} header.`,
     );

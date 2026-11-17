@@ -156,7 +156,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     host: 'cloudflare',
-    database: { driver: 'd1' },
+    database: { driver: 'cloudflare' },
     agent: { invocations: 'database' },
   },
 })
@@ -172,7 +172,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     host: 'cloudflare',
-    database: { driver: 'd1' },
+    database: { driver: 'cloudflare' },
     agent: { invocations: 'database' },
   }), nitro()],
 })
@@ -187,7 +187,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     host: 'cloudflare',
-    database: { driver: 'd1' },
+    database: { driver: 'cloudflare' },
     agent: { invocations: 'database' },
   })],
 })
@@ -629,6 +629,8 @@ Each Agent turn on Cloudflare Workflows or OpenWorkflow starts two Workflow runs
 The recovery run reads every second for one minute, then every minute for one hour, then every 30 minutes, for up to one day. After a normal turn it ends at its next read, about one second later. Count two runs per turn when you size the OpenWorkflow worker concurrency. In `vitehub workflow` output and `getWorkflowRun()`, the recovery run is a normal run; its result is empty.
 
 An Agent turn on a Workflow runs its Driver at most once. When the process stops during the Driver, the provider retries the run, but the retry finds the record `running` and does not start the Driver again, because a second run could repeat model calls and tool side effects. This is true when the claim of the stopped attempt has expired too. The retry fails with `AGENT_INVOCATION_DRIVER_INTERRUPTED`, and the Workflow run and the journal record show `failed`. Further attempts of that run also fail before dispatch, even when error redaction removes the stored diagnostic. A retry of a turn that never reached `running` still starts the Driver. To try again, start a new turn.
+
+For the same reason, a Workflow attempt starts the Driver only after the journal writes `running`. When that write fails, the attempt fails before the Driver and the record stays `pending`, so the Workflow retry can start the Driver. When the Workflow has no retries left, the recovery Workflow records `failed`.
 
 On Vercel, Agents run through the inline Workflow adapter, because Vercel's deterministic native Workflow bundle cannot embed arbitrary handlers. An accepted run starts its journal in the Agent worker, with bounded recovery inside the active execution. Vercel has no lifecycle hook that guarantees recovery after the execution settles, so treat this journal as best-effort and Workflow inspection as the authority. A synchronous start rejection is still recorded as failed. Run inspection reports `mode: "inline"`.
 

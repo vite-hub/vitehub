@@ -90,7 +90,7 @@ pnpm vitehub project info --url https://app.example.com
 
 `project.get` tells a client what the project runs and what the caller may use, and every caller that passes Console access can read it. It lists only the sections and operations that the app installs and that `authorize` allows, so a read-only grant such as `"kv:read"` leaves out the writes. An operation that reads its section from the input, such as `documents.action`, is listed, and each call checks its section again.
 
-`protocol` is the version of this answer, and a client stops at a protocol that it does not know. `vitehub` is the version of the `vite-hub` package that the app runs.
+`protocol` is the version of this answer, and a client stops at a protocol that it does not know. `name` is the `name` option of `vitehub`, or the `name` in `package.json` when unset. `vitehub` is the version of the `vite-hub` package that the app runs, such as `0.0.0-preview-4f9c2e1` for a pkg.pr.new build.
 
 `build` is what the production build recorded: when it ran, and its Git commit with the first line of the message, the author name, and the branch. The Console shows it as **Last deploy** on Home and on the app Overview. CI variables come first, such as `GITHUB_SHA`, `VERCEL_GIT_COMMIT_SHA`, `CF_PAGES_COMMIT_SHA`, and `WORKERS_CI_COMMIT_SHA`, and `git` in the project fills the rest. A build without Git records only the time, and `SOURCE_DATE_EPOCH` sets the time of a reproducible build. A development server sends no `build`. Every caller that may read `project.get` sees the commit message and the author name.
 

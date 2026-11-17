@@ -711,6 +711,40 @@ describe("Auth tables in the app Database", () => {
     expect(() => resolveDBViteConfig(undefined, root, { contributions: collected })).not.toThrow()
   })
 
+  it("adds the tables and columns of the Definition's plugins and additional fields", async () => {
+    const root = await createTempProject()
+    const file = join(root, "server", "auth.ts")
+    await mkdir(dirname(file), { recursive: true })
+    // The shape of ViteHub Finance's and comark-ui's Definitions.
+    await writeFile(file, [
+      "import { apiKey } from '@better-auth/api-key'",
+      "import { stripe } from '@better-auth/stripe'",
+      "import { twoFactor } from 'better-auth/plugins'",
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "import { CURRENCIES } from '../shared/money'",
+      "export default defineAuth(({ env }) => ({",
+      "  database: authDatabase(),",
+      "  user: { additionalFields: { login: { type: 'string', required: false }, displayCurrency: { type: [...CURRENCIES], required: false, input: true } } },",
+      "  plugins: [twoFactor(), apiKey(), stripe({ stripeClient: env.stripe, stripeWebhookSecret: '', subscription: { enabled: true, plans: [] } })],",
+      "}))",
+      "",
+    ].join("\n"))
+    const { tables } = await contributions(root)
+    const module = join(root, ".vitehub", "auth", "schema.ts")
+    expect(tables).toMatchObject([{ database: "default", definition: { export: "authSqliteSchema", module } }])
+    expect(tables[0]!.tables).toMatchObject({ apikey: "apikey", subscription: "subscription", twoFactor: "two_factor", user: "user" })
+    const source = await readFile(module, "utf8")
+    expect(source).toContain("from \"vite-hub/auth/schema\"")
+    expect(source).toContain("\"plugins\":[\"apiKey\",\"stripe\",\"twoFactor\"]")
+    expect(source).toContain("\"login\":{\"type\":\"string\"}")
+
+    // Without the plugins and fields, the contribution uses the package tables again.
+    await writeAuthDatabase(root, "authDatabase()")
+    expect((await contributions(root)).tables).toMatchObject([{ definition: { module: "vite-hub/auth/schema" } }])
+    await expect(readFile(module, "utf8")).rejects.toThrow()
+  })
+
   it("adds no tables without authDatabase()", async () => {
     const root = await createTempProject()
     await writeAuth(root)

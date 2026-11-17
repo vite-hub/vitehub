@@ -43,6 +43,8 @@ These errors exit with `3`:
 
 ## Read a project without loading it
 
+Other commands load the project config the way `nuxt dev` does: in a Nuxt app, the `$development` overrides apply, so a command next to a running dev server resolves the same config and leaves its generated files alone. `--stage <name>` loads `$<name>` instead.
+
 `vitehub catalog` shows what each host supports, and `vitehub status` shows what your project has and still needs.
 
 ```bash [Terminal]
@@ -87,7 +89,7 @@ pnpm vitehub add email --option email.driver=resend --yes --json
 The host decides what `add` accepts. An unsupported feature exits with `3`. A host that needs an explicit provider, such as Email on Vercel, exits with `2` and lists the option in `missing` with its `choices`, and when ViteHub can choose the values, `rerun` succeeds as it is. Node Schedules need `--option schedule.runtime.driver=process`, or `schedule.providerOutput=false` when you wake them yourself. A provider option such as `blob.driver=s3` adds its packages to the install.
 
 ::note
-Some host defaults build and run but keep state in one process. Workspace on Vercel, for example, keeps files in memory until `BLOB_READ_WRITE_TOKEN` is set. `nextSteps` names each one with the option that selects a durable provider.
+Some host defaults build and run but keep state in one process. Workspace on Vercel, for example, keeps files in memory until `BLOB_READ_WRITE_TOKEN` is set. `nextSteps` names each one with the option that selects a durable driver.
 ::
 
 `add console` sets `console: true`, so the app accepts only [signed calls](/docs/console/signed-requests). Add `--option console.authorize=server/console-authorize.ts` to limit who may use which section, or `console.auth=false` to accept unsigned calls in development. Console does not turn on Comments or Database.

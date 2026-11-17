@@ -97,7 +97,7 @@ Signal resumption needs the Vercel provider, the Workflow DevKit runtime, and a 
 | Field | Type | Description |
 | --- | --- | --- |
 | `id` | `string` | Run id from the provider or ViteHub. |
-| `provider` | `WorkflowProvider` | Provider of the run. |
+| `provider` | `WorkflowDriver` | Provider of the run. |
 | `status` | `WorkflowRunStatus` | `queued`, `running`, `completed`, `failed`, `cancelled`, or `unknown`. |
 | `result` | `TResult` | The value that the handler returned, as JSON, when completed. A `Response` when the handler returned one. |
 | `payload` | `TPayload` | Original payload when the provider returns it. A start with the id of an existing run returns that run: OpenWorkflow and inline runs report the stored payload, and Cloudflare reports none, because it does not return the payload of an instance. |

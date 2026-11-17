@@ -73,12 +73,12 @@ export default defineSchedule({
 
 The file name is the schedule name, `daily-report`. The build reads `cron` and `manual` from the source, so write them as literal values. See [Schedule Definition options](/docs/schedule/configure#schedule-definition-options).
 
-### Protect the cron function with `CRON_SECRET`
+### Set `CRON_SECRET`
 
 Add a `CRON_SECRET` environment variable to the Vercel project. Vercel recommends a random string of at least 16 characters. Vercel sends it as `Authorization: Bearer <CRON_SECRET>`, and the generated function returns `401` if the header does not match.
 
 ::warning
-Without `CRON_SECRET`, the function does not check the header, so anyone who knows the path can run the schedule. Set it before you deploy a schedule that changes data. See [securing cron jobs](https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs).
+Without `CRON_SECRET`, the function returns `401` for every request, so no schedule runs. For a Vercel build with schedules, `vitehub deploy` stops with `SETUP_DEPLOY_ENV_MISSING` when neither the Vercel project nor your local env has `CRON_SECRET`. See [securing cron jobs](https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs).
 ::
 
 ## What the build generates

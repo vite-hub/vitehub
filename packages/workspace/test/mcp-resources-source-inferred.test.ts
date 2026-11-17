@@ -35,7 +35,7 @@ afterEach(() => {
 describe("inferred MCP resource Sources", () => {
   it("load without a direct mcpResources import", async () => {
     registerWorkspace("nuxt-mcp", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         nuxt: {
           mount: "nuxt",

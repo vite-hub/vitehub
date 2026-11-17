@@ -13,16 +13,16 @@ With `console.authorize`, a member needs the `site` section. The result’s `gra
 
 ## Sign browsers in
 
-With [Auth](/docs/auth), **Site access** in the Console signs browsers in to the app for you:
+With [Auth](/docs/auth) or [without it](#site-access-without-auth), **Site access** in the Console signs browsers in to the app for you:
 
 | Action | What it does |
 | --- | --- |
 | **Open site** | Opens the app in a new tab as the app user with your Console account's email, and creates that user if needed. An app user with that email who never verified it is refused, because anyone can sign up with an email they do not own. |
 | **Link a phone** | Shows a QR code, valid for 10 minutes, that signs the phone in as you. |
-| **`/_vitehub`** | Add `/_vitehub` to the app address to sign in through the Console and return with the pill. Add `?page=/guide/day-2` to return to that page. In development it opens the page with `?vitehub` instead. |
+| **`/_vitehub`** | Signs in through the Console and returns to the page with the pill open. |
 | **Invite someone** | Makes a link for a guest with the name that their comments show and the grants that you pick, such as **Write comments**. It works once, in one browser, for 1, 7 or 30 days, and creates a new app user. |
 
-Each browser is a Better Auth session, so your session settings decide how long it lasts; Better Auth's default is 7 days, renewed daily while in use. Grants are roles of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin) in the comma-separated `user.role`, so Site access needs `admin()` in the `plugins` of `defineAuth()`. A member gets the `console` role, which shows the **Console** link, and the page tool roles allowed by `grants` (every page tool when `grants` is omitted). A guest gets `guest` and the roles that you picked, such as the `comments-read`, `comments-write`, `comments-resolve` and `comments-delete` roles that [Comments checks](/docs/comments/configure#roles-from-site-access).
+With Auth, each browser is a Better Auth session, so your session settings decide how long it lasts; Better Auth's default is 7 days, renewed daily while in use. Grants are roles of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin) in the comma-separated `user.role`, so Site access needs `admin()` in the `plugins` of `defineAuth()`. A member gets the `console` role, which shows the **Console** link, and the page tool roles allowed by `grants` (every page tool when `grants` is omitted). A guest gets `guest` and the roles that you picked, such as the `comments-read`, `comments-write`, `comments-resolve` and `comments-delete` roles that [Comments checks](/docs/comments/configure#roles-from-site-access).
 
 A guest has no password and the email `guest-<id>@guests.invalid`, and never gets the **Console** link or into the Console. Better Auth runs your `databaseHooks.user.create` for guests, so a hook that closes sign-up refuses them too. **Revoke** next to a browser, or `site.revoke-session`, signs it out; for a guest, it also deletes the user, and their comments keep the name.
 
@@ -38,6 +38,25 @@ A guest is an app user with a session, so routes that let in any signed-in user 
 | `site.sessions`, `site.revoke-session` | List the browsers of members and guests, and sign one out. |
 | `site.grants` | Lists the roles that Site access gives. |
 
+Put `/_vitehub` after the app address, before the page path. `https://app.example.com/_vitehub/projects/meetups?task=x` comes back to `/projects/meetups?task=x`, and keeps its hash. A link to `/_vitehub` on a page of the app comes back to that page, from the `Referer` header. Without a page, `/_vitehub` comes back to the app home.
+
+| Who opens it | What happens |
+| --- | --- |
+| You, on a development server | The page opens with `?vitehub`. The pill needs no sign-in there. |
+| You, already signed in to the app through the Console | The page opens with `?vitehub`, without the Console. |
+| Anyone else | The browser goes to the Console, which asks you to sign in when needed, signs the browser in to the app, and opens the page with `?vitehub`. |
+
+`/_vitehub` comes back only to pages of the same app. ViteHub serves its own routes below `/_vitehub`, so these first path segments never come back to a page, and answer 404 when no ViteHub route matched: `.well-known`, `_vitehub`, `agent`, `agents`, `api`, `blob`, `channel-task`, `channels`, `comments`, `connections`, `console`, `content`, `forms`, `health`, `host`, `i`, `mcp`, `mcp-client`, `page`, `ready`, `realtime`, `rpc`, `schedule`, `warm`, and `webhook-queue`. For a page such as `/content/intro`, open the page and follow a link to `/_vitehub` from it.
+
+## Site access without Auth
+
+A docs site or another app without Auth gets Site access too. Opening the link sets the `vitehub_site` cookie instead of a Better Auth session. The cookie holds the person (the id, name, email, and image of your Console account, or the guest's name) and the roles: `console` and the roles allowed by `console.authorize` (every page tool role by default) for a member, `guest` and the picked roles for a guest. The page tools session, the **Console** link, and Comments read it after `identify` and the Auth session.
+
+- The cookie is sealed with AES-GCM under a key that `VITEHUB_SECRET` gives for this purpose alone, so the browser cannot read or change it. It is `HttpOnly`, `SameSite=Lax`, `Secure` on HTTPS, and lasts 7 days. A changed cookie, a cookie of another secret, and an expired cookie count as no cookie.
+- The app trusts the person and the roles in the cookie as much as the Console key: a signed Console call made the ticket.
+- Each cookie names a session in the app's default KV store. **Revoke**, or `site.revoke-session`, deletes it, and the cookie stops working on the next request. `site.sessions` lists the sessions.
+- It needs `VITEHUB_SECRET`, else `site.link` and `site.invite` fail with `500` and `CONSOLE_SITE_SECRET_MISSING`, and a KV store that takes a ticket out once (see [one-time links](#one-time-links)), else they fail with `CONSOLE_TICKET_STORE_MISSING`. A development server keeps sessions in memory.
+
 ## One-time links
 
 A draft preview needs your app's origin to render, and a sign-in needs it to set the session cookie, but the Console runs on another origin. So it calls an operation with a signed request, which checks the section, the grant and the target, and gets back `{ url, expiresAt }`. It opens `url`, a `GET /_vitehub/rpc?ticket=<ticket>` on your app, in a new tab, and the app redeems the ticket once and answers with the draft or with a redirect home and the session cookies.
@@ -50,7 +69,7 @@ A draft preview needs your app's origin to render, and a sign-in needs it to set
 
 A ticket works for 60 seconds and only once, even when two instances get it at the same time. A used, expired or changed ticket gets `401` with `CONSOLE_TICKET_INVALID`, and one from another app, or in a browser signed in as another person, gets `403` with `CONSOLE_TICKET_MISMATCH`.
 
-Tickets live in Better Auth's verification table, so production needs [Auth with a Database](/docs/auth/configure#keep-users-in-the-app-database) or refuses them with `500` and `CONSOLE_TICKET_STORE_MISSING`. A development server without one keeps them in memory.
+The store is the verification table of Better Auth when the app has [Auth with a Database](/docs/auth/configure#keep-users-in-the-app-database). Without Auth, it is the app's default [KV store](/docs/kv) when its driver takes a key out once: Redis, Upstash, or the `database` driver. Cloudflare KV, Deno KV, and `fs-lite` cannot, because two instances could both read a ticket before either deletes it. A development server without a store keeps tickets in memory. A production app without one refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`.
 
 ## Link to the Console
 
