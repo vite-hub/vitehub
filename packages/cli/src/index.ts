@@ -270,6 +270,20 @@ function readPackageVersion(): string {
   return version
 }
 
+/** The last `--stage <name>` or `--stage=<name>` of the command. */
+function readStageArg(args: readonly string[]): string | undefined {
+  let stage: string | undefined
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!
+    if (arg.startsWith("--stage=")) stage = arg.slice("--stage=".length) || undefined
+    else if (arg === "--stage") {
+      const value = args[++index]
+      stage = value && !value.startsWith("-") ? value : undefined
+    }
+  }
+  return stage
+}
+
 export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise<number> {
   const args = options.args || process.argv.slice(2)
   // Keep command writes on the stream writer captured before config loading.
@@ -291,9 +305,8 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   } as ViteHubCliStreams["stderr"])
   const spawn = options.spawn || defaultSpawn
   // Channel definitions and their default public URL must use the same stage, including config-time loadEnv().
-  const stageIndex = args[0] === "channels" && (args[1] === "sync" || args[1] === "history") ? args.lastIndexOf("--stage") : -1
-  const stageValue = stageIndex === -1 ? undefined : args[stageIndex + 1]
-  const stage = stageValue && !stageValue.startsWith("-") ? stageValue : undefined
+  // `vitehub seed --remote` writes the deployment of the stage, so its `publicUrl` and primitives come from that mode too.
+  const stage = (args[0] === "channels" && (args[1] === "sync" || args[1] === "history")) || args[0] === "seed" ? readStageArg(args) : undefined
   const loadProject = (command: "build" | "serve") => withStdoutOnStderr(async () => {
     const loadConfig = options.loadConfig || loadViteConfig
     const loadNuxtConfig = options.loadNuxtViteConfig || loadNuxtViteConfig

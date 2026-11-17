@@ -116,6 +116,27 @@ describe("vitehub seed", () => {
     expect(process.env.SEED_STAGE_VALUE).toBeUndefined()
   })
 
+  it.each([["--stage", "staging"], ["--stage=staging"]])("loads the project in the mode of %s, so --remote writes that deployment", async (...stageArgs) => {
+    const calls: Array<[string, ViteHubCliSeedOptions]> = []
+    const kv = seed("kv", 0, calls)
+    const modes: Array<string | undefined> = []
+    const exitCode = await runViteHubCli({
+      args: ["seed", "kv", "--remote", ...stageArgs],
+      cwd: "/repo",
+      env: {},
+      loadConfig: async (_root, _command, mode) => {
+        modes.push(mode)
+        const publicUrl = mode === "staging" ? "https://staging.example" : "https://production.example"
+        return { plugins: [{ vitehub: { cli: { namespaces: [], publicUrl, seeds: [kv] } } }], root: "/repo" }
+      },
+      stderr: stream(),
+      stdout: stream(),
+    })
+    expect(exitCode).toBe(0)
+    expect(modes).toEqual(["staging"])
+    expect(calls.map(([, options]) => options.url)).toEqual(["https://staging.example"])
+  })
+
   it("lists the seed folders in its help", async () => {
     const calls: Array<[string, ViteHubCliSeedOptions]> = []
     const result = await run(["seed", "--help"], [seed("kv", 0, calls)])
