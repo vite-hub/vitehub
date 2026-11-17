@@ -5,7 +5,7 @@ import { analyzeShellCommand } from "../command/analyze.ts"
 
 import type {
   ShellBoundary,
-  ShellExecutionProvider,
+  ShellDriver,
   ShellObservation,
   ShellRuntimeExecOptions,
 } from "../runtime/types.ts"
@@ -18,7 +18,7 @@ export interface JustBashFileSystem extends IFileSystem {
 export type JustBashExecutionLimits = NonNullable<BashOptions["executionLimits"]>
 export type JustBashExecutionLimitProfile = NonNullable<BashOptions["executionLimitProfile"]>
 
-export interface JustBashProviderOptions {
+export interface JustBashDriverOptions {
   commands?: string[]
   cwd?: string
   /**
@@ -47,7 +47,7 @@ export interface ShellNetworkRequestResult {
   content: string | Uint8Array
 }
 
-export function createJustBashProvider(options: JustBashProviderOptions): ShellExecutionProvider {
+export function createJustBashDriver(options: JustBashDriverOptions): ShellDriver {
   const commands = options.commands?.slice()
   const networkGrants = options.networkGrants
   const executionLimits = options.executionLimits && { ...options.executionLimits }
@@ -86,7 +86,7 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
     boundary,
     async exec(command: string, execOptions: ShellRuntimeExecOptions = {}) {
       const cwd = execOptions.cwd ?? options.cwd ?? "/workspace"
-      const result = await withProviderTimeout(command, { ...execOptions, cwd }, async (runOptions) => {
+      const result = await withDriverTimeout(command, { ...execOptions, cwd }, async (runOptions) => {
         const { Bash, defineCommand } = await import("just-bash/browser")
         let policyDenied = false
         // Just Bash parses the line and calls this for every `curl`, including inside pipelines and substitutions.
@@ -334,7 +334,7 @@ function policyDeniedCurl(message: string): ControlledCurlResult {
   }
 }
 
-async function withProviderTimeout(
+async function withDriverTimeout(
   command: string,
   options: ShellRuntimeExecOptions,
   run: (options: ShellRuntimeExecOptions) => Promise<ShellObservation>,
@@ -375,7 +375,7 @@ async function withProviderTimeout(
             timedOut: true,
           })
           // Resolve the structured timeout observation before aborting the
-          // provider. Some providers reject their running promise when the
+          // driver. Some drivers reject their running promise when the
           // signal is aborted; resolving first ensures that rejection cannot
           // win the race and replace the documented timeout result.
           controller.abort(new Error("Shell command timed out."))

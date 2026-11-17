@@ -15,7 +15,7 @@ icon: i-lucide-terminal
 ```ts [server/utils/docs-shell.ts]
 import { createShellRuntime } from 'vite-hub/shell'
 import {
-  createJustBashProvider,
+  createJustBashDriver,
 } from 'vite-hub/shell/providers/just-bash'
 import {
   createReadonlyWorkspaceFs,
@@ -28,7 +28,7 @@ export function docsShell() {
   return createShellRuntime({
     policy: { timeout: 10_000, maxOutputLength: 5_000 },
     // Bash in JavaScript: no real processes
-    provider: createJustBashProvider({
+    driver: createJustBashDriver({
       // The only commands it can run
       commands: ['ls', 'cat', 'rg'],
       fs: createReadonlyWorkspaceFs(docs.fs),
@@ -93,7 +93,7 @@ export default defineEventHandler(async (event) => {
 ::
 
 ::product-features
-  :::product-feature-item{title="Choose the allowed commands" icon="i-lucide-list-checks" to="/docs/shell/configure#providers"}
+  :::product-feature-item{title="Choose the allowed commands" icon="i-lucide-list-checks" to="/docs/shell/configure#drivers"}
   List the commands a shell can run. Network access is off unless you turn it on.
   :::
 

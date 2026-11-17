@@ -37,7 +37,9 @@ export const webContainerErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Build the snapshot again with `createNodeModulesSnapshot()` from `@vite-hub/web-container/snapshot`, and pass it to `bootWebContainer({ snapshot })`.",
     },
     WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH: {
-      why: ({ wasm }: { wasm: boolean }) => wasm
+      why: ({ file, wasm }: { file?: string, wasm: boolean }) => file
+        ? `The lockfile installs ${file}, which the app does not have.`
+        : wasm
         ? "The lockfile does not match the app: its wasm builds have other versions. Pass frozenLockfile: false to update it."
         : "The lockfile does not match the app. Pass frozenLockfile: false to update it.",
       fix: "Pass `frozenLockfile: false` to `createNodeModulesSnapshot()` to update the lockfile, then save the `lockfile` of its result.",

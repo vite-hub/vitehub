@@ -16188,6 +16188,27 @@ describe("server helpers", () => {
     const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-burst-workflow-state-"))
     const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    // On a busy machine the second webhook of a burst can reach the queue after the 50ms debounce, and the burst splits.
+    // The Chat SDK drains its queue only after the debounce, so a drain waits while a burst is half queued.
+    const bursts = [["91140", "91141"], ["91142", "91143"]]
+    const queued = new Set<string>()
+    const queues: string[] = []
+    const waiting: Array<() => void> = []
+    const enqueue = state.enqueue.bind(state)
+    vi.spyOn(state, "enqueue").mockImplementation(async (queue, entry, maxSize) => {
+      const depth = await enqueue(queue, entry, maxSize)
+      queues.push(queue)
+      queued.add(entry.message.id)
+      for (const wake of waiting.splice(0)) wake()
+      return depth
+    })
+    const dequeue = state.dequeue.bind(state)
+    vi.spyOn(state, "dequeue").mockImplementation(async (queue) => {
+      while (bursts.some(burst => burst.some(id => queued.has(id)) && !burst.every(id => queued.has(id)))) {
+        await new Promise<void>((resolve) => waiting.push(resolve))
+      }
+      return await dequeue(queue)
+    })
     const adapter = createTestChatAdapter()
     let releasePending!: () => void
     let pending: Promise<void> | undefined = new Promise<void>((resolve) => {
@@ -16236,7 +16257,7 @@ describe("server helpers", () => {
         handler(chatWebhookRequest(91_142), "telegram", runtime),
         handler(chatWebhookRequest(91_143), "telegram", runtime),
       ])
-      await new Promise((resolve) => setTimeout(resolve, 25))
+      await vi.waitFor(() => expect(queues.at(-1)).toMatch(/:durable-steer:.*:queue$/))
       expect(inputs).toHaveLength(1)
 
       pending = undefined

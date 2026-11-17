@@ -40,7 +40,7 @@ import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi, type DocsT
 import { docsThemeCss } from "./theme-css.ts"
 
 import type { ContentLlmsSection } from "@vite-hub/content"
-import type { Nuxt } from "nuxt/schema"
+import type { Nuxt, PublicRuntimeConfig } from "nuxt/schema"
 
 import type { DocsContentSnapshot, DocsSourceInput } from "./manifest.ts"
 import type { DocsSectionFile } from "./schema.ts"
@@ -218,6 +218,15 @@ export interface DocsPublicConfig {
   ogImage: { component: string } | false
 }
 
+// `useRuntimeConfig().public.docs` is typed in the app and in Nitro server code. Nuxt types Nitro's runtime config as
+// its own when its server types load. Package code and server files without them get the same `public` here.
+declare module "nuxt/schema" {
+  interface PublicRuntimeConfig { docs: DocsPublicConfig }
+}
+declare module "nitro/types" {
+  interface NitroRuntimeConfig { public: PublicRuntimeConfig }
+}
+
 interface DiscoveryLink {
   href: string
   anchor?: string
@@ -288,10 +297,19 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // Nuxt passes the inline options only to setup, so read them from the `modules` entry too.
     // SAFETY: the `docs` key and the inline entry options of this module are its options.
     const docs = (await readModuleOptions(nuxt, ["@vite-hub/docs", "@vite-hub/docs/nuxt", "vite-hub/docs/nuxt"], "docs") ?? {}) as DocsModuleOptions
+    // Nuxt UI may already have queued its own fonts path when it precedes docs in the app's modules.
+    // Redirect both that path and future name resolutions before Nuxt loads dependency modules.
+    const fontsPath = dependency("@nuxt/fonts")
+    const uiFontsPath = createRequire(dependency("@nuxt/ui")).resolve("@nuxt/fonts")
+    nuxt.options.alias["@nuxt/fonts"] = fontsPath
+    nuxt.options.alias[uiFontsPath] = fontsPath
     return {
       // Comments keeps threads in a ViteHub Database, so it runs through `vite-hub/nuxt`, which the app installs.
       ...await docsCommentsDependencies(nuxt, docs.comments),
       // Pages render with Nuxt UI prose components, and search and the outline are Nuxt UI content components.
+      // Nuxt UI asks for @nuxt/fonts 0.14, which writes empty font files on a Nitro 3 build.
+      // Resolve the shared dependency to this package's Nitro 3-compatible version in either module order.
+      "@nuxt/fonts": {},
       // A peer dependency: the app's own copy, so the app and the shell share one Nuxt UI.
       "@nuxt/ui": { defaults: { prose: true, content: true } },
       [dependency("@vite-hub/ui/nuxt")]: {},
@@ -340,7 +358,18 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // Without an `app.vue` of its own, the app is the docs site: the docs `app.vue` draws the site header, search, and
     // head on every page. An app with its own `app.vue` keeps it, and the docs layouts draw them on docs pages only.
     const ownsApp = !hasAppComponent(nuxt.options._layers.map(layer => layer.config.srcDir), nuxt.options.extensions)
-    nuxt.options.alias["#docs/shell"] = addTemplate({ filename: "docs/shell.mjs", write: true, getContents: () => `export const ownsApp = ${ownsApp}\n` }).dst
+    // `nuxi build` and `nuxi dev` write the types before the templates, so Nuxt finds no `.d.mts` beside a `#docs/*`
+    // template then, and a site's typecheck reads the module's JavaScript.
+    nuxt.hook("prepare:types", ({ tsConfig, sharedTsConfig, serverTsConfig }) => {
+      const templates = new Set(nuxt.options.build.templates.map(template => template.dst))
+      for (const paths of [tsConfig, sharedTsConfig, serverTsConfig].map(config => config?.compilerOptions?.paths)) {
+        for (const [alias, target] of Object.entries(nuxt.options.alias)) {
+          const declaration = target.replace(/\.mjs$/, ".d.mts")
+          if (paths?.[alias] && alias.startsWith("#docs/") && templates.has(declaration)) paths[alias] = [declaration]
+        }
+      }
+    })
+    nuxt.options.alias["#docs/shell"] =addTemplate({ filename: "docs/shell.mjs", write: true, getContents: () => `export const ownsApp = ${ownsApp}\n` }).dst
     addTemplate({ filename: "docs/shell.d.mts", write: true, getContents: () => "export declare const ownsApp: boolean\n" })
     // comark-ui's blocks add their styles when they mount. The page links them instead, so the first paint, before the
     // app hydrates, shows no raw blocks, such as an anchor's screen reader text or a tab row as plain text, and nothing
@@ -962,13 +991,16 @@ function docsLogo(logo: DocsSiteOptions["logo"], appBase: string): DocsLogo | nu
   return { src: docsAppPath(logo.light, appBase), dark: logo.dark ? docsAppPath(logo.dark, appBase) : null, mask: false }
 }
 
+// The icon plugin sets `icon.customize`. Nuxt types the app config from its values, and a function is not one of them.
 const docsRuntimeConfigTypes = `import type { DocsPublicConfig } from "@vite-hub/docs"
 
 declare module "nuxt/schema" {
   interface PublicRuntimeConfig { docs: DocsPublicConfig }
+  interface CustomAppConfig { icon?: { customize?: (content: string, name?: string, prefix?: string) => string } }
 }
 declare module "@nuxt/schema" {
   interface PublicRuntimeConfig { docs: DocsPublicConfig }
+  interface CustomAppConfig { icon?: { customize?: (content: string, name?: string, prefix?: string) => string } }
 }
 
 export {}

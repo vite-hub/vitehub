@@ -1,6 +1,6 @@
 import type { FileSystemAPI, FileSystemTree, WebContainer as StackBlitzWebContainer } from "@webcontainer/api"
 
-import { Diagnostic, defineDiagnostics } from "nostics"
+import { defineDiagnostics } from "nostics"
 
 import { webContainerErrorDiagnostics } from "./error-diagnostics.ts"
 import { restoreLinksScript, snapshotLinksFile } from "./links.ts"
@@ -328,7 +328,7 @@ export async function fetchSnapshot(urls: readonly string[], options: FetchSnaps
   catch (cause) {
     // A cached part can be the bad one. Drop every part of this snapshot, so the next load downloads them again.
     await Promise.all(urls.map(url => cache?.delete(new Request(url)).catch(() => false)))
-    if (cause instanceof Diagnostic && cause.code === "WEB_CONTAINER_SNAPSHOT_DAMAGED") throw cause
+    if (webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED.is(cause)) throw cause
     throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED({ cause, detail: cause instanceof Error ? cause.message : String(cause), url: urls[0]! })
   }
   for (const part of parts) if (part.downloaded) await cache?.put(part.url, new Response(part.blob)).catch(() => {})

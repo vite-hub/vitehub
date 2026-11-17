@@ -242,6 +242,11 @@
       "import": "./dist/bundle.js",
       "default": "./dist/bundle.js"
     },
+    "./cache": {
+      "types": "./dist/cache.d.ts",
+      "import": "./dist/cache.js",
+      "default": "./dist/cache.js"
+    },
     "./channels": {
       "types": "./dist/channels.d.ts",
       "import": "./dist/channels.js",
@@ -692,6 +697,11 @@
       "import": "./dist/test.js",
       "default": "./dist/test.js"
     },
+    "./test/register": {
+      "types": "./dist/test/register.d.ts",
+      "import": "./dist/test/register.js",
+      "default": "./dist/test/register.js"
+    },
     "./seo": {
       "types": "./dist/seo.d.ts",
       "import": "./dist/seo.js",
@@ -936,6 +946,7 @@
     "ocache": "catalog:runtime",
     "pkg-types": "^2.3.3",
     "semver": "^7.8.5",
+    "srvx": "catalog:unjs",
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
@@ -1035,6 +1046,7 @@
     "tailwindcss": "^4.3.3",
     "tar": "^7.5.22",
     "typescript": "catalog:tooling",
+    "unstorage": "catalog:storage",
     "uqr": "catalog:ui",
     "vite": "catalog:vite",
     "vite-doctor": "catalog:",

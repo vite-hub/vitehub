@@ -15,9 +15,9 @@ export const shellErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SHELL_R0004: { ...dynamicError, fix: "Write the `curl` command with one valid URL and only `-s`, `-S`, `-L`, `-X` with `GET`, `HEAD`, or `POST`, `--url`, `--json` with valid JSON, or `-d`. Do not pass headers or cookies, because the Source grant adds the credentials." },
     SHELL_R0007: { ...dynamicError, fix: "Pass exactly one URL to `curl`. Run one `curl` command for each URL." },
     SHELL_R0008: { ...dynamicError, fix: "Create a new Shell session to start the process. Do not call `startProcess()` after `dispose()`." },
-    SHELL_R0009: { ...dynamicError, fix: "Use a Shell provider that supports background processes, or run the command with `exec()`." },
+    SHELL_R0009: { ...dynamicError, fix: "Use a Shell driver that supports background processes, or run the command with `exec()`." },
     SHELL_R0010: { ...dynamicError, fix: "Stop a background process before you start another, or raise `policy.maxProcesses` in `createShellRuntime()`." },
-    SHELL_R0011: { ...dynamicError, fix: "Do not dispose the Shell session while `startProcess()` runs. The other error in the `AggregateError` says why the process did not stop; stop it with the provider if it still runs." },
+    SHELL_R0011: { ...dynamicError, fix: "Do not dispose the Shell session while `startProcess()` runs. The other error in the `AggregateError` says why the process did not stop; stop it with the driver if it still runs." },
     SHELL_R0012: { ...dynamicError, fix: "Do not dispose the Shell session while `startProcess()` runs. Create a new session to start the process." },
     SHELL_R0013: { ...dynamicError, fix: "Use a path inside `/workspace`. Remove the `..` segments that leave the Workspace." },
     SHELL_R0014: { ...dynamicError, fix: "Mount the Workspace with `createWritableWorkspaceFs()` to let commands write, or run only commands that read files." },
@@ -32,7 +32,7 @@ export const shellErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SHELL_R0023: { ...dynamicError, fix: "The Workspace root exists already. Pass `-p` to `mkdir`, or create a directory below the root." },
     SHELL_R0024: {
       ...dynamicError,
-      fix: "Make the provider return its process handle within the Shell timeout, or raise the Shell policy timeout if longer startup is expected.",
+      fix: "Make the driver return its process handle within the Shell timeout, or raise the Shell policy timeout if longer startup is expected.",
     },
     // Named errors. Keep these codes in alphabetical order.
     SHELL_SH_SYNTAX_WASM_UNAVAILABLE: {

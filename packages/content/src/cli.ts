@@ -1039,7 +1039,7 @@ async function runContentCommand(command: ContentCliCommand, args: string[], con
     const found = findViteHubDevServerUrl(roots ?? [], context.env)
     if (!found) {
       const error = contentErrorDiagnostics.CONTENT_R0015({ message: `No dev server is running for ${context.rootDir}.` })
-      return writeFailure(parsed, context, { code: "CONTENT_R0015", fix: Reflect.get(error, "fix") as string, message: error.message })
+      return writeFailure(parsed, context, { code: error.code, fix: error.fix, message: error.message })
     }
     parsed.url = found
   }
