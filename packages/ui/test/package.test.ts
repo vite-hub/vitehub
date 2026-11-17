@@ -87,6 +87,7 @@ describe("@vite-hub/ui package contract", () => {
       vite: { optional: true },
     });
     expect(packageJson.dependencies).toEqual({
+      "reka-ui": "catalog:ui",
       "@comark/vue": "0.9.0",
       "comark-chat": "catalog:",
       comark: "catalog:markdown-ui",

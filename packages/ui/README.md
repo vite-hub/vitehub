@@ -34,6 +34,8 @@ The parts `Message`, `Bubble`, `Marker`, `Trace`, and `Attachment` follow the [s
 
 The package currently declares `vue` and `ai` as required peers. Styled components also require `@nuxt/ui` and Tailwind CSS. The Vite integration requires `vite`; `@nuxt/ui` and `vite` are optional peers only so applications using another entry point do not have to install them.
 
+`RelativeTime` uses Nuxt UI tooltips when a Reka `TooltipProvider` is present, such as inside `UApp`. Otherwise it uses the native `title` attribute, including in apps that provide a Nuxt UI locale.
+
 ## Edit Markdown
 
 `MarkdownEditor` from `@vite-hub/ui/markdown-editor` edits Markdown with [comark-ui's editor](https://comark-ui.onmax.me/guide/editor/) and Nuxt UI's bubble toolbar, "/" menu, and drag handle. Bind the Markdown with `v-model`, or pass `editor` with a Tiptap editor the app made, such as a Realtime room's. A document that the editor can't save unchanged opens read-only.

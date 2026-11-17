@@ -1,3 +1,5 @@
+import { uiErrorDiagnostics } from "../error-diagnostics.ts";
+
 // A copy of `describeTime` from comark-time (comark-ui, `packages/time/src/describe.ts`), so that `RelativeTime` and a
 // Markdown `:time` read the same words. Keep the two in step: `test/relative-time.test.ts` checks the shared cases.
 
@@ -32,7 +34,7 @@ export type TimeDescription = {
  * Describes a date or an instant against `now`: "3 days ago" with the full date as its tip while it's closer than
  * `threshold`, and from there on "Oct 12" ("Oct 12, 2025" in another year) with the relative words as its tip. A date
  * alone (`2026-10-12`) counts whole calendar days in `timeZone`, and a time with no offset is read in that zone.
- * Returns `undefined` for a value it can't read, and throws a `RangeError` for a `threshold`, `now`, `locale`, or
+ * Returns `undefined` for a value it can't read, and throws an error for a `threshold`, `now`, `locale`, or
  * `timeZone` it can't read.
  */
 export function describeTime(
@@ -58,14 +60,10 @@ export function describeTime(
       ? Number(amount) * (units[unit.toLowerCase()] ?? Number.NaN)
       : Number.NaN;
   if (Number.isNaN(limit))
-    throw new RangeError(
-      `RelativeTime: threshold "${threshold}" isn't a duration. Write a number and a unit, such as "3w", or "none".`,
-    );
+    throw uiErrorDiagnostics.UI_RELATIVE_TIME_THRESHOLD_INVALID({ threshold });
   const now = options.now === undefined ? Date.now() : new Date(options.now).getTime();
   if (!Number.isFinite(now))
-    throw new RangeError(
-      "RelativeTime: now isn't a valid date. Use a date, an ISO string, or milliseconds.",
-    );
+    throw uiErrorDiagnostics.UI_RELATIVE_TIME_NOW_INVALID();
   const zone = options.timeZone ?? new Intl.DateTimeFormat().resolvedOptions().timeZone;
   const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto", style });
 

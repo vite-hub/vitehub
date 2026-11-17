@@ -1,3 +1,4 @@
+import { injectTooltipProviderContext } from "reka-ui";
 import { type Component, defineAsyncComponent, getCurrentInstance, inject, type InjectionKey } from "vue";
 
 /** The Nuxt UI components that the styled parts render. */
@@ -53,9 +54,6 @@ export function useUIComponent(name: ViteHubUIComponentName): Component {
   return inject(uiComponentsKey, undefined)?.[name] ?? getCurrentInstance()?.appContext.components[name] ?? bundled[name];
 }
 
-// Nuxt UI's `UApp` provides its locale under this global symbol, next to the tooltip provider that `UTooltip` needs.
-const nuxtUILocaleKey = Symbol.for("nuxt-ui.locale-context");
-
 /**
  * The tooltip that a part renders: the one given to `createViteHubUI({ components })` or registered globally, else
  * Nuxt UI's own inside `UApp`, which provides what it needs and lets the tooltips of a list share their open delay.
@@ -63,5 +61,5 @@ const nuxtUILocaleKey = Symbol.for("nuxt-ui.locale-context");
  */
 export function useTooltipComponent(): Component | undefined {
   const own = inject(uiComponentsKey, undefined)?.UTooltip ?? getCurrentInstance()?.appContext.components.UTooltip;
-  return own ?? (inject(nuxtUILocaleKey, undefined) === undefined ? undefined : bundled.UTooltip);
+  return own ?? (!injectTooltipProviderContext(null) ? undefined : bundled.UTooltip);
 }

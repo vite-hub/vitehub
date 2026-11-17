@@ -1,10 +1,13 @@
 // @vitest-environment happy-dom
 
+import { TooltipProvider } from "reka-ui";
 import { renderToString } from "@vue/server-renderer";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type App, createSSRApp, defineComponent, h, nextTick, ref } from "vue";
-import { createViteHubUI, provideRelativeNow, RelativeTime } from "../src/index.ts";
+import { createViteHubUI } from "../src/config.ts";
+import { provideRelativeNow, RelativeTime } from "../src/components/relative-time.ts";
 import { describeTime } from "../src/internal/describe-time.ts";
+import { useTooltipComponent } from "../src/internal/nuxt-ui.ts";
 import { startRelativeClock } from "../src/internal/relative-now.ts";
 
 // 4 November 2026, noon UTC: the clock of comark-time's tests, so the cases below are theirs.
@@ -23,6 +26,11 @@ afterEach(() => {
 
 describe("describeTime, as comark-time has it", () => {
   const settings = { locale: "en", now, timeZone: "UTC" };
+
+  it("reports invalid clock and threshold options with a diagnostic and fix", () => {
+    expect(() => describeTime(now, { now: "invalid" })).toThrowError(expect.objectContaining({ code: "UI_RELATIVE_TIME_NOW_INVALID", fix: expect.stringContaining("now") }));
+    expect(() => describeTime(now, { threshold: "invalid" })).toThrowError(expect.objectContaining({ code: "UI_RELATIVE_TIME_THRESHOLD_INVALID", fix: expect.stringContaining("threshold") }));
+  });
 
   it.each([
     ["2026-10-15", "relative", "2 weeks ago", "Thu, Oct 15, 2026"],
@@ -73,6 +81,32 @@ async function hydrate(at: number | string, options: { zone?: string, clock?: bo
 }
 
 describe("RelativeTime", () => {
+  it("uses the native title with app-wide locale but no tooltip provider", async () => {
+    const app = createSSRApp({ render: () => h(RelativeTime, { at: now - day }) });
+    app.provide(Symbol.for("nuxt-ui.locale-context"), ref({ code: "en" }));
+    provideRelativeNow(ref(now), app);
+    const html = await renderToString(app);
+    expect(html).toContain(">yesterday</time>");
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    document.body.append(container);
+    app.mount(container);
+    mounted.push(app);
+    await nextTick();
+    expect(container.querySelector("time")?.title).toContain("2026");
+  });
+
+  it("renders the real Nuxt UI tooltip when its provider exists", async () => {
+    const child = defineComponent({
+      setup() {
+        expect(useTooltipComponent()).toBeDefined();
+        return () => h(RelativeTime, { at: now });
+      },
+    });
+    const app = createSSRApp({ render: () => h(TooltipProvider, null, { default: () => h(child) }) });
+    provideRelativeNow(ref(now), app);
+    expect(await renderToString(app)).toContain("<time");
+  });
   it("renders the words of the provided clock on the server", async () => {
     const html = await renderToString(createSSRApp({
       setup: () => provideRelativeNow(ref(now)),
