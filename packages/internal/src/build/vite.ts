@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync, statSync } from "node:fs"
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, dirname, parse, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -373,6 +373,17 @@ function hasProjectRootFileMarker(root: string, markers: string[][] | string[]):
     }
   }
   return false
+}
+
+/**
+ * Whether the app at `root` installs `name`, in its own `node_modules` or one of its parents. `require.resolve` would
+ * also read `NODE_PATH`, which pnpm bin scripts point at every hoisted package.
+ */
+export function installsPackage(root: string, name: string): boolean {
+  for (let directory = resolve(root); ; directory = dirname(directory)) {
+    if (existsSync(resolve(directory, "node_modules", name, "package.json"))) return true
+    if (dirname(directory) === directory) return false
+  }
 }
 
 export function viteHubEnvAmbientTypesPath(root: string): string {
