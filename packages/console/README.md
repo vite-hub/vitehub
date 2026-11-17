@@ -17,6 +17,8 @@ The migration `0002_sign_project_calls` removes the links that an older Console 
 
 The project never sees the cookies, `Origin`, or `Authorization` header of the Console page, and the page never sees the private key or the project's cookies. The forward sends only the one Console route of a project, `POST /_vitehub/rpc`. It stops at a redirect, and names Cloudflare Access when Access sent the call to its sign-in page. It refuses a body that is larger than a 9 MiB file as base64, plus 64 KiB.
 
+The forward sends at most 600 calls a minute from one person to one project. Calls from the Console page, an API key, and the ViteHub MCP count together. The next call gets `429` with `CONSOLE_FORWARD_RATE_LIMITED` and a `Retry-After` header, and does not reach the project. The count is in Better Auth's `rate_limit` table, so every server process sees the same count.
+
 Forwarded responses use a Console-owned sandbox policy, `nosniff`, and attachment disposition. JSON keeps its media type; other bodies use `application/octet-stream`. The client can read JSON and binary data, while project content cannot run as a document or script on the Console origin.
 
 ## Accounts and teams
