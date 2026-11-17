@@ -3,10 +3,11 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import * as v from "valibot"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { defineForm } from "../src/index.ts"
 import { addressKey, createFormsHandler, installedForms, memoryFormRateLimit } from "../src/runtime.ts"
+import type { FormsSharedRateLimit } from "../src/runtime.ts"
 import { discoverForms, hubForms, renderFormsHandler, storingForms } from "../src/vite.ts"
 
 function app(files: Record<string, string>): string {
@@ -44,6 +45,10 @@ describe("renderFormsHandler", () => {
     expect(full).toContain("sendEmail: message => email.send(message),")
     expect(full).toContain("import { useAuth } from \"vite-hub/auth/server\"")
     expect(full).toContain("useAuth(request).api.getSession({ headers: request.headers })")
+    expect(full).not.toContain("checkRateLimit")
+    const shared = renderFormsHandler(forms, { imports: { ...imports, rateLimit: "vite-hub/rate-limit" }, rateLimit: true })
+    expect(shared).toContain("import { checkRateLimit } from \"vite-hub/rate-limit\"")
+    expect(shared).toContain("  rateLimit: checkRateLimit,")
   })
 })
 
@@ -116,6 +121,37 @@ describe("createFormsHandler", () => {
     expect(installed?.names).toEqual(["contact"])
     const [, listed] = await installed!.inbox.list()
     expect(listed).toHaveLength(3)
+  })
+
+  it("counts in the shared Rate Limit, so two server processes share one budget", async () => {
+    // Two processes of one app, each with its own memory, and one shared counter store.
+    const counts = new Map<string, number>()
+    const calls: unknown[] = []
+    const rateLimit: FormsSharedRateLimit = async (_, name, options) => {
+      calls.push([name, options])
+      const used = (counts.get(options.key) ?? 0) + 1
+      counts.set(options.key, used)
+      return [undefined, used <= options.limit ? { allowed: true } : { allowed: false, reason: "limited", retryAfter: 30 }]
+    }
+    const one = createFormsHandler({ forms: { contact }, memory: true, rateLimit, context: () => ({ runtime: { clientAddress: "1.1.1.1" } }) })
+    const two = createFormsHandler({ forms: { contact }, memory: true, rateLimit, context: () => ({ runtime: { clientAddress: "1.1.1.1" } }) })
+    expect((await one.fetch(post("contact").request)).status).toBe(201)
+    expect((await two.fetch(post("contact").request)).status).toBe(201)
+    const limited = await one.fetch(post("contact").request)
+    expect(limited.status).toBe(429)
+    expect(limited.headers.get("retry-after")).toBe("30")
+    expect(calls[0]).toEqual(["forms", { key: "form:contact:1.1.1.1", limit: 2, window: "1m" }])
+  })
+
+  it("counts in memory and logs when the shared Rate Limit does not answer", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    onTestFinished(() => error.mockRestore())
+    const rateLimit: FormsSharedRateLimit = async () => [undefined, { allowed: false, reason: "unavailable", cause: new Error("KV down") }]
+    const handler = createFormsHandler({ forms: { contact }, memory: true, rateLimit, context: () => ({ runtime: { clientAddress: "3.3.3.3" } }) })
+    expect((await handler.fetch(post("contact").request)).status).toBe(201)
+    expect((await handler.fetch(post("contact").request)).status).toBe(201)
+    expect((await handler.fetch(post("contact").request)).status).toBe(429)
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("counts it in the memory of this process"), new Error("KV down"))
   })
 
   it("answers 503 without a Database or memory, and stores nothing", async () => {

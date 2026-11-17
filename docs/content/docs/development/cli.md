@@ -31,6 +31,8 @@ Help lists the namespaces (command groups) you have:
 - `types`, `task`, `decisions`, and `sandbox` from the framework. `decisions` and `sandbox` do not load the project config, and `sandbox` also runs in a deployed container without Vite.
 - `inspect` and `provision`, built into the CLI. Plugin commands named `inspect` are ignored.
 
+`vitehub database --help` and `vitehub database <feature> --help` print the help without loading the project config, so they answer at once in a Nuxt app.
+
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
        vitehub <command> [args...]
@@ -146,6 +148,7 @@ Available namespaces:
 | `vitehub database export` | Available | Database Package | Write a SQL dump of the local SQLite file, or of the deployed database with `--remote`. |
 | `vitehub database sql` | Available | Database Package | Run SQL from an argument or stdin on the local database, or on the deployed one with `--remote`, and print the rows. |
 | `vitehub database drop` | Available | Database Package | Drop every table of a database and its migrations table, after a confirmation or with `--force`. |
+| `vitehub database reset` | Available | Database Package | Drop every table of a database, then apply its migrations again, after a confirmation or with `--force`. |
 | `vitehub seed` | Available | CLI Package | Write the Database seed files and the files in `server/seed/kv/` and `server/seed/blob/`, locally or with `--remote` on the deployed app. |
 | `vitehub database tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
 | `vitehub database rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
@@ -1312,12 +1315,13 @@ See [Export a database](/docs/database/configure#export-a-database) for each dri
 
 ## Run SQL on a Database
 
-`database sql` runs SQL on one database and prints the rows of each statement as a table. Without a SQL argument, it reads stdin. `database drop` drops every table of one database and its migrations table. It asks first, and needs `--force` without a terminal. Both use the local SQLite file or PGlite folder by default. Any other database needs `--remote`.
+`database sql` runs SQL on one database and prints the rows of each statement as a table. Without a SQL argument, it reads stdin. `database drop` drops every table of one database and its migrations table. It asks first, and needs `--force` without a terminal. `database reset` drops the same way, then applies the migrations of that database again. They use the local SQLite file or PGlite folder by default. Any other database needs `--remote`.
 
 ```bash [Terminal]
 pnpm vitehub database sql "select id, email from users limit 5"
 pnpm vitehub database sql --json < report.sql
 pnpm vitehub database drop --force
+pnpm vitehub database reset --force
 ```
 
 | Option | Description |
@@ -1326,7 +1330,7 @@ pnpm vitehub database drop --force
 | `--stage <name>` | Load the Vite env files of this mode. Process variables win. |
 | `--database <name>` | The database to use. Needed when the app has several. |
 | `--json` | `sql` only. Print one JSON array with `{ columns, rows, rowsAffected }` for each statement. |
-| `--force` | `drop` only. Drop without asking. |
+| `--force` | `drop` and `reset` only. Drop without asking. |
 
 See [Run SQL and drop tables](/docs/database/configure#run-sql-and-drop-tables) for what `drop` drops on each driver.
 

@@ -986,6 +986,27 @@ describe("Database Nuxt integration", () => {
   })
 
   it.each([
+    ["the former \"d1\"", "d1", "renamed this driver to \"cloudflare\"", "npx @vite-hub/codemods driver-key"],
+    ["an unknown driver", "libsql", "is not a Database driver", "Set `database.driver` to \"cloudflare\""],
+  ])("rejects %s as the Database driver before the build", async (_case, driver, why, fix) => {
+    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-driver-"))
+    try {
+      await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+      const { nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
+      // SAFETY: An app config without types, such as a JavaScript config or `as never`, passes any driver.
+      const options = { databaseId: "id", databaseName: "anki", driver } as unknown as Parameters<typeof hubDatabase>[0]
+      await expect(hubDatabase(options)(undefined, nuxt)).rejects.toMatchObject({
+        code: "DATABASE_UNKNOWN_DRIVER",
+        fix: expect.stringContaining(fix),
+        why: expect.stringContaining(why),
+      })
+    }
+    finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
     ["no use", undefined],
     ["a Database use", { name: "@vite-hub/connections/vite", vitehub: { databases: () => [{ database: "default", name: "connections", reason: "Stores Connection grants." }] } }],
   ])("checks the implicit default D1 Database only when a plugin needs it: %s", async (_case, plugin) => {

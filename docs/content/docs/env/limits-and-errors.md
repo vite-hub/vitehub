@@ -31,7 +31,7 @@ Wrong declaration helper calls and schema results use `ENV_R####` Nostics codes.
 
 ## Seal errors
 
-[`unseal()`](/docs/env/app-secret#seal-a-value) returns these codes as `[error, undefined]`. Each error has `code`, `why`, `fix`, and `docs`.
+[`unseal()`](/docs/env/seal) returns these codes as `[error, undefined]`. Each error has `code`, `why`, `fix`, and `docs`.
 
 ### ENV_SEAL_EXPIRED
 

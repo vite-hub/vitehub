@@ -576,7 +576,8 @@ storage driver for Nitro's `cache` mount. In ViteHub, set `cache: true`.
 
 The `cache` option accepts only the drivers above and `kv`. NuxtHub accepted
 any unstorage driver, but `cache: { driver: "redis" }` fails the build with
-`VITE_HUB_C0004`. To keep another driver, remove `cache` and mount it in Nitro:
+`VITE_HUB_C0004`. NuxtHub's `cloudflare-kv-binding` and `vercel-runtime-cache` are
+`cloudflare` and `vercel` here, and the error says so. To keep another driver, remove `cache` and mount it in Nitro:
 
 ```diff [nuxt.config.ts]
  export default defineNuxtConfig({
@@ -659,6 +660,45 @@ export default defineHandler(async (event) => {
 - In Nuxt, `invalidateTag()` is auto-imported when `cache` is on. Nitro's
   `defineCachedFunction()` and `defineCachedHandler()` stay auto-imported and
   have no `tags`, so import the ViteHub ones from `vite-hub/cache`.
+
+### Serve the stored value when a call fails
+
+An exchange-rate API, a price feed, or a GitHub read can fail for a few
+minutes. Set `staleIfError` to the number of seconds after `maxAge` during
+which a call that throws returns the stored value instead of the error:
+
+```ts [server/utils/rates.ts]
+import { defineCachedFunction } from "vite-hub/cache"
+
+export const getRates = defineCachedFunction(
+  async (base: string) => {
+    const response = await fetch(`https://api.frankfurter.dev/v1/latest?base=${base}`)
+    if (!response.ok) throw new Error(`Frankfurter answered ${response.status}`)
+    const body: { rates: Record<string, number> } = await response.json()
+    return body.rates
+  },
+  { maxAge: 60 * 60 * 12, staleIfError: 60 * 60 * 24 * 7, getKey: (base: string) => base },
+)
+```
+
+For 12 hours, `getRates("USD")` returns the stored rates. After that, it calls
+the API again. When the API throws, it returns the stored rates for up to 7
+more days, and the next call tries the API again.
+
+- The error goes to `onError`, or to the console as a warning.
+- A call that throws keeps the stored entry and its time. It does not start a
+  new `maxAge`.
+- With nothing stored, or after `maxAge` plus `staleIfError`, the call throws.
+- The stored entry stays in the `cache` mount, or in your `storage`, for
+  `maxAge` plus `staleIfError`.
+- `staleIfError` with `serialize` fails when you define the function.
+- It works with `swr: true`, `tags`, and `expire()`. After `invalidateTag()`,
+  a call that throws also returns the stored value. `invalidate()` deletes the
+  entry, so nothing is left to return.
+- The window starts from the `maxAge` of the function, not from Nitro's
+  `cache.defaults`.
+- `defineCachedHandler()` has no `staleIfError`. Cache the call that can fail
+  with `defineCachedFunction()` and call it from the handler.
 
 ## Modules that expect NuxtHub
 

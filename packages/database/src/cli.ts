@@ -7,6 +7,7 @@ import type { DatabaseOptions } from "./types.ts"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "./types.ts"
 import type { ViteHubCliContributor as SharedViteHubCliContributor, ViteHubCliSeed, ViteHubCliSeedOptions } from "@vite-hub/internal/cli"
 import type { AdoptedMigration, MigrationPlan } from "./internal/migration-plan.ts"
+import type { SqliteSnapshot } from "./internal/snapshot-uniques.ts"
 
 import { dirname, isAbsolute, join, relative, resolve } from "pathe"
 
@@ -285,9 +286,31 @@ function writeDropUsage(context: ViteHubCliContext): void {
   ].join("\n"))
 }
 
-/** Terminal input of `sql` and `drop`. Tests replace it. */
+const resetUsage = "vitehub database reset [--remote] [--stage <name>] [--database <name>] [--force]"
+
+function writeResetUsage(context: ViteHubCliContext): void {
+  context.stdout.write([
+    `Usage: ${resetUsage}`,
+    "",
+    "Drops every table and view of a database, like `vitehub database drop`, then applies all",
+    "of its migrations again, like `vitehub database migrate`. It asks before it drops. Without",
+    "a terminal to ask, it needs `--force`. Without `--remote`, it uses the local SQLite file or",
+    "PGlite folder that `vitehub database migrate` uses.",
+    "",
+    "Options:",
+    "  --remote           Use the remote database, with the credentials of `vitehub database export --remote`.",
+    "  --stage <name>     Load Vite env files for this mode. Variables from the current",
+    "                     process take precedence.",
+    "  --database <name>  The database to reset. Needed when the app has several.",
+    "  --force            Reset without asking.",
+    "  -h, --help         Show this help.",
+    "",
+  ].join("\n"))
+}
+
+/** Terminal input of `sql`, `drop`, and `reset`. Tests replace it. */
 export interface DbCliIo {
-  /** Asks whether `drop` may drop the tables. Defaults to a prompt when stdin and stderr are terminals. */
+  /** Asks whether `drop` or `reset` may drop the tables. Defaults to a prompt when stdin and stderr are terminals. */
   confirm?: (question: string) => Promise<boolean>
   /** Reads the SQL of `sql` when no argument has it. Defaults to stdin when stdin is not a terminal. */
   readStdin?: () => Promise<string | undefined>
@@ -299,7 +322,7 @@ interface TargetArgs {
   stage?: string
 }
 
-/** Parses the target flags of `sql` and `drop`, plus their boolean flags and positionals. */
+/** Parses the target flags of `sql`, `drop`, and `reset`, plus their boolean flags and positionals. */
 function parseTargetArgs(args: string[], flags: readonly string[]): (TargetArgs & { flags: Set<string>, positionals: string[] }) | string {
   const parsed: TargetArgs & { flags: Set<string>, positionals: string[] } = { flags: new Set(), positionals: [], remote: false }
   for (let index = 0; index < args.length; index++) {
@@ -326,7 +349,7 @@ function parseTargetArgs(args: string[], flags: readonly string[]): (TargetArgs 
   return parsed
 }
 
-/** Picks the one database of `sql` and `drop` and loads the stage env. Writes the problem and returns undefined on failure. */
+/** Picks the one database of `sql`, `drop`, and `reset` and loads the stage env. Writes the problem and returns undefined on failure. */
 async function resolveCommandTarget(parsed: TargetArgs, context: ViteHubCliContext, getConfig?: ResolvedDBViteConfigProvider) {
   const config = await getConfig?.({ strict: false })
   if (!config?.databaseNames.length) {
@@ -429,9 +452,57 @@ async function runDrop(args: string[], context: ViteHubCliContext, getConfig: Re
   }
   const resolved = await resolveCommandTarget(parsed, context, getConfig)
   if (!resolved) return 1
+  return await dropTables("drop", parsed, resolved, context, io)
+}
+
+async function runReset(args: string[], context: ViteHubCliContext, getConfig: ResolvedDBViteConfigProvider | undefined, io: DbCliIo): Promise<number> {
+  const parsed = parseTargetArgs(args, ["--force"])
+  if (typeof parsed === "string" || parsed.positionals.length) {
+    context.stderr.write(`[vitehub] ${typeof parsed === "string" ? parsed : `Unknown argument: ${parsed.positionals[0]}`}\n`)
+    writeResetUsage(context)
+    return 1
+  }
+  const resolved = await resolveCommandTarget(parsed, context, getConfig)
+  if (!resolved) return 1
+  const { database, env, projectRoot } = resolved
+  const fail = (problem: string, cause?: unknown) => {
+    context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_DROP_FAILED({ cause, command: "reset", database: database.name, problem }))}\n`)
+    return 1
+  }
+  // `migrate` applies the migrations of a D1 binding to its local SQLite file, so it cannot rebuild the deployed database.
+  const { resolveExportTarget } = await import("./internal/export.ts")
+  if (parsed.remote && !database.cloudflare?.http && resolveExportTarget(database, { env, projectRoot, remote: true }).kind === "d1") {
+    return fail(`\`vitehub database migrate\` does not apply migrations to the deployed D1 database of a binding. Run \`vitehub database drop --remote\`, then \`wrangler d1 migrations apply ${database.cloudflare?.databaseName ?? "<database>"} --remote\`.`)
+  }
+  // Read the migrations before the drop, so a broken migrations folder does not leave an empty database.
+  const { readMigrations } = await import("./internal/migration-journal.ts")
+  try {
+    readMigrations(resolve(projectRoot, database.migrationsDir), database.name)
+  }
+  catch (error) {
+    if (isRuntimeDiagnostic(error)) {
+      context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+      return 1
+    }
+    return fail(`Its migrations cannot be read, so nothing was dropped. ${error instanceof Error ? error.message : String(error)}`, error)
+  }
+  const dropped = await dropTables("reset", parsed, resolved, context, io)
+  if (dropped !== 0) return dropped
+  // The tables are gone, so a migration that drops a column or deletes rows loses nothing.
+  return await runDrizzleKit("migrate", ["--allow-data-loss"], { ...context, env }, getConfig, database.name)
+}
+
+/** Drops every table of the target after the person confirms, or with `--force`. Returns the exit code. */
+async function dropTables(
+  command: "drop" | "reset",
+  parsed: TargetArgs & { flags: Set<string> },
+  resolved: NonNullable<Awaited<ReturnType<typeof resolveCommandTarget>>>,
+  context: ViteHubCliContext,
+  io: DbCliIo,
+): Promise<number> {
   const { database } = resolved
   const fail = (problem: string, cause?: unknown) => {
-    context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_DROP_FAILED({ cause, database: database.name, problem }))}\n`)
+    context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_DROP_FAILED({ cause, command, database: database.name, problem }))}\n`)
     return 1
   }
   const { openSqlConnection, planDrop } = await import("./internal/sql.ts")
@@ -450,10 +521,13 @@ async function runDrop(args: string[], context: ViteHubCliContext, getConfig: Re
       return 0
     }
     if (!parsed.flags.has("--force")) {
-      const question = `Drop ${plan.objects.length} ${plan.objects.length === 1 ? "table or view" : "tables and views"} of the database "${database.name}" (${connection.target})? All their data is lost. [y/N] `
+      const objects = `${plan.objects.length} ${plan.objects.length === 1 ? "table or view" : "tables and views"}`
+      const question = command === "drop"
+        ? `Drop ${objects} of the database "${database.name}" (${connection.target})? All their data is lost. [y/N] `
+        : `Drop ${objects} of the database "${database.name}" (${connection.target}) and apply its migrations again? All their data is lost. [y/N] `
       const confirm = io.confirm ?? (process.stdin.isTTY && process.stderr.isTTY ? askOnTerminal : undefined)
       if (!confirm || !await confirm(question)) {
-        context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_DROP_NOT_CONFIRMED({ database: database.name }))}\n`)
+        context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_DROP_NOT_CONFIRMED({ command, database: database.name }))}\n`)
         return 1
       }
     }
@@ -539,6 +613,8 @@ async function runDrizzleKit(
   args: string[],
   context: ViteHubCliContext,
   getConfig?: ResolvedDBViteConfigProvider,
+  /** Runs only this database, such as the one that `reset` dropped. */
+  only?: string,
 ): Promise<number> {
   const schemaSnapshot = feature === "generate" && args.includes("--schema-snapshot")
   if (schemaSnapshot && !args.includes("--custom")) {
@@ -547,13 +623,14 @@ async function runDrizzleKit(
   }
   const config = await getConfig?.({ strict: feature === "generate" })
   // Drizzle Kit 1.0 cannot generate or migrate next to a 0.x journal, so stop before it changes anything.
-  if (config && !writeOldLayoutDiagnostics(config, context)) return 1
+  if (config && !writeOldLayoutDiagnostics(config, context, only)) return 1
   // Drizzle Kit resolves `out` and the SQLite URL from its working directory, and the Database writes them relative to its
   // project root. In Nuxt the Vite root is `srcDir` (`app/`), so `context.rootDir` is not the project root.
   const projectRoot = config?.rootDir ?? context.rootDir
-  const runs = config && config.databaseNames.length > 1
+  const runs = (config && config.databaseNames.length > 1
     ? config.databaseNames.map(name => ({ configFile: config.generatedDrizzleConfigFilesByDatabase[name]!, database: config.databases?.[name] }))
-    : [{ configFile: config?.generatedDrizzleConfigFile ?? ".vitehub/database/drizzle.config.ts", database: config?.databases?.[config.databaseNames[0]!] }]
+    : [{ configFile: config?.generatedDrizzleConfigFile ?? ".vitehub/database/drizzle.config.ts", database: config?.databases?.[config.databaseNames[0]!] }])
+    .filter(run => !only || run.database?.name === only)
 
   if (feature === "migrate") {
     for (const run of runs) {
@@ -641,6 +718,10 @@ async function runDrizzleKit(
     }
     if (feature === "migrate" && database) await ensureLocalDatabaseDirectory(database, projectRoot, context)
     const migrationsDir = run.database?.migrationsDir ? resolve(projectRoot, run.database.migrationsDir) : undefined
+    if (feature === "generate" && migrationsDir && run.database?.dialect === "sqlite" && await hasUnrecordedUniques(migrationsDir)) {
+      // A folder that `drizzle-kit up` or an older ViteHub converted still lists each `.unique()` column as an index.
+      await recordConvertedUniques(context, { bin: drizzleKitBin, configFile: resolve(projectRoot, configFile), database: run.database.name, migrationsDir, projectRoot })
+    }
     const foldersBefore = feature === "generate" && migrationsDir ? await listMigrationFolders(migrationsDir) : []
     const result = await runDrizzleKitWithConfig(feature, args, context, { bin: drizzleKitBin, configFile: toConfigPath(projectRoot, configFile), database: run.database?.name ?? "default", projectRoot })
     if (result !== 0) return result
@@ -691,9 +772,9 @@ function listOldLayoutFolders(config: ResolvedDBViteConfig) {
   return [...folders].map(([dir, database]) => ({ database, dir }))
 }
 
-/** Writes `DATABASE_MIGRATIONS_OLD_LAYOUT` for each 0.x migrations folder. Returns false when there is one. */
-function writeOldLayoutDiagnostics(config: ResolvedDBViteConfig, context: ViteHubCliContext): boolean {
-  const folders = listOldLayoutFolders(config)
+/** Writes `DATABASE_MIGRATIONS_OLD_LAYOUT` for each 0.x migrations folder, or for the one of `only`. Returns false when there is one. */
+function writeOldLayoutDiagnostics(config: ResolvedDBViteConfig, context: ViteHubCliContext, only?: string): boolean {
+  const folders = listOldLayoutFolders(config).filter(({ database }) => !only || database.name === only)
   for (const { database, dir } of folders) {
     const diagnostic = databaseErrorDiagnostics.DATABASE_MIGRATIONS_OLD_LAYOUT({ database: database.name, dir: relative(config.rootDir, dir) || dir })
     context.stderr.write(`${formatRuntimeDiagnosticError(diagnostic)}\n`)
@@ -806,6 +887,17 @@ async function writeSchemaSnapshot(
   const copied = JSON.parse(await readFile(target, "utf8")) as { id: string, prevIds: string[] }
   await writeFile(target, JSON.stringify({ ...current, id: copied.id, prevIds: copied.prevIds }, null, 2))
   return 0
+}
+
+/** Reports whether the newest snapshot of a SQLite folder lists a `.unique()` column of Drizzle Kit 0.x as an index. */
+async function hasUnrecordedUniques(migrationsDir: string): Promise<boolean> {
+  // Contributed SQL folders can have no snapshot, so read the newest folder that has one.
+  const file = (await listMigrationFolders(migrationsDir)).sort().reverse().map(folder => join(migrationsDir, folder, "snapshot.json")).find(existsSync)
+  if (!file) return false
+  const snapshot = JSON.parse(await readFile(file, "utf8")) as Partial<SqliteSnapshot>
+  if (!Array.isArray(snapshot.ddl)) return false
+  const { hasKit0UniqueIndexes } = await import("./internal/snapshot-uniques.ts")
+  return hasKit0UniqueIndexes({ ddl: snapshot.ddl })
 }
 
 /**
@@ -1136,6 +1228,21 @@ export function createDbCliContributor(
         return await runDrop(args, context, getConfig, io)
       },
       usage: dropUsage,
+    })
+  }
+
+  if (options?.reset !== false) {
+    features.push({
+      description: "Drop every table of a database, then apply its migrations again.",
+      name: "reset",
+      run: async (args, context) => {
+        if (args.includes("-h") || args.includes("--help")) {
+          writeResetUsage(context)
+          return 0
+        }
+        return await runReset(args, context, getConfig, io)
+      },
+      usage: resetUsage,
     })
   }
 

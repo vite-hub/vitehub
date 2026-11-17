@@ -651,6 +651,8 @@ function mergeNitroWorkspaceConfig(value: unknown, dev: boolean): NitroConfig {
   const nitro: NitroConfig = isRecord(value) ? { ...value } : {}
   const kit = createNitroServerKit(nitro)
   kit.addPlugin(generatedNitroWorkspacePlugin, dev ? "start" : "end")
+  // A failed request drops the cached Stores that hold only its staged writes.
+  kit.addHandler({ handler: ownModule(import.meta.url, "runtime/request"), middleware: true }, "start")
   // SAFETY: The kit preserves the Nitro config object shape while adding the generated plugin.
   return kit.config as NitroConfig
 }

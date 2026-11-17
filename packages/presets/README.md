@@ -278,7 +278,9 @@ go when the PR closes, after `idleDays` (7) without a pass, and least recently
 used first above `budgetGb` (60) or below `minFreePercent` (15) free disk.
 `warmWorkspaces: { resumeThreads: true }` also continues the previous pass's
 provider thread when that pass pushed or recorded a wait on the same base and
-release.
+release. The host stores only that session in `provider-sessions.sqlite`: it
+deletes the session of every pass that cannot be resumed, and the last one when
+the PR's workspace goes. Without `resumeThreads`, it stores no provider session.
 While the built-in resource guard pauses model passes for a spent token budget, low temporary space or exhausted proxy accounts, host work continues. A token budget of `0` stops every claim.
 
 Colocated `instructions.md` fills the preset's instruction slot without adding

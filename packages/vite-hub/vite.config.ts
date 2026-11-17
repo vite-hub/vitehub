@@ -59,6 +59,7 @@ const runtimeEntries = [
   // Generated code imports these modules by path. They are not package exports.
   "src/_internal/auth/internal/server.ts",
   "src/_internal/auth/runtime/server.ts",
+  "src/_internal/runtime/browser-errors.ts",
   "src/_internal/runtime/internal/h3.ts",
   "src/_internal/runtime/request-policy.ts",
   "src/_internal/runtime/security.ts",

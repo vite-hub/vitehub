@@ -348,6 +348,8 @@ const config: KnipConfiguration = {
         /^@iconify-json\//,
         // The docs MCP endpoint loads agents/mcp on Cloudflare.
         "agents",
+        // The generated Workflow Worker resolves h3 from .nuxt (see the demo README).
+        "h3",
         // The README runs Wrangler directly for local migrations and Worker previews.
         "wrangler",
       ],
