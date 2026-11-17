@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { textContent } from "comark/utils"
 
-import { createDocsParser, docsSearchSections } from "../src/markdown.ts"
+import { createDocsParser, docsImageSizes, docsSearchSections } from "../src/markdown.ts"
 
 import type { ComarkPlugin, Node as ComarkNode } from "comark"
 
@@ -76,6 +76,40 @@ describe("docs parser", () => {
       { id: "install", text: "Install", depth: 2, children: [{ id: "from-npm", text: "From npm", depth: 3 }] },
       { id: "use", text: "Use", depth: 2 },
     ])
+  })
+})
+
+describe("public image sizes", () => {
+  const parseWithSizes = createDocsParser({ plugins: [docsImageSizes({ "/screenshots/console.png": [1280, 720] })] })
+  const images = async (markdown: string) => {
+    const found: Array<Record<string, unknown>> = []
+    const visit = (nodes: ComarkNode[]) => {
+      for (const node of nodes) {
+        if (typeof node === "string" || node[0] === null) continue
+        if (node[0] === "img") found.push(node[1])
+        visit(node.slice(2) as ComarkNode[])
+      }
+    }
+    visit((await parseWithSizes(markdown)).nodes)
+    return found
+  }
+
+  it("gives an image of the public folder its width and height", async () => {
+    expect(await images("![Console](/screenshots/console.png?v=2)")).toEqual([
+      expect.objectContaining({ src: "/screenshots/console.png?v=2", width: "1280", height: "720" }),
+    ])
+  })
+
+  it("keeps the side an author set and gives the other at the picture's ratio", async () => {
+    expect(await images("![Console](/screenshots/console.png){width=640}")).toEqual([expect.objectContaining({ width: "640", height: "360" })])
+    expect(await images("![Console](/screenshots/console.png){height=72}")).toEqual([expect.objectContaining({ width: "128", height: "72" })])
+  })
+
+  it("leaves other images and sides in other units alone", async () => {
+    const [percent, other] = await images("![Console](/screenshots/console.png){width=50%}\n\n![Other](/other.png)")
+    expect(percent).toMatchObject({ width: "50%" })
+    expect(percent).not.toHaveProperty("height")
+    expect(other).not.toHaveProperty("width")
   })
 })
 

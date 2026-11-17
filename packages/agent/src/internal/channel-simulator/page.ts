@@ -1,5 +1,5 @@
 import { simulatedChatUserId } from "../channel-simulation.ts"
-import { channelSimulatorClient } from "./client.ts"
+import { channelSimulatorClient } from "./client.injected.ts"
 import { discordSkin } from "./discord.ts"
 import { escapeHtml } from "./html.ts"
 import { slackSkin } from "./slack.ts"

@@ -26,6 +26,7 @@ vi.mock("#docs/content", () => ({ content: undefined }))
 vi.mock("#docs/agent", () => ({ default: { llms: { details: "Rules for agents.", sections: [{ title: "Links", links: [{ title: "API", href: "https://docs.example.com/openapi.json" }] }] } } }))
 // The app's `parser` module: a Comark plugin that adds a paragraph, so the test sees which parser ran.
 vi.mock("#docs/example-sources", () => ({ default: {} }))
+vi.mock("#docs/image-sizes", () => ({ default: {} }))
 vi.mock("#docs/parser", () => ({
   default: { plugins: [{ name: "app-plugin", post: (state: { tree: { nodes: unknown[] } }) => void state.tree.nodes.push(["p", {}, "Added by the app plugin"]) }] },
   githubRepo: "vite-hub/vitehub",

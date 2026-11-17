@@ -2,11 +2,10 @@ import * as v from "valibot"
 import { afterEach, describe, expect, it } from "vitest"
 import { defineOperation, operationSurfaceHeader } from "@vite-hub/internal/operations"
 
-import packageManifest from "../package.json" with { type: "json" }
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
-import { installConsoleBuild, installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { installConsoleBuild, installConsoleProjectName, installConsoleSections, installConsoleVersion } from "../src/console/runtime/server/sections.ts"
 import { consoleState } from "../src/console/internal.ts"
 import { taskOperations } from "../src/task/operations.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
@@ -47,11 +46,12 @@ describe("project.get", () => {
   it("answers in an app with KV and no Agents", async () => {
     installConsoleSections("/work/app", ["kv"])
     installConsoleProjectName("/work/app", "kv-app")
+    installConsoleVersion("0.0.0-preview-4f9c2e1")
     installConsoleOperations([{ operations: kvOperations, plugin: "@vite-hub/kv" }])
 
     const { status, value } = await project()
     expect(status).toBe(200)
-    expect(value).toMatchObject({ name: "kv-app", protocol: 1, sections: ["kv"], vitehub: packageManifest.version })
+    expect(value).toMatchObject({ name: "kv-app", protocol: 1, sections: ["kv"], vitehub: "0.0.0-preview-4f9c2e1" })
     expect(value?.operations).toEqual(expect.arrayContaining(["kv.get", "kv.list", "project.get", "sections.list"]))
     // The Agents operations of `vite-hub` are registered, but the app has no Agents section.
     expect(value?.operations).not.toContain("status.get")
