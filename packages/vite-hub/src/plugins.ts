@@ -892,9 +892,9 @@ function assertNodeScheduleWake(schedule: ViteHubOptions["schedule"]): void {
   throw viteHubErrorDiagnostics.VITE_HUB_R0137({ message: "[vitehub] The \"node\" host has no cron, so this build would never run its Schedules. Set schedule: { runtime: { driver: \"process\" }, providerOutput: \"auto\" } to run them in the server process, or schedule: { providerOutput: false } to wake them yourself." })
 }
 
-function hostDriverOptions<T extends { driver?: unknown }>(options: object | undefined, inferred: T): T | { driver: undefined } {
+function hostDriverOptions<T extends { driver?: unknown }>(options: object | undefined, inferred: T): Partial<T> {
   // Leave old-key-only configs for the owner's migration diagnostic before a host driver can hide them.
-  if (options && Reflect.get(options, "driver") === undefined && Object.hasOwn(options, "provider")) return { driver: undefined }
+  if (options && Reflect.get(options, "driver") === undefined && Object.hasOwn(options, "provider")) return {}
   return inferred
 }
 
