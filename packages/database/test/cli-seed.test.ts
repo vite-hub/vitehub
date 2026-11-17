@@ -74,13 +74,23 @@ async function createProject(name = "default") {
     rootDir,
   }) as unknown as ResolvedDBViteConfig)!
 
+  const text = (write: ReturnType<typeof vi.fn>) => write.mock.calls.map(([chunk]) => String(chunk)).join("")
+
   async function run(feature: string, args: string[] = []) {
     const stdout = { write: vi.fn() }
     const stderr = { write: vi.fn() }
     const command = contributor.namespaces[0]!.features.find(candidate => candidate.name === feature)
     if (!command) return { exitCode: undefined, stderr: `Unknown command: vitehub database ${feature}`, stdout: "" }
     const exitCode = await command.run(args, { cwd: rootDir, env: { ...process.env }, rootDir, spawn: realSpawn, stderr, stdout } as never)
-    const text = (write: ReturnType<typeof vi.fn>) => write.mock.calls.map(([chunk]) => String(chunk)).join("")
+    return { exitCode, stderr: text(stderr.write), stdout: text(stdout.write) }
+  }
+
+  /** Runs the Database seed of `vitehub seed`, which passes the env of `--stage` in `env`. */
+  async function seed(options: { database?: string, env?: NodeJS.ProcessEnv, remote?: boolean } = {}) {
+    const stdout = { write: vi.fn() }
+    const stderr = { write: vi.fn() }
+    const env = options.env ?? { ...process.env }
+    const exitCode = await contributor.seeds![0]!.run({ env, remote: options.remote ?? false, ...(options.database ? { database: options.database } : {}) }, { cwd: rootDir, env, rootDir, spawn: realSpawn, stderr, stdout } as never)
     return { exitCode, stderr: text(stderr.write), stdout: text(stdout.write) }
   }
 
@@ -94,15 +104,14 @@ async function createProject(name = "default") {
     }
   }
 
-  return { databaseDir, rootDir, run, titles, url }
+  return { databaseDir, rootDir, run, seed, titles, url }
 }
 
-describe("vitehub database seed", () => {
-  it("is a database command", async () => {
+describe("Database seed of vitehub seed", () => {
+  it("is a seed of vitehub seed, not a database command", async () => {
     const project = await createProject()
-    const help = await project.run("seed", ["--help"])
-    expect(help.exitCode).toBe(0)
-    expect(help.stdout).toContain("Usage: vitehub database seed [--remote] [--stage <name>] [--database <name>]")
+    await expect(project.run("seed")).resolves.toMatchObject({ exitCode: undefined })
+    expect(createDbCliContributor({ seed: false })?.seeds).toBeUndefined()
   })
 
   it("runs the seed file on the local SQLite database after migrate", async () => {
@@ -111,17 +120,15 @@ describe("vitehub database seed", () => {
     await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
     await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0 })
 
-    const result = await project.run("seed")
+    const result = await project.seed()
     expect(result).toMatchObject({ exitCode: 0, stderr: "" })
     expect(result.stdout).toBe("[vitehub] Database \"default\" (local SQLite .vitehub/data/database/sqlite.db): ran server/databases/default/seed.ts.\n")
     await expect(project.titles()).resolves.toEqual(["first", "second"])
   }, 120_000)
 
-  it("exposes stage env during module evaluation and execution, and restores it after failure", async () => {
+  it("gives the seed file the env of vitehub seed", async () => {
     const project = await createProject()
     const key = "VITEHUB_SEED_STAGE_REGRESSION"
-    const previous = process.env[key]
-    await writeFile(join(project.rootDir, ".env.staging"), `${key}=staging-value\n`)
     await writeFile(join(project.databaseDir, "seed.ts"), [
       `const evaluated = process.env.${key}`,
       "export default async ({ db, schema }) => {",
@@ -130,12 +137,15 @@ describe("vitehub database seed", () => {
     ].join("\n"))
     await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
     await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0 })
-    await expect(project.run("seed", ["--stage", "staging"])).resolves.toMatchObject({ exitCode: 0, stderr: "" })
-    await expect(project.titles()).resolves.toEqual([previous ?? "staging-value", previous ?? "staging-value"])
-    expect(process.env[key]).toBe(previous)
-    await writeFile(join(project.databaseDir, "seed.ts"), "export default () => { throw new Error('seed failed') }")
-    expect((await project.run("seed", ["--stage", "staging"])).exitCode).toBe(1)
-    expect(process.env[key]).toBe(previous)
+    // `vitehub seed --stage` puts the stage env in `process.env` and in `env`, like this.
+    process.env[key] = "staging-value"
+    try {
+      await expect(project.seed({ env: { ...process.env } })).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    }
+    finally {
+      delete process.env[key]
+    }
+    await expect(project.titles()).resolves.toEqual(["staging-value", "staging-value"])
   }, 120_000)
 
   it("seeds the named database that --database picks", async () => {
@@ -144,18 +154,19 @@ describe("vitehub database seed", () => {
     await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
     await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0 })
 
-    const unknown = await project.run("seed", ["--database", "missing"])
+    const unknown = await project.seed({ database: "missing" })
     expect(unknown.exitCode).toBe(1)
     expect(unknown.stderr).toContain("DATABASE_NOT_FOUND")
 
-    await expect(project.run("seed", ["--database", "analytics"])).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    await expect(project.seed({ database: "analytics" })).resolves.toMatchObject({ exitCode: 0, stderr: "" })
     await expect(project.titles()).resolves.toEqual(["first", "second"])
     expect(existsSync(join(project.rootDir, ".vitehub/data/database/sqlite.db"))).toBe(false)
   }, 120_000)
 
-  it("names the expected file when the seed file is missing", async () => {
+  it("names the expected file when the seed file of --database is missing", async () => {
     const project = await createProject()
-    const result = await project.run("seed")
+    await expect(project.seed()).resolves.toMatchObject({ exitCode: undefined, stderr: "" })
+    const result = await project.seed({ database: "default" })
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("DATABASE_SEED_NOT_FOUND")
     expect(result.stderr).toContain("The database \"default\" has no seed file. ViteHub looks for server/databases/default/seed.ts.")
@@ -166,7 +177,7 @@ describe("vitehub database seed", () => {
     await writeFile(join(project.databaseDir, "seed.ts"), seedFile)
     await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
 
-    const result = await project.run("seed")
+    const result = await project.seed()
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("DATABASE_SEED_PENDING_MIGRATIONS")
     expect(result.stderr).toMatch(/has pending migrations, so the seed would not see the current tables:\n {2}- \d{14}_init/)
@@ -177,7 +188,7 @@ describe("vitehub database seed", () => {
   it("refuses --remote for a local database", async () => {
     const project = await createProject()
     await writeFile(join(project.databaseDir, "seed.ts"), seedFile)
-    const result = await project.run("seed", ["--remote"])
+    const result = await project.seed({ remote: true })
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("DATABASE_SEED_FAILED")
     expect(result.stderr).toContain("which is not remote. Remove `--remote`")
@@ -189,12 +200,12 @@ describe("vitehub database seed", () => {
     await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0 })
 
     await writeFile(join(project.databaseDir, "seed.ts"), "export const notes = []\n")
-    const invalid = await project.run("seed")
+    const invalid = await project.seed()
     expect(invalid.exitCode).toBe(1)
     expect(invalid.stderr).toContain("must default-export a function")
 
     await writeFile(join(project.databaseDir, "seed.ts"), "export default async () => { throw new Error('duplicate user') }\n")
-    const thrown = await project.run("seed")
+    const thrown = await project.seed()
     expect(thrown.exitCode).toBe(1)
     expect(thrown.stderr).toContain("DATABASE_SEED_FAILED")
     expect(thrown.stderr).toContain("threw: duplicate user")

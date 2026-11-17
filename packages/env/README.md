@@ -122,7 +122,7 @@ export async function readTicket(ticket: string) {
 
 Each purpose gets its own key, derived from `VITEHUB_SECRET` with `deriveSecret()`, so a value sealed for one purpose does not open as another. `ttl` is in seconds; without it, the value does not expire. `schema` takes any Standard Schema and types the value; without it, the value is `unknown`. `unseal()` returns a `Result`; a missing root secret or a bad argument throws. Web Crypto does the work, so the same string opens on Node, Workers, Deno, and Bun.
 
-A rotation of `VITEHUB_SECRET` makes every sealed value unreadable. That is correct for short-lived tokens. For values that you store, such as provider credentials, pass a separate root secret: `seal("my-app:credentials", value, { secret: env.credentialsKey })`, with the same `secret` for `unseal()`. See [Sign and seal values](https://vitehub.dev/docs/env/seal).
+To rotate `VITEHUB_SECRET`, put the old secret in `VITEHUB_SECRET_PREVIOUS` (one secret, or a comma-separated list). `seal()` uses `VITEHUB_SECRET`, and `unseal()` also tries each old secret, so open links and cookies keep working until they expire. For values that you store, such as provider credentials, pass a separate root secret: `seal("my-app:credentials", value, { secret: env.credentialsKey })`, with the same `secret` for `unseal()`. To rotate it, pass `[newKey, oldKey]`: `seal()` uses the first, and `unseal()` tries each. See [Sign and seal values](https://vitehub.dev/docs/env/seal).
 
 ### Single-use values
 
