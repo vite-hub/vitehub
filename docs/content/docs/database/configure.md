@@ -69,6 +69,7 @@ export default defineConfig({
 | `database.cli.export` | `false` | enabled | Turns off `database export`. |
 | `database.cli.generate` | `false` | enabled | Turns off `database generate`. |
 | `database.cli.migrate` | `false` | enabled | Turns off `database migrate`. |
+| `database.cli.reset` | `false` | enabled | Turns off `database reset`. |
 | `database.cli.seed` | `false` | enabled | Turns off `database seed`. |
 | `database.cli.sql` | `false` | enabled | Turns off `database sql`. |
 | `database.cli.up` | `false` | enabled | Turns off `database up`. |
@@ -562,6 +563,7 @@ cat seed.sql | pnpm vitehub database sql
 pnpm vitehub database sql --remote --stage production "select count(*) from users"
 pnpm vitehub database drop
 pnpm vitehub database drop --force                          # in CI or a script
+pnpm vitehub database reset                                 # drop, then migrate
 ```
 
 Both commands use the same target as `export`. Without `--remote`, they use only the local SQLite file or PGlite folder of `vitehub database migrate`. Any other database, such as D1, libSQL, or a Postgres server, needs `--remote` and the same credentials as `export --remote`. `--stage <name>` loads the Vite env files of that mode, and `--database <name>` picks the database when the app has several.
@@ -576,6 +578,8 @@ Both commands use the same target as `export`. Without `--remote`, they use only
 | Postgres and PGlite | The tables, views, sequences, and enum types that the connecting user owns, in every schema but the system ones, and Drizzle's `drizzle` schema. Then each schema that is left empty, except `public`. Objects of other roles, such as the `auth` tables of Supabase, stay. If their dependencies prevent dropping an owned object, the whole reset fails without changes. |
 
 Failures print `DATABASE_SQL_FAILED` or `DATABASE_DROP_FAILED` and exit with code 1. A local file that does not exist fails `sql`, and `drop` has nothing to drop. Neither creates the file.
+
+`reset` gives you an empty database with the current tables. It drops like `drop`, with the same question and `--force`, and then applies every migration of that database like `vitehub database migrate`. It reads the migrations folder first, so a broken folder stops it before it drops anything. It does not run the seed file: run `vitehub database seed` after it. A native D1 binding with `--remote` is refused, because `migrate` applies D1 binding migrations only to the local file. Use `drop --remote`, then `wrangler d1 migrations apply <name> --remote`.
 
 ## Tables from Nuxt layers
 
