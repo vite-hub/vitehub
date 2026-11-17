@@ -70,9 +70,9 @@ function buildTables<TColumn, TTable>(dialect: Dialect<TColumn, TTable>, specs: 
         builder = builder.default(field.defaultValue === "now" && field.type !== "string" ? field.type === "number" ? dialect.nowMs : dialect.now : field.defaultValue)
       }
       if (field.onUpdate) builder = builder.$onUpdate(() => new Date())
-      // SQLite cannot make a column NOT NULL in place, and adds a NOT NULL column only with a default. Better Auth writes
-      // every required field, so an existing table keeps the column nullable.
-      if (field.required && (!current || (column ? column.notNull : field.defaultValue !== undefined))) builder = builder.notNull()
+      // Existing columns keep their nullability, including optional Auth fields. SQLite adds a new NOT NULL column
+      // only with a default; Better Auth writes required fields, so other additions can stay nullable.
+      if (column ? column.notNull : field.required && (!current || field.defaultValue !== undefined)) builder = builder.notNull()
       if (field.unique) {
         const constraint = current?.uniques.find(entry => sameColumns(entry.columns, [name]))
         // A unique index is added and dropped without a rebuild; a UNIQUE constraint is not.
@@ -205,6 +205,7 @@ const sqliteDialect: Dialect<SQLiteColumn, AuthSqliteTable> = {
   now: sql`(cast(unixepoch('subsecond') * 1000 as integer))`,
   nowMs: sql`(cast(unixepoch('subsecond') * 1000 as integer))`,
   raw: sqlText => sql.raw(sqlText),
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle builds columns from runtime specs; the shared dialect erases builder types and schema tests verify the resulting tables.
   table: (name, columns, extras) => sqliteTable(name, columns as never, table => extras(table as unknown as Record<string, SQLiteColumn>) as never) as unknown as AuthSqliteTable,
 }
 
@@ -231,13 +232,16 @@ const postgresDialect: Dialect<PgColumn, AuthPostgresTable> = {
   now: sql`now()`,
   nowMs: sql`(extract(epoch from now()) * 1000)::bigint`,
   raw: sqlText => sql.raw(sqlText),
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle builds columns from runtime specs; the shared dialect erases builder types and schema tests verify the resulting tables.
   table: (name, columns, extras) => pgTable(name, columns as never, table => extras(table as unknown as Record<string, PgColumn>) as never) as unknown as AuthPostgresTable,
 }
 
 // SAFETY: `buildTables()` builds each table of `authTableSpecs` with the columns that `AuthSqliteSchema` types.
+// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Runtime table construction follows authTableSpecs; schema metadata and published type tests verify this boundary.
 export const authSqliteSchema: AuthSqliteSchema = buildTables(sqliteDialect, authTableSpecs) as unknown as AuthSqliteSchema
 
 // SAFETY: `buildTables()` builds each table of `authTableSpecs` with the columns that `AuthPostgresSchema` types.
+// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Runtime table construction follows authTableSpecs; schema metadata and published type tests verify this boundary.
 export const authPostgresSchema: AuthPostgresSchema = buildTables(postgresDialect, authTableSpecs) as unknown as AuthPostgresSchema
 
 /**
@@ -249,11 +253,13 @@ export const authPostgresSchema: AuthPostgresSchema = buildTables(postgresDialec
  */
 export function createAuthSqliteSchema(options: AuthSchemaOptions, existing?: AuthExistingTables): AuthSqliteSchema & Readonly<Record<string, AuthSqliteTable>> {
   // SAFETY: `resolveAuthTableSpecs()` starts from `authTableSpecs`.
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Runtime table construction follows authTableSpecs; schema metadata and published type tests verify this boundary.
   return buildTables(sqliteDialect, resolveAuthTableSpecs(options), existing) as unknown as AuthSqliteSchema & Record<string, AuthSqliteTable>
 }
 
 /** The Better Auth tables for Postgres, with the plugins and additional fields of `options`. */
 export function createAuthPostgresSchema(options: AuthSchemaOptions): AuthPostgresSchema & Readonly<Record<string, AuthPostgresTable>> {
   // SAFETY: `resolveAuthTableSpecs()` starts from `authTableSpecs`.
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Runtime table construction follows authTableSpecs; schema metadata and published type tests verify this boundary.
   return buildTables(postgresDialect, resolveAuthTableSpecs(options)) as unknown as AuthPostgresSchema & Record<string, AuthPostgresTable>
 }

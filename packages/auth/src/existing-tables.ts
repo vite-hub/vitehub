@@ -58,6 +58,10 @@ interface SnapshotEntity {
   nameExplicit?: unknown
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
 function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
 }
@@ -71,8 +75,9 @@ function latestSnapshot(migrationsDir: string): SnapshotEntity[] | undefined {
     .sort()
   const latest = folders.at(-1)
   if (!latest) return
-  const snapshot = JSON.parse(readFileSync(join(migrationsDir, latest, "snapshot.json"), "utf8")) as { dialect?: unknown, ddl?: unknown }
-  return snapshot.dialect === "sqlite" && Array.isArray(snapshot.ddl) ? snapshot.ddl as SnapshotEntity[] : undefined
+  const snapshot: unknown = JSON.parse(readFileSync(join(migrationsDir, latest, "snapshot.json"), "utf8"))
+  if (!isRecord(snapshot) || snapshot.dialect !== "sqlite" || !Array.isArray(snapshot.ddl)) return
+  return snapshot.ddl.filter(isRecord)
 }
 
 /**
@@ -95,9 +100,9 @@ export function readAuthExistingTables(migrationsDir: string, tableNames: readon
       target.columns[entity.name] = { notNull: entity.notNull === true, ...(typeof entity.default === "string" ? { default: entity.default } : {}) }
     }
     else if (entity.entityType === "indexes" && Array.isArray(entity.columns)) {
-      const columns = entity.columns.map(column => (column as { value?: unknown, isExpression?: unknown }))
+      const columns = entity.columns.filter(isRecord)
       // An expression index cannot match a Better Auth column.
-      if (columns.some(column => column.isExpression === true || typeof column.value !== "string")) continue
+      if (columns.length !== entity.columns.length || columns.some(column => column.isExpression === true || typeof column.value !== "string")) continue
       target.indexes.push({ name: entity.name, columns: columns.map(column => column.value as string), unique: entity.isUnique === true })
     }
     else if (entity.entityType === "uniques") {

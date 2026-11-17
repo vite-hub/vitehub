@@ -151,8 +151,22 @@ function describeRebuild(table: string, rebuild: Rebuild, before: TableColumns |
  * references the rebuilt one.
  */
 function describeReferencingRows(table: string, references: TableReferences | undefined): { reason: string, tables: string[] } | undefined {
-  const keys = references?.get(table.toLowerCase())?.filter(key => key.table.toLowerCase() !== table.toLowerCase())
-  if (!keys?.length) return
+  const keys: ReferencingKey[] = []
+  const visited = new Set([table.toLowerCase()])
+  const visit = (parent: string) => {
+    for (const key of references?.get(parent) ?? []) {
+      if (key.table.toLowerCase() === table.toLowerCase()) continue
+      keys.push(key)
+      // SET NULL and SET DEFAULT change rows without deleting them, so only CASCADE propagates ON DELETE actions.
+      const child = key.table.toLowerCase()
+      if (key.onDelete === "CASCADE" && !visited.has(child)) {
+        visited.add(child)
+        visit(child)
+      }
+    }
+  }
+  visit(table.toLowerCase())
+  if (!keys.length) return
   const actions = keys.map(key => `${key.onDelete === "CASCADE" ? "deletes the rows of" : "clears"} "${key.table}"."${key.columns.join(`", "`)}" (ON DELETE ${key.onDelete})`)
   return { reason: `rebuilds table "${table}", and dropping the old table ${actions.join(", ")}`, tables: [...new Set(keys.map(key => tableKey(key.table)))] }
 }

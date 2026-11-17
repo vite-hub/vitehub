@@ -36,6 +36,7 @@ export const user = sqliteTable("user", {
   email: text("email").notNull(),
   emailVerified: integer("email_verified", { mode: "boolean" }).default(false).notNull(),
   image: text("image"),
+  role: text("role").notNull().default("user"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 }, table => [uniqueIndex("user_email_unique").on(table.email)])

@@ -74,6 +74,21 @@ describe("migration data loss", () => {
     })
   })
 
+  it("retains losses through a new cascading intermediate table, including cycles", () => {
+    const references = new Map([
+      ["notes", [{ table: "membership", columns: ["note_id"], onDelete: "CASCADE" }]],
+      ["membership", [{ table: "document", columns: ["membership_id"], onDelete: "CASCADE" }]],
+      ["document", [{ table: "membership", columns: ["document_id"], onDelete: "CASCADE" }]],
+    ])
+    const dataLoss = findDataLoss(rebuild, new Map([["notes", ["id", "title"]]]), references)
+    expect(dataLoss[0]?.tables).toEqual(["membership", "document"])
+    const filtered = withoutNewTableDataLoss([
+      { statements: ["CREATE TABLE membership (id integer PRIMARY KEY);"], dataLoss: [] },
+      { statements: rebuild, dataLoss },
+    ])
+    expect(filtered[1]?.dataLoss).toHaveLength(1)
+  })
+
   it("accepts a SQLite table rebuild that only the table itself references", () => {
     expect(findDataLoss(rebuild, new Map([["notes", ["id", "title"]]]), new Map([["notes", [{ table: "notes", columns: ["parent_id"], onDelete: "CASCADE" }]]]))).toEqual([])
   })
