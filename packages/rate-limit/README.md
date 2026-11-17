@@ -99,7 +99,7 @@ export async function handleImageUpload(request: Request, userId: string): Promi
 }
 ```
 
-The stable ID and provider policy must use static literals so the Vite integration can discover them and generate provider configuration. The request and `key` are runtime values. The guard takes a Web `Request` or a request event with Standard Context properties, such as an H3 event in a ViteHub app. If you omit `key`, the guard uses the client address of the event and fails when it cannot find one. A `Request` has no client address, so pass `key`, except on Cloudflare, where the guard reads `cf-connecting-ip`.
+The stable ID and provider policy must use literals, or a `const` with a literal value in the same file, so the Vite integration can discover them and generate provider configuration. The request, `key`, and `message` are runtime values. `message` sets the message of the `429` error of `requireRateLimit()`, and `checkRateLimit()` does not take it. The guard takes a Web `Request` or a request event with Standard Context properties, such as an H3 event in a ViteHub app. If you omit `key`, the guard uses the client address of the event and fails when it cannot find one. A `Request` has no client address, so pass `key`, except on Cloudflare, where the guard reads `cf-connecting-ip`.
 
 An allowed request continues. An exhausted budget throws an H3 `HTTPError` with status `429`. The default `failure: "deny"` turns an expected driver outage into status `503`; `failure: "allow"` lets the request continue. Use fail-open behavior only when the protected operation is safe without enforcement. Invalid configuration, malformed provider results, missing bindings, and driver defects still throw instead of following the failure policy.
 
