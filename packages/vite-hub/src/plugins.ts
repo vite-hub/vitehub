@@ -47,6 +47,7 @@ import { viteHubSeoPlugin, type SeoOptions } from "./seo/vite.ts"
 import { requestPolicyVitePlugin, type SameOriginWritesOptions } from "./request-policy-vite.ts"
 import type { SecurityOptions } from "./security-vite.ts"
 import { redirectsVitePlugin, resolveRedirectsPolicy, type RedirectsOptions } from "./redirects-vite.ts"
+import { staleChunkReloadVitePlugin } from "./stale-chunk-reload.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { cloudflarePkceChallengePlugin } from "./cloudflare-pkce-challenge.ts"
@@ -1556,6 +1557,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (envPlugin) plugins.push(envPlugin)
   const redirects = resolveRedirectsPolicy(options.redirects)
   if (redirects) plugins.push(redirectsVitePlugin(redirects))
+  plugins.push(staleChunkReloadVitePlugin())
 
   const runtimeCapabilityImports = {
     blob: blobEnabled ? "vite-hub/blob" : false,
