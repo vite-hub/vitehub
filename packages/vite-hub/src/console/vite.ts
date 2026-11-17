@@ -149,6 +149,8 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
 }
 
 export interface ConsoleVitePluginOptions {
+  /** The `name` option of `vitehub()`, which `project.get` reports. */
+  name?: string
   /** Serve the development RPC and Setup without the full Console. */
   rpcOnly?: boolean
   contentImportBase?: string
@@ -321,6 +323,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       blobStores,
       development,
       invoke,
+      name: options.name,
       runtimeCapabilityImports: options.runtimeCapabilityImports,
       sections,
       navigationSections: options.rpcOnly ? sections.filter(section => section === "setup") : undefined,
