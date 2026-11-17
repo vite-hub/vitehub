@@ -1,10 +1,11 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { runInNewContext } from "node:vm"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { installStaleChunkReloadNuxt, staleChunkReloadPluginName, staleChunkReloadVitePlugin } from "../src/stale-chunk-reload.ts"
+import { installStaleChunkReloadNuxt, staleChunkReloadNuxtPluginSource, staleChunkReloadPluginName, staleChunkReloadVitePlugin } from "../src/stale-chunk-reload.ts"
 
 const roots: string[] = []
 afterEach(async () => {
@@ -38,4 +39,39 @@ describe("stale chunk reload", () => {
       expect(nuxt.options.plugins).toEqual([])
     }
   })
+})
+
+// Nuxt registers its normal window listener before application plugins run.
+function nuxtPreload(css: boolean, optOut?: "before" | "after" | "capture") {
+  const listeners: Array<{ callback: (event: Event) => void, capture: boolean }> = []
+  const reload = vi.fn()
+  const cancel = (event: Event) => event.preventDefault()
+  if (optOut === "before" || optOut === "capture") listeners.push({ callback: cancel, capture: optOut === "capture" })
+  listeners.push({ callback: (event) => { if (css) event.preventDefault() }, capture: false })
+  runInNewContext(staleChunkReloadNuxtPluginSource().replace(/^import .*\n/, "").replace("export default ", ""), {
+    defineNuxtPlugin: ({ setup }: { setup: () => void }) => setup(),
+    useRouter: () => ({ beforeEach() {}, afterEach() {}, onError() {}, currentRoute: { value: { fullPath: "/orders" } } }),
+    useRuntimeConfig: () => ({ app: { baseURL: "/" } }),
+    reloadNuxtApp: reload,
+    setTimeout: (callback: () => void) => queueMicrotask(callback),
+    window: { addEventListener: (_name: string, callback: (event: Event) => void, capture = false) => listeners.push({ callback, capture }) },
+  })
+  if (optOut === "after") listeners.push({ callback: cancel, capture: false })
+  const event = Object.assign(new Event("vite:preloadError", { cancelable: true }), { payload: new Error(css ? "Unable to preload CSS for /old.css" : "Failed to fetch dynamically imported module") })
+  for (const listener of [...listeners.filter(item => item.capture), ...listeners.filter(item => !item.capture)]) listener.callback(event)
+  return reload
+}
+
+it.each([false, true])("recovers from a Nuxt preload error (CSS: %s)", async (css) => {
+  const reload = nuxtPreload(css)
+  await Promise.resolve()
+  expect(reload).toHaveBeenCalledWith({ path: "/orders", persistState: true })
+})
+
+it.each(["before", "after", "capture"] as const)("keeps application cancellation %s the Nuxt plugin", async (order) => {
+  for (const css of [false, true]) {
+    const reload = nuxtPreload(css, order)
+    await Promise.resolve()
+    expect(reload).not.toHaveBeenCalled()
+  }
 })

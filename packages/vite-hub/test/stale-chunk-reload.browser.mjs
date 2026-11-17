@@ -6,7 +6,7 @@
 // Run: pnpm --filter vite-hub exec node --test test/stale-chunk-reload.browser.mjs   (STALE_CHUNK_CASES=vite picks cases)
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
@@ -20,12 +20,13 @@ const hubOptions = { host: "node", console: false }
 const cases = [
   { name: "vite", framework: "vite", port: 4851 },
   { name: "nuxt", framework: "nuxt", port: 4852 },
+  { name: "nuxt-css", framework: "nuxt", port: 4853, cssOnly: true },
 ].filter(item => !process.env.STALE_CHUNK_CASES || process.env.STALE_CHUNK_CASES.split(",").includes(item.name))
 
 /** The page shows its build, and the receipt view loads as a lazy chunk on a click. */
 function appFiles(item, build) {
   const page = `<script setup lang="ts">\nimport { defineAsyncComponent, ref } from "vue"\n\nconst Receipt = defineAsyncComponent(() => import("./Receipt.vue"))\nconst open = ref(false)\n</script>\n\n<template>\n  <main>\n    <p id="build">Build ${build}</p>\n    <button id="open" @click="open = true">Show receipt</button>\n    <Receipt v-if="open" />\n  </main>\n</template>\n`
-  const receipt = `<template>\n  <p id="receipt">Receipt from build ${build}</p>\n</template>\n`
+  const receipt = `<template>\n  <p id="receipt">Receipt from build ${item.cssOnly ? "shared" : build}</p>\n</template>\n<style>\n#receipt { color: ${build === "A" ? "red" : "blue"}; }\n</style>\n`
   if (item.framework === "vite") {
     return {
       "index.html": "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>Orders</title></head><body><div id=\"app\"></div><script type=\"module\" src=\"/src/main.ts\"></script></body></html>\n",
@@ -107,10 +108,22 @@ for (const item of cases) {
     await rm(root, { force: true, recursive: true })
     const buildA = await buildApp(item, root, "A")
     const buildB = await buildApp(item, root, "B")
-    assert.notEqual(await receiptChunk(buildA, "A").then(file => file.slice(buildA.length)), await receiptChunk(buildB, "B").then(file => file.slice(buildB.length)))
+    const currentReceipt = await receiptChunk(buildB, item.cssOnly ? "shared" : "B")
+    if (item.cssOnly) {
+      // Keep all old JavaScript available. Only the old extracted stylesheet is missing.
+      for (const file of await readdir(join(buildA, "public"), { recursive: true })) {
+        if (!file.endsWith(".js")) continue
+        await mkdir(join(buildB, "public", file, ".."), { recursive: true })
+        await copyFile(join(buildA, "public", file), join(buildB, "public", file))
+      }
+    }
+    else assert.notEqual(await receiptChunk(buildA, "A").then(file => file.slice(buildA.length)), await receiptChunk(buildB, "B").then(file => file.slice(buildB.length)))
 
     let server = await start(item, buildA)
     const page = await browser.newPage()
+    const failedAssets = []
+    page.on("response", response => { if (response.status() >= 400) failedAssets.push(response.url()) })
+    page.on("requestfailed", request => failedAssets.push(request.url()))
     let loads = 0
     page.on("load", () => loads++)
     try {
@@ -127,13 +140,19 @@ for (const item of cases) {
       await page.locator("#open").click()
       await page.locator("#build").getByText("Build B").waitFor({ timeout: 15_000 })
       assert.equal(loads, 2)
+      if (item.cssOnly) {
+        assert.ok(failedAssets.some(url => new URL(url).pathname.endsWith(".css")), "The stale stylesheet must fail")
+        assert.ok(!failedAssets.some(url => new URL(url).pathname.endsWith(".js")), "Old JavaScript must remain available")
+      }
       await page.locator("#open").click()
-      await page.locator("#receipt").getByText("Receipt from build B").waitFor()
+      await page.locator("#receipt").getByText(`Receipt from build ${item.cssOnly ? "shared" : "B"}`).waitFor()
+
+      assert.equal(await page.locator("#receipt").evaluate(element => getComputedStyle(element).color), "rgb(0, 0, 255)")
 
       // A chunk that the new build misses too must not reload again within 10 seconds.
       await page.reload()
       await page.locator("#build").getByText("Build B").waitFor()
-      await rm(await receiptChunk(buildB, "B"))
+      await rm(currentReceipt)
       const before = loads
       await page.locator("#open").click()
       await page.waitForTimeout(2_000)
