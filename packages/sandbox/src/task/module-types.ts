@@ -15,7 +15,6 @@ export interface CloudflareSandboxTaskOptions {
 export interface VercelSandboxTaskDriverOptions extends SandboxTaskSizeOptions {
   driver: 'vercel'
   runtime?: string
-  timeout?: number
   ports?: number[]
   source?: VercelSandboxSource
   /** `"allow-all"` (default), `"deny-all"`, or `{ allow: hostnames }`. Vercel also takes `subnets`. */

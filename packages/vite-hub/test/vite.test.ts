@@ -2125,10 +2125,10 @@ describe("vitehub", () => {
 
   it("selects Vercel Sandbox on hosts without a Sandbox provider", async () => {
     for (const host of ["node", "netlify"] as const) {
-      expect(pluginNames(vitehub({ host, sandboxTask: { driver: "vercel", timeout: 60_000 } }))).toContain("@vite-hub/sandbox/task/vite")
-      expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith(expect.objectContaining({ driver: "vercel", timeout: 60_000 }))
+      expect(pluginNames(vitehub({ host, sandboxTask: { driver: "vercel", runtime: "node22" } }))).toContain("@vite-hub/sandbox/task/vite")
+      expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith(expect.objectContaining({ driver: "vercel", runtime: "node22" }))
       // The host selects nothing, so the build config keeps no host Sandbox options and the plugin options apply.
-      const config = await applyDeploymentConfig({ host, sandboxTask: { driver: "vercel", timeout: 60_000 } })
+      const config = await applyDeploymentConfig({ host, sandboxTask: { driver: "vercel", runtime: "node22" } })
       expect(getResolvedFeatureOptions(config, "sandboxTask")).toBeUndefined()
     }
     await expect(applyDeploymentConfig({ host: "node", sandboxTask: true })).rejects.toMatchObject({ code: "INTERNAL_R0002" })

@@ -100,7 +100,6 @@ On Cloudflare, `vitehub inspect resources` shows the instance type and the insta
 | Option | Default | Description |
 | --- | --- | --- |
 | `runtime` | `'node24'` | Runtime image. With a `snapshot` source, the snapshot sets the runtime, so ViteHub sends none unless you set one. |
-| `timeout` | - | Session timeout in milliseconds. A task timeout wins: the session then gets the task timeout plus 30 seconds for Sandbox setup and cleanup. |
 | `ports` | - | Ports to expose. |
 | `source` | - | Source to load. |
 | `networkPolicy` | `'allow-all'` | Outbound traffic. See [Network policy](#network-policy). Vercel also takes `subnets`. |

@@ -148,5 +148,9 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ max, provider, size }: { max: string, provider: string, size: string }) => `[vitehub] ${provider} has no Sandbox size for ${size}. The largest size is ${max}.`,
       fix: "Lower `cpu` or `memory` in the Sandbox Task options. On Cloudflare the largest Container has 4 vCPU and 12288 MiB memory. On Vercel the largest Sandbox has 32 vCPU and 65536 MiB memory, and your plan can allow fewer.",
     },
+    SANDBOX_TASK_VERCEL_TIMEOUT_LIMIT: {
+      why: ({ limit, timeout }: { limit: string; timeout: number }) => `Vercel rejected the Sandbox session timeout of ${timeout}ms: ${limit}.`,
+      fix: "Set a lower Sandbox Task `timeout`. Vercel allows up to 45 minutes on Hobby and 24 hours on Pro. The Vercel session gets the task timeout plus 30 seconds.",
+    },
   },
 })

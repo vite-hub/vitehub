@@ -11,6 +11,9 @@ import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
 
 const allowedDefinitionKeys = new Set(['timeout', 'env'])
 const maxTimeout = 2_147_483_647
+
+/** The timeout of a Sandbox Task run that sets no `timeout`, on every provider. */
+export const DEFAULT_SANDBOX_TASK_TIMEOUT_MS = 300_000
 const detectProvider = createProviderDetector<'cloudflare' | 'vercel'>([
   { provider: 'cloudflare', when: isCloudflare },
   { provider: 'vercel', when: isVercel },

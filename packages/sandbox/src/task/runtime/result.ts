@@ -7,7 +7,7 @@ function statusFor(error: ViteHubError<`SANDBOX_TASK_${string}`>) {
   const status = error.details?.httpStatus
   if (Number.isInteger(status) && Number(status) >= 400 && Number(status) <= 599)
     return Number(status)
-  if (error.code.includes('TIMEOUT')) return 504
+  if (error.code === 'SANDBOX_TASK_TIMEOUT') return 504
   if (error.code.includes('NOT_FOUND')) return 404
   if (error.code.includes('VALIDATION')) return 400
   return 500

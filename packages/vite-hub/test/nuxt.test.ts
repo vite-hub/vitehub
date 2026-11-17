@@ -3626,7 +3626,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
   it("turns Sandbox Tasks on for an explicit Vercel provider on the Node host", async () => {
     const development = createNuxt(true)
 
-    await viteHubNuxtModule({ console: { auth: false }, host: "node", sandboxTask: { driver: "vercel", timeout: 60_000 } }, development.nuxt)
+    await viteHubNuxtModule({ console: { auth: false }, host: "node", sandboxTask: { driver: "vercel", runtime: "node22" } }, development.nuxt)
     const nitroConfig = nitroOptions(development.nuxt)
     await development.runNitroConfigHook(nitroConfig)
 
