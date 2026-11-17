@@ -2,7 +2,8 @@ import type { ForgeProvider, RepoRef, Webhook, WebhookInput } from "forges"
 import type { PullRequestOptions } from "../channels.ts"
 import type { AgentChannelSyncPlan, AgentChannelSyncProvider } from "./channel-sync.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { forgeErrorStatus, forgeProvider, forgeResponseError } from "@vite-hub/forge"
+import { forgeErrorStatus } from "@vite-hub/internal/forge"
+import { loadForge } from "./forge-module.ts"
 import { isRuntimeRecord } from "./runtime-type.ts"
 
 interface ForgeChannelSyncOptions {
@@ -139,7 +140,7 @@ function gitlabHookFetch(fetchImpl: typeof fetch, enabled: readonly string[]): t
     const request = new Request(input, init)
     if (request.method !== "POST" && request.method !== "PUT") return await fetchImpl(input, init)
     const body: unknown = await request.json()
-    if (!isRuntimeRecord(body)) throw forgeResponseError("Invalid Forge webhook request body.")
+    if (!isRuntimeRecord(body)) throw (await loadForge()).forgeResponseError("Invalid Forge webhook request body.")
     const flags = Object.fromEntries(["push_events", ...enabled].map(event => [event, false]))
     return await fetchImpl(new Request(request, { method: request.method, body: JSON.stringify({ ...flags, ...body }) }))
   }
@@ -155,21 +156,23 @@ export function createForgeChannelSyncProvider(options: ForgeChannelSyncOptions)
   }
   let instance: string | undefined
   if (repositories) {
+    const invalid = () => agentDiagnostics.AGENT_R0997({ message: "Forge baseUrl must be an instance URL without credentials, query, or fragment." })
+    let url: URL
     try {
-      const url = new URL(options.baseUrl || (options.forge === "gitlab" ? "https://gitlab.com" : "https://codeberg.org"))
-      if (url.username || url.password || url.search || url.hash) throw new Error("Invalid instance URL")
-      instance = url.href.replace(/\/+$/, "")
+      url = new URL(options.baseUrl || (options.forge === "gitlab" ? "https://gitlab.com" : "https://codeberg.org"))
     }
     catch {
-      throw agentDiagnostics.AGENT_R0997({ message: "Forge baseUrl must be an instance URL without credentials, query, or fragment." })
+      throw invalid()
     }
+    if (url.username || url.password || url.search || url.hash) throw invalid()
+    instance = url.href.replace(/\/+$/, "")
   }
   const events = channelEvents(options)
   const subscriptions = sorted(events.flatMap(event => [...nativeEvents[options.forge][event]]))
   const expectedSubscriptions = options.forge === "forgejo" ? canonicalForgejoEvents(subscriptions) : subscriptions
   const operations = new WeakMap<AgentChannelSyncPlan, SyncOperation>()
   async function provider(fetchImpl: typeof fetch) {
-    const value = await forgeProvider({ forge: options.forge, baseUrl: options.baseUrl, token: options.token, fetch: fetchImpl })
+    const value = await (await loadForge()).forgeProvider({ forge: options.forge, baseUrl: options.baseUrl, token: options.token, fetch: fetchImpl })
     for (const verb of ["webhooks.list", "webhooks.create", "webhooks.update"] as const) {
       if (!value.can(verb)) throw agentDiagnostics.AGENT_R0994({ message: `Forge cannot manage hooks with ${verb}.` })
     }
@@ -199,7 +202,7 @@ export function createForgeChannelSyncProvider(options: ForgeChannelSyncOptions)
         for (const repository of repositories) {
           const hook = await matchingHook(client, repository, desiredUrl)
           if (hook && !hook.active && options.forge === "gitlab") {
-            throw forgeResponseError("GitLab webhook is auto-disabled. Re-enable it with a successful test request in GitLab, then run sync again.")
+            throw (await loadForge()).forgeResponseError("GitLab webhook is auto-disabled. Re-enable it with a successful test request in GitLab, then run sync again.")
           }
           const reasons = !hook ? ["create webhook"] : [
             ...(!same(hook.nativeEvents, expectedSubscriptions) ? ["update events"] : []),
@@ -247,7 +250,7 @@ export function createForgeChannelSyncProvider(options: ForgeChannelSyncOptions)
         for (const change of operation.changes) {
           const hook = await matchingHook(client, change.repository, operation.url)
           if (!hook || !hook.active || (options.forge === "forgejo" && hook.contentType !== "json") || !same(hook.nativeEvents, expectedSubscriptions)) {
-            throw forgeResponseError("Forge did not return the desired webhook events, content type, and active state.")
+            throw (await loadForge()).forgeResponseError("Forge did not return the desired webhook events, content type, and active state.")
           }
           results.push({ repository: redact(change.repository, options), hook: state(hook, options) })
         }

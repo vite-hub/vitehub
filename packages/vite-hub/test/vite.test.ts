@@ -711,6 +711,7 @@ describe("vitehub", () => {
     expect(pluginNames(vitehub({ host: "node" }))).toEqual(expect.arrayContaining(["@vite-hub/database/vite", "@vite-hub/blob/vite", "@vite-hub/workspace/vite"]))
     expect(appliedPluginNames(vitehub({ host: "node" }))).toEqual([
       "vite-hub/doctor",
+      "vite-hub/hints",
       "@vite-hub/markdown-template/vite",
       "vite-hub/deployment-settings",
       "vite-hub/deployment-host",
@@ -760,6 +761,7 @@ describe("vitehub", () => {
       workspace: true,
     }))).toEqual([
       "vite-hub/doctor",
+      "vite-hub/hints",
       "@vite-hub/markdown-template/vite",
       "vite-hub/agent-channel-env",
       "vite-hub/deployment-settings",

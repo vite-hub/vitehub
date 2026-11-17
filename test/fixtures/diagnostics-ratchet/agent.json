@@ -31,6 +31,7 @@
     "packages/agent/src/internal/agent-run.ts": 1,
     "packages/agent/src/internal/agent-structured-output.ts": 1,
     "packages/agent/src/internal/channel-item-reservation.ts": 1,
+    "packages/agent/src/internal/channel-sync-cli.ts": 1,
     "packages/agent/src/internal/chatgpt-transport.ts": 1,
     "packages/agent/src/internal/generated-provider-git-files.ts": 2,
     "packages/agent/src/internal/provider-skills.ts": 1,

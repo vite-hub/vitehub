@@ -46,22 +46,24 @@ vi.mock("node:fs", async (importOriginal) => ({
   ...await importOriginal<typeof import("node:fs")>(),
   watch: watchContent,
 }))
-// `comarkApp.root` is an app with comark-ui installed, which the module resolves comark-ui from when set.
+// Resolve Comments only from the app, while keeping real resolution for the docs module's dependencies.
+// `comarkApp.root` supplies the app's comark-ui fixture when set.
 const comarkApp = vi.hoisted(() => ({ root: "" }))
-// The test runner resolves workspace packages from anywhere, so resolve only from the app's own node_modules.
 vi.mock("node:module", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:module")>()
   return {
     ...original,
-    createRequire: (from: string) => comarkApp.root
-      ? original.createRequire(String(from).endsWith("/src/nuxt.ts") ? join(comarkApp.root, "app.js") : from)
-      : {
-          resolve: (id: string) => {
-            const file = join(dirname(from), "node_modules", id)
-            if (existsSync(file)) return file
-            throw new Error(`Cannot find module '${id}'`)
-          },
-        },
+    createRequire: (from: string) => ({
+      resolve: (id: string) => {
+        if (comarkApp.root && String(from).endsWith("/src/nuxt.ts") && id.startsWith("comark-ui/")) {
+          return original.createRequire(join(comarkApp.root, "app.js")).resolve(id)
+        }
+        if (id !== "@vite-hub/comments/package.json" && !id.startsWith("comark-ui/")) return original.createRequire(from).resolve(id)
+        const file = join(dirname(from), "node_modules", id)
+        if (existsSync(file)) return file
+        throw new Error(`Cannot find module '${id}'`)
+      },
+    }),
   }
 })
 const { default: setup, DocsCommentsSetupError } = await import("../src/nuxt.ts")
@@ -99,7 +101,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false, layers: Array<{ config: Record<string, unknown> }> = []) {
+async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false, layers: Array<{ cwd?: string, config: Record<string, unknown> }> = []) {
   const buildDir = mkdtempSync(join(tmpdir(), "docs-nuxt-"))
   templateDir = buildDir
   roots.push(buildDir)
@@ -730,6 +732,35 @@ describe("docs Nuxt setup", () => {
     expect(generated.get("docs/example-sources.mjs")).toBe("export default {}\n")
   })
 
+  it("gives the parser the size of each picture in the public folders of the app and its layers", async () => {
+    const png = (width: number, height: number) => {
+      const bytes = Buffer.alloc(33)
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes)
+      bytes.write("IHDR", 12, "ascii")
+      bytes.writeUInt32BE(width, 16)
+      bytes.writeUInt32BE(height, 20)
+      return bytes
+    }
+    const app = mkdtempSync(join(tmpdir(), "docs-public-app-"))
+    const layer = mkdtempSync(join(tmpdir(), "docs-public-layer-"))
+    roots.push(app, layer)
+    mkdirSync(join(app, "public/screenshots"), { recursive: true })
+    writeFileSync(join(app, "public/screenshots/console.png"), png(1280, 720))
+    writeFileSync(join(app, "public/logo.png"), png(64, 64))
+    writeFileSync(join(app, "public/notes.txt"), "Not a picture.\n")
+    mkdirSync(join(layer, "assets"), { recursive: true })
+    writeFileSync(join(layer, "assets/logo.png"), png(32, 32))
+    writeFileSync(join(layer, "assets/banner.png"), png(1200, 300))
+    const options = await setupDocs({}, "/", false, [{ cwd: app, config: { srcDir: join(app, "app") } }, { cwd: layer, config: { srcDir: join(layer, "app"), dir: { public: "assets" } } }])
+    const nitro: { alias?: Record<string, string> } = {}
+    for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never)
+
+    const sizes = JSON.parse((await templates.get("docs/image-sizes.mjs")?.() ?? "").replace(/^export default /, ""))
+    // The app's own `/logo.png` wins over the layer's.
+    expect(sizes).toEqual({ "/screenshots/console.png": [1280, 720], "/logo.png": [64, 64], "/banner.png": [1200, 300] })
+    expect(nitro.alias?.["#docs/image-sizes"]).toBe(join(options.buildDir, "docs/image-sizes.mjs"))
+  })
+
   it("parses with the built-in plugins only without a parser module", async () => {
     await setupDocs({})
     expect(templates.get("docs/parser.mjs")?.()).toBe("export default {}\nexport const githubRepo = null\n")
@@ -869,7 +900,7 @@ describe("docs Comments", () => {
       mkdirSync(join(rootDir, "node_modules/@vite-hub/comments"), { recursive: true })
       writeFileSync(join(rootDir, "node_modules/@vite-hub/comments/package.json"), JSON.stringify({ name: "@vite-hub/comments", exports: { "./package.json": "./package.json" } }))
     }
-    return { options: { rootDir, modules, ...(docs ? { docs } : {}) } }
+    return { options: { rootDir, modules, alias: {}, ...(docs ? { docs } : {}) } }
   }
   const docsModule = Object.assign(() => undefined, { getMeta: async () => ({ name: "@vite-hub/docs" }) })
 

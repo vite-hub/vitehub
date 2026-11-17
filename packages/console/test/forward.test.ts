@@ -145,7 +145,27 @@ describe("forwardProjectRequest", () => {
     const send = upstream(new Response(null, { headers: { location: "http://169.254.169.254/" }, status: 302 }))
     const response = await forwardProjectRequest(call(), target, "/_vitehub/rpc", send)
     expect(response.status).toBe(502)
-    await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_FORWARD_REDIRECT" })
+    await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_FORWARD_REDIRECT", message: "app.example.com answered with a redirect to http://169.254.169.254/." })
+  })
+
+  it("names Cloudflare Access when it sends the call to its sign-in page", async () => {
+    // What a Cloudflare Access application answers for POST /_vitehub/rpc without an Access session.
+    const send = upstream(new Response("302 Found", {
+      headers: {
+        "location": "https://acme.cloudflareaccess.com/cdn-cgi/access/login/app.example.com?kid=1&redirect_url=%2Fportal%2F_vitehub%2Frpc",
+        "www-authenticate": "Cloudflare-Access resource_metadata=\"https://app.example.com/.well-known/cloudflare-access-protected-resource/portal/_vitehub/rpc\"",
+      },
+      status: 302,
+    }))
+    const response = await forwardProjectRequest(call(), target, "/_vitehub/rpc", send)
+    expect(response.status).toBe(502)
+    await expect(response.json()).resolves.toEqual({
+      code: "CONSOLE_FORWARD_REDIRECT",
+      fix: "In Cloudflare Zero Trust, delete the Access application that covers app.example.com/portal/_vitehub/rpc, or add an Access application for that path with a Bypass policy. The Console signs each call, so the app checks it without Access.",
+      message: "Cloudflare Access protects app.example.com/portal/_vitehub/rpc, so it sent the Console's call to its sign-in page.",
+      ok: false,
+      status: 502,
+    })
   })
 
   it("says when the project cannot be reached", async () => {

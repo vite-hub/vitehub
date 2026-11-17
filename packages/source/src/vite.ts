@@ -11,9 +11,10 @@ import {
 } from "@vite-hub/internal/build/vite"
 import { exportNames } from "@vite-hub/internal/build/scan-module"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
+import { reportViteHubHint, startViteHubHints } from "@vite-hub/internal/hints"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
-import type { Plugin, UserConfig } from "vite"
+import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import { installContentTypesWriter } from "./internal/content-types-writer.ts"
 import { inspectCollectionDefinitions } from "./inspect.ts"
 import { BUNDLED_GLOB_ID_PATTERN, findGlobCalls, loadBundledGlob, rewriteGlobCalls } from "./internal/bundle-glob.ts"
@@ -79,6 +80,8 @@ export interface GeneratedSourcePlugin {
 export interface SourceGenerationOptions {
   /** Pass Auth's `withAuthorization` to generated Collection routes. Requires the Auth Vite plugin. */
   auth?: boolean
+  /** The routes that the app serves for the whole site, with the Content pages, so Content does not add them. */
+  appSeo?: { sitemap?: boolean, robots?: boolean }
   contentImportBase?: string
   importBase?: string
   projectRoot: string
@@ -88,6 +91,8 @@ export interface SourceGenerationOptions {
 export interface SourceVitePluginOptions {
   /** Pass Auth's `withAuthorization` to generated Collection routes when the Auth Vite plugin has a Definition. */
   auth?: boolean | ((input: { projectRoot: string, serverDirs?: string[] }) => boolean)
+  /** The routes that the app serves for the whole site, with the Content pages, so Content does not add them. */
+  appSeo?: { sitemap?: boolean, robots?: boolean }
   contentImportBase?: string
   importBase?: string
 }
@@ -633,14 +638,15 @@ async function writeContentArtifact(
   }
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
   const contentModule = JSON.stringify(toRuntimeModuleSpecifier(file))
-  const features = await inspectContentEntry(file, options.contentImportBase ?? "@vite-hub/content")
+  const inspected = await inspectContentEntry(file, options.contentImportBase ?? "@vite-hub/content")
+  // `vitehub({ seo })` serves these routes for the whole app and lists the Content pages there.
+  const features = { ...inspected, ...options.appSeo?.sitemap ? { sitemap: false } : {}, ...options.appSeo?.robots ? { robots: false } : {} }
   // With Auth, every reader of published Content passes the session user of each request to `authorize` for
   // `action: "read"`. Entries that load when the server starts import Auth on the first request that asks.
   const sessionUser = (useAuth: string) => `async request => (await ${useAuth}(request).api.getSession({ headers: request.headers }))?.user ?? null`
   const authImport = options.auth ? [`import { useAuth } from ${JSON.stringify(authServerModuleId)}`] : []
   const readerOptions = options.auth ? `, { user: ${sessionUser("useAuth")} }` : ""
   const lazyUser = options.auth ? `user: ${sessionUser(`(await import(${JSON.stringify(authServerModuleId)})).useAuth`)}` : ""
-  const lazyReaderOptions = lazyUser ? `, { ${lazyUser} }` : ""
   if (features.route) await writeFileIfChanged(output, [
     `import { defineContentHandler } from ${importBase}`,
     ...authImport,
@@ -704,12 +710,14 @@ async function writeContentArtifact(
   else await rm(githubWebhook, { force: true })
   // `previews: true` serves refs of a `github()` Source at `/tree`, `/blob`, and `/pr` URLs. A Nitro plugin, not a route:
   // the page runs with its production path through every route of the app. It loads server/content.ts on the first
-  // preview URL only.
+  // preview URL only. In a preview request, the app base in the runtime config starts with the prefix, so Nuxt links
+  // and data requests stay in the preview.
   if (features.previews) {
     await writeFileIfChanged(previewRoutes, [
       `import { defineContentPreviewRoutesPlugin } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/preview`)}`,
+      'import { useRuntimeConfig } from "nitro/runtime-config"',
       "",
-      `export default defineContentPreviewRoutesPlugin(() => import(${contentModule}).then(module => module.default)${lazyReaderOptions})`,
+      `export default defineContentPreviewRoutesPlugin(() => import(${contentModule}).then(module => module.default), { app: useRuntimeConfig().app${lazyUser ? `, ${lazyUser}` : ""} })`,
       "",
     ].join("\n"))
     handlers.push({ handler: previewRoutes, plugin: true, position: "start" })
@@ -839,7 +847,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       listener: GeneratedSourceHandlersListener,
       options?: GeneratedSourceHandlersListenerOptions,
     ) => () => void
-    prepareSources: (options: Omit<SourceGenerationOptions, "auth" | "contentImportBase" | "importBase">) => Promise<GeneratedSourceHandler[]>
+    prepareSources: (options: Omit<SourceGenerationOptions, "appSeo" | "auth" | "contentImportBase" | "importBase">) => Promise<GeneratedSourceHandler[]>
   }
   nitro: { name: string, setup(nitro: SourceNitroHost): Promise<void> }
   vitehub: ViteHubInspectionPluginMetadata
@@ -868,13 +876,15 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   }
   const configurationTransitionByRoot = new Map<string, Promise<unknown>>()
   let legacyServerBuild = false
+  // The legacy SSR build hook has no Vite environment, so hints go to the resolved config.
+  let resolvedConfig: ResolvedConfig | undefined
   const generatedHandlersListeners = new Set<{
     handlesHostRestart?: boolean
     listener: GeneratedSourceHandlersListener
     projectRoot?: string
   }>()
   const prepareSources = (
-    input: Omit<SourceGenerationOptions, "auth" | "contentImportBase" | "importBase">,
+    input: Omit<SourceGenerationOptions, "appSeo" | "auth" | "contentImportBase" | "importBase">,
   ) => {
     const root = resolve(input.projectRoot)
     const previousPreparation = sourcePreparationByRoot.get(root) ?? Promise.resolve()
@@ -885,6 +895,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       return prepareSourceArtifacts({
         ...input,
         auth,
+        ...options.appSeo ? { appSeo: options.appSeo } : {},
         importBase: options.importBase,
         contentImportBase: options.contentImportBase,
       }).then(({ content, handlers }) => {
@@ -977,7 +988,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     },
     transform: {
       filter: { id: { exclude: /\/node_modules\// }, code: /\bvite-hub\/source["'`]/ },
-      handler(code, _id, options) {
+      handler(code, id, options) {
         const environment = this.environment?.config
         const server = environment
           ? environment.consumer === "server"
@@ -985,10 +996,15 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         if (!server || (environment && environment.command !== "build")) return
         const calls = findGlobCalls(this.parse(code) as unknown as Parameters<typeof findGlobCalls>[0])
         for (const call of calls.filter(call => call.input === undefined)) {
-          this.warn({
-            message: "[vitehub] glob() here takes options that are not literals, so the build cannot bundle its files. It reads them from disk at runtime, which hosts such as Cloudflare Workers do not have.",
-            pos: call.start,
-          })
+          const hint = sourceErrorDiagnostics.SOURCE_GLOB_OPTIONS_NOT_LITERAL()
+          const config = environment ?? resolvedConfig
+          if (!config) {
+            this.warn({ message: `[vitehub] ${hint.why}`, pos: call.start })
+            continue
+          }
+          const lines = code.slice(0, call.start).split("\n")
+          hint.sources = [`${relative(config.root, id)}:${lines.length}:${lines.at(-1)!.length + 1}`]
+          reportViteHubHint(config, hint)
         }
         if (calls.some(call => call.input !== undefined)) return { code: rewriteGlobCalls(code, calls), map: null }
       },
@@ -1072,6 +1088,8 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       return transition as Promise<Omit<UserConfig, "plugins"> | undefined>
     },
     async configResolved(config) {
+      startViteHubHints(config)
+      resolvedConfig = config
       // SAFETY: Vite's resolved config retains the ViteHub symbols added during the config hook.
       const viteConfig = config as SourcePluginConfig
       const projectRoot = viteConfig[VITEHUB_PROJECT_ROOT]

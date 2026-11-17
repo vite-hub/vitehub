@@ -338,6 +338,9 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
     async resolveRevision(ctx) {
       return await (await loadSource()).resolveRevision?.(ctx)
     },
+    async checkAccess(ctx) {
+      await (await loadSource()).checkAccess?.(ctx)
+    },
   }
 
   return livePaths ? markLiveWorkspaceSource(source, livePaths) : source

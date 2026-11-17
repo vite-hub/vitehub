@@ -39,10 +39,21 @@ async function renderTemplate(message: EmailEnvelope & { data?: Record<string, u
   }
 }
 
+const generatedDefinition = () => (globalThis as typeof globalThis & { [runtimeDefinition]?: typeof definition })[runtimeDefinition]
+
 /** Sends messages through the provider of `vitehub({ email })`. `template` sends render a Markdown file of `server/emails`. */
-export const email: EmailClient<EmailSendMessage> = {
+export const email: EmailClient<EmailSendMessage> & { readonly canSend: boolean } = {
+  /**
+   * `true` when `email.send()` hands messages to a provider. It is `false` without `vitehub({ email })`, where
+   * `send()` throws, and with `driver: 'log'`, where `send()` only prints the message. Show the link on the page
+   * when it is `false`.
+   */
+  get canSend() {
+    const current = definition ?? generatedDefinition()
+    return current !== undefined && current.canSend !== false
+  },
   async send(input) {
-    const generated = (globalThis as typeof globalThis & { [runtimeDefinition]?: typeof definition })[runtimeDefinition]
+    const generated = generatedDefinition()
     client ??= generated ? createEmail(generated) : undefined
     // A missing provider is a config error, so it throws.
     if (!client) throw emailErrorDiagnostics.EMAIL_NOT_CONFIGURED({})
