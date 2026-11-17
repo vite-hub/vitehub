@@ -356,7 +356,11 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
       }
       catch (error) {
         const code = (error as { code?: unknown } | null)?.code
-        if (code === "Conflict") return null
+        const cause = (error as { cause?: { name?: string, Code?: string } } | null)?.cause
+        const providerCode = cause?.name ?? cause?.Code
+        // S3 also maps a missing bucket's 404 to NotFound. Only a missing key refuses a replacement.
+        const missingTarget = code === "NotFound" && (!providerCode || providerCode === "NoSuchKey" || providerCode === "NotFound")
+        if (code === "Conflict" || (condition.type === "replace" && missingTarget)) return null
         if (code === "Unsupported") throw unsupportedCondition(options.driver, error)
         throw error
       }

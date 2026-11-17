@@ -669,7 +669,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         await assertNoSymlinkPath(root, dir)
         await rm(dir, { force: true, recursive: true })
       },
-      async complete(parts) {
+      complete: parts => oneWriteAtATime(state.pathname, async () => {
         await assertNoSymlinkPath(root, dir)
         const ordered = [...parts].sort((left, right) => left.partNumber - right.partNumber)
         // Copy each part into the final file in turn, so only one read buffer is in memory.
@@ -712,7 +712,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         }, { contentType: state.contentType, customMetadata: state.customMetadata })
         await rm(dir, { force: true, recursive: true })
         return object
-      },
+      }),
       async uploadPart(partNumber, body) {
         const bytes = await bodyToBytes(body)
         const partPath = resolve(dir, String(partNumber))
@@ -819,11 +819,11 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         }
       }
 
-      await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(async pathname => {
+      await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(pathname => oneWriteAtATime(pathname, async () => {
         // A writer that moves `docs` into its folder object holds the bytes in both places for a moment. Delete both.
         const removed = await Promise.all([resolveBlobPath(root, pathname), folderObjectPath(root, pathname)].map(path => unpublish(pathname, path)))
         if (!removed.some(Boolean)) await removeMetadata(root, pathname)
-      }))
+      })))
     },
     async get(pathname) {
       try {
@@ -884,7 +884,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
       return holds ? await put(pathname, body, putOptions) : null
     }),
     // Copies the file, then writes the metadata of the source for the new file.
-    async copy(from, to) {
+    copy: (from, to) => oneWriteAtATime(to, async () => {
       const source = await readEntry(root, from)
       const sourcePath = source && (await resolvePayload(root, from))?.path
       if (!source || !sourcePath) return null
@@ -894,7 +894,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         await copyFile(payload?.path ?? sourcePath, temporary, constants.COPYFILE_EXCL)
         return sha256File(temporary)
       }, source.meta)
-    },
+    }),
   }
 
   return driver

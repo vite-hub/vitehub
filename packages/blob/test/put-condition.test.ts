@@ -83,6 +83,42 @@ describe("put() with a condition on fs", () => {
     expect(results.filter(([error]) => error?.code === "BLOB_CONFLICT")).toHaveLength(2)
   })
 
+  it.each(["copy", "delete", "multipart"] as const)("serializes %s with a conditional write", async (mutation) => {
+    const storage = await fsStorage()
+    const [, original] = await storage.put("target.txt", "original")
+    await storage.put("source.txt", "copied")
+    const [, upload] = await storage.createMultipartUpload("target.txt")
+    const [, part] = await upload!.uploadPart(1, "multipart")
+    let release!: () => void
+    let started!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const pulling = new Promise<void>((resolve) => { started = resolve })
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        started()
+        await gate
+        controller.enqueue(new TextEncoder().encode("conditional"))
+        controller.close()
+      },
+    }, { highWaterMark: 0 })
+    const writing = storage.put("target.txt", stream, { ifMatch: original!.httpEtag })
+    await pulling
+    let completed = false
+    const changing = (mutation === "copy"
+      ? storage.copy("source.txt", "target.txt", { overwrite: true })
+      : mutation === "delete" ? storage.delete("target.txt") : upload!.complete([part!]))
+      .then((result) => { completed = true; return result })
+    try {
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(completed).toBe(false)
+    }
+    finally {
+      release()
+      await Promise.all([writing, changing])
+    }
+    expect(await text(storage, "target.txt")).toBe(mutation === "copy" ? "copied" : mutation === "multipart" ? "multipart" : undefined)
+  })
+
   it("keeps the other write when blobDocument() saves over it", async () => {
     const storage = await fsStorage()
     const adapter = blobDocument(storage)
@@ -193,6 +229,15 @@ describe("put() with a condition through files-sdk", () => {
 
     const [conflict] = await storage.put("a.txt", "a", { ifMatch: "old" })
     expect(conflict?.code).toBe("BLOB_CONFLICT")
+  })
+
+  it("maps a deleted replace target to conflict but preserves create failures", async () => {
+    const { storage, upload } = filesStorage({ create: true, replace: true })
+    upload.mockRejectedValue(Object.assign(new Error("The specified key does not exist."), { code: "NotFound" }))
+    expect((await storage.put("deleted.txt", "a", { ifMatch: "current" }))[0]?.code).toBe("BLOB_CONFLICT")
+    expect((await storage.put("new.txt", "a", { overwrite: false }))[0]?.code).toBe("BLOB_OPERATION_FAILED")
+    upload.mockRejectedValue(Object.assign(new Error("The specified bucket does not exist."), { code: "NotFound", cause: { name: "NoSuchBucket", $metadata: { httpStatusCode: 404 } } }))
+    expect((await storage.put("a.txt", "a", { ifMatch: "current" }))[0]?.code).toBe("BLOB_OPERATION_FAILED")
   })
 
   it("throws BLOB_PUT_CONDITION_UNSUPPORTED when the adapter cannot check the condition", async () => {

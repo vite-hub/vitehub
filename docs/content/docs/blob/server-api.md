@@ -301,7 +301,7 @@ export default defineEventHandler(async (event) => {
   const [readError, file] = await blob.get('settings.json')
   if (readError) throw readError
 
-  const settings = { ...JSON.parse(await file?.text() ?? '{}'), ...await readBody(event) }
+  const settings = { ...JSON.parse(await file?.text() ?? '{}'), ...await readBody<Record<string, unknown>>(event) }
   const [error] = await blob.put('settings.json', JSON.stringify(settings), object
     ? { contentType: 'application/json', ifMatch: object.httpEtag }
     : { contentType: 'application/json', overwrite: false })
