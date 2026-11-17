@@ -57,23 +57,28 @@ export const webhooksOperations = {
   redeliver: "webhooks.redeliver",
 } as const
 
-function list<T>(value: unknown): T[] {
-  // SAFETY: The `webhooks.*` read operations answer with arrays of the shapes above.
-  return Array.isArray(value) ? value as T[] : []
+function webhookList(value: unknown): ConsoleWebhook[] {
+  // SAFETY: `webhooks.list` answers with an array of webhooks.
+  return Array.isArray(value) ? value as ConsoleWebhook[] : []
+}
+
+function deliveryList(value: unknown): ConsoleWebhookDelivery[] {
+  // SAFETY: `webhooks.deliveries` and `webhooks.pending` answer with arrays of deliveries.
+  return Array.isArray(value) ? value as ConsoleWebhookDelivery[] : []
 }
 
 export async function readWebhooks(signal?: AbortSignal): Promise<ConsoleWebhook[]> {
-  return list<ConsoleWebhook>(await requestConsoleOperation(webhooksOperations.list, {}, signal ? { signal } : {}))
+  return webhookList(await requestConsoleOperation(webhooksOperations.list, {}, signal ? { signal } : {}))
 }
 
 export async function readPendingWebhookDeliveries(signal?: AbortSignal): Promise<ConsoleWebhookDelivery[]> {
-  return list<ConsoleWebhookDelivery>(await requestConsoleOperation(webhooksOperations.pending, {}, signal ? { signal } : {}))
+  return deliveryList(await requestConsoleOperation(webhooksOperations.pending, {}, signal ? { signal } : {}))
 }
 
 /** The newest 100 deliveries, of one state when the filter names one. */
 export async function readWebhookDeliveries(filter: ConsoleWebhookLogFilter, signal?: AbortSignal): Promise<ConsoleWebhookDelivery[]> {
   const input = filter === "all" ? {} : { state: filter }
-  return list<ConsoleWebhookDelivery>(await requestConsoleOperation(webhooksOperations.deliveries, input, signal ? { signal } : {}))
+  return deliveryList(await requestConsoleOperation(webhooksOperations.deliveries, input, signal ? { signal } : {}))
 }
 
 export async function readWebhookDelivery(id: string, signal?: AbortSignal): Promise<ConsoleWebhookDelivery> {
