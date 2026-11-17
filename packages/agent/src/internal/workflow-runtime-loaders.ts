@@ -1,3 +1,5 @@
+import { invariant } from "@vite-hub/internal/invariant"
+
 const workflowSpecifier = "@vite-hub/workflow"
 const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
 // Module-level specifiers stay variables in the built output. The bundler inlines a local constant,
@@ -61,6 +63,30 @@ export function loadAgentWorkflowRuntimeStateModule(): Promise<WorkflowRuntimeSt
   return workflowRuntimeLoaders.state()
 }
 
+/**
+ * Loads the Workflow runtime state, or returns `undefined` when the app does not install `@vite-hub/workflow`.
+ * `@vite-hub/workflow` is an optional peer, so a discovered Agent without it runs inline.
+ */
+export async function loadInstalledAgentWorkflowRuntimeStateModule(): Promise<WorkflowRuntimeStateModule | undefined> {
+  try {
+    return await workflowRuntimeLoaders.state()
+  }
+  catch (error) {
+    if (isMissingWorkflowPackage(error)) return undefined
+    throw error
+  }
+}
+
+// Node quotes the missing specifier: "Cannot find package '@vite-hub/workflow' imported from ...".
+// A missing dependency of `@vite-hub/workflow` quotes that dependency instead, so it still fails.
+const missingWorkflowPackage = /'@vite-hub\/workflow(?:\/[^']*)?'/u
+
+function isMissingWorkflowPackage(error: unknown): boolean {
+  return error instanceof Error
+    && (error as NodeJS.ErrnoException).code === "ERR_MODULE_NOT_FOUND"
+    && missingWorkflowPackage.test(error.message)
+}
+
 export async function loadAgentWorkflowBlobPrimitive(): Promise<unknown> {
   if (workflowCapabilityLoaders.blob) return await workflowCapabilityLoaders.blob()
   // SAFETY: The official Blob package export is the primitive registered by generated Workflow hosts.
@@ -69,8 +95,7 @@ export async function loadAgentWorkflowBlobPrimitive(): Promise<unknown> {
 
 export async function loadAgentWorkflowConsolePrimitive(): Promise<unknown> {
   const load = workflowCapabilityLoaders.console
-  // Internal invariant: the only caller catches this error and treats the Capability as not portable.
-  if (!load) throw new Error("[vitehub] The Console Workflow capability requires a generated runtime loader.")
+  invariant(load, "the generated Workflow host sets a Console capability loader before the Console Workflow capability loads")
   return await load()
 }
 

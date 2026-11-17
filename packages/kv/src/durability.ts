@@ -15,7 +15,7 @@ export interface KVDurabilityInput {
 }
 
 const sharedStores: Record<string, string> = {
-  "cloudflare-kv-binding": "A Cloudflare KV namespace that every Worker reads.",
+  "cloudflare": "A Cloudflare KV namespace that every Worker reads.",
   "deno-kv": "Deno KV, which Deno Deploy shares between isolates.",
   "redis": "Redis.",
   "upstash": "Upstash Redis over HTTP.",

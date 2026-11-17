@@ -21,7 +21,7 @@ describe("Browser runtime error fixes", () => {
   it("asks for a provider in createBrowser()", () => {
     expect(() => createBrowser({} as never)).toThrow(expect.objectContaining({
       code: "BROWSER_R0004",
-      fix: expect.stringContaining("`createBrowser({ provider:"),
+      fix: expect.stringContaining("`createBrowser({ driver:"),
     }))
   })
 

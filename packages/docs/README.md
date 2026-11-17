@@ -210,6 +210,7 @@ Most changes are options in `nuxt.config.ts`:
 | `assistant` | `false` | `true`, or `{ agent }`. See [Docs assistant](#docs-assistant). |
 | `comments` | On with `vite-hub/nuxt` | `false` turns Comments off, or `{ database, dialect, overlay }`. See [Comments](#comments). |
 | `rawMarkdown` | None | `(markdown, page) => string`. Rewrites a page before agents read it. |
+| `markdownPages` | `true` | A Markdown copy of each app page that is not a docs page, converted from its HTML, at its URL plus `.md` and for `Accept: text/markdown`. `false` turns it off. |
 | `parser` | None | Path of a module whose default export is the parser options: `{ comarkUi, examples, plugins }`. See [Comark plugins](#comark-plugins). |
 | `examples` | `examples` | Folder, inside `app/`, of the Vue files that `::example{name}` shows. See [Examples](#examples). |
 
@@ -268,6 +269,8 @@ With `name`, the preview is a Vue file in `app/examples/`, and Code shows its so
 
 The server parses each page with Comark, and the browser renders the nodes with [comark-ui](https://comark-ui.onmax.me)'s blocks: GitHub callouts (`> [!NOTE]`, and `::note`, `::tip`, `::warning`, `::caution`, `::important`), tabs and code groups, steps, code with a copy bar, zoomable images, charts, diagrams, file trees, cards, and the rest. comark-ui's typeset is off, since the design styles the prose. Chips are off too: they turn every web link into a chip and fetch its favicon. Annotated screenshots, diffs, quizzes, and comments have no Vue components, so the server draws them as HTML in a `comark-html` node, with the block's tag in `block`.
 
+An image from `public/`, such as `![Console](/screenshots/console.png)`, gets its `width` and `height` from the file, so the page does not move when the picture loads. The build measures the pictures in the `public/` folders of the app and its layers. A side that the page sets, such as `{width=640}`, stays, and the other follows the picture's ratio. Restart the development server to measure a picture added while it runs.
+
 `::examples` and `:::example{label play}` show rendered Markdown next to its source, with underlined tabs, a Preview and Code switch, and an optional link to a playground. The parser renders the example's first fenced block as its preview, with the page's plugins. An example whose Markdown doesn't parse shows its source alone. A site's parser can still supply its own `example-preview` node. Content without a preview node stays visible.
 
 Parser options go in a module that `parser` names, since Comark plugins are functions:
@@ -323,6 +326,7 @@ Every page has a Markdown copy for coding agents. You get these routes with no s
 | `/sitemap.md`, `/sitemap.xml` | Every page, for agents and for search engines. |
 | `/mcp` | An MCP server with the `list-pages` and `get-page` tools. |
 | `/.well-known/skills/<name>/SKILL.md` | Agent Skills from the `skills/` folder of the app, when it has one. |
+| `/<page>.md` | Any other app page, such as `/index.md` for the home page, converted from its HTML by Content. `markdownPages: false` turns it off. |
 
 Product landing components become plain Markdown, with the hero tagline, hosts, channels, linked feature titles, and descriptions. Component syntax inside code examples stays literal.
 

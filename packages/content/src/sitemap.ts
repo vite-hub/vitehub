@@ -1,6 +1,7 @@
 import { parseMarkdown } from "comark/parse"
 import type { ComarkPlugin } from "comark"
 import type { LeaseStore } from "@vite-hub/runtime"
+import { escapeXml, renderRobots, renderSitemap, sitemapUrlLimit } from "@vite-hub/internal/sitemap"
 
 import { contentDocumentUrl } from "./documents.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
@@ -27,7 +28,8 @@ export interface DefineContentSeoOptions {
   /**
    * Serve each published Markdown document with a URL as Markdown at that URL plus `.md`, such as `/blog/hello.md`
    * for `/blog/hello` and `/index.md` for `/`, so agents can read it and readers can paste it into a chat. `prefix`
-   * also serves each copy below a folder, such as `/raw/blog/hello.md`, and the llms files link there.
+   * also serves each copy below a folder, such as `/raw/blog/hello.md`, and the llms files link there. `pages: true`
+   * also converts each other app page from its HTML.
    */
   markdown?: boolean | ContentMarkdownOptions
   /**
@@ -68,6 +70,11 @@ export interface ContentRssOptions {
 export interface ContentMarkdownOptions {
   /** A folder that also serves each copy, such as `/raw` for `/raw/blog/hello.md`. The llms files link there. */
   prefix?: string
+  /**
+   * Also serve a copy of each app page that is not a Content document: the HTML that the app renders for the same
+   * request, converted to Markdown. Content documents keep their exact copy. Default `false`.
+   */
+  pages?: boolean
 }
 
 /** `defineContent({ seo: { llms } })`. */
@@ -106,7 +113,7 @@ export interface ContentSitemapOptions {
 }
 
 /** One sitemap file holds at most this many URLs. */
-export const contentSitemapLimit = 50_000
+export const contentSitemapLimit: number = sitemapUrlLimit
 
 export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions | undefined {
   if (options === undefined) return
@@ -127,10 +134,12 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
   }
   if (sitemap !== undefined && sitemap !== true && sitemap !== false) throw invalid("sitemap must be true or false.")
   if (markdown !== undefined && markdown !== true && markdown !== false) {
-    const shape = "markdown must be true, false, or { prefix: '/raw' }."
+    const shape = "markdown must be true, false, or { prefix: '/raw', pages: true }."
     if (markdown === null || Object(markdown) !== markdown || Array.isArray(markdown)) throw invalid(shape)
     const prefix: unknown = Reflect.get(markdown, "prefix")
     if (prefix !== undefined && (String(prefix) !== prefix || !/^\/[^/?#\s]+(?:\/[^/?#\s]+)*$/.test(prefix))) throw invalid(`${shape} The prefix starts with / and does not end with one.`)
+    const pages: unknown = Reflect.get(markdown, "pages")
+    if (pages !== undefined && pages !== true && pages !== false) throw invalid(`${shape} pages must be true or false.`)
   }
   if (dateLeases !== undefined && (dateLeases === null || typeof dateLeases !== "object" || typeof Reflect.get(dateLeases, "acquire") !== "function" || typeof Reflect.get(dateLeases, "get") !== "function")) {
     throw invalid("dateLeases must be an atomic LeaseStore with acquire() and get().")
@@ -303,21 +312,16 @@ export function contentSitemapEntries(pages: readonly ContentRoutedPage[], dates
   })
 }
 
-export function escapeXml(value: string): string {
-  return value.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&apos;" })[character]!)
-}
+export { escapeXml }
 
 /** Render sitemap entries as a sitemaps.org `urlset` document. */
 export function renderContentSitemap(entries: readonly ContentSitemapEntry[]): string {
-  const urls = entries.map(entry => `  <url>\n    <loc>${escapeXml(entry.loc)}</loc>${entry.lastmod ? `\n    <lastmod>${escapeXml(entry.lastmod)}</lastmod>` : ""}\n  </url>`)
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join("\n")}${urls.length ? "\n" : ""}</urlset>\n`
+  return renderSitemap(entries)
 }
 
 /** robots.txt that allows every crawler, keeps `disallow` paths out, and names the sitemap when there is one. */
 export function renderContentRobots(options: { site?: string, sitemap?: boolean, disallow?: readonly string[] }): string {
-  const lines = ["User-agent: *", ...(options.disallow?.length ? options.disallow.map(path => `Disallow: ${path}`) : ["Allow: /"])]
-  if (options.sitemap) lines.push("", `Sitemap: ${absolute("/sitemap.xml", options.site)}`)
-  return `${lines.join("\n")}\n`
+  return renderRobots({ ...options.sitemap ? { sitemap: absolute("/sitemap.xml", options.site) } : {}, ...options.disallow ? { disallow: options.disallow } : {} })
 }
 
 /**

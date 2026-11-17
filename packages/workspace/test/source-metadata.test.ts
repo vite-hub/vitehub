@@ -270,7 +270,7 @@ describe("Workspace Source metadata", () => {
           workspacePath: `customers/${selectedWorkspaceScope?.name}/status.txt`,
         })),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }, {
       invocation,
       selectedWorkspaceScope: {
@@ -288,7 +288,7 @@ describe("Workspace Source metadata", () => {
     vi.stubGlobal("fetch", request)
     registerWorkspace("customer-status", {
       sources: resolved.sources,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
 
     expect(status).toMatchObject({
@@ -310,7 +310,7 @@ describe("Workspace Source metadata", () => {
           mount: "docs",
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }, {
       invocation,
       selectedWorkspaceScope: {
@@ -324,7 +324,7 @@ describe("Workspace Source metadata", () => {
     expect(Object.prototype.hasOwnProperty.call(resolved.sources, "__proto__")).toBe(true)
     registerWorkspace("prototype-source", {
       sources: resolved.sources,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
     await expect(useWorkspace("prototype-source").fs.readFile("docs/value.txt")).resolves.toBe("prototype")
   })
@@ -345,7 +345,7 @@ describe("Workspace Source metadata", () => {
           server: mcpClient,
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
     const workspace = useWorkspace("source-forms")
 

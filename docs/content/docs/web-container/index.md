@@ -13,20 +13,32 @@ The vitehub.dev tutorials and playgrounds use it. Use it when a docs page or a d
 ## Install
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/web-container
+pnpm add vite-hub @vite-hub/web-container
 ```
-
-An app that already uses the `vite-hub` package can import the same API from `vite-hub/web-container` and `vite-hub/web-container/connect`.
 
 ## Entries
 
 | Entry | Runs in | Use it to |
 | --- | --- | --- |
-| `@vite-hub/web-container` | Browser | Boot a container, mount files, run commands, read the preview, and load snapshots. |
+| `vite-hub/web-container` | Browser | Boot a container, mount files, run commands, read the preview, and load snapshots. |
 | `@vite-hub/web-container/vite` | Vite config | Make the pages that boot a container cross-origin isolated. |
-| `@vite-hub/web-container/snapshot` | Node, at build time | Install `node_modules` on your machine or in CI, so the container does not install. |
-| `@vite-hub/web-container/env` | Any | Detect code that runs inside a WebContainer. |
-| `@vite-hub/web-container/connect` | Any | Describe the accounts that a reader can connect, and map them to `env`. |
+| `vite-hub/web-container/snapshot` | Node, at build time | Install `node_modules` on your machine or in CI, so the container does not install. |
+| `vite-hub/web-container/env` | Any | Detect code that runs inside a WebContainer. |
+| `vite-hub/web-container/connect` | Any | Describe the accounts that a reader can connect, and map them to `env`. |
+
+Each `vite-hub/web-container/*` path re-exports the same path of `@vite-hub/web-container`. The Vite plugin has only the `@vite-hub/web-container/vite` path.
+
+## Use without ViteHub
+
+A page without `vite-hub` installs only `@vite-hub/web-container` and imports every path from it:
+
+```bash pm [commands/install-alone]
+pnpm add @vite-hub/web-container
+```
+
+```ts [alone/src/playground.ts] fragment
+import { bootWebContainer } from "@vite-hub/web-container"
+```
 
 ## How it works
 

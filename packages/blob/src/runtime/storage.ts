@@ -12,7 +12,7 @@ import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import type { Result } from "@vite-hub/runtime"
 
-import type { BlobDriverAdapter, BlobErrorCode, BlobMultipartUpload, BlobObject, BlobOperation, BlobStorage, BlobStoreName, BlobStoreOptions, ReadonlyBlobStorage, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { BlobDeletePrefixOptions, BlobDeletePrefixResult, BlobDriverAdapter, BlobErrorCode, BlobMultipartUpload, BlobObject, BlobOperation, BlobStorage, BlobStoreName, BlobStoreOptions, ReadonlyBlobStorage, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
 class UnknownBlobStoreError extends Diagnostic {
@@ -24,17 +24,17 @@ class UnknownBlobStoreError extends Diagnostic {
 
 const driverModules = {
   azure: "azure",
-  "cloudflare-r2": "cloudflare",
+  cloudflare: "cloudflare",
   fs: "fs",
   gcs: "gcs",
   minio: "minio",
   "netlify-blobs": "netlify-blobs",
   s3: "s3",
-  "vercel-blob": "vercel",
+  vercel: "vercel",
 } satisfies Record<ResolvedBlobStoreConfig["driver"], string>
 
 async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
-  if (config.driver === "cloudflare-r2") {
+  if (config.driver === "cloudflare") {
     // In `vite dev`, a store that the Cloudflare preset picks uses its local `fs` store when the dev runner has no R2 binding.
     if (config.localFallback && !getOptionalBucket(config)) return importRuntimeDriverModule(config.localFallback)
     const nativeDriver = createCloudflareR2NativeDriver(config)
@@ -93,7 +93,7 @@ function resolveRuntimeBlobStore(configured: ResolvedBlobStoreConfig): ResolvedB
   if (store.driver === "minio") {
     return resolveRuntimeMinioBlobStore(store, process.env)
   }
-  if (store.driver === "vercel-blob") {
+  if (store.driver === "vercel") {
     return resolveRuntimeVercelBlobStore(store, process.env)
   }
   return store
@@ -177,6 +177,14 @@ function withServedMultipartUrl(name: string, upload: BlobMultipartUpload): Blob
 }
 
 function createRuntimeBlobStorage(name = "default"): BlobStorage {
+  function deleteObjects(pathnames: string | string[]): Promise<Result<void, BlobErrorCode>>
+  function deleteObjects(options: BlobDeletePrefixOptions): Promise<Result<BlobDeletePrefixResult, BlobErrorCode>>
+  async function deleteObjects(target: string | string[] | BlobDeletePrefixOptions): Promise<Result<void | BlobDeletePrefixResult, BlobErrorCode>> {
+    const [error, storage] = await resolveStorageResult("delete", name)
+    if (error) return [error, undefined]
+    if (typeof target === "object" && !Array.isArray(target)) return storage.delete(target)
+    return storage.delete(target)
+  }
   const storage: BlobStorage = {
     media: createLazyBlobMedia(() => resolveStorageResult("media", name)),
     async copy(from, to, options) {
@@ -199,10 +207,7 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       const [error, upload] = await resolved.resumeMultipartUpload(pathname, uploadId)
       return error ? [error, undefined] : [undefined, withServedMultipartUrl(name, upload)]
     },
-    async delete(pathnames) {
-      const [error, storage] = await resolveStorageResult("delete", name)
-      return error ? [error, undefined] : storage.delete(pathnames)
-    },
+    delete: deleteObjects,
     async get(pathname) {
       const [error, storage] = await resolveStorageResult("get", name)
       return error ? [error, undefined] : storage.get(pathname)

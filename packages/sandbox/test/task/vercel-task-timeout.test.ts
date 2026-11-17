@@ -54,7 +54,7 @@ import { runSandboxTaskRuntime } from "../../src/task/runtime/runtime.ts"
 import { resetSandboxTaskRuntimeState, setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeRegistry } from "../../src/task/runtime/state.ts"
 
 function registerTask(options: { timeout?: number }) {
-  setSandboxTaskRuntimeConfig({ provider: "vercel", token: "token", teamId: "team", projectId: "project" })
+  setSandboxTaskRuntimeConfig({ driver: "vercel", token: "token", teamId: "team", projectId: "project" })
   setSandboxTaskRuntimeRegistry({
     slow: {
       bundle: { entry: "index.mjs", modules: { "index.mjs": "export default () => new Promise(() => {})" } },

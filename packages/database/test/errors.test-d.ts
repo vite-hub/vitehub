@@ -1,12 +1,13 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import type { ResultError } from "@vite-hub/runtime"
+import type { InferDiagnosticCodes } from "nostics"
 
 import { databaseErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { createAgentDatabase, type AgentDatabaseHandle } from "../src/runtime/agent.ts"
 
-type DatabaseCatalogCode = keyof typeof databaseErrorDiagnostics
+type DatabaseCatalogCode = InferDiagnosticCodes<typeof databaseErrorDiagnostics>
 
 describe("Database error types", () => {
   it("keeps one closed set of named codes", () => {
@@ -25,9 +26,12 @@ describe("Database error types", () => {
       | "DATABASE_D1_VALUE_TOO_LARGE"
       | "DATABASE_DISABLED"
       | "DATABASE_DRIZZLE_OPTION_REMOVED"
+      | "DATABASE_DROP_FAILED"
+      | "DATABASE_DROP_NOT_CONFIRMED"
       | "DATABASE_DUPLICATE_DEFINITION"
       | "DATABASE_DUPLICATE_TABLE"
       | "DATABASE_EXPORT_FAILED"
+      | "DATABASE_GENERATE_AMBIGUOUS_CHANGE"
       | "DATABASE_INVALID_CONTRIBUTION"
       | "DATABASE_INVALID_CONTRIBUTION_TARGET"
       | "DATABASE_INVALID_D1_HTTP_URL"
@@ -70,6 +74,7 @@ describe("Database error types", () => {
       | "DATABASE_SEED_FAILED"
       | "DATABASE_SEED_NOT_FOUND"
       | "DATABASE_SEED_PENDING_MIGRATIONS"
+      | "DATABASE_SQL_FAILED"
       | "DATABASE_UNKNOWN_OPTION"
       | "DATABASE_UNSUPPORTED_URL"
       | "DATABASE_URL_VARIABLE_IGNORED"

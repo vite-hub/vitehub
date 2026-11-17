@@ -17,7 +17,7 @@ Use a Workflow when the application needs a run id, durable state, retries, canc
 pnpm add @vite-hub/workflow
 ```
 
-Then install the dependency required by the selected provider:
+Then install the dependency required by the selected driver:
 
 | Provider             | Additional dependency                                              | Durable state                                                            |
 | -------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------ |
@@ -27,7 +27,7 @@ Then install the dependency required by the selected provider:
 
 Importing the provider-neutral package root does not load OpenWorkflow types. Worker lifecycle helpers live at `@vite-hub/workflow/openworkflow`.
 
-On Node and Docker, ViteHub selects OpenWorkflow when `provider` is not set, also in `vite dev` with the `node` host. OpenWorkflow reads its storage at runtime. Set `workflow.sqlite.path` or `workflow.postgres.url` to select the storage yourself. An explicit value takes precedence over ambient storage environment variables. Without it, `OPENWORKFLOW_SQLITE_PATH` selects SQLite, then `OPENWORKFLOW_POSTGRES_URL` selects Postgres. Then, when the app has a Postgres Default Database, OpenWorkflow uses its connection URL (`getPostgresConnectionUrl()` from `@vite-hub/database`). A `DATABASE_URL` alone is not used, the same as for Queue and Realtime. If it contains a `postgres://` or `postgresql://` URL and storage would otherwise fall back to SQLite, resolution fails with `WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED`. Before upgrading, set `OPENWORKFLOW_POSTGRES_URL` or `workflow.postgres.url` to that same URL, or add a Postgres Default Database pointing to the existing database. Keep the same schema and namespace to retain queued and sleeping runs. Select `workflow.sqlite.path` or `OPENWORKFLOW_SQLITE_PATH` to choose local storage intentionally. Other `DATABASE_URL` schemes do not trigger the error. `vite dev` keeps runs in the local SQLite file unless `workflow.remote` is `true`, so a dev server never runs the runs of a shared database. A configured environment declaration must resolve to a value; missing configuration rejects before opening a backend. With no storage configuration or storage environment variables, OpenWorkflow uses `.vitehub/data/openworkflow.sqlite.db`, and the server logs at boot that other instances do not see those runs.
+On Node and Docker, ViteHub selects OpenWorkflow when `driver` is not set, also in `vite dev` with the `node` host. OpenWorkflow reads its storage at runtime. Set `workflow.sqlite.path` or `workflow.postgres.url` to select the storage yourself. An explicit value takes precedence over ambient storage environment variables. Without it, `OPENWORKFLOW_SQLITE_PATH` selects SQLite, then `OPENWORKFLOW_POSTGRES_URL` selects Postgres. Then, when the app has a Postgres Default Database, OpenWorkflow uses its connection URL (`getPostgresConnectionUrl()` from `@vite-hub/database`). A `DATABASE_URL` alone is not used, the same as for Queue and Realtime. If it contains a `postgres://` or `postgresql://` URL and storage would otherwise fall back to SQLite, resolution fails with `WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED`. Before upgrading, set `OPENWORKFLOW_POSTGRES_URL` or `workflow.postgres.url` to that same URL, or add a Postgres Default Database pointing to the existing database. Keep the same schema and namespace to retain queued and sleeping runs. Select `workflow.sqlite.path` or `OPENWORKFLOW_SQLITE_PATH` to choose local storage intentionally. Other `DATABASE_URL` schemes do not trigger the error. `vite dev` keeps runs in the local SQLite file unless `workflow.remote` is `true`, so a dev server never runs the runs of a shared database. A configured environment declaration must resolve to a value; missing configuration rejects before opening a backend. With no storage configuration or storage environment variables, OpenWorkflow uses `.vitehub/data/openworkflow.sqlite.db`, and the server logs at boot that other instances do not see those runs.
 
 The former `workflow.database` option was never connected to Named Databases. It now rejects instead of silently selecting fallback storage. Replace it with `workflow.sqlite.path` or `workflow.postgres.url`.
 
@@ -82,7 +82,7 @@ export default async function sendWelcome(user: { id: string, email: string }) {
 
 The Vite Integration writes `.vitehub/workflow.d.ts`. It declares the step files of each folder Workflow, so each step takes the input type of its file and returns its result type. A call to a step that has no file is a type error. Include `.vitehub/workflow.d.ts` in your TypeScript project; `vite-hub` includes it through `.vitehub/types.d.ts`.
 
-## Configure the provider
+## Configure the driver
 
 ```ts fragment
 // server/workflow-runtime.ts
@@ -100,7 +100,7 @@ const postgresUrl = {
 } as const;
 
 export const workflowConfig = {
-  provider: "openworkflow",
+  driver: "openworkflow",
   postgres: { url: postgresUrl },
 } satisfies ResolvedWorkflowOptions;
 
@@ -139,17 +139,17 @@ export default defineConfig({
 });
 ```
 
-`hubWorkflow()` adds Workflow discovery and host output, but no server. Nitro gives the app its server and reads the routes in `server/`. Without `nitro()`, a plain Vite build fails with `Cannot resolve entry module index.html`. `vitehub({ workflow: workflowConfig })` includes Nitro and installs the provider config and registry in the server, so an app that uses it does not need `installWorkflowRuntime()`.
+`hubWorkflow()` adds Workflow discovery and host output, but no server. Nitro gives the app its server and reads the routes in `server/`. Without `nitro()`, a plain Vite build fails with `Cannot resolve entry module index.html`. `vitehub({ workflow: workflowConfig })` includes Nitro and installs the driver config and registry in the server, so an app that uses it does not need `installWorkflowRuntime()`.
 
-The Vite config, application process, and worker below share one provider config. The runtime installer also registers the same definitions in both processes. Set `provider` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting, OpenWorkflow on Node and Docker, and Vercel on Vercel. Deno requires an explicit provider or OpenWorkflow storage for builds; development and Agent-only Workflows can run inline. Netlify cannot infer a provider.
+The Vite config, application process, and worker below share one driver config. The runtime installer also registers the same definitions in both processes. Set `driver` explicitly when the deployment target should not decide it. Otherwise ViteHub selects Cloudflare on Cloudflare hosting, OpenWorkflow on Node and Docker, and Vercel on Vercel. Deno requires an explicit driver or OpenWorkflow storage for builds; development and Agent-only Workflows can run inline. Netlify cannot infer a driver.
 
 OpenWorkflow accepts one storage choice: `postgres.url` or `sqlite.path`. Hosted credentials belong in Server Env, not source code.
 
 ### Run an OpenWorkflow worker
 
-`startWorkflow()` only enqueues an OpenWorkflow run, and a worker executes it. With `hubWorkflow()` or `vitehub()`, the generated Nitro startup plugin of a Node or Docker server calls `installOpenWorkflow(nitroApp)`. When the registry has discovered Workflow files, it loads OpenWorkflow from the server bundle and starts one worker. With only Agent or inline Workflows, it does not resolve or open OpenWorkflow storage or start a worker. The worker stops when Nitro closes or the process gets `SIGTERM`. Several servers can run a worker on the same Postgres database. Servers that start together set up the OpenWorkflow schema one at a time, so they do not fail with `duplicate key value violates unique constraint`. A server tries a Postgres advisory lock (`pg_try_advisory_xact_lock`) in a short transaction, and waits without a connection when another server holds it. OpenWorkflow does not export its migrations, so they run on their own connection while the lock transaction holds another. The server that gets the lock first checks for that second connection and stops with `WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE` when it gets none in 10 seconds, then holds the lock until the setup ends. OpenWorkflow claims each run with `FOR UPDATE SKIP LOCKED`, so one worker executes it. When setup or the worker start fails, the server reports the error and tries again, with a delay that grows to 30 seconds, until it works or the server closes. `WORKFLOW_OPENWORKFLOW_DATABASE_URL_MISSING` and `WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED` stop the retries, because only a configuration change fixes it. `WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE` (no second connection in 10 seconds) is retried, because a full pool frees connections later. `installOpenWorkflow()` resolves to `true` when the worker runs.
+`startWorkflow()` only enqueues an OpenWorkflow run, and a worker executes it. With `hubWorkflow()` or `vitehub()`, the generated Nitro startup plugin of a Node or Docker server calls `installOpenWorkflow(nitroApp)`. When the registry has discovered Workflow or Agent files, it loads OpenWorkflow from the server bundle and starts one worker. With only inline Workflows, it does not resolve or open OpenWorkflow storage or start a worker. The worker executes 10 runs at once; set `workflow.worker.concurrency` to change it. Each Agent turn uses two runs: the turn and its recovery run. The worker stops when Nitro closes or the process gets `SIGTERM`. Several servers can run a worker on the same Postgres database. Servers that start together set up the OpenWorkflow schema one at a time, so they do not fail with `duplicate key value violates unique constraint`. A server tries a Postgres advisory lock (`pg_try_advisory_xact_lock`) in a short transaction, and waits without a connection when another server holds it. OpenWorkflow does not export its migrations, so they run on their own connection while the lock transaction holds another. The server that gets the lock first checks for that second connection and stops with `WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE` when it gets none in 10 seconds, then holds the lock until the setup ends. OpenWorkflow claims each run with `FOR UPDATE SKIP LOCKED`, so one worker executes it. When setup or the worker start fails, the server reports the error and tries again, with a delay that grows to 30 seconds, until it works or the server closes. `WORKFLOW_OPENWORKFLOW_DATABASE_URL_MISSING` and `WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED` stop the retries, because only a configuration change fixes it. `WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE` (no second connection in 10 seconds) is retried, because a full pool frees connections later. `installOpenWorkflow()` resolves to `true` when the worker runs.
 
-Every worker registers the discovered Workflow Definitions of the build registry when it starts, and any worker can claim a run. So OpenWorkflow runs only those definitions. A definition that code registers later, such as an inline `createWorkflow(name, handler)` or an Agent Workflow, runs inline in the request process, with `metadata.mode` set to `"inline"` and a warning. In `vite dev`, a changed Workflow file replaces the worker; the old backend stays open until the old worker finishes its runs.
+Every worker registers the discovered Workflow Definitions of the build registry when it starts, and any worker can claim a run. So OpenWorkflow runs only those definitions. The registry has each discovered Agent Workflow and its invocation recovery Workflow, so Agent turns are durable OpenWorkflow runs. The startup registry also installs the generated Agent State resolver and Capability loaders, so a fresh worker can restore persisted Channel deliveries without loading an Agent route first. A turn of an Agent that is not discovered fails with `WORKFLOW_AGENT_NOT_DISCOVERED`. A definition that code registers later, such as an inline `createWorkflow(name, handler)`, runs inline in the request process, with `metadata.mode` set to `"inline"` and a warning. In `vite dev`, a changed Workflow file replaces the worker; the old backend stays open until the old worker finishes its runs.
 
 Set `workflow: { worker: false }` to keep the servers from starting a worker. Then start one worker in a separate long-lived process:
 
@@ -294,18 +294,23 @@ throw new NonRetryableError("The card was declined.", { cause });
 
 Cloudflare gets its own `NonRetryableError` from ViteHub. Workflow DevKit reads `fatal: true`, as for its `FatalError`. OpenWorkflow has no such error, so ViteHub ends the step with the error as its result and fails the run outside the step. A replay reads that result and throws the same error. ViteHub finds the error by `isRetryable === false` or by its name, so an error from another bundle also works.
 
-Only a folder Workflow can sleep. Its `index.ts` calls `context.step.sleep(name, duration)` between steps. The run sleeps on Cloudflare and OpenWorkflow. A `native` entry uses Workflow DevKit's `sleep()`, and inline runs have no `context.step`. After a sleep, the provider runs `index.ts` again, and completed step files return their stored results.
+Only a folder Workflow can sleep. Its `index.ts` calls `context.sleep()` between steps, with a duration or a `Date`. A duration is a number of milliseconds or a string such as `"30 seconds"` or `"1 day"`: a number, one space, and a unit (second, minute, hour, day, week, month, or year, with or without a final `s`). A month is 30 days and a year is 365.25 days.
 
 ```ts fragment
 // server/workflows/remind-user/index.ts, next to 01.send-welcome.ts and 02.send-reminder.ts
-export default defineWorkflow("remind-user", async (payload: { email: string }, { step, steps }) => {
+export default defineWorkflow("remind-user", async (payload: { email: string, remindAt: string }, { sleep, steps }) => {
   await steps.sendWelcome(payload);
-  await step?.sleep?.("wait-a-day", "1 day");
+  await sleep("1 day");
+  await sleep(new Date(payload.remindAt));
   await steps.sendReminder(payload);
 });
 ```
 
-A single-file Workflow runs as one root step, and a replay after a sleep would run the code before the sleep again. So `context.step.sleep()` in a single-file Workflow throws `WORKFLOW_ROOT_STEP_SLEEP` on every provider, and the run fails without a retry.
+The sleep is durable on Cloudflare (`step.sleep` and `step.sleepUntil`, at most 365 days) and OpenWorkflow. Inline runs, in `vite dev` and in normal Vercel handlers, wait with a timer. That wait is not durable: a restart loses the run. A Vercel `native` entry uses Workflow DevKit's `sleep()`.
+
+After a sleep, the provider runs `index.ts` again from the start, and completed step files return their stored results. ViteHub names each sleep by call order (`sleep-1`, `sleep-2`), so `index.ts` must call `sleep()` in the same order on each replay. Put each side effect and each value that changes, such as `Date.now()`, in a step file. `getWorkflowRun()` lists a sleep as a step with the name `sleep-1` and the wake time in `sleepUntil` on OpenWorkflow. A sleeping Cloudflare run reports `running` with `metadata.status: "waiting"`.
+
+A single-file Workflow runs as one root step, and a replay after a sleep would run the code before the sleep again. So `context.sleep()` in a single-file Workflow throws `WORKFLOW_ROOT_STEP_SLEEP` on every provider, and the run fails without a retry. A duration that is not in the form above throws `WORKFLOW_SLEEP_DURATION_INVALID`.
 
 ## Production checklist
 

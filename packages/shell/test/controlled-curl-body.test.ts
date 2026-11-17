@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createShellRuntime } from "../src/index.ts"
-import { createJustBashProvider } from "../src/providers/just-bash.ts"
+import { createJustBashDriver } from "../src/providers/just-bash.ts"
 import { createReadonlyWorkspaceFs } from "../src/workspace/index.ts"
 import { MemoryWorkspace } from "./workspace-test-utils.ts"
 
 function createRuntime() {
   const executeSourceRequest = vi.fn(async () => ({ content: "ok" }))
   const runtime = createShellRuntime({
-    provider: createJustBashProvider({
+    driver: createJustBashDriver({
       commands: ["curl"],
       fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
       networkGrants: { executeSourceRequest },

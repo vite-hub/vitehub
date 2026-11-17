@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest"
 import { scheduleDeploymentEnv } from "../src/deployment-env.ts"
 
 describe("scheduleDeploymentEnv", () => {
-  it("names the optional CRON_SECRET of the Vercel cron handler", () => {
+  it("names the required CRON_SECRET of the Vercel cron handler", () => {
     expect(scheduleDeploymentEnv(2, { host: "vercel" })).toEqual([
-      { names: ["CRON_SECRET"], required: false, secret: true, hasDefault: false, owners: ["schedule"] },
+      { names: ["CRON_SECRET"], required: true, secret: true, hasDefault: false, owners: ["schedule"] },
     ])
   })
 

@@ -9,6 +9,7 @@ import { consoleAppIdentity } from "../client/app-identity";
 import { canManageConsoleProjects, checkConsoleProjects, showConsoleAccountPage, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleSidebarOpen } from "../client/sidebar";
 import ConsoleAppLogo from "./console-app-logo.vue";
+import Icon from "./console-icon.vue";
 
 // Only an `account` Console shows it, so it loads with the Better Auth client.
 const ConsoleAccountLink = defineAsyncComponent(() => import("./console-account-link.vue"));
@@ -92,7 +93,7 @@ const label = computed(() => `Switch app. Current: ${props.app.name}${props.app.
           <span class="vitehub-app-tile__name">{{ app.name }}</span>
           <span v-if="app.host && app.host !== app.name" class="vitehub-app-tile__host">{{ app.host }}</span>
         </span>
-        <UIcon name="i-lucide-chevrons-up-down" class="vitehub-app-tile__chevron" aria-hidden="true" />
+        <Icon name="i-lucide-chevrons-up-down" class="vitehub-app-tile__chevron" aria-hidden="true" />
       </button>
     </UTooltip>
 
@@ -106,7 +107,7 @@ const label = computed(() => `Switch app. Current: ${props.app.name}${props.app.
       <span v-if="attention(item)" class="sr-only">{{ attention(item) }}</span>
       <span class="vitehub-app-menu__check">
         <template v-if="projectOf(item)?.id === current?.id">
-          <UIcon name="i-lucide-check" class="size-4 text-highlighted" aria-hidden="true" />
+          <Icon name="i-lucide-check" class="size-4 text-highlighted" aria-hidden="true" />
           <span class="sr-only">Open now</span>
         </template>
       </span>
@@ -147,7 +148,7 @@ const label = computed(() => `Switch app. Current: ${props.app.name}${props.app.
 
 button.vitehub-app-tile:hover,
 .vitehub-app-tile[aria-expanded="true"] {
-  background: var(--ui-bg-elevated);
+  background: var(--muted);
 }
 
 .vitehub-app-tile .vitehub-app-tile__logo {
@@ -164,7 +165,7 @@ button.vitehub-app-tile:hover,
 }
 
 .vitehub-app-tile__name {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   font-size: 0.8125rem;
   font-weight: 500;
   overflow: hidden;

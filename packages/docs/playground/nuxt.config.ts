@@ -23,8 +23,8 @@ export default defineNuxtConfig({
       // the Console, served at /media for the illustrations and covers on the pages.
       blob: {
         stores: {
-          default: { driver: "cloudflare-r2", binding: "BLOB", bucketName: "vitehub-docs-demo" },
-          media: { driver: "cloudflare-r2", binding: "BLOB_MEDIA", bucketName: "vitehub-docs-demo-media" },
+          default: { driver: "cloudflare", binding: "BLOB", bucketName: "vitehub-docs-demo" },
+          media: { driver: "cloudflare", binding: "BLOB_MEDIA", bucketName: "vitehub-docs-demo-media" },
         },
         serve: {
           access: "public",

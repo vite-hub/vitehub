@@ -12,6 +12,8 @@ import { consolePageToolScript, writeConsoleNitroPlugin } from "../src/console/p
 import { installConsoleAccess } from "../src/console/runtime/server/access-policy.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { isAuthAdmin } from "../src/console/runtime/server/page-auth.ts"
+import { readConsoleProject } from "../src/console/runtime/server/project.ts"
+import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { generatedModules } from "../src/internal/generated-modules.ts"
@@ -202,8 +204,17 @@ describe("a Console app without Comments", () => {
       expect(withAuth).toContain(`export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: "/portal/", script: ${JSON.stringify(consolePageToolScript)}, user: async request => (await import(${JSON.stringify(generatedModules.consolePageAuth)})).consolePageAuthUser(request) }) }`)
       await write([], { base: "/" })
       const withoutAuth = await readFile(file, "utf8")
-      expect(withoutAuth).toContain(`installConsolePageTool(nitroApp, { base: "/", script: ${JSON.stringify(consolePageToolScript)} })`)
+      // Without Auth, the Console page tool reads the Site access cookie.
+      expect(withoutAuth).toContain(`installConsolePageTool(nitroApp, { base: "/", script: ${JSON.stringify(consolePageToolScript)}, site: async request => (await import(${JSON.stringify(generatedModules.consoleSiteSession)})).readConsoleSiteVisitor(request) })`)
       expect(withoutAuth).not.toContain(generatedModules.consolePageAuth)
+      expect(withoutAuth).toContain(`installConsoleSections(${JSON.stringify(root)}, ["site"])`)
+      const registration = /installConsoleSections\([^,]+, (\[[^\n]*?\])/.exec(withoutAuth)
+      expect(registration).not.toBeNull()
+      installConsoleSections(root, JSON.parse(registration![1]!))
+      const project = await readConsoleProject({ mode: "token", sections: "all" })
+      expect(project.operations).toEqual(expect.arrayContaining(["site.link", "site.sessions", "site.revoke-session"]))
+      await writeConsoleNitroPlugin({ file, projectRoot: root, sections: ["kv"], catalog: { agents: [], content: {} }, blobStores: [], access: { mode: "token", hiddenSections: ["site"] }, pageTool: { base: "/" } })
+      expect(await readFile(file, "utf8")).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
       await write([])
       const off = await readFile(file, "utf8")
       expect(off).toContain("export default function viteHubConsolePlugin() {}")

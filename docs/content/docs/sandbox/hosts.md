@@ -6,16 +6,16 @@ navigation.order: 7
 icon: i-lucide-cloud-cog
 ---
 
-## Providers
+## Drivers
 
 Choose the provider in app or host config, not in the task.
 
-| Provider | Configure with | Host support |
+| Driver | Configure with | Host support |
 | --- | --- | --- |
-| Vercel Sandbox | The `vercel` host, or `sandboxTask: { provider: 'vercel' }` | Vercel. Other hosts, such as Node and Netlify, with Vercel credentials set. |
+| Vercel Sandbox | The `vercel` host, or `sandboxTask: { driver: 'vercel' }` | Vercel. Other hosts, such as Node and Netlify, with Vercel credentials set. |
 | Cloudflare Sandbox | The `cloudflare` host | Cloudflare Workers with the generated Container and Durable Object binding. |
 
-`sandboxTask: true` uses the Sandbox of the host. The `deno`, `netlify`, and `node` hosts have no built-in Sandbox provider, so `sandboxTask: true` fails at config time there. Set `sandboxTask: { provider: 'vercel' }` to use Vercel Sandbox on the `node` or `netlify` host. `provider: 'cloudflare'` works only on the `cloudflare` host. Both providers run remote machines that may bill you. There is no local provider.
+`sandboxTask: true` uses the Sandbox of the host. The `deno`, `netlify`, and `node` hosts have no built-in Sandbox provider, so `sandboxTask: true` fails at config time there. Set `sandboxTask: { driver: 'vercel' }` to use Vercel Sandbox on the `node` or `netlify` host. `driver: 'cloudflare'` works only on the `cloudflare` host. Both providers run remote machines that may bill you. There is no local provider.
 
 To set provider options, give `sandboxTask` an object with the `provider` and the options from the tables below. The Nuxt module takes the same object in its `vitehub` options.
 
@@ -26,7 +26,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     host: 'cloudflare',
-    sandboxTask: { provider: 'cloudflare', keepAlive: true, sleepAfter: '30m' },
+    sandboxTask: { driver: 'cloudflare', keepAlive: true, sleepAfter: '30m' },
   },
 })
 ```
@@ -42,7 +42,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       host: 'cloudflare',
-      sandboxTask: { provider: 'cloudflare', keepAlive: true, sleepAfter: '30m' },
+      sandboxTask: { driver: 'cloudflare', keepAlive: true, sleepAfter: '30m' },
     }),
     nitro(),
   ],
@@ -58,7 +58,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     host: 'cloudflare',
-    sandboxTask: { provider: 'cloudflare', keepAlive: true, sleepAfter: '30m' },
+    sandboxTask: { driver: 'cloudflare', keepAlive: true, sleepAfter: '30m' },
   })],
 })
 ```
@@ -74,7 +74,7 @@ The Vercel provider works in the Vite or Nuxt dev server when Vercel credentials
 Set the size of the machine that runs every Sandbox Task with `cpu` and `memory` in `hubSandboxTask()`. The two options work the same on both providers.
 
 ```ts fragment
-hubSandboxTask({ provider: 'cloudflare', cpu: 1, memory: 4096 })
+hubSandboxTask({ driver: 'cloudflare', cpu: 1, memory: 4096 })
 ```
 
 | Option | Type | Description |
@@ -114,9 +114,9 @@ On Cloudflare, `vitehub inspect resources` shows the instance type and the insta
 | `migrationTag` | `'v1'` | Wrangler migration tag that creates the Durable Object class. Set it when you deploy onto an existing Worker whose last migration tag is not `v1`, else the deploy fails with Cloudflare error 10074. |
 | `name` | - | Container name. The `cloudflare` host builds it from the app name. |
 | `maxInstances` | `12` | Maximum number of Containers that run at the same time. Your own `containers` entry can set `max_instances` instead. If both are set and differ, the build fails with `SANDBOX_TASK_CLOUDFLARE_MAX_INSTANCES_CONFLICT`. |
-| `sandboxId` | - | One Sandbox ID for every run. |
-| `sleepAfter` | `'10m'` | Idle time before Cloudflare stops the Container: seconds, or a value such as `'30s'`, `'5m'`, or `'1h'`. |
-| `keepAlive` | `false` | Keep the Container running for up to 6 idle hours between requests (the Cloudflare maximum). ViteHub then closes the session after each run. |
+| `sandboxId` | - | One Sandbox ID for every run. The Sandbox stays after each run until it is idle for `sleepAfter`. |
+| `sleepAfter` | `'5m'` | Idle time before Cloudflare stops the Container: seconds, or a value such as `'30s'`, `'5m'`, or `'1h'`. |
+| `keepAlive` | `false` | Set the idle time to 6 hours, the Cloudflare maximum. Use it with `sandboxId` to keep a warm Sandbox between runs. A Sandbox without `sandboxId` still stops after each run. |
 | `normalizeId` | `false` | Lowercase the Sandbox ID before it names the Durable Object. |
 | `networkPolicy` | `'allow-all'` | Outbound traffic. See [Network policy](#network-policy). |
 
@@ -137,7 +137,7 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [
     hubSandboxTask({
-      provider: 'cloudflare',
+      driver: 'cloudflare',
       networkPolicy: { allow: ['registry.npmjs.org', '*.github.com'] },
     }),
   ],

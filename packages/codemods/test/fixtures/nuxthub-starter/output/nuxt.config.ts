@@ -10,9 +10,9 @@ export default defineNuxtConfig({
   vitehub: {
     host: 'cloudflare',
     database: true,
-    kv: { driver: 'cloudflare-kv-binding', binding: 'KV', namespaceId: 'ba6f3913de344cb1a833f3cf20ba5aa8' },
-    blob: { driver: 'cloudflare-r2', binding: 'BLOB', bucketName: 'hub-starter-p2s5' },
-    cache: { driver: 'cloudflare-kv-binding', binding: 'CACHE', namespaceId: 'ba6f3913de344cb1a833f3cf20ba5aa8' },
+    kv: { driver: 'cloudflare', binding: 'KV', namespaceId: 'ba6f3913de344cb1a833f3cf20ba5aa8' },
+    blob: { driver: 'cloudflare', binding: 'BLOB', bucketName: 'hub-starter-p2s5' },
+    cache: { driver: 'cloudflare', binding: 'CACHE', namespaceId: 'ba6f3913de344cb1a833f3cf20ba5aa8' },
   },
 
   eslint: {

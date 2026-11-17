@@ -57,6 +57,36 @@ describe("PromptInput submission with Nuxt UI", () => {
     wrapper.unmount();
   });
 
+  it("takes no input while disabled, and keeps Stop pressable", async () => {
+    const wrapper = mount(PromptInput, {
+      global: { components: { UButton }, stubs: { UIcon: true } },
+      props: { disabled: true, files: [filePart], modelValue: "Read these notes" },
+    });
+    await flushPromises();
+
+    expect(wrapper.get("textarea").element.disabled).toBe(true);
+    expect(wrapper.get<HTMLInputElement>('input[type="file"]').element.disabled).toBe(true);
+    expect(wrapper.get<HTMLButtonElement>('button[aria-label="Add attachment"]').element.disabled).toBe(true);
+    expect(wrapper.get<HTMLButtonElement>('button[aria-label="Remove notes.txt"]').element.disabled).toBe(true);
+    expect(wrapper.get<HTMLButtonElement>('button[aria-label="Send prompt"]').element.disabled).toBe(true);
+    await wrapper.get("textarea").trigger("keydown", { key: "Enter" });
+    await wrapper.get("form").trigger("submit");
+    expect(wrapper.emitted("submit")).toBeUndefined();
+
+    await wrapper.setProps({ status: "error" });
+    expect(wrapper.get<HTMLButtonElement>('button[aria-label="Retry prompt"]').element.disabled).toBe(true);
+
+    await wrapper.setProps({ status: "streaming" });
+    await wrapper.get('button[aria-label="Stop response"]').trigger("click");
+    expect(wrapper.emitted("stop")).toHaveLength(1);
+
+    await wrapper.setProps({ disabled: false, status: "ready" });
+    expect(wrapper.get("textarea").element.disabled).toBe(false);
+    await wrapper.get("textarea").trigger("keydown", { key: "Enter" });
+    expect(wrapper.emitted("submit")).toEqual([[{ text: "Read these notes", files: [filePart] }]]);
+    wrapper.unmount();
+  });
+
   it.each(["submitted", "streaming", "error"] satisfies ChatStatus[])(
     "keeps Enter and form submission inert in the %s state without losing the draft",
     async (status) => {

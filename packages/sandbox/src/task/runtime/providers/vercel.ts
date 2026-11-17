@@ -1,4 +1,4 @@
-import type { SandboxTaskDefinitionOptions, VercelSandboxTaskProviderOptions } from '../../module-types'
+import type { SandboxTaskDefinitionOptions, VercelSandboxTaskDriverOptions } from '../../module-types'
 import { resolveVercelSandbox } from '../../../internal/vercel.ts'
 import { loadVercelSandbox, type VercelSandboxCreateOptions, type VercelSandboxInstance } from '../../../vercel.ts'
 import { resolveVercelSandboxTaskVcpus } from '../../size.ts'
@@ -14,7 +14,7 @@ const VERCEL_TASK_SANDBOX_HEADROOM_MS = 30_000
 
 type SandboxTaskOptions = {
   local: SandboxTaskDefinitionOptions
-  provider: VercelSandboxTaskProviderOptions
+  provider: VercelSandboxTaskDriverOptions
 }
 
 function readConfigCredential(value: string | undefined) {
@@ -35,7 +35,7 @@ function resolveEnvCredentials() {
   }
 }
 
-function resolveCredentials(provider: VercelSandboxTaskProviderOptions) {
+function resolveCredentials(provider: VercelSandboxTaskDriverOptions) {
   const env = resolveEnvCredentials()
   const token = readConfigCredential(provider.token) || env.token
   const teamId = readConfigCredential(provider.teamId) || env.teamId

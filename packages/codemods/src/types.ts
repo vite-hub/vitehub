@@ -50,8 +50,3 @@ export interface Codemod {
   run: (context: CodemodContext) => Promise<CodemodResult>
 }
 
-/** A codemod cannot migrate the project. The CLI prints the message and exits with code 1. */
-// Internal invariant: the codemods CLI prints its message and exits with code 1.
-export class CodemodError extends Error {
-  override name = "CodemodError"
-}

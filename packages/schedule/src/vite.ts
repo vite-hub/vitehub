@@ -510,7 +510,7 @@ function renderNitroScheduleModule(options: RenderNitroScheduleModuleOptions): s
     netlifyFunctionNames = netlifyScheduleFunctionNames(netlify.schedules)
   }
   catch (error) {
-    if (!(error instanceof Error) || !("code" in error) || error.code !== "SCHEDULE_R0006") throw error
+    if (!scheduleErrorDiagnostics.SCHEDULE_R0006.is(error)) throw error
     // The names are known now, but only Nitro's resolved Netlify preset may reject them.
     netlifyNameError = { ...error, code: error.code, message: error.message, name: error.name }
   }

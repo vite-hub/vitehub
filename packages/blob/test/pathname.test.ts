@@ -1,6 +1,8 @@
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { getRouterParam, H3, H3Event } from "h3"
 import { memory } from "files-sdk/memory"
@@ -13,6 +15,7 @@ import { createDriver as createFsDriver } from "../src/drivers/fs.ts"
 import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "../src/runtime/state.ts"
 import { createBlobStorage } from "../src/storage.ts"
 
+import type { H3Config } from "h3"
 import type { BlobDriverAdapter, BlobObject, BlobStorage } from "../src/types.ts"
 
 const invalidPathname = { code: "BLOB_R0034", statusCode: 400 }
@@ -57,7 +60,7 @@ describe("blob pathname validation", () => {
     { name: "missing", pathname: "missing.txt", status: 404 },
     { name: "over the R2 key limit", pathname: "a".repeat(1025), status: 400 },
   ])("returns a bodyless HEAD response for a pathname that is $name", async ({ pathname, status }) => {
-    const storage = createBlobStorage(spyDriver("cloudflare-r2"), "default")
+    const storage = createBlobStorage(spyDriver("cloudflare"), "default")
     const get = await storage.serve(new Request("https://example.test/x"), pathname)
     const head = await storage.serve(new Request("https://example.test/x", { method: "HEAD" }), pathname)
 
@@ -153,7 +156,7 @@ describe("reserved serve pathnames", () => {
     const files = createBlobStorage(createFilesSdkDriver({ base: ".data/blob", driver: "fs" }, () => memory()), "default")
     setActiveCloudflareEnv({ BLOB: { get: vi.fn(async () => { throw new Error("driver called") }), head: vi.fn(async () => { throw new Error("driver called") }) } })
     try {
-      const r2 = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare-r2" }), "default")
+      const r2 = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare" }), "default")
       for (const store of [files, r2]) {
         for (const pathname of [".vitehub/blob-meta/x.json", "_vitehub/derived/x"]) {
           expect((await store.serve(new Request("https://example.test/x"), pathname)).status, pathname).toBe(404)
@@ -178,7 +181,7 @@ describe("reserved serve pathnames", () => {
   })
 
   it("answers 400 to a pathname above the R2 key limit", async () => {
-    const driver = spyDriver("cloudflare-r2")
+    const driver = spyDriver("cloudflare")
     const response = await createBlobStorage(driver, "default").serve(new Request("https://example.test/x"), "a".repeat(1025))
     expect(response.status).toBe(400)
     expect(driver.head).not.toHaveBeenCalled()
@@ -208,6 +211,43 @@ describe("HTTP routes", () => {
     }
     expect((await app().fetch(new Request("http://localhost/blob/public.txt"))).status).toBe(200)
     expect((await app().fetch(new Request("http://localhost/blob/.vitehub/blob-meta/x.json"))).status).toBe(404)
+  })
+
+  it("answers the status of a thrown pathname error through Nitro's production error handler", async () => {
+    const nitroRoot = dirname(createRequire(import.meta.url).resolve("nitro/package.json"))
+    const { default: onError }: { default: NonNullable<H3Config["onError"]> } = await import(pathToFileURL(join(nitroRoot, "dist/runtime/internal/error/prod.mjs")).href)
+    const pathname = (event: H3Event) => getRouterParam(event, "pathname", { decode: false }) || ""
+    // Routes that rethrow the error of a Blob method, as an app route does.
+    const nitro = new H3({ onError })
+      .get("/files/**:pathname", async (event) => {
+        const [error, file] = await storage.get(pathname(event))
+        if (error) throw error
+        return file ? file.text() : new Response("Not found", { status: 404 })
+      })
+      .get("/meta/**:pathname", async (event) => {
+        const [error, object] = await storage.head(pathname(event))
+        if (error) throw error
+        return object ?? new Response("Not found", { status: 404 })
+      })
+      .put("/files/**:pathname", async (event) => {
+        const [error, object] = await storage.put(pathname(event), "x")
+        if (error) throw error
+        return object
+      })
+
+    for (const path of ["/files/..%2Fx", "/meta/..%2Fx"]) {
+      const response = await nitro.fetch(new Request(`http://localhost${path}`))
+      expect(response.status, path).toBe(400)
+      await expect(response.json()).resolves.toMatchObject({ code: "BLOB_R0034", message: expect.stringContaining("must not contain \".\" or \"..\" segments") })
+    }
+    const write = await nitro.fetch(new Request("http://localhost/files/..%2Fx", { method: "PUT" }))
+    expect(write.status).toBe(400)
+    for (const path of ["/files/.vitehub/blob-meta/x.json", "/meta/.vitehub/blob-meta/x.json"]) {
+      expect((await nitro.fetch(new Request(`http://localhost${path}`))).status, path).toBe(404)
+    }
+    const reserved = await nitro.fetch(new Request("http://localhost/files/.vitehub/blob-meta/x.json", { method: "PUT" }))
+    expect(reserved.status).toBe(403)
+    await expect(reserved.json()).resolves.toMatchObject({ code: "BLOB_R0033" })
   })
 
   it("keeps an uploaded file inside the prefix", async () => {
@@ -301,7 +341,7 @@ describe("Cloudflare R2 native signed requests", () => {
     accountId: "account",
     binding: "BLOB",
     bucketName: "media",
-    driver: "cloudflare-r2" as const,
+    driver: "cloudflare" as const,
     secretAccessKey: "secret-key",
   }
 

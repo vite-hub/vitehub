@@ -9,7 +9,7 @@ import { listDenoDeployments } from "./deploy/deno.ts"
 import { createDeployRun } from "./deploy/host.ts"
 import { listNetlifyDeployments } from "./deploy/netlify.ts"
 import { listVercelDeployments } from "./deploy/vercel.ts"
-import { SetupFailure, setupExitCodes, table, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { isSetupFailure, setupExitCodes, setupFailure, table, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { hostRequired, readLinkHostOption, readSetupLinks, selectSetupLink } from "./link.ts"
 import { readSetupProject } from "./project.ts"
 
@@ -95,7 +95,7 @@ function readDeploymentsArgs(args: readonly string[]) {
     return { help: values.help, host: readLinkHostOption(values.host), json: values.json, limit: readLimit(values.limit) }
   }
   catch (error: unknown) {
-    if (error instanceof SetupFailure || (error instanceof Error && "why" in error)) throw error
+    if (isSetupFailure(error) || (error instanceof Error && "why" in error)) throw error
     throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${error instanceof Error ? error.message : String(error)} Usage: ${usage}` })
   }
 }
@@ -120,10 +120,10 @@ async function runDeployments(host: SetupLinkHost | undefined, limit: number, js
   const selected = selectSetupLink(await readSetupLinks(project.root), host)
   if ("ambiguous" in selected) throw hostRequired(selected.ambiguous, "vitehub deployments")
   const link = selected.link
-  if (!link) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_NOT_LINKED({ host }), setupExitCodes.inputNeeded, { missing: [{ field: "link" }], rerun: host ? `vitehub link --host ${host}` : "vitehub link" })
+  if (!link) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_NOT_LINKED({ host }), setupExitCodes.inputNeeded, { missing: [{ field: "link" }], rerun: host ? `vitehub link --host ${host}` : "vitehub link" })
   const credentials = await resolveHostCredentials(link.host, { cwd: project.root, env: context.env, ...(context.runHostCli ? { run: context.runHostCli } : {}) })
   if (!credentials.ok) {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_CREDENTIALS_MISSING({ fix: credentials.fix, host: link.host }), setupExitCodes.inputNeeded, {
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_CREDENTIALS_MISSING({ fix: credentials.fix, host: link.host }), setupExitCodes.inputNeeded, {
       missing: credentials.missing.map(field => ({ field })),
     })
   }
@@ -207,6 +207,19 @@ export async function readSetupLive(root: string, link: SetupLink | undefined, c
   catch (error: unknown) {
     return { live: null, liveReason: isTimeout(error) ? "timeout" : "host-error" }
   }
+}
+
+/** How long `vitehub deploy` waits for the host when it reads the deployment that a failed check rolls back to. */
+const DEPLOY_PREVIOUS_TIMEOUT_MS = 10_000
+
+/**
+ * The deployment that receives production traffic now, read before `vitehub deploy` replaces it. It throws when the
+ * host request fails, so the caller can say why the rollback target is not known.
+ */
+export async function readLiveDeployment(root: string, link: SetupLink, credentials: Extract<HostCredentials, { ok: true }>, context: ViteHubCliContext, run: DeployRun): Promise<HostDeployment | undefined> {
+  const signal = AbortSignal.timeout(DEPLOY_PREVIOUS_TIMEOUT_MS)
+  const listed = await abortable(signal, "Host deployment lookup timed out", () => listers[link.host](deploymentsContext(root, link, credentials, context, run, DEPLOY_PREVIOUS_TIMEOUT_MS, signal), { includeLive: true, limit: 1 }))
+  return listed.find(item => item.live)
 }
 
 const reasonLabels: Record<SetupLiveReason, string> = {

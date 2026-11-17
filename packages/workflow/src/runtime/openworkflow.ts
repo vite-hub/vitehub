@@ -1,4 +1,5 @@
 import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
+import { invariantError } from "@vite-hub/internal/invariant"
 import { readNonRetryableStepResult, runSerializedWorkflowHandler, toNonRetryableStepResult } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"
 import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
@@ -117,8 +118,8 @@ function readDatabasePostgresUrl(): string | undefined {
 }
 
 function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowStorageConfig {
-  if (config.provider !== "openworkflow") {
-    throw workflowErrorDiagnostics.WORKFLOW_R0020({ message: `OpenWorkflow runtime requires workflow.provider "openworkflow", received "${config.provider}".` })
+  if (config.driver !== "openworkflow") {
+    throw workflowErrorDiagnostics.WORKFLOW_R0020({ message: `OpenWorkflow runtime requires workflow.driver "openworkflow", received "${config.driver}".` })
   }
   if ("database" in config && config.database !== undefined) {
     throw workflowErrorDiagnostics.WORKFLOW_R0027({ message: "`workflow.database` is not supported. Set `workflow.sqlite.path` or `workflow.postgres.url` explicitly." })
@@ -325,8 +326,7 @@ function createRunIdLookup(backend: OpenWorkflowBackend, options: OpenWorkflowSt
       const [row] = await connection`SELECT "id" FROM ${connection(options.schema)}.${connection("workflow_runs")} WHERE "namespace_id" = ${options.namespaceId} AND "workflow_name" = ${name} AND "idempotency_key" = ${key} ORDER BY "created_at" ASC, "id" ASC LIMIT 1`
       return readRowId(row)
     }
-    // Internal invariant: OpenWorkflow 0.9 backends keep their connection in `db` (SQLite) or `pg` (Postgres).
-    throw new TypeError(`The OpenWorkflow ${options.backend} backend has no connection that ViteHub can read run ids from.`)
+    throw invariantError(`OpenWorkflow 0.9 backends keep their connection in \`db\` (SQLite) or \`pg\` (Postgres), but the ${options.backend} backend has neither`)
   }
 }
 
@@ -396,8 +396,8 @@ function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProv
       // SAFETY: Only a step that threw a NonRetryableError returns its result, and the check above throws for it.
       return output as Awaited<ReturnType<typeof run>>
     },
-    // SAFETY: ViteHub's duration input matches OpenWorkflow's accepted sleep duration representation.
-    sleep: async (name, duration) => await step.sleep(name, duration as Parameters<OpenWorkflowStepApi["sleep"]>[1]),
+    // OpenWorkflow stores the wake time when the sleep starts. A replay finds the sleep step and does not read the duration.
+    sleep: async (name, milliseconds) => await step.sleep(name, `${milliseconds}ms`),
   }
 }
 
@@ -495,6 +495,7 @@ function toWorkflowRunSteps(attempts: OpenWorkflowStepAttempt[]): WorkflowRunSte
       ...(attempt.status === "failed" || nonRetryable ? { error: toWorkflowRunStepError(nonRetryable ?? attempt.error) } : {}),
       id: attempt.id,
       name: attempt.stepName,
+      ...(attempt.context?.kind === "sleep" ? { sleepUntil: new Date(attempt.context.resumeAt) } : {}),
       ...(attempt.startedAt ? { startedAt: attempt.startedAt } : {}),
       status: nonRetryable ? "failed" : normalizeOpenWorkflowStatus(attempt.status),
     })

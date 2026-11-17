@@ -804,7 +804,7 @@ describe("KV Schedule Run Store", () => {
     for (const options of [{ limit: 1 }, { scheduleId: "legacy" }, { scheduleId: "legacy", limit: 1 }]) {
       await expect(store.listRuns(options)).rejects.toMatchObject({
         code: "SCHEDULE_HISTORY_INCOMPLETE",
-        name: "ScheduleHistoryIncompleteError",
+        name: "SCHEDULE_HISTORY_INCOMPLETE",
       })
     }
     expect(get).not.toHaveBeenCalled()

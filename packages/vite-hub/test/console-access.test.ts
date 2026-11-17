@@ -409,6 +409,7 @@ describe("generated Console access", () => {
     expect(config.nitro.handlers.filter(handler => handler.meta)).toEqual([
       expect.objectContaining({ route, meta: { ...authAccessHandlerMeta } }),
       expect.objectContaining({ route: route.replace(/\/rpc$/, ""), meta: { ...authAccessHandlerMeta } }),
+      expect.objectContaining({ route: route.replace(/\/rpc$/, "/**"), meta: { ...authAccessHandlerMeta } }),
     ])
   })
 
@@ -429,8 +430,8 @@ describe("generated Console access", () => {
     await generatedPlugin({ console: {} }, "build", config)
 
     const routes = config.nitro.handlers.map(handler => handler.route)
-    expect(routes).toEqual([`${mount}/_vitehub/rpc`, `${mount}/_vitehub`, `${mount}/_vitehub/page/session`])
-    for (const removed of ["/_vitehub/**", "/_vitehub/api/client.js", "/_vitehub/api/status", "/_vitehub/api/logs", "/_vitehub/api/usage", "/_vitehub/sign-in"]) {
+    expect(routes).toEqual([`${mount}/_vitehub/rpc`, `${mount}/_vitehub`, `${mount}/_vitehub/**`, `${mount}/_vitehub/page/session`])
+    for (const removed of ["/_vitehub/api/client.js", "/_vitehub/api/status", "/_vitehub/api/logs", "/_vitehub/api/usage", "/_vitehub/sign-in"]) {
       expect(routes, removed).not.toContain(`${mount}${removed}`)
     }
     expect(config.nitro.handlers).not.toContainEqual(expect.objectContaining({ handler: expect.stringMatching(/server\/(?:page\.get|client\.get)\.js$/) }))

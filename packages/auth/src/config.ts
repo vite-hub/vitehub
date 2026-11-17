@@ -14,13 +14,18 @@ import type {
   ResolvedAuthViteConfig,
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
-import { assertAuthDatabaseIdStrategy, authDatabaseAdditionalFieldsError, authDatabasePlacementError } from "./database-options.ts"
+import { assertAuthDatabaseIdStrategy, authDatabaseAdditionalFieldsError, authDatabasePlacementError, authDatabaseSchemaError } from "./database-options.ts"
+import { resolveAuthTableSpecs } from "./table-specs.ts"
+
+import type { AuthCoreModel, AuthSchemaOptions, AuthSchemaPlugin, AuthTableField } from "./table-specs.ts"
 
 interface DefinitionObjectBody {
   body: ObjectExpression
   callback: boolean
   /** Local names of `authDatabase` imported from the Auth database module. */
   authDatabase: ReadonlySet<string>
+  /** The plugins of `AuthSchemaPlugin` that the Definition module imports and calls. */
+  plugins: AuthSchemaPlugin[]
 }
 
 const authDatabaseModules: ReadonlySet<string> = new Set(["@vite-hub/auth/database", "vite-hub/auth/database"])
@@ -36,6 +41,95 @@ function readAuthDatabaseImports(module: ScannedModule): Set<string> {
     }
   }
   return names
+}
+
+/** The plugin factories whose tables `authDatabase()` adds, by the module that exports them. */
+const authSchemaPluginImports: Readonly<Record<string, Readonly<Record<string, AuthSchemaPlugin>>>> = {
+  "better-auth/plugins": { anonymous: "anonymous", lastLoginMethod: "lastLoginMethod", phoneNumber: "phoneNumber", twoFactor: "twoFactor", username: "username" },
+  "@better-auth/api-key": { apiKey: "apiKey" },
+  "@better-auth/stripe": { stripe: "stripe" },
+}
+
+/** The plugins of `AuthSchemaPlugin` that `module` imports and calls, such as `twoFactor()` from `better-auth/plugins`. */
+function readAuthSchemaPlugins(module: ScannedModule): AuthSchemaPlugin[] {
+  const locals = new Map<string, AuthSchemaPlugin>()
+  for (const statement of module.program.body) {
+    if (statement.type !== "ImportDeclaration" || statement.importKind === "type") continue
+    const source = statement.source.value.startsWith("better-auth/plugins/") ? "better-auth/plugins" : statement.source.value
+    const exports = authSchemaPluginImports[source]
+    if (!exports) continue
+    for (const specifier of statement.specifiers) {
+      if (specifier.type !== "ImportSpecifier" || specifier.importKind === "type") continue
+      const imported = specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value
+      if (Object.hasOwn(exports, imported)) locals.set(specifier.local.name, exports[imported]!)
+    }
+  }
+  const plugins = new Set<AuthSchemaPlugin>()
+  if (locals.size) {
+    walk(module.program, (node) => {
+      if (node.type === "CallExpression" && node.callee.type === "Identifier" && locals.has(node.callee.name)) plugins.add(locals.get(node.callee.name)!)
+    })
+  }
+  return [...plugins].sort()
+}
+
+const authFieldTypes: ReadonlySet<string> = new Set(["boolean", "date", "json", "number", "number[]", "string", "string[]"])
+
+function readStaticBooleanOption(field: ObjectExpression, key: string, label: string): boolean | undefined {
+  if (!hasObjectProperty(field, key)) return
+  const value = readStaticBooleanLiteral(readObjectPropertyValue(field, key))
+  if (value === undefined) throw authDatabaseAdditionalFieldsError(`${label}.${key} must be \`true\` or \`false\``)
+  return value
+}
+
+/** One additional field, read from its object literal: the parts that shape the column. */
+function readAdditionalField(value: Expression | undefined, key: string, label: string): AuthTableField {
+  const field = objectLiteral(value && unwrapExpression(value))
+  if (!field) throw authDatabaseAdditionalFieldsError(`${label} must be an inline object, such as \`{ type: "string", required: false }\``)
+  const typeValue = readObjectPropertyValue(field, "type")
+  const unwrappedType = typeValue && unwrapExpression(typeValue)
+  // A list of values, such as `["en", "es"]`, is a string column. Better Auth checks the value.
+  const type = unwrappedType?.type === "ArrayExpression" ? "string" : staticString(unwrappedType)
+  if (!type || !authFieldTypes.has(type)) throw authDatabaseAdditionalFieldsError(`${label}.type must be one of ${[...authFieldTypes].map(name => `"${name}"`).join(", ")}, or a list of strings`)
+  const fieldName = readObjectPropertyValue(field, "fieldName")
+  if (fieldName && staticString(fieldName) !== key) throw authDatabaseSchemaError(`${label}.fieldName cannot rename the column`)
+  const spec: AuthTableField = { type: type as AuthTableField["type"] }
+  if (readStaticBooleanOption(field, "required", label)) spec.required = true
+  if (readStaticBooleanOption(field, "unique", label)) spec.unique = true
+  if (readStaticBooleanOption(field, "index", label)) spec.index = true
+  if (readStaticBooleanOption(field, "bigint", label)) spec.bigint = true
+  // A function or a computed default stays in Better Auth, which sets the value when it writes the row.
+  const defaultValue = readObjectPropertyValue(field, "defaultValue")
+  const staticDefault = defaultValue && staticValue(defaultValue)
+  if (typeof staticDefault === "string" || typeof staticDefault === "number" || typeof staticDefault === "boolean") spec.defaultValue = staticDefault
+  const references = readObjectPropertyValue(field, "references")
+  if (references) {
+    const reference = staticValue(references)
+    const model = typeof reference === "object" && reference !== null && !Array.isArray(reference) ? reference.model : undefined
+    const target = typeof reference === "object" && reference !== null && !Array.isArray(reference) ? reference.field : undefined
+    const onDelete = typeof reference === "object" && reference !== null && !Array.isArray(reference) ? reference.onDelete ?? "cascade" : undefined
+    if (typeof model !== "string" || typeof target !== "string" || (onDelete !== "cascade" && onDelete !== "set null")) {
+      throw authDatabaseAdditionalFieldsError(`${label}.references must be an inline object, such as \`{ model: "user", field: "id", onDelete: "cascade" }\``)
+    }
+    spec.references = { model, field: target, onDelete }
+  }
+  return spec
+}
+
+/** The `additionalFields` of each core model, which `authDatabase()` adds as columns. */
+function readAuthAdditionalFields(body: ObjectExpression | undefined): AuthSchemaOptions["additionalFields"] {
+  const result: NonNullable<AuthSchemaOptions["additionalFields"]> = {}
+  for (const model of ["user", "session", "account", "verification"] as const satisfies readonly AuthCoreModel[]) {
+    const config = objectLiteral(readObjectPropertyValue(body, model))
+    const value = readObjectPropertyValue(config, "additionalFields")
+    if (!value) continue
+    const fields = objectLiteral(unwrapExpression(value))
+    if (!fields) throw authDatabaseAdditionalFieldsError(`${model}.additionalFields must be an inline object literal, so the Auth Vite plugin can add its columns`)
+    const entries = readObjectEntries(fields)
+    if (entries.some(entry => !entry.key)) throw authDatabaseAdditionalFieldsError(`${model}.additionalFields must use static keys`)
+    if (entries.length) result[model] = Object.fromEntries(entries.map(entry => [entry.key, readAdditionalField(entry.value, entry.key, `${model}.additionalFields.${entry.key}`)]))
+  }
+  return Object.keys(result).length ? result : undefined
 }
 
 /** The object that a callback returns, from `() => ({ ... })` or the first `return { ... }` in its body. */
@@ -66,16 +160,17 @@ function readDefinitionObjectBody(file: string): DefinitionObjectBody | undefine
   const argument = call.arguments[0]
   if (argument === undefined || argument.type === "SpreadElement") return
   const options = unwrapExpression(argument)
+  const plugins = readAuthSchemaPlugins(module)
   if (hasObjectProperty(objectLiteral(options) ?? readReturnedObject(options), "runtime")) {
     throw authErrorDiagnostics.AUTH_C0039({ message: "`defineAuth()` no longer takes `runtime`. Pass one callback that returns all options, so no option replaces another." })
   }
   if (options.type === "ObjectExpression") {
     assertAuthDatabasePlacement(options, options, authDatabase)
-    return { authDatabase, body: options, callback: false }
+    return { authDatabase, body: options, callback: false, plugins }
   }
   const returned = readReturnedObject(options)
   assertAuthDatabasePlacement(options, returned, authDatabase)
-  return returned === undefined ? undefined : { authDatabase, body: returned, callback: true }
+  return returned === undefined ? undefined : { authDatabase, body: returned, callback: true, plugins }
 }
 
 /** Owned tables must have the same target in every request and in the build-time contribution. */
@@ -94,12 +189,6 @@ function assertAuthDatabasePlacement(options: Expression, body: ObjectExpression
     })
     const unconditional = options.body.body.some(statement => statement.type === "ReturnStatement" && statement.argument && unwrapExpression(statement.argument) === body)
     if (returns !== 1 || !unconditional) throw authDatabasePlacementError()
-  }
-  for (const model of ["user", "session", "account", "verification"]) {
-    const config = objectLiteral(readObjectPropertyValue(body, model))
-    const additionalFields = readObjectPropertyValue(config, "additionalFields")
-    const fields = objectLiteral(additionalFields)
-    if (additionalFields && (!fields || fields.properties.length)) throw authDatabaseAdditionalFieldsError(model)
   }
   const advanced = objectLiteral(readObjectPropertyValue(body, "advanced"))
   const database = objectLiteral(readObjectPropertyValue(advanced, "database"))
@@ -252,17 +341,25 @@ function readAuthDatabaseCall(body: ObjectExpression | undefined, authDatabase: 
   return expression?.type === "CallExpression" && expression.callee.type === "Identifier" && authDatabase.has(expression.callee.name) ? expression : undefined
 }
 
-/** The Database that gets the Better Auth tables: the name that `authDatabase()` receives, `"default"` without one. */
-function readAuthTablesConfig(body: ObjectExpression | undefined, authDatabase: ReadonlySet<string>): ResolvedAuthViteConfig["tables"] {
+/**
+ * The Database that gets the Better Auth tables (the name that `authDatabase()` receives, `"default"` without one), and
+ * the plugins and additional fields that add tables and columns.
+ */
+function readAuthTablesConfig(definition: DefinitionObjectBody): ResolvedAuthViteConfig["tables"] {
+  const { authDatabase, body, plugins } = definition
   const call = readAuthDatabaseCall(body, authDatabase)
   if (!call) return false
   const [argument, ...rest] = call.arguments
-  if (argument === undefined) return { database: "default" }
-  const name = argument.type === "SpreadElement" || rest.length ? undefined : staticString(argument)
+  const name = argument === undefined ? "default" : argument.type === "SpreadElement" || rest.length ? undefined : staticString(argument)
   if (name === undefined || !name || name !== name.trim()) {
     throw authErrorDiagnostics.AUTH_C0052({ message: "`authDatabase()` takes the Database name as one inline string literal, such as `authDatabase(\"content\")`, or no argument for the `default` Database." })
   }
-  return { database: name }
+  const additionalFields = readAuthAdditionalFields(body)
+  const schema: AuthSchemaOptions = { ...(plugins.length ? { plugins } : {}), ...(additionalFields ? { additionalFields } : {}) }
+  if (!plugins.length && !additionalFields) return { database: name }
+  // Report a field that a plugin or a core table already has with another type now, not when the schema loads.
+  resolveAuthTableSpecs(schema)
+  return { database: name, schema }
 }
 
 /** Reports `true`, `false`, or an object literal with only `keys`: the removed placement forms, which create no storage. */
@@ -322,7 +419,7 @@ export function resolveAuthViteConfig(
     definition,
     rootDir,
     route: readAuthRouteConfig(body),
-    tables: readAuthTablesConfig(body, definitionObject.authDatabase),
+    tables: readAuthTablesConfig(definitionObject),
     ...(!definitionObject.callback && !["database", "preset"].some(key => hasObjectProperty(body, key)) ? { implicitMemory: true as const } : {}),
   }
 }
