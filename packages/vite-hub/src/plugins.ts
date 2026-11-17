@@ -1,6 +1,7 @@
 import { agentJournalStateUrl, defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { applyCacheStorage, resolveCacheStorage, type CacheOptions } from "./cache-storage.ts"
 import { existsSync, readFileSync } from "node:fs"
+import { invariant } from "@vite-hub/internal/invariant"
 import { basename, dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -857,8 +858,7 @@ function deploymentNitroModule(
         await collapseWranglerConfigFile(nitro.options.output.serverDir)
       }
       if (plan.output.packaging === "deno-node-modules") {
-        // Internal invariant: denoServerPackagesPlugin() above sets serverPackages when the Deno server bundle is written.
-        if (!serverPackages) throw new Error("[vitehub] The Deno server bundle did not report its runtime packages.")
+        invariant(serverPackages, "denoServerPackagesPlugin() sets the runtime packages when it writes the Deno server bundle")
         await finalizeDenoDeploymentOutput({ deploymentName: identity.name, outputDir, rootDir, serverPackages, ...resolvedBuildConfig() })
       }
       const registry = envPlugin()?.api.getServerEnvRegistry()
