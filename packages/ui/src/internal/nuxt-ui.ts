@@ -14,7 +14,8 @@ export type ViteHubUIComponentName =
   | "UIcon"
   | "UInput"
   | "UModal"
-  | "UTabs";
+  | "UTabs"
+  | "UTooltip";
 
 /** Components that replace the Nuxt UI ones in the parts, by name. Give them to `createViteHubUI({ components })`. */
 export type ViteHubUIComponents = Partial<Record<ViteHubUIComponentName, Component>>;
@@ -40,6 +41,7 @@ const bundled: Record<ViteHubUIComponentName, Component> = {
   UInput: defineAsyncComponent(() => import("@nuxt/ui/components/Input.vue")),
   UModal: defineAsyncComponent(() => import("@nuxt/ui/components/Modal.vue")),
   UTabs: defineAsyncComponent(() => import("@nuxt/ui/components/Tabs.vue")),
+  UTooltip: defineAsyncComponent(() => import("@nuxt/ui/components/Tooltip.vue")),
 };
 
 /**
@@ -49,4 +51,17 @@ const bundled: Record<ViteHubUIComponentName, Component> = {
  */
 export function useUIComponent(name: ViteHubUIComponentName): Component {
   return inject(uiComponentsKey, undefined)?.[name] ?? getCurrentInstance()?.appContext.components[name] ?? bundled[name];
+}
+
+// Nuxt UI's `UApp` provides its locale under this global symbol, next to the tooltip provider that `UTooltip` needs.
+const nuxtUILocaleKey = Symbol.for("nuxt-ui.locale-context");
+
+/**
+ * The tooltip that a part renders: the one given to `createViteHubUI({ components })` or registered globally, else
+ * Nuxt UI's own inside `UApp`, which provides what it needs and lets the tooltips of a list share their open delay.
+ * Outside `UApp` there is none, and the part uses the `title` attribute. Call it in `setup()`.
+ */
+export function useTooltipComponent(): Component | undefined {
+  const own = inject(uiComponentsKey, undefined)?.UTooltip ?? getCurrentInstance()?.appContext.components.UTooltip;
+  return own ?? (inject(nuxtUILocaleKey, undefined) === undefined ? undefined : bundled.UTooltip);
 }

@@ -523,7 +523,7 @@ The component ref exposes `close()`. Call it when a parent dialog or panel wants
 
 ### CommentReply
 
-One message of a thread. The first message is the comment, the rest are replies. Its author can edit and delete it. Renders a `div` with `data-slot="comment-reply"`. The body is [Markdown](/docs/ui/markdown), with a `comment-mention` chip for each person in `message.mentions`. The edit box closes after `onEdit` succeeds. On failure, it stays open with the text and error.
+One message of a thread. The first message is the comment, the rest are replies. Its author can edit and delete it. Renders a `div` with `data-slot="comment-reply"`. Its time is a [Relative Time](/docs/ui/relative-time), as is the time of each row in a list. The body is [Markdown](/docs/ui/markdown), with a `comment-mention` chip for each person in `message.mentions`. The edit box closes after `onEdit` succeeds. On failure, it stays open with the text and error.
 
 Edit and Delete show when you give their handlers. An unchanged edit keeps its mention ids, even when a name is unknown. For changed text, pass mentioned people in `people` so the composer can check which names remain.
 
@@ -695,3 +695,4 @@ Open, Resolved, and Mine toggles. Renders a `div` with `data-slot="comment-filte
 - [Prompt Input](/docs/ui/prompt-input) is the composer's box.
 - [Attachment](/docs/ui/attachment) shows the files of a message.
 - [Markdown](/docs/ui/markdown) renders the messages.
+- [Relative Time](/docs/ui/relative-time) shows when each comment was written.
