@@ -4,6 +4,7 @@ import * as v from "valibot"
 import { describe, expect, it, vi } from "vitest"
 
 import { createDrizzleFormsStore, formsTables } from "../src/database.ts"
+import { formsDiagnostics } from "../src/errors.ts"
 import { createFormsInbox, createMemoryFormsStore, defineForm, handleFormRequest } from "../src/index.ts"
 
 import type { FormsStore, FormSubmission } from "../src/index.ts"
@@ -96,6 +97,51 @@ describe.each([
 it("names the migration when the table is missing", async () => {
   const store = createDrizzleFormsStore(drizzle({ client: createClient({ url: ":memory:" }) }))
   const [error] = await createFormsInbox(store).list()
-  expect(error?.message).toContain("vitehub database generate")
-  expect(error?.message).toContain("vitehub database migrate")
+  expect(error).toMatchObject({
+    code: "FORMS_TABLES_MISSING",
+    fix: expect.stringMatching(/vitehub database generate.*vitehub database migrate/),
+    why: "[vitehub] Forms could not list submissions: the Database has no `vitehub_form_submissions` table.",
+  })
+})
+
+it("answers a form post without the Forms tables with the code and the fix", async () => {
+  const store = createDrizzleFormsStore(drizzle({ client: createClient({ url: ":memory:" }) }))
+  const log = vi.fn()
+  const form = defineForm({ schema: v.object({ message: v.string() }) })
+  const request = (browser = false) => new Request("https://site.test/api/_vitehub/forms/review", {
+    method: "POST",
+    headers: {
+      "content-type": browser ? "application/x-www-form-urlencoded" : "application/json",
+      ...browser ? { accept: "text/html" } : {},
+      origin: "https://site.test",
+      referer: "https://site.test/ai-workflows",
+    },
+    body: browser ? "message=Hi" : JSON.stringify({ message: "Hi" }),
+  })
+
+  const response = await handleFormRequest("review", form, request(), { store, log })
+  expect(response.status).toBe(500)
+  expect(await response.json()).toEqual({
+    code: "FORMS_TABLES_MISSING",
+    fix: expect.stringContaining("vitehub database migrate"),
+    message: "[vitehub] Forms could not store a submission: the Database has no `vitehub_form_submissions` table.",
+  })
+  expect(log).toHaveBeenCalledWith("[vitehub] The review form could not store a submission.", expect.objectContaining({ code: "FORMS_TABLES_MISSING" }))
+
+  const native = await handleFormRequest("review", form, request(true), { store, log })
+  expect(native.status).toBe(303)
+  expect(native.headers.get("location")).toBe("/ai-workflows?form=review.error")
+})
+
+it("keeps the Forms code that the Database lookup throws", async () => {
+  const store = createDrizzleFormsStore(() => { throw formsDiagnostics.FORMS_DATABASE_MISSING({ database: "inbox" }) })
+  const [error] = await createFormsInbox(store).list()
+  expect(error?.code).toBe("FORMS_DATABASE_MISSING")
+})
+
+it("keeps FORMS_R0001 for other Database errors", async () => {
+  const client = createClient({ url: ":memory:" })
+  await client.execute("CREATE TABLE `vitehub_form_submissions` (`id` text PRIMARY KEY NOT NULL)")
+  const [error] = await createFormsInbox(createDrizzleFormsStore(drizzle({ client }))).list()
+  expect(error).toMatchObject({ code: "FORMS_R0001", why: "[vitehub] Forms could not list submissions." })
 })
