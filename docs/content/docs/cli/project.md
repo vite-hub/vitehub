@@ -46,6 +46,8 @@ The Nuxt app does not declare a known Nuxt 5 version. ViteHub stops before adopt
 
 ## Read a project without loading it
 
+Other commands load the project config the way `nuxt dev` does: in a Nuxt app, the `$development` overrides apply, so a command next to a running dev server resolves the same config and leaves its generated files alone. `--stage <name>` loads `$<name>` instead.
+
 `vitehub catalog` and `vitehub status` run before the CLI loads the project config. They work in an empty folder and on a config that throws, because they parse the config file and never run it.
 
 ```bash [Terminal]

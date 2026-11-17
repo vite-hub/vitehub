@@ -86,7 +86,7 @@ Local Vite delivers Queue Jobs in the dev server through the local provider, whi
 
 Workspace on Cloudflare uses the memory store by default, so its state stays in one Worker isolate. Select the Cloudflare Artifacts or GitHub Workspace Store for durable state. Workspace on Vercel also defaults to process-local memory; a non-empty `BLOB_READ_WRITE_TOKEN` selects Vercel Blob, or the app can select GitHub explicitly. Realtime on Node needs `realtime: { authority: "memory" }` for a build, and that authority is safe only for a single-process server.
 
-Workflow defaults to OpenWorkflow on Node and in Local Vite with the `node` preset, and each server runs the OpenWorkflow worker. It uses `OPENWORKFLOW_POSTGRES_URL`, then the app's Postgres Default Database, else a SQLite file on one host. Local Vite uses the SQLite file unless `workflow.remote` is `true`. Deno builds require a provider or OpenWorkflow storage; development and Agent-only Workflows can run inline. Netlify requires an explicit `workflow.provider`. An explicit `workflow.provider` always wins.
+Workflow defaults to OpenWorkflow on Node and in Local Vite with the `node` preset, and each server runs the OpenWorkflow worker. It uses `OPENWORKFLOW_POSTGRES_URL`, then the app's Postgres Default Database, else a SQLite file on one host. Local Vite uses the SQLite file unless `workflow.remote` is `true`. On Node, Agent turns are OpenWorkflow runs: any server's worker executes them, and a queued turn runs after a restart. Deno builds require a provider or OpenWorkflow storage; development and Agent-only Workflows can run inline. Netlify requires an explicit `workflow.provider`. An explicit `workflow.provider` always wins.
 
 ## Test status
 

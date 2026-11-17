@@ -14,6 +14,10 @@ import type { OsDriver, OsHost, OsScheduleRemoval, OsScheduleStatus, OsTimerSpec
 /** Any object with `cron` and an optional `timeZone`. The result of `defineSchedule()` fits. */
 export interface OsScheduleTiming {
   cron?: string
+  /**
+   * IANA time zone of the cron. Without it, the cron runs in UTC, as every Schedule does. `"local"` runs it in the time
+   * zone of the machine.
+   */
   timeZone?: string
 }
 
@@ -99,7 +103,7 @@ function readSpec(platform: OsSchedulePlatform, name: string, schedule: unknown,
   const { cron, timeZone = "UTC" } = schedule
   const fields = isString(cron) ? parseCronFields(cron) : undefined
   if (!isString(cron) || !fields) return invalid("`cron` must be a five-field cron expression, such as \"0 9 * * 1-5\".")
-  if (!isIanaTimeZone(timeZone)) return invalid("`timeZone` must be an IANA time zone, such as \"Europe/Madrid\".")
+  if (timeZone !== "local" && !isIanaTimeZone(timeZone)) return invalid("`timeZone` must be an IANA time zone, such as \"Europe/Madrid\", or \"local\" for the time zone of the machine.")
 
   if (!isPlainObject(options)) return invalid("pass options with `command`.")
   const unknownKey = Object.keys(options).find(key => !optionKeys.has(key))

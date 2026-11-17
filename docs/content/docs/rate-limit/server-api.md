@@ -20,7 +20,19 @@ await requireRateLimit(event, 'image-upload', {
 })
 ```
 
-The ID, `limit`, `window`, `enforcement`, and `failure` must be static literals, because ViteHub writes the provider config before runtime. `event` and `key` are runtime values, so the identity can change per request.
+The ID, `limit`, `window`, `enforcement`, and `failure` must be literals, or a `const` with a literal value in the same file, because ViteHub writes the provider config before runtime. `event`, `key`, and `message` are runtime values, so the identity can change per request.
+
+```ts [server/utils/publish-burst.ts]
+import type { H3Event } from 'h3'
+import { checkRateLimit } from 'vite-hub/rate-limit'
+
+/** The quota page shows the same number. */
+export const PUBLISH_BURST = 30
+
+export async function publishBurst(event: H3Event, ownerId: string) {
+  return await checkRateLimit(event, 'file-upload', { key: ownerId, limit: PUBLISH_BURST, window: '1m' })
+}
+```
 
 - `event` is any request event with [Standard Context](/docs/runtime/context#standard-context) properties: an H3 2 event in a ViteHub app, or a Web `Request`, such as the one `withAuth()` passes.
 - Without `key`, the guard counts by `event['~standard'].runtime.clientAddress`. On Cloudflare, the `cf-connecting-ip` header comes first.
@@ -34,10 +46,11 @@ The ID, `limit`, `window`, `enforcement`, and `failure` must be static literals,
 | `enforcement` | `"best-effort" \| "strict"` | `"best-effort"` | Lowest guarantee the driver must give. |
 | `failure` | `"deny" \| "allow"` | `"deny"` | Whether an unavailable driver denies or allows the request. |
 | `key` | `string` | request client address | Identity of a user, tenant, account, or API client. |
+| `message` | `string` | `"Rate limit exceeded."` | The message of the `429` error, such as a text that your app translates. `requireRateLimit()` only. |
 
 ## Check without throwing
 
-`checkRateLimit(event, id, options)` takes the same arguments and consumes the same counters as `requireRateLimit()`, but it returns an `[error, decision]` Result instead of throwing. Use it when a limited request still gets an answer, such as a cached or cheaper result.
+`checkRateLimit(event, id, options)` takes the same arguments, except `message`, and consumes the same counters as `requireRateLimit()`, but it returns an `[error, decision]` Result instead of throwing. Use it when a limited request still gets an answer, such as a cached or cheaper result.
 
 ```ts [server/api/og.get.ts]
 import { defineEventHandler } from 'h3'
