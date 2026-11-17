@@ -219,10 +219,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * A copy of a value with the internal `href` of each Comark element under the preview prefix. A Comark element is
  * `[tag, attributes, ...children]`. The walk goes through objects and arrays, so it works on a document, a list of
- * documents, and the JSON of `/api/content`. Values without a change are the same objects.
+ * documents, and the JSON of `/api/content`. Prefixed anchors carry `external: true` so NuxtLink
+ * follows the browser URL without applying its router base again. Values without a change are the same objects.
  */
 export function rewriteContentLinks<T>(value: T, prefix: string, query?: string): T {
-  // SAFETY: rewrite() returns a value of the same shape, with only `href` strings changed.
+  // SAFETY: rewrite() returns a value of the same shape, with only link attributes changed.
   return rewrite(value, prefix, query, 0) as T
 }
 
@@ -235,7 +236,10 @@ function rewrite(value: unknown, prefix: string, query: string | undefined, dept
       let result = rewrite(item, prefix, query, depth + 1)
       if (index === 1 && typeof value[0] === "string" && isRecord(item) && typeof item.href === "string") {
         const href = previewLink(item.href, prefix, query)
-        if (href !== item.href) result = { ...(isRecord(result) ? result : item), href }
+        // These are browser URLs, already including the preview prefix. NuxtLink must
+        // follow them directly instead of adding its preview router base again.
+        const external = value[0] === "a" && (href === prefix || href.startsWith(`${prefix}/`) || href.startsWith(`${prefix}?`) || href.startsWith(`${prefix}#`))
+        if (href !== item.href || (external && item.external !== true)) result = { ...(isRecord(result) ? result : item), href, ...external ? { external: true } : {} }
       }
       if (result !== item) changed = true
       return result

@@ -41,6 +41,7 @@ function read(html: string) {
   return {
     title: /<h1>([^<]*)<\/h1>/.exec(html)?.[1],
     route: /<p id="route">([^<]*)<\/p>/.exec(html)?.[1],
+    markdown: /<a[^>]*href="([^"]*)"[^>]* id="markdown"/.exec(html)?.[1],
     next: /<a href="([^"]*)"[^>]* id="next"/.exec(html)?.[1],
     baseURL: /baseURL:"([^"]*)"/.exec(html)?.[1],
     assets: [...html.matchAll(/(?:src|href)="([^"]*\/_nuxt\/[^"]*)"/g)].map(match => match[1]!),
@@ -91,10 +92,12 @@ describe("Content preview URLs in a built Nuxt app", () => {
         ["app/pages/[...slug].vue", [
           `<script setup lang="ts">`,
           `const route = useRoute()`,
+          `const NuxtLink = resolveComponent("NuxtLink")`,
+          `const MarkdownLink = defineComponent({ props: ["node"], setup: props => () => h(NuxtLink, { ...props.node[1], id: "markdown" }, () => props.node[2]) })`,
           `const { data } = await useFetch("/api/page", { query: { path: route.path } })`,
           `</script>`,
           ``,
-          `<template><main><h1>{{ data?.title }}</h1><p id="route">{{ route.path }}</p><NuxtLink id="next" to="/next">Next</NuxtLink></main></template>`,
+          `<template><main><h1>{{ data?.title }}</h1><p id="route">{{ route.path }}</p><NuxtLink id="next" to="/next">Next</NuxtLink><a v-if="data?.link" v-bind="data.link[1]" id="native">Next</a><MarkdownLink v-if="data?.link" :node="data.link" /></main></template>`,
           ``,
         ].join("\n")],
         ["server/content.ts", [
@@ -108,7 +111,11 @@ describe("Content preview URLs in a built Nuxt app", () => {
           `import { getQuery } from "h3"`,
           `import content from "../content.ts"`,
           ``,
-          `export default async (event) => ({ title: (await content.get(String(getQuery(event).path)))?.data.title ?? null })`,
+          `export default async (event) => {`,
+          `  const page = await content.get(String(getQuery(event).path))`,
+          `  const findLink = (value) => Array.isArray(value) ? value[0] === "a" ? value : value.map(findLink).find(Boolean) : value && typeof value === "object" ? Object.values(value).map(findLink).find(Boolean) : null`,
+          `  return { title: page?.data.title ?? null, link: findLink(page) }`,
+          `}`,
           ``,
         ].join("\n")],
         ["server/routes/sign.post.ts", `import content from "../content.ts"\n\nexport default async () => await content.sources.sign("feat/private", "docs")\n`],
@@ -136,11 +143,12 @@ describe("Content preview URLs in a built Nuxt app", () => {
         // Build assets stay at the app root: they are the same files for every ref, and a host CDN serves them there.
         const preview = await get(`/pr/${pull}/guide`)
         expect(preview).toMatchObject({ title: "Guide on feat/open", route: "/guide", next: `/pr/${pull}/next`, baseURL: `/pr/${pull}/` })
+        expect(preview.markdown).toBe(`/pr/${pull}/next`)
         expect(preview.assets.length).toBeGreaterThan(0)
         for (const asset of preview.assets) expect(asset).toMatch(/^\/_nuxt\//)
         // A data request from the client, under the prefix, reads the ref.
         const data = await server.fetch(`/pr/${pull}/api/page?path=/next`)
-        expect(await data.json()).toEqual({ title: "Next on feat/open" })
+        expect(await data.json()).toMatchObject({ title: "Next on feat/open" })
 
         // Production pages keep the app base, also while preview requests run at the same time.
         const pages = await Promise.all(Array.from({ length: 12 }, async (_, index) => index % 2 ? { preview: true, page: await get(`/pr/${pull}/guide`) } : { preview: false, page: await get("/guide") }))
@@ -156,7 +164,7 @@ describe("Content preview URLs in a built Nuxt app", () => {
         const signed = await server.fetch(`${prefix}/guide?vitehub-content-token=${token}`)
         expect(read(await signed.text())).toMatchObject({ title: "Guide on feat/private", next: `${prefix}/next`, baseURL: `${prefix}/` })
         const cookie = signed.headers.get("set-cookie")!.split(";", 1)[0]!
-        expect(await (await server.fetch(`${prefix}/api/page?path=/next`, { headers: { cookie } })).json()).toEqual({ title: "Next on feat/private" })
+        expect(await (await server.fetch(`${prefix}/api/page?path=/next`, { headers: { cookie } })).json()).toMatchObject({ title: "Next on feat/private" })
         // Without the cookie, the request reaches the app unchanged, as for any unknown path, and the branch stays private.
         expect(await (await server.fetch(`${prefix}/api/page?path=/next`)).text()).not.toContain("on feat/private")
 
@@ -177,7 +185,7 @@ describe("Content preview URLs in a built Nuxt app", () => {
   }, 300_000)
 })
 
-/** Chromium opens a preview, hydrates, and follows a link on the client: every page and data request keeps the prefix. */
+/** Chromium opens a preview, hydrates, and follows router and Markdown links under the prefix. */
 async function expectBrowserStaysInPreview(server: { port: number }, prefix: string, query: string, branch: string): Promise<void> {
   const { chromium } = await import("playwright-core")
   const browser = await chromium.launch()
@@ -194,6 +202,12 @@ async function expectBrowserStaysInPreview(server: { port: number }, prefix: str
     expect(await tab.locator("#route").textContent()).toBe("/guide")
     expect(new URL(tab.url()).pathname).toBe(`${prefix}/guide`)
     await tab.locator("#next").click()
+    await tab.waitForURL(`${origin}${prefix}/next`)
+    await tab.locator("h1", { hasText: `Next on ${branch}` }).waitFor()
+    await tab.goto(`${origin}${prefix}/guide${query}`, { waitUntil: "networkidle" })
+    expect(await tab.locator("#native").getAttribute("href")).toBe(`${prefix}/next`)
+    expect(await tab.locator("#markdown").getAttribute("href")).toBe(`${prefix}/next`)
+    await tab.locator("#markdown").click()
     await tab.waitForURL(`${origin}${prefix}/next`)
     await tab.locator("h1", { hasText: `Next on ${branch}` }).waitFor()
     expect(await tab.locator("#route").textContent()).toBe("/next")

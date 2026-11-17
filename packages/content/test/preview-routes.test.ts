@@ -102,8 +102,9 @@ describe("rewriteContentLinks()", () => {
     const date = new Date(0)
     const body = { nodes: [["p", {}, ["a", { href: "/next" }, "Next"], ["a", { href: "#install" }, "Section"], ["a", { href: "//cdn.example/x" }, "CDN"], ["a", { href: "/pr/12/done" }, "Done"]]], date }
     const result = rewriteContentLinks(body, "/pr/12")
-    expect(result.nodes).toEqual([["p", {}, ["a", { href: "/pr/12/next" }, "Next"], ["a", { href: "#install" }, "Section"], ["a", { href: "//cdn.example/x" }, "CDN"], ["a", { href: "/pr/12/done" }, "Done"]]])
+    expect(result.nodes).toEqual([["p", {}, ["a", { href: "/pr/12/next", external: true }, "Next"], ["a", { href: "#install" }, "Section"], ["a", { href: "//cdn.example/x" }, "CDN"], ["a", { href: "/pr/12/done", external: true }, "Done"]]])
     expect(result.date).toBe(date)
+    expect(rewriteContentLinks(result, "/pr/12")).toBe(result)
     // The cached document stays as it was.
     expect(body.nodes[0]![2]).toEqual(["a", { href: "/next" }, "Next"])
     const unchanged = { nodes: [["a", { href: "https://example.com" }, "x"]] }
