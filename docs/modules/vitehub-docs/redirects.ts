@@ -325,13 +325,15 @@ function rawMarkdownPath(path: string) {
   return `/raw${path}.md`;
 }
 
-/** Permanent redirects for each removed HTML page, its trailing-slash form, and its raw Markdown copy. */
+/**
+ * Permanent redirects for each removed HTML page and its raw Markdown copy. Nitro matches the trailing-slash form of a
+ * route too, and ViteHub writes both forms to the Cloudflare `_redirects` file, so a second `/old/` rule is not needed.
+ */
 export function createDocsRedirectRouteRules(redirects: Record<string, string> = docsPageRedirects) {
   const routeRules: Record<string, { redirect: { status: 301, to: string } }> = {};
 
   for (const [from, to] of Object.entries(redirects)) {
     routeRules[from] = { redirect: { status: 301, to } };
-    routeRules[`${from}/`] = { redirect: { status: 301, to } };
     routeRules[rawMarkdownPath(from)] = { redirect: { status: 301, to: rawMarkdownPath(to) } };
   }
 
@@ -342,7 +344,6 @@ export function createDocsRedirectRouteRules(redirects: Record<string, string> =
     "/guides": "/learn",
   })) {
     routeRules[from] = { redirect: { status: 301, to } };
-    routeRules[`${from}/`] = { redirect: { status: 301, to } };
   }
 
   return routeRules;

@@ -13,7 +13,7 @@ A Workflow is a job made of steps that run in order, like a recipe. If one step 
 In this tutorial, you build a Workflow with two steps that signs up a new user. The first step creates a user, and the second step sends a welcome message. Both steps only return sample data for now. They do not use a database or send an email. Then you start the Workflow from an API route.
 
 > [!NOTE] Before you start
-> Use the app from [Installation](/docs/getting-started/installation). Run every command from the app root. You need no account. With the `node` preset, the dev server runs Workflows with [OpenWorkflow](/docs/workflows/hosts#run-workflows-on-node) and keeps each run in a SQLite file in `.vitehub/data`, so a run survives a restart.
+> Use the app from [Installation](/docs/getting-started/installation). Run every command from the app root. You need no account. With the `node` host, the dev server runs Workflows with [OpenWorkflow](/docs/workflows/hosts#run-workflows-on-node) and keeps each run in a SQLite file in `.vitehub/data`, so a run survives a restart.
 
 ::tutorial-step{title="Install and enable Workflows"}
 ## Install and enable Workflows
@@ -191,7 +191,7 @@ pnpm vitehub workflow get <run-id>
 
 For a run that you started from the route, add `--workflow onboard-user` to `get`. Or open the Workflows page of the [Console](/docs/console) and click **Start**.
 
-With `vitehub()`, `pnpm vitehub workflow runs list` lists the runs that the dev server ran inline, for example with the `vercel` preset. `pnpm vitehub workflow runs show <runId>` shows the steps, result, and error of one run. `pnpm vitehub workflow runs clear --yes` clears that history. The history does not include OpenWorkflow runs yet, so with the `node` preset `runs list` prints `No runs.`. Read an OpenWorkflow run with `pnpm vitehub workflow get`.
+With `vitehub()`, `pnpm vitehub workflow runs list` lists the runs that the dev server ran inline, for example with the `vercel` host. `pnpm vitehub workflow runs show <runId>` shows the steps, result, and error of one run. `pnpm vitehub workflow runs clear --yes` clears that history. The history does not include OpenWorkflow runs yet, so with the `node` host `runs list` prints `No runs.`. Read an OpenWorkflow run with `pnpm vitehub workflow get`.
 
 :::details{summary="When the Start button and the commands are available"}
 The commands call the Console RPC of the running app. They read a run back with `workflow.get` and cancel it with `workflow.cancel` where the provider supports it. `workflow.start` and `workflow.resume` are registered only when `console.invoke` is on, and the Console hides Start and Resume when they are not (`workflow.cancel` stays available). See [Run Workflows in development](/docs/development/cli#run-workflows-in-development).
