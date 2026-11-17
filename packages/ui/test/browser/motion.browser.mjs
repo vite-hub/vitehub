@@ -99,7 +99,8 @@ async function press(page, testId) {
   return { down, settled: await scaleOf(page, testId) }
 }
 
-const roles = ["button", "link", "tab", "radio", "menuitem", "menuitemradio", "menuitemcheckbox", "option", "switch", "checkbox"]
+// A switch grows its knob instead of a press. test/browser/motion-toggle.browser.mjs checks it.
+const roles = ["button", "link", "tab", "radio", "menuitem", "menuitemradio", "menuitemcheckbox", "option", "checkbox"]
 
 describe("press by role", async () => {
   test("a pressed UButton squashes, springs back past rest, and clears its scale", async () => {
@@ -151,7 +152,7 @@ describe("press by role", async () => {
       assert.ok(down < 0.99, `${id} squashes (${down})`)
       assert.equal(settled, 1, `${id} settles at rest`)
     }
-    for (const selector of ["button[role=tab]", "button[role=switch]", "button[role=checkbox]", "button[role=radio]"]) {
+    for (const selector of ["button[role=tab]", "button[role=checkbox]", "button[role=radio]"]) {
       const element = page.locator(selector).first()
       const box = await element.boundingBox()
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)

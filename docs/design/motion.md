@@ -52,9 +52,10 @@ A surface that draws its own motion, such as a hero figure or a canvas, sets `da
 
 - **One listener, one observer.** `installMotion(root?)` adds one set of capture listeners on the document (`pointerdown`, `pointerup`, `pointercancel`, and `keydown`/`keyup` for Space and Enter) and one `MutationObserver` for `aria-checked`, `aria-selected`, `aria-pressed`, `aria-expanded`, `data-state`, `data-checked`, and `data-open`. The listeners read `event.composedPath()`, so they reach elements in shadow DOM. A second call adds nothing; each call returns its own uninstall.
 - **One frame loop.** Every spring runs in one shared `requestAnimationFrame` loop that stops when nothing moves. A spring that gets a new target keeps its speed. `springs.snappy` (stiffness 520, damping 34) moves and resizes. `springs.soft` (380, 20) wobbles and settles.
-- **Only its own properties.** The layer writes the separate CSS properties `scale`, `translate`, and `rotate`, and `filter` or `opacity` where an effect needs them, never `transform`, so it adds to a component's own transform. It removes what it wrote when the spring settles. A component must not set `scale`, `translate`, or `rotate` inline itself.
+- **Only its own properties.** The layer writes the separate CSS properties `scale`, `translate`, and `rotate`, and `filter` or `opacity` where an effect needs them, never `transform`, so it adds to a component's own transform. A check or an icon outline also changes SVG attributes (`stroke-dasharray`, `stroke-dashoffset`, `d`), or the `--svg` mask of an Iconify CSS icon. It removes what it wrote when the spring settles, and puts back the exact attribute values. A component must not set `scale`, `translate`, or `rotate` inline itself.
 - **Press.** On pointer down, or Space or Enter on the focused control, the pressed control squashes with a stiff spring (900, 40) and springs back past rest with a loose one (380, 14) on release. It squashes by 3% from 40px high, 4% from 32px, and 5% below. An icon-only control squashes its icon by 15% and keeps its background still. Disabled controls and `aria-disabled="true"` do not squash.
-- **Reduced motion.** `prefersReducedMotion()` follows the system setting live, and `forceReducedMotion()` sets it from an app setting or a test. Under it, a press does nothing and a spring jumps to its target. A helper that must still show a change passes `{ tween: 0.15 }` to `spring.to()` for the 150ms crossfade.
+- **Toggle.** When `aria-checked` or `aria-pressed` changes, the changed thing carries the change. A switch knob (`[data-slot=thumb]`, or the first child of a plain `role="switch"`) travels with a spring (300, 24), stretches with its speed, lands at the size of the new state (320, 16), then wobbles once (520, 9) 170ms later. A pressed knob grows into a pill (700, 32); the switch itself does not squash. The ViteHub theme takes the CSS transition off `USwitch`'s thumb and draws the off knob at 75%, so the knob lands larger when it turns on. A checkbox (`role="checkbox"`) draws its check or its minus in with `snappy` and draws it out when it turns off: Nuxt UI removes the check at once, so a copy of it stays in its place, fades, and goes. A toggle button with one icon (`aria-pressed`) wobbles like jelly when the icon is one outline, such as a bookmark or a star: a bulge runs down the path for 840ms, then the path gets its exact data back. It works on an inline `<svg>` and on an Iconify CSS icon, through its `--svg` mask. An icon of more than one outline only gets the press squash, and buttons of one row where one turns on while another turns off are a choice of one of many, so they do not wobble.
+- **Reduced motion.** `prefersReducedMotion()` follows the system setting live, and `forceReducedMotion()` sets it from an app setting or a test. Under it, a press does nothing and a spring jumps to its target: a knob moves with no stretch, a check fades in and out in 150ms, and nothing wobbles. A helper that must still show a change passes `{ tween: 0.15 }` to `spring.to()` for the 150ms crossfade.
 - **¼×.** `setMotionSlowFactor(4)` runs every spring four times slower, to record or study an effect.
 
 ### Spinners and fades
@@ -66,7 +67,7 @@ A loading spinner that turns forever (`animate-spin`, or `@keyframes` that only 
 1. List its interactions from the table above.
 2. Render the right element or role for each one, so the motion layer picks it up.
 3. Call the helper for each label, count, progress, list, or delete event.
-4. Add it to the motion page, `packages/ui/test/browser/motion/`, and assert its effect in `test/browser/motion.browser.mjs` (`pnpm --filter @vite-hub/ui test:motion`). Record it at ¼× with `MOTION_RECORD=<dir>` and attach the recording to the pull request.
+4. Add it to the motion page, `packages/ui/test/browser/motion/`, and assert its effect in `test/browser/motion.browser.mjs`, or in a `test/browser/motion-<effect>.browser.mjs` of its own (`pnpm --filter @vite-hub/ui test:motion` runs them all). Record it at ¼× with `MOTION_RECORD=<dir>` and attach the recording to the pull request.
 
 ## Adding an effect
 
@@ -76,8 +77,8 @@ An interaction that the layer does not cover yet gets an effect of its own: a `M
 import { createSpring, defineMotionEffect, springs, writeMotionStyle } from "@vite-hub/ui/motion";
 
 defineMotionEffect({
-  name: "toggle",
-  selector: "[role=switch], [aria-pressed]",
+  name: "stamp",
+  selector: "[data-stamp]",
   // A pointer or key press. Return { release, move? } to hear the rest of it.
   press(element, event) {},
   // One of the state attributes changed. Also runs under reduced motion: keep the meaning.

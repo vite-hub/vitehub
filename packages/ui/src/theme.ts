@@ -261,6 +261,13 @@ export const vitehubTheme = {
       content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md",
     },
   },
+  // The motion layer of `@vite-hub/ui/motion` moves the knob, so it has no transition of its own. As in the prototype of
+  // docs/design/motion.md, the knob is smaller while the switch is off and lands larger when it turns on.
+  switch: {
+    slots: {
+      thumb: "transition-none data-[state=unchecked]:scale-75",
+    },
+  },
   table: {
     slots: {
       th: "h-9 px-2.5 py-2 text-xs font-medium text-muted",
