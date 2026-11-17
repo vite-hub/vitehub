@@ -152,6 +152,10 @@ export default defineNitroPlugin((nitroApp) => {
 })
 ```
 
+## Failures in logs
+
+A failed delete of expired rows in a `database` store does not fail the write. With the evlog Nitro module registered, KV logs it as its own evlog event with `kv: { op: "expiry-sweep", driver, namespace, code }`. Without evlog, the first failure goes to the console. See [Limits and errors](https://vitehub.dev/docs/kv/limits-and-errors#see-expiry-failures-in-logs).
+
 ## CLI
 
 `hubKV()` contributes the `vitehub kv` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `get <key>`, `has <key>`, `set <key> <value|@file> [--ttl <seconds>] [--json-value]`, and `delete <key>`. Each command accepts `--store <name>` and `--json`. `get` writes stored strings unchanged, without adding a newline. JSON input rejects underflow and decimal values that change magnitude during parsing; use strings to preserve them. Write commands print what they changed. There is no `clear` command.

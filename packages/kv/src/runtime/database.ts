@@ -1,3 +1,5 @@
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
+
 import type { KVListOptions, KVListPage, ResolvedDatabaseKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
@@ -149,8 +151,11 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
       if (rows.length === sweepBatchSize) sweptAt = 0
     }
     catch (error) {
-      if (!sweepWarned) console.warn(`[vitehub] KV could not delete expired rows from ${table}. It tries again every minute.`, error)
-      sweepWarned = true
+      // Without evlog, the console gets the first failure only. evlog gets each one, at most one a minute.
+      logFailure({ field: "kv", fields: { op: "expiry-sweep", driver: "database", namespace }, message: "KV could not delete expired rows", error }, () => {
+        if (!sweepWarned) console.warn(`[vitehub] KV could not delete expired rows from ${table}. It tries again every minute.`, error)
+        sweepWarned = true
+      })
     }
     finally {
       sweeping = false
