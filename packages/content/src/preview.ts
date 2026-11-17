@@ -360,20 +360,35 @@ export async function signContentRefToken(source: string, ref: string, maxAge: n
 }
 
 /**
+ * The `Set-Cookie` that keeps a signed link working for the requests that the page itself sends below `path`, such as
+ * the data requests of a Nuxt page. It holds the same token and expires with it. Undefined for another token shape.
+ */
+export function contentRefTokenCookie(token: string, path: string, secure: boolean): string | undefined {
+  const match = refTokenPattern.exec(token)
+  if (!match) return
+  const maxAge = Number(match[1]) - Math.floor(Date.now() / 1000)
+  if (maxAge <= 0) return
+  return `${contentRefTokenParameter}=${token}; Path=${path}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`
+}
+
+/**
  * How a request may read a ref of a `github()` Source without the public rule: `console` with a valid preview cookie
- * from `content.preview.enable()`, `token` with a valid `?vitehub-content-token` for this Source and ref. Undefined
- * otherwise, and when the signing key is missing or invalid.
+ * from `content.preview.enable()`, `token` with a valid `?vitehub-content-token`, or a `vitehub-content-token` cookie
+ * from `contentRefTokenCookie()`, for this Source and ref. Undefined otherwise, and when the signing key is missing or
+ * invalid.
  */
 export async function contentRefGrant(request: Request, source: string, ref: string): Promise<"console" | "token" | undefined> {
-  const cookies = cookieValues(request.headers.get("cookie") ?? undefined, contentPreviewCookieName)
-  let token: string | null = null
+  const header = request.headers.get("cookie") ?? undefined
+  const cookies = cookieValues(header, contentPreviewCookieName)
+  const tokens = cookieValues(header, contentRefTokenParameter)
   try {
-    token = new URL(request.url).searchParams.get(contentRefTokenParameter)
+    const token = new URL(request.url).searchParams.get(contentRefTokenParameter)
+    if (token) tokens.unshift(token)
   }
   catch {
     // A request without an absolute URL carries no link token.
   }
-  if (!cookies.length && !token) return
+  if (!cookies.length && !tokens.length) return
   let key: HmacKey | undefined
   try {
     key = await signingKey()
@@ -385,14 +400,16 @@ export async function contentRefGrant(request: Request, source: string, ref: str
   for (const value of cookies) {
     if (await verifyToken(key, value) !== undefined) return "console"
   }
-  const match = token ? refTokenPattern.exec(token) : null
-  if (!match) return
-  const expires = Number(match[1])
-  const signature = fromBase64url(match[3]!)
-  if (signature.byteLength !== 32) return
-  if (!await globalThis.crypto.subtle.verify("HMAC", key, signature, refTokenMessage(expires, match[2]!))) return
-  const scope = decodeScope(match[2]!)
-  return scope?.collection === source && scope.id === ref && unexpired(expires) ? "token" : undefined
+  for (const token of tokens) {
+    const match = refTokenPattern.exec(token)
+    if (!match) continue
+    const expires = Number(match[1])
+    const signature = fromBase64url(match[3]!)
+    if (signature.byteLength !== 32) continue
+    if (!await globalThis.crypto.subtle.verify("HMAC", key, signature, refTokenMessage(expires, match[2]!))) continue
+    const scope = decodeScope(match[2]!)
+    if (scope?.collection === source && scope.id === ref && unexpired(expires)) return "token"
+  }
 }
 
 function cookie(value: string, maxAge: number, secure: boolean): string {
