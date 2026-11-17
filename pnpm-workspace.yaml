@@ -59,9 +59,11 @@ catalogs:
   ai-compat:
     ai: ^6.0.0 || ^7.0.0-0
   auth:
+    "@better-auth/api-key": 1.7.15
     "@better-auth/cimd": 1.7.15
     "@better-auth/oauth-provider": ^1.7.15
     "@better-auth/passkey": 1.7.15
+    "@better-auth/stripe": 1.7.15
     "@noble/hashes": ^2.2.0
     better-auth: ^1.7.15
     jose: ^6.2.12
