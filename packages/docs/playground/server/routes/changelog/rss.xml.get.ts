@@ -2,7 +2,7 @@ import { defineEventHandler } from "nuxt/server"
 import { listReleases } from "../../utils/collections"
 import { rss } from "../../utils/feed"
 
-export default defineEventHandler(async event => rss(event, {
+export default defineEventHandler(async () => rss({
   title: "Lumen changelog",
   path: "/changelog",
   description: "Every Lumen release.",

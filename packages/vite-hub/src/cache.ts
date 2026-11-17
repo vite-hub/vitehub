@@ -1,6 +1,5 @@
 import { defineCachedFunction as defineNitroCachedFunction, defineCachedHandler as defineNitroCachedHandler } from "nitro/cache"
 import { defineHandler, toResponse, type EventHandler, type H3Event } from "nitro/h3"
-import { useKV } from "nitro/kv"
 import type { CachedFunctionOptions as NitroCachedFunctionOptions, CachedHandlerOptions as NitroCachedHandlerOptions } from "nitro/types"
 import type { CachedFunction } from "ocache"
 
@@ -90,7 +89,7 @@ export function defineCachedHandler(handler: EventHandler, opts: CachedHandlerOp
 export async function invalidateTag(tags: string | readonly string[]): Promise<void> {
   const list = checkTags(typeof tags === "string" ? [tags] : tags)
   const time = Date.now()
-  const storage = useKV("cache")
+  const storage = await tagStorage()
   await Promise.all(list.map(tag => storage.setItem(tagKey(tag), time)))
 }
 
@@ -105,6 +104,15 @@ function checkTags(tags: unknown): readonly string[] {
   return tags
 }
 
+// `nitro/kv` imports unstorage, which only an app with a KV store installs. The tag records load it on first use, so
+// `vite-hub/cache` imports without it. Later calls read the loaded module without a wait, so concurrent calls keep the
+// order in which they started.
+let kv: typeof import("nitro/kv") | undefined
+async function tagStorage() {
+  kv ??= await import("nitro/kv")
+  return kv.useKV("cache")
+}
+
 // One record per tag, with no TTL. The key encodes the tag, so `post` and `post:1` never share a path in fs-lite.
 function tagKey(tag: string): string {
   return `tags:${encodeURIComponent(tag)}`
@@ -113,7 +121,7 @@ function tagKey(tag: string): string {
 /** False when a tag was invalidated at or after `since`. Reads one record per tag, so it needs no key scan. */
 async function isNewerThanTags(tags: readonly string[], since: number): Promise<boolean> {
   if (tags.length === 0) return true
-  const storage = useKV("cache")
+  const storage = await tagStorage()
   const times = await Promise.all(tags.map(tag => storage.getItem(tagKey(tag))))
   return times.every(time => typeof time !== "number" || time < since)
 }
@@ -131,7 +139,7 @@ function tagGeneration<T>(create: () => T): (tags: readonly string[]) => Promise
   let generation: string | undefined
   let current: T
   return async (tags) => {
-    const storage = useKV("cache")
+    const storage = await tagStorage()
     const times = await Promise.all(tags.map(tag => storage.getItem(tagKey(tag))))
     const next = JSON.stringify([tags, times])
     if (next !== generation) {

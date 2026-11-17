@@ -23,6 +23,14 @@ function columnNames(entity: SqliteDdlEntity): string[] | undefined {
   return names.length ? names : undefined
 }
 
+/**
+ * Reports whether a snapshot has a unique index with the name that Drizzle Kit 0.x gave a `.unique()` column, such as
+ * `user_email_unique`. Folders that `drizzle-kit up` converted without `recordUniqueIndexesAsConstraints()` keep them.
+ */
+export function hasKit0UniqueIndexes(snapshot: SqliteSnapshot): boolean {
+  return snapshot.ddl.some(entity => entity.entityType === "indexes" && entity.isUnique === true && entity.where == null && entity.name?.endsWith("_unique"))
+}
+
 function key(table: string | undefined, columns: string[]): string {
   return JSON.stringify([table, columns])
 }

@@ -162,6 +162,10 @@ Nitro output includes `.vitehub/nitro/error-log.mjs`. It logs each unhandled req
 
 `vitehub({ trustProxy: true })` trusts a proxy that ends TLS: when the server sees `http:` and the first `X-Forwarded-Proto` value is `https`, the request URL becomes `https:` before any middleware or route runs. It never reads `X-Forwarded-Host`. `vitehub({ sameOriginWrites: true })` answers `403` to a write with cookies whose `Sec-Fetch-Site` is `same-site` or `cross-site`, or whose `Origin` is not the app's origin; `exclude` lists path prefixes that take writes from other sites. See [Run behind a reverse proxy](https://vitehub.dev/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy).
 
+`vitehub({ security: { headers: true } })` adds `Strict-Transport-Security` (built output only), `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, and `Permissions-Policy` to each response that does not set them itself, and to static files through `_headers` on Cloudflare and Netlify and a static-file route on Vercel. An object changes, adds, or removes (`false`) one header. `security: { maxBodySize: "1mb" }` answers `413` with `data.code: "VITE_HUB_REQUEST_BODY_TOO_LARGE"` to a larger request body, on every route. It adds no Content Security Policy. See [Add security headers and a body limit](https://vitehub.dev/docs/frameworks-hosts/production#add-security-headers-and-a-body-limit).
+
+A tab that is open during a deploy asks for files of the old build when it loads a lazy page or component. `vitehub()` and `vite-hub/nuxt` reload the page once when such a file is missing, and not again within 10 seconds. Call `preventDefault()` on the `vite:preloadError` event to handle it yourself. See [Open tabs after a deploy](https://vitehub.dev/docs/frameworks-hosts/production#open-tabs-after-a-deploy).
+
 `vitehub()` and `vite-hub/nuxt` register ViteHub rules with [Vite Doctor](https://github.com/onmax/vite-doctor) when the app runs it. The rules report misuse of every Server Primitive, for example internal or server-only imports, unchecked `[error, value]` results, secret Server Env values used as strings, unknown Definition names, and removed APIs. Read [Doctor rules](https://vitehub.dev/docs/reference/doctor-rules).
 
 ## Run tasks
@@ -349,7 +353,7 @@ For production, use `observability: { logs: { source: './server/logs.ts' } }`. T
 
 Explorer and Stream keep selected event data in the right inspector. Search includes structured fields. Follow refreshes the newest page every two seconds and is a polling view, not guaranteed delivery of every event. The browser retains at most 1,000 loaded events. The Console shows local retention limits and dropped or evicted counts. The same read operation is available as `vitehub logs list --level error --limit 50 --json` and through Console RPC `logs.list`, under the same section access policy.
 
-With the Cloudflare host and `observability.logs` set, ViteHub defaults the generated Wrangler configuration to `observability: { enabled: true }`. An explicit Wrangler observability configuration is preserved, including `enabled: false`. This enables Cloudflare's native collection. It does not create an exporter, configure a destination, or connect that history to the Console. Those remain owned by the existing backend and its source adapter.
+With the Cloudflare host, ViteHub defaults the generated Wrangler configuration to `observability: { enabled: true }`, with or without `observability.logs`. An `observability` key in the project `wrangler.json` or in `nitro.cloudflare.wrangler` is preserved, including `enabled: false`. This enables Cloudflare's native collection. It does not create an exporter, configure a destination, or connect that history to the Console. Those remain owned by the existing backend and its source adapter.
 
 ## Agent Skills
 

@@ -197,7 +197,10 @@ it.each([
     // A plugin, so no route of the app can conflict with the preview URLs.
     expect(handlers.flatMap(handler => handler.route ?? [])).toEqual(["/_vitehub/content/github", "/api/content/**"])
     if (generated) {
-      expect(await readFile(plugin, "utf8")).toContain('import { defineContentPreviewRoutesPlugin } from "vite-hub/content/preview"')
+      const source = await readFile(plugin, "utf8")
+      expect(source).toContain('import { defineContentPreviewRoutesPlugin } from "vite-hub/content/preview"')
+      // In a preview request, the app base follows the prefix, so Nuxt links and data requests stay in the preview.
+      expect(source).toContain(".then(module => module.default), { app: useRuntimeConfig().app })")
       const config = mergeGeneratedSourceNitroConfig({ plugins: ["async.mjs"] }, handlers)
       expect(config.plugins![0]).toBe(plugin)
       expect(config.plugins).toContain("async.mjs")
@@ -296,7 +299,7 @@ it("passes the Auth session user to every Content reader except robots.txt", asy
     // Entries that load when the server starts import Auth on the first request that asks.
     const lazyUser = '{ user: async request => (await (await import("#vitehub/auth/server")).useAuth(request).api.getSession({ headers: request.headers }))?.user ?? null }'
     expect(await read("markdown.mjs")).toContain(`.then(module => module.default), { render: request => serverFetch(request), ${lazyUser.slice(2)})`)
-    expect(await read("preview-routes.mjs")).toContain(`.then(module => module.default), ${lazyUser})`)
+    expect(await read("preview-routes.mjs")).toContain(`.then(module => module.default), { app: useRuntimeConfig().app, ${lazyUser.slice(2)})`)
     expect(await read("markdown.mjs")).not.toContain("import { useAuth }")
   }
   finally {

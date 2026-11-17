@@ -8,13 +8,13 @@ const queue = { secret: true, owners: ["queue"] }
 
 describe("queueDeploymentEnv", () => {
   it("requires QUEUE_POSTGRES_URL on a Node server without a Postgres Default Database", () => {
-    expect(queueDeploymentEnv(normalizeQueueOptions({ provider: "postgres" }, { hosting: "node" }))).toEqual([
+    expect(queueDeploymentEnv(normalizeQueueOptions({ driver: "postgres" }, { hosting: "node" }))).toEqual([
       { names: ["QUEUE_POSTGRES_URL"], required: true, hasDefault: false, ...queue },
     ])
   })
 
   it("keeps QUEUE_POSTGRES_URL optional when the jobs borrow the Default Database", () => {
-    expect(queueDeploymentEnv({ provider: "postgres", database: "default" })).toEqual([
+    expect(queueDeploymentEnv({ driver: "postgres", database: "default" })).toEqual([
       { names: ["QUEUE_POSTGRES_URL"], required: false, hasDefault: true, ...queue },
     ])
   })
@@ -29,7 +29,7 @@ describe("queueDeploymentEnv", () => {
 
   it("resolves the provider of the host through the Vite plugin API", () => {
     expect(hubQueue().api.deploymentEnv({ host: "node" })).toEqual([])
-    expect(hubQueue({ provider: "postgres" }).api.deploymentEnv({ host: "node" })[0]).toMatchObject({ names: ["QUEUE_POSTGRES_URL"], required: true })
+    expect(hubQueue({ driver: "postgres" }).api.deploymentEnv({ host: "node" })[0]).toMatchObject({ names: ["QUEUE_POSTGRES_URL"], required: true })
     expect(hubQueue().api.deploymentEnv({ host: "cloudflare" })).toEqual([])
   })
 })

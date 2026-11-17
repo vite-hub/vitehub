@@ -14,6 +14,8 @@ import type { ViteStageServerConfig } from "@vite-hub/internal/vite-stage"
 import type { ViteDevServer } from "vite"
 import type { AgentChannelDefinition, AgentWebhookRegistrationDefinition, DiscoveredAgentDefinition } from "../types.ts"
 import type { AgentChannelSyncPlan, AgentChannelSyncProvider } from "./channel-sync.ts"
+import { invariant } from "@vite-hub/internal/invariant"
+
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 interface ChannelSyncCliContext {
@@ -347,7 +349,7 @@ async function createStageModuleLoader(vite: typeof import("vite"), config: Vite
     resolved.environments.ssr.dev.createEnvironment = (name, config) => vite.createRunnableDevEnvironment(name, config, { hot: false })
     server = await vite.createServer(resolved)
     const environment = server.environments.ssr
-    if (!vite.isRunnableDevEnvironment(environment)) throw new Error("Channel target loading requires a runnable SSR environment.")
+    invariant(vite.isRunnableDevEnvironment(environment), "the Channel target loader creates its ssr environment with createRunnableDevEnvironment()")
     const stageServer = server
     return {
       close: async () => {

@@ -8,7 +8,7 @@ icon: i-lucide-code-2
 
 ## Public imports
 
-Import framework APIs from `vite-hub` paths. Pick `resend`, `cloudflare-email`, or `log` in the Vite config. `email.canSend` is `false` with `log` or without Email. See [Run without a provider](/docs/email/configure#run-without-a-provider).
+Import framework APIs from `vite-hub` paths. Pick `resend`, `cloudflare`, or `log` in the Vite config. `email.canSend` is `false` with `log` or without Email. See [Run without a provider](/docs/email/configure#run-without-a-provider).
 
 | Import | Runtime values | Public types |
 | --- | --- | --- |

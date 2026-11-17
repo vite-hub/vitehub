@@ -1,5 +1,6 @@
 import { agentSurface } from "./agent-surface/index.ts"
 import { defineForms } from "./define-forms/index.ts"
+import { driverKey } from "./driver-key/index.ts"
 import { nuxtCron } from "./nuxt-cron/index.ts"
 import { nuxtSafeRuntimeConfig } from "./nuxt-safe-runtime-config/index.ts"
 import { nuxthub } from "./nuxthub/index.ts"
@@ -23,6 +24,7 @@ import type { Codemod } from "./types.ts"
 export const codemods: readonly Codemod[] = [
   nuxthub,
   nuxtSafeRuntimeConfig,
+  driverKey,
   t3Env,
   resend,
   rootAccessors,
@@ -54,6 +56,7 @@ export const upgradeCodemods: readonly Codemod[] = [
   oneEntryImports,
   queueWorkflowVerbs,
   agentSurface,
+  driverKey,
   renamedApis,
   tsconfigPaths,
   shellDriver,

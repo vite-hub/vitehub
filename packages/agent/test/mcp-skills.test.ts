@@ -40,7 +40,7 @@ function skillServer(pages: string[][], files: Record<string, string> = {}) {
 
 async function resolveWithWorkspace(capability: ReturnType<typeof mcp>, sources: Record<string, WorkspaceSourceInput> = {}, colocatedSkills?: Record<string, WorkspaceSourceInput>) {
   const name = `mcp-skills-${crypto.randomUUID()}`
-  const definition = defineWorkspace({ store: { provider: "memory" }, sources })
+  const definition = defineWorkspace({ store: { driver: "memory" }, sources })
   registerWorkspace(name, definition)
   const workspace = useWorkspace(name, { mode: "write" })
   const context = createAgentInvocationContextStore()

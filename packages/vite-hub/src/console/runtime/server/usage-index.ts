@@ -16,6 +16,7 @@ import {
 
 import type { ConsoleInvocationUsage, UsageQuery, UsageTotal } from "./usage.ts";
 import type { InValue, Value } from "@libsql/client";
+import { invariantError } from "@vite-hub/internal/invariant";
 
 const metrics = [
   "inputTokens",
@@ -290,8 +291,7 @@ export function createConsoleUsageIndex(
       );
       const [periods, models, agents, runs, expensive, remaining] = results;
       if (!periods || !models || !agents || !runs || !expensive || !remaining)
-        // Internal invariant: client.batch() returns one result for each of the six statements above.
-        throw new Error("Expected six usage query results");
+        throw invariantError("client.batch() returns one result for each of the six usage statements");
       const incomplete = Number(remaining.rows[0]?.count) > 0;
       const groups = (rows: UsageRow[], groupBy = (row: UsageRow) => String(row.grouping)) => {
         const result = new Map<string, UsageTotal>();

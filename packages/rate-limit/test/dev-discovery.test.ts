@@ -56,7 +56,7 @@ async function project() {
   await writeFile(join(root, "server", "upload.ts"), guard("upload"))
   await writeFile(join(root, "server", "helper.ts"), "export const helper = 1\n")
   const errors: string[] = []
-  const plugin = hubRateLimit({ provider: "memory" })
+  const plugin = hubRateLimit({ driver: "memory" })
   const config = await resolveConfig({ root, configFile: false, logLevel: "silent", plugins: [plugin] }, "serve")
   config.logger.error = message => { errors.push(message) }
   const manifest = async (): Promise<unknown> => JSON.parse(await readFile(join(root, ".vitehub", "rate-limit", "manifest.json"), "utf8"))

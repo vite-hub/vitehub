@@ -58,6 +58,81 @@ The Console endpoint takes only [signed requests](/docs/development/console#sign
 
 Set `vitehub({ sameOriginWrites: true })` when browsers call your API with cookies. It refuses writes with cookies from other origins, sibling subdomains included, before any route runs. Behind a proxy that ends TLS, also set `trustProxy: true`. See [Run behind a reverse proxy](/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy).
 
+### Add security headers and a body limit
+
+Set `security` to add safe response headers and to refuse large request bodies, on every host.
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    security: {
+      headers: { 'X-Robots-Tag': 'noindex' },
+      maxBodySize: '1mb',
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      security: {
+        headers: { 'X-Robots-Tag': 'noindex' },
+        maxBodySize: '1mb',
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      security: {
+        headers: { 'X-Robots-Tag': 'noindex' },
+        maxBodySize: '1mb',
+      },
+    }),
+  ],
+})
+```
+:::
+::
+
+- `headers: true` adds these headers to each response that does not set them itself:
+
+  | Header | Value |
+  | --- | --- |
+  | `Strict-Transport-Security` | `max-age=31536000; includeSubDomains`, in built output only |
+  | `X-Content-Type-Options` | `nosniff` |
+  | `Referrer-Policy` | `strict-origin-when-cross-origin` |
+  | `X-Frame-Options` | `SAMEORIGIN` |
+  | `Permissions-Policy` | `camera=(), geolocation=(), microphone=()` |
+
+- An object keeps this set and changes one header: a string replaces a value or adds a header, such as `'X-Robots-Tag': 'noindex'`, and `false` removes a header, such as `'X-Frame-Options': false` for a page that other sites embed.
+- A route that sets one of these headers keeps its own value.
+- Static files get the same headers. On Cloudflare and Netlify, ViteHub adds a rule to `_headers`; on Vercel, it adds a route for static files to the Build Output config. A header that `_headers` or `routeRules` already sets for any path is left out of that rule, because the host would join the two values.
+- `maxBodySize` takes bytes or a size such as `'500kb'` or `'1mb'` (1kb is 1024 bytes). A larger body gets `413` with `data.code` set to `VITE_HUB_REQUEST_BODY_TOO_LARGE`. The limit applies to every route, so raise it when the app takes file uploads.
+- On Node, security uses the srvx Fetch bridge for native Node handlers so they receive the same headers and body limit. With a body limit, Node request bodies are buffered up to that limit before middleware runs.
+- `security` adds no Content Security Policy. Set a `Content-Security-Policy` header in `headers` or in `routeRules` when your app needs one.
+
 Give model tools only the operations and scopes they need. Keep provider credentials in [Server Env](/docs/env). Before you turn on content capture, inspect logs and saved run content with realistic data. Tool output from your app can contain secrets even when provider credentials are redacted.
 
 ## Verify retries and shutdown
@@ -67,6 +142,30 @@ A Queue enqueue result means accepted, not done. A retry can repeat a side effec
 For external effects, use the service's idempotency support. A welcome-email job can send and then fail before acknowledgement, so the retry must reuse the same idempotency key. If the service cannot deduplicate, decide how your app handles an unknown delivery result before it retries. The same rule applies to retryable Workflow steps and scheduled targets.
 
 Set timeouts and resource limits for model calls, shells, and sandboxes. Test cancellation and shutdown while work runs. Streaming Agent routes need a real [host background lifetime](/docs/reference/runtime-context#background-work-and-cleanup). A promise started after the response is not durable work.
+
+## Open tabs after a deploy
+
+A tab that is open during a deploy still runs the old build. When it loads a lazy page, a lazy component, or an `import()`, it asks for a file of the old build. The host no longer has that file, so the load fails.
+
+ViteHub reloads the page once when this happens, so the tab gets the new build. There is nothing to configure:
+
+- In Nuxt, the page reloads at its current address, like Nuxt's own reload when a page fails to load during a navigation. It also reloads for a missing stylesheet, which Nuxt otherwise skips. With `experimental.restoreState`, it keeps the `useState()` values.
+- In a Vite app, ViteHub adds a small inline script to the built `index.html`. A Content Security Policy without `'unsafe-inline'` blocks it.
+- When a file is also missing from the new build, the page does not reload again within 10 seconds, so it cannot loop.
+
+To handle the failure yourself, for example to keep a page with unsaved changes, call `preventDefault()` on Vite's `vite:preloadError` event:
+
+```ts [app/plugins/unsaved-changes.client.ts]
+import { defineNuxtPlugin } from 'nuxt/app'
+
+export default defineNuxtPlugin(() => {
+  window.addEventListener('vite:preloadError', (event) => {
+    if (document.querySelector('form[data-unsaved]')) event.preventDefault()
+  })
+})
+```
+
+In Nuxt, ViteHub does nothing when `experimental.emitRouteChunkError` is `'automatic-immediate'`, `'manual'`, or `false`: Nuxt reloads on each failure, or your app does.
 
 ## Exercise the deployed application
 
