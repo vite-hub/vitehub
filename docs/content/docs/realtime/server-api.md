@@ -402,9 +402,19 @@ room.onChange(change => reload(change))
 | `states()` | The fields that each other client set with `setLocal()`, by client id. |
 | `setLocal(field, value)` | Sets one field of this browser's awareness state. `null` removes it. |
 | `status()` | `connecting`, `connected`, or `disconnected`. |
+| `saveStatus()` | The save status of the room document: `digest`, `savedAt`, `savedBy`, `error`, and `issues`. `undefined` until the room syncs. |
 | `notify(change)`, `onChange(listener)` | Send and receive change hints through the workspace events room. Both need `changes: true`. |
-| `onUpdate(listener)` | Runs when people, their fields, or the status change. Returns a function that removes it. |
+| `onUpdate(listener)` | Runs when people, their fields, the status, or the save status change. Returns a function that removes it. |
 | `destroy()` | Leaves the room. |
+
+`saveStatus()` lets a page follow a room document without the editor. For example, a page can show a "new version" notice when the `digest` changes after `refreshRealtimeDocument()`:
+
+```ts fragment
+import { connectRealtimeRoom } from 'vite-hub/realtime/client'
+
+const room = connectRealtimeRoom('latest', docId)
+room.onUpdate(() => showVersion(room.saveStatus()?.digest))
+```
 
 `identity` sets who this browser shows as. A definition with `identify` or `auth: true` replaces it with the server's identity. When the room re-seeds, the client joins the new seed on its own.
 
