@@ -21,13 +21,25 @@ describe("resolveCacheStorage", () => {
   it("rejects unknown drivers", () => {
     // SAFETY: The test passes an unsupported driver to exercise runtime validation of user config.
     expect(() => resolveCacheStorage({ driver: "redis" } as unknown as Parameters<typeof resolveCacheStorage>[0], "node"))
-      .toThrow("`cache.driver` must be")
+      .toThrow("It must be \"cloudflare\"")
+  })
+
+  it.each([
+    ["cloudflare-kv-binding", "cloudflare", "cloudflare"],
+    ["vercel-runtime-cache", "vercel", "vercel"],
+  ] as const)("names the new driver for the former %s", (driver, renamed, host) => {
+    // SAFETY: An app config without types passes the former driver name.
+    expect(() => resolveCacheStorage({ driver } as unknown as Parameters<typeof resolveCacheStorage>[0], host)).toThrow(expect.objectContaining({
+      code: "VITE_HUB_C0004",
+      fix: expect.stringContaining(`cache: { driver: "${renamed}" }`),
+      why: expect.stringContaining(`renamed this driver to "${renamed}"`),
+    }))
   })
 
   it.each(["constructor", "toString", "valueOf", "hasOwnProperty", "__proto__"])("rejects inherited driver name %s", driver => {
     // SAFETY: The test passes an unsupported inherited property to exercise runtime validation of user config.
     expect(() => resolveCacheStorage({ driver } as unknown as Parameters<typeof resolveCacheStorage>[0], "node"))
-      .toThrow("`cache.driver` must be")
+      .toThrow("It must be \"cloudflare\"")
   })
 })
 

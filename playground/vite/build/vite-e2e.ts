@@ -870,6 +870,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
 
     if (sandboxTaskProvider === "cloudflare") {
       // @cloudflare/sandbox 1.0 exports only the `import` condition, which require.resolve cannot read.
+      // Reported upstream: https://github.com/cloudflare/sandbox-sdk/issues/1053.
       alias["@cloudflare/sandbox"] = realpathSync(resolve(sandboxPackageDir, "node_modules/@cloudflare/sandbox/dist/index.mjs"))
     }
   }
