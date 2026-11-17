@@ -219,8 +219,8 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: 
     imageModule === "sharp" ? "import * as vitehubSharp from 'sharp'" : undefined,
     `import { ${setters.filter(Boolean).join(", ")} } from ${JSON.stringify(runtimeStateModule)}`,
     "",
-    // `as const` keeps literals such as `driver: "cloudflare-r2"`, so the file typechecks in the app's tsconfig.
-    cloudflare ? `const blobConfig = ${JSON.stringify(blob)} as const` : undefined,
+    // Contextual typing keeps driver literals and mutable arrays in the generated config.
+    cloudflare ? `const blobConfig: Parameters<typeof setBlobRuntimeConfig>[0] = ${JSON.stringify(blob)}` : undefined,
     "",
     "export default function vitehubBlobPlugin() {",
     // `Cloudflare.Env` has no index signature, so the generated middleware casts it the same way.

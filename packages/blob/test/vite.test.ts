@@ -797,7 +797,7 @@ describe("hubBlob", () => {
   it("writes Cloudflare plugin and middleware files that typecheck with the cloudflare:workers declaration of vite-hub/nuxt", { timeout: 30_000 }, async () => {
     const root = await temporaryDirectory("vitehub-blob-cloudflare-types-")
     await writeFile(join(root, "package.json"), "{}\n")
-    const plugin = hubBlob({ driver: "cloudflare-r2", bucketName: "assets" })
+    const plugin = hubBlob({ driver: "cloudflare-r2", bucketName: "assets", images: { sizes: [320, 640] } })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ build: { outDir: "dist" }, nitro: { preset: "cloudflare_module" }, root })
     const files = [join(root, ".vitehub/nitro/blob/plugin.ts"), join(root, ".vitehub/nitro/blob/middleware.ts")]
     for (const file of files) await expect(readFile(file, "utf8")).resolves.toContain("from 'cloudflare:workers'")
