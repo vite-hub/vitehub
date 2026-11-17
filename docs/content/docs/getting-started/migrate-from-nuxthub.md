@@ -688,7 +688,9 @@ more days, and the next call tries the API again.
 - A call that throws keeps the stored entry and its time. It does not start a
   new `maxAge`.
 - With nothing stored, or after `maxAge` plus `staleIfError`, the call throws.
-- The stored entry stays in the `cache` mount for `maxAge` plus `staleIfError`.
+- The stored entry stays in the `cache` mount, or in your `storage`, for
+  `maxAge` plus `staleIfError`.
+- `staleIfError` with `serialize` fails when you define the function.
 - It works with `swr: true`, `tags`, and `expire()`. After `invalidateTag()`,
   a call that throws also returns the stored value. `invalidate()` deletes the
   entry, so nothing is left to return.

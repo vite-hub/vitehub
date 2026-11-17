@@ -38,12 +38,15 @@ export function defineCachedFunction<T, ArgsT extends unknown[] = unknown[]>(
   if (staleIfError !== undefined && !(typeof staleIfError === "number" && staleIfError >= 0 && Number.isFinite(staleIfError))) {
     throw viteHubErrorDiagnostics.VITE_HUB_CACHE_STALE_IF_ERROR_INVALID({ value: String(staleIfError) })
   }
+  // ocache would run `serialize` again on the stored value, which is already serialized.
+  if (staleIfError && options.serialize) throw viteHubErrorDiagnostics.VITE_HUB_CACHE_STALE_IF_ERROR_WITH_SERIALIZE()
   return staleIfError ? defineStaleIfErrorFunction(fn, options, staleIfError) : defineTaggedFunction(fn, options)
 }
 
 // ocache deletes an entry when the function throws, and its storage TTL ends at `maxAge`. So the function is wrapped:
 // when it throws, the wrapper returns the stored value, and the storage skips writing that same value back, so the
-// entry keeps its time and the next call runs the function again. The storage adds `staleIfError` to each TTL.
+// entry keeps its time and the next call runs the function again. The storage adds `staleIfError` to each TTL. It wraps
+// the `storage` option when there is one, and else reads and writes Nitro's KV the same way as Nitro's `kv` cache driver.
 function defineStaleIfErrorFunction<T, ArgsT extends unknown[]>(
   fn: (...args: ArgsT) => T | Promise<T>,
   options: Omit<CachedFunctionOptions<T, ArgsT>, "staleIfError">,
@@ -54,33 +57,34 @@ function defineStaleIfErrorFunction<T, ArgsT extends unknown[]>(
   const integrity = options.integrity ?? hashText(`${fn}${JSON.stringify(options, (_key, value: unknown) => typeof value === "function" ? String(value) : value)}`)
   // Storage key to the stored value that a call returned after an error.
   const served = new Map<string, unknown>()
-  const storage = (): StorageInterface => {
-    const kv = useKV()
-    return {
-      // SAFETY: Nitro's own KV cache adapter returns what unstorage parsed, too. ocache checks the entry shape.
-      get: <V>(key: string) => kv.getItem(key) as Promise<V | null>,
-      set: async (key, value, opts) => {
-        const stale = served.get(key)
-        served.delete(key)
-        // ocache writes an entry object, or null to delete one.
-        if (typeof value !== "object" || (stale !== undefined && value !== null && "value" in value && value.value === stale)) return
-        await kv.setItem(key, value, opts?.ttl ? { ttl: opts.ttl + staleIfError } : undefined)
-      },
-    }
-  }
+  let inner: StorageInterface | undefined
+  const store = (): StorageInterface => inner ??= typeof options.storage === "function" ? options.storage() : options.storage ?? nitroKVStorage()
+  const storage = (): StorageInterface => ({
+    binary: store().binary,
+    maxEntryBytes: store().maxEntryBytes,
+    get: key => store().get(key),
+    set: async (key, value, opts) => {
+      const stale = served.get(key)
+      served.delete(key)
+      if (stale !== undefined && typeof value === "object" && value !== null && "value" in value && value.value === stale) return
+      await store().set(key, value, opts?.ttl ? { ttl: opts.ttl + staleIfError } : opts)
+    },
+  })
   let keysOf: (...args: ArgsT) => Promise<string[]> = async () => []
   const run = async (...args: ArgsT): Promise<T> => {
     try {
       return await fn(...args)
     } catch (error) {
-      for (const key of await keysOf(...args)) {
-        const entry = await useKV().getItem<CacheEntry<T>>(key)
+      const keys = await keysOf(...args)
+      for (const [index, key] of keys.entries()) {
+        const entry = await store().get<CacheEntry<T>>(key)
         if (typeof entry !== "object" || entry === null) continue
         const value = await staleValue(entry, args)
         if (value === undefined) break
         if (options.onError) options.onError(error)
         else console.warn("[vitehub] The cached function threw, so it returns the stored value.", error)
-        served.set(key, entry.value)
+        // ocache writes the result to the base where it found the entry and to each base before it.
+        for (const written of keys.slice(0, index + 1)) served.set(written, entry.value)
         return value
       }
       throw error
@@ -193,6 +197,19 @@ async function isNewerThanTags(tags: readonly string[], since: number): Promise<
   const storage = useKV("cache")
   const times = await Promise.all(tags.map(tag => storage.getItem(tagKey(tag))))
   return times.every(time => typeof time !== "number" || time < since)
+}
+
+// Nitro's `kv` cache driver: the cache keys start with the `cache` mount.
+function nitroKVStorage(): StorageInterface {
+  const kv = useKV()
+  return {
+    // SAFETY: Nitro's own KV cache adapter returns what unstorage parsed, too. ocache checks the entry shape.
+    get: <V>(key: string) => kv.getItem(key) as Promise<V | null>,
+    set: async (key, value, opts) => {
+      // ocache writes an entry object, or null to delete one.
+      if (typeof value === "object") await kv.setItem(key, value, opts?.ttl ? { ttl: opts.ttl } : undefined)
+    },
+  }
 }
 
 // A short, stable hash, like the one ocache uses to name an anonymous function.

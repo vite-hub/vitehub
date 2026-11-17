@@ -201,6 +201,24 @@ describe.each([
     expect(source.calls).toBe(2)
   })
 
+  it("runs the function again when the entry it served came from a later base", async () => {
+    const { fetchRates, source } = ratesSource()
+    const getRates = defineCachedFunction(fetchRates, { base: ["/cache/first", "/cache/second"], getKey: base => base, maxAge: 60, onError, staleIfError: 3600, waitUntil })
+
+    await getRates("USD")
+    await settle()
+    const first = (await root().getKeys("cache:first")).find(key => key.includes("USD"))!
+    await root().removeItem(first)
+
+    advance(120)
+    source.down = true
+    expect(await getRates("USD")).toEqual({ base: "USD", EUR: 0.9 })
+    await settle()
+    expect(await root().hasItem(first)).toBe(false)
+    expect(await getRates("USD")).toEqual({ base: "USD", EUR: 0.9 })
+    expect(source.calls).toBe(3)
+  })
+
   it("keeps the entries of two anonymous functions apart", async () => {
     const getEuro = defineCachedFunction(async () => "EUR", { maxAge: 60, staleIfError: 60, waitUntil })
     const getDollar = defineCachedFunction(async () => "USD", { maxAge: 60, staleIfError: 60, waitUntil })
@@ -213,4 +231,33 @@ describe.each([
 
 it("rejects a staleIfError that is not a number of seconds", () => {
   expect(() => defineCachedFunction(async () => 1, { staleIfError: -1 })).toThrow(expect.objectContaining({ code: "VITE_HUB_CACHE_STALE_IF_ERROR_INVALID" }))
+})
+
+it("keeps a custom storage", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] })
+  kvState.root = createStorage()
+  const entries = new Map<string, unknown>()
+  const storage: StorageInterface = {
+    // SAFETY: the test stores ocache entries only.
+    get: <V>(key: string) => (entries.get(key) ?? null) as V | null,
+    set: (key, value) => void entries.set(key, value),
+  }
+  const { fetchRates, source } = ratesSource()
+  const getRates = defineCachedFunction(fetchRates, { getKey: base => base, maxAge: 60, onError: () => {}, staleIfError: 3600, storage, waitUntil })
+
+  await getRates("USD")
+  await settle()
+  expect(entries.size).toBe(1)
+  expect(await root().getKeys()).toEqual([])
+
+  advance(120)
+  source.down = true
+  expect(await getRates("USD")).toEqual({ base: "USD", EUR: 0.9 })
+  await settle()
+  vi.useRealTimers()
+})
+
+it("rejects staleIfError with serialize", () => {
+  expect(() => defineCachedFunction(async () => "rates", { serialize: entry => JSON.stringify(entry.value), staleIfError: 60 }))
+    .toThrow(expect.objectContaining({ code: "VITE_HUB_CACHE_STALE_IF_ERROR_WITH_SERIALIZE" }))
 })
