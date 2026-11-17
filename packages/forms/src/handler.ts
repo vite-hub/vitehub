@@ -31,6 +31,9 @@ function emailMessage<TSchema extends StandardSchemaV1>(name: string, definition
 }
 
 /** The `Idempotency-Key` that `submitForm()` sends: a UUID, which becomes the id of the submission. */
+/** The keys of the sends that run in this process. */
+const sending = new Set<string>()
+
 const uuid = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i
 
 /**
@@ -84,65 +87,78 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
     if (earlier.form !== name || JSON.stringify(earlier.data) !== JSON.stringify(output)) return stop(422, "This Idempotency-Key belongs to another message.")
     return html ? back(request, page, "sent", name) : json(201, { id: earlier.id })
   }
-  if (key && store) {
-    let earlier: FormSubmission | undefined
-    try {
-      earlier = await store.get(key)
+  const deliver = async (): Promise<Response> => {
+    if (key && store) {
+      let earlier: FormSubmission | undefined
+      try {
+        earlier = await store.get(key)
+      }
+      catch (error) {
+        return storeFailed(error)
+      }
+      if (earlier) return repeated(earlier)
     }
-    catch (error) {
-      return storeFailed(error)
-    }
-    if (earlier) return repeated(earlier)
-  }
 
-  const now = services.now?.() ?? Date.now()
-  const submission: FormSubmission<StandardSchemaV1.InferOutput<TSchema>> = {
-    id: key ?? services.id?.() ?? crypto.randomUUID(),
-    form: name,
-    data: output,
-    page,
-    anchor,
-    user,
-    status: "open",
-    createdAt: now,
-    updatedAt: now,
-  }
+    const now = services.now?.() ?? Date.now()
+    const submission: FormSubmission<StandardSchemaV1.InferOutput<TSchema>> = {
+      id: key ?? services.id?.() ?? crypto.randomUUID(),
+      form: name,
+      data: output,
+      page,
+      anchor,
+      user,
+      status: "open",
+      createdAt: now,
+      updatedAt: now,
+    }
 
-  if (options.onSubmit) {
-    const answer = await options.onSubmit(submission, { request })
-    if (answer instanceof Response) return answer
-  }
+    if (options.onSubmit) {
+      const answer = await options.onSubmit(submission, { request })
+      if (answer instanceof Response) return answer
+    }
 
-  const message = emailMessage(name, definition, submission)
-  if (store) {
-    try {
-      // Two sends of one key at the same time: the other one stored it.
-      if (!await store.insert(submission)) return repeated(await store.get(submission.id) ?? submission)
+    const message = emailMessage(name, definition, submission)
+    if (store) {
+      try {
+        // Two sends of one key at the same time: the other one stored it.
+        if (!await store.insert(submission)) return repeated(await store.get(submission.id) ?? submission)
+      }
+      catch (error) {
+        return storeFailed(error)
+      }
     }
-    catch (error) {
-      return storeFailed(error)
+    if (message && store) {
+      // The submission is safe in the inbox, so a notification failure does not fail the request.
+      if (services.email) {
+        const email = services.email
+        const notified = Promise.resolve().then(() => email(message)).catch(error => services.log?.(`[vitehub] The ${name} form stored a submission but could not send its email.`, error))
+        if (services.waitUntil) services.waitUntil(notified)
+        else await notified
+      }
+      else services.log?.(`[vitehub] The ${name} form stored a submission but the app cannot send email.`, undefined)
     }
-  }
-  if (message && store) {
-    // The submission is safe in the inbox, so a notification failure does not fail the request.
-    if (services.email) {
-      const email = services.email
-      const notified = Promise.resolve().then(() => email(message)).catch(error => services.log?.(`[vitehub] The ${name} form stored a submission but could not send its email.`, error))
-      if (services.waitUntil) services.waitUntil(notified)
-      else await notified
+    else if (message) {
+      if (!services.email) return stop(503, "This form cannot send messages now.")
+      try {
+        await services.email(message)
+      }
+      catch (error) {
+        services.log?.(`[vitehub] The ${name} form could not send its email.`, error)
+        return stop(502, "The message could not be sent. Try again later.")
+      }
     }
-    else services.log?.(`[vitehub] The ${name} form stored a submission but the app cannot send email.`, undefined)
-  }
-  else if (message) {
-    if (!services.email) return stop(503, "This form cannot send messages now.")
-    try {
-      await services.email(message)
-    }
-    catch (error) {
-      services.log?.(`[vitehub] The ${name} form could not send its email.`, error)
-      return stop(502, "The message could not be sent. Try again later.")
-    }
-  }
 
-  return html ? back(request, page, "sent", name) : json(201, { id: submission.id })
+    return html ? back(request, page, "sent", name) : json(201, { id: submission.id })
+  }
+  if (!key || !store) return await deliver()
+  // A retry that arrives while the first send still runs must not run `onSubmit` or the email again.
+  const slot = `${name}:${key}`
+  if (sending.has(slot)) return stop(409, "This message is still being sent. Try again in a moment.")
+  sending.add(slot)
+  try {
+    return await deliver()
+  }
+  finally {
+    sending.delete(slot)
+  }
 }

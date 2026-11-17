@@ -99,6 +99,8 @@ const failedSends = new Map<string, { body: string, key: string }>()
 function idempotencyKey(url: string, body: string): string | undefined {
   const failed = failedSends.get(url)
   if (failed?.body === body) return failed.key
+  // Other values are another message: the failed one is not retried, so its key must not come back later.
+  failedSends.delete(url)
   // `randomUUID()` exists only in a secure context, such as HTTPS or localhost. Without it, the server makes the id.
   return globalThis.crypto?.randomUUID?.()
 }
@@ -132,7 +134,7 @@ export async function submitForm(name: string, values: Record<string, unknown> |
   }
   const body: unknown = await response.json().catch(() => undefined)
   if (response.ok) {
-    if (failedSends.get(url)?.key === key) failedSends.delete(url)
+    failedSends.delete(url)
     const id: unknown = body && typeof body === "object" ? Reflect.get(body, "id") : undefined
     return [undefined, typeof id === "string" ? { id } : {}]
   }

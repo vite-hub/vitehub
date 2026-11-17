@@ -80,6 +80,25 @@ describe("submitForm", () => {
     expect(keys[2]).toBe("0b5c2a8e-1d4f-4e7a-9c3b-2f6d8e1a7b90")
   })
 
+  it("forgets the key of a failed message when another message is sent", async () => {
+    const store = createMemoryFormsStore()
+    const keys: (string | null)[] = []
+    let lose = true
+    const lossy: typeof fetch = async (input, init) => {
+      keys.push(new Headers(init?.headers).get("idempotency-key"))
+      const response = await server(store)(input, init)
+      if (lose) throw new TypeError("network error")
+      return response
+    }
+    await submitForm("feedback", { message: "First note" }, { fetch: lossy, page: "/docs" })
+    lose = false
+    await submitForm("feedback", { message: "Second note" }, { fetch: lossy, page: "/docs" })
+    // The person writes the first note again later: a new message, not a retry.
+    await submitForm("feedback", { message: "First note" }, { fetch: lossy, page: "/docs" })
+    expect(new Set(keys).size).toBe(3)
+    expect(await store.list()).toHaveLength(3)
+  })
+
   it("builds the route below the app base", () => {
     expect(formRoute("contact")).toBe("/api/_vitehub/forms/contact")
     expect(formRoute("bug report", "/docs")).toBe("/docs/api/_vitehub/forms/bug%20report")

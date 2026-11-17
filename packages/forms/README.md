@@ -31,7 +31,7 @@ For each `POST`, `handleFormRequest()`:
 5. Asks `rateLimit` with the key `form:<name>`. The default policy is 5 a minute. It answers 429 with `retry-after`.
 6. Answers 202 and stores nothing when the honeypot field, `website` by default, is filled.
 7. Validates the other fields with `schema`. It answers 400 with `{ message, issues: [{ message, path }] }`. Schema output must be JSON data: plain objects, arrays, strings, finite numbers, booleans, or `null`. Transforms that return `Date`, `Map`, `bigint`, `undefined`, or cycles get 400 before `onSubmit`, email, or storage. Convert these values in the schema, for example a date to an ISO string. Accepted output uses its JSON representation in every step.
-8. With a UUID in the `Idempotency-Key` header and a store, answers a stored submission of that id with the same 201, or with 422 when its values differ. A key that is not a UUID gets 400.
+8. With a UUID in the `Idempotency-Key` header and a store, answers a stored submission of that id with the same 201, or with 422 when its values differ. A request with a key that still runs in this process gets 409. A key that is not a UUID gets 400.
 9. Runs `onSubmit`. When it returns a Response, the request gets that Response and nothing is stored.
 10. Stores the submission, then sends the email. A stored submission is safe, so an email failure is only logged.
 11. Answers 201 with `{ id }`.
