@@ -87,6 +87,20 @@ describe("ask(prompt, { model, schema })", () => {
     expect(error).toMatchObject({ code: "GATEWAYS_ASK_OUTPUT_INVALID" })
   })
 
+  it.each(["content-filter", "length"] as const)("returns GATEWAYS_ASK_OUTPUT_INVALID for an empty %s response", async (reason) => {
+    const mock = new MockLanguageModelV3({
+      doGenerate: async () => ({
+        content: [],
+        finishReason: { raw: reason, unified: reason },
+        usage: { inputTokens: { total: 20 }, outputTokens: { total: 0 } },
+        warnings: [],
+      }),
+    })
+    const [error, data] = await ask("MERCADONA 23.10 -34.90 EUR", { model: mock, schema: receipt })
+    expect(data).toBeUndefined()
+    expect(error).toMatchObject({ code: "GATEWAYS_ASK_OUTPUT_INVALID", cause: { name: "AI_NoOutputGeneratedError" } })
+  })
+
   it("returns GATEWAYS_ASK_MODEL_FAILED with the HTTP status when the provider fails", async () => {
     const providerError = new APICallError({ isRetryable: false, message: "Unauthorized", requestBodyValues: {}, statusCode: 401, url: "https://openrouter.ai/api/v1/chat/completions" })
     const mock = new MockLanguageModelV3({ doGenerate: async () => { throw providerError } })

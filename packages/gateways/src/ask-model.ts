@@ -235,6 +235,7 @@ export async function askOnce<const TSchema extends AskSchema>(prompt: string, o
   const { Output, generateText } = await loadAi("ask()")
   const { model, schema } = options
   let result
+  let output
   try {
     result = await generateText({
       abortSignal: options.signal,
@@ -246,11 +247,12 @@ export async function askOnce<const TSchema extends AskSchema>(prompt: string, o
       // `system` works on AI SDK 6 and 7. AI SDK 7 reads `instructions ?? system`, and AI SDK 6 has no `instructions`.
       ...(options.instructions ? { system: options.instructions } : {}),
     })
+    output = result.output
   }
   catch (error) {
     // A missing key or provider package is a setup error, so it throws like at define time.
     if (gatewayDiagnostics.is(error)) throw error
-    if (readKey(error, "name") === "AI_NoObjectGeneratedError") {
+    if (["AI_NoObjectGeneratedError", "AI_NoOutputGeneratedError"].includes(String(readKey(error, "name")))) {
       return [gatewayDiagnostics.GATEWAYS_ASK_OUTPUT_INVALID({ issue: firstIssue(error), cause: error }), undefined]
     }
     return [gatewayDiagnostics.GATEWAYS_ASK_MODEL_FAILED({ status: statusOf(error), cause: error }), undefined]
@@ -261,7 +263,7 @@ export async function askOnce<const TSchema extends AskSchema>(prompt: string, o
     usage: { inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens, totalTokens: result.usage.totalTokens },
   })
   // SAFETY: The AI SDK validated the output with `schema`, so it has the schema output type.
-  return [undefined, result.output as AskSchemaOutput<TSchema>]
+  return [undefined, output as AskSchemaOutput<TSchema>]
 }
 
 /**
