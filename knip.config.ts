@@ -106,7 +106,6 @@ const bundledInternal: Record<string, string[]> = {
   agent: ["@sqlite.org/sqlite-wasm", "@valibot/to-json-schema", "@vercel/nft", "birpc"],
   blob: ["@valibot/to-json-schema", "birpc"],
   cli: ["@babel/parser", "birpc"],
-  codemods: ["@babel/parser"],
   comments: ["@valibot/to-json-schema", "birpc"],
   content: ["@valibot/to-json-schema", "birpc"],
   database: ["@sqlite.org/sqlite-wasm"],
@@ -197,7 +196,6 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
       // two sides of the check must share.
       "@iconify/vue",
       "@fontsource-variable/geist",
-      "@fontsource-variable/geist-mono",
     ],
   },
   "vite-hub": {
@@ -218,7 +216,9 @@ function packageWorkspace(name: string): WorkspaceProjectConfig {
     ...override,
     entry: matching(dir, [
       ...manifestEntries(dir),
-      ...existsSync(join(root, dir, "vite.config.ts")) ? viteConfigEntries(dir) : [],
+      ...existsSync(join(root, dir, "vite.config.ts")) ? viteConfigEntries(dir).filter(entry =>
+        // The Nuxt module graph reaches these test helpers. They need no separate roots.
+        name !== "vite-hub" || !["src/internal/test-loader.ts", "src/internal/test-server.ts"].includes(entry)) : [],
       ...packageEntries,
       ...[override.entry ?? []].flat(),
     ]),
