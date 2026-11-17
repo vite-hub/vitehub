@@ -63,7 +63,8 @@ export const ENV_SERVER_ID: typeof VITEHUB_ENV_SERVER_ID = VITEHUB_ENV_SERVER_ID
 
 const ENV_DESCRIPTION_ID = "#vitehub/env/description"
 const RESOLVED_DESCRIPTION_ID = `\0${ENV_DESCRIPTION_ID}`
-// No "#" here: Vite dev serves this browser module at `/@id/<id>`, where "#" would start the URL fragment.
+// No "#" here: Vite dev serves this browser module at `/@id/<id>`, where "#" would start the URL fragment. Not reported
+// to Vite yet (repro: https://github.com/onmax/repros/tree/repro/vite-virtual-id-hash/vite-virtual-id-hash).
 const RESOLVED_PUBLIC_ID = "\0virtual:vitehub/env/public"
 const RESOLVED_SERVER_ID = `\0${ENV_SERVER_ID}`
 // Rolldown and Vite skip the resolveId and load hooks for every other id.
