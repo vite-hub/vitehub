@@ -161,7 +161,7 @@ export function hubSync(options: HubSyncOptions = {}): Plugin & { vitehub: { dat
           const loaded = await loadConfigFromFile({ command: "build", mode: "production" }, definition.file, root)
           const options: unknown = Reflect.get(Object(loaded?.config), "options")
           const database: unknown = Reflect.get(Object(options), "database")
-          if (database !== undefined && typeof database !== "string") throw new TypeError("Sync database must be a Database name.")
+          if (database !== undefined && typeof database !== "string") throw syncErrors.SYNC_INVALID_DEFINITION({ message: "Sync database must be a Database name." })
           targets.add(database)
         }
         return [...targets].map(database => ({
