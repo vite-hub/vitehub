@@ -447,7 +447,8 @@ describe("database.migrateOnStart", () => {
     }
     expect(await setup({ preset: "node-server" })).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
     expect(await setup({})).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
-    expect(await setup({ dev: true, preset: "node-server" })).toBeUndefined()
+    // `vite dev` gets only the plugin that shares the app's Databases with packages that Node loads.
+    expect(await setup({ dev: true, preset: "node-server" })).toEqual([join(root, ".vitehub/nitro/database/dev-registry.mjs")])
     expect(await setup({ preset: "nitro-prerender" })).toBeUndefined()
     await expect(setup({ preset: "cloudflare-module" })).rejects.toMatchObject({ code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED" })
     for (const preset of ["bun", "static"]) {
