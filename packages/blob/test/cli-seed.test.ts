@@ -73,6 +73,13 @@ describe("Blob seed of vitehub seed", () => {
     expect(missing.stderr).toContain("Pass --url <url>, or set `vitehub({ publicUrl })`.")
   })
 
+  it("reads the folder in the project root that the plugin gives, not the Vite root", async () => {
+    // Nuxt runs Vite in `app/`, so the CLI context root is the source folder.
+    await write("server/seed/blob/logo.svg", "<svg/>")
+    const context = { cwd: rootDir, env: { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" }, fetch: app(), rootDir: join(rootDir, "app"), stderr: stream(), stdout: stream() } as unknown as ViteHubCliContext
+    await expect(createBlobCliSeeds({ projectRoot: () => rootDir })[0]!.run({ env: context.env, remote: false }, context)).resolves.toBe(0)
+  })
+
   it("has nothing to seed without the folder", async () => {
     await expect(seed()).resolves.toMatchObject({ calls: [], exitCode: undefined })
   })

@@ -21,6 +21,8 @@ export interface KVCliOptions {
   /** Asks whether `delete` may delete a key. Defaults to a prompt on a terminal, and refuses without one. */
   confirm?: (question: string) => boolean | Promise<boolean>
   fetch?: typeof fetch
+  /** The project root that holds `server/seed/kv/`. Defaults to the root of the CLI context. */
+  projectRoot?: () => string
 }
 
 type KVCliOption = "cursor" | "json-value" | "limit" | "prefix" | "ttl"
@@ -381,7 +383,7 @@ const kvSeedDir = "server/seed/kv"
  * any other file is a string.
  */
 async function runKVSeed(seed: ViteHubCliSeedOptions, context: ViteHubCliContext, options: KVCliOptions): Promise<number | undefined> {
-  const dir = resolve(context.rootDir, kvSeedDir)
+  const dir = resolve(options.projectRoot?.() ?? context.rootDir, kvSeedDir)
   const files = await listSeedFiles(dir)
   if (!files?.length) return undefined
   if (seed.remote && !seed.url) {

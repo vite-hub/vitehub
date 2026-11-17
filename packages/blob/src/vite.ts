@@ -546,7 +546,7 @@ export function hubBlob(options?: BlobOptions, internalOptions: InternalBlobModu
         const { createBlobCliNamespaces, createBlobCliSeeds } = await import(/* @vite-ignore */ "./cli.js")
         return {
           namespaces: createBlobCliNamespaces(),
-          seeds: createBlobCliSeeds(),
+          seeds: createBlobCliSeeds({ projectRoot: () => rootDir }),
           provision: [createBlobCloudflareProvisionStep(() => blob), createBlobVercelProvisionStep(() => blob)],
         }
       },

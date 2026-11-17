@@ -25,6 +25,8 @@ export interface BlobCliOptions {
   /** Asks whether `delete` may delete a blob. Defaults to a prompt on a terminal, and refuses without one. */
   confirm?: (question: string) => boolean | Promise<boolean>
   fetch?: typeof fetch
+  /** The project root that holds `server/seed/blob/`. Defaults to the root of the CLI context. */
+  projectRoot?: () => string
 }
 
 type BlobCliOption = "content-type" | "cursor" | "limit" | "output" | "prefix"
@@ -444,7 +446,7 @@ const blobSeedDir = "server/seed/blob"
  * extension.
  */
 async function runBlobSeed(seed: ViteHubCliSeedOptions, context: ViteHubCliContext, options: BlobCliOptions): Promise<number | undefined> {
-  const dir = resolve(context.rootDir, blobSeedDir)
+  const dir = resolve(options.projectRoot?.() ?? context.rootDir, blobSeedDir)
   const files = await listSeedFiles(dir)
   if (!files?.length) return undefined
   if (seed.remote && !seed.url) {
