@@ -388,3 +388,30 @@ describe("workspace config", () => {
   })
 
 })
+
+describe("renamed Workspace Store drivers", () => {
+  it.each([
+    ["cloudflare-artifacts", "cloudflare"],
+    ["vercel-blob", "vercel"],
+  ])("names the new driver for the former %s", (driver, renamed) => {
+    const expected = expect.objectContaining({
+      code: "WORKSPACE_UNKNOWN_STORE_DRIVER",
+      fix: expect.stringContaining(`store: { driver: "${renamed}" }`),
+      why: expect.stringContaining(`renamed this driver to "${renamed}"`),
+    })
+    // SAFETY: An app config without types passes the former driver name.
+    expect(() => normalizeWorkspaceOptions({ store: { driver } } as never, { env: {}, rootDir: "/repo" })).toThrow(expected)
+    // A `root` once made any driver a local Store.
+    // SAFETY: An app config without types passes the former driver name.
+    expect(() => normalizeWorkspaceStoreOptions({ driver, root: "content" } as never)).toThrow(expected)
+  })
+
+  it("keeps the driver list for a name that was never a driver", () => {
+    // SAFETY: An app config without types passes an unknown driver name.
+    expect(() => normalizeWorkspaceStoreOptions({ driver: "s3" } as never)).toThrow(expect.objectContaining({
+      code: "WORKSPACE_UNKNOWN_STORE_DRIVER",
+      fix: expect.stringContaining("\"vercel\""),
+      why: "The Workspace `store.driver` \"s3\" is not a Workspace Store driver.",
+    }))
+  })
+})

@@ -127,7 +127,7 @@ describe("Vercel Blob multipart uploads", () => {
     const storage = createBlobStorage(createVercelDriver(options), "default")
 
     const created = ok(await storage.createMultipartUpload("media/clip.mp4"))
-    expect(vercel.createMultipartUpload).toHaveBeenCalledWith("media/clip.mp4", expect.objectContaining({ access: "public", addRandomSuffix: false, contentType: "application/octet-stream", token: "token" }))
+    expect(vercel.createMultipartUpload).toHaveBeenCalledWith("media/clip.mp4", expect.objectContaining({ access: "public", addRandomSuffix: false, contentType: "video/mp4", token: "token" }))
     expect(created.uploadId).not.toContain("=")
 
     const resumed = ok(await storage.resumeMultipartUpload("media/clip.mp4", created.uploadId))
