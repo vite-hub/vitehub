@@ -341,7 +341,7 @@ const launch = sshLaunch({
 // Pass launch to driver.launch in an Agent Definition.
 ```
 
-The target must expose the same working-directory and credential paths, for example through a shared sidecar volume. Host keys are verified. Environment names come from the resolved provider launch context; values travel through SSH environment requests. An explicit `forwardEnvironment` narrows the list while retaining framework-required names. `serveSsh` accepts valid environment names from authenticated clients unless `acceptEnvironment` restricts them.
+The target must expose the same working-directory and credential paths, for example through a shared sidecar volume. Host keys are verified. Environment names come from the resolved provider launch context; values travel through SSH environment requests. An explicit `forwardEnvironment` narrows the list while retaining framework-required names. `serveSsh` accepts valid environment names from authenticated clients unless `acceptEnvironment` restricts them. It runs each command with `/bin/sh -c`, not a login shell, so a profile cannot replace the forwarded `PATH`.
 
 A sidecar that is still starting refuses connections. `sshLaunch` connects again for up to `connectRetryMs` (30 seconds by default) while the SSH port refuses connections, so a provider probe or launch right after a pod restart waits for the sidecar. Authentication, host key, and command failures are not retried. Set `connectRetryMs: 0` to fail on the first refused connection.
 

@@ -144,7 +144,7 @@ comments.people.value; // The people that the state knows, for mention names.
 | `autoStart` | Load threads and listen for keys on mount. Default `true`. When `false`, call `start()` yourself. |
 | `can` | What the user may do in a thread. See [Permissions](#permissions). |
 | `visibility` | `"all"` or `"hidden"`. Default `"all"`. Pass a ref to keep the reader's choice. See [Hide comments](#hide-comments). |
-| `flashMs` | How long a comment just sent shows while comments are hidden. Default `2500`. |
+| `flashMs` | How long a comment just sent shows while comments are hidden. The time stops while the reader points at or focuses its pin. Default `2500`. |
 
 ## Hide comments
 
@@ -152,7 +152,7 @@ A reader can hide the comments on the page and still write them. Set `visibility
 
 - the open thread, such as one opened from the list,
 - the comment being written,
-- a comment or reply just sent, for `flashMs`. Then it pops out: it shrinks and fades in 180 ms, or only fades under `prefers-reduced-motion`.
+- a comment or reply just sent, for `flashMs`. Like a toast, the time stops while the reader points at or focuses its pin. Then it pops out: it shrinks and fades in 130 ms, or goes at once under `prefers-reduced-motion`.
 
 Writing or opening a comment never changes `visibility`. Pass a ref to keep the choice, such as one saved in `localStorage`:
 
@@ -171,7 +171,7 @@ comments.flash(id); // Show a thread for a moment. send(), create(), and reply()
 
 `CommentPanel` keeps its selected thread’s page marks visible while comments are hidden, without opening a page popover. Returning to the list or unmounting the panel releases that exception. Custom panels can call `const release = comments.retainMark(id)` and call `release()` when they close or switch threads; active flashes keep their own timers.
 
-`CommentLayer` follows the state: a pin that stops showing keeps its place for 180 ms with `data-leaving="true"`. The ViteHub pill has an eye next to **Comments** for people who may comment, and keeps the choice in this browser.
+`CommentLayer` follows the state: a pin that stops showing keeps its place for `commentLeaveMs` (130 ms) with `data-leaving="true"`. The ViteHub pill has an eye next to **Comments** for people who may comment, and keeps the choice in this browser.
 
 To draw marks somewhere else, such as in a frame, use `createCommentVisibility()`. It has no framework, so a page can keep one and send its `only` list to the frame:
 
@@ -182,11 +182,12 @@ const visibility = createCommentVisibility({ visibility: "hidden", flashMs: 2500
 visibility.subscribe(() => frame.postMessage({ only: visibility.only, leaving: visibility.leaving }));
 visibility.open(threadId); // The open thread shows. open(null) closes it.
 visibility.flash(sent.id); // A comment just sent shows for flashMs.
+visibility.hover(sent.id); // The time stops while the reader is on its pin. hover(null) when the reader leaves.
 visibility.set("all"); // Every comment shows again.
 visibility.stop(); // Clears the timers.
 ```
 
-`only` lists the ids that still show while comments are hidden, and is empty while all show. `leaving` lists the ids that stopped showing in the last 180 ms. `isShown(id)` answers for one id.
+`only` lists the ids that still show while comments are hidden, and is empty while all show. `leaving` lists the ids that stopped showing in the last `commentLeaveMs`. Import `commentLeaveMs` from `vite-hub/ui/headless` to time a pop-out you draw yourself. `isShown(id)` answers for one id.
 
 ## Side panel
 
@@ -368,7 +369,7 @@ document.head.append(Object.assign(document.createElement("style"), { textConten
 | `data-slot="comment-mark-pin"` | `data-shape="point"` or `"round"`, `data-active="true"`, `data-status="resolved"` | A 28px pin. A point is a drop whose small bottom-left corner is the spot. A round pin is for an area or an image. An `<img>` child fills it. |
 | `data-slot="comment-mark-area"` | `data-active="true"`, `data-status="resolved"`, `data-draft="true"` | A 1px grey line, 22% of the ink, with no fill. Active is a firmer grey line (45%), resolved is dashed and grey, and a draft is 2px comment blue with a fill. |
 | `data-slot="comment-mark-handle"` | `data-corner="top-left"`, `"top-right"`, `"bottom-left"`, or `"bottom-right"` | A round handle on a corner of its area. |
-| A pin or an area | `data-leaving="true"` | It shrinks and fades in 180ms. Remove it after that. With reduced motion, it only fades. |
+| A pin or an area | `data-leaving="true"` | It shrinks and fades in 130ms (`commentLeaveMs`). Remove it after that. With reduced motion, it has no animation and is hidden at once. |
 
 Place a pin with `left` and `top`, and an area with `left`, `top`, `width`, and `height`. Highlight commented text with the CSS Custom Highlight API and these names:
 
