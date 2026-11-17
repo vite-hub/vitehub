@@ -9,6 +9,7 @@ import { webhooksErrors } from "./errors.ts"
 import { webhooksQueueName } from "./queue-name.ts"
 import { webhooksTableNames } from "./table-names.ts"
 
+import type { OperationContributions } from "@vite-hub/internal/operations"
 import type { Plugin, UserConfig } from "vite"
 
 export { webhooksQueueName }
@@ -57,6 +58,8 @@ export function usesWebhooks(options: { projectRoot: string, serverDirs?: readon
 export interface WebhooksImports {
   /** `installWebhooks` and `deliverWebhookWake`. */
   runtime: string
+  /** `webhooksOperations`: the operations of the Console, `vitehub webhooks`, and MCP. */
+  operations: string
   /** `createDrizzleWebhookStore` and `webhooksSchema`. */
   database: string
   /** The `databases` registry of the app. */
@@ -69,6 +72,7 @@ export interface WebhooksImports {
 
 const defaultImports: WebhooksImports = {
   runtime: "@vite-hub/webhooks/runtime",
+  operations: "@vite-hub/webhooks/operations",
   database: "@vite-hub/webhooks/database",
   databases: "@vite-hub/database/runtime/registry",
   queue: "@vite-hub/queue",
@@ -180,6 +184,7 @@ export function hubWebhooks(options: HubWebhooksOptions = {}): Plugin & {
   vitehub: {
     databases: (context: ContributionContext) => unknown[]
     queues: (context: ContributionContext) => Array<{ name: string, definition: { module: string }, reason: string }>
+    operations: OperationContributions
   }
 } {
   const imports: WebhooksImports = { ...defaultImports, ...options.imports }
@@ -193,6 +198,10 @@ export function hubWebhooks(options: HubWebhooksOptions = {}): Plugin & {
     name: WEBHOOKS_VITE_PLUGIN_NAME,
     enforce: "pre",
     vitehub: {
+      // The Console, `vitehub webhooks`, and MCP list, test, flush, cancel, and redeliver through these operations.
+      operations: () => usesWebhooks(project({}))
+        ? [{ export: "webhooksOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).webhooksOperations, module: imports.operations }]
+        : [],
       databases(context) {
         const { projectRoot: root, serverDirs: dirs } = project(context)
         if (!options.database || !usesWebhooks({ projectRoot: root, ...(dirs ? { serverDirs: dirs } : {}) })) return []

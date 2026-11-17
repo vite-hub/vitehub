@@ -807,6 +807,11 @@
       "import": "./dist/webhooks/database.js",
       "default": "./dist/webhooks/database.js"
     },
+    "./webhooks/operations": {
+      "types": "./dist/webhooks/operations.d.ts",
+      "import": "./dist/webhooks/operations.js",
+      "default": "./dist/webhooks/operations.js"
+    },
     "./webhooks/runtime": {
       "types": "./dist/webhooks/runtime.d.ts",
       "import": "./dist/webhooks/runtime.js",

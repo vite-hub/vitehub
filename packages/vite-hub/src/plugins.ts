@@ -1879,6 +1879,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     queue: Boolean(options.queue) && plan.services.queue.supported,
     imports: {
       runtime: "vite-hub/webhooks/runtime",
+      operations: "vite-hub/webhooks/operations",
       database: "vite-hub/webhooks/database",
       databases: "@vite-hub/database/runtime/registry",
       queue: "vite-hub/queue",

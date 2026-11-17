@@ -3,12 +3,13 @@ import { readdir, readFile } from "node:fs/promises"
 import { delimiter, join } from "node:path"
 
 import { createBuilder } from "vite"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { verifyWebhook } from "@vite-hub/env"
 
 import { vitehub } from "../src/index.ts"
-import { startBuiltServer } from "./content-preview-fixture.ts"
+import { freePort, startBuiltServer } from "./content-preview-fixture.ts"
+import { consoleTestKey } from "./support/console-signature.ts"
 import { createProject, path, runCli } from "./support/content-cms.ts"
 
 import type { IncomingHttpHeaders } from "node:http"
@@ -88,7 +89,10 @@ describe("Webhooks in a built Nitro 3 app", () => {
     const root = await createProject(files)
     process.chdir(root)
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
-    const options: ViteHubOptions = { database: true, host: "node", queue: true }
+    const port = await freePort()
+    // `console: true` takes signed operation calls, such as `vitehub webhooks --url` with a CI key.
+    const options: ViteHubOptions = { console: true, database: true, host: "node", publicUrl: `http://127.0.0.1:${port}`, queue: true }
+    const ci = await consoleTestKey("CI")
 
     const generate = await runCli(root, vitehub(options), ["database", "generate"])
     expect(generate.stderr).toBe("")
@@ -102,7 +106,7 @@ describe("Webhooks in a built Nitro 3 app", () => {
 
     await build(root, options)
     const secret = "whsec_build_test"
-    const server = await startBuiltServer(root, { T3_WEBHOOK_SECRET: secret, T3_WEBHOOK_URL: `http://127.0.0.1:${address.port}/hook?token=relay` })
+    const server = await startBuiltServer(root, { ...ci.env, T3_WEBHOOK_SECRET: secret, T3_WEBHOOK_URL: `http://127.0.0.1:${address.port}/hook?token=relay` }, { port })
     try {
       const ids: string[] = []
       for (const comment of ["first", "second", "third"]) {
@@ -126,6 +130,30 @@ describe("Webhooks in a built Nitro 3 app", () => {
         delete process.env.T3_WEBHOOK_SECRET
       }
       await vi.waitFor(async () => expect(await (await server.fetch("/deliveries")).json()).toEqual([expect.objectContaining({ id: ids[0], state: "sent", count: 3, attempts: 1 })]), { interval: 100, timeout: 5_000 })
+
+      // `vitehub webhooks` reads and operates the same deliveries through the signed operation RPC of the built app.
+      vi.stubEnv(`VITEHUB_CONSOLE_PRIVATE_KEY_${ci.key.name}`, ci.key.privateKey)
+      onTestFinished(() => {
+        vi.unstubAllEnvs()
+      })
+      const cli = async (...args: string[]) => {
+        const result = await runCli(root, vitehub(options), ["webhooks", ...args, "--url", `http://127.0.0.1:${port}`])
+        expect(result.stderr).toBe("")
+        expect(result.exitCode).toBe(0)
+        return JSON.parse(result.stdout) as unknown
+      }
+      const listed = await cli("list")
+      expect(listed).toEqual([{ name: "t3", url: "T3_WEBHOOK_URL", secret: "T3_WEBHOOK_SECRET", signature: "github", debounceMs: 1_000, urlSet: true, secretSet: true, host: `127.0.0.1:${address.port}` }])
+      expect(JSON.stringify(listed)).not.toMatch(/relay|whsec_|\/hook/)
+      expect(await cli("deliveries", "--webhook", "t3", "--state", "sent")).toEqual([expect.objectContaining({ id: ids[0], count: 3 })])
+      const tested = await cli("test", "t3", "--body", "{\"ping\":1}") as { id: string }
+      await vi.waitFor(() => expect(received).toHaveLength(2), { interval: 100, timeout: 15_000 })
+      expect(received[1]!.headers).toMatchObject({ "x-vitehub-delivery": tested.id, "x-vitehub-event": "webhooks.test" })
+      expect(JSON.parse(received[1]!.body)).toEqual({ ping: 1 })
+      const redelivered = await cli("redeliver", ids[0]!) as { id: string }
+      await vi.waitFor(() => expect(received).toHaveLength(3), { interval: 100, timeout: 15_000 })
+      expect(received[2]!.headers["x-vitehub-delivery"]).toBe(redelivered.id)
+      expect(await cli("pending")).toEqual([])
     }
     finally {
       server.close()
