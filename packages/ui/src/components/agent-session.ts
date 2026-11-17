@@ -9,6 +9,7 @@ import {
   onBeforeUnmount,
   onMounted,
   ref,
+  useId,
   watch,
   type PropType,
   type VNode,
@@ -141,6 +142,7 @@ export const AgentSession = defineComponent({
     // closed, so a remembered card never covers the timeline.
     const detailsOpen = ref(props.defaultDetailsOpen);
     const popoverOpen = ref(false);
+    const detailsId = useId();
     const localMaximized = ref(false);
     const maximized = computed({
       get: () => props.maximized ?? localMaximized.value,
@@ -170,6 +172,10 @@ export const AgentSession = defineComponent({
     const bodyWidth = ref(0);
     const rootWidth = ref(0);
     const detailsInline = computed(() => bodyWidth.value >= LANE_MAX_WIDTH + DETAILS_WIDTH + 72);
+    // The popover goes away when the column gets room for the inline card, so it starts closed when the column narrows again.
+    watch(detailsInline, (inline) => {
+      if (inline) popoverOpen.value = false;
+    });
 
     watch([panelOpen, detailsOpen, width, tabs, active, maximized], () => {
       if (!props.storageKey || typeof localStorage === "undefined") return;
@@ -206,29 +212,8 @@ export const AgentSession = defineComponent({
       });
       if (body.value) observer.observe(body.value);
       if (root.value) observer.observe(root.value);
-      document.addEventListener("pointerdown", closeDetailsPopover);
-      document.addEventListener("keydown", closeDetailsOnEscape);
     });
-    onBeforeUnmount(() => {
-      observer?.disconnect();
-      document.removeEventListener("pointerdown", closeDetailsPopover);
-      document.removeEventListener("keydown", closeDetailsOnEscape);
-    });
-
-    function closeDetailsOnEscape(event: KeyboardEvent) {
-      if (event.key !== "Escape" || !popoverOpen.value || detailsInline.value) return;
-      popoverOpen.value = false;
-      root.value?.querySelector<HTMLElement>("[data-slot='agent-session-details-toggle']")?.focus();
-    }
-
-    // The card floats over the timeline when the column is too narrow for it, and closes like a popover there.
-    function closeDetailsPopover(event: PointerEvent) {
-      if (!popoverOpen.value || detailsInline.value) return;
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      if (target.closest("[data-slot='agent-session-details'], [data-slot='agent-session-details-toggle']")) return;
-      popoverOpen.value = false;
-    }
+    onBeforeUnmount(() => observer?.disconnect());
 
     function openSurface(id: string) {
       if (!tabs.value.includes(id)) tabs.value = [...tabs.value, id];
@@ -289,7 +274,8 @@ export const AgentSession = defineComponent({
       label: string;
       iconName: string;
       pressed: boolean;
-      onClick: () => void;
+      onClick?: () => void;
+      popovertarget?: string;
     }) =>
       h("button", {
         type: "button",
@@ -299,6 +285,7 @@ export const AgentSession = defineComponent({
         "aria-pressed": options.pressed ? "true" : "false",
         title: options.label,
         onClick: options.onClick,
+        popovertarget: options.popovertarget,
       }, [icon(options.iconName)]);
 
     const detailsToggle = () =>
@@ -308,10 +295,11 @@ export const AgentSession = defineComponent({
             label: "Session details",
             iconName: "i-lucide-square-menu",
             pressed: detailsInline.value ? detailsOpen.value : popoverOpen.value,
-            onClick: () => {
-              if (detailsInline.value) detailsOpen.value = !detailsOpen.value;
-              else popoverOpen.value = !popoverOpen.value;
-            },
+            // On a narrow column the card floats over the timeline as a native popover, which closes on Escape and on
+            // a press outside it.
+            ...detailsInline.value
+              ? { onClick: () => (detailsOpen.value = !detailsOpen.value) }
+              : { popovertarget: detailsId },
           })
         : null;
 
@@ -457,12 +445,24 @@ export const AgentSession = defineComponent({
             slots.body?.() ?? h("div", { class: "vh-agent-session__scroll", "data-slot": "agent-session-scroll" }, [
               h("div", { class: "vh-agent-session__lane", "data-slot": "agent-session-lane" }, slots.default?.()),
             ]),
-            showDetails
+            slots.details && detailsInline.value && detailsOpen.value
               ? h("aside", {
+                  key: "inline",
                   class: "vh-agent-session__details",
                   "data-slot": "agent-session-details",
                   "aria-label": "Session details",
-                }, [h("div", { class: "vh-agent-session__details-card" }, slots.details?.())])
+                }, [h("div", { class: "vh-agent-session__details-card" }, slots.details())])
+              : null,
+            slots.details && !detailsInline.value
+              ? h("aside", {
+                  key: "popover",
+                  id: detailsId,
+                  popover: "auto",
+                  class: "vh-agent-session__details",
+                  "data-slot": "agent-session-details",
+                  "aria-label": "Session details",
+                  onBeforetoggle: (event: ToggleEvent) => (popoverOpen.value = event.newState === "open"),
+                }, popoverOpen.value ? [h("div", { class: "vh-agent-session__details-card" }, slots.details())] : [])
               : null,
           ]),
         ]),
