@@ -112,6 +112,7 @@ Every async method except `serve()` returns a `Result` from `vite-hub/runtime`: 
 | `blob.list(options?)` | Lists files with optional `prefix`, `limit`, `cursor`, and folded folders. |
 | `blob.copy(from, to, options?)` | Copies a file in the same store, with its content type and custom metadata. Read [Copy a file](#copy-a-file). |
 | `blob.delete(pathnames)` | Deletes one or more files. |
+| `blob.delete({ prefix })` | Deletes every file under a prefix and returns `{ deleted }`. Read [Delete a folder](#delete-a-folder). |
 | `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one file. |
 | `blob.serve(request, pathname, options?)` | Answers a `GET` or `HEAD` `Request` for one object with a `Response`: `200`, `206` or `416` for a range, `304`, `400` for an unsafe pathname, `404`, or `405` for another method. |
 | `blob.handleUpload(event, options?)` | Stores the files of a `multipart/form-data` request. Read [Upload files](#upload-files). |
@@ -149,6 +150,18 @@ With `folded: true`, the files-sdk drivers (S3 and S3-compatible stores, R2, GCS
 With a partial prefix such as `docs/re`, a page can be empty while `hasMore` is true. Continue with the cursor to reach the matches.
 
 The `fs` driver sorts keys by UTF-16 code unit, so `B.txt` comes before `a.txt`. Its cursor holds the last listed key, so a key added between pages does not repeat or skip another key. It reads only the directories on the `prefix` path and the directories that the page reaches.
+
+### Delete a folder
+
+`blob.delete({ prefix })` deletes every file whose pathname starts with `prefix` and returns `{ deleted }`, the number of files it removed. It reads every `list()` page first, then deletes in batches of 100, so it works the same on every driver.
+
+```ts [server/api/runs/[id].delete.ts] fragment
+const [error, result] = await blob.delete({ prefix: `runs/${id}/` })
+if (error) throw error
+return { deleted: result.deleted }
+```
+
+The prefix matches as in `list()`: `runs/1` also matches `runs/10/`. End it with `/` to delete one folder. An empty prefix throws `BLOB_R0034` with status `400`, so a missing value never empties a store. Files under `.vitehub/` always stay. Files under `_vitehub/derived/` and `_vitehub/media/` stay unless the prefix starts with one of these folders. Each deleted file also loses its cached variants, as with `blob.delete(pathname)`. The delete is not atomic: a failure returns `BLOB_OPERATION_FAILED` and leaves the files that it did not reach, so call it again. A file written under the prefix during the call can stay.
 
 ## Serve a transformed object
 
