@@ -27,12 +27,40 @@ Read the [Evlog documentation](https://evlog.dev) for its options and drains. If
 
 An error in the browser does not reach your server logs. Set `browserErrors: true` to send uncaught browser errors to the server:
 
+::code-tree
+:::framework{name="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: { host: 'node', observability: { browserErrors: true } },
 })
 ```
+:::
+:::framework{name="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ host: 'node', observability: { browserErrors: true } }),
+    nitro(),
+  ],
+})
+```
+:::
+:::framework{name="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'node', observability: { browserErrors: true } })],
+})
+```
+:::
+::
 
 - The page sends each error to `POST /api/_vitehub/browser-errors`. The server adds it to the Evlog event of that request, at error level, with `browserError: { kind, path }`. Your `redact`, sampling, and drains apply to it, as to your server errors.
 - The page reports window `error` and `unhandledrejection` events. In Nuxt, it also reports the errors of the `vue:error` and `app:error` hooks.
