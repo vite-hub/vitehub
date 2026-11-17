@@ -1127,7 +1127,9 @@ function deploymentPlugins(
                 conditions: [],
                 define: {},
                 extensions: [],
-                hasScheduleIntegration: false,
+                // Nuxt does not run the deployment output plugin's configResolved hook, so read the plugins here.
+                hasScheduleIntegration: (config.plugins as readonly unknown[] | undefined)?.flat(Infinity)
+                  .some(plugin => isRecord(plugin) && plugin.name === "@vite-hub/schedule/vite") ?? false,
                 mainFields: [],
                 preserveSymlinks: false,
               },
@@ -1415,7 +1417,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   // the one enabled by Connections) are provisioned and bound like explicit
   // D1 configurations.
   if (plan.host === "cloudflare" && options.database === true) options = { ...options, database: { driver: "cloudflare" } }
-  assertFeatureSupported("schedule", plan.host, options)
   if (options.agent && options.agent !== true && options.agent.runtime === "deno" && plan.host === "deno") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0087({ message: "[vitehub] The \"deno\" host cannot deploy the Agent Deno runtime because its generated server is outside the deployed Nitro entrypoint. Use the host's Nitro runtime or compose an explicit Deno Agent deployment." })
   }
@@ -1804,7 +1805,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   if (options.schedule) {
     plugins.push(requireOptionalOwner(ownerModules.scheduleVite, "schedule").hubSchedule({
-      ...(plan.host === "vercel" ? { providerOutput: "standalone" as const } : {}),
+      // Vercel cron jobs and Deno.cron call entries outside the Nitro server.
+      ...(plan.host === "vercel" || plan.host === "deno" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
       databaseImport: "@vite-hub/database",
       importBase: "vite-hub/schedule",

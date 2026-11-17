@@ -574,6 +574,20 @@ describe("schedule provider output", () => {
     expect(source).toContain("handler: () => \"ok\"")
   })
 
+  it("bundles Schedules that import vite-hub/schedule into the Deno cron output", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-deno-facade-")
+    await writeFile(join(rootDir, "src", "heartbeat.schedule.ts"), [
+      "import { defineSchedule } from 'vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 0 * * *', handler: () => 'ok' })",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", host: "deno", rootDir })
+
+    const source = await readFile(join(rootDir, ".vitehub", "schedule", "deno-cron.mjs"), "utf8")
+    expect(source).toContain("handler: () => \"ok\"")
+    expect(source).not.toContain("\"vite-hub/schedule\"")
+  })
+
   it("registers shifted and declared weekdays with Deno weekday names", async () => {
     const rootDir = await createTempProject("vitehub-schedule-deno-weekdays-")
     for (const [name, cron, timeZone] of [
