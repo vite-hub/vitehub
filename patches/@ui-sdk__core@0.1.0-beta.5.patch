@@ -292,6 +292,28 @@ index 7fe48b5f4ff9146259ca0cb4d5a19c22787a5e08..02498cdfdc1b18d31dc57f16b6149430
          if (el.textContent !== text) {
            el.textContent = text;
          }
+diff --git a/dist/components/trigger-menu/trigger-menu-api.js b/dist/components/trigger-menu/trigger-menu-api.js
+index 4e40bc3608741e609639cbbc7d6110ba532c0ef8..69eac0b29665c9119d2050f578343312c39195f8 100644
+--- a/dist/components/trigger-menu/trigger-menu-api.js
++++ b/dist/components/trigger-menu/trigger-menu-api.js
+@@ -382,9 +382,15 @@ function triggerMenuApiBody(context) {
+     if (!ownKeys && typeof document !== "undefined") {
+       const onKey = (event) => {
+         const target = event.target;
+-        if (target && next.element?.contains(target)) {
+-          onKeyDown(event);
++        if (!target || !next.element?.contains(target)) {
++          return;
+         }
++        if (event.key === "Escape" && store.get().open && !event.defaultPrevented && !isComposing(event)) {
++          event.preventDefault();
++          levels.end("escape-key", event, { dismiss: true });
++          return;
++        }
++        onKeyDown(event);
+       };
+       document.addEventListener("keydown", onKey, true);
+       cleanups.push(() => document.removeEventListener("keydown", onKey, true));
 diff --git a/dist/foundation/date/parse.js b/dist/foundation/date/parse.js
 index b2d68a5a1d02358be1eadfc5d08be7cbb0c855f0..a972efcd2ead3b058e1837f1a688e99a24f82d2a 100644
 --- a/dist/foundation/date/parse.js

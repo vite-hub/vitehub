@@ -3,7 +3,7 @@ import { createClient } from "@libsql/client"
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 import { drizzle } from "drizzle-orm/libsql"
 import { H3Event } from "h3"
-import { afterEach, beforeEach, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // Exercise the built Node transport without pulling its Vite helpers into Comments' DOM typecheck.
 import { createStandaloneOperationHandler } from "../../internal/dist/operations-dev.js"
@@ -350,6 +350,54 @@ it("returns only the public session identity", async () => {
   setup(defineComments({ authorize: () => true }))
   const result = await call("comments.session", { subject: page }, { ...member, image: "/ana.png", secret: "private" })
   expect(result).toEqual({ ok: true, value: { canRead: true, canWrite: true, user: { id: member.id, name: member.name, image: "/ana.png" } } })
+})
+
+describe("guest rate limit", () => {
+  /** A guest's call from one address, as the Comments API or the operations RPC passes it. */
+  function asGuest(name: string, value: unknown, address = "203.0.113.9") {
+    const request = Object.assign(new Request("https://example.com/", { headers: { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" } }), { ip: address })
+    return runOperation(registry, name, value, { access: { mode: "auth", sections: "all" }, surface: "console", user: null, request })
+  }
+
+  it("refuses the write after the limit of a guest address with COMMENTS_GUEST_RATE_LIMITED", async () => {
+    setup(defineComments({ authorize: () => true, rateLimit: { limit: 2, window: "1m" } }))
+    const first = await asGuest("comments.create", input)
+    expect(first).toMatchObject({ ok: true })
+    if (!first.ok) throw new Error(first.message)
+    expect(await asGuest("comments.reply", { threadId: (first.value as CommentThread).id, body: "Again." })).toMatchObject({ ok: true })
+    expect(await asGuest("comments.create", input)).toMatchObject({ ok: false, status: 429, code: "COMMENTS_GUEST_RATE_LIMITED" })
+    // Another address has its own budget, and signed-in people are not limited.
+    expect(await asGuest("comments.create", input, "198.51.100.7")).toMatchObject({ ok: true })
+    for (let i = 0; i < 3; i++) await create()
+  })
+
+  it("does not count a guest write that the policy refuses", async () => {
+    setup(defineComments({ authorize: ({ user, action }) => action === "read" || user !== null, rateLimit: { limit: 1, window: "1m" } }))
+    expect(await asGuest("comments.create", input)).toMatchObject({ ok: false, status: 403 })
+    expect(await asGuest("comments.create", input)).toMatchObject({ ok: false, status: 403 })
+  })
+
+  it("counts guest writes in the shared Rate Limit under the name comments", async () => {
+    const calls: unknown[] = []
+    const store = createCommentsStore(drizzle({ client }))
+    installCommentsRuntime({
+      definition: defineComments({ authorize: () => true, rateLimit: { limit: 1, window: "1m" } }).options,
+      store,
+      rateLimit: async (_request, name, options) => {
+        calls.push([name, options])
+        return [undefined, calls.length <= options.limit ? { allowed: true } : { allowed: false, reason: "limited", retryAfter: 30 }]
+      },
+    })
+    expect(await asGuest("comments.create", input)).toMatchObject({ ok: true })
+    expect(await asGuest("comments.create", input)).toMatchObject({ ok: false, status: 429, code: "COMMENTS_GUEST_RATE_LIMITED" })
+    expect(calls[0]).toEqual(["comments", { key: "guest:203.0.113.9", limit: 1, window: "1m" }])
+  })
+
+  it("rejects a rateLimit that is not a budget", () => {
+    expect(() => defineComments({ rateLimit: { limit: 0, window: "1m" } })).toThrow(expect.objectContaining({ code: "COMMENTS_RATE_LIMIT_INVALID" }))
+    expect(() => defineComments({ rateLimit: { limit: 1, window: "0m" } })).toThrow(expect.objectContaining({ code: "COMMENTS_RATE_LIMIT_INVALID" }))
+    expect(() => defineComments({ rateLimit: { limit: 5, window: "a minute" } })).toThrow(expect.objectContaining({ code: "COMMENTS_RATE_LIMIT_INVALID" }))
+  })
 })
 
 it("preserves Console admission for author suggestions and mention writes", async () => {
