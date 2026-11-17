@@ -38,3 +38,37 @@ it("draws a picture in a comment box as Drop does: a 40px square with no name an
   expect(badge).toContain("width: 1.25rem;");
   expect(stylesheet.indexOf(`\n${picture} [data-slot="attachment-actions"] > button`)).toBeLessThan(stylesheet.indexOf("@layer components {"));
 });
+
+it("draws the sm reply box as a soft field with no divider, and its accented edge only while it has the focus", () => {
+  const field = /\[data-slot="comment-thread"\]\[data-size="sm"\] > \[data-slot="comment-composer"\] \{([\s\S]*?)\n  \}\n/.exec(stylesheet)?.[1];
+  expect(field).toContain("border-block-start: 0;");
+  expect(field).toMatch(/\[data-slot="prompt-input-group"\] \{[^}]*background: var\(--vh-bg-elevated\);[^}]*border-color: transparent;/);
+  // theme-focus-ring.css is outside the layers, so the focus rule is too, after the last layer opens.
+  const focus = '\n[data-slot="comment-thread"][data-size="sm"] > [data-slot="comment-composer"][data-layout="row"]:not([data-dragging="true"]) [data-slot="prompt-input-group"]:has([data-slot="prompt-input-textarea"]:focus-visible) {';
+  const at = stylesheet.indexOf(focus);
+  expect(at).toBeGreaterThan(-1);
+  expect(stylesheet.slice(at, stylesheet.indexOf("}", at))).toContain("border-color: var(--vh-border-accented);");
+  expect(stylesheet).toContain("--vh-border-accented: var(--vh-ui-border-accented, var(--ui-border-accented, ");
+});
+
+it("keeps the shape of a comment's image, up to 10rem tall, instead of a 4:3 crop", () => {
+  const images = /\[data-slot="comment-reply-images"\] \{([\s\S]*?)\n  \}\n/.exec(stylesheet)?.[1];
+  expect(images).toMatch(/& \.vh-image-preview \{[^}]*aspect-ratio: auto;[^}]*max-height: 10rem;[^}]*max-width: 100%;[^}]*width: auto;/);
+  expect(images).toMatch(/& \.vh-image-preview img \{[^}]*height: auto;[^}]*max-height: 10rem;[^}]*object-fit: contain;/);
+});
+
+it("opens an sm thread beside its pin in Drop's 340px card, pointing at the pin, with its messages filling the card", () => {
+  const card = /\[data-slot="comment-layer-popover"\]:not\(\[data-margin\], \[data-preview\]\):has\(> \[data-slot="comment-thread"\]\[data-size="sm"\]\) \{([\s\S]*?)\n  \}\n/.exec(stylesheet)?.[1];
+  expect(card).toContain("--vh-comment-card-width: 21.25rem;");
+  expect(card).toMatch(/\[data-slot="comment-thread-messages"\] \{[^}]*max-height: none;[^}]*min-height: 0;/);
+  const corners = [...stylesheet.matchAll(/\[data-slot="comment-layer-item"\]([^ ]*) > \[data-slot="comment-layer-popover"\]:not\(\[data-margin\], \[data-floating\], \[data-preview\]\):has\(> \[data-slot="comment-thread"\]\[data-size="sm"\]\) \{\s*border-radius: ([^;]+);/g)]
+    .map(([, flip, radius]) => [flip, radius]);
+  expect(corners).toEqual([
+    ["", "0.375rem var(--vh-comment-card-radius) var(--vh-comment-card-radius)"],
+    ['[data-flip-x="true"]', "var(--vh-comment-card-radius) 0.375rem var(--vh-comment-card-radius) var(--vh-comment-card-radius)"],
+    ['[data-flip-y="true"]', "var(--vh-comment-card-radius) var(--vh-comment-card-radius) var(--vh-comment-card-radius) 0.375rem"],
+    ['[data-flip-x="true"][data-flip-y="true"]', "var(--vh-comment-card-radius) var(--vh-comment-card-radius) 0.375rem"],
+  ]);
+  // A flipped card measures its own width, so a 340px card stays on a narrow screen.
+  expect(stylesheet).toContain("min(var(--vh-comment-card-width), 100vw - 1rem)");
+});

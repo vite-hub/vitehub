@@ -74,7 +74,7 @@ The layer loads the threads of the subject, draws a pin for each, and shows a to
 - A draft pin has no number. The server gives it one on send.
 - A drag in comment mode draws an area, with its corners and size while the drag lasts. The comment is about that area.
 - With `placement="margin"`, every thread is a card in a column on the right edge of the screen, level with its pin. Click a card or its pin to open the thread in that card and reply there. A new comment is written there too. On a screen narrower than 900px, threads open beside their pins.
-- A thread opens in a small card, as in Drop: 14px text, tight rows, and Edit and Delete over the name's row. Set `size="md"` for the larger thread of a panel.
+- A thread opens in a small card, as in Drop: 340px wide, with a small corner that points at its pin, 14px text, tight rows, and Edit and Delete over the name's row. Set `size="md"` for the larger thread of a panel.
 
 An anchor stays on its element when the layout changes. When the element is gone, ambiguous, or no longer holds the quoted text, the thread is detached: it stays in the list without a pin. A pin also hides while a scroll container clips its element. See [Anchors](#anchors).
 
@@ -289,7 +289,7 @@ async function upload(files: File[]): Promise<string[]> {
 </template>
 ```
 
-`attachmentUrl` turns a key into a URL. With it, an image shows as a thumbnail that opens full size, and other files show as link chips. Without it, the message shows file names. An attachment counts as an image when its name has an image extension, such as `.png`, or no extension. When the key does not tell, return the media type with the URL:
+`attachmentUrl` turns a key into a URL. With it, an image shows as a thumbnail that opens full size, and other files show as link chips. A thumbnail keeps the shape of its image, up to 10rem tall. Without it, the message shows file names. An attachment counts as an image when its name has an image extension, such as `.png`, or no extension. When the key does not tell, return the media type with the URL:
 
 ```ts
 // The files that `upload` stored, by key
@@ -346,7 +346,7 @@ Or set the tokens on your own class:
 
 The buttons read their icons from the app's icon config: Nuxt UI's `appConfig.ui.icons` for names such as `check` and `close`, and `appConfig.viteHubUI.icons` for `edit`, `delete`, `reopen`, and the toolbar. See [Icons](/docs/ui/installation#icons) for every name.
 
-`--vh-ui-comment-mark` sets the color of a drawn area. It defaults to the focus blue (`--vh-focus`), else the ViteHub blue, so an area shows on a dark page and on a white image in it. The pins and areas take their look from [`comment-marks.css`](#comment-marks-without-vue), so `--vh-ui-comment-pin-size` and the other tokens there change them too.
+A saved area is a thin grey line, a tint of the text color, so a page with many areas stays calm. `--vh-ui-comment-mark` sets the color of the area that you draw. It defaults to the focus blue (`--vh-focus`), else the ViteHub blue, so it shows on a dark page and on a white image in it. The pins and areas take their look from [`comment-marks.css`](#comment-marks-without-vue), so `--vh-ui-comment-pin-size` and the other tokens there change them too.
 
 ## Comment marks without Vue
 
@@ -365,7 +365,7 @@ document.head.append(Object.assign(document.createElement("style"), { textConten
 | Element | Attributes | Look |
 | --- | --- | --- |
 | `data-slot="comment-mark-pin"` | `data-shape="point"` or `"round"`, `data-active="true"`, `data-status="resolved"` | A 28px pin. A point is a drop whose small bottom-left corner is the spot. A round pin is for an area or an image. An `<img>` child fills it. |
-| `data-slot="comment-mark-area"` | `data-active="true"`, `data-status="resolved"`, `data-draft="true"` | A 1px blue line at half strength with no fill. Active is full blue with a tint, resolved is dashed and grey, and a draft is 2px with a fill. |
+| `data-slot="comment-mark-area"` | `data-active="true"`, `data-status="resolved"`, `data-draft="true"` | A 1px grey line, 22% of the ink, with no fill. Active is a firmer grey line (45%), resolved is dashed and grey, and a draft is 2px comment blue with a fill. |
 | `data-slot="comment-mark-handle"` | `data-corner="top-left"`, `"top-right"`, `"bottom-left"`, or `"bottom-right"` | A round handle on a corner of its area. |
 | A pin or an area | `data-leaving="true"` | It shrinks and fades in 180ms. Remove it after that. With reduced motion, it only fades. |
 
@@ -378,7 +378,7 @@ CSS.highlights.set("vh-comment-active", new Highlight(activeRange));
 CSS.highlights.set("vh-comment-draft", new Highlight(draftRange));
 ```
 
-The marks use the ViteHub theme tokens when the page has them, else the theme's own values. Add the `dark` class or `data-theme="dark"` to the root or the shadow host for dark mode. Set `--vh-ui-comment-mark`, `--vh-ui-comment-pin`, `--vh-ui-comment-pin-text`, `--vh-ui-comment-surface`, `--vh-ui-comment-muted`, `--vh-ui-comment-ink` (the text color that highlights tint), or `--vh-ui-comment-pin-size` to change one. Inside a scaled layer, set `--vh-comment-zoom` to the inverse of its scale, so the marks keep their size on screen.
+The marks use the ViteHub theme tokens when the page has them, else the theme's own values. Add the `dark` class or `data-theme="dark"` to the root or the shadow host for dark mode. Set `--vh-ui-comment-mark`, `--vh-ui-comment-pin`, `--vh-ui-comment-pin-text`, `--vh-ui-comment-surface`, `--vh-ui-comment-muted`, `--vh-ui-comment-ink` (the text color that highlights and saved areas tint), or `--vh-ui-comment-pin-size` to change one. Inside a scaled layer, set `--vh-comment-zoom` to the inverse of its scale, so the marks keep their size on screen.
 
 ## Sizes
 
@@ -387,7 +387,8 @@ The marks use the ViteHub theme tokens when the page has them, else the theme's 
 - The thread text is 14px on a 1.5 line, and the rows are tighter.
 - The name and the time of a message share a baseline.
 - With a mouse, Edit and Delete show over the end of the name's row on hover, so the text uses the full width of the card. A touch screen keeps them in their own column.
-- The reply box is shorter, its buttons are 28px, and a focused box shows its edge without the 3px halo.
+- The reply box is shorter and its buttons are 28px. It is a soft filled field with no divider above it, and it shows its edge only while it has the focus, without the 3px halo.
+- In `CommentLayer`, the card is 340px wide, its corner nearest the pin is small, and its messages fill the card before they scroll.
 
 A thread passes its size on to its messages, its reply box, and its edit box. For a one-line box for a new comment, use `layout="row"` with `size="sm"`.
 
