@@ -191,7 +191,7 @@ Comments needs no email permission. When GitHub hides a person's email, Comments
 
 ### Comments through the Console
 
-Comment operations from the [Console](/docs/development/console), the CLI, and the [ViteHub MCP](/docs/development/mcp) need Console access to the **Comments** section. In an app without `identify`, the Console caller is the author, and `authorize` runs after the Console check. With `identify`, the Console has no say: see [Use your own login](#use-your-own-login).
+Comment operations from the [Console](/docs/development/console), the CLI, and the [ViteHub MCP](/docs/development/mcp) need Console access to the **Comments** section. In an app without `identify`, the Console caller is the author, and `authorize` runs after the Console check. With `identify`, `authorize` decides, and it gets `console: true` for these calls: see [Use your own login](#use-your-own-login).
 
 The overlay on the app's pages does not read Console access. On pages, people get in through `identify`, through ViteHub Auth with `authorize`, or through [Sign in with GitHub](#sign-in-with-github), which an app with the Console also gets.
 
@@ -260,6 +260,13 @@ export const comments = defineComments({
 ```
 
 The user needs a string `id`. Comments shows `name`, else `email`, else "Someone", and a string `image`. `identify` also sets the person in the presence room, so nobody can pose as someone else.
+
+A call from the Console, the CLI, or the ViteHub MCP passed the Console's check of the Comments section, and `authorize` gets `console: true`. Such a call usually has no app user, so allow it in the policy, or the Console and Agents see no threads:
+
+```ts [server/comments.ts] fragment
+// Console callers, and the app's editors on the page.
+authorize: ({ console, user }) => console === true || user?.role === 'editor',
+```
 
 ### Let guests comment
 
@@ -775,7 +782,7 @@ The Comments section of the [Console](/docs/development/console) lists the 500 t
 
 ## Fix comments with an Agent
 
-Connect the Agent to the [ViteHub MCP](/docs/development/mcp) of the Console. It runs the Comments operations of your app, such as `comments.threads` and `comments.reply`: it lists open threads, reads their page context and source files, changes the code, then replies and resolves. It acts as you, and `authorize` applies to each call.
+Connect the Agent to the [ViteHub MCP](/docs/development/mcp) of the Console. It runs the Comments operations of your app, such as `comments.threads` and `comments.reply`: it lists open threads, reads their page context and source files, changes the code, then replies and resolves. It acts as you, and `authorize` applies to each call. The `page` filter takes a path such as `/pricing` or a full URL of the page. When `authorize` hides threads, the list says how many and why, and `hidden` counts them.
 
 Your own MCP server can register the same tools. `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them, each with a JSON Schema and a `call(input, { user })` function.
 

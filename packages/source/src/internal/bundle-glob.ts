@@ -139,7 +139,7 @@ export async function collectBundledGlob(input: GlobInput, rootDir: string) {
  * The generated module: the matched files, served through files(). Their bytes are one gzip blob in base64, and each
  * key reads its range of the blob, which the server inflates on the first read. A host compiles a short string
  * instead of every file as JavaScript when the server starts. Cloudflare Workers compile every module of the bundle
- * when an isolate starts.
+ * when an isolate starts (https://github.com/cloudflare/workerd/issues/8442).
  */
 export function renderBundledGlob(filesModule: string, entries: Record<string, Uint8Array>, prefix?: string): string {
   const lines: string[] = []
@@ -154,6 +154,7 @@ export function renderBundledGlob(filesModule: string, entries: Record<string, U
     `let unpacked`,
     `async function unpack(base64) {`,
     // Node, Bun, Deno, and Workers with nodejs_compat have node:zlib and node:buffer. On Node they decode about 5 times faster than atob() and DecompressionStream.
+    // https://github.com/nodejs/performance/issues/134
     `  const zlib = globalThis.process?.getBuiltinModule?.("node:zlib")`,
     `  const buffer = globalThis.process?.getBuiltinModule?.("node:buffer")`,
     `  if (zlib && buffer) {`,
