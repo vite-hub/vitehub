@@ -500,7 +500,7 @@ describe("vitehub add", () => {
 
     expect(first.exitCode).toBe(2)
     expect(first.json.error?.code).toBe("SETUP_INPUT_NEEDED")
-    expect(first.json.missing).toEqual([{ choices: ["resend"], field: "email.driver" }])
+    expect(first.json.missing).toEqual([{ choices: ["resend", "log"], field: "email.driver" }])
     expect(first.json.rerun).toBe("vitehub add email --option email.driver=resend --no-install --yes --json")
 
     const rerun = await runSetup<AddResult>(first.json.rerun!.split(" ").slice(1), root)
@@ -598,6 +598,14 @@ describe("vitehub add", () => {
       expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain('database: { connection: { url: "libsql://example.com" } }')
       expect((await add([feature, "--no-install", "--yes"], root)).json.status).toBe("unchanged")
     }
+  })
+
+  it("adds Email with the log driver, which needs no provider", async () => {
+    const root = await copyFixture("vercel")
+    const result = await add(["email", "--option", "email.driver=log", "--no-install", "--yes"], root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.status).toBe("applied")
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain("email: { driver: 'log' },")
   })
 
   it("rejects the Cloudflare Email driver on other hosts before writing", async () => {
