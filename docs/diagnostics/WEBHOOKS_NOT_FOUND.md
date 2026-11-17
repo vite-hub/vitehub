@@ -1,0 +1,1 @@
+`sendWebhook()` or `redeliverWebhookDelivery()` names a webhook that has no file. Add `server/webhooks/<name>.ts`, or use a name from the generated types. It throws, because the name is a mistake in code.
