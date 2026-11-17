@@ -457,6 +457,8 @@ describe("pins and threads", () => {
       const { wrapper } = await layer([thread(1)]);
       const pin = wrapper.get("[data-slot=comment-pin]");
       for (let cycle = 0; cycle < 3; cycle++) {
+        // Closing the thread restores focus to its pin. A focused pin keeps its preview open on pointerleave.
+        (pin.element as HTMLElement).blur();
         await pin.trigger("pointerenter");
         const preview = wrapper.get("[data-slot=comment-layer-popover][data-preview=true]").element;
         expect(observed.has(preview)).toBe(true);
