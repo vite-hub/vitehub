@@ -13,6 +13,7 @@ export interface FakeTreeEntry {
 
 export interface FakeCommit {
   author?: { date: string, email?: string, login?: string, name?: string }
+  committer?: FakeCommit["author"]
   message: string
   parents: string[]
   sha: string
@@ -135,9 +136,10 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
     return [...next.values()]
   }
 
-  function addCommit(input: { author?: FakeCommit["author"], message: string, parents: string[], sha?: string, tree: FakeTreeEntry[] }): FakeCommit {
+  function addCommit(input: { author?: FakeCommit["author"], committer?: FakeCommit["author"], message: string, parents: string[], sha?: string, tree: FakeTreeEntry[] }): FakeCommit {
     const commit: FakeCommit = {
       author: input.author ?? { date: "2026-10-15T08:00:00Z", email: "bot@example.com", name: "Bot" },
+      committer: input.committer ?? input.author ?? { date: "2026-10-15T08:00:00Z", email: "bot@example.com", name: "Bot" },
       message: input.message,
       parents: input.parents,
       sha: fakeSha(input.sha ?? `commit-sha-${++commitIndex}`),
@@ -528,7 +530,7 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
       const commit = commits.get(sha)
       if (!commit) return failure(404, "Not Found")
       trees.set(`tree-of-${sha}`, commit.tree)
-      return json({ sha, message: commit.message, committer: commit.author, tree: { sha: `tree-of-${sha}` } })
+      return json({ sha, message: commit.message, committer: commit.committer, tree: { sha: `tree-of-${sha}` } })
     }
     if (rest === "/git/blobs" && method === "POST") {
       const blob = putBlob(new Uint8Array(Buffer.from(String(request.body?.content), "base64")))
@@ -548,12 +550,13 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
     if (rest === "/git/commits" && method === "POST") {
       const author = request.body?.author as { email: string, name: string } | undefined
       const commit = addCommit({
+        committer: request.body?.committer as FakeCommit["author"],
         ...(author ? { author: { date: "2026-10-15T08:00:00Z", email: author.email, name: author.name } } : {}),
         message: String(request.body?.message),
         parents: request.body?.parents as string[],
         tree: trees.get(String(request.body?.tree)) ?? [],
       })
-      return json({ sha: commit.sha }, { status: 201 })
+      return json({ sha: commit.sha, committer: commit.committer }, { status: 201 })
     }
     if (rest === "/git/refs" && method === "POST") {
       const name = String(request.body?.ref).replace(/^refs\/heads\//, "")

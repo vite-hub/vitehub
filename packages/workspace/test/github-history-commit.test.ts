@@ -338,6 +338,7 @@ describe("GitHub history commit", () => {
       metadata: { author: { id: "u1", name: "Ada Lovelace", email: "ada@example.com" } },
     })
     expect(fake.commits.get(revision.id)?.author).toMatchObject({ name: "Ada Lovelace", email: "ada@example.com" })
+    expect(fake.commits.get(revision.id)?.committer).toMatchObject({ name: "Bot", email: "bot@example.com" })
     expect(revision.metadata).toMatchObject({ author: "Ada Lovelace", authorEmail: "ada@example.com" })
     expect((await target.list({ path: "posts/a.md" })).revisions[0]).toMatchObject({ id: revision.id, metadata: { author: "Ada Lovelace" } })
 
@@ -357,6 +358,8 @@ describe("GitHub history commit", () => {
     const workspace = useWorkspace("content", { mode: "write", definition: { name: "content", store } })
     await workspace.fs.writeFile("posts/b.md", "b")
     const checkpoint = await workspace.history.checkpoint({ message: "docs: add b", author: { name: "Katherine Johnson", email: "katherine@example.com" } })
+    expect(fake.commits.get(snapshot.id)?.committer).toMatchObject({ name: "Bot", email: "bot@example.com" })
+    expect(fake.commits.get(checkpoint.id)?.committer).toMatchObject({ name: "Bot", email: "bot@example.com" })
     expect(fake.commits.get(checkpoint.id)?.author).toMatchObject({ name: "Katherine Johnson", email: "katherine@example.com" })
   })
 
