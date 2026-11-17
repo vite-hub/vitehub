@@ -222,10 +222,10 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
   const attempt = await startAttempt(run, runStore)
   options.onExecution?.()
   try {
-    const value = await runWithScheduleWaitUntil(
-      waitUntil => runInRunScopes(() => options.definition.handler(toHandlerContext(run, attempt, waitUntil))),
+    const value = await runInRunScopes(() => runWithScheduleWaitUntil(
+      waitUntil => options.definition.handler(toHandlerContext(run, attempt, waitUntil)),
       options.waitUntil,
-    )
+    ))
     const response = await serializeResponse(toResponse(value))
     return await completeRun(run, attempt, response, runStore)
   }

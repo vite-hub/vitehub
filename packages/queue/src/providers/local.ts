@@ -342,7 +342,9 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
         concurrency.set(job.queue, Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : 1)
         // The first job of a queue reads its limit, so start the other due jobs now.
         schedule()
-        checkQueueHandlerResponse(await runInRunScopes(() => definition.handler({ attempts: job.attempts, id: job.id, payload: job.payload })))
+        await runInRunScopes(async () => {
+          checkQueueHandlerResponse(await definition.handler({ attempts: job.attempts, id: job.id, payload: job.payload }))
+        })
         handled = true
       }
       catch (error) {

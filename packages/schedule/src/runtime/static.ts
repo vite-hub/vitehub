@@ -167,10 +167,10 @@ export function createStaticScheduleRun(
 }
 
 export async function executeStaticSchedule(options: ExecuteStaticScheduleOptions): Promise<unknown> {
-  return await runWithScheduleWaitUntil(
-    waitUntil => runInRunScopes(() => options.definition.handler(createStaticScheduleRun({ ...options, waitUntil }))),
+  return await runInRunScopes(() => runWithScheduleWaitUntil(
+    waitUntil => options.definition.handler(createStaticScheduleRun({ ...options, waitUntil })),
     options.waitUntil,
-  )
+  ))
 }
 
 export async function executeMatchingStaticSchedules(options: ExecuteMatchingStaticSchedulesOptions): Promise<unknown[]> {

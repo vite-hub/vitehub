@@ -328,7 +328,9 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
     try {
       const definition = await options.load(row.queue)
       if (!definition) throw options.missing(row.queue)
-      checkQueueHandlerResponse(await runInRunScopes(() => definition.handler({ attempts: row.attempts, id: row.message_id, payload: row.no_payload ? undefined : row.payload })))
+      await runInRunScopes(async () => {
+        checkQueueHandlerResponse(await definition.handler({ attempts: row.attempts, id: row.message_id, payload: row.no_payload ? undefined : row.payload }))
+      })
     }
     catch (error) {
       failure = { error }

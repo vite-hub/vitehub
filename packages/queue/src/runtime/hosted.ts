@@ -15,12 +15,14 @@ function createVercelJobHandler(definition: QueueDefinition) {
   return async (payload: unknown, metadata?: unknown) => {
     // SAFETY: Vercel supplies this optional delivery metadata shape to queue callbacks.
     const meta = metadata as { deliveryCount?: number, messageId?: string } | undefined
-    checkQueueHandlerResponse(await runInRunScopes(() => definition.handler({
-      attempts: typeof meta?.deliveryCount === "number" ? meta.deliveryCount : 1,
-      id: typeof meta?.messageId === "string" ? meta.messageId : "vercel-message",
-      metadata,
-      payload,
-    })))
+    await runInRunScopes(async () => {
+      checkQueueHandlerResponse(await definition.handler({
+        attempts: typeof meta?.deliveryCount === "number" ? meta.deliveryCount : 1,
+        id: typeof meta?.messageId === "string" ? meta.messageId : "vercel-message",
+        metadata,
+        payload,
+      }))
+    })
   }
 }
 
