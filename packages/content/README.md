@@ -28,7 +28,7 @@ Content plugins, such as `json()`, `media()`, or `sqlite-full-text-search`, go i
 evaluated when the content runtime is created and can be changed by rebuilding
 or recreating that runtime.
 
-Content uses the app's `comark` and `@comark/html`, so the app and Content parse with one copy. pnpm and npm install them with Content. Install `comark` yourself when you import a parse plugin directly:
+Content uses the app's `comark`, `@comark/html`, and `comark-ui` (0.12 or later), so the app and Content parse and render with one copy. pnpm and npm install them with Content. Install `comark` yourself when you import a parse plugin directly:
 
 ```sh
 pnpm add comark
