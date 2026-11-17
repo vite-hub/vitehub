@@ -164,7 +164,8 @@ describe("authDatabase() on a Database with Better Auth tables", () => {
     expect(sql).not.toMatch(/__new_|DROP TABLE|DROP INDEX|DROP COLUMN/)
     const statements = sql.split("--> statement-breakpoint").map(statement => statement.trim().split("\n")[0]).filter(Boolean)
     expect(statements.every(statement => /^(?:CREATE TABLE|ALTER TABLE `\w+` ADD|CREATE (?:UNIQUE )?INDEX)/.test(statement!)), sql).toBe(true)
-    expect(sql).toContain("ALTER TABLE `user` ADD `role` text;")
+    expect(existing?.user?.columns.role).toMatchObject({ notNull: true })
+    expect(sql).not.toContain("ALTER TABLE `user` ADD `role`")
     expect(sql).toContain("ALTER TABLE `user` ADD `language` text;")
     expect(sql).toContain("CREATE TABLE `rate_limit`")
 
