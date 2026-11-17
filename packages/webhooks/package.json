@@ -63,6 +63,7 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "drizzle-orm": "catalog:database",
+    "nitro": "catalog:unjs",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -71,7 +72,8 @@
   },
   "peerDependencies": {
     "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
-    "vite": "catalog:vite-compat"
+    "vite": "catalog:vite-compat",
+    "nitro": "catalog:nitro-compat"
   },
   "peerDependenciesMeta": {
     "vite": {

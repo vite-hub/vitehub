@@ -22,7 +22,9 @@ const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
 const declarationDiagnosticsScript = join(import.meta.dirname, "declaration-diagnostics.ts")
 const markdownEditorTiptapPeers = ["@tiptap/core", "@tiptap/extension-image", "@tiptap/extension-list", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@tiptap/vue-3"]
-const optionalPeers = ["@formisch/vue", "@json-render/core", "@json-render/vue", "@nuxt/kit", "@nuxt/schema", "@nuxt/ui", ...markdownEditorTiptapPeers, "@upstash/redis", "@vueuse/core", "evalite", "evlog", "nuxt", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+// The drag handle ships on its own release line, so it gets its own installed version.
+const markdownEditorDragHandlePeers = ["@tiptap/extension-drag-handle", "@tiptap/extension-drag-handle-vue-3"]
+const optionalPeers = ["@formisch/vue", "@json-render/core", "@json-render/vue", "@nuxt/kit", "@nuxt/schema", "@nuxt/ui", ...markdownEditorTiptapPeers, ...markdownEditorDragHandlePeers, "@upstash/redis", "@vueuse/core", "evalite", "evlog", "nuxt", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
 // ProseMirror's package has no root export; probe the entry used by the editor.
 const optionalPeerProbes = optionalPeers.map(peer => peer === "@tiptap/pm" ? "@tiptap/pm/state" : peer)
 // Every fixture and export runs in its own child process. Independent fixtures
@@ -639,6 +641,7 @@ async function addOptionalPeers(appDir: string) {
     "@nuxt/schema": await installedVersion(join(repoRoot, "packages/kit/node_modules/@nuxt/schema/package.json")),
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")),
     ...Object.fromEntries(markdownEditorTiptapPeers.map(name => [name, tiptapVersion])),
+    ...Object.fromEntries(await Promise.all(markdownEditorDragHandlePeers.map(async name => [name, await installedVersion(join(repoRoot, `packages/ui/node_modules/${name}/package.json`))]))),
     "@upstash/redis": await installedVersion(join(repoRoot, "packages/kv/node_modules/@upstash/redis/package.json")),
     "@vueuse/core": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@vueuse/core/package.json")),
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
