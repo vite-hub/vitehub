@@ -66,6 +66,24 @@ describe("contributed migrations", () => {
     expect(readPendingMigration(migrationsDir, "20990101000002_rebuild", entries).dataLoss.length).toBeGreaterThan(0)
   })
 
+  it("reads the foreign keys that reference a rebuilt table from the previous snapshot", async () => {
+    const { migrationsDir } = await createDirs()
+    await writeFile(join(migrationsDir, "20990101000000_init/snapshot.json"), JSON.stringify({ ddl: [
+      { entityType: "tables", name: "organization" },
+      { entityType: "columns", table: "organization", name: "id" },
+      { entityType: "tables", name: "member" },
+      { entityType: "columns", table: "member", name: "organization_id" },
+      { entityType: "fks", table: "member", name: "member_organization_id_organization_id_fk", columns: ["organization_id"], tableTo: "organization", columnsTo: ["id"], onDelete: "CASCADE", onUpdate: "NO ACTION" },
+    ] }))
+    const rebuild = join(migrationsDir, "20990101000001_rebuild")
+    await mkdir(rebuild)
+    await writeFile(join(rebuild, "migration.sql"), "CREATE TABLE __new_organization (id text PRIMARY KEY);\n--> statement-breakpoint\nINSERT INTO __new_organization (id) SELECT id FROM organization;\n--> statement-breakpoint\nDROP TABLE organization;\n--> statement-breakpoint\nALTER TABLE __new_organization RENAME TO organization;")
+    expect(readPendingMigration(migrationsDir, "20990101000001_rebuild", readMigrations(migrationsDir)).dataLoss).toEqual([expect.objectContaining({
+      reason: "rebuilds table \"organization\", and dropping the old table deletes the rows of \"member\".\"organization_id\" (ON DELETE CASCADE)",
+      tables: ["member"],
+    })])
+  })
+
   it("validates `migrations` as an absolute folder on table contributions and uses", async () => {
     const plugin = (migrations: unknown) => ({ name: "feedback/vite", vitehub: { databases: [{ migrations, name: "feedback" }] } })
     await expect(collectDatabaseContributions([plugin("/srv/feedback/migrations")], { projectRoot: "/app", root: "/app", rootDir: "/app" })).resolves.toMatchObject({
