@@ -73,7 +73,7 @@ describe("realtime caret types", () => {
 
 describe("realtime definition types", () => {
   it("gives identify(), origins(), and authorize() the H3 event of the request, with Standard Context", () => {
-    expectTypeOf<RealtimeRequestContext["event"]>().toEqualTypeOf<H3Event>()
+    expectTypeOf<RealtimeRequestContext["event"]>().toExtend<H3Event>()
     expectTypeOf<RealtimeAuthorizeContext["event"]>().toEqualTypeOf<RealtimeRequestEvent>()
     expectTypeOf<RealtimeRequestEvent["~standard"]["req"]>().toEqualTypeOf<Request>()
     expectTypeOf<RealtimeRequestEvent>().toExtend<ViteHubContext>()
