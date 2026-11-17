@@ -236,7 +236,8 @@ function etagMatches(header: string | null, etag: string): boolean {
 }
 
 /**
- * Serve Markdown copies as H3 middleware, not as a Fetchable route: Nitro routes cannot match a suffix.
+ * Serve Markdown copies as H3 middleware, not as a Fetchable route. Nitro routes can match `/**.md` now, but `<url>.md`
+ * and `Accept: text/markdown` at a page URL share this one middleware, so it stays.
  *
  * - `<url>.md` returns the copy from `content.markdown()`.
  * - A page URL with `Accept: text/markdown` before `text/html` returns the same copy.

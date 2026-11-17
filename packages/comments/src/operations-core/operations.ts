@@ -1,10 +1,12 @@
 import { defineOperation, operationAccessAllows } from "@vite-hub/internal/operations"
+import { clientAddressKey, createClientRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import * as v from "valibot"
 
 import { authorOf, guestFromHeaders } from "../identity.ts"
-import { commentThreadLine, commentThreadSummary, describeCommentThread } from "../thread-text.ts"
+import { commentThreadSummary, commentThreadsText, describeCommentThread, hiddenThreadsNote } from "../thread-text.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
-import { isPagePath } from "./path.ts"
+import { isPagePath, pagePathOf } from "./path.ts"
 import { commentsRuntime } from "./server.ts"
 import { attachmentThread, can, createThread, deniedError, earlierThread, editMessage, fail, maximumAttachmentBytes, maximumAttachments, maximumCommentBodyLength, maximumMentions, personOf, readAttachment, replyToThread, requestIdSchema, retried, storeAttachment, suggest } from "./service.ts"
 
@@ -71,7 +73,14 @@ export const commentAnchorSchema: typeof anchor = anchor
 
 const subjectKind = v.pipe(v.string(), v.minLength(1), v.maxLength(40))
 const subject = v.strictObject({ id: v.pipe(v.string(), v.minLength(1), v.maxLength(500)), kind: subjectKind })
-const page = v.pipe(v.string(), v.check(isPagePath, 'A page is an app path that starts with one "/", such as "/pricing", without "?" or "#".'))
+const page = v.pipe(
+  v.string(),
+  v.description("A path such as /pricing, or a full URL of the page."),
+  v.transform(pagePathOf),
+  v.check(isPagePath, 'A page is an app path that starts with one "/", such as "/pricing", without "?" or "#", or a full http(s) URL of the page.'),
+  // The key of a page has no trailing slash, as the overlay stores it.
+  v.transform(path => path.length > 1 ? path.replace(/\/+$/, "") : path),
+)
 const cursor = v.strictObject({ id: v.pipe(v.string(), v.minLength(1), v.maxLength(100)), updatedAt: v.number() })
 const text = v.pipe(v.string(), v.maxLength(maximumCommentBodyLength))
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(100))
@@ -96,15 +105,18 @@ export interface CommentsCaller {
   actor?: CommentActor
   /** What the transport checked before, for the default policy. */
   gate: CommentsPolicyGate
+  /** The Console admitted the caller to its Comments section. `authorize` gets it as `console`. */
+  console?: boolean
   /** The request, for the guest headers of an anonymous writer. */
   request?: Request
   waitUntil?: (task: Promise<unknown>) => void
 }
 
 /**
- * Operations run only after the Console admitted the call to the `comments` section. With `identify`, the app names
- * the user from the request of the call, as in the overlay API, and `authorize` decides; a call without a request,
- * such as an agent's, has no user. Without `identify`, the user is the Console's, and the default policy trusts it.
+ * Operations run only after the Console admitted the call to the `comments` section, so `authorize` gets
+ * `console: true`. With `identify`, the app names the user from the request of the call, as in the overlay API, and
+ * `authorize` decides; a call without a request, such as an agent's, has no user. Without `identify`, the user is the
+ * Console's, and the default policy trusts it.
  */
 async function caller(context: OperationContext): Promise<CommentsCaller> {
   const runtime = await commentsRuntime()
@@ -115,6 +127,7 @@ async function caller(context: OperationContext): Promise<CommentsCaller> {
     : { gate: { console: true, development }, user: context.user }
   return {
     ...identity,
+    console: true,
     runtime,
     ...(actor ? { actor } : {}),
     ...(context.request ? { request: context.request } : {}),
@@ -129,7 +142,7 @@ interface Target {
 
 /** Asks the policy, with the thread and its subject, or the subject a thread would start on. */
 async function permitted(who: CommentsCaller, action: CommentAction, target: Target = {}): Promise<boolean> {
-  return can(who.runtime, { action, user: who.user, ...(who.actor ? { actor: who.actor } : {}), ...target }, who.gate)
+  return can(who.runtime, { action, user: who.user, ...(who.actor ? { actor: who.actor } : {}), ...(who.console ? { console: true } : {}), ...target }, who.gate)
 }
 
 async function allow(who: CommentsCaller, action: CommentAction, target?: Target): Promise<void> {
@@ -145,8 +158,30 @@ function author(who: CommentsCaller): CommentUser {
   return guest
 }
 
+const guestLimits = new WeakMap<CommentsRuntime, ReturnType<typeof createClientRateLimit>>()
+
+/**
+ * Counts one write of a guest against `defineComments({ rateLimit })`, by the address of the request. Signed-in people
+ * and Agents are not limited. Call it after the policy allowed the write, so a refused write uses no budget.
+ */
+async function limitGuest(who: CommentsCaller): Promise<void> {
+  const policy = who.runtime.definition.rateLimit
+  // A guest names itself in the headers of a request, so a call without one has no guest to limit.
+  if (!policy || !who.request || who.actor || (who.user && who.user.guest !== true)) return
+  let limit = guestLimits.get(who.runtime)
+  if (!limit) {
+    limit = createClientRateLimit({ name: "comments", unavailable: "Comments could not count this guest comment in Rate Limit", ...(who.runtime.rateLimit ? { shared: who.runtime.rateLimit } : {}) })
+    guestLimits.set(who.runtime, limit)
+  }
+  const decision = await limit(who.request, `guest:${clientAddressKey(who.request, getStandardContext(who.request))}`, policy)
+  if (decision.allowed) return
+  const { retryAfter } = decision
+  // `retryAfter` gives the Comments API its `retry-after` header.
+  throw Object.assign(fail(commentsErrorDiagnostics.COMMENTS_GUEST_RATE_LIMITED({ retryAfter }), 429), { retryAfter })
+}
+
 function writeOptions(who: CommentsCaller) {
-  return { gate: who.gate, user: who.user, ...(who.waitUntil ? { waitUntil: who.waitUntil } : {}) }
+  return { console: who.console, gate: who.gate, user: who.user, ...(who.waitUntil ? { waitUntil: who.waitUntil } : {}) }
 }
 
 /** A thread that does not exist and one that the caller may not read look the same: not found. */
@@ -227,26 +262,37 @@ export const commentInputSchemas = {
 } as const
 
 /**
+ * The threads of a list that the caller may read, and how many threads the policy left out on the way. Threads the
+ * caller may not read are left out, so it asks again after them until the page is full or the threads end.
+ */
+async function readableThreads(input: CommentListQuery, who: CommentsCaller): Promise<{ threads: CommentThread[], hidden: number }> {
+  const limit = input.limit ?? defaultLimit
+  const readable: CommentThread[] = []
+  let hidden = 0
+  let before = input.before
+  while (readable.length < limit) {
+    const threads = await who.runtime.store.list({ ...input, limit, ...(before ? { before } : {}), ...(who.user ? { userId: who.user.id } : {}) })
+    const allowed = await mapLimit(threads, authorizeConcurrency, thread => permitted(who, "read", { thread }).catch(() => false))
+    for (const [index, thread] of threads.entries()) {
+      // Count only up to the last thread returned, so a caller that pages on from it counts each thread once.
+      if (readable.length === limit) break
+      if (allowed[index]) readable.push(thread)
+      else hidden++
+    }
+    if (threads.length < limit) break
+    before = cursorOf(threads.at(-1)!)
+  }
+  return { threads: await withForge(who, readable), hidden }
+}
+
+/**
  * The comment actions behind every surface. The operations (RPC, CLI, MCP) and the overlay API call the same
  * functions, so one policy, one set of checks, and one set of errors serve them all. Each one checks `authorize` for
  * its caller; the input must have passed `commentInputSchemas`.
  */
 export const commentActions = {
   async list(input: CommentListQuery, who: CommentsCaller): Promise<CommentThread[]> {
-    const limit = input.limit ?? defaultLimit
-    const readable: CommentThread[] = []
-    let before = input.before
-    // Threads the caller may not read are left out, so ask again after them until the page is full or the threads end.
-    while (readable.length < limit) {
-      const threads = await who.runtime.store.list({ ...input, limit, ...(before ? { before } : {}), ...(who.user ? { userId: who.user.id } : {}) })
-      const allowed = await mapLimit(threads, authorizeConcurrency, thread => permitted(who, "read", { thread }).catch(() => false))
-      for (const [index, thread] of threads.entries()) {
-        if (allowed[index] && readable.length < limit) readable.push(thread)
-      }
-      if (threads.length < limit) break
-      before = cursorOf(threads.at(-1)!)
-    }
-    return withForge(who, readable)
+    return (await readableThreads(input, who)).threads
   },
 
   async get(input: CommentGetInput, who: CommentsCaller): Promise<CommentThread | null> {
@@ -263,6 +309,7 @@ export const commentActions = {
     if (earlier) return retried(earlier, { author: author(who), subject: input.subject }, canRead)
     await allow(who, "read", { subject: input.subject })
     await allow(who, "write", { subject: input.subject })
+    await limitGuest(who)
     return createThread(who.runtime, { ...input, author: author(who), ...(who.actor ? { actor: who.actor } : {}) }, { ...writeOptions(who), canRead })
   },
 
@@ -270,6 +317,7 @@ export const commentActions = {
   async reply(input: CommentReplyInput, who: CommentsCaller, options: { allowResolved?: boolean } = {}): Promise<{ thread: CommentThread, message: CommentMessage }> {
     const found = await load(who, input.threadId)
     await allow(who, "write", { thread: found })
+    await limitGuest(who)
     return replyToThread(who.runtime, found, {
       body: input.body,
       author: author(who),
@@ -332,7 +380,7 @@ export const commentActions = {
     await allow(who, "write", target)
     const query = input.query.trim()
     if (query.length < (options.minimum ?? minimumQuery)) return []
-    return suggest(who.runtime, { gate: who.gate, limit: Math.min(input.limit ?? 5, maximumSuggestions), query, user: who.user, ...target })
+    return suggest(who.runtime, { console: who.console, gate: who.gate, limit: Math.min(input.limit ?? 5, maximumSuggestions), query, user: who.user, ...target })
   },
 
   async upload(input: CommentUploadInput, who: CommentsCaller): Promise<CommentAttachment> {
@@ -340,6 +388,7 @@ export const commentActions = {
     await allow(who, "read", target)
     await allow(who, "write", target)
     author(who)
+    await limitGuest(who)
     return storeAttachment(who.runtime, input, who.user)
   },
 
@@ -357,7 +406,7 @@ function base64(bytes: Uint8Array): string {
 }
 
 const list = defineOperation({
-  description: "List comment threads, newest first, filtered by subject, page, status, author, mention, or subject revision. Pass the last thread as `before` for the next page.",
+  description: "ViteHub Comments: list threads on any subject, such as the app's pages where people comment with the Comments toolbar, newest first, as full threads. Filter by subject, page, status, author, mention, or subject revision. Pass the last thread as `before` for the next page. For a short list of page threads, use comments.threads.",
   input: listInput,
   kind: "read",
   name: "comments.list",
@@ -369,7 +418,7 @@ const list = defineOperation({
 const searchBatch = maximumLimit
 
 const threads = defineOperation({
-  description: "List the comment threads on the app's pages, newest activity first, with the first comment and the Vue components where each was left. Read one with comments.get. After you change the code, reply with comments.reply and resolve it with comments.resolve.",
+  description: "ViteHub Comments: threads people left with the Comments toolbar on the app's pages, newest activity first. Each has the page, what the comment points at, the time, the first comment, and the Vue components. `hidden` counts the threads that `authorize` hid from you. Read one with comments.get. After you change the code, reply with comments.reply and resolve it with comments.resolve.",
   input: threadsInput,
   kind: "read",
   name: "comments.threads",
@@ -381,22 +430,25 @@ const threads = defineOperation({
     // A search reads larger pages, since it keeps only the threads whose comments contain the text.
     const batch = search ? searchBatch : limit
     const found: CommentThread[] = []
+    let hidden = 0
     let before: CommentListCursor | undefined
     while (found.length < limit) {
-      const listed = await commentActions.list({ limit: batch, status, subjectKind: "page", ...(input.page ? { page: input.page } : {}), ...(before ? { before } : {}) }, who)
-      for (const thread of listed) {
+      const listed = await readableThreads({ limit: batch, status, subjectKind: "page", ...(input.page ? { page: input.page } : {}), ...(before ? { before } : {}) }, who)
+      hidden += listed.hidden
+      for (const thread of listed.threads) {
         if (!search || thread.messages.some(message => message.body.toLowerCase().includes(search))) found.push(thread)
         if (found.length === limit) break
       }
-      if (listed.length < batch) break
-      before = cursorOf(listed.at(-1)!)
+      if (listed.threads.length < batch) break
+      before = cursorOf(listed.threads.at(-1)!)
     }
-    return { status, threads: found.map(commentThreadSummary) }
+    const note = hiddenThreadsNote(hidden, { authorize: Boolean(who.runtime.definition.authorize), identify: Boolean(who.runtime.identify), user: who.user !== null, console: who.console === true })
+    return { status, threads: found.map(commentThreadSummary), hidden, ...(note ? { note } : {}) }
   },
   // After `run`, so TypeScript infers the output from `run` before it types `format`.
   mcp: {
-    format: ({ status, threads }) => threads.length ? threads.map(commentThreadLine).join("\n") : `No ${status} threads.`,
-    title: "List comment threads",
+    format: ({ status, threads, note }) => commentThreadsText(threads, status, note ?? ""),
+    title: "List ViteHub Comments threads",
   },
   section: "comments",
 })

@@ -601,7 +601,7 @@ By default, every pass clones the repository, copies it into a new provider work
 - Entries go when the PR closes or leaves the filter, after `idleDays` (default `7`) without a pass, and least recently used first while they use more than `budgetGb` (default `60`) or the disk has less than `minFreePercent` (default `15`) free. The host sweeps at startup and every `sweepMinutes` (default `60`).
 - Passes placed in a Sandbox keep using the Sandbox workspace.
 
-`warmWorkspaces: { resumeThreads: true }` continues the previous pass's provider thread instead of starting a new one, so the model does not read the PR and the code again. It needs a kept workspace, a previous pass that pushed or recorded a wait, and the same base commit and release. The resumed pass still gets the full current snapshot, with a note that it continues the previous session. `babysitter.owner.finished` reports `workspace`, `workspace_reason`, `workspace_ms`, `resumed`, and `session_reason`.
+`warmWorkspaces: { resumeThreads: true }` continues the previous pass's provider thread instead of starting a new one, so the model does not read the PR and the code again. It needs a kept workspace, a previous pass that pushed or recorded a wait, and the same base commit and release. The resumed pass still gets the full current snapshot, with a note that it continues the previous session. The host keeps only the session that the next pass can resume, and deletes it when the PR's workspace goes. Without `resumeThreads`, the host stores no provider session. `babysitter.owner.finished` reports `workspace`, `workspace_reason`, `workspace_ms`, `resumed`, and `session_reason`.
 
 ### Health and prerequisites
 

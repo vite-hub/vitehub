@@ -611,7 +611,7 @@ describe("sources and loaders", () => {
     })
 
     registerWorkspace("github-lazy-tree-cache", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: github({
           cache: { maxAge: 3600 },
@@ -648,7 +648,7 @@ describe("sources and loaders", () => {
     })
 
     registerWorkspace("github-lazy-content-cache", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: github({
           cache: { maxAge: 3600 },
@@ -682,7 +682,7 @@ describe("sources and loaders", () => {
 
     registerWorkspace("github-loader", defineWorkspace({
       rootDir: root,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: github({
           mount: "docs",
@@ -738,7 +738,7 @@ describe("sources and loaders", () => {
       source: "test",
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       assets: true,
     }, registryFile)
 
@@ -773,7 +773,7 @@ describe("sources and loaders", () => {
       sourceRootDir: directory,
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       assets: true,
     })
 
@@ -928,7 +928,7 @@ describe("sources and loaders", () => {
       sourceRootDir: directory,
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       assets: true,
     })
 
@@ -963,7 +963,7 @@ describe("sources and loaders", () => {
       sourceRootDir: sourceRoot,
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       assets: true,
     })
 
@@ -997,7 +997,7 @@ describe("sources and loaders", () => {
       sourceRootDir: sourceRoot,
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       assets: true,
     })
     await rm(sourceRoot, { recursive: true, force: true })
@@ -1046,7 +1046,7 @@ describe("sources and loaders", () => {
       sourceRootDir: sourceRoot,
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       assets: true,
     })
     await rm(sourceRoot, { recursive: true, force: true })
@@ -1699,7 +1699,7 @@ describe("sources and loaders", () => {
       source: "test",
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       assets: ["selected"],
     }, registryFile)
 
@@ -1737,7 +1737,7 @@ describe("sources and loaders", () => {
       source: "test",
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       assets: true,
     }, registryFile)
 
@@ -1762,7 +1762,7 @@ describe("sources and loaders", () => {
       source: "test",
     }], root, {
       root: join(root, ".vitehub", "workspaces"),
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       assets: true,
     }, join(root, ".vitehub", "workspace", "assets", "registry.mjs"))
   }
@@ -1816,7 +1816,7 @@ describe("sources and loaders", () => {
     let customWrites = 0
     registerWorkspace("sources", defineWorkspace({
       rootDir: root,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: glob({ cwd: ".", include: ["**/*.md"] }),
         files: file({ workspacePath: "two.md", content: "# Two\n" }),
@@ -1877,7 +1877,7 @@ describe("sources and loaders", () => {
     const registryFile = join(root, ".vitehub/assets/registry.mjs")
     const definition = defineWorkspace({
       rootDir: root,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: file({ content: "hello\n", workspacePath: "README.md" }),
         data: file({ content: new Uint8Array([1, 2, 3]), workspacePath: "data.bin" }),

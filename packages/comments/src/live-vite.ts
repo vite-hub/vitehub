@@ -49,6 +49,8 @@ export interface CommentsImports {
   connect: string
   /** Exports `blob`, the Blob store that attachments go to when the app has Blob. */
   blob: string
+  /** Exports `checkRateLimit`, which counts guest writes when Rate Limit counts in a shared KV store. */
+  rateLimit: string
 }
 
 /** Options of `comments()`, for apps that use Comments without `vite-hub`. */
@@ -97,10 +99,15 @@ export interface CommentsVitePluginOptions {
   blob?: boolean
   /** `false` leaves the overlay out: no `comments` page tool. The API, the operations, and the Console stay. */
   overlay?: false
+  /**
+   * ViteHub Rate Limit counts in a KV store that every server process shares: count the guest writes of
+   * `defineComments({ rateLimit })` there too. Default `false`: each process counts in its memory.
+   */
+  rateLimit?: boolean
 }
 
 export interface CommentsRealtimeContributionContext {
-  authority: "cloudflare" | "memory"
+  driver: "cloudflare" | "memory"
   directory: string
   projectRoot: string
   serverDirs?: string[]
@@ -137,6 +144,7 @@ const defaultImports: CommentsImports = {
   contentClient: "@vite-hub/content/client",
   connect: "@vite-hub/comments/runtime/connect",
   blob: "@vite-hub/blob",
+  rateLimit: "@vite-hub/rate-limit",
 }
 
 /**
@@ -296,7 +304,7 @@ function sessionLines(options: CommentsVitePluginOptions, imports: CommentsImpor
     : { imports: [], value: "undefined" }
 }
 
-/** The session reader of presence and MCP: the Auth user, else the person signed in with GitHub. */
+/** The session reader of presence and MCP: the Auth user, else `githubLogin`, the person signed in with GitHub. */
 function sessionWithGitHubLines(options: CommentsVitePluginOptions, imports: CommentsImports, repository?: string, base?: string): { imports: string[], value: string, githubLogin?: true } {
   if (options.auth) return sessionLines(options, imports)
   const route = mountedCommentsRoute(base)
@@ -305,7 +313,7 @@ function sessionWithGitHubLines(options: CommentsVitePluginOptions, imports: Com
       `import { createCommentsGitHubLogin } from ${JSON.stringify(imports.runtime)}`,
       `const githubLogin = createCommentsGitHubLogin(${JSON.stringify({ ...(repository ? { repository } : {}), ...(route !== commentsRoute ? { basePath: `${route}/auth` } : {}) })})`,
     ],
-    value: "githubLogin.user",
+    value: "undefined",
     githubLogin: true,
   }
 }
@@ -374,6 +382,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
     // With Auth, `@` suggests the users of Auth.
     ...(input.session?.auth ? [`import { commentsAuthUsers } from ${JSON.stringify(input.imports.auth)}`] : []),
     ...(input.session?.blob ? [`import { blob } from ${JSON.stringify(input.imports.blob)}`] : []),
+    ...(input.session?.rateLimit ? [`import { checkRateLimit } from ${JSON.stringify(input.imports.rateLimit)}`] : []),
     ...(postgres ? [`import { commentsPostgresSchema as schema } from ${JSON.stringify(`${input.imports.database}/postgres`)}`] : []),
     `export default defineCommentsPlugin({ ${[
       "comments",
@@ -382,6 +391,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
       ...(session.githubLogin ? ["githubLogin"] : []),
       ...(input.session?.auth ? ["users: commentsAuthUsers"] : []),
       ...(input.session?.blob ? ["attachments: blob"] : []),
+      ...(input.session?.rateLimit ? ["rateLimit: checkRateLimit"] : []),
       ...(postgres ? ["dialect: \"postgresql\"", "tables: { commentCounters: schema.vitehubCommentCounters, commentMessages: schema.vitehubCommentMessages, commentThreads: schema.vitehubCommentThreads, commentForge: schema.vitehubCommentForge }"] : []),
       `development: ${input.development === true}`,
       `overlay: ${overlay}`,
@@ -552,7 +562,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
           ...definitionLines(definition, imports.runtime),
           ...session.imports,
           "",
-          `export default commentsRealtime(comments, { session: ${session.value} })`,
+          `export default commentsRealtime(comments, { session: ${session.value}${session.githubLogin ? ", githubLogin" : ""} })`,
           "",
         ].join("\n"))
         return { definitions: [{ handler: file, name: commentsRealtimeDefinition }] }

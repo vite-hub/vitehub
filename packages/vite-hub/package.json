@@ -1,6 +1,6 @@
 {
   "name": "vite-hub",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The cohesive ViteHub framework distribution for Vite applications and agents.",
   "keywords": [
     "agent",
@@ -797,6 +797,21 @@
       "import": "./dist/web-container/snapshot.js",
       "default": "./dist/web-container/snapshot.js"
     },
+    "./webhooks": {
+      "types": "./dist/webhooks.d.ts",
+      "import": "./dist/webhooks.js",
+      "default": "./dist/webhooks.js"
+    },
+    "./webhooks/database": {
+      "types": "./dist/webhooks/database.d.ts",
+      "import": "./dist/webhooks/database.js",
+      "default": "./dist/webhooks/database.js"
+    },
+    "./webhooks/runtime": {
+      "types": "./dist/webhooks/runtime.d.ts",
+      "import": "./dist/webhooks/runtime.js",
+      "default": "./dist/webhooks/runtime.js"
+    },
     "./workflow": {
       "types": "./dist/workflow.d.ts",
       "import": "./dist/workflow.js",
@@ -969,8 +984,8 @@
     "@iconify-json/lucide": "catalog:ui",
     "@iconify/vue": "catalog:ui",
     "@internationalized/date": "^3.12.4",
-    "@json-render/core": "0.21.0",
-    "@json-render/vue": "0.21.0",
+    "@json-render/core": "0.22.0",
+    "@json-render/vue": "0.22.0",
     "@libsql/client": "catalog:database",
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@nuxt/ui": "catalog:nuxt",
@@ -1008,8 +1023,6 @@
     "@vite-hub/i18n": "workspace:*",
     "@vite-hub/icons": "workspace:*",
     "@vite-hub/internal": "workspace:*",
-    "@ui-sdk/core": "0.1.0-beta.5",
-    "@ui-sdk/vue": "0.1.0-beta.5",
     "@vite-hub/kit": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
@@ -1023,6 +1036,7 @@
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
+    "@vite-hub/webhooks": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vitejs/plugin-vue": "^6.0.9",
@@ -1035,6 +1049,7 @@
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
     "evalite": "catalog:ai",
+    "fuse.js": "7.5.0",
     "happy-dom": "21.0.3",
     "katex": "^0.19.1",
     "miniflare": "4.20260730.0",
@@ -1069,8 +1084,8 @@
     "@cloudflare/workers-types": ">=4",
     "@formisch/vue": "^1.2.0",
     "@google-cloud/storage": "catalog:storage",
-    "@json-render/core": "0.21.0",
-    "@json-render/vue": "0.21.0",
+    "@json-render/core": "0.22.0",
+    "@json-render/vue": "0.22.0",
     "@libsql/client": "catalog:database",
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@nuxt/ui": "^4.11.0",
@@ -1105,6 +1120,7 @@
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
+    "@vite-hub/webhooks": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vueuse/core": "catalog:ui",
@@ -1260,6 +1276,9 @@
       "optional": true
     },
     "@vite-hub/web-container": {
+      "optional": true
+    },
+    "@vite-hub/webhooks": {
       "optional": true
     },
     "@vite-hub/workflow": {

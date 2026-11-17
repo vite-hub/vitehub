@@ -57,10 +57,10 @@ const normalizeTemplateModulePath = (id: string) => {
   return /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("/") ? normalized : `/${normalized}`
 }
 const normalizeWatchedPath = (file: string) => file.replaceAll("\\", "/")
-export type EmailProvider = "cloudflare-email" | "log" | "resend"
+export type EmailDriverName = "cloudflare" | "log" | "resend"
 
 interface GeneratedEmailDefinition {
-  driver: EmailProvider
+  driver: EmailDriverName
   handler: string
   name: "default"
   options: EnvRuntimeRegistry
@@ -77,7 +77,7 @@ export interface EmailOutboxOptions {
 }
 
 export interface EmailOptions {
-  driver: EmailProvider
+  driver: EmailDriverName
   options?: EnvRuntimeConfigOptions
   /**
    * Development outbox. In `vite dev`, `email.send()` records each message. `false` disables the outbox, and then
@@ -133,7 +133,7 @@ interface InternalEmailVitePluginOptions {
   /** The module that generated types augment. The `vite-hub` facade passes `vite-hub/email`. */
   importBase?: string
   runtimeEnvImport?: string
-  workflowProvider?: string
+  workflowDriver?: string
 }
 
 function isRuntimeEnvEntry(value: unknown): value is { default?: unknown, secret: boolean, source: Record<string, unknown> } {
@@ -164,9 +164,12 @@ function renderResolvedOptions(value: unknown, reference: string): string {
   ).join(", ")} }`
 }
 
+/** Driver names that ViteHub renamed to the host name. `npx @vite-hub/codemods driver-key` moves them. */
+const renamedEmailDrivers = new Map([["cloudflare-email", "cloudflare"]])
+
 function resolveDriverImport(driver: string): string {
-  if (driver !== "resend" && driver !== "cloudflare-email" && driver !== "log") {
-    throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER()
+  if (driver !== "resend" && driver !== "cloudflare" && driver !== "log") {
+    throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER({ driver: JSON.stringify(driver) ?? String(driver), renamed: renamedEmailDrivers.get(String(driver)) })
   }
   const extension = import.meta.url.endsWith(".ts") ? "ts" : "js"
   return fileURLToPath(new URL(`./drivers/${driver}.${extension}`, import.meta.url))
@@ -256,7 +259,7 @@ interface GeneratedEmailDev {
   remote: boolean
 }
 
-function remoteNotice(driver: EmailProvider): string {
+function remoteNotice(driver: EmailDriverName): string {
   return `[vitehub] Email is remote: \`vite dev\` sends real email through ${driver}.`
 }
 
@@ -467,7 +470,7 @@ async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot:
 
 export function hubEmail(options: EmailOptions): EmailVitePlugin {
   if (!options || typeof options !== "object") {
-    throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER()
+    throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER({ driver: "missing" })
   }
   const internalOptions = options as EmailOptions & InternalEmailVitePluginOptions
   const configured = configuredDefinition(options)
@@ -481,7 +484,7 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
     ?? resolvePackageImport("@vite-hub/env/internal/server")
   let cloudflare = false
   let vercel = false
-  const cloudflareEmail = configured.driver === "cloudflare-email"
+  const cloudflareEmail = configured.driver === "cloudflare"
   let addedEmailBinding = false
   let definition: GeneratedEmailDefinition | undefined
   let serverDirs: string[] | undefined
@@ -589,7 +592,7 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
       if (cloudflareEmail && !cloudflare) {
         throw emailErrorDiagnostics.EMAIL_HOST_UNSUPPORTED()
       }
-      vercel = hosting === "vercel" || internalOptions.workflowProvider === "vercel"
+      vercel = hosting === "vercel" || internalOptions.workflowDriver === "vercel"
       updateTemplateRoots(resolveViteHubProjectRoot(config.root ?? process.cwd()))
       if (cloudflare && configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)) addedEmailBinding = true
       if (isRecord(configRecord.nitro)) {

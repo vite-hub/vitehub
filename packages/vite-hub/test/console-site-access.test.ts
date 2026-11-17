@@ -99,7 +99,7 @@ describe("Console members", () => {
     expect(response.status).toBe(303)
     expect(response.headers.get("location")).toBe(`${origin}/runs/42?vitehub`)
     expect(response.headers.getSetCookie()).toEqual([
-      expect.stringMatching(/^better-auth\.session_token=[^;]+; Path=\/; Max-Age=604800; HttpOnly; SameSite=Lax$/),
+      expect.stringMatching(/^better-auth\.session_token=[^;]+; Max-Age=604800; Path=\/; HttpOnly; SameSite=Lax$/),
       "vitehub_session=1; Path=/; SameSite=Lax; Max-Age=604800",
       "vitehub-tools=; Path=/; Max-Age=0; SameSite=Lax",
     ])

@@ -3,4 +3,4 @@ description: "Fix DATABASE_DROP_FAILED in ViteHub. Check database credentials an
 seo.title: "DATABASE_DROP_FAILED: reset failed"
 ---
 
-`vitehub database drop` cannot drop the tables. `error.why` has the reason, such as a remote database without `--remote`, missing credentials, or a database error. The drop runs in one transaction, so nothing was dropped.
+`vitehub database drop` or `vitehub database reset` cannot drop the tables. `error.why` has the reason, such as a remote database without `--remote`, missing credentials, or a database error. The drop runs in one transaction, so nothing was dropped.

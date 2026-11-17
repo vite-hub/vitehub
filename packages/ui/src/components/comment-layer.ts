@@ -100,8 +100,8 @@ export const CommentLayer = defineComponent({
     // SAFETY: Vue's runtime constructor cannot express this string literal union.
     placement: { default: "pin", type: String as PropType<CommentPlacement> },
     /**
-     * The size of the thread cards. `"sm"`, the default, is Drop's floating card: 14px text, tight rows, and Edit and
-     * Delete over the name's row. `"md"` is the size of a thread in a panel.
+     * The size of the thread cards and of the box for a new comment. `"sm"`, the default, is Drop's floating card: 14px
+     * text, tight rows, and Edit and Delete over the name's row. `"md"` is the size of a thread in a panel.
      */
     // SAFETY: Vue's runtime constructor cannot express this string literal union.
     size: { default: "sm", type: String as PropType<CommentComposerSize> },
@@ -293,6 +293,8 @@ export const CommentLayer = defineComponent({
         modelValue: draft.body,
         onCancel: () => state.cancelDraft(),
         files: draftFiles.value,
+        // The bubble is the field's frame, and it shows the focus itself.
+        frame: "none",
         layout: "row",
         onSubmit: async (submit: CommentComposerSubmit) => {
           if (draft.busy || uploadingDraft.value === draft || state.draft.value !== draft) return;
@@ -318,6 +320,7 @@ export const CommentLayer = defineComponent({
         "onUpdate:mentions": (value: string[]) => (draft.mentions = value),
         "onUpdate:modelValue": (value: string) => (draft.body = value),
         people: user.value ? [user.value] : [],
+        size: props.size,
         user: user.value,
         users: state.users,
       });

@@ -68,7 +68,8 @@ describe("built-in host integration", () => {
     vi.stubEnv("VITEST", undefined)
     onTestFinished(() => { vi.unstubAllEnvs() })
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-"))
-    onTestFinished(() => rm(root, { force: true, recursive: true }))
+    // Vite rejects at the first failed configResolved hook while the other hooks still write type files, so retry.
+    onTestFinished(() => rm(root, { force: true, maxRetries: 5, recursive: true }))
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "labeller.ts"), "export default {}\n")
     const resolve = () => resolveConfig({
@@ -96,7 +97,8 @@ describe("built-in host integration", () => {
     vi.stubEnv("VITEST", vitest)
     onTestFinished(() => { vi.unstubAllEnvs() })
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-test-"))
-    onTestFinished(() => rm(root, { force: true, recursive: true }))
+    // Vite rejects at the first failed configResolved hook while the other hooks still write type files, so retry.
+    onTestFinished(() => rm(root, { force: true, maxRetries: 5, recursive: true }))
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "labeller.ts"), "export default {}\n")
     const config = resolveConfig({
@@ -311,7 +313,7 @@ describe("built-in host integration", () => {
       }, "build")
       expect(config.root).toBe(appRoot)
       expect(config).toMatchObject({
-        [VITEHUB_FEATURES]: { blob: { bucketName: "application-root", driver: "cloudflare-r2" }, queue: { namePrefix: "application-root-", provider: "cloudflare" }, rateLimit: { namespace: "application-root", provider: "cloudflare" }, sandboxTask: { name: "application-root-sandbox", provider: "cloudflare" } },
+        [VITEHUB_FEATURES]: { blob: { bucketName: "application-root", driver: "cloudflare" }, queue: { namePrefix: "application-root-", driver: "cloudflare" }, rateLimit: { namespace: "application-root", driver: "cloudflare" }, sandboxTask: { name: "application-root-sandbox", driver: "cloudflare" } },
         nitro: { cloudflare: { wrangler: {
           name: "application-root",
           r2_buckets: [{ binding: "BLOB", bucket_name: "application-root" }],
@@ -576,7 +578,7 @@ describe("built-in host integration", () => {
       const builder = await createBuilder({
         logLevel: "silent",
         root,
-        plugins: [vitehub({ console: true, database: { driver: "d1" }, host: "cloudflare", queue: false, rateLimit: false }), nitro() as never],
+        plugins: [vitehub({ console: true, database: { driver: "cloudflare" }, host: "cloudflare", queue: false, rateLimit: false }), nitro() as never],
       } as Parameters<typeof createBuilder>[0])
       await builder.buildApp()
 
@@ -661,10 +663,10 @@ describe("built-in host integration", () => {
         plugins: [vitehub({
           host: "node",
           blob: false,
-          queue: { provider: "postgres" },
+          queue: { driver: "postgres" },
           rateLimit: false,
-          realtime: { authority: "redis" },
-          workflow: { provider: "openworkflow" },
+          realtime: { driver: "redis" },
+          workflow: { driver: "openworkflow" },
         }), nitro() as never],
       } as Parameters<typeof createBuilder>[0])
       await builder.buildApp()
@@ -770,7 +772,7 @@ describe("built-in host integration", () => {
           },
         },
         root,
-        plugins: [vitehub({ database: { driver: "d1" }, host: "cloudflare" }), nitro() as never],
+        plugins: [vitehub({ database: { driver: "cloudflare" }, host: "cloudflare" }), nitro() as never],
       } as Parameters<typeof createBuilder>[0])
       await builder.buildApp()
 

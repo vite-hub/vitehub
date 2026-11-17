@@ -1,3 +1,5 @@
+import { clientAddressKey, createClientRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
+
 import { createDrizzleFormsStore } from "./database.ts"
 import { isFormDefinition } from "./define.ts"
 import { formsDiagnostics } from "./errors.ts"
@@ -7,7 +9,8 @@ import { createMemoryFormsStore } from "./memory.ts"
 
 import type { FormsDatabase } from "./database.ts"
 import type { FormsInbox } from "./inbox.ts"
-import type { FormDefinition, FormEmailMessage, FormRateLimit, FormRateLimitDecision, FormServices, FormsStore, FormUser } from "./types.ts"
+import type { SharedRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
+import type { FormDefinition, FormEmailMessage, FormServices, FormsStore, FormUser } from "./types.ts"
 
 /** The Database registry of `@vite-hub/database/runtime/registry`, as the generated handler passes it. */
 export type FormsDatabaseRegistry = Record<string, { db: FormsDatabase } | undefined>
@@ -30,43 +33,16 @@ export interface FormsRuntimeOptions {
   session?: (request: Request) => Promise<FormUser | null>
   /** The Standard Context of a request, from `getStandardContext()`: the client address in `runtime`, and `waitUntil`. */
   context?: (request: Request) => { runtime?: { clientAddress?: string, cloudflare?: object }, waitUntil?: (promise: Promise<unknown>) => void }
+  /**
+   * `checkRateLimit` of ViteHub Rate Limit. The generated handler passes it when Rate Limit counts in a KV store that
+   * every server process shares. Forms then counts each form and address under the Rate Limit name `forms`. Without
+   * it, or when the store does not answer, Forms counts in the memory of this process.
+   */
+  rateLimit?: FormsSharedRateLimit
 }
 
-const units: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }
-
-function windowMs(window: string): number {
-  const [, amount, unit] = /^(\d+)(ms|s|m|h|d)$/.exec(window) ?? []
-  return Number(amount) * (units[unit ?? "m"] ?? 60_000)
-}
-
-/** A fixed window for each key, in this process only. Enough for one Node server; a Worker should use Rate Limit. */
-export function memoryFormRateLimit(now: () => number = Date.now): (key: string, policy: FormRateLimit) => FormRateLimitDecision {
-  const windows = new Map<string, { count: number, resetAt: number }>()
-  let nextSweep = 0
-  return (key, policy) => {
-    const time = now()
-    // At most one sweep a second, so many live keys do not make every request walk the map.
-    if (windows.size > 10_000 && time >= nextSweep) {
-      nextSweep = time + 1000
-      for (const [stale, entry] of windows) if (entry.resetAt <= time) windows.delete(stale)
-    }
-    const current = windows.get(key)
-    const entry = current && current.resetAt > time ? current : { count: 0, resetAt: time + windowMs(policy.window) }
-    entry.count += 1
-    windows.set(key, entry)
-    return entry.count <= policy.limit ? { allowed: true } : { allowed: false, retryAfter: (entry.resetAt - time) / 1000 }
-  }
-}
-
-/** An IPv6 address counts as its /64 network, since one host can use any address in it. */
-export function addressKey(address: string): string {
-  if (!address.includes(":") || address.includes(".")) return address
-  const [head = "", tail = ""] = address.toLowerCase().split("::")
-  const left = head ? head.split(":") : []
-  const right = tail ? tail.split(":") : []
-  const groups = address.includes("::") ? [...left, ...Array.from({ length: 8 - left.length - right.length }, () => "0"), ...right] : left
-  return `${groups.slice(0, 4).map(group => group.replace(/^0+(?=.)/, "")).join(":")}::/64`
-}
+/** The part of `checkRateLimit()` from `vite-hub/rate-limit` that Forms calls. */
+export type FormsSharedRateLimit = SharedRateLimit
 
 /** The Database that `database` names, else `default`, else the only one. */
 function selectDatabase(databases: FormsDatabaseRegistry, name?: string): FormsDatabase | undefined {
@@ -117,15 +93,15 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
       })
     : options.memory ? createMemoryFormsStore() : undefined
   Reflect.set(globalThis, installedKey, { names: [...forms.keys()].sort(), inbox: createFormsInbox(store ?? emptyFormsStore) } satisfies InstalledForms)
-  const memoryLimit = memoryFormRateLimit()
   const { sendEmail, session, context } = options
+  // Rate Limit on Cloudflare needs each limit name at build time, so a Worker counts in the memory of its isolate.
+  const rateLimit = createClientRateLimit({ name: "forms", unavailable: "Forms could not count this message in Rate Limit", ...(options.rateLimit ? { shared: options.rateLimit } : {}) })
   const services = (request: Request): FormServices => {
     const host = context?.(request)
-    const address = addressKey(host?.runtime?.clientAddress ?? (host?.runtime?.cloudflare ? request.headers.get("cf-connecting-ip") : undefined) ?? "unknown")
+    const address = clientAddressKey(request, host)
     return {
       ...(store ? { store } : {}),
-      // Counts in this server process. Rate Limit on Cloudflare needs each limit name at build time.
-      rateLimit: async (_, key, policy) => memoryLimit(`${key}:${address}`, policy),
+      rateLimit: (_, key, policy) => rateLimit(request, `${key}:${address}`, policy),
       ...(sendEmail ? { email: async (message: FormEmailMessage) => {
         const [error] = await sendEmail(message)
         if (error) throw error

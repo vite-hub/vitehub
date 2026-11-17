@@ -8,6 +8,7 @@ import type { ResolvedTaskSandbox } from './provider-loader'
 import {
   assertSandboxTaskDefinitionOptions,
   createCloudflareExecutionSandboxId,
+  DEFAULT_SANDBOX_TASK_TIMEOUT_MS,
   detectSandbox,
   isSandboxAvailable,
   resolveRuntimeProvider,
@@ -23,7 +24,7 @@ import type {
   SandboxTaskRunArguments,
   SandboxTaskRunResult,
 } from '../module-types'
-import { getSandboxTaskFeatureProvider } from '../module-types'
+import { getSandboxTaskFeatureDriver } from '../module-types'
 import type { ExecutionAuthority } from '@vite-hub/runtime'
 import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
 import type { SandboxTaskDefinitionName, SandboxTaskPayload, SandboxTaskRegistryDefinition, SandboxTaskResult } from './registry-types'
@@ -146,7 +147,7 @@ async function resolveSandboxTaskProvider(
   definition: SandboxTaskRegistryEntry,
 ): Promise<ResolvedTaskSandbox> {
   assertSandboxTaskDefinitionOptions(definition.options ?? {})
-  const config = getSandboxTaskFeatureProvider(sandboxTaskConfig)
+  const config = getSandboxTaskFeatureDriver(sandboxTaskConfig)
   const provider = resolveRuntimeProvider(config)
 
   return await resolveTaskSandbox(
@@ -265,9 +266,15 @@ export async function resolveSandboxTaskRunner(name?: string) {
       : `[vitehub] Unknown Sandbox Task "${name}". Sandbox Tasks are not enabled in this build. Set \`sandboxTask: true\` on a preset that supports Sandbox.` })
   if (!hasValidSandboxTaskBundle(definition))
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0054({ message: `[vitehub] Sandbox "${name}" is invalid.` })
+  assertSandboxTaskDefinitionOptions(definition.options ?? {})
 
-  const provider = await resolveSandboxTaskProvider(config, definition)
-  return await createSandboxTaskRunner(name, definition, provider)
+  // Every provider ends a run at the same default, instead of at its own session or command limit.
+  const runDefinition = {
+    ...definition,
+    options: { ...definition.options, timeout: definition.options?.timeout ?? DEFAULT_SANDBOX_TASK_TIMEOUT_MS },
+  }
+  const provider = await resolveSandboxTaskProvider(config, runDefinition)
+  return await createSandboxTaskRunner(name, runDefinition, provider)
 }
 
 export async function runSandboxTaskRuntime<TPayload = unknown, TResult = unknown>(

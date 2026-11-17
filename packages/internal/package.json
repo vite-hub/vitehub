@@ -273,6 +273,11 @@
       "import": "./dist/runtime/page-tools-shared.js",
       "default": "./dist/runtime/page-tools-shared.js"
     },
+    "./runtime/client-rate-limit": {
+      "types": "./dist/runtime/client-rate-limit.d.ts",
+      "import": "./dist/runtime/client-rate-limit.js",
+      "default": "./dist/runtime/client-rate-limit.js"
+    },
     "./runtime/request-origin": {
       "types": "./dist/runtime/request-origin.d.ts",
       "import": "./dist/runtime/request-origin.js",
@@ -282,6 +287,11 @@
       "types": "./dist/secret.d.ts",
       "import": "./dist/secret.js",
       "default": "./dist/secret.js"
+    },
+    "./runtime/user-agent": {
+      "types": "./dist/runtime/user-agent.d.ts",
+      "import": "./dist/runtime/user-agent.js",
+      "default": "./dist/runtime/user-agent.js"
     },
     "./sitemap": {
       "types": "./dist/sitemap.d.ts",

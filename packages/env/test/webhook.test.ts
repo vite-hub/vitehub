@@ -3,7 +3,7 @@ import { createHmac } from "node:crypto"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { runWithCloudflareEnv } from "../src/server.ts"
-import { verifyWebhook } from "../src/webhook.ts"
+import { signWebhook, verifyWebhook } from "../src/webhook.ts"
 
 const stripeSecret = "whsec_formula100test"
 const body = JSON.stringify({ id: "evt_1", type: "checkout.session.completed", data: { object: { id: "cs_1" } } })
@@ -128,4 +128,37 @@ describe("verifyWebhook() events", () => {
     const [error] = await verifyWebhook(event, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" })
     expect(error).toBeUndefined()
   })
+})
+
+describe("signWebhook()", () => {
+  it("matches node:crypto for GitHub's x-hub-signature-256", async () => {
+    const headers = await signWebhook(body, { provider: "github", secret: "github-secret" })
+    expect(headers).toEqual({ "x-hub-signature-256": `sha256=${createHmac("sha256", "github-secret").update(body).digest("hex")}` })
+    // GitHub's documented example: secret "It's a Secret to Everybody", payload "Hello, World!".
+    expect(await signWebhook("Hello, World!", { provider: "github", secret: "It's a Secret to Everybody" })).toEqual({
+      "x-hub-signature-256": "sha256=757107ea0eb2509fc211221cce984b8a37570b6d7586c22c46f4379c8b043e17",
+    })
+  })
+
+  it("matches node:crypto for stripe-signature with a fixed time", async () => {
+    expect(await signWebhook(new TextEncoder().encode(body), { provider: "stripe", secret: stripeSecret, timestamp: 1700000000 })).toEqual({
+      "stripe-signature": stripeHeader(body, stripeSecret, 1700000000),
+    })
+  })
+
+  for (const provider of ["github", "stripe"] as const) {
+    it(`round-trips through verifyWebhook({ provider: "${provider}" })`, async () => {
+      vi.stubEnv("HOOK_SECRET", "hook-secret")
+      const options = { provider, secret: "HOOK_SECRET" }
+      const headers = await signWebhook(body, { provider, secret: "hook-secret" })
+      const [error, event] = await verifyWebhook<{ id: string }>(post(headers), options)
+      expect(error).toBeUndefined()
+      expect(event?.id).toBe("evt_1")
+
+      const [tampered] = await verifyWebhook(post(headers, body.replace("evt_1", "evt_2")), options)
+      expect(tampered?.code).toBe("ENV_WEBHOOK_SIGNATURE_INVALID")
+      const [wrongSecret] = await verifyWebhook(post(await signWebhook(body, { provider, secret: "other-secret" })), options)
+      expect(wrongSecret?.code).toBe("ENV_WEBHOOK_SIGNATURE_INVALID")
+    })
+  }
 })

@@ -2,23 +2,23 @@ import type { Durability, DurabilityContext } from "@vite-hub/runtime/durability
 
 /** What the build passes to `queueDurability()`. */
 export interface QueueDurabilityInput {
-  /** The folder of the `local` provider. */
+  /** The folder of the `local` driver. */
   base?: string
-  /** The Database of the `postgres` provider. */
+  /** The Database of the `postgres` driver. */
   database?: string
-  provider: string
+  driver: string
 }
 
-const hostedProviders: Record<string, string> = {
+const hostedDrivers: Record<string, string> = {
   cloudflare: "Cloudflare Queues deliver each job once.",
   vercel: "Vercel Queues deliver each job once.",
 }
 
-/** The durability of Queue jobs, from the provider. */
+/** The durability of Queue jobs, from the driver. */
 export function queueDurability(input: QueueDurabilityInput, context: DurabilityContext): Durability[] {
-  const hosted = hostedProviders[input.provider]
-  if (hosted) return [{ primitive: "queue", store: input.provider, scope: "shared", reason: hosted }]
-  if (input.provider === "postgres") {
+  const hosted = hostedDrivers[input.driver]
+  if (hosted) return [{ primitive: "queue", store: input.driver, scope: "shared", reason: hosted }]
+  if (input.driver === "postgres") {
     if (context.env.QUEUE_POSTGRES_URL?.trim()) return [{ primitive: "queue", store: "postgres", scope: "shared", reason: "Jobs in Postgres at QUEUE_POSTGRES_URL." }]
     const name = input.database ?? "default"
     const database = context.find("database", name)
@@ -28,9 +28,9 @@ export function queueDurability(input: QueueDurabilityInput, context: Durability
   }
   return [{
     primitive: "queue",
-    store: input.provider,
+    store: input.driver,
     scope: "host",
     reason: `Job files in ${input.base ?? ".vitehub/data/queue"}. One server process must own this folder.`,
-    fix: "Use the `postgres` provider with a Postgres Default Database.",
+    fix: "Use the `postgres` driver with a Postgres Default Database.",
   }]
 }

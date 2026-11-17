@@ -36,8 +36,8 @@ function getProcess(): {
 /** Registers every Workflow Definition of the registry on the OpenWorkflow client, before a worker copies them. */
 async function prepareOpenWorkflowWorker(options: CreateOpenWorkflowWorkerOptions) {
   const config = options.config ?? getWorkflowRuntimeConfig()
-  if (!config || config.provider !== "openworkflow") {
-    throw workflowErrorDiagnostics.WORKFLOW_R0017({ message: "OpenWorkflow worker requires workflow.provider \"openworkflow\"." })
+  if (!config || config.driver !== "openworkflow") {
+    throw workflowErrorDiagnostics.WORKFLOW_R0017({ message: "OpenWorkflow worker requires workflow.driver \"openworkflow\"." })
   }
 
   const registry = options.registry ?? getWorkflowRuntimeRegistry() ?? {}
@@ -283,7 +283,7 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
  */
 export function installOpenWorkflow(app: OpenWorkflowWorkerApp, options: InstallOpenWorkflowOptions = {}): Promise<boolean> {
   const config = getWorkflowRuntimeConfig()
-  if (!config || config.provider !== "openworkflow") return Promise.resolve(false)
+  if (!config || config.driver !== "openworkflow") return Promise.resolve(false)
   useBundledOpenWorkflow()
   setOpenWorkflowDatabaseUrl(options.databaseUrl)
 

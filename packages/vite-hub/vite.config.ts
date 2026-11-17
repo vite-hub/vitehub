@@ -59,6 +59,7 @@ const runtimeEntries = [
   // Generated code imports these modules by path. They are not package exports.
   "src/_internal/auth/internal/server.ts",
   "src/_internal/auth/runtime/server.ts",
+  "src/_internal/runtime/browser-errors.ts",
   "src/_internal/runtime/internal/h3.ts",
   "src/_internal/runtime/request-policy.ts",
   "src/_internal/runtime/security.ts",
@@ -155,9 +156,11 @@ const runtimeEntries = [
   "src/console/runtime/server/setup.ts",
   "src/console/runtime/server/usage.get.ts",
   "src/console/runtime/server/status.get.ts",
-  // The page tools session route, and the Auth reader that the Console page tool loads with the first session request.
+  // The page tools session route, and the Auth and Site access readers that the Console page tool loads with the first
+  // session request.
   "src/console/runtime/server/page-auth.ts",
   "src/console/runtime/server/page-session.ts",
+  "src/console/runtime/server/site-session.ts",
 ];
 
 const skillsSource = resolve(import.meta.dirname, "../../docs/skills");
@@ -444,6 +447,9 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-settings-card.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-settings-value.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/client/auth-management.ts", to: "dist/console/runtime/client" },
+        { from: "src/console/runtime/client/add-primitive.ts", to: "dist/console/runtime/client" },
+        { from: "src/console/runtime/client/command-search.ts", to: "dist/console/runtime/client" },
+        { from: "src/console/runtime/components/console-add-primitive.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/client/app-identity.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/client/sidebar.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/components/console-user-menu.vue", to: "dist/console/runtime/components" },
@@ -636,6 +642,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/sections.get"];
           delete exports["./console/runtime/server/sections"];
           delete exports["./console/runtime/server/setup"];
+          delete exports["./console/runtime/server/site-session"];
           delete exports["./console/runtime/server/usage.get"];
           delete exports["./console/runtime/server/status.get"];
           // Generated code imports `src/internal/*` entries by path. They are not public API.

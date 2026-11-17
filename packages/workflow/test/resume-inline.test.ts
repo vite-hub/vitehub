@@ -15,7 +15,7 @@ beforeEach(() => {
   resetWorkflowRuntime()
   missingSdk.mockClear()
   setVercelWorkflowRuntimeLoader(missingSdk)
-  setWorkflowRuntimeConfig({ provider: "vercel" })
+  setWorkflowRuntimeConfig({ driver: "vercel" })
 })
 
 afterEach(() => {

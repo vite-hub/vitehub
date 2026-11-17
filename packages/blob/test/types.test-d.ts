@@ -21,7 +21,7 @@ describe("types", () => {
     const config = {
       store: {
         binding: "BLOB",
-        driver: "cloudflare-r2",
+        driver: "cloudflare",
       },
     } satisfies ResolvedBlobModuleOptions
 

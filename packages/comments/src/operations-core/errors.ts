@@ -118,6 +118,10 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ reason, request, status }: { reason: string, request: string, status: number }) => `GitHub ${request} failed with ${status}: ${reason}`,
       fix: "Check that the GitHub App or `VITEHUB_GITHUB_TOKEN` can write pull request comments in the repository. A retry helps for a 5xx status.",
     },
+    COMMENTS_GUEST_RATE_LIMITED: {
+      why: ({ retryAfter }: { retryAfter: number | undefined }) => `This address sent too many guest comments${retryAfter === undefined ? "" : `. It may write again in ${Math.ceil(retryAfter)} seconds`}.`,
+      fix: "Wait, then try again. Sign in to write without the guest limit of defineComments({ rateLimit }).",
+    },
     COMMENTS_MIGRATION_DATABASE_UNSUPPORTED: {
       why: ({ dialect }: { dialect: "postgresql" | "sqlite" }) => dialect === "postgresql"
         ? "[vitehub] migrateComments() needs a Postgres Drizzle database with transaction()."
@@ -127,6 +131,10 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     COMMENTS_MIGRATION_LIVE_POSTGRES: {
       why: "[vitehub] The live-site comments model had no Postgres tables, so there is nothing to move.",
       fix: "Use `from: \"outdated\"` for a Postgres Database. Only SQLite, libSQL, and D1 have tables of the live-site model.",
+    },
+    COMMENTS_RATE_LIMIT_INVALID: {
+      why: ({ issue }: { issue: string }) => `defineComments(): ${issue}`,
+      fix: "Pass rateLimit as { limit, window }, such as { limit: 5, window: \"1m\" }, or remove it to let guests write without a limit.",
     },
     COMMENTS_SECRET_TOO_SHORT: {
       why: ({ minimum }: { minimum: number }) => `[vitehub] VITEHUB_SECRET must be at least ${minimum} characters. Generate one with \`openssl rand -base64 32\`.`,

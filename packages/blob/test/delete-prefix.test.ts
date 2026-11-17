@@ -120,7 +120,7 @@ describe("blob.delete({ prefix }) on Cloudflare R2", () => {
       }),
     }
     vi.stubGlobal("BUCKET", bucket)
-    const driver = createCloudflareDriver({ binding: "BUCKET", driver: "cloudflare-r2" })
+    const driver = createCloudflareDriver({ binding: "BUCKET", driver: "cloudflare" })
     const deleteBatch = vi.spyOn(driver, "delete")
     const storage = createBlobStorage(driver, "default", { images: false })
 
@@ -135,7 +135,7 @@ describe("blob.delete({ prefix }) on Cloudflare R2", () => {
 
   it("returns BLOB_OPERATION_FAILED when the provider fails", async () => {
     vi.stubGlobal("BUCKET", { list: vi.fn(async () => { throw new Error("R2 down") }) })
-    const storage = createBlobStorage(createCloudflareDriver({ binding: "BUCKET", driver: "cloudflare-r2" }), "default", { images: false })
+    const storage = createBlobStorage(createCloudflareDriver({ binding: "BUCKET", driver: "cloudflare" }), "default", { images: false })
     const [error, result] = await storage.delete({ prefix: "logs/" })
     expect(result).toBeUndefined()
     expect(error?.code).toBe("BLOB_OPERATION_FAILED")

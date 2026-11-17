@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/forms",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Let site visitors write to the site owner: one defineForm() with a spam guard, Standard Schema validation, storage, and notifications.",
   "keywords": [
     "contact-form",

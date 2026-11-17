@@ -38,7 +38,7 @@ async function sendWithCancellation(
 ): Promise<void> {
   if (signal?.aborted) {
     throw emailProviderError(
-      "cloudflare-email",
+      "cloudflare",
       "CANCELLED",
       "Cloudflare Email send was cancelled.",
       { cause: signal.reason, retryable: false },
@@ -76,30 +76,30 @@ function rejectTransportOwnedHeaders(headers: Record<string, string> | undefined
   );
   if (header)
     throw emailProviderError(
-      "cloudflare-email",
+      "cloudflare",
       "INVALID_OPTIONS",
       `Cloudflare Email owns the ${header} header.`,
     );
 }
 
 export default function cloudflareEmailDriver(options: CloudflareEmailDriverOptions): EmailDriver {
-  requiredOption("cloudflare-email", options?.binding, "binding");
+  requiredOption("cloudflare", options?.binding, "binding");
   const Constructor =
     options.EmailMessage ??
     (globalThis as typeof globalThis & { EmailMessage?: CloudflareEmailMessageConstructor })
       .EmailMessage;
   if (!Constructor)
     throw emailProviderError(
-      "cloudflare-email",
+      "cloudflare",
       "NOT_CONFIGURED",
       "EmailMessage constructor is unavailable.",
     );
   return {
-    name: "cloudflare-email",
+    name: "cloudflare",
     async send(message, context) {
       try {
-        message = applyUnsubscribe(message, "cloudflare-email");
-        validateAttachments("cloudflare-email", message);
+        message = applyUnsubscribe(message, "cloudflare");
+        validateAttachments("cloudflare", message);
         const unsupportedOption = (
           ["tags", "metadata"] as const
         ).find((option) => message[option] !== undefined);
@@ -107,7 +107,7 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
           return {
             data: null,
             error: emailProviderError(
-              "cloudflare-email",
+              "cloudflare",
               "UNSUPPORTED",
               `Cloudflare Email does not support the ${unsupportedOption} option.`,
             ),
@@ -117,7 +117,7 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
           return {
             data: null,
             error: emailProviderError(
-              "cloudflare-email",
+              "cloudflare",
               "CANCELLED",
               "Cloudflare Email send was cancelled.",
               { retryable: false },
@@ -134,14 +134,14 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
             return {
               data: null,
               error: emailProviderError(
-                "cloudflare-email",
+                "cloudflare",
                 "UNSUPPORTED",
                 `Cloudflare Email does not support ${description}.`,
               ),
             };
           }
         }
-        validateAddresses("cloudflare-email", message);
+        validateAddresses("cloudflare", message);
         const from = addresses(message.from)[0];
         const to = addresses(message.to);
         const recipients = [
@@ -153,7 +153,7 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
           return {
             data: null,
             error: emailProviderError(
-              "cloudflare-email",
+              "cloudflare",
               "INVALID_OPTIONS",
               "from and to are required.",
             ),
@@ -162,7 +162,7 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
           return {
             data: null,
             error: emailProviderError(
-              "cloudflare-email",
+              "cloudflare",
               "UNSUPPORTED",
               "Cloudflare Email supports exactly one envelope recipient per message.",
             ),
@@ -172,7 +172,7 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
           return {
             data: null,
             error: emailProviderError(
-              "cloudflare-email",
+              "cloudflare",
               "INVALID_OPTIONS",
               "Message-ID must use the <local@domain> form.",
             ),
@@ -185,13 +185,13 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
           new Constructor(addressValue(from).email, addressValue(recipients[0]!).email, raw),
           context.signal,
         );
-        return { data: { at: new Date(), driver: "cloudflare-email", id }, error: null };
+        return { data: { at: new Date(), driver: "cloudflare", id }, error: null };
       } catch (cause) {
         if (isEmailProviderError(cause)) return { data: null, error: cause };
         return {
           data: null,
           error: emailProviderError(
-            "cloudflare-email",
+            "cloudflare",
             "PROVIDER",
             "Cloudflare Email send failed.",
             { cause },

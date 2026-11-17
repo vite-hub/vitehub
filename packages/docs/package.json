@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/docs",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A documentation site on ViteHub primitives: typed Markdown pages, navigation, tutorials, search, agent resources, Console editing, and a docs assistant.",
   "keywords": [
     "content",

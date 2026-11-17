@@ -46,7 +46,7 @@ it.each(["import", "connect", "registration", "dispatch"] as const)("rolls back 
     if (specifier === "openworkflow/sqlite") return { BackendSqlite: { connect } } as never
     throw new Error(`Unexpected import: ${specifier}`)
   })
-  setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+  setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
   const name = `console-upload-${stage}`
   setWorkflowRuntimeRegistry({ [name]: async () => ({ default: { handler: async () => "unreachable" } }) })
   await expect(withConsoleInputMessage("", { files }, (message, onInputHandoff) => runWithWorkflowRuntimeEvent(
@@ -66,7 +66,7 @@ it("rolls back Console images when an undiscovered Agent Workflow is rejected on
   installConsoleBlob(base, blob)
   const importer = vi.fn(async () => { throw new Error("OpenWorkflow must not load for inline Agent Workflows") })
   setOpenWorkflowImporter(importer)
-  setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+  setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
   const run = vi.fn(() => "done")
   const agent = defineAgent({ name: "console-inline-upload", driver: { run }, runtime: agentWorkflow("console-inline-upload") })
   await expect(withConsoleInputMessage("", { files: [{ url: "data:image/png;base64,YQ==", filename: "test.png" }] }, (message, onInputHandoff) => startAgentInvocation(
