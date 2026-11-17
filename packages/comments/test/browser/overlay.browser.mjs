@@ -34,7 +34,7 @@ function commentsApi() {
           },
           readAttachment: key => files.has(key) ? new Blob([files.get(key).data], { type: files.get(key).type }) : null,
         })
-        const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, session: () => ({ id: "u1", name: "Maxi" }) }))
+        const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, session: async () => ({ id: "u1", name: "Maxi" }) }))
         const chunks = []
         for await (const chunk of req) chunks.push(chunk)
         const response = await app.fetch(new Request(`http://127.0.0.1:${port}${req.url}`, { method: req.method, headers: req.headers, body: chunks.length ? Buffer.concat(chunks) : undefined }))
@@ -235,10 +235,10 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     const thread = page.locator("vitehub-comments [data-slot='comment-layer-popover'] [data-slot='comment-thread']")
     await thread.waitFor({ timeout: 5000 })
     assert.equal(await thread.getAttribute("data-size"), "sm")
-    // Drop's card: 340px, and the one small corner is the one nearest the pin.
+    // Drop's card: 340px, and the one small corner is the one nearest the pin. offsetWidth ignores the pop-in scale.
     const card = await thread.evaluate((element) => {
       const style = getComputedStyle(element.parentElement)
-      return { corners: [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius].sort(), width: element.parentElement.getBoundingClientRect().width }
+      return { corners: [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius].sort(), width: element.parentElement.offsetWidth }
     })
     assert.deepEqual(card, { corners: ["16px", "16px", "16px", "6px"], width: 340 })
     await page.keyboard.press("Escape")
