@@ -42,7 +42,7 @@ import { discoverConsoleBuildCatalog, type ConsoleBuildCatalog } from "./console
 import { writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plugin.ts"
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
 import { consoleOperationFeatures } from "./console/operation-features.ts"
-import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
+import { resolveConsoleProjectName } from "./console/project.ts"
 import { insertConsoleSection, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections, isConsoleContributedSectionId } from "./console/contributions.ts"
 import { addConsoleAppRoutes, addConsoleRpcHandler } from "./console/nitro.ts"
@@ -502,6 +502,8 @@ function addNitroImports(config: Record<string, unknown>, entries: readonly Serv
 interface NuxtConsoleInstallOptions {
   nuxt: NuxtLike
   projectRoot: string
+  /** The `name` option of `vitehub`, which `project.get` reports. */
+  name?: string
   sections: readonly ConsoleSectionId[]
   /** Where Console discovery reads Agents, Schedules, Databases, and contributed sections. */
   discovery: Omit<Parameters<typeof discoverConsoleBuildCatalog>[0], "projectRoot" | "sections">
@@ -518,6 +520,7 @@ interface NuxtConsoleInstallOptions {
 async function installConsole({
   nuxt,
   projectRoot,
+  name,
   sections,
   discovery,
   writeGeneratedPlugin,
@@ -528,7 +531,7 @@ async function installConsole({
 }: NuxtConsoleInstallOptions): Promise<string> {
   const { discoveryRoot, serverDirs } = discovery
   const plugin = resolveGeneratedConsolePlugin(projectRoot, nuxt.options.dev === true)
-  installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
+  installConsoleProjectName(projectRoot, resolveConsoleProjectName(projectRoot, name))
   if (nuxt.options.dev && nuxt.hook) {
     // Nuxt runs Nitro's app in a worker that never sees the client's address. The Nuxt process signs
     // loopback requests before Nitro forwards them.
@@ -1112,6 +1115,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const writeNuxtConsolePlugin = (file: string, catalog: ConsoleBuildCatalog) => writeConsoleNitroPlugin({
     file,
     projectRoot,
+    name: options.name,
     sections: consoleSections,
     catalog,
     blobStores: consoleBlobStores,
@@ -1452,7 +1456,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         ...(resolvedReplayedBlob ? Object.keys(resolvedReplayedBlob.stores || { default: resolvedReplayedBlob.store }) : []),
       )
       installConsoleSections(projectRoot, consoleSections)
-      installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
+      installConsoleProjectName(projectRoot, resolveConsoleProjectName(projectRoot, options.name))
       addConsoleRpcHandler(config, consoleRuntimeRoot)
       addConsoleAppRoutes(config, consoleRuntimeRoot)
       // CLI discovery resolves no Console access, so its plugin would differ from the running dev server's and make
@@ -1598,6 +1602,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     generatedConsolePluginPath = await installConsole({
       nuxt,
       projectRoot,
+      name: options.name,
       sections: consoleSections,
       discovery: {
         contentImportBase: "vite-hub/content",

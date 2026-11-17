@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest"
 
 import { createShellRuntime } from "../src/index.ts"
 
-import type { ShellExecutionProvider } from "../src/index.ts"
+import type { ShellDriver } from "../src/index.ts"
 
-const provider: ShellExecutionProvider = {
+const driver: ShellDriver = {
   boundary: {
     cwd: true,
     env: true,
@@ -22,7 +22,7 @@ const provider: ShellExecutionProvider = {
 describe("shell runtime policy boundaries", () => {
   it("does not inherit policy limits from a prototype", async () => {
     const policy = Object.create({ maxShellCalls: 0 }) as { maxShellCalls?: number }
-    const runtime = createShellRuntime({ provider, policy })
+    const runtime = createShellRuntime({ driver, policy })
 
     await expect(runtime.exec("echo ok")).resolves.toMatchObject({
       event: "command_finished",
@@ -32,7 +32,7 @@ describe("shell runtime policy boundaries", () => {
 
   it("snapshots policy values when the runtime is created", async () => {
     const policy = { maxShellCalls: 1 }
-    const runtime = createShellRuntime({ provider, policy })
+    const runtime = createShellRuntime({ driver, policy })
     policy.maxShellCalls = 0
 
     await expect(runtime.exec("echo ok")).resolves.toMatchObject({
