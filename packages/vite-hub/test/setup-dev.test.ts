@@ -263,6 +263,14 @@ describe("dev Setup endpoints", () => {
     }
   })
 
+  it("answers a request body above 64 KiB with 400 and the size code", async () => {
+    const running = await start()
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["setup:read"] }) })
+    const response = await send(running.port, "POST", "plan", auth(running), { action: "add", features: ["x".repeat(64 * 1024)] })
+    expect(response.status).toBe(400)
+    expect(JSON.parse(response.body)).toMatchObject({ error: { code: "CLI_R0003", message: "The request body is too large. The dev Setup endpoints accept at most 65536 bytes." } })
+  })
+
   it("needs the token on every route except the session", async () => {
     const running = await start()
     for (const [method, route] of [["GET", "catalog"], ["GET", "status"], ["POST", "plan"], ["POST", "apply"], ["GET", "events"]] as const) {
