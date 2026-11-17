@@ -1749,7 +1749,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       ...(options.rateLimit === true ? {} : options.rateLimit),
       ...hostDriverOptions(options.rateLimit === true ? undefined : options.rateLimit, buildRateLimitDriver(plan, options)),
       kvImport: "vite-hub/kv",
-    } as RateLimitOptions)))
+    } as RateLimitOptions & { kvImport: string })))
   }
   // Comments in `server/comments.ts`, or with the `comments` option: threads in the Database, the overlay on pages in
   // comment mode, and page presence rooms where Realtime has an authority. Inert without either, and absent without its

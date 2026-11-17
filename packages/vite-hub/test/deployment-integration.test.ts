@@ -25,12 +25,12 @@ describe("built-in host integration", () => {
         ["rateLimit", "RATE_LIMIT_RENAMED_PROVIDER_KEY"],
         ["sandboxTask", "SANDBOX_TASK_RENAMED_PROVIDER_KEY"],
       ] as const) {
-        const options = { host, env: false, blob: false, workflow: false, queue: false, rateLimit: false }
+        const options = { host, env: false, blob: false, workflow: false, queue: false, rateLimit: false } as const
         await expect(async () => resolveConfig({
           configFile: false,
           root,
           plugins: [vitehub({ ...options, [feature]: { provider: "vercel" } })],
-        }, command)).rejects.toThrow(code)
+        }, command)).rejects.toThrow(expect.objectContaining({ code }))
         await expect(async () => resolveConfig({
           configFile: false,
           root,
