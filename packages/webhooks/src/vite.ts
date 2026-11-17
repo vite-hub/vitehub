@@ -62,7 +62,7 @@ export interface WebhooksImports {
   operations: string
   /** `createDrizzleWebhookStore` and `webhooksSchema`. */
   database: string
-  /** The `databases` registry of the app. */
+  /** The Database registry of the app, with `useDatabase()`. */
   databases: string
   /** `defineQueue` and `dynamicQueue`. */
   queue: string
@@ -104,13 +104,13 @@ export function renderWebhooksRegistry(webhooks: readonly DiscoveredWebhook[], i
   return [
     `import { installWebhooks, selectDefaultDatabase } from ${JSON.stringify(imports.runtime)}`,
     `import { createDrizzleWebhookStore } from ${JSON.stringify(imports.database)}`,
-    `import { databases } from ${JSON.stringify(imports.databases)}`,
+    `import { useDatabase } from ${JSON.stringify(imports.databases)}`,
     `import { dynamicQueue } from ${JSON.stringify(imports.queue)}`,
     ...webhooks.map((webhook, index) => `import webhook${index} from ${JSON.stringify(webhook.file)}`),
     "",
     "installWebhooks({",
     `  webhooks: { ${webhooks.map((webhook, index) => `${JSON.stringify(webhook.name)}: webhook${index}`).join(", ")} },`,
-    "  store: createDrizzleWebhookStore(() => selectDefaultDatabase(databases)),",
+    "  store: createDrizzleWebhookStore(() => selectDefaultDatabase(() => useDatabase())),",
     `  wake: (wake, options) => dynamicQueue.send(${JSON.stringify(webhooksQueueName)}, wake, options),`,
     "})",
     "",
