@@ -253,6 +253,26 @@ pnpm vitehub database export --remote --stage production --output backups/databa
 
 See [Export a database](/docs/database/configure#export-a-database) for each driver and the dump format.
 
+## Run SQL on a Database
+
+`database sql` runs SQL on one database and prints the rows of each statement as a table. Without a SQL argument, it reads stdin. `database drop` drops every table of one database and its migrations table. It asks first, and needs `--force` without a terminal. Both use the local SQLite file or PGlite folder by default. Any other database needs `--remote`.
+
+```bash [Terminal]
+pnpm vitehub database sql "select id, email from users limit 5"
+pnpm vitehub database sql --json < report.sql
+pnpm vitehub database drop --force
+```
+
+| Option | Description |
+| --- | --- |
+| `--remote` | Use the remote database. Needed for a database that is not a local file or folder. |
+| `--stage <name>` | Load the Vite env files of this mode. Process variables win. |
+| `--database <name>` | The database to use. Needed when the app has several. |
+| `--json` | `sql` only. Print one JSON array with `{ columns, rows, rowsAffected }` for each statement. |
+| `--force` | `drop` only. Drop without asking. |
+
+See [Run SQL and drop tables](/docs/database/configure#run-sql-and-drop-tables) for what `drop` drops on each driver.
+
 ## Seed a Database
 
 `database seed` runs the seed file of each database, `server/databases/<name>/seed.ts`, with no build. Its default export gets `{ db, schema }`. It writes the local database by default, and refuses a database with pending migrations.

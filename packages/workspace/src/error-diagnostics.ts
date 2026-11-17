@@ -109,6 +109,12 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Read `error.cause` for the first error. Make sure that the module of the Workspace loads without errors and exports its Definition: the default export of a file in `server/workspaces/`, or the export that the Vite plugin names in its Workspace contribution. Then restart the dev server or build again.",
     },
 
+    // Source errors. The build checks the Sources that the app reads after deploy.
+    WORKSPACE_SOURCE_ACCESS_FAILED: {
+      why: ({ source, workspace }: { source: string, workspace: string }) => `Source "${source}" of Workspace "${workspace}" cannot reach its data with the credentials of the build. The deployed app would fail on its first read.`,
+      fix: "Read `error.cause` for the response of the provider. For a GitHub Source, check that `repo` and `ref` exist and that the token of the build (`auth`, `VITEHUB_GITHUB_TOKEN`, or `gh auth token`) can read the repository. Then build again.",
+    },
+
     // Published numbered errors.
     WORKSPACE_R0069: withFix("Use a Store with retained history: `createBlobDatabaseWorkspaceStore()` or the `github` Store. Open the Workspace with a scope that grants the complete Workspace, not selected paths."),
     WORKSPACE_R0070: withFix("Pass a `limit` from 1 to 100, and pass a `cursor` only with the `ref` of the `history.list()` call that returned it."),
@@ -122,14 +128,14 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_B0002: withFix("Use `defineWorkspace()` in `server/workspaces/<name>.ts`. Move the `defineAgent()` call to `server/agents/<name>/agent.ts`."),
     WORKSPACE_B0003: withFix("Rename or remove one of the definitions that the message lists. Each Workspace name has one definition."),
     WORKSPACE_B0004: withFix("Set `vitehub.workspaces` in the plugin to an array of `{ name, definition: { module, export? }, reason? }` entries, or to a function that returns one. Set `module` to an absolute path, a `file:` URL, or a package specifier."),
-    WORKSPACE_B0005: withFix("Set the Cloudflare Artifacts Store in the `workspace` config, for example `vitehub({ workspace: { store: { provider: \"cloudflare-artifacts\", binding: \"WORKSPACE_ARTIFACTS\", namespace: \"vitehub\" } } })`, and remove `store` from the Workspace Definition. Or remove the import that the build cannot load from the Definition file, so that the build can read its `store`."),
+    WORKSPACE_B0005: withFix("Set the Cloudflare Artifacts Store in the `workspace` config, for example `vitehub({ workspace: { store: { driver: \"cloudflare\", binding: \"WORKSPACE_ARTIFACTS\", namespace: \"vitehub\" } } })`, and remove `store` from the Workspace Definition. Or remove the import that the build cannot load from the Definition file, so that the build can read its `store`."),
     WORKSPACE_R0004: withFix("Put a value after the option, for example `--timeout 30000` or `--url http://localhost:5173`."),
     WORKSPACE_R0005: withFix("Pass a whole number of milliseconds from 1 to 2147483647, for example `--timeout 30000`."),
     WORKSPACE_R0006: withFix("Pass a whole number of milliseconds from 1 to 2147483647, for example `--timeout 30000`."),
     WORKSPACE_R0007: withFix("Remove the option. `vitehub workspace dev --help` lists the options."),
     WORKSPACE_R0008: withFix("Put a command after `exec`, for example `vitehub workspace dev docs exec ls`."),
     WORKSPACE_R0009: withFix("Put `exec` before the command, for example `vitehub workspace dev docs exec ls -la`. Or omit the command to open the interactive command loop."),
-    WORKSPACE_C0001: withFix("Set `workspace` to an object, for example `workspace: { store: { provider: \"memory\" } }`, or to `false`."),
+    WORKSPACE_C0001: withFix("Set `workspace` to an object, for example `workspace: { store: { driver: \"memory\" } }`, or to `false`."),
     WORKSPACE_C0002: withFix("Remove the option. The `workspace` config accepts `assets`, `projectRoot`, `root`, and `store`."),
     WORKSPACE_R0015: withFix("Remove the option. `defineWorkspace()` accepts `bindings`, `commit`, `hooks`, `loaders`, `plugins`, `rootDir`, `rules`, `sourceRootDir`, `sources`, and `store`."),
     WORKSPACE_R0016: withFix("Pass an object to `defineWorkspace()`, for example `defineWorkspace({ sources: {} })`."),

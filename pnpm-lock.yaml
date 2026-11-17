@@ -204,6 +204,9 @@ catalogs:
       specifier: 1.0.0-beta.16
       version: 1.0.0-beta.16
   auth:
+    '@better-auth/api-key':
+      specifier: 1.7.15
+      version: 1.7.15
     '@better-auth/cimd':
       specifier: 1.7.15
       version: 1.7.15
@@ -211,6 +214,9 @@ catalogs:
       specifier: ^1.7.15
       version: 1.7.15
     '@better-auth/passkey':
+      specifier: 1.7.15
+      version: 1.7.15
+    '@better-auth/stripe':
       specifier: 1.7.15
       version: 1.7.15
     '@noble/hashes':
@@ -369,6 +375,9 @@ catalogs:
       specifier: 0.5.1
       version: 0.5.1
     comark-ui:
+      specifier: ^0.12.0
+      version: 0.12.0
+    comark-zoom:
       specifier: ^0.12.0
       version: 0.12.0
   nuxt:
@@ -860,9 +869,15 @@ importers:
       '@vite-hub/agent':
         specifier: workspace:*
         version: link:../packages/agent
+      '@vite-hub/auth':
+        specifier: workspace:*
+        version: link:../packages/auth
       '@vite-hub/comments':
         specifier: workspace:*
         version: link:../packages/comments
+      '@vite-hub/database':
+        specifier: workspace:*
+        version: link:../packages/database
       '@vite-hub/docs':
         specifier: workspace:*
         version: link:../packages/docs
@@ -884,12 +899,18 @@ importers:
       ai:
         specifier: catalog:ai
         version: 7.0.130(zod@4.6.7)
+      better-auth:
+        specifier: catalog:auth
+        version: 1.7.15(@opentelemetry/api@1.9.1)(drizzle-kit@1.0.0-rc.5(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@electric-sql/pglite@0.5.16)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)))(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@electric-sql/pglite@0.5.16)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7))(pg@8.23.1)(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3))
       comark:
         specifier: catalog:markdown-ui
         version: 0.9.0(katex@0.19.1)(shiki@4.5.0)
       comark-ui:
         specifier: catalog:markdown-ui
         version: 0.12.0(@comark/html@0.9.0(katex@0.19.1)(shiki@4.5.0))(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/extension-image@3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4)))(@tiptap/extension-list@3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4))(@tiptap/extension-table@3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(@tiptap/starter-kit@3.31.4)(@tiptap/vue-3@3.31.4(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(vue@3.5.44(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.9.0(katex@0.19.1)(shiki@4.5.0))(katex@0.19.1)(markdown-it@15.0.3)(react@19.2.6)(vue@3.5.44(typescript@6.0.3))
+      drizzle-orm:
+        specifier: catalog:database
+        version: 1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@electric-sql/pglite@0.5.16)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)
       h3:
         specifier: catalog:unjs
         version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
@@ -930,6 +951,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      drizzle-kit:
+        specifier: catalog:database
+        version: 1.0.0-rc.5(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@electric-sql/pglite@0.5.16)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7))
       playwright-core:
         specifier: catalog:browser
         version: 1.63.0
@@ -1054,9 +1078,6 @@ importers:
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
-      '@vite-hub/forge':
-        specifier: workspace:*
-        version: link:../forge
       '@vite-hub/gateways':
         specifier: workspace:*
         version: link:../gateways
@@ -1154,6 +1175,9 @@ importers:
       '@vite-hub/connections':
         specifier: workspace:*
         version: link:../connections
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/forms':
         specifier: workspace:*
         version: link:../forms
@@ -1283,12 +1307,18 @@ importers:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
     devDependencies:
+      '@better-auth/api-key':
+        specifier: catalog:auth
+        version: 1.7.15(fcfcd14846d0a46a551fc5fc1c3c3422)
       '@better-auth/oauth-provider':
         specifier: catalog:auth
         version: 1.7.15(6f7cadadfe194ea19638fc5cf00ce6bb)
       '@better-auth/passkey':
         specifier: catalog:auth
         version: 1.7.15(70ea9c824adc5de32c12d7251315bda0)
+      '@better-auth/stripe':
+        specifier: catalog:auth
+        version: 1.7.15(7107e30cc1d652179fbf3f4a0a181d69)
       '@cloudflare/workers-types':
         specifier: ^5.20261016.1
         version: 5.20261019.1
@@ -1325,6 +1355,9 @@ importers:
       publint:
         specifier: catalog:tooling
         version: 0.3.25
+      stripe:
+        specifier: 23.1.0
+        version: 23.1.0(@types/node@24.19.1)
       typescript:
         specifier: catalog:tooling
         version: 6.0.3
@@ -2233,6 +2266,9 @@ importers:
       comark-content:
         specifier: catalog:markdown-ui
         version: 0.5.1(forges@0.3.1)(katex@0.19.1)(shiki@4.5.0)(unstorage@1.17.6(@azure/identity@4.13.3(supports-color@8.1.1))(@azure/storage-blob@12.34.0(supports-color@8.1.1))(@netlify/blobs@11.1.4(patch_hash=e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd)(supports-color@8.1.1))(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1(supports-color@8.1.1))(uploadthing@7.7.4(express@5.2.1(supports-color@8.1.1))(fastify@5.12.5)(h3@2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1))(tailwindcss@4.3.3)))
+      comark-zoom:
+        specifier: catalog:markdown-ui
+        version: 0.12.0(@comark/html@0.9.0(katex@0.19.1)(shiki@4.5.0))(comark@0.9.0(katex@0.19.1)(shiki@4.5.0))(react@19.2.6)(vue@3.5.44(typescript@6.0.3))
       defu:
         specifier: catalog:unjs
         version: 6.1.7
@@ -3608,9 +3644,6 @@ importers:
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
-      '@vite-hub/forge':
-        specifier: workspace:*
-        version: link:../forge
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -3636,6 +3669,9 @@ importers:
       '@types/picomatch':
         specifier: catalog:tooling
         version: 4.0.3
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
@@ -3769,9 +3805,18 @@ importers:
       '@ai-sdk/vue':
         specifier: catalog:ai
         version: 4.0.130(@vue/test-utils@2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3)))(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
+      '@fontsource-variable/geist':
+        specifier: catalog:ui
+        version: 5.3.0
+      '@fontsource-variable/geist-mono':
+        specifier: catalog:ui
+        version: 5.3.0
       '@iconify-json/lucide':
         specifier: catalog:ui
         version: 1.2.139
+      '@iconify/vue':
+        specifier: catalog:ui
+        version: 5.0.3(vue@3.5.44(typescript@6.0.3))
       '@nuxt/schema':
         specifier: 4.6.3
         version: 4.6.3
@@ -3940,6 +3985,9 @@ importers:
       semver:
         specifier: ^7.8.5
         version: 7.8.5
+      srvx:
+        specifier: catalog:unjs
+        version: 1.0.8
       valibot:
         specifier: catalog:runtime
         version: 1.5.0(typescript@6.0.3)
@@ -4387,9 +4435,6 @@ importers:
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database
-      '@vite-hub/forge':
-        specifier: workspace:*
-        version: link:../forge
       '@vite-hub/markdown-template':
         specifier: workspace:*
         version: link:../markdown-template
@@ -4451,6 +4496,9 @@ importers:
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
@@ -5273,6 +5321,14 @@ packages:
     resolution: {integrity: sha512-8V8aSTDx012YPmDQF30vrokyxVFdRAU2YBS2VzrnfLAGkP8floVnjckwgFcD0Jrvf6GWMSRdCrYVsk3tyMwZRg==}
     engines: {node: ^22.18.0 || >=24.11.0}
 
+  '@better-auth/api-key@1.7.15':
+    resolution: {integrity: sha512-ilTWBv4RIRNpIh/5jz8crSi3rBfYvBv6+2jDKcEG83yuQ5SxfS+Szn6a4IDx6M4a0HbJf9wR4yR3gy+d3ZBJQg==}
+    peerDependencies:
+      '@better-auth/core': ^1.7.15
+      '@better-auth/utils': ^0.4.2 || ^0.5.0
+      better-auth: ^1.7.15
+      better-call: 1.4.4
+
   '@better-auth/cimd@1.7.15':
     resolution: {integrity: sha512-T69KXCJJdFLdiIk5DbCYCGnRtQdDn6e82KuL+z2NUdI2NScGo1bAcRAEgKjeOymt/XDYkq4dRSyDW9d/vr6bUg==}
     peerDependencies:
@@ -5362,6 +5418,14 @@ packages:
         optional: true
       prisma:
         optional: true
+
+  '@better-auth/stripe@1.7.15':
+    resolution: {integrity: sha512-zh9WmoJgzXfi/FEMkIpmVto6N9WdZjGcDQWpjAMCCxDv7QTtoIxTjLYVe88g49z3mmpnN2t3nJINNIswKoBLaw==}
+    peerDependencies:
+      '@better-auth/core': ^1.7.15
+      better-auth: ^1.7.15
+      better-call: 1.4.4
+      stripe: ^18 || ^19 || ^20 || ^21 || ^22 || ^23
 
   '@better-auth/telemetry@1.7.15':
     resolution: {integrity: sha512-qZq491FZNLRCFmBo97DK+wOKfKPcSMeP87BoqH1nWZc0FZi2fbS4vqmwgn9OdQU7LRjHs/757o64iao1vrvkKA==}
@@ -18192,6 +18256,15 @@ packages:
   strip-literal@4.0.0:
     resolution: {integrity: sha512-PaqAvfUZKBwc/SLmNZtHmzK+v19Z4O4eS3cKPeGvbIv/U3pnyEq4Tuw3/4v/FwfM8VQaEawsyCcOQ0P+kpwWWw==}
 
+  stripe@23.1.0:
+    resolution: {integrity: sha512-fVUfMSfTPoukfoV//MUKAx2+YxyKmYaYtnAL9VkfnHfaPNQylFdWZMD+zgUFerI8rjbaiER8Vzj2XEUQ2AhAsQ==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@types/node': '>=20'
+    peerDependenciesMeta:
+      '@types/node':
+        optional: true
+
   strnum@2.4.2:
     resolution: {integrity: sha512-rDG3Ah4TV0k1hWvLSzkZtMmLN9+eS+h3knq4MP6A42Y3Yh5qGNnOUs1jJkoSr8FG5dsL28c7KgkIBzSEykqtuw==}
 
@@ -20665,6 +20738,14 @@ snapshots:
       '@babel/helper-string-parser': 8.0.8
       '@babel/helper-validator-identifier': 8.0.6
 
+  '@better-auth/api-key@1.7.15(fcfcd14846d0a46a551fc5fc1c3c3422)':
+    dependencies:
+      '@better-auth/core': 1.7.15(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.4)
+      '@better-auth/utils': 0.5.1
+      better-auth: 1.7.15(@opentelemetry/api@1.9.1)(drizzle-kit@1.0.0-rc.5(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@electric-sql/pglite@0.5.16)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)))(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@electric-sql/pglite@0.5.16)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7))(pg@8.23.1)(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3))
+      better-call: 1.4.4(zod@4.6.7)
+      zod: 4.6.7
+
   '@better-auth/cimd@1.7.15(a80d5b8224f7a9d0369fc53c8ec35316)':
     dependencies:
       '@better-auth/core': 1.7.15(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.4)
@@ -20774,6 +20855,15 @@ snapshots:
     dependencies:
       '@better-auth/core': 1.7.15(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.4)
       '@better-auth/utils': 0.5.1
+
+  '@better-auth/stripe@1.7.15(7107e30cc1d652179fbf3f4a0a181d69)':
+    dependencies:
+      '@better-auth/core': 1.7.15(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.4)
+      better-auth: 1.7.15(@opentelemetry/api@1.9.1)(drizzle-kit@1.0.0-rc.5(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@electric-sql/pglite@0.5.16)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)))(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@electric-sql/pglite@0.5.16)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7))(pg@8.23.1)(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3))
+      better-call: 1.4.4(zod@4.6.7)
+      defu: 6.1.7
+      stripe: 23.1.0(@types/node@24.19.1)
+      zod: 4.6.7
 
   '@better-auth/telemetry@1.7.15(@better-auth/core@1.7.15(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.4))(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)':
     dependencies:
@@ -40314,6 +40404,10 @@ snapshots:
   strip-literal@4.0.0:
     dependencies:
       js-tokens: 10.0.0
+
+  stripe@23.1.0(@types/node@24.19.1):
+    optionalDependencies:
+      '@types/node': 24.19.1
 
   strnum@2.4.2:
     dependencies:

@@ -170,10 +170,7 @@ async function runOne(args: string[], context: CliContext): Promise<number> {
 
 /** The fix of a usage error of these commands, or `undefined` for another error. */
 function cliFix(error: unknown): string | undefined {
-  if (!(error instanceof Error)) return undefined
-  const code: unknown = Reflect.get(error, "code")
-  const fix: unknown = Reflect.get(error, "fix")
-  return typeof code === "string" && code.startsWith("DECISIONS_CLI_") && typeof fix === "string" ? fix : undefined
+  return decisionsDiagnostics.is(error) && error.code.startsWith("DECISIONS_CLI_") ? error.fix : undefined
 }
 
 function guard(usage: string, run: (args: string[], context: CliContext) => Promise<number>) {

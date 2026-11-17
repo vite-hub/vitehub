@@ -1,6 +1,7 @@
 import type { AnyExtension, JSONContent } from "@tiptap/core"
 import type { WorkspaceSnapshot } from "@vite-hub/workspace"
 import type { ViteHubContext } from "@vite-hub/runtime"
+import type { H3Event } from "h3"
 
 /** JSON value stored in one field of a structured Realtime document. */
 export type RealtimeFieldValue = null | boolean | number | string | RealtimeFieldValue[] | { [key: string]: RealtimeFieldValue }
@@ -147,10 +148,11 @@ export interface RealtimeVerifyResult {
 export type RealtimeReadOnlyReason = "access" | "document" | "version"
 
 /**
- * The request event of a WebSocket upgrade or HTTP request. Read the request, its cookies, and the platform bindings
- * from `event["~standard"]`. `context` is the H3 event context, such as the session that a middleware set.
+ * The H3 event of a WebSocket upgrade or HTTP request, so helpers that take an `H3Event` accept it. Read the request,
+ * its cookies, and the platform bindings from `event["~standard"]`. `context` holds what a middleware set, such as the
+ * session.
  */
-export type RealtimeRequestEvent = ViteHubContext<{ context: Record<string, unknown> }>
+export type RealtimeRequestEvent = H3Event & ViteHubContext
 
 export interface RealtimeRequestContext {
   definition: string
@@ -292,12 +294,12 @@ export interface DiscoveredRealtimeDefinition {
 
 export interface RealtimeOptions {
   /**
-   * Where rooms live. `auto` (default) picks Durable Objects on Cloudflare and memory on the dev server. A Node build
-   * picks when the server starts: Redis with `REDIS_URL`, else Postgres on the connection of the Default Database when it
-   * is on Postgres (`REALTIME_POSTGRES_URL` overrides it), else memory. `postgres` and `redis` require their connection.
-   * `memory` keeps rooms in one process.
+   * The driver that runs the rooms. `auto` (default) picks Durable Objects on Cloudflare and memory on the dev server. A
+   * Node build picks when the server starts: Redis with `REDIS_URL`, else Postgres on the connection of the Default
+   * Database when it is on Postgres (`REALTIME_POSTGRES_URL` overrides it), else memory. `postgres` and `redis` require
+   * their connection. `memory` keeps rooms in one process.
    */
-  authority?: "auto" | "cloudflare" | "memory" | "postgres" | "redis"
+  driver?: "auto" | "cloudflare" | "memory" | "postgres" | "redis"
   /**
    * Keeps the rooms of this app apart from other apps on the same Redis or Postgres. Defaults to the `name` of
    * `vitehub()`, else the `name` in the root `package.json`, else the root folder name. `REALTIME_NAMESPACE` replaces
@@ -344,7 +346,7 @@ export type RealtimeRequestErrorCode =
   | "REALTIME_REQUEST_FAILED"
 
 /**
- * Whether this build has a Realtime room authority. ViteHub generates it for each build; an unavailable build says why
+ * Whether this build has a Realtime room driver. ViteHub generates it for each build; an unavailable build says why
  * and how to enable Realtime.
  */
 export type RealtimeAvailability =

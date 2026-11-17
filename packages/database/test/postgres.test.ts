@@ -12,7 +12,7 @@ import { resolveDBViteConfig } from "../src/config.ts"
 import { inspectDatabaseDefinitions } from "../src/inspect.ts"
 import { mergeCloudflareHyperdriveBindings, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "../src/internal/cloudflare.ts"
 import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
-import { writeHostedDatabaseRuntimeModules } from "../src/internal/vite-build.ts"
+import { supportsHostedDatabaseRuntime, writeHostedDatabaseRuntimeModules } from "../src/internal/vite-build.ts"
 import { hubDatabase } from "../src/vite.ts"
 import { createAgentDatabase } from "../src/runtime/agent.ts"
 
@@ -154,7 +154,7 @@ describe("Postgres build configuration", () => {
       connection: { url: "libsql://integration.example" },
       databaseId: "d1-id",
       databaseName: "d1-name",
-      driver: "d1",
+      driver: "cloudflare",
     }, rootDir)!
 
     expect(config.databases.default).toMatchObject({
@@ -357,6 +357,19 @@ describe("Postgres build configuration", () => {
     expect(replicas("default")).toBe("2 URLs in `connection.replicas`. `db.$replica` reads from one of them. A Hyperdrive binding and PGlite ignore them.")
     expect(replicas("analytics")).toBe("Set in `connection.replicas`. `db.$replica` reads from one of them. A Hyperdrive binding and PGlite ignore them.")
     expect(JSON.stringify(definitions)).not.toContain("secret")
+  })
+
+  it.each([
+    { name: "no connection", lines: [], providers: ["vercel"] },
+    { name: "a connection URL", lines: ["  connection: { url: process.env.DATABASE_URL },"], providers: ["cloudflare", "vercel"] },
+    { name: "a Hyperdrive ID", lines: ["  cloudflare: { hyperdriveId: 'hyperdrive-id' },"], providers: ["cloudflare", "vercel"] },
+  ])("supports the hosted runtime on the expected hosts for a Postgres Database with $name", async ({ lines, providers }) => {
+    const rootDir = await createTempProject()
+    await writePostgresDefinition(rootDir, "server/databases/default.ts", ["  dialect: 'postgresql',", ...lines])
+    const config = resolveDBViteConfig(undefined, rootDir)!
+
+    // A Vercel Function reads the PG* variables. A Worker does not, so Cloudflare needs Hyperdrive or a URL.
+    expect((["cloudflare", "vercel"] as const).filter(provider => supportsHostedDatabaseRuntime(provider, config, {}))).toEqual(providers)
   })
 
   it("writes hosted runtime modules that create Postgres clients without the SQLite runtime", async () => {

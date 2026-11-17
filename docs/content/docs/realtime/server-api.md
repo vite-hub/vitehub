@@ -19,7 +19,7 @@ icon: i-lucide-code-2
 | `@vite-hub/realtime/client/browser.js` | The same client as one prebuilt ES module, for a script on [another site](#from-another-site) that has no bundler. |
 | `refreshRealtimeDocument` from `vite-hub/realtime/server` | Tell a document's open room that its stored copy changed. |
 | `requestRealtimeRoom` from `vite-hub/realtime/server` | Ask the one browser in a room and wait for its answer ([Requests to a browser](#requests-to-a-browser)). |
-| `isRealtimeAvailable` from `vite-hub/realtime/server` | Check if this build has a room authority ([Builds without Realtime](/docs/realtime/configure#builds-without-realtime)). |
+| `isRealtimeAvailable` from `vite-hub/realtime/server` | Check if this build has a room driver ([Builds without Realtime](/docs/realtime/configure#builds-without-realtime)). |
 | `workspaceDocument` from `vite-hub/realtime/server` | The Workspace document adapter, to wrap or combine. |
 | `blobDocument` from `vite-hub/realtime/server` | A document adapter that stores each document as one Blob file ([Blob documents](#blob-documents)). |
 | `createRealtimeHandler` from `vite-hub/realtime/server` | Build a handler for a manual server setup. ViteHub generates this route for normal apps. |
@@ -118,7 +118,7 @@ last save of any instance. `options` is `{ ifDigest, reason, user, editors }`:
 - `editors` lists every identified user who changed the room since the last
   save.
 
-Adapters run inside the room authority. On Cloudflare that is the Durable
+Adapters run where the driver holds the room. On Cloudflare that is the Durable
 Object, so bindings come from its environment.
 
 ### Interrupted normalizing saves
@@ -325,7 +325,7 @@ Each definition must say who can use its rooms. Set `auth: true`, `authorize()`,
 | `auth: true` | Requires an identified user (else 401). Without `identify`, the user is the ViteHub Auth session, and the Auth trusted-origin policy applies. |
 | `authorize({ request, event, user, documentId, mode })` | Called with `mode: 'read'` on every request, and `mode: 'write'` on connections, saves, and checkpoints. Return `false` to deny. A connection denied write is read-only: the server closes it with `4403` if it sends a change. `documentId` is `null` for the Workspace event channel. |
 
-`event` is the request event of the WebSocket upgrade or HTTP request, a `RealtimeRequestEvent`. Read the request and its cookies from `event['~standard'].req`, the platform bindings from `event['~standard'].runtime`, and the H3 event context from `event.context`. See [Standard Context](/docs/runtime/context#standard-context).
+`event` is the H3 event of the WebSocket upgrade or HTTP request (`RealtimeRequestEvent`, an `H3Event`), so you can pass it to your own helpers that take an `H3Event`. Read the request and its cookies from `event['~standard'].req`, the platform bindings from `event['~standard'].runtime`, and the H3 event context from `event.context`. See [Standard Context](/docs/runtime/context#standard-context).
 
 An identified user replaces the client's `user` presence field, so nobody can
 fake names and avatars. Without an identity, the client sets its own presence.

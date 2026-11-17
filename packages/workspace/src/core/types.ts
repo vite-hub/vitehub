@@ -746,6 +746,11 @@ export interface WorkspaceSource {
   resolve?: WorkspaceSourceResolver
   resolveRevision?(ctx: SourceContext): Promise<SourceRevision | undefined>
   prepare?(ctx: SourceContext): Promise<void>
+  /**
+   * The build calls it for a `lazy` or `startup` Source, which the app reads after deploy. It throws when the Source
+   * cannot reach its data with the credentials of the build, so a revoked token fails the build and not the first read.
+   */
+  checkAccess?(ctx: SourceContext): Promise<void>
   getKeys(ctx: SourceContext): Promise<string[]>
   getItem(key: string, ctx: SourceContext): Promise<WorkspaceSourceItem>
   getItems?(ctx: SourceContext): Promise<WorkspaceSourceItem[]>
@@ -864,16 +869,16 @@ export interface LocalWorkspaceStoreOptions {
    * write locks in memory. Use it only when one process owns the root.
    */
   locks?: "filesystem" | "process"
-  provider?: "local"
+  driver?: "local"
   root?: string
 }
 
 export interface MemoryWorkspaceStoreOptions {
-  provider: "memory"
+  driver: "memory"
 }
 
 export interface CloudflareArtifactsWorkspaceStoreOptions {
-  provider: "cloudflare-artifacts"
+  driver: "cloudflare"
   binding?: string
   namespace?: string
   repo?: string
@@ -882,7 +887,7 @@ export interface CloudflareArtifactsWorkspaceStoreOptions {
 }
 
 export interface VercelBlobWorkspaceStoreOptions {
-  provider: "vercel-blob"
+  driver: "vercel"
   token?: string
   /**
    * A namespace under `_vitehub/workspaces/`. For example, `handbook`
@@ -904,7 +909,7 @@ export interface GitHubWorkspaceRefs {
 }
 
 export interface GitHubWorkspaceStoreOptions {
-  provider: "github"
+  driver: "github"
   branch?: GitHubWorkspaceOption
   /**
    * An opaque value that the store target carries for consumers that keep their own rows next to the Workspace, such as a

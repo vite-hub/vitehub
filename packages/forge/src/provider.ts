@@ -79,11 +79,8 @@ export function isForgeResponseError(error: unknown): boolean {
   return error instanceof Error && Reflect.get(error, "code") === "FORGE_RESPONSE_INVALID"
 }
 
-/** The HTTP status of a failed Forge request, or undefined for other errors. */
-export function forgeErrorStatus(error: unknown): number | undefined {
-  if (!(error instanceof Error) || !("status" in error)) return undefined
-  return typeof error.status === "number" ? error.status : undefined
-}
+// Channels and Workspaces read the status without loading Forge.
+export { forgeErrorStatus } from "@vite-hub/internal/forge"
 
 /** The error that a cancelled Forge operation rejects with. */
 export function abortError(signal: AbortSignal): Error {

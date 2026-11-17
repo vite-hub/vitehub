@@ -8,15 +8,15 @@ icon: i-lucide-code-2
 
 ## Public imports
 
-Import framework APIs from `vite-hub` paths. Pick `resend` or `cloudflare-email` in the Vite config.
+Import framework APIs from `vite-hub` paths. Pick `resend`, `cloudflare`, or `log` in the Vite config. `email.canSend` is `false` with `log` or without Email. See [Run without a provider](/docs/email/configure#run-without-a-provider).
 
 | Import | Runtime values | Public types |
 | --- | --- | --- |
 | `vite-hub` | `vitehub` | Framework Vite Integration options. |
-| `vite-hub/email` | `email`, `createEmail` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailEnvelope`, `EmailMessage`, `EmailSendMessage`, `EmailTemplateMessage`, `EmailTemplateName`, `EmailTemplateRegistry`, `EmailDriver`, `EmailDriverFactory`, `EmailDriverSource`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode` |
+| `vite-hub/email` | `email` (`email.send()`, `email.canSend`), `createEmail` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailEnvelope`, `EmailMessage`, `EmailSendMessage`, `EmailTemplateMessage`, `EmailTemplateName`, `EmailTemplateRegistry`, `EmailDriver`, `EmailDriverFactory`, `EmailDriverSource`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode` |
 | `vite-hub/runtime` | `Result`, `ResultError` | Shared `[error, data]` contract of runtime operations. |
 | `vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmailMarkdown` |
-| `@vite-hub/email/drivers/*` | Programmatic provider drivers | Built-in Resend and Cloudflare Email drivers. |
+| `@vite-hub/email/drivers/*` | Programmatic provider drivers | Built-in Resend, Cloudflare Email, and log drivers. |
 | `@vite-hub/email/test` | `createTestEmail`, `createMemoryEmailDriver` | `TestEmailClient`, `MemoryEmailDriver` |
 | `@vite-hub/email/vite` | `hubEmail`, `emailConsoleSection` | `EmailOptions`, `EmailOutboxOptions`, `EmailVitePlugin`, `EmailVitePluginAPI` |
 | `@vite-hub/email/runtime/console` | `listEmailOutbox`, `getEmailOutboxMessage`, `clearEmailOutbox`, `readEmailOutboxConsoleRecords` | `EmailOutboxMessage`, `EmailOutboxList`, `EmailOutboxDelivery`, `EmailOutboxAttachment` |

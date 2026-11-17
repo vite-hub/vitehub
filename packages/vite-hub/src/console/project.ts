@@ -5,7 +5,9 @@ import * as v from "valibot"
 
 const projectManifestSchema = v.object({ name: v.optional(v.string()) })
 
-export function resolveConsoleProjectNameFromRoot(projectRoot: string): string {
+/** The name that `project.get` reports: the `name` option of `vitehub()`, else the `package.json` name, else the folder. */
+export function resolveConsoleProjectName(projectRoot: string, name?: string): string {
+  if (name?.trim()) return name.trim()
   try {
     const source: unknown = JSON.parse(readFileSync(join(projectRoot, "package.json"), "utf8"))
     const manifest = v.safeParse(projectManifestSchema, source)

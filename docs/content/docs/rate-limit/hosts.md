@@ -32,7 +32,7 @@ The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and sup
 
 ## Share counts on Node
 
-On the `node` host, Rate Limit counts in memory by default, so each server process allows the full limit. Turn on [KV](/docs/kv) and the build selects the `kv` provider instead: each request runs one atomic `increment` on a KV key for the Rate Limit ID, the window length, the client key, and the window start. Every instance that uses the same Redis server or Postgres Database shares the count.
+On the `node` host, Rate Limit counts in memory by default, so each server process allows the full limit. Turn on [KV](/docs/kv) and the build selects the `kv` driver instead: each request runs one atomic `increment` on a KV key for the Rate Limit ID, the window length, the client key, and the window start. Every instance that uses the same Redis server or Postgres Database shares the count.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -80,7 +80,7 @@ KV selects its driver at build time: `database` with a Postgres Default Database
 [vitehub] Rate Limit counts in the memory of this process, because the KV store "default" uses fs-lite, which has no shared atomic increment. Each server process allows the full limit. Configure a Redis KV store or use a Postgres Database to share the counts.
 ```
 
-A build that counts in memory also prints a warning, and fails with `RATE_LIMIT_MEMORY_STRICT_UNSUPPORTED` when a Rate Limit sets `enforcement: 'strict'`. Set `rateLimit: { provider: 'memory' }` to keep memory counts with KV on. An explicit `rateLimit: { provider: 'kv' }` asks for shared counts, so the build fails with `RATE_LIMIT_KV_STORE_UNSUPPORTED` when the KV store cannot share them, for example on `fs-lite`. `vite dev` still counts in memory. `provider: 'kv'` works with the `node` host only, and other hosts fail with `VITE_HUB_R0144`. Without ViteHub, pass `provider: 'kv'` to `hubRateLimit()`, or use [`kvRateLimitDriver()`](/docs/rate-limit/server-api#use-a-direct-driver) with any KV store. The `kv` provider counts rejected requests too, see [KV limits](/docs/rate-limit/limits-and-errors#kv-limits).
+A build that counts in memory also prints a warning, and fails with `RATE_LIMIT_MEMORY_STRICT_UNSUPPORTED` when a Rate Limit sets `enforcement: 'strict'`. Set `rateLimit: { driver: 'memory' }` to keep memory counts with KV on. An explicit `rateLimit: { driver: 'kv' }` asks for shared counts, so the build fails with `RATE_LIMIT_KV_STORE_UNSUPPORTED` when the KV store cannot share them, for example on `fs-lite`. `vite dev` still counts in memory. `provider: 'kv'` works with the `node` host only, and other hosts fail with `VITE_HUB_R0144`. Without ViteHub, pass `provider: 'kv'` to `hubRateLimit()`, or use [`kvRateLimitDriver()`](/docs/rate-limit/server-api#use-a-direct-driver) with any KV store. The `kv` provider counts rejected requests too, see [KV limits](/docs/rate-limit/limits-and-errors#kv-limits).
 
 ## Deploy to Cloudflare
 

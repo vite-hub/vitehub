@@ -23,6 +23,7 @@ icon: i-lucide-code-2
 | `deriveSecret` from `vite-hub/env` | Derive a purpose-specific secret from [`VITEHUB_SECRET`](/docs/env/app-secret). |
 | `seal`, `unseal` from `vite-hub/env` | Encrypt and sign a JSON value for one purpose, with an optional `ttl`, and read it back as a `Result`. See [Seal a value](/docs/env/app-secret#seal-a-value). |
 | `requireServiceToken`, `checkServiceToken` from `vite-hub/env` | Check the `Authorization: Bearer` token of a machine route against a server variable. See [Service tokens](/docs/env/service-tokens). |
+| `verifyWebhook` from `vite-hub/env` | Check the signature of a Stripe, GitHub, or HMAC webhook against a server variable, and return `[error, body]`. See [Verify webhooks](/docs/env/webhooks). |
 | `SecretEnv` from `vite-hub/env` | A secret value that prints hidden by default. |
 | `resolveServerEnv`, and the registry forms of `loadServerEnv`, `describeServerEnv`, `inspectServerEnv` from `vite-hub/env/server` | Resolve, load, or inspect an explicit Server Env registry. |
 | `openWorkflowEnv` from `vite-hub/env` | Use the OpenWorkflow env preset. |

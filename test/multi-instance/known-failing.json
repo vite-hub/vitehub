@@ -6,11 +6,11 @@
   "with-redis": {
     "queue-failover": "Queue on Node is the local file provider. Jobs that A accepted wait in A's directory after A stops.",
     "rate-limit-shared": "Rate Limit on Node is forced to the memory driver. Each instance allows 10 per minute.",
-    "realtime-fanout": "Realtime on Node has only the memory authority. Rooms do not fan out across instances."
+    "realtime-fanout": "Realtime on Node has only the memory driver. Rooms do not fan out across instances."
   },
   "without-redis": {
     "queue-failover": "Queue on Node is the local file provider. Jobs that A accepted wait in A's directory after A stops.",
     "rate-limit-shared": "Rate Limit on Node is forced to the memory driver. Each instance allows 10 per minute.",
-    "realtime-fanout": "Realtime on Node has only the memory authority. Rooms do not fan out across instances."
+    "realtime-fanout": "Realtime on Node has only the memory driver. Rooms do not fan out across instances."
   }
 }

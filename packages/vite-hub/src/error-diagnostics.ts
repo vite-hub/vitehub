@@ -77,6 +77,14 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Pass non-empty strings to `tags` and `invalidateTag()`, for example `[\"posts\", \"post:1\"]`.",
     },
+    VITE_HUB_DEPLOY_CHECK_INVALID: {
+      why: ({ value }: { value: string }) => `A \`deploy.check\` path must be a path on the deployed site that starts with one \`/\`, such as \`/api/health\`, but it is ${value}.`,
+      fix: "Write each `deploy.check` entry as a path that starts with `/`, without an origin and without spaces, such as `deploy: { check: [\"/\", \"/api/products\"] }`.",
+    },
+    VITE_HUB_DEPLOY_INDEX_NOW_PUBLIC_URL_MISSING: {
+      why: "`deploy.indexNow` sends the URLs of the public site to IndexNow, and the build does not know that site: `publicUrl` is not a string.",
+      fix: "Set `vitehub({ publicUrl: \"https://shop.example.com\" })` to the origin of the public site, or remove `deploy.indexNow`.",
+    },
     VITE_HUB_MCP_AUTH_MISSING: {
       why: "The MCP server needs Auth, so that only signed-in MCP clients call its tools.",
       fix: "Set `auth` in `vitehub()` and add `mcpOAuth()` from `vite-hub/auth/mcp` to server/auth.ts, or set `mcp: { auth: false }` to let anyone call every tool.",
@@ -143,7 +151,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0141: {
       ...dynamicError,
-      fix: "Remove `queue.provider` from `vitehub()`, or set `host: \"node\"`.",
+      fix: "Remove `queue.driver` from `vitehub()`, or set `host: \"node\"`.",
     },
     VITE_HUB_R0142: {
       ...dynamicError,
@@ -155,7 +163,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0144: {
       ...dynamicError,
-      fix: "Remove `rateLimit.provider` to use the preset's supported provider, or use the `node` preset to count in KV.",
+      fix: "Remove `rateLimit.driver` to use the driver of the host, or use the `node` host to count in KV.",
     },
     VITE_HUB_R0116: {
       ...dynamicError,
@@ -291,7 +299,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_C0004: {
       ...dynamicError,
-      fix: "Set `cache.driver` to \"cloudflare-kv-binding\", \"deno-kv\", \"fs-lite\", \"kv\", or \"vercel-runtime-cache\".",
+      fix: "Set `cache.driver` to \"cloudflare\", \"deno-kv\", \"fs-lite\", \"kv\", or \"vercel\".",
     },
     VITE_HUB_R0052: {
       ...dynamicError,
@@ -427,7 +435,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_B0009: {
       ...dynamicError,
-      fix: "Remove `nitro.preset` from nuxt.config.ts. ViteHub sets the Nitro preset from the `vitehub.host` option.",
+      fix: "Remove `nitro.preset` or `vitehub.host` from nuxt.config.ts, or make them name the same host. Without `vitehub.host`, ViteHub takes the host from `nitro.preset`.",
     },
     VITE_HUB_B0011: {
       ...dynamicError,
@@ -575,9 +583,21 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "[vitehub] --timeout must be a positive number of milliseconds.",
       fix: "Pass `--timeout` to `vitehub sandbox check` as a whole number of milliseconds greater than 0, such as `--timeout 25000`.",
     },
-    VITE_HUB_SANDBOX_PROVIDER_HOST_UNSUPPORTED: {
+    VITE_HUB_SANDBOX_DRIVER_HOST_UNSUPPORTED: {
       ...dynamicError,
-      fix: "Use `sandboxTask: { provider: \"vercel\" }` with Vercel credentials, or use the `cloudflare` host.",
+      fix: "Use `sandboxTask: { driver: \"vercel\" }` with Vercel credentials, or use the `cloudflare` host.",
+    },
+    VITE_HUB_SECURITY_HEADER_INVALID: {
+      why: ({ name }: { name: string }) => `\`security.headers\` sets ${name}, which is not a valid header name, or its value has a line break or a character that a header cannot hold.`,
+      fix: "Use a header name such as `X-Robots-Tag`, and a value on one line. Use `false` to remove a default header.",
+    },
+    VITE_HUB_SECURITY_MAX_BODY_SIZE_INVALID: {
+      why: ({ value }: { value: string }) => `\`security.maxBodySize\` is ${value}, which is not a size.`,
+      fix: "Set `security.maxBodySize` to a whole number of bytes greater than 0, or to a size such as `\"500kb\"`, `\"1mb\"`, or `\"2gb\"`.",
+    },
+    VITE_HUB_SETUP_BODY_TOO_LARGE: {
+      why: ({ limit }: { limit: number }) => `The request body is too large. The dev Setup endpoints accept at most ${limit} bytes.`,
+      fix: "Send one Setup plan or apply request at a time, with only the fields that `vitehub add` and `vitehub remove` take.",
     },
     VITE_HUB_TEST_MODULE_NOT_LOADED: {
       why: ({ id }: { id: string }) => `The Vite server of vite-hub/test resolved "${id}", but no plugin loads it.`,

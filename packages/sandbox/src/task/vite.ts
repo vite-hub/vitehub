@@ -369,7 +369,7 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
     api: {
       // Without Sandbox Task Definitions, the server opens no Sandbox.
       deploymentEnv: context => sandboxTaskEnabled && definitions.length
-        ? sandboxDeploymentEnv(integrationOptions, selectedProvider ?? (integrationOptions ? integrationOptions.provider : undefined), context)
+        ? sandboxDeploymentEnv(integrationOptions, selectedProvider ?? (integrationOptions ? integrationOptions.driver : undefined), context)
         : [],
     },
     vitehub: {

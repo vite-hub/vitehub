@@ -28,7 +28,7 @@ The command exits with `0` when every codemod completes, also when they report f
 vitehub migrate [dir] [--dry-run]
 ```
 
-`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `agent-surface`, `renamed-apis`, and `tsconfig-paths`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
+`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `agent-surface`, `renamed-apis`, `tsconfig-paths`, and `shell-driver`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
 ## Run one codemod
 
@@ -42,6 +42,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | --- | --- |
 | `nuxthub` | A Nuxt app from NuxtHub 0.10 (`@nuxthub/core`) to ViteHub KV, Blob, Database, and cache through `vite-hub/nuxt` |
 | `nuxt-safe-runtime-config` | A Nuxt app from the `nuxt-safe-runtime-config` module to ViteHub Env through `vite-hub/nuxt` |
+| `driver-key` | A ViteHub app to `driver` as the one key that selects a backend |
 | `t3-env` | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env through `vite-hub/nuxt` |
 | `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
 | `queue-workflow-verbs` | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
@@ -54,6 +55,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `one-entry-imports` | Imports of subpaths that moved into one entry per concept, and `vite-hub/task` to `nitro/task` |
 | `vitehub-options` | The options that moved in `vitehub()`: `preset` to `host`, `logs` into `observability`, Env declarations into `vitehub({ env })`, and `devtools` and `contentImportBase` removed |
 | `tsconfig-paths` | `#vitehub/*` entries of tsconfig `paths` that point into `.vitehub/` or `.nuxt/`, which ViteHub now types itself |
+| `shell-driver` | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()`. `vitehub migrate` runs it. |
 
 ## `runtime-contracts`
 
@@ -104,7 +106,9 @@ ViteHub moved the accessors of four primitives to the root of the primitive. `ro
 | `useServerEnv`, `deriveSecret`, `loadServerEnv`, and the other Server Env helpers from `#vitehub/env/server` | `vite-hub/env` |
 | `usePublicEnv` from `#vitehub/env/public`, in server code | `vite-hub/env` |
 
-The `@vite-hub/*` forms move to the same owner roots. An app that lists `@vite-hub/env` and not `vite-hub` gets `@vite-hub/env`. The codemod also rewrites `declare module` augmentations, `vi.mock()` paths, and dynamic `import()` paths, and joins a moved import with an existing import of the same path. It removes `import registry from '#vitehub/schedule/registry'` when `runSchedule()` was its only use.
+The `@vite-hub/*` forms move to the same owner roots. An app that lists `@vite-hub/env` and not `vite-hub` gets `@vite-hub/env`. The codemod also rewrites `declare module` augmentations, `vi.mock()` paths, and dynamic `import()` paths, and joins a moved import with an existing import of the same path. It removes `import registry from '#vitehub/schedule/registry'` when `runSchedule()` was its only use. A Drizzle call on the result of `useDatabase()`, such as `useDatabase("notes").select()` or `database.select()` after `const database = useDatabase("notes")`, goes through `db`: `useDatabase("notes").db.select()`, because `useDatabase()` returns `{ db, schema, relations }`.
+
+The query rewrite keeps unrelated imports and local accessors. If a local declaration shadows an imported Database accessor, it leaves the calls and reports a follow-up.
 
 Browser code keeps `#vitehub/env/public`. The report lists what the codemod cannot move: `databases` and `agentDb`, which are no longer public, `useDatabase(name)?.` fallbacks, because `useDatabase()` now throws `DATABASE_NOT_FOUND` for an unknown name, and `imports` entries in `package.json` that map `#vitehub/env/*` by hand.
 
@@ -215,6 +219,27 @@ The report lists what Env cannot express and what the codemod could not rewrite:
 corepack pnpm exec vp run codemods:e2e
 ```
 
+## `driver-key`
+
+`driver` is the only key that selects the backend of a resource. The codemod renames the old keys and the old names of host drivers:
+
+| Before | After |
+| --- | --- |
+| `queue`, `workflow`, `rateLimit`, `sandboxTask`: `provider` | `driver` |
+| `realtime: { authority }` | `realtime: { driver }` |
+| Workspace `store: { provider }` | `store: { driver }` |
+| `createBrowser({ provider })` | `createBrowser({ driver })` |
+| Blob `driver: "cloudflare-r2"`, `"vercel-blob"` | `"cloudflare"`, `"vercel"` |
+| KV `driver: "cloudflare-kv-binding"` | `"cloudflare"` |
+| Email `driver: "cloudflare-email"` | `"cloudflare"` |
+| Cache `driver: "cloudflare-kv-binding"`, `"vercel-runtime-cache"` | `"cloudflare"`, `"vercel"` |
+| Database `driver: "d1"` | `"cloudflare"` |
+| Workspace Store `"cloudflare-artifacts"`, `"vercel-blob"` | `"cloudflare"`, `"vercel"` |
+
+It rewrites the options object of `vitehub()`, framework config helpers (also under `vitehub`), the `hub*()` plugins, `createQueueClient()`, `createEmail()`, and `createBrowser()`. Calls must use an import from the owning package, including an alias or a namespace import. The default config in a `nuxt.config` or `nitro.config` file can use its framework's global helper. Plain default config objects are supported too. Names with another declaration in the file stay unchanged, so check shadowed imports by hand.
+
+Workspace `store` objects change only in Workspace config, `defineWorkspace()` or `hubWorkspace()` options, or the `workspace` option of `defineAgent()`. Unrelated objects and member methods stay unchanged. Blob and KV `stores` entries change too. A driver value that is not a string literal stays, and the report names it. Options that a variable or a helper builds stay as they are, so search for `provider` and `authority` after the run.
+
 ## `t3-env`
 
 The codemod finds the file that calls `createEnv()` from `@t3-oss/env-nuxt`, loads its Valibot, Zod 3, Zod 4, or ArkType schemas without validating the current environment, and declares one value per variable under `vitehub.env`. Each declaration reads the original variable with `env.source()`. `DATABASE_URL` becomes `useServerEnv().databaseUrl`, and `NUXT_PUBLIC_SITE_URL` becomes `usePublicEnv().siteUrl`. Credential-like server names become `secret: true`.
@@ -272,6 +297,34 @@ The codemod moves each import of a subpath that ViteHub folded into one entry. I
 The same moves apply to the `@vite-hub/*` paths. The report lists strings that name an old path, such as aliases and test stubs. When an app moves to `nitro/task` and lists neither `nitro` nor `nuxt` in `package.json`, the report asks to add `nitro`.
 
 For `blob/content-type`, only explicit server files use the Blob root. Browser, shared, and unclassified files use `blob/client`, which also works on the server. `env/server` stays separate for operations on an explicit Env registry; the Env root reads the generated app registry.
+
+## `shell-driver`
+
+Shell now uses `driver` for the key that selects its backend, like Browser and the other primitives:
+
+| Old | New |
+| --- | --- |
+| `createShellRuntime({ provider })` | `createShellRuntime({ driver })` |
+| `ShellExecutionProvider` from `vite-hub/shell` | `ShellDriver` |
+| `createJustBashProvider()` and `JustBashProviderOptions` from `vite-hub/shell/providers/just-bash` | `createJustBashDriver()` and `JustBashDriverOptions` |
+| `createWorkspaceTools(workspace, { executionProvider })` | `createWorkspaceTools(workspace, { shellDriver })` |
+
+```diff
+ import { createShellRuntime } from "vite-hub/shell"
+-import { createJustBashProvider } from "vite-hub/shell/providers/just-bash"
++import { createJustBashDriver } from "vite-hub/shell/providers/just-bash"
+
+ export const shell = createShellRuntime({
+-  provider: createJustBashProvider({ commands: ["ls", "cat"], fs }),
++  driver: createJustBashDriver({ commands: ["ls", "cat"], fs }),
+ })
+```
+
+The same renames apply to the `@vite-hub/*` paths, to namespace imports, and to `const { createJustBashProvider } = await import(...)`. The codemod changes only calls of the imported `createShellRuntime()` and `createWorkspaceTools()`, so a `provider` key of another API stays. The report lists a call whose options it cannot see, such as a variable or a spread object.
+
+```sh
+npx @vite-hub/codemods shell-driver [dir] [--dry-run]
+```
 
 ## Check real apps
 

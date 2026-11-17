@@ -15,7 +15,7 @@ icon: i-lucide-life-buoy
 | `Option --provider is now --host` | The command uses the old flag. | Run the command in the `fix:` line. |
 | Provision fails before applying actions | Required host credentials are missing. | Run `wrangler login` or set `CLOUDFLARE_API_TOKEN`, and set `CLOUDFLARE_ACCOUNT_ID` for a login with several accounts. On Vercel, set `VERCEL_TOKEN`. |
 | Provision dry-run reports no actions | A package plan skipped the provider lookup, because its read credentials are missing. | Set the provider credentials. `--dry-run` still blocks `apply()`. |
-| Vercel Provision reports no resources for Blob | `VERCEL_PROJECT_ID` is missing, or the Blob store is not `vercel-blob`. | Set the project id and the Vercel Blob driver, then run again. |
+| Vercel Provision reports no resources for Blob | `VERCEL_PROJECT_ID` is missing, or the Blob store is not `vercel`. | Set the project id and the Vercel Blob driver, then run again. |
 | Agent eval CLI is disabled | `agent.eval` or `agent.cli` turns off the eval runner. | Turn the option back on for local development. |
 | Agent eval times out | The eval case, model call, or provider run takes longer than `agent.eval.testTimeout`. | Raise `agent.eval.testTimeout` in `nuxt.config.ts` or `vite.config.ts`, or make the case smaller. |
 | Vite config fails to load a ViteHub plugin import | A new npm project loads `vite.config.ts` as CommonJS, but ViteHub packages are ESM-only. | Set `"type": "module"` in `package.json` or rename the config to `vite.config.mts`. |

@@ -28,6 +28,9 @@ it("types the portable Rate Limit contract", async () => {
   expectTypeOf(await limiter.consume({ key: "user" })).toEqualTypeOf<RateLimitDecision>()
   expectTypeOf(limiter.capabilities.enforcement).toEqualTypeOf<"best-effort" | "strict">()
 
+  expectTypeOf(await requireRateLimit(event, "uploads", { code: "errorTooManyTries", limit: 10, message: "Too many tries.", window: "1m" })).toEqualTypeOf<void>()
+  // @ts-expect-error checkRateLimit() throws no HTTP error, so it has no message.
+  checkRateLimit(event, "uploads", { limit: 10, message: "Too many tries.", window: "1m" })
   // @ts-expect-error a managed Rate Limit requires a window.
   requireRateLimit(event, "uploads", { limit: 10 })
   expectTypeOf(await requireRateLimit(new Request("https://example.com"), "uploads", { key: "user", limit: 10, window: "1m" })).toEqualTypeOf<void>()
@@ -61,10 +64,10 @@ it("types custom and provider drivers", async () => {
   expectTypeOf(value).toEqualTypeOf<RateLimitDriverResult>()
   void unavailable
   createRateLimiter({ driver: cloudflareRateLimitDriver({ binding: { limit: async () => ({ success: true }) } }), limit: 2, window: "10s" })
-  hubRateLimit({ namespace: "types-test", provider: "cloudflare", projectRoot: "../", scanDirs: ["shared"] })
+  hubRateLimit({ namespace: "types-test", driver: "cloudflare", projectRoot: "../", scanDirs: ["shared"] })
   expectTypeOf(discoverRateLimitDeclarations({ rootDir: "." })).toEqualTypeOf<RateLimitDeclaration[]>()
 
-  hubRateLimit({ provider: "kv" })
-  // @ts-expect-error redis is a KV driver, not a Rate Limit provider.
-  hubRateLimit({ provider: "redis" })
+  hubRateLimit({ driver: "kv" })
+  // @ts-expect-error redis is a KV driver, not a Rate Limit driver.
+  hubRateLimit({ driver: "redis" })
 })
