@@ -269,9 +269,12 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
     // SAFETY: The framework adds optional forwarded server directories to the active Vite configuration.
     const workflowServerDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? build?.serverDirs
     const providerSources = discoverWorkflowProviderSources(config.root, workflowServerDirs)
+    // The flow function holds the native Workflow IDs of the published `.vitehub/workflow/sources` copy, relative to the
+    // project root. This copy has the same layout under `artifactDir`, and its IDs are relative to `artifactDir`, so a
+    // Schedule starts IDs that the flow function knows on every build.
     const retainedSources = artifactDir
       ? await retainProviderOutputSources({
-          artifactDir: resolve(artifactDir, "sources"),
+          artifactDir: resolve(artifactDir, ".vitehub", "workflow", "sources"),
           paths: [
             ...providerOutputAliasSources(aliases, [config.root]),
             ...providerSources.paths,
@@ -308,7 +311,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
       },
       bundlePlugins: [
         createOptionalPackagesPlugin(rootDir),
-        ...(native ? [await createVercelWorkflowTransformPlugin(rootDir)] : []),
+        ...(native ? [await createVercelWorkflowTransformPlugin(rootDir, artifactDir)] : []),
       ].filter((plugin): plugin is EsbuildPlugin => Boolean(plugin)),
       native,
       registryFile: artifacts.registryFile,

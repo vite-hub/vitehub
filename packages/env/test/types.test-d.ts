@@ -14,6 +14,8 @@ import {
   type EnvVariableDeclaration,
   type ServerEnvInspection,
   type ServiceTokenErrorCode,
+  verifyWebhook,
+  type WebhookErrorCode,
 } from "../src/index.ts"
 import { loadServerEnv } from "../src/server.ts"
 import { hubEnv } from "../src/vite.ts"
@@ -24,6 +26,14 @@ describe("types", () => {
     expectTypeOf(checkServiceToken(request, "INGEST_TOKEN")).toEqualTypeOf<Result<void, ServiceTokenErrorCode>>()
     expectTypeOf<ServiceTokenErrorCode>().toEqualTypeOf<"ENV_SERVICE_TOKEN_INVALID" | "ENV_SERVICE_TOKEN_UNSET">()
     expectTypeOf(requireServiceToken(request, "INGEST_TOKEN")).toEqualTypeOf<void>()
+  })
+
+  it("types verifyWebhook()", () => {
+    const request = new Request("https://example.test/")
+    expectTypeOf(verifyWebhook<{ type: string }>(request, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" })).toEqualTypeOf<Promise<Result<{ type: string }, WebhookErrorCode>>>()
+    expectTypeOf(verifyWebhook(request, { provider: "github", secret: "GITHUB_WEBHOOK_SECRET" })).toEqualTypeOf<Promise<Result<unknown, WebhookErrorCode>>>()
+    // @ts-expect-error A custom HMAC needs the header that carries the signature.
+    void verifyWebhook(request, { provider: "hmac", secret: "LULU_WEBHOOK_SECRET" })
   })
 
   it("types Vite integration and declarations", () => {
