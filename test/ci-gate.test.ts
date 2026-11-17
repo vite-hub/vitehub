@@ -116,6 +116,8 @@ fi
     expect(docs?.if).toBeUndefined()
     expect(docs?.["continue-on-error"]).not.toBe(true)
     expect(docs?.steps.some(step => step.run === "vp run --filter vitehub-docs test")).toBe(true)
+    // `vp run verify` gates the release on this typecheck, so pull requests run it too.
+    expect(docs?.steps.some(step => step.run === "vp run --filter vitehub-docs typecheck")).toBe(true)
   })
 
   // Each site deploys after every verification job and its own build, and not after the other site.

@@ -109,5 +109,13 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ file }: { file: string }) => `The \`database\` option of defineComments() in ${file} is not a string literal. The build reads it without running the file, so Comments would use the default Database.`,
       fix: "Write the Database name as a string literal, such as `defineComments({ database: \"content\" })`, and put no spread after it. Remove the option to use the default or only Database.",
     },
+    COMMENTS_GUEST_RATE_LIMITED: {
+      why: ({ retryAfter }: { retryAfter: number | undefined }) => `This address sent too many guest comments${retryAfter === undefined ? "" : `. It may write again in ${Math.ceil(retryAfter)} seconds`}.`,
+      fix: "Wait, then try again. Sign in to write without the guest limit of defineComments({ rateLimit }).",
+    },
+    COMMENTS_RATE_LIMIT_INVALID: {
+      why: ({ issue }: { issue: string }) => `defineComments(): ${issue}`,
+      fix: "Pass rateLimit as { limit, window }, such as { limit: 5, window: \"1m\" }, or remove it to let guests write without a limit.",
+    },
   },
 })
