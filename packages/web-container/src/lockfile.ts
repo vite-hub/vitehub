@@ -39,3 +39,24 @@ export function withoutTarballIntegrity(lockfile: string): string {
   }
   return `${JSON.stringify(lock, null, 2)}\n`
 }
+
+/** The `file:` paths that the lockfile installs, such as `tarballs/vite-hub-forge-0.1.0.tgz`, relative to the app. */
+export function lockedFiles(lockfile: string): string[] {
+  const lock: unknown = JSON.parse(lockfile)
+  const packages = isObject(lock) && isObject(lock.packages) ? Object.values(lock.packages) : []
+  return packages.flatMap(entry => isObject(entry) && typeof entry.resolved === "string" && entry.resolved.startsWith("file:") ? [entry.resolved.slice("file:".length)] : [])
+}
+
+/**
+ * The lockfile without its `file:` packages. npm keeps the dependencies that a lockfile records for a tarball, so an
+ * update would still install a package that a packed workspace package no longer depends on. Without the entries, npm
+ * reads each tarball again and keeps the registry versions.
+ */
+export function withoutFilePackages(lockfile: string): string {
+  const lock: { packages?: Record<string, { resolved?: string }> } = JSON.parse(lockfile)
+  const packages = lock.packages ?? {}
+  for (const [path, entry] of Object.entries(packages)) {
+    if (entry.resolved?.startsWith("file:")) delete packages[path]
+  }
+  return `${JSON.stringify(lock, null, 2)}\n`
+}

@@ -295,6 +295,7 @@ describe("framework package contract", () => {
         .sort(),
     ).toEqual([
       ".",
+      "./cache",
       "./console",
       "./console/auth",
       "./console/mcp-client",
@@ -306,8 +307,10 @@ describe("framework package contract", () => {
       "./logs/memory",
       "./logs/source",
       "./nuxt",
+      "./seo",
       "./skills",
       "./test",
+      "./test/register",
     ]);
 
     for (const { subpath, targets } of manifestForwarders) {

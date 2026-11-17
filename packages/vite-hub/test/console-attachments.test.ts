@@ -6,6 +6,7 @@ import { blob } from "../../blob/src/runtime/storage.ts"
 import { blobError } from "../../blob/src/errors.ts"
 import { setBlobRuntimeConfig, setBlobRuntimeStorage } from "../../blob/src/runtime/state.ts"
 import { installConsoleBlob } from "../src/console/runtime/server/blob.ts"
+import type { BlobStorage } from "../../blob/src/types.ts"
 import { consoleInputMessage, storeConsoleInputMessage, withConsoleInputMessage } from "../src/console/runtime/server/attachments.ts"
 
 const dirs: string[] = []
@@ -168,7 +169,7 @@ it("attempts every rollback even when one deletion fails", async () => {
   })
   installConsoleBlob(base, {
     ...blob,
-    delete: del,
+    delete: ((path: string | string[]) => del(path)) as BlobStorage["delete"],
     async put(path, bytes, options) {
       if (++writes === 2) throw failure
       return blob.put(path, bytes, options)
@@ -211,10 +212,10 @@ it.each([false, true])("rolls back a new input batch when reconstruction fails, 
       if (++reads === 2) return [failure, undefined]
       return blob.head(path)
     },
-    async delete(path) {
+    delete: (async (path: string | string[]) => {
       if (typeof path === "string" && path.startsWith("_vitehub/console/attachments/") && ++deletions === 1 && failCleanup) return [cleanupError, undefined]
       return blob.delete(path)
-    },
+    }) as BlobStorage["delete"],
   })
   const input = storeConsoleInputMessage("test", { files: [
     { url: `data:image/png;base64,${png}` },

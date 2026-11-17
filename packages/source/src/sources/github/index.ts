@@ -1,4 +1,3 @@
-import { forgeGitCredentials } from "@vite-hub/forge"
 import { defineCachedFunction } from "ocache"
 
 import { sourceError } from "../../core/errors.ts"
@@ -6,7 +5,7 @@ import { normalizeSafeSourcePath, normalizeSourcePath } from "../../core/path.ts
 import { matchesAny } from "../path.ts"
 import { parseGitHubArchive } from "./archive.ts"
 import { createGitHubCacheKey, githubAuthenticationScope, normalizeGitHubCache } from "./cache.ts"
-import { createGitHubClient, githubEnvToken, githubErrorStatus } from "./client.ts"
+import { createGitHubClient, githubEnvToken, githubErrorStatus, loadForge } from "./client.ts"
 import { getGitSparsePatterns, loadGitArchiveFiles } from "./git.ts"
 
 import { normalizeGitHubRoot } from "./root.ts"
@@ -174,7 +173,7 @@ export function github(options: GitHubSourceOptions): GitHubSource {
     if (sparsePatterns) {
       try {
         return await loadGitArchiveFiles({
-          credentials: forgeGitCredentials({ forge: "github", repository: options.repo, token }),
+          credentials: (await loadForge()).forgeGitCredentials({ forge: "github", repository: options.repo, token }),
           keyForRepoPath,
           ref,
           shouldInclude,

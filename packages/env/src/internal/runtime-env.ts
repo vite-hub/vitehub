@@ -32,3 +32,15 @@ export function cloudflareEnv(event?: Request | ViteHubContext): RuntimeEnv | un
 export function runtimeEnv(event?: Request | ViteHubContext): RuntimeEnv {
   return { ...processEnv(), ...cloudflareEnv(event), ...getViteHubTestMode()?.env }
 }
+
+/**
+ * A request event: an H3 event, another event with Standard Context, or a web `Request`. An H3 event matches `{ req }`
+ * even when the app does not load the types that add `~standard` to it.
+ */
+export type RequestEvent = Request | ViteHubContext | { readonly req: Request }
+
+/** An H3 event without Standard Context reads it from its Request, which carries the same host data. */
+export function standardSource(event: RequestEvent): Request | ViteHubContext {
+  if ("~standard" in event) return event
+  return event instanceof Request ? event : event.req
+}
