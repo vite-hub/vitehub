@@ -105,7 +105,7 @@ type DefaultDatabaseName = "default" extends keyof RuntimeDatabaseRegistry
   : true extends IsUnion<keyof RuntimeDatabaseRegistry> ? never : keyof RuntimeDatabaseRegistry
 
 /**
- * The default export of a seed file, which `vitehub database seed` runs. Name the database for its tables:
+ * The default export of a seed file, which `vitehub seed` runs. Name the database for its tables:
  * `export default (async ({ db, schema }) => { ... }) satisfies DatabaseSeed<"analytics">`.
  */
 export type DatabaseSeed<Name extends keyof RuntimeDatabaseLookup = "default"> = (

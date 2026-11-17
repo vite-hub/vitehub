@@ -151,6 +151,7 @@ function createH3StandardProps(event: object): ViteHubStandardProps | undefined 
  * Context, and H3 adds the headers that primitives set to the Response that the handler returns.
  * ViteHub calls this for each request in a Nitro `request` hook. Call it yourself only for an event that
  * Nitro did not create, such as in a test. Throws `RUNTIME_R0015` when the event has no request.
+ * H3 does not set `~standard` itself yet (https://github.com/h3js/h3/issues/1658).
  */
 export function installStandardContext<T extends object>(event: T): asserts event is T & ViteHubContext {
   if (!("~standard" in event)) {

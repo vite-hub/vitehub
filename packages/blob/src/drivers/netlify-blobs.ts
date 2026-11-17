@@ -224,6 +224,8 @@ function resolveNetlifyConnection(options: NetlifyBlobsStoreConfig): ResolvedNet
   return { context, siteID, token }
 }
 
+// `store.list()` drops `size` and `last_modified`, and the list has no custom metadata, so this reads the list endpoint
+// and fetches metadata per key (https://github.com/netlify/primitives/issues/859).
 function createListPageFetcher(options: NetlifyBlobsStoreConfig, connection: ResolvedNetlifyConnection) {
   const { context, siteID, token } = connection
   const storeName = options.deployScoped

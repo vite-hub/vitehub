@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { expect, it } from "vitest";
 
 const stylesheet = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+const focusRing = await readFile(new URL("../theme-focus-ring.css", import.meta.url), "utf8");
 
 it("gives the thread header and message buttons 44px targets on a touch screen only", () => {
   const coarse = /@media \(pointer: coarse\) \{\s*:is\(\[data-slot="comment-thread-header"\], \[data-slot="comment-reply-actions"\]\) > :is\(button, a\) \{([^}]*)\}/.exec(stylesheet);
@@ -71,4 +72,30 @@ it("opens an sm thread beside its pin in Drop's 340px card, pointing at the pin,
   ]);
   // A flipped card measures its own width, so a 340px card stays on a narrow screen.
   expect(stylesheet).toContain("min(var(--vh-comment-card-width), 100vw - 1rem)");
+});
+
+it("centers one line of a small row box on its 28px buttons, and gives a wrapped box the full width", () => {
+  const small = /\[data-slot="comment-composer"\]\[data-size="sm"\]\[data-layout="row"\] \{[\s\S]*?& \[data-slot="prompt-input-textarea"\] \{([^}]*)\}/.exec(stylesheet)?.[1];
+  // 21px of text and 3.5px above and below make the 28px of a button.
+  expect(small).toContain("line-height: 1.3125rem;");
+  expect(small).toContain("min-height: 1.75rem;");
+  expect(small).toContain("padding: 0.21875rem 0.25rem;");
+  const wrapped = /\[data-slot="comment-composer"\]\[data-layout="row"\]\[data-multiline="true"\] \{([\s\S]*?)\n  \}\n/.exec(stylesheet)?.[1];
+  expect(wrapped).toMatch(/& \[data-slot="prompt-input-textarea"\] \{[^}]*flex-basis: 100%;[^}]*order: 0;/);
+  expect(wrapped).toMatch(/& \[data-slot="prompt-input-spacer"\] \{[^}]*display: block;/);
+});
+
+it("draws one frame around the box of a new comment: the bubble's, with a firmer hairline on focus", () => {
+  // The field of a box with frame="none" shows no edge on focus, so the bubble is not a box inside a box.
+  const none = /\[data-slot="comment-composer"\]\[data-frame="none"\]:not\(\[data-dragging="true"\]\) \[data-slot="prompt-input-group"\]:has\(\[data-slot="prompt-input-textarea"\]:focus-visible\) \{([^}]*)\}/.exec(focusRing);
+  expect(none?.[1]).toContain("border-color: transparent;");
+  expect(none?.[1]).toContain("box-shadow: none;");
+  // It comes after the row box's focus edge, which has the same specificity.
+  expect(focusRing.indexOf(none![0])).toBeGreaterThan(focusRing.indexOf('[data-slot="comment-composer"][data-layout="row"] {'));
+  expect(focusRing).not.toContain('[data-draft="true"]');
+  const focused = /\[data-slot="comment-layer-popover"\]:has\(\[data-slot="comment-composer"\]\[data-frame="none"\] \[data-slot="prompt-input-textarea"\]:focus-visible\) \{([^}]*)\}/.exec(stylesheet);
+  expect(focused?.[1]).toContain("--vh-bubble-edge: color-mix(in oklab, var(--vh-highlighted) 22%, transparent);");
+  expect(stylesheet).toContain("0 0 0 1px var(--vh-bubble-edge),");
+  const small = /> \[data-slot="comment-layer-popover"\]:has\(> \[data-slot="comment-composer"\]\[data-size="sm"\]\) \{([^}]*)\}/.exec(stylesheet);
+  expect(small?.[1]).toContain("--vh-bubble-radius: 1.125rem;");
 });

@@ -27,9 +27,9 @@
   }
 }
 
-/* The draft bubble is the field, as in Drop: it draws no focus ring, because the caret in the only field on it shows
-   the focus. Its nested row field stays ring-free too. */
-[data-slot="comment-layer-item"][data-draft="true"] > [data-slot="comment-layer-popover"] [data-slot="comment-composer"]:not([data-dragging="true"]) [data-slot="prompt-input-group"]:has([data-slot="prompt-input-textarea"]:focus-visible) {
+/* A box with `frame="none"` sits in a parent that is its frame, such as the bubble of a new comment. The field draws no
+   edge of its own on focus, so there is one frame, and the parent shows the focus. The drag highlight stays. */
+[data-slot="comment-composer"][data-frame="none"]:not([data-dragging="true"]) [data-slot="prompt-input-group"]:has([data-slot="prompt-input-textarea"]:focus-visible) {
   border-color: transparent;
   box-shadow: none;
 }
