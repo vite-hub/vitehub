@@ -197,7 +197,7 @@ finally {
 | `database` | Atomic. One `INSERT ... ON CONFLICT` statement, and one `DELETE` that checks the owner token. Expiry uses the clock of the Database. |
 | `deno-kv`, `fs-lite`, `cloudflare` | Returns `KV_UNSUPPORTED_OPERATION`, and does not call your function. These drivers have no `deleteIfEquals()`, and `fs-lite` never expires keys. App tests use `fs-lite`, so they return this code too. |
 
-The type `KVDriversWith<'deleteIfEquals'>` lists the drivers that support `lock()`.
+The type `KVDriversWith<'deleteIfEquals'>` lists the drivers that support `lock()`. For work that runs longer than you can predict, use a lease, which its holder can renew. See [Locks and leases](/docs/guides/run-one-at-a-time).
 
 ## Runtime helper
 
