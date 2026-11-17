@@ -1,15 +1,19 @@
-import { ref, shallowRef } from "vue"
+import { clearDevice, openDevice, setDeviceAccount } from "@vite-hub/device"
+import { ref, shallowRef, watch } from "vue"
 
 import type { Ref, ShallowRef } from "vue"
 
 import { setConsoleProject } from "./project"
 import { consoleProjectProblem, probeConsoleProject } from "./project-link"
 import { consoleProjectHost, consoleProjectTarget, consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage } from "./projects"
-import { consoleSectionsPath, seedConsoleNavigation } from "./sections"
+import { consoleResponseError } from "./request"
+import { consoleSectionsPath, reloadConsoleNavigation, seedConsoleNavigation } from "./sections"
+import { consoleAccountKey, consoleDeviceVersion, consoleProjectKey, readStored } from "./stored"
 
 import type { ConsoleAccount, ConsoleAccountProject } from "./account"
 import type { ConsoleProjectInfo, ConsoleProjectProbe, ConsoleProjectProblem } from "./project-link"
 import type { ConsoleLinkedProject, ConsoleProjectStorage, ConsoleProjectStore, ConsoleProjectTarget } from "./projects"
+import type { ConsoleStoredRead } from "./stored"
 
 /**
  * How the Console page started.
@@ -71,7 +75,10 @@ interface ConsoleProjectsState {
   gate: ShallowRef<ConsoleProjectGate>
   projects: ShallowRef<ConsoleLinkedProject[]>
   statuses: ShallowRef<Readonly<Record<string, ConsoleProjectStatus>>>
-  /** The name that each project reported in `project.get`, by project id. This browser keeps them for the next visit. */
+  /**
+   * The name that each project reported, by project id: in `project.get`, or in the check of the team sidebar. The
+   * device keeps those answers, so the next visit shows the names at once.
+   */
   names: ShallowRef<Readonly<Record<string, string>>>
   /** The Link an app dialog is open. The rail and the search palette open it. */
   linkOpen: Ref<boolean>
@@ -86,8 +93,21 @@ interface ConsoleProjectsState {
 
 let state: ConsoleProjectsState | undefined
 let probeVersion = 0
-/** The `project.get` of the app that the boot expects to open, sent while the account loads. */
-let earlyProbe: { id: string, probe: Promise<ConsoleProjectProbe> } | undefined
+/** The `project.get` of the app of a `?app=<id>` link, sent while the account loads. */
+let earlyProbe: { id: string, read: ConsoleStoredRead<ConsoleProjectProbe> } | undefined
+/** The `project.get` read of the open app. It lives until another app opens, so it can start over on the naming. */
+let projectRead: { id: string, read: ConsoleStoredRead<ConsoleProjectProbe> } | undefined
+/** The page loads again: the first reload wins, so a sign-out and a read that starts over do not navigate twice. */
+let reloading = false
+/** The project reads whose answer an `openConsoleProject()` call waits for. That call applies it, not `followProject()`. */
+const awaited = new Set<ConsoleStoredRead<ConsoleProjectProbe>>()
+/** The account read of an `account` Console. It lives as long as the page, and each answer names the device account. */
+let accountRead: ConsoleStoredRead<ConsoleAccount | undefined> | undefined
+/**
+ * The page opened from the account that the device kept. Only then does a stored `project.get` answer open the app:
+ * the stored answers belong to that account.
+ */
+let openedFromDevice = false
 let resolveReady: (() => void) | undefined
 const ready = new Promise<void>((resolve) => {
   resolveReady = resolve
@@ -160,7 +180,7 @@ export function startConsoleProjects(options: {
     info: shallowRef(),
     linkOpen: ref(false),
     mode: options.mode,
-    names: shallowRef(options.mode === "account" ? readProjectNames() : {}),
+    names: shallowRef({}),
     navigate: options.navigate,
     pageOrigin: options.pageOrigin,
     projects: shallowRef(projects),
@@ -180,13 +200,21 @@ function open(info: ConsoleProjectInfo): void {
   const current = projects.current.value
   if (current?.id) {
     projects.statuses.value = { ...projects.statuses.value, [current.id]: "ready" }
-    rememberProjectName(current.id, info.name)
-    if (projects.mode === "account") rememberLastProject(current.id)
+    rememberConsoleProjectName(current.id, info.name)
+    if (projects.mode === "account") rememberAccountProject(projects.account.value?.teamId, current.id)
   }
-  // The rail and the Overview read the sections that came with `project.get`, so they need no second call.
+  // The rail and the Overview read the sections that came with `project.get`, so they need no second call. A newer
+  // answer replaces the stored one, so a section that the access lost goes away. An answer without navigation drops the
+  // one of a stored answer, and the sections come from `sections.list` again.
   if (info.navigation) seedConsoleNavigation(consoleSectionsPath, info.navigation)
+  else reloadConsoleNavigation(consoleSectionsPath)
   projects.gate.value = { kind: "ready" }
   resolveReady?.()
+}
+
+/** The `project.get` read of a project of an `account` Console. The device keeps its answer for the next visit. */
+function readProject(id: string): ConsoleStoredRead<ConsoleProjectProbe> {
+  return readStored(consoleProjectKey(id), ({ signal }) => probeConsoleProject({ origin: "", base: `/p/${encodeURIComponent(id)}` }, { signal }))
 }
 
 /** Embedded mode opens the app whatever it answers. Account mode shows the setup step or why the project did not open. */
@@ -204,7 +232,11 @@ function gateOf(probe: ConsoleProjectProbe, target: ConsoleProjectTarget): Conso
   return { kind: "problem", problem: consoleProjectProblem(probe, { host: consoleProjectHost(target), url: target.url }) }
 }
 
-/** Read `project.get` of the current project and open it, or set the gate that says what it needs. */
+/**
+ * Read `project.get` of the current project and open it, or set the gate that says what it needs. An `account` Console
+ * opens at once from the answer that the device kept, then applies the answer of this visit: another navigation, or
+ * the step that the project needs now.
+ */
 export async function openConsoleProject(): Promise<void> {
   const projects = useState()
   const current = projects.current.value
@@ -214,13 +246,57 @@ export async function openConsoleProject(): Promise<void> {
   }
   const version = ++probeVersion
   projects.gate.value = { kind: "opening" }
-  const target = projects.mode === "embedded" ? { ...consoleProjectTarget(current), origin: "" } : targetOf(projects, current)
   // The boot sent `project.get` while the account loaded. Its answer counts only for the app that opens.
   const early = earlyProbe
   earlyProbe = undefined
-  const probe = await (early?.id === current.id ? early.probe : probeConsoleProject(target))
+  if (early && early.id !== current.id) early.read.stop()
+  let probe: ConsoleProjectProbe
+  if (projects.mode === "embedded") probe = await probeConsoleProject({ ...consoleProjectTarget(current), origin: "" })
+  else {
+    let read = projectRead?.id === current.id ? projectRead.read : undefined
+    // A retry of the open app asks again, and the answer of this visit decides: the stored one opened the app only once.
+    if (read) void read.read.refresh()
+    else {
+      projectRead?.read.stop()
+      read = early?.id === current.id ? early.read : readProject(current.id)
+      projectRead = { id: current.id, read }
+      followProject(read, current)
+      // Only an answer that opened the project counts. A stored refusal waits for the project.
+      if (openedFromDevice && read.stored?.kind === "ready") open(read.stored.info)
+    }
+    awaited.add(read)
+    try {
+      probe = await read.answer()
+    }
+    finally {
+      awaited.delete(read)
+    }
+  }
   // A switch or a newer attempt can finish first. Only the current attempt may open the gate or update the project.
   if (projects !== state || version !== probeVersion || projects.current.value !== current) return
+  applyProbe(probe, current)
+}
+
+/**
+ * Apply each later answer of the `project.get` read of the open app: the read starts over when the page names its
+ * account, or when another tab clears the device or signs in as another person.
+ */
+function followProject(read: ConsoleStoredRead<ConsoleProjectProbe>, current: ConsoleLinkedProject): void {
+  const projects = useState()
+  // `sync`, so the watcher runs while an `openConsoleProject()` call still waits for the same answer and applies it.
+  watch(read.read.status, (status) => {
+    if (status !== "success" || awaited.has(read) || !read.read.data.value) return
+    if (projects !== state || projectRead?.read !== read || projects.current.value !== current) return
+    // An account page that the person opened, such as Settings, stays. The next open of the app reads the answer.
+    const gate = projects.gate.value.kind
+    if (gate === "home" || gate === "account" || gate === "empty") return
+    applyProbe(read.read.data.value, current)
+  }, { flush: "sync" })
+}
+
+/** Open the project with its `project.get` answer, or set the gate that says what it needs. */
+function applyProbe(probe: ConsoleProjectProbe, current: ConsoleLinkedProject): void {
+  const projects = useState()
   const gate = gateOf(probe, consoleProjectTarget(current))
   if (gate) {
     projects.gate.value = gate
@@ -260,7 +336,7 @@ export async function forgetConsoleProject(id: string): Promise<void> {
   // The Console server removes the project and its key for the whole team.
   const { unlinkConsoleAccountProject } = await import("./account")
   await unlinkConsoleAccountProject(id)
-  projects.navigate(projects.home)
+  reloadConsoleAccount()
 }
 
 /** Read `project.get` of every project of the team, for the status dots of the switcher. */
@@ -273,35 +349,24 @@ export async function checkConsoleProjects(): Promise<void> {
   const pending = list.filter(project => project.id !== opened)
   projects.statuses.value = { ...projects.statuses.value, ...Object.fromEntries(pending.map(project => [project.id, "checking" as const])) }
   await Promise.all(pending.map(async (project) => {
-    const probe = await probeConsoleProject(targetOf(projects, project)).catch((): ConsoleProjectProbe => ({ kind: "unreachable" }))
+    const stored = projects.mode === "account" ? readProject(project.id) : undefined
+    // The stored answer names the project while it answers again.
+    if (stored?.stored?.kind === "ready") rememberConsoleProjectName(project.id, stored.stored.info.name)
+    const answer = stored ? stored.answer() : probeConsoleProject(targetOf(projects, project))
+    const probe = await answer.catch((): ConsoleProjectProbe => ({ kind: "unreachable" }))
+    stored?.stop()
     const status: ConsoleProjectStatus = probe.kind === "ready" ? "ready" : probe.kind === "signed" ? "sign-in" : "unreachable"
     projects.statuses.value = { ...projects.statuses.value, [project.id]: status }
-    if (probe.kind === "ready") rememberProjectName(project.id, probe.info.name)
+    if (probe.kind === "ready") rememberConsoleProjectName(project.id, probe.info.name)
   }))
 }
 
-const projectNamesKey = "vitehub-console:project-names"
-
-function readProjectNames(): Record<string, string> {
-  try {
-    const value: unknown = JSON.parse(globalThis.localStorage?.getItem(projectNamesKey) ?? "{}")
-    if (!(value instanceof Object)) return {}
-    return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim() !== ""))
-  }
-  catch {
-    return {}
-  }
-}
-
-function rememberProjectName(id: string, name: string | undefined): void {
+/** Keep the name that a project of an `account` Console reported, for `consoleProjectDisplayName()`. */
+export function rememberConsoleProjectName(id: string, name: string | undefined): void {
   const projects = useState()
   const value = name?.trim()
   if (projects.mode !== "account" || !value || projects.names.value[id] === value) return
   projects.names.value = { ...projects.names.value, [id]: value }
-  try {
-    globalThis.localStorage?.setItem(projectNamesKey, JSON.stringify(projects.names.value))
-  }
-  catch {}
 }
 
 /**
@@ -317,35 +382,17 @@ export function canManageConsoleProjects(account: Pick<ConsoleAccount, "roles">)
   return account.roles.includes("owner") || account.roles.includes("admin")
 }
 
+// The person picks it, so no answer of the server has it, and the device keeps only answers. It holds an id of the team,
+// which opens nothing for another account.
 const accountProjectKey = (teamId: string) => `vitehub-console:account-project:${teamId}`
 
 /** The project that an `account` Console opens next for a team, kept in this browser. */
 export function rememberAccountProject(teamId: string | undefined, projectId: string): void {
-  rememberLastProject(projectId)
   if (!teamId) return
   try {
     globalThis.localStorage?.setItem(accountProjectKey(teamId), projectId)
   }
   catch {}
-}
-
-// The boot reads it before it knows the team, to send `project.get` while the account loads.
-const lastProjectKey = "vitehub-console:last-project"
-
-function rememberLastProject(projectId: string): void {
-  try {
-    globalThis.localStorage?.setItem(lastProjectKey, projectId)
-  }
-  catch {}
-}
-
-function lastProject(): string | undefined {
-  try {
-    return globalThis.localStorage?.getItem(lastProjectKey) || undefined
-  }
-  catch {
-    return undefined
-  }
 }
 
 function rememberedAccountProject(teamId: string | undefined): string | undefined {
@@ -433,7 +480,8 @@ export const consoleAccountPath = "/api/account"
 export async function loadConsoleAccount(): Promise<ConsoleAccount | undefined> {
   // No headers and no cache option, so the request matches the preload of the HTML and the browser reuses its answer.
   const response = await fetch(consoleAccountPath, { credentials: "same-origin" })
-  if (!response.ok) return undefined
+  if (response.status === 401 || response.status === 403) return undefined
+  if (!response.ok) throw await consoleResponseError(response)
   // SAFETY: The Console server owns this route and its answer.
   return await response.json() as ConsoleAccount
 }
@@ -450,11 +498,7 @@ function withSiteHash(search: string, hash: string): string {
   return `?${query}`
 }
 
-/**
- * Start an `account` Console. Returns the address that the page shows before its router reads it: the page of an
- * `/open` link, or `undefined` to keep the address.
- */
-export async function startConsoleAccount(options: {
+interface ConsoleAccountBoot {
   home: string
   navigate: (url: string) => void
   pageOrigin: string
@@ -465,16 +509,56 @@ export async function startConsoleAccount(options: {
   showPath: (path: string) => void
   /** The first paint of the page, which the Console server picked from the path and the cookies. */
   boot?: string
-}): Promise<string | undefined> {
+}
+
+/**
+ * Start an `account` Console. Returns the address that the page shows before its router reads it: the page of an
+ * `/open` link, or `undefined` to keep the address.
+ *
+ * With a session cookie, the page opens at once from the account and the `project.get` answer that the device kept
+ * from the last visit of this account, then reads both again. When the new answers open another page, such as for
+ * another person, another team, or an app that the team unlinked, the Console deletes the stored answers and loads
+ * the page again.
+ */
+export async function startConsoleAccount(options: ConsoleAccountBoot): Promise<string | undefined> {
   showAccountPath = options.showPath
-  // With a session cookie, the home path and the app pages open an app. Its `project.get` goes out now, with the app
-  // of a `?app=<id>` link or the app that this browser opened last, so it does not wait for the account.
-  if ((options.boot === "app" || options.boot === "shell") && !accountPageOf(options.pathname)) {
-    const id = new URLSearchParams(options.search ?? "").get("app") || lastProject()
-    if (id) earlyProbe = { id, probe: probeConsoleProject({ origin: "", base: `/p/${encodeURIComponent(id)}` }) }
+  await openDevice({ version: consoleDeviceVersion })
+  // Only a page with a session cookie uses the stored account. The server picks the sign-in page without one.
+  const signedIn = options.boot === "app" || options.boot === "shell"
+  // The answer of `/api/account` says who is signed in, so it names the account of the device, and the device stores it
+  // under that account. Until then the page names no account: the stored answers only draw the first frame, and the
+  // device stores the answers of the other reads only when their calls start after the naming.
+  const read = readStored(consoleAccountKey, loadConsoleAccount, { account: account => account?.user.id ?? null })
+  accountRead = read
+  const stored = signedIn && read.stored && opensFromStored(read.stored, options) ? read.stored : undefined
+  // Without a stored account, the `project.get` of a `?app=<id>` link goes out now, so it does not wait for the account.
+  const linked = new URLSearchParams(options.search ?? "").get("app")
+  if (signedIn && !stored && linked && !accountPageOf(options.pathname)) earlyProbe = { id: linked, read: readProject(linked) }
+  if (stored) {
+    openedFromDevice = true
+    const address = startAccountState(stored, options)
+    followConsoleAccount(read, options)
+    return address
   }
-  const account = await loadConsoleAccount().catch(() => undefined)
-  const storage = memoryProjectStorage()
+  const account = await read.answer().catch(() => undefined)
+  const address = startAccountState(account, options)
+  followConsoleAccount(read, options)
+  return address
+}
+
+/**
+ * Apply each later answer of the account read: the answer of this visit after a stored account, and the answer after
+ * another tab signed out, signed in as another person, or cleared the device, when the read starts over.
+ */
+function followConsoleAccount(read: ConsoleStoredRead<ConsoleAccount | undefined>, options: ConsoleAccountBoot): void {
+  watch(read.read.status, (status) => {
+    if (status === "success" && accountRead === read) void refreshConsoleAccount(read.read.data.value, options)
+  })
+}
+
+/** Set the projects of the account and the gate of the page. Returns the address that the page shows. */
+function startAccountState(account: ConsoleAccount | undefined, options: ConsoleAccountBoot): string | undefined {
+  let storage = memoryProjectStorage()
   let missingApp = false
   let address: string | undefined
   const openPath = options.pathname.replace(/\/+$/, "") === `${options.home.replace(/\/+$/, "")}/open`
@@ -496,11 +580,7 @@ export async function startConsoleAccount(options: {
     else if (requested || openLink) missingApp = true
     if (site && opened) siteGate = { kind: "site", page: site.page, state: site.state }
     const remembered = rememberedAccountProject(account.teamId)
-    const active = account.projects.find(project => project.id === remembered)?.id ?? account.projects[0]?.id
-    storage.setItem(consoleProjectsStorageKey, JSON.stringify({
-      ...(active ? { active } : {}),
-      projects: account.projects.map(project => ({ id: project.id, url: project.url, ...(project.label ? { label: project.label } : {}) })),
-    }))
+    storage = accountProjectStorage(account, account.projects.find(project => project.id === remembered)?.id ?? account.projects[0]?.id)
   }
   const started = startConsoleProjects({ base: "", home: options.home, mode: "account", navigate: options.navigate, pageOrigin: options.pageOrigin, storage })
   started.account.value = account
@@ -516,8 +596,60 @@ export async function startConsoleAccount(options: {
   else if (page) started.gate.value = { kind: "home", page }
   else if (missingApp) started.gate.value = { kind: "home", page: "home" }
   // A guess for another app, or a boot that opens no app, leaves the early answer unread. A later open asks again.
-  if (started.gate.value.kind !== "opening" || started.current.value?.id !== earlyProbe?.id) earlyProbe = undefined
+  if (started.gate.value.kind !== "opening" || started.current.value?.id !== earlyProbe?.id) {
+    earlyProbe?.read.stop()
+    earlyProbe = undefined
+  }
   return address ?? (missingApp ? options.home : undefined)
+}
+
+/**
+ * Apply the account of this visit to a page that opened from the stored account. A new name, role, or app shows in
+ * place. A sign-out, another person, another team, or an open app that the team no longer has loads the page again,
+ * without the stored answers, so nothing of the stored account stays usable.
+ */
+async function refreshConsoleAccount(fresh: ConsoleAccount | undefined, options: ConsoleAccountBoot): Promise<void> {
+  const projects = useState()
+  const shown = projects.account.value
+  // A page that shows the sign-in loads again when another tab signed in.
+  if (!shown) {
+    if (fresh) reloadConsolePage(`${options.pathname}${options.search ?? ""}`)
+    return
+  }
+  const current = projects.current.value
+  const store = fresh && createConsoleProjectStore(accountProjectStorage(fresh, current?.id))
+  // The open app must still be an app of the team, at the same URL. A team that had no app opens one now.
+  const sameApp = current ? store?.get(current.id)?.url === current.url : projects.gate.value.kind !== "empty" || !store?.list().length
+  if (!fresh || !store || fresh.user.id !== shown.user.id || fresh.teamId !== shown.teamId || !sameApp) {
+    // A newer attempt must not open the stale app while the page loads again.
+    ++probeVersion
+    reloadConsolePage(`${options.pathname}${options.search ?? ""}`)
+    return
+  }
+  projects.account.value = fresh
+  projects.store = store
+  projects.projects.value = store.list()
+}
+
+/** The projects of the team, with `active` as the project that the page opens. */
+function accountProjectStorage(account: ConsoleAccount, active: string | undefined): ConsoleProjectStorage {
+  const storage = memoryProjectStorage()
+  storage.setItem(consoleProjectsStorageKey, JSON.stringify({
+    ...(active ? { active } : {}),
+    projects: account.projects.map(project => ({ id: project.id, url: project.url, ...(project.label ? { label: project.label } : {}) })),
+  }))
+  return storage
+}
+
+/**
+ * Whether the stored account can open the page. A link to an app that it does not have, such as an app that the team
+ * linked after it was stored, waits for the account of this visit.
+ */
+function opensFromStored(account: ConsoleAccount, options: ConsoleAccountBoot): boolean {
+  const home = options.home.replace(/\/+$/, "")
+  if (options.pathname.replace(/\/+$/, "") === `${home}/open`) return consoleOpenLink(options.search ?? "", account.projects) !== undefined
+  const linked = new URLSearchParams(options.search ?? "").get("app")
+  return !linked || account.projects.some(project => project.id === linked)
 }
 
 /**
@@ -608,10 +740,43 @@ export async function linkAccountProject(url: string, label?: string): Promise<v
   reloadConsoleAccount()
 }
 
-/** Load the Console again from its home page, such as after a sign-in, a team switch, or a new project. */
+/**
+ * Load the Console again from its home page, such as after a sign-in, a team switch, or a new project. The account
+ * changed, so the next page must not open from the stored one: the stored answers go first.
+ */
 export function reloadConsoleAccount(): void {
+  reloadConsolePage(useState().home)
+}
+
+/** Sign out of the Console, delete the stored answers in every tab, and load the Console again. */
+export async function signOutConsole(): Promise<void> {
+  const { endConsoleSession } = await import("./account")
+  // A failed sign-out throws here, and the page keeps following its account.
+  await endConsoleSession()
+  // The reads of the page must not start over and load the page on their own when the device forgets the account.
+  stopConsoleReads()
+  await setDeviceAccount(null)
+  reloadConsoleAccount()
+}
+
+/**
+ * Load the page at `url` without the stored answers. The reads of the boot stop first, and only the first reload of the
+ * page navigates.
+ */
+function reloadConsolePage(url: string): void {
+  if (reloading) return
+  reloading = true
   const projects = useState()
-  projects.navigate(projects.home)
+  stopConsoleReads()
+  void clearDevice().then(() => projects.navigate(url))
+}
+
+/** Stop the reads of the boot before the page loads again, so a read that starts over does not load it a second time. */
+function stopConsoleReads(): void {
+  accountRead?.stop()
+  accountRead = undefined
+  projectRead?.read.stop()
+  projectRead = undefined
 }
 
 /** The page that a completed sign-in opens: the `/open` link that the person followed, else the Console home. */
