@@ -8,7 +8,7 @@ import { promisify } from "node:util"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { collectViteHubDefinitionInspectors, collectViteHubResourceSummaries } from "@vite-hub/internal/inspect"
-import { VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
+import { VITEHUB_DEPLOYMENT_HOST, VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
 import { createQueueNitroConfig, hubQueue } from "../src/vite.ts"
 
@@ -646,6 +646,19 @@ describe("hubQueue", () => {
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     expect(nitroPlugin).toContain('"driver": "local"')
     expect(nitroPlugin).toContain('"development": true')
+  })
+
+  it("reads the host of `vitehub()` in `vite dev`, which has no Nitro preset", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-dev-host-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue()
+    const config = { [VITEHUB_DEPLOYMENT_HOST]: "node", root }
+    await (plugin.config as unknown as (config: Record<string, unknown>, env: { command: string }) => Promise<void>)(config, { command: "serve" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, command: "serve" } as never)
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain('"driver": "local"')
+    expect(nitroPlugin).not.toContain('"rules"')
   })
 
   it("keeps an explicit hosted provider on a Node preset", async () => {
