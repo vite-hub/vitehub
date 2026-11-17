@@ -117,7 +117,7 @@ export default defineEventHandler(async (event) => {
 
 ## Values that you store
 
-Seal a field before you write it to the database, such as an API key that a user brings. A rotation of `VITEHUB_SECRET` makes every sealed value unreadable. That is correct for tokens that expire, but not for data that you keep. For stored values, pass a separate root secret of at least 32 characters, and pass the same one to `unseal()`:
+Seal a field before you write it to the database, such as an API key that a user brings. Data that you keep must not depend on `VITEHUB_SECRET`, which you rotate with your sessions and links. For stored values, pass a separate root secret of at least 32 characters, and pass the same one to `unseal()`:
 
 ```ts [server/utils/credentials.ts]
 import * as v from 'valibot'
@@ -137,13 +137,14 @@ export async function readCredentials(stored: string, secret: string) {
 }
 ```
 
-Store the result in a `text` column. `secret` takes a string or a Secret Env value.
+Store the result in a `text` column. `secret` takes a string, a Secret Env value, or a list of them for a rotation: the new secret first, then the old ones. `seal()` uses the first, and `unseal()` tries each in order.
 
 ## Expiry and rotation
 
 - A value with `ttl` stops opening after that many seconds and returns `ENV_SEAL_EXPIRED`. The expiry is inside the signed part, so a client cannot change it.
-- A rotation of `VITEHUB_SECRET` makes every value from `seal()` without `secret` unreadable at once. `unseal()` returns `ENV_SEAL_INVALID`. ViteHub does not try an old key, so plan a rotation for a time when open links and cookies can expire.
-- A value sealed with `secret` survives a rotation of `VITEHUB_SECRET`. When you change `secret`, read each stored value with the old one and seal it again with the new one.
+- To rotate `VITEHUB_SECRET`, set the new secret in `VITEHUB_SECRET` and the old one in `VITEHUB_SECRET_PREVIOUS`. `seal()` uses only `VITEHUB_SECRET`. `unseal()` tries `VITEHUB_SECRET`, then each old secret, so open links, cursors, and cookies keep working. When the longest `ttl` has passed, remove `VITEHUB_SECRET_PREVIOUS`. It holds one secret, or a comma-separated list.
+- Without `VITEHUB_SECRET_PREVIOUS`, a value sealed with an old secret returns `ENV_SEAL_INVALID`.
+- A value sealed with `secret` does not read `VITEHUB_SECRET` or `VITEHUB_SECRET_PREVIOUS`. To change `secret`, pass `[newSecret, oldSecret]` to `seal()` and `unseal()`, read each stored value and seal it again, then remove the old secret.
 
 ## Errors
 
@@ -152,12 +153,12 @@ Store the result in a `text` column. `secret` takes a string or a Secret Env val
 | Code | When |
 | --- | --- |
 | `ENV_SEAL_EXPIRED` | The `ttl` has passed. |
-| `ENV_SEAL_INVALID` | The string is not a sealed value, someone changed it, or another root secret sealed it. |
+| `ENV_SEAL_INVALID` | The string is not a sealed value, someone changed it, or a root secret that is not in `VITEHUB_SECRET` or `VITEHUB_SECRET_PREVIOUS` sealed it. |
 | `ENV_SEAL_SCHEMA_MISMATCH` | The value opened, but it does not match `schema`. `error.cause` has the schema issues. |
 | `ENV_SEAL_USED_UP` | The value was sealed with `uses`, and every use is taken. |
 | `ENV_SEAL_WRONG_PURPOSE` | The value was sealed for another purpose. |
 
-A missing root secret is a configuration error, so `seal()` and `unseal()` throw `ENV_REQUIRED_MISSING`, as `deriveSecret()` does. A bad argument, such as an empty purpose, a `ttl` that is not a positive number, or a value that is not JSON, throws `ENV_SEAL_ARGUMENT_INVALID`.
+A missing root secret is a configuration error, so `seal()` and `unseal()` throw `ENV_REQUIRED_MISSING`, as `deriveSecret()` does. A secret in `VITEHUB_SECRET_PREVIOUS` that is shorter than 32 characters throws `ENV_RUNTIME_VALUE_INVALID`. A bad argument, such as an empty purpose, a `ttl` that is not a positive number, or a value that is not JSON, throws `ENV_SEAL_ARGUMENT_INVALID`.
 
 ## When to use something else
 

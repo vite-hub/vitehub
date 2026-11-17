@@ -60,7 +60,12 @@ Builds never generate a secret. Without `VITEHUB_SECRET`, a deployment fails at 
 
 ## Rotation and storage
 
-When you rotate `VITEHUB_SECRET`, every Auth session that uses the derived secret signs out, every dispatch key stops working, and every value from `seal()` without a `secret` option becomes unreadable.
+When you rotate `VITEHUB_SECRET`, every Auth session that uses the derived secret signs out and every dispatch key stops working. Put the old secret in `VITEHUB_SECRET_PREVIOUS`, so that values from [`seal()`](/docs/env/seal#expiry-and-rotation) still open until they expire. Only `unseal()` reads `VITEHUB_SECRET_PREVIOUS`.
+
+```bash [.env]
+VITEHUB_SECRET=<new secret>
+VITEHUB_SECRET_PREVIOUS=<old secret>
+```
 
 Keys that encrypt stored data are separate, because changing them means encrypting the data again. Connections use `VITEHUB_CONNECTIONS_KEY`. The [Env Bridge](/docs/env/bridge) database store uses its own `encryptionKeys`. Give `seal()` a separate `secret` for stored values for the same reason.
 

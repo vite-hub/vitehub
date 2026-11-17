@@ -127,6 +127,11 @@ describe("simulated chat Channels", () => {
       expect(html, channel).not.toMatch(/<link|<img|\bsrc=|@import|url\(\s*["']?https?:/)
       const script = /<script type="module">([\s\S]*)<\/script>/.exec(html)?.[1] ?? ""
       expect(() => new Script(script), channel).not.toThrow()
+      // The message box grows with CSS, not with a script that sets its height.
+      expect(html, channel).toContain("#input { field-sizing: content; min-width: 0; }")
+      expect(html, channel).toMatch(/textarea ?\{[^}]*max-height:/)
+      expect(html, channel).not.toMatch(/textarea ?\{[^}]*[;{ ]height:/)
+      expect(script, channel).not.toContain("style.height")
     }
   })
 

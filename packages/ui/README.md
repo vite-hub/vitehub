@@ -36,7 +36,7 @@ The package currently declares `vue` and `ai` as required peers. Styled componen
 
 ## Edit Markdown
 
-`MarkdownEditor` from `@vite-hub/ui/markdown-editor` edits Markdown with [comark-ui's editor](https://comark-ui.onmax.me/guide/editor/) and Nuxt UI's bubble toolbar, "/" menu, and drag handle. Bind the Markdown with `v-model`, or pass `editor` with a Tiptap editor the app made, such as a Realtime room's. A document that the editor can't save unchanged opens read-only.
+`MarkdownEditor` from `@vite-hub/ui/markdown-editor` edits Markdown with [comark-ui's editor](https://comark-ui.onmax.me/guide/editor/), a bubble toolbar, a "/" menu, and a drag handle: Nuxt UI's, or the ui-sdk ones of [the ui-sdk set](#the-ui-sdk-set). Bind the Markdown with `v-model`, or pass `editor` with a Tiptap editor the app made, such as a Realtime room's. A document that the editor can't save unchanged opens read-only.
 
 Pass `upload` to take pasted and dropped images, video, and audio, and to add Image to the "/" menu, which opens the file picker. Each file shows a placeholder with its percentage only on your screen, so a collaborative room never holds a half-uploaded file. A string is a route that returns `blob.handleUpload()`, and the store must be served (`blob.serve`) so the file has a URL:
 
@@ -68,7 +68,9 @@ export default defineEventHandler(async (event) => {
 });
 ```
 
-`upload` also takes a function, `(file, progress) => Promise<url>`, for any other storage; `blobUpload(route)` is the one a string uses. The default slot receives `{ editor }` for more menus. The entry isn't in the root barrel, so pages that only render Markdown don't load Tiptap. It needs the Tiptap packages that Nuxt UI's editor uses: `@tiptap/core`, `@tiptap/pm`, `@tiptap/vue-3`, `@tiptap/starter-kit`, `@tiptap/extension-image`, `@tiptap/extension-list`, and `@tiptap/extension-table`.
+`upload` also takes a function, `(file, progress) => Promise<url>`, for any other storage; `blobUpload(route)` is the one a string uses. The default slot receives `{ editor }` for more menus. The entry isn't in the root barrel, so pages that only render Markdown don't load Tiptap. It needs the Tiptap packages that Nuxt UI's editor uses: `@tiptap/core`, `@tiptap/pm`, `@tiptap/vue-3`, `@tiptap/starter-kit`, `@tiptap/extension-image`, `@tiptap/extension-list`, and `@tiptap/extension-table`. With the ui-sdk set, also install `@tiptap/extension-drag-handle`, `@tiptap/extension-drag-handle-vue-3`, and `@floating-ui/dom`, which Nuxt UI otherwise brings.
+
+The menus run each item's `kind`, such as `{ kind: "heading", level: 2 }`, through the handlers that the editor provides. `createEditorHandlers()` returns them, and `mapEditorItems(editor, items)` turns editor items into dropdown entries with `active`, `disabled`, and `onSelect`, as Nuxt UI's `mapEditorItems()` does. Provide your own under `editorHandlersKey` to add kinds; both sets read them.
 
 ## Run an app in the browser
 
@@ -284,7 +286,7 @@ Unlike `vite-hub/nuxt`, the Vite integration does not auto-register ViteHub UI c
 
 ## The ui-sdk set
 
-The styled parts render a few Nuxt UI components by name: `UButton`, `UIcon`, `UInput`, `UModal`, `UTabs`, and `UDropdownMenu`. `uiSdkComponents` holds the same names built on [ui-sdk](https://ui-sdk.dev), styled by the `@vite-hub/kit` style family. Give it to `createViteHubUI()`, and a page with these parts loads no Nuxt UI component:
+The styled parts render a few Nuxt UI components by name: `UButton`, `UIcon`, `UInput`, `UModal`, `UTabs`, `UDropdownMenu`, and the editor parts `UEditorToolbar`, `UEditorSuggestionMenu`, and `UEditorDragHandle`. `uiSdkComponents` holds the same names built on [ui-sdk](https://ui-sdk.dev), styled by the `@vite-hub/kit` style family. Give it to `createViteHubUI()`, and a page with these parts loads no Nuxt UI component:
 
 ```ts
 // src/main.ts
@@ -307,9 +309,10 @@ createApp(App).use(createViteHubUI({ components: uiSdkComponents })).mount("#app
 - `UIcon` draws the Lucide icons that the parts use. To show other names, such as your own in `createViteHubUI({ icons })`, pass your own `UIcon` too: `{ ...uiSdkComponents, UIcon: MyIcon }`.
 - The buttons and fields keep the kit's `data-slot` (`button`, `input`), so a part's own name moves to `data-part`, for example `data-part="copy-button"`.
 - The parts still import Nuxt UI with `import()` for a name that no component replaces, so the build must resolve `@nuxt/ui`. Install it, or resolve `@nuxt/ui/*` to an empty module. The page never loads it.
-- The editor parts of `@vite-hub/ui/markdown-editor` have no ui-sdk version yet.
+- The set also replaces the editor parts of `MarkdownEditor`: `UEditorToolbar` on ui-sdk's `Toolbar` and `Toggle`, which says the pressed state with `aria-pressed`, `UEditorSuggestionMenu` on ui-sdk's `TriggerMenu`, a listbox at the caret while focus stays in the editor, and `UEditorDragHandle` on Tiptap's drag handle. They take the props, slots, and events of Nuxt UI's, and load on first render.
+- In the "/" menu, Escape closes the list until the trigger is typed again or Control+Space reopens it, and a disabled item can be highlighted but not chosen, as the listbox pattern asks.
 
-`pnpm --filter @vite-hub/ui test:ui-sdk` renders every part that uses these names with the set and drives each one with the keyboard.
+`pnpm --filter @vite-hub/ui test:ui-sdk` renders every part that uses these names with the set and drives each one with the keyboard. `pnpm --filter @vite-hub/ui test:editor` drives the editor parts with the keyboard and the pointer, with Nuxt UI's parts and with the set.
 
 ## Verify the setup
 

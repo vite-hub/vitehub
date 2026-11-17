@@ -50,7 +50,6 @@ type NetlifyEnvironmentContext = {
   uncachedEdgeURL?: string
 }
 
-const METADATA_CONCURRENCY = 16
 const MAX_FETCH_RETRIES = 5
 const MIN_RETRY_DELAY = 1_000
 const RATE_LIMIT_HEADER = "X-RateLimit-Reset"
@@ -317,25 +316,6 @@ async function listPage(fetchPage: (parameters: Record<string, string>) => Promi
   }
 }
 
-async function mapWithConcurrency<T, U>(values: readonly T[], visit: (value: T) => Promise<U>): Promise<U[]> {
-  const results: U[] = []
-  let failure: { error: unknown } | undefined
-  let nextIndex = 0
-  await Promise.all(Array.from({ length: Math.min(METADATA_CONCURRENCY, values.length) }, async () => {
-    while (!failure && nextIndex < values.length) {
-      const index = nextIndex++
-      try {
-        results[index] = await visit(values[index]!)
-      }
-      catch (error) {
-        failure ??= { error }
-      }
-    }
-  }))
-  if (failure) throw failure.error
-  return results
-}
-
 function encodeCursor(cursor: FoldedCursor) {
   return encodeBase64Url(JSON.stringify(cursor))
 }
@@ -366,7 +346,6 @@ function toBlobObject(
   pathname: string,
   etag: string | undefined,
   metadata: StoredMetadata = {},
-  listed?: Pick<NetlifyListBlob, "last_modified" | "lastModified" | "size" | "uploaded_at" | "uploadedAt">,
 ): BlobObject {
   const envelope = metadataEnvelope(metadata)
   const contentType = envelope === "files-sdk"
@@ -378,12 +357,10 @@ function toBlobObject(
   const metadataSize = envelope === "files-sdk"
     ? metadata.__size
     : envelope === "legacy" ? metadata.size : undefined
-  const size = metadataSize ?? listed?.size ?? 0
-  const listedUploadTime = listed?.uploaded_at ?? listed?.uploadedAt ?? listed?.last_modified ?? listed?.lastModified
+  const size = metadataSize ?? 0
   const uploadedAt = envelope === "files-sdk"
     ? new Date(metadata.__lastModified!)
-    : listedUploadTime ? new Date(listedUploadTime)
-      : envelope === "legacy" ? new Date(metadata.uploadedAt!) : new Date(0)
+    : envelope === "legacy" ? new Date(metadata.uploadedAt!) : new Date(0)
   return {
     contentType,
     customMetadata,
@@ -392,6 +369,20 @@ function toBlobObject(
     pathname,
     size,
     uploadedAt,
+  }
+}
+
+/** A listed blob, from the list answer only: the pathname, the ETag, and the size and upload time when Netlify sends them. */
+function listedBlobObject(listed: NetlifyListBlob): BlobObject {
+  const uploadedAt = listed.uploaded_at ?? listed.uploadedAt ?? listed.last_modified ?? listed.lastModified
+  return {
+    contentType: undefined,
+    customMetadata: {},
+    httpEtag: listed.etag,
+    httpMetadata: {},
+    pathname: listed.key,
+    ...(listed.size === undefined ? {} : { size: listed.size }),
+    uploadedAt: uploadedAt ? new Date(uploadedAt) : new Date(0),
   }
 }
 
@@ -474,13 +465,9 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
         startIndex = 0
         directoriesConsumed = false
       }
-      const blobs = await mapWithConcurrency(selected, async (listed) => {
-        const { etag, key } = listed
-        const metadata = await store.getMetadata(key, { consistency: options.consistency })
-        return toBlobObject(key, etag, metadata?.metadata as StoredMetadata | undefined, listed)
-      })
       return {
-        blobs,
+        // Only what the list answer holds: one request per page. `head()` reads the content type and custom metadata.
+        blobs: selected.map(listedBlobObject),
         cursor: hasMore && nextCursor ? encodeCursor(nextCursor) : undefined,
         folders: listOptions.folded ? [...folders] : undefined,
         hasMore,
