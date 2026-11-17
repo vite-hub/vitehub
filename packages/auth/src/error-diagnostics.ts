@@ -27,6 +27,12 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "The stored password hash is not `<salt>:<key>`. Hash new passwords with `hashPasswordWithNoble()` or the Better Auth hasher, and reset the password of the user whose hash is broken.",
     },
 
+    // Test errors. `signIn()` of `@vite-hub/auth/test` throws them.
+    AUTH_TEST_SIGN_IN_STATELESS: {
+      why: "`signIn()` writes the user and the session to the Auth database, and a Definition with the `stateless()` preset has none.",
+      fix: "Test the routes of a `stateless()` Definition through its social sign-in flow, or give the test app `database: authDatabase()` with `import { authDatabase } from '@vite-hub/auth/database'`.",
+    },
+
     // Published numbered errors.
     AUTH_R0001: withFix("Return an Agent Invoker from the `map` callback of `authenticated()` for each request. Remove `map` to use the default Invoker."),
     AUTH_R0002: withFix("Make `meta` of `authenticated()` return a plain object, `null`, or `undefined`, for example `meta: ({ user }) => ({ plan: user.plan })`."),

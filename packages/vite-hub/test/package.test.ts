@@ -310,6 +310,7 @@ describe("framework package contract", () => {
       "./seo",
       "./skills",
       "./test",
+      "./test/register",
     ]);
 
     for (const { subpath, targets } of manifestForwarders) {
