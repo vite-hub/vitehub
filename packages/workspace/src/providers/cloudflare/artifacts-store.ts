@@ -610,10 +610,33 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     await this.#mutate(async () => {
       if (this.#staged || this.#pendingCommit || Date.now() - this.#loadedAt < remoteHeadCacheMs) return
       const head = await this.#remoteHead()
-      this.#loadedAt = Date.now()
-      if (head === this.#head) return
-      this.#files = new Map()
-      await this.#load()
+      if (head === this.#head) {
+        this.#loadedAt = Date.now()
+        return
+      }
+      const previous = {
+        baseline: this.#baseline,
+        branch: this.#branch,
+        files: this.#files,
+        fs: this.#fs,
+        head: this.#head,
+        remote: this.#remote,
+      }
+      try {
+        this.#files = new Map()
+        this.#head = undefined
+        await this.#load()
+      }
+      catch (error) {
+        // Keep the last complete tree and retry the refresh before another read or write.
+        this.#baseline = previous.baseline
+        this.#branch = previous.branch
+        this.#files = previous.files
+        this.#fs = previous.fs
+        this.#head = previous.head
+        this.#remote = previous.remote
+        throw error
+      }
     })
   }
 

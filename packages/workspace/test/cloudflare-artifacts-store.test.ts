@@ -989,6 +989,39 @@ describe("Cloudflare Artifacts workspace store", () => {
     }
   })
 
+  it.each(["read", "write"])("retries a failed refresh before the next %s", async (operation) => {
+    const repo = artifactsRepo()
+    let remoteHead = "base-commit"
+    gitMock.listServerRefs.mockImplementation(async () => [{ oid: remoteHead, ref: "refs/heads/main" }])
+    gitMock.resolveRef.mockImplementation(async () => remoteHead)
+    gitMock.clone.mockImplementation(async (options?: unknown) => {
+      const { fs } = options as { fs: MemoryFS }
+      await fs.promises.writeFile("/workspace/page.md", remoteHead)
+    })
+    const store = await createStore({ create: vi.fn(), get: vi.fn(async () => repo) })
+    let now = Date.now()
+    vi.spyOn(Date, "now").mockImplementation(() => now)
+    try {
+      await store.readFile("page.md")
+      remoteHead = "remote-commit"
+      now += 5_001
+      gitMock.clone.mockRejectedValueOnce(new Error("transient clone failure"))
+      await expect(store.readFile("page.md")).rejects.toThrow("transient clone failure")
+      if (operation === "write")
+        await store.writeFile("draft.md", { content: "draft", path: "draft.md" })
+      await expect(store.readFile("page.md")).resolves.toMatchObject({ content: new TextEncoder().encode(remoteHead) })
+      expect(gitMock.clone).toHaveBeenCalledTimes(3)
+      if (operation === "write")
+        await expect(store.readFile("draft.md")).resolves.toMatchObject({ content: new TextEncoder().encode("draft") })
+    }
+    finally {
+      vi.restoreAllMocks()
+      gitMock.listServerRefs.mockReset().mockImplementation(async () => [])
+      gitMock.clone.mockReset().mockImplementation(async () => { throw new Error("empty remote") })
+      gitMock.resolveRef.mockReset().mockImplementation(async () => "remote-sha")
+    }
+  })
+
   it("keeps staged metadata when a rejected push moves the staged writes onto the new head", async () => {
     const repo = artifactsRepo()
     let remoteHead = "base-commit"
