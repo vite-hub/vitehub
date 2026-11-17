@@ -18,7 +18,9 @@ function consoleLogger(): Logger {
 export function contentRouteLogger(logger: Logger | false | undefined): Logger {
   const base: Logger = logger === false ? { debug() {}, info() {}, warn() {}, error() {} } : logger ?? consoleLogger()
   return {
-    ...base,
+    debug(tag, ...args) { base.debug(tag, ...args) },
+    info(tag, ...args) { base.info(tag, ...args) },
+    warn(tag, ...args) { base.warn(tag, ...args) },
     error(tag, ...args) {
       const failure = routeFailures.getStore()
       const error = args.findLast(arg => arg instanceof Error)
