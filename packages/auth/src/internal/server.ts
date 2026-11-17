@@ -51,6 +51,10 @@ import type {
   ViteHubAuth,
 } from "../types.ts"
 import { authErrorDiagnostics } from "../error-diagnostics.ts"
+import { findAccessPolicyPlugin } from "../access-policy.ts"
+import { notMemberError } from "../members.ts"
+import type { AuthMemberErrorCode } from "../members.ts"
+import type { Result } from "@vite-hub/runtime"
 
 export { createBetterAuthOptions, getAuthForDefinition } from "../auth-instance.ts"
 export { resetAuth } from "../runtime-state.ts"
@@ -280,6 +284,23 @@ export function createAuthHandler(definition: AuthDefinition) {
 
 export function getAuth(): RegisteredAuth {
   return getAuthForDefinition(resolveDefaultDefinition()) as RegisteredAuth
+}
+
+/**
+ * Checks `VITEHUB_MEMBERS` for a user, with the rules of sign-in, for code that has a user id but no session, such as
+ * an upload ticket or a signed link. Returns `[undefined, undefined]` when the list lets the user in, or when
+ * `VITEHUB_MEMBERS` is not set. Returns `AUTH_NOT_MEMBER` for a refused or unknown user, and `AUTH_GITHUB_UNAVAILABLE`
+ * when GitHub cannot confirm an organization membership. Pass the request event so that Auth reads the variable from
+ * the request's Cloudflare bindings.
+ */
+export async function checkAuthMember(userId: string, event?: AuthRequestInput): Promise<Result<void, AuthMemberErrorCode>> {
+  const auth = event ? useAuth(event) : getAuth()
+  const context = await auth.$context
+  const members = findAccessPolicyPlugin(context.options.plugins)?.members
+  if (!members) return [undefined, undefined]
+  const user = await context.internalAdapter.findUserById(userId)
+  if (!user) return [notMemberError(), undefined]
+  return await members.check(context, user)
 }
 
 /**

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import ts from "typescript"
 import { describe, expect, it } from "vitest"
 
 import { packageTypecheckCompiler } from "./package-typecheck.mjs"
@@ -87,5 +88,29 @@ describe("package typecheck compiler", () => {
     finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe("package type tests", () => {
+  const packagesDir = fileURLToPath(new URL("../packages/", import.meta.url))
+  const typeTests = readdirSync(packagesDir).flatMap((name) => {
+    const testDir = join(packagesDir, name, "test")
+    let files: string[]
+    try { files = readdirSync(testDir) }
+    catch { return [] } // A package without tests.
+    return files.filter(file => file.endsWith(".test-d.ts")).map(file => [name, join(testDir, file)] as const)
+  })
+
+  // An excluded type test passes any assertion: the package typecheck skips it, and Vitest's typecheck keeps the exclude.
+  it.each(typeTests)("%s typecheck covers %s", (name, file) => {
+    const packageDir = join(packagesDir, name)
+    const { scripts } = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")) as { scripts?: Record<string, string> }
+    const projects = [...(scripts?.typecheck ?? "").matchAll(/-p\s+(\S+)/g)].map(match => join(packageDir, match[1]!))
+    expect(projects, `${name} has no typecheck script`).not.toEqual([])
+    const checked = projects.flatMap((configPath) => {
+      const { config } = ts.readConfigFile(configPath, ts.sys.readFile)
+      return ts.parseJsonConfigFileContent(config, ts.sys, packageDir, undefined, configPath).fileNames
+    })
+    expect(checked).toContain(file.replaceAll("\\", "/"))
   })
 })
