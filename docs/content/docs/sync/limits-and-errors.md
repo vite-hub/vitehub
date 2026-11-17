@@ -1,6 +1,6 @@
 ---
 title: Sync limits and errors
-description: What Sync v1 does not do, its fixed limits, and the SYNC error codes that a pull, a push, or one write can get.
+description: What Sync does not do yet, its fixed limits, and the SYNC error codes that a pull, a push, a live stream, or one write can get.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert
@@ -10,21 +10,50 @@ icon: i-lucide-circle-alert
 
 | Limit | Value |
 | --- | --- |
-| Writes in one push | 100 |
-| Changes in one pull | 500. `more` is `true` when the server has more. Pull again with the new `cursor`. |
-| Write ids that the server keeps | 7 days |
-| Deletes that the server keeps | 30 days. An older cursor gets every row again. |
+| Writes in one push | 100. The client sends a longer queue in parts. |
+| Changes in one pull | 500. The client pulls again until it has all. |
+| Values in a `where` list | No fixed limit. A list is one SQL parameter, also on D1. |
+| Live stream | The server sends `: open` at once, checks the change log every second, sends `: ping` every 15 seconds, and ends the stream after 25 seconds. A push in the same server process wakes the stream at once. The browser opens a new one at once. |
+| Database calls of one live stream | 40, where a batch is one call. A check makes at most 3. The server ends the stream before a check could pass 40, and the browser opens a new one, which is a new Worker invocation. On the Workers Free plan, D1 allows 50 calls in an invocation. |
+| Live streams per browser | One for each tab that shows, for all the synced tables and subsets of the tab. A table or subset that two tabs show streams in one of them. |
+| Pull while the page shows | Every 30 seconds. Set `interval` in `useSync()`. Every 5 minutes at most while the live stream is open. |
+| Retry after a network or server error | 1 second, doubling to 30 seconds, with a random part. At once when the network comes back. |
+| Write ids and action results that the server keeps | 7 days. A retry after that applies the write again. |
+| Deletes and moves that the server keeps | 30 days. An older cursor gets every row again. |
 
-## Not in v1
+## Not in Sync yet
 
+- **Relations.** A row of one definition does not load the rows that it points to in another definition. Use one `useSync()` for each table, with a subset where it helps.
 - **Postgres.** Sync works with SQLite: libSQL, Cloudflare D1, and the local default Database.
-- **Server push.** The server does not tell a caller about a change. The caller pulls again.
-- **Conflicts.** The last write wins for each column, in the order that the server got them. There is no merge of text.
-- **Queries.** A pull gets every row of the scope. There is no paging or filter beyond `where`.
+- **Conflicts.** The last write wins for each column, in the order that the server got them. There is no conflict check beyond that.
+- **Text merge.** Two people who edit one text field at the same time do not merge: the last write wins. There are no CRDT text fields.
+- **Transactions in actions.** An action reads and then writes. The two steps are not one transaction, because D1 has no interactive transactions. When another write changes a row that the action read, the server runs the action function again, up to 3 times. Only its writes apply once, so put effects outside them, such as an email, in a [Queue](/docs/queue) job.
+- **Dropping a column that the triggers read.** The triggers read the key, the scope columns (the columns of `subsets` and each column that a `where` result returned), and the columns of unique indexes. A migration that drops one of them fails with `error in trigger vitehub_sync_<table>_... after drop column`. Put these statements before the drop in the same migration, here for the column `team_id` of the table `issues`. For a scope column, also remove it from `where` and `subsets`. For a column of a unique index, leave out the `DELETE` line. Sync adds the triggers again at its next request, and each browser gets every row again.
+
+  ```sql
+  DROP TRIGGER IF EXISTS vitehub_sync_issues_insert;
+  DROP TRIGGER IF EXISTS vitehub_sync_issues_update;
+  DROP TRIGGER IF EXISTS vitehub_sync_issues_delete;
+  DROP TRIGGER IF EXISTS vitehub_sync_issues_replace_insert;
+  DROP TRIGGER IF EXISTS vitehub_sync_issues_replace_update;
+  DELETE FROM vitehub_sync_columns WHERE table_name = 'issues' AND "column" = 'team_id';
+  ```
+- **Unique indexes on expressions.** `INSERT OR REPLACE` removes a row that has the same value in a unique column, and the triggers send that to the old scope. A unique index on an expression, such as `lower(email)`, has no column name, so a row that it replaces stays in the old scope. Use an upsert, such as Drizzle's `onConflictDoUpdate()`.
+- **Queries.** The browser gets every row of its scope or subset. There is no paging or filter beyond `where` and subsets.
+- **Offline files.** Sync keeps rows, not files. Use [Blob](/docs/blob) for files.
+- **An app shell offline.** Sync keeps data. Loading the page itself offline needs a service worker, which Sync does not add.
+- **One connection for all tabs.** Each tab that shows has its own live stream. A table or subset that two tabs show streams in one of them, and the other tab reads its changes from IndexedDB. There is no SharedWorker.
+- **Server-side rendering.** On the server, `rows` is empty and `status` is `idle`. The rows show after the page loads in the browser.
 - **Console section.** Use `vitehub sync list` and `vitehub sync changes`.
+
+## Browser storage
+
+The rows and the queue are in the IndexedDB database `vitehub-sync`, with one copy for each synced table and subset. When IndexedDB does not open, such as in some private windows, they stay in memory and `persisted` is `false`: a reload then loses the writes that wait. Clear them on sign-out, so the next person on the device does not see the rows, and the writes of other accounts go away. ViteHub Auth in Nuxt does this for you. See [Accounts and sign-out](/docs/sync/vue#accounts-and-sign-out).
+
+When the table of a definition changes, such as after a deploy that adds a column, the client drops the rows that it stored for that definition and pulls them again. The writes that wait stay and go out.
 
 ## Errors
 
-A refused pull or push answers with the ViteHub error body and a `SYNC_*` code. A refused write in a push has the status `rejected` and its own `error`. The other writes of the push still apply.
+A pull, push, or live stream error shows in `error` and `status`. A refused write or action shows in `failures` and rejects its `SyncWrite`. Each error has a `code`.
 
-See the [Sync diagnostic catalog](/docs/sync/diagnostics) for causes and fixes.
+See the [Sync diagnostic codes](/docs/sync/diagnostics) for each error and its fix.

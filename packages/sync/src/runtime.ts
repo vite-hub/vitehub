@@ -1,24 +1,23 @@
 import { isSyncDefinition } from "./define.ts"
 import { syncErrors } from "./errors.ts"
-import { handleSyncRequest, recordChanges } from "./handler.ts"
+import { handleSyncLiveRequest, handleSyncRequest } from "./handler.ts"
 
-import type { Result, ResultError } from "@vite-hub/runtime"
 import type { SyncDatabase } from "./database.ts"
-import type { SyncCaller, SyncChanges, SyncServices } from "./handler.ts"
+import type { SyncCaller, SyncLiveServices } from "./handler.ts"
 import type { SyncDefinition } from "./types.ts"
 
-export { handleSyncRequest } from "./handler.ts"
-export type { SyncCaller, SyncChanges, SyncServices } from "./handler.ts"
-
-/** The Database registry of `@vite-hub/database/runtime/registry`, as the generated handler passes it. */
-export type SyncDatabaseRegistry = Record<string, { db: unknown } | undefined>
+export { handleSyncLiveRequest, handleSyncRequest } from "./handler.ts"
+export type { SyncCaller, SyncLiveServices, SyncServices } from "./handler.ts"
 
 /** What the generated route of a ViteHub app passes. */
 export interface SyncRuntimeOptions {
   /** The default export of each `server/sync/<name>.ts`, by name. */
   definitions: Record<string, unknown>
-  /** The Database registry. Each definition uses its `database`, else `default`. */
-  databases: SyncDatabaseRegistry
+  /**
+   * The default Database of the app, else its only one, as `useDatabase().db` of `@vite-hub/database/runtime/registry`
+   * gives it. Every definition uses it. A function, because the Database can connect for each request, as D1 does.
+   */
+  db: () => unknown
   /** The signed-in caller of a request, from ViteHub Auth. */
   session?: (request: Request) => Promise<SyncCaller | null>
 }
@@ -43,18 +42,17 @@ function hasBatch(db: unknown): db is SyncDatabase {
   return typeof Reflect.get(Object(db), "batch") === "function"
 }
 
-function selectDatabase(databases: SyncDatabaseRegistry, name: string): SyncDatabase {
-  const db = databases[name]?.db
-  if (!db) throw syncErrors.SYNC_NO_DATABASE({ message: `[vitehub] Sync has no Database named ${JSON.stringify(name)}.` })
+function selectDatabase(db: unknown): SyncDatabase {
   if (!hasBatch(db)) {
-    throw syncErrors.SYNC_NO_DATABASE({ message: `[vitehub] The Database ${JSON.stringify(name)} has no atomic \`batch()\`. Sync supports SQLite Databases (libSQL, D1, and the local default) only. Postgres support comes later.` })
+    throw syncErrors.SYNC_NO_DATABASE({ message: "[vitehub] The Database of Sync has no atomic `batch()`. Sync supports SQLite Databases (libSQL, D1, and the local default) only. Postgres support comes later." })
   }
   return db
 }
 
 /**
- * The `{ fetch }` route of every Sync definition at `<base>api/_vitehub/sync/<name>`. The generated Nitro handler of a
- * ViteHub app calls it with the definitions of `server/sync/` when the server starts.
+ * The `{ fetch }` route of every Sync definition at `<base>api/_vitehub/sync/<name>`, and of their live stream at
+ * `<base>api/_vitehub/sync`. The generated Nitro handler of a ViteHub app calls it with the definitions of `server/sync/`
+ * when the server starts.
  */
 export function createSyncHandler(options: SyncRuntimeOptions): { fetch: (request: Request) => Promise<Response> } {
   const definitions = new Map<string, SyncDefinition>()
@@ -62,16 +60,18 @@ export function createSyncHandler(options: SyncRuntimeOptions): { fetch: (reques
     if (!isSyncDefinition(definition)) throw syncErrors.SYNC_INVALID_DEFINITION({ message: `[vitehub] server/sync/${name} must default-export defineSync({ table, where }).` })
     definitions.set(name, definition)
   }
-  const db = (name: string) => selectDatabase(options.databases, definitions.get(name)?.options.database ?? "default")
+  const db = () => selectDatabase(options.db())
+  const all = Object.fromEntries(definitions)
+  // One services object for every definition: its `db` function is the key of the live streams of each table and of
+  // the triggers that this process checked, also when two definitions sync one table.
+  const services: SyncLiveServices = { db, definitions: all, ...(options.session ? { identify: options.session } : {}) }
   Reflect.set(globalThis, installedKey, { names: [...definitions.keys()].sort(), definition: name => definitions.get(name), db } satisfies InstalledSync)
-  // One services object for each definition, so compaction runs at most once an hour for each name in this process.
-  const services = new Map<string, SyncServices>()
-  for (const name of definitions.keys()) {
-    services.set(name, { db: () => db(name), ...(options.session ? { identify: options.session } : {}) })
-  }
   return {
     async fetch(request) {
-      const segment = new URL(request.url).pathname.split("/").filter(Boolean).at(-1) ?? ""
+      const segments = new URL(request.url).pathname.split("/").filter(Boolean)
+      // A definition named "sync" has the route `.../_vitehub/sync/sync`.
+      if (segments.at(-2) === "_vitehub" && segments.at(-1) === "sync") return await handleSyncLiveRequest(request, services)
+      const segment = segments.at(-1) ?? ""
       let name = segment
       try {
         name = decodeURIComponent(segment)
@@ -84,35 +84,7 @@ export function createSyncHandler(options: SyncRuntimeOptions): { fetch: (reques
         const error = syncErrors.SYNC_UNKNOWN_NAME({ name })
         return new Response(JSON.stringify({ code: error.code, message: error.message, fix: error.fix, docs: error.docs }), { status: 404, headers: { "content-type": "application/json", "cache-control": "private, no-store" } })
       }
-      return await handleSyncRequest(name, definition, request, services.get(name)!)
+      return await handleSyncRequest(name, definition, request, services)
     },
-  }
-}
-
-function isSyncError(error: unknown): error is ResultError {
-  const code: unknown = error instanceof Error ? Reflect.get(error, "code") : undefined
-  return typeof code === "string" && code.startsWith("SYNC_")
-}
-
-/**
- * Records writes that server code made to a Sync table directly, so clients get them on their next pull. Pass the
- * keys of inserted and updated rows in `put`, and the deleted rows, as they were before the delete, in `delete`.
- *
- * ```ts
- * await db.insert(todos).values(todo)
- * const [error] = await recordSyncChanges("todos", { put: [todo.id] })
- * ```
- */
-export async function recordSyncChanges(name: string, changes: SyncChanges): Promise<Result<{ recorded: number }>> {
-  try {
-    const installed = installedSync()
-    if (!installed) return [syncErrors.SYNC_NOT_INSTALLED(), undefined]
-    const definition = installed.definition(name)
-    if (!definition) return [syncErrors.SYNC_UNKNOWN_NAME({ name }), undefined]
-    return [undefined, { recorded: await recordChanges(name, definition, installed.db(name), changes, Date.now()) }]
-  }
-  catch (error) {
-    if (isSyncError(error)) return [error, undefined]
-    return [syncErrors.SYNC_NO_DATABASE({ message: `[vitehub] recordSyncChanges("${name}") could not write the change log. Apply the Sync tables with \`vitehub database generate\` and \`vitehub database migrate\`.`, cause: error }), undefined]
   }
 }
