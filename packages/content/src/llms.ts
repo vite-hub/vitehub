@@ -9,6 +9,11 @@ export interface ContentLlmsOptions {
   site?: string
   /** The file to render. Defaults to `llms.txt`. */
   file?: ContentLlmsFile
+  /**
+   * The translated locale of `llms-full.txt`, such as `es` for `/es/llms-full.txt`. Another value, or none, gives the
+   * file of the source locale.
+   */
+  locale?: string
 }
 
 /** One link in `llms.txt`. */
@@ -46,10 +51,23 @@ export interface ContentLlmsPage {
   description?: string
   /** The `llms.txt` section of the page: the label of its collection. */
   section: string
+  /** The locale of the page, in a collection with `locales`. */
+  locale?: string
 }
 
-/** Pages grouped by section, each group in URL order, with the home page split out. */
-function sections<TPage extends ContentLlmsPage>(pages: readonly TPage[]): { home?: TPage, groups: Map<string, TPage[]> } {
+/** What a `sections` function of `defineContent({ seo: { llms } })` gets. */
+export interface ContentLlmsSectionsContext {
+  /** The pages of `llms.txt`, in the order of the file. */
+  pages: readonly ContentLlmsPage[]
+  /** The Markdown copy of one of `pages`, as `llms-full.txt` has it, or null. */
+  markdown: (page: ContentLlmsPage) => Promise<string | null>
+}
+
+/** A page of the llms files. `translation` is its locale when that is not the source locale of its collection. */
+export type ContentLlmsFilePage = ContentLlmsPage & { translation?: string }
+
+/** Pages grouped by section, with the home page split out. Without an app order, each group is in URL order. */
+function sections<TPage extends ContentLlmsPage>(pages: readonly TPage[], urlOrder: boolean): { home?: TPage, groups: Map<string, TPage[]> } {
   const groups = new Map<string, TPage[]>()
   let home: TPage | undefined
   for (const page of pages) {
@@ -61,7 +79,7 @@ function sections<TPage extends ContentLlmsPage>(pages: readonly TPage[]): { hom
     if (group) group.push(page)
     else groups.set(page.section, [page])
   }
-  for (const group of groups.values()) group.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)
+  if (urlOrder) for (const group of groups.values()) group.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)
   return { home, groups }
 }
 
@@ -140,13 +158,15 @@ export function renderContentSitemapMarkdown(options: { title: string, host: str
 
 /**
  * One file of `defineContent({ seo: { llms } })`, from the routed Markdown pages in definition order. `copy` reads the
- * Markdown copy of one page for `llms-full.txt`.
+ * Markdown copy of one page for `llms-full.txt`. `llms-full.txt` holds the pages of one locale: `locale` when a page
+ * is a translation in it, else the source locale.
  */
-export async function contentLlmsFile<TPage extends ContentLlmsPage>(pages: readonly TPage[], copy: (page: TPage) => Promise<string | null>, options: DefineContentLlmsOptions, site: string | undefined, file: ContentLlmsFile, prefix = ""): Promise<string> {
+export async function contentLlmsFile<TPage extends ContentLlmsFilePage>(pages: readonly TPage[], copy: (page: TPage) => Promise<string | null>, options: DefineContentLlmsOptions, site: string | undefined, file: ContentLlmsFile, prefix = "", locale?: string): Promise<string> {
   const title = llmsTitle(options, site)
   const markdownCopyUrl = (path: string) => copyUrl(path, prefix)
-  const { home, groups } = sections(pages)
+  const { home, groups } = sections(options.sort ? [...pages].sort(options.sort) : pages, !options.sort)
   const ordered = [...home ? [home] : [], ...[...groups.values()].flat()]
+  const translations = [...new Set(ordered.flatMap(page => page.translation === undefined ? [] : [page.translation]))].sort()
   if (file === "sitemap.md") {
     return renderContentSitemapMarkdown({
       title,
@@ -156,10 +176,13 @@ export async function contentLlmsFile<TPage extends ContentLlmsPage>(pages: read
   }
   const head = { title, ...(options.description ? { description: options.description } : {}), ...(options.details ? { details: options.details } : {}) }
   if (file === "llms-full.txt") {
-    const copies = await Promise.all(ordered.map(copy))
+    const fileLocale = locale !== undefined && translations.includes(locale) ? locale : undefined
+    const filePages = ordered.filter(page => page.translation === fileLocale)
+    const copies = await Promise.all(filePages.map(copy))
     return renderContentLlmsFull({
       ...head,
-      pages: ordered.flatMap((page, index) => {
+      ...fileLocale === undefined ? {} : options.locales?.[fileLocale],
+      pages: filePages.flatMap((page, index) => {
         const markdown = copies[index]
         return markdown === null || markdown === undefined ? [] : [{ url: absolute(page.path, site), title: page.title ?? page.path, markdown }]
       }),
@@ -170,12 +193,30 @@ export async function contentLlmsFile<TPage extends ContentLlmsPage>(pages: read
     href: absolute(markdownCopyUrl(page.path), site),
     ...(page.description ? { description: page.description } : {}),
   })
+  const extra = typeof options.sections === "function"
+    ? await options.sections({
+        pages: ordered,
+        markdown: async (page) => {
+          const own = ordered.find(candidate => candidate === page)
+          return own ? await copy(own) : null
+        },
+      })
+    : options.sections ?? []
+  const set = (fileLocale?: string): ContentLlmsLink => {
+    const localized = fileLocale === undefined ? undefined : options.locales?.[fileLocale]
+    const description = localized?.description ?? options.description
+    return {
+      title: localized?.title ?? (fileLocale === undefined ? title : `${title} (${fileLocale})`),
+      href: absolute(fileLocale === undefined ? "/llms-full.txt" : `/${fileLocale}/llms-full.txt`, site),
+      ...description ? { description } : {},
+    }
+  }
   return renderContentLlms({
     ...head,
     sections: [
       ...home ? [{ title: "Overview", links: [{ title, href: absolute(markdownCopyUrl("/"), site) }] }] : [],
-      { title: "Documentation Sets", links: [{ title, href: absolute("/llms-full.txt", site), ...(options.description ? { description: options.description } : {}) }] },
-      ...options.sections ?? [],
+      { title: "Documentation Sets", links: [set(), ...translations.map(set)] },
+      ...extra,
       ...[...groups].map(([label, group]) => ({ title: label, description: rawSectionDescription, links: group.map(link) })),
     ],
   })
