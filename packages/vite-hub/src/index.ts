@@ -20,6 +20,7 @@ export type {
   ConnectionsOptions,
   ConsoleOptions,
   DatabaseOptions,
+  DeployOptions,
   EmailOptions,
   EnvOptions,
   HealthOptions,
