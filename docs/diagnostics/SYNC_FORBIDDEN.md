@@ -1,0 +1,1 @@
+`where` returned `false` for a signed-in user, `write` refused the write, or a visitor wrote to a definition without `write`. Without `write`, only a caller with a user writes: sign the person in, or set `write: true` to let visitors write. Check `where`, or show the page only to people who may use it.
