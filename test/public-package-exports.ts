@@ -68,6 +68,8 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/ui/markdown-editor", {
     "@nuxt/ui": "both",
     "@tiptap/core": "both",
+    "@tiptap/extension-drag-handle": "declaration",
+    "@tiptap/extension-drag-handle-vue-3": "declaration",
     "@tiptap/extension-image": "both",
     "@tiptap/extension-list": "both",
     "@tiptap/extension-table": "both",

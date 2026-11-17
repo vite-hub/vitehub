@@ -62,7 +62,7 @@ describe("llms files", { timeout: 30_000 }, () => {
       "## Overview",
       "- [Example](https://example.com/index.md)",
       "## Documentation Sets",
-      "- [Example](https://example.com/llms-full.txt): Notes about examples.",
+      "- [Example](https://example.com/llms-full.txt): Notes about examples.\n- [Example (es)](https://example.com/es/llms-full.txt): Notes about examples.",
       "## Blog",
       "Every page below is available as raw markdown.",
       "- [About us](https://example.com/blog/about.md): Who we are.\n- [Hello](https://example.com/blog/hello.md): The first post.",
@@ -75,7 +75,7 @@ describe("llms files", { timeout: 30_000 }, () => {
     for (const left of ["Draft only", "Hidden", "Copy", "Settings", "Private"]) expect(text).not.toContain(left)
   })
 
-  it("joins every page copy in llms-full.txt, each with its URL", async () => {
+  it("joins every page copy in llms-full.txt, each with its URL, and each translated locale in a file of its own", async () => {
     const content = await site()
     const full = await content.llms({ file: "llms-full.txt" })
     expect(full).toBe(`${[
@@ -83,11 +83,62 @@ describe("llms files", { timeout: 30_000 }, () => {
       "URL: https://example.com/\n\n# Home\n\nWelcome to [the blog](https://example.com/blog/hello).",
       "URL: https://example.com/blog/about\n\n# About us\n\n> Who we are.\n\nAbout body.",
       "URL: https://example.com/blog/hello\n\n# Hello\n\n> The first post.\n\nHello body.",
-      "URL: https://example.com/es/guides/start\n\n# Empezar\n\nCuerpo.",
       "URL: https://example.com/guides/start\n\n# Start\n\nStart body.",
     ].join("\n\n---\n\n")}\n`)
     expect(full).not.toContain("Draft body")
     expect(full).not.toContain("Private body")
+    expect(await content.llms({ file: "llms-full.txt", locale: "es" })).toBe(`${[
+      "# Example\n\n> Notes about examples.",
+      "URL: https://example.com/es/guides/start\n\n# Empezar\n\nCuerpo.",
+    ].join("\n\n---\n\n")}\n`)
+    // A locale without translations gets the file of the source locale.
+    expect(await content.llms({ file: "llms-full.txt", locale: "fr" })).toBe(full)
+  })
+
+  it("orders pages, builds sections, sets headers, and heads each locale file as the app says", async () => {
+    const order = ["/guides/start", "/blog/hello", "/blog/about"]
+    const rank = (path: string) => order.indexOf(path.replace(/^\/es\//, "/"))
+    const content = await site({
+      site: "https://example.com",
+      llms: {
+        title: "Example",
+        description: "Notes about examples.",
+        sort: (left, right) => rank(left.path) - rank(right.path),
+        sections: async ({ pages, markdown }) => {
+          const links = await Promise.all(pages.map(async page => ({ page, text: await markdown(page) })))
+          return [{ title: "Pages that link to the blog", links: links.filter(({ text }) => text?.includes("/blog/")).map(({ page }) => ({ title: page.title ?? page.path, href: `https://example.com${page.path}` })) }]
+        },
+        headers: { "x-robots-tag": "noindex", "Cache-Control": "public, max-age=300" },
+        locales: { es: { description: "Notas sobre ejemplos." } },
+      },
+    })
+    const handler = defineContentLlmsHandler(content)
+    const app = new H3().get("/llms.txt", handler).get("/llms-full.txt", handler).get("/:locale/llms-full.txt", handler)
+
+    const index = await app.request("https://example.com/llms.txt")
+    expect(index.headers.get("x-robots-tag")).toBe("noindex")
+    expect(index.headers.get("cache-control")).toBe("public, max-age=300")
+    expect(await index.text()).toBe([
+      "# Example",
+      "> Notes about examples.",
+      "## Overview",
+      "- [Example](https://example.com/index.md)",
+      "## Documentation Sets",
+      "- [Example](https://example.com/llms-full.txt): Notes about examples.\n- [Example (es)](https://example.com/es/llms-full.txt): Notas sobre ejemplos.",
+      "## Pages that link to the blog",
+      "- [Home](https://example.com/)",
+      "## Guides",
+      "Every page below is available as raw markdown.",
+      "- [Start](https://example.com/guides/start.md)\n- [Empezar](https://example.com/es/guides/start.md)",
+      "## Blog",
+      "Every page below is available as raw markdown.",
+      "- [Hello](https://example.com/blog/hello.md): The first post.\n- [About us](https://example.com/blog/about.md): Who we are.",
+    ].join("\n\n"))
+    const full = await (await app.request("https://example.com/llms-full.txt")).text()
+    expect(full.indexOf("URL: https://example.com/guides/start")).toBeLessThan(full.indexOf("URL: https://example.com/blog/hello"))
+    const spanish = await app.request("https://example.com/es/llms-full.txt")
+    expect(spanish.headers.get("x-robots-tag")).toBe("noindex")
+    expect(await spanish.text()).toBe("# Example\n\n> Notas sobre ejemplos.\n\n---\n\nURL: https://example.com/es/guides/start\n\n# Empezar\n\nCuerpo.\n")
   })
 
   it("escapes link titles and quotes every line of the description", async () => {
@@ -161,6 +212,9 @@ describe("llms files", { timeout: 30_000 }, () => {
   it("rejects llms without the Markdown copies it links to", () => {
     expect(() => defineContent({ seo: { llms: true, markdown: false }, logger: false })).toThrow(/Remove markdown: false/)
     expect(() => defineContent({ seo: { llms: { title: 1 } as never }, logger: false })).toThrow(/llms.title must be text/)
+    expect(() => defineContent({ seo: { llms: { sort: "path" } as never }, logger: false })).toThrow(/llms.sort must be a function/)
+    expect(() => defineContent({ seo: { llms: { headers: { "x-robots-tag": false } } as never }, logger: false })).toThrow(/llms.headers must be an object/)
+    expect(() => defineContent({ seo: { llms: { locales: { es: { description: 1 } } } as never }, logger: false })).toThrow(/llms.locales.es.description must be text/)
   })
 
   it.each(["configured", "call", "request"] as const)("keeps absolute self-canonicals with the %s site", async (origin) => {
@@ -231,7 +285,8 @@ describe("Markdown copies of collections", { timeout: 30_000 }, () => {
     const content = await guideSite()
     const full = await content.llms({ file: "llms-full.txt" })
     expect(full).toContain("URL: https://example.com/thai\n\n# Speak Thai\n\nSource: https://example.com/thai (en, thai)\n\n")
-    expect(full).toContain("URL: https://example.com/es/thai\n\n# Hablar tailandés\n\nSource: https://example.com/es/thai (es, thai)\n\nLee [el viaje](https://example.com/es/trip).\n\n---\n\n")
+    expect(full).not.toContain("URL: https://example.com/es/thai")
+    expect(await content.llms({ file: "llms-full.txt", locale: "es" })).toContain("URL: https://example.com/es/thai\n\n# Hablar tailandés\n\nSource: https://example.com/es/thai (es, thai)\n\nLee [el viaje](https://example.com/es/trip).")
     expect(full).toMatch(/\| Thank you \| ขอบคุณ \|\n$/)
     expect(full).not.toContain("::")
     expect(full).not.toContain("Index: /llms.txt")

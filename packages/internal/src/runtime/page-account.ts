@@ -2,9 +2,13 @@
  * The account item of the page tools pill: the picture or the initials of the person who is signed in to the app, and a
  * menu with their name, their email, how they signed in, and a way to sign out of this app only.
  *
- * The menu is a manual popover, so it shows in the top layer: the pill's bar clips everything inside it. Its `hidden`
- * attribute is its state. It is a menu button of WAI-ARIA: the menu opens with the focus on its first item, the arrow
- * keys move between items, Escape closes it and gives the focus back to the button, and a press outside closes it.
+ * The menu is an auto popover that the button opens with `popovertarget`, so it shows in the top layer (the pill's bar
+ * clips everything inside it), and the browser closes it on Escape and on a press outside. It is a menu button of
+ * WAI-ARIA: the menu opens with the focus on its first item, the arrow keys move between items, and the focus goes back
+ * to the button when the menu closes with the focus in it.
+ *
+ * Script places the menu, not CSS anchor positioning: the pill moves along its edge with `translate`, and Firefox
+ * ignores the transforms of an anchor (https://webstatus.dev/features/anchor-positioning-transforms).
  *
  * This file runs only in the browser. `tsconfig.browser.json` checks it.
  */
@@ -105,8 +109,7 @@ export function mountViteHubPageAccount(options: ViteHubPageAccountOptions): voi
 
   const menu = document.createElement("div")
   menu.id = "account-menu"
-  menu.hidden = true
-  menu.popover = "manual"
+  menu.setAttribute("popover", "auto")
   menu.setAttribute("role", "menu")
   menu.setAttribute("aria-label", account.name)
 
@@ -118,6 +121,7 @@ export function mountViteHubPageAccount(options: ViteHubPageAccountOptions): voi
   button.setAttribute("aria-haspopup", "menu")
   button.setAttribute("aria-expanded", "false")
   button.setAttribute("aria-controls", menu.id)
+  button.setAttribute("popovertarget", menu.id)
   button.append(avatar(account))
 
   const me = document.createElement("div")
@@ -148,24 +152,12 @@ export function mountViteHubPageAccount(options: ViteHubPageAccountOptions): voi
 
   const items = () => [...menu.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].filter(item => !item.hidden)
   let openConsole: (() => void) | undefined
-  const close = (focus: boolean) => {
-    if (!menu.hidden) {
-      menu.hidden = true
-      // A browser without the popover API, such as a test DOM, has only the attribute.
-      if ("hidePopover" in menu) menu.hidePopover()
-      button.setAttribute("aria-expanded", "false")
-    }
-    if (focus) button.focus({ preventScroll: true })
-  }
-  // Place the menu next to the pill, toward the page, then clamp its measured width on horizontal docks.
-  const show = () => {
-    openConsole = options.openConsole?.()
-    open.item.hidden = !openConsole
+  // Place the menu next to the pill, toward the page, then clamp its measured width on horizontal docks once it shows.
+  const place = (edge: string) => {
     const width = document.documentElement.clientWidth
     const height = document.documentElement.clientHeight
     const around = (pill ?? bar).getBoundingClientRect()
     const box = button.getBoundingClientRect()
-    const edge = pill?.getAttribute("edge") ?? "bottom"
     const place = { top: "auto", right: "auto", bottom: "auto", left: "auto" }
     if (edge === "bottom" || edge === "top") {
       place.right = `${Math.max(8, width - box.right)}px`
@@ -179,29 +171,33 @@ export function mountViteHubPageAccount(options: ViteHubPageAccountOptions): voi
       else place.right = `${width - around.left + 8}px`
     }
     Object.assign(menu.style, place)
-    menu.hidden = false
-    if ("showPopover" in menu) menu.showPopover()
-    if (edge === "bottom" || edge === "top") {
-      const menuWidth = menu.getBoundingClientRect().width
-      menu.style.right = "auto"
-      menu.style.left = `${Math.max(8, Math.min(box.right - menuWidth, width - menuWidth - 8))}px`
-    }
-    button.setAttribute("aria-expanded", "true")
-    items()[0]?.focus({ preventScroll: true })
+  }
+  const clamp = (edge: string) => {
+    if (edge !== "bottom" && edge !== "top") return
+    const width = document.documentElement.clientWidth
+    const box = button.getBoundingClientRect()
+    const menuWidth = menu.getBoundingClientRect().width
+    menu.style.right = "auto"
+    menu.style.left = `${Math.max(8, Math.min(box.right - menuWidth, width - menuWidth - 8))}px`
   }
 
-  button.addEventListener("click", () => menu.hidden ? show() : close(false), { signal })
-  button.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !menu.hidden) {
-      event.preventDefault()
-      close(true)
+  menu.addEventListener("beforetoggle", (event) => {
+    if (event.newState === "closed") {
+      if (menu.contains(shadow.activeElement)) button.focus({ preventScroll: true })
+      return
     }
+    openConsole = options.openConsole?.()
+    open.item.hidden = !openConsole
+    const edge = pill?.getAttribute("edge") ?? "bottom"
+    place(edge)
+    // The menu shows right after this event, and before the next frame.
+    requestAnimationFrame(() => clamp(edge))
   }, { signal })
-  // A press anywhere else closes the menu. The path crosses the shadow roots, so a press on the button is not outside.
-  document.addEventListener("pointerdown", (event) => {
-    const path = event.composedPath()
-    if (!menu.hidden && !path.includes(menu) && !path.includes(button)) close(false)
-  }, { capture: true, signal })
+  menu.addEventListener("toggle", (event) => {
+    const opened = event.newState === "open"
+    button.setAttribute("aria-expanded", String(opened))
+    if (opened) items()[0]?.focus({ preventScroll: true })
+  }, { signal })
   menu.addEventListener("keydown", (event) => {
     const list = items()
     const at = list.findIndex(item => item === shadow.activeElement)
@@ -210,16 +206,14 @@ export function mountViteHubPageAccount(options: ViteHubPageAccountOptions): voi
       event.preventDefault()
       list[(next + list.length) % list.length]?.focus()
     }
-    else if (event.key === "Escape") {
-      event.preventDefault()
-      event.stopPropagation()
-      close(true)
-    }
-    else if (event.key === "Tab") close(false)
+    // The browser closes the menu on Escape. The page's own Escape keys, such as the one that leaves comment mode, do
+    // not see it.
+    else if (event.key === "Escape") event.stopPropagation()
+    else if (event.key === "Tab") menu.hidePopover()
   }, { signal })
 
   open.item.addEventListener("click", () => {
-    close(true)
+    menu.hidePopover()
     openConsole?.()
   }, { signal })
   signOut.item.addEventListener("click", async () => {
@@ -242,10 +236,10 @@ export function mountViteHubPageAccount(options: ViteHubPageAccountOptions): voi
   if (pill) {
     // The pill sets `edge` again each time it measures itself, so only a new value counts.
     const watched = new MutationObserver((records) => {
-      if (records.some(record => record.oldValue !== pill.getAttribute(record.attributeName ?? ""))) close(false)
+      if (records.some(record => record.oldValue !== pill.getAttribute(record.attributeName ?? ""))) menu.hidePopover()
     })
     watched.observe(pill, { attributes: true, attributeOldValue: true, attributeFilter: ["collapsed", "dragging", "edge"] })
     signal.addEventListener("abort", () => watched.disconnect(), { once: true })
   }
-  signal.addEventListener("abort", () => close(false), { once: true })
+  signal.addEventListener("abort", () => menu.hidePopover(), { once: true })
 }
