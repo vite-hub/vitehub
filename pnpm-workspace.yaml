@@ -244,7 +244,6 @@ catalogs:
 
 overrides:
   "mdast-util-from-markdown>micromark": 4.0.2
-  mdast-util-to-markdown: 2.1.2
   "@vercel/blob>undici": ^6.29.1
   "@voidzero-dev/vite-plus-core": 0.3.3
   "ai@>=7.0.0 <8.0.0": 7.0.130
@@ -255,13 +254,6 @@ overrides:
   vue: catalog:ui
   workflow: catalog:workflow
 
-packageExtensions:
-  "@pierre/trees@1.0.0-beta.6":
-    peerDependenciesMeta:
-      react:
-        optional: true
-      react-dom:
-        optional: true
 patchedDependencies:
   "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
   # web.css rules for InputGroup, Timeline, Waterfall, SelectLabel and the NumberInput scrub area, plus --ui-ring-width,

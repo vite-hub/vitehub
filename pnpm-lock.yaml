@@ -695,7 +695,6 @@ catalogs:
 
 overrides:
   mdast-util-from-markdown>micromark: 4.0.2
-  mdast-util-to-markdown: 2.1.2
   '@vercel/blob>undici': ^6.29.1
   '@voidzero-dev/vite-plus-core': 0.3.3
   ai@>=7.0.0 <8.0.0: 7.0.130
@@ -705,8 +704,6 @@ overrides:
   vite: npm:@voidzero-dev/vite-plus-core@0.3.3
   vue: 3.5.44
   workflow: ^5.2.3
-
-packageExtensionsChecksum: sha256-M8fihjQgjUsljbQKrXW3Z22E0XxmyzpUFOGKY0TXgrc=
 
 patchedDependencies:
   '@netlify/blobs@11.1.4': e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd
@@ -1140,11 +1137,11 @@ importers:
         specifier: catalog:chat
         version: 4.44.0(ai@7.0.130(zod@4.6.7))(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0)(supports-color@10.2.2))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(supports-color@10.2.2)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
       '@json-render/core':
-        specifier: 0.21.0
-        version: 0.21.0(zod@4.6.7)
+        specifier: 0.22.0
+        version: 0.22.0(zod@4.6.7)
       '@json-render/vue':
-        specifier: 0.21.0
-        version: 0.21.0(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
+        specifier: 0.22.0
+        version: 0.22.0(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
       '@t3tools/provider-runtime':
         specifier: 'catalog:'
         version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@2a519db9ccb4227091f0d8a839d7121af9d6aed5
@@ -3827,8 +3824,8 @@ importers:
         specifier: 2.0.0
         version: 2.0.0
       '@pierre/trees':
-        specifier: 1.0.0-beta.6
-        version: 1.0.0-beta.6(@pierre/theme@2.0.0)(@shikijs/themes@4.5.0)(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(shiki@4.5.0)
+        specifier: 1.0.0
+        version: 1.0.0(@pierre/theme@2.0.0)(@shikijs/themes@4.5.0)(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(shiki@4.5.0)
       '@tiptap/core':
         specifier: catalog:realtime
         version: 3.31.4(@tiptap/pm@3.31.4)
@@ -4050,11 +4047,11 @@ importers:
         specifier: ^3.12.4
         version: 3.12.4
       '@json-render/core':
-        specifier: 0.21.0
-        version: 0.21.0(zod@4.6.7)
+        specifier: 0.22.0
+        version: 0.22.0(zod@4.6.7)
       '@json-render/vue':
-        specifier: 0.21.0
-        version: 0.21.0(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
+        specifier: 0.22.0
+        version: 0.22.0(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
@@ -7047,13 +7044,13 @@ packages:
   '@jridgewell/trace-mapping@0.3.9':
     resolution: {integrity: sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ==}
 
-  '@json-render/core@0.21.0':
-    resolution: {integrity: sha512-vysEbTjO1y8mEgAsp0tztRyaWCkNsBrG8MhAqbndGK3qmMXjMRdCNtk21+AQRNKdRelFGVAwBgtUNW8tfjQlsw==}
+  '@json-render/core@0.22.0':
+    resolution: {integrity: sha512-BIfJ2V3bLYETetBu2KWoxxRPU5cSAf77dDTBgqaV54kEAfyHta1psPJgNk0fDcB3FCrnCZ5KO/X41VDkrNSYgw==}
     peerDependencies:
       zod: ^4.0.0
 
-  '@json-render/vue@0.21.0':
-    resolution: {integrity: sha512-6tG6A5mYX4QP2lvh51R/Y83dTUWVHK0RTxK0YN5bRNpj2QrN3Qy/yDD/XNtjlAGdWeHjhLsuEILJVEM1VMWcQw==}
+  '@json-render/vue@0.22.0':
+    resolution: {integrity: sha512-HS7/JJ7sP5jkVccbCvcdv0uyaWI0WEfb/VEZ3qx65YYdspc5KpoQaKxeCSWwBuk456Y4YrGDUMu1dF6aJc4QQA==}
     peerDependencies:
       vue: 3.5.44
       zod: ^4.0.0
@@ -9449,26 +9446,6 @@ packages:
     resolution: {integrity: sha512-yNDd9GYLQl1mEUJR8AneJ5e4ohLIHQd/wZLWr4fagt78vS2RwwZNW530vVgHqXFAyFVcFlRmGUD5ramXH46OXw==}
     engines: {vscode: ^1.0.0}
 
-  '@pierre/theming@1.0.0':
-    resolution: {integrity: sha512-WsdrnhKfjeyXGDikZmN9pkpeZ5S/cl6EE72feiSc0tlynT1tMYqXqouhuv/foK+PY9OEnebOAVRQn3+rAstR8g==}
-    peerDependencies:
-      '@pierre/theme': ^1.1.0
-      '@shikijs/themes': ^3.0.0 || ^4.0.0
-      react: ^18.3.1 || ^19.0.0
-      react-dom: ^18.3.1 || ^19.0.0
-      shiki: ^3.0.0 || ^4.0.0
-    peerDependenciesMeta:
-      '@pierre/theme':
-        optional: true
-      '@shikijs/themes':
-        optional: true
-      react:
-        optional: true
-      react-dom:
-        optional: true
-      shiki:
-        optional: true
-
   '@pierre/theming@1.0.1':
     resolution: {integrity: sha512-WCI5Qd7iprDpISL9fBYOLe8RV53+b7mFNA3bPzl60/2CKCSrsKN8zEcep6Y3BAzvARlmca50zGjDodqPGiTUKA==}
     peerDependencies:
@@ -9489,8 +9466,28 @@ packages:
       shiki:
         optional: true
 
-  '@pierre/trees@1.0.0-beta.6':
-    resolution: {integrity: sha512-zxeuSFM9TveM7b5XofweJALCtm/tGYV9HZzdbf7Uf+kBxIlUyz24/EHaGRjB0dsmmfDQl2ETz7AWwJ15lhSnpw==}
+  '@pierre/theming@1.0.2':
+    resolution: {integrity: sha512-RmXLLqtx31UGcR8kZyO5hGAQ1EXz6loT1Cu0BFAGsbnBboIxp2BlomkLfWyvdT4WZXnBGyu25onL1gKpFQuSUw==}
+    peerDependencies:
+      '@pierre/theme': ^1.1.0 || ^2.0.0
+      '@shikijs/themes': ^3.0.0 || ^4.0.0
+      react: ^18.3.1 || ^19.0.0
+      react-dom: ^18.3.1 || ^19.0.0
+      shiki: ^3.0.0 || ^4.0.0
+    peerDependenciesMeta:
+      '@pierre/theme':
+        optional: true
+      '@shikijs/themes':
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+      shiki:
+        optional: true
+
+  '@pierre/trees@1.0.0':
+    resolution: {integrity: sha512-skHNPs4LK1nScFrSvMwN4LnZyHfFf1M7I9ivWePecFqWSYYJYdgKUFCaxPBL0MPY/Z8c3q0yhl8bkkzdDfotug==}
     peerDependencies:
       react: ^18.3.1 || ^19.0.0
       react-dom: ^18.3.1 || ^19.0.0
@@ -16257,8 +16254,8 @@ packages:
   mdast-util-to-hast@13.2.1:
     resolution: {integrity: sha512-cctsq2wp5vTsLIcaymblUriiTcZd0CwWtCbLvrOzYCDZoWyMNV8sZ7krj09FSnsiJi3WVsHLM4k6Dq/yaPyCXA==}
 
-  mdast-util-to-markdown@2.1.2:
-    resolution: {integrity: sha512-xj68wMTvGXVOKonmog6LwyJKrYXZPvlwabaryTjLh9LuvovB/KAH+kvi8Gjj+7rJjsFi23nkUxRQv1KqSroMqA==}
+  mdast-util-to-markdown@2.2.3:
+    resolution: {integrity: sha512-dImdB6VZRMRac1SwAW6o1c0ESk/7pFFAMCMuKM+9v7LpTSthMM5nzXpqKw4Mjo66aXVKhNkyrP4bMB9MurPyWg==}
 
   mdast-util-to-string@4.0.0:
     resolution: {integrity: sha512-0H44vDimn51F0YwvxSJSm0eCDOJTRlmN0R1yBh4HLj9wiV1Dn0QoXGbvFAWj2hSItVTlCmBF1hqKlIyUBVFLPg==}
@@ -22381,13 +22378,13 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@json-render/core@0.21.0(zod@4.6.7)':
+  '@json-render/core@0.22.0(zod@4.6.7)':
     dependencies:
       zod: 4.6.7
 
-  '@json-render/vue@0.21.0(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)':
+  '@json-render/vue@0.22.0(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)':
     dependencies:
-      '@json-render/core': 0.21.0(zod@4.6.7)
+      '@json-render/core': 0.22.0(zod@4.6.7)
       vue: 3.5.44(typescript@6.0.3)
       zod: 4.6.7
 
@@ -28032,14 +28029,6 @@ snapshots:
 
   '@pierre/theme@2.0.0': {}
 
-  '@pierre/theming@1.0.0(@pierre/theme@2.0.0)(@shikijs/themes@4.5.0)(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(shiki@4.5.0)':
-    optionalDependencies:
-      '@pierre/theme': 2.0.0
-      '@shikijs/themes': 4.5.0
-      react: 19.2.6
-      react-dom: 19.2.8(react@19.2.6)
-      shiki: 4.5.0
-
   '@pierre/theming@1.0.1(@pierre/theme@2.0.0)(@shikijs/themes@4.5.0)(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(shiki@4.5.0)':
     optionalDependencies:
       '@pierre/theme': 2.0.0
@@ -28048,9 +28037,17 @@ snapshots:
       react-dom: 19.2.8(react@19.2.6)
       shiki: 4.5.0
 
-  '@pierre/trees@1.0.0-beta.6(@pierre/theme@2.0.0)(@shikijs/themes@4.5.0)(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(shiki@4.5.0)':
+  '@pierre/theming@1.0.2(@pierre/theme@2.0.0)(@shikijs/themes@4.5.0)(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(shiki@4.5.0)':
+    optionalDependencies:
+      '@pierre/theme': 2.0.0
+      '@shikijs/themes': 4.5.0
+      react: 19.2.6
+      react-dom: 19.2.8(react@19.2.6)
+      shiki: 4.5.0
+
+  '@pierre/trees@1.0.0(@pierre/theme@2.0.0)(@shikijs/themes@4.5.0)(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(shiki@4.5.0)':
     dependencies:
-      '@pierre/theming': 1.0.0(@pierre/theme@2.0.0)(@shikijs/themes@4.5.0)(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(shiki@4.5.0)
+      '@pierre/theming': 1.0.2(@pierre/theme@2.0.0)(@shikijs/themes@4.5.0)(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(shiki@4.5.0)
       preact: 11.0.0-beta.0
       preact-render-to-string: 6.6.5(preact@11.0.0-beta.0)
     optionalDependencies:
@@ -35571,7 +35568,7 @@ snapshots:
       ccount: 2.0.1
       devlop: 1.1.0
       mdast-util-from-markdown: 2.1.0(supports-color@10.2.2)
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
       micromark-util-character: 2.1.1
       parse-entities: 4.0.2
       stringify-entities: 4.0.4
@@ -35625,7 +35622,7 @@ snapshots:
       devlop: 1.1.0
       escape-string-regexp: 5.0.0
       mdast-util-from-markdown: 2.1.0(supports-color@10.2.2)
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
       micromark-extension-frontmatter: 2.0.0
     transitivePeerDependencies:
       - supports-color
@@ -35643,7 +35640,7 @@ snapshots:
       '@types/mdast': 4.0.4
       devlop: 1.1.0
       mdast-util-from-markdown: 2.1.0(supports-color@10.2.2)
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
       micromark-util-normalize-identifier: 2.0.1
     transitivePeerDependencies:
       - supports-color
@@ -35653,7 +35650,7 @@ snapshots:
       '@types/mdast': 4.0.4
       devlop: 1.1.0
       mdast-util-from-markdown: 2.1.0(supports-color@8.1.1)
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
       micromark-util-normalize-identifier: 2.0.1
     transitivePeerDependencies:
       - supports-color
@@ -35662,7 +35659,7 @@ snapshots:
     dependencies:
       '@types/mdast': 4.0.4
       mdast-util-from-markdown: 2.1.0(supports-color@10.2.2)
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
     transitivePeerDependencies:
       - supports-color
 
@@ -35670,7 +35667,7 @@ snapshots:
     dependencies:
       '@types/mdast': 4.0.4
       mdast-util-from-markdown: 2.1.0(supports-color@8.1.1)
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
     transitivePeerDependencies:
       - supports-color
 
@@ -35680,7 +35677,7 @@ snapshots:
       devlop: 1.1.0
       markdown-table: 3.0.4
       mdast-util-from-markdown: 2.1.0(supports-color@10.2.2)
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
     transitivePeerDependencies:
       - supports-color
 
@@ -35690,7 +35687,7 @@ snapshots:
       devlop: 1.1.0
       markdown-table: 3.0.4
       mdast-util-from-markdown: 2.1.0(supports-color@8.1.1)
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
     transitivePeerDependencies:
       - supports-color
 
@@ -35699,7 +35696,7 @@ snapshots:
       '@types/mdast': 4.0.4
       devlop: 1.1.0
       mdast-util-from-markdown: 2.1.0(supports-color@10.2.2)
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
     transitivePeerDependencies:
       - supports-color
 
@@ -35708,7 +35705,7 @@ snapshots:
       '@types/mdast': 4.0.4
       devlop: 1.1.0
       mdast-util-from-markdown: 2.1.0(supports-color@8.1.1)
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
     transitivePeerDependencies:
       - supports-color
 
@@ -35720,7 +35717,7 @@ snapshots:
       mdast-util-gfm-strikethrough: 2.0.1(supports-color@10.2.2)
       mdast-util-gfm-table: 2.0.0(supports-color@10.2.2)
       mdast-util-gfm-task-list-item: 2.0.0(supports-color@10.2.2)
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
     transitivePeerDependencies:
       - supports-color
 
@@ -35732,7 +35729,7 @@ snapshots:
       mdast-util-gfm-strikethrough: 2.0.1(supports-color@8.1.1)
       mdast-util-gfm-table: 2.0.0(supports-color@8.1.1)
       mdast-util-gfm-task-list-item: 2.0.0(supports-color@8.1.1)
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
     transitivePeerDependencies:
       - supports-color
 
@@ -35743,7 +35740,7 @@ snapshots:
       '@types/mdast': 4.0.4
       devlop: 1.1.0
       mdast-util-from-markdown: 2.1.0(supports-color@10.2.2)
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
     transitivePeerDependencies:
       - supports-color
 
@@ -35756,7 +35753,7 @@ snapshots:
       ccount: 2.0.1
       devlop: 1.1.0
       mdast-util-from-markdown: 2.1.0(supports-color@10.2.2)
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
       parse-entities: 4.0.2
       stringify-entities: 4.0.4
       unist-util-stringify-position: 4.0.0
@@ -35770,7 +35767,7 @@ snapshots:
       mdast-util-mdx-expression: 2.0.1(supports-color@10.2.2)
       mdast-util-mdx-jsx: 3.2.1(supports-color@10.2.2)
       mdast-util-mdxjs-esm: 2.0.1(supports-color@10.2.2)
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
     transitivePeerDependencies:
       - supports-color
 
@@ -35781,7 +35778,7 @@ snapshots:
       '@types/mdast': 4.0.4
       devlop: 1.1.0
       mdast-util-from-markdown: 2.1.0(supports-color@10.2.2)
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
     transitivePeerDependencies:
       - supports-color
 
@@ -35802,15 +35799,17 @@ snapshots:
       unist-util-visit: 5.1.0
       vfile: 6.0.3
 
-  mdast-util-to-markdown@2.1.2:
+  mdast-util-to-markdown@2.2.3:
     dependencies:
       '@types/mdast': 4.0.4
       '@types/unist': 3.0.3
       longest-streak: 3.1.0
       mdast-util-phrasing: 4.1.0
       mdast-util-to-string: 4.0.0
+      micromark-util-character: 2.1.1
       micromark-util-classify-character: 2.0.1
       micromark-util-decode-string: 2.0.1
+      micromark-util-html-tag-name: 2.0.1
       unist-util-visit: 5.1.0
       zwitch: 2.0.4
 
@@ -39601,7 +39600,7 @@ snapshots:
       '@types/unist': 3.0.3
       flat: 6.0.1
       mdast-util-from-markdown: 2.1.0(supports-color@10.2.2)
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
       micromark: 4.0.3(supports-color@10.2.2)
       micromark-core-commonmark: 2.0.4
       micromark-factory-space: 2.1.0
@@ -39624,7 +39623,7 @@ snapshots:
       '@types/unist': 3.0.3
       flat: 6.0.1
       mdast-util-from-markdown: 2.1.0(supports-color@8.1.1)
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
       micromark: 4.0.3(supports-color@8.1.1)
       micromark-core-commonmark: 2.0.4
       micromark-factory-space: 2.1.0
@@ -39679,7 +39678,7 @@ snapshots:
   remark-stringify@11.0.0:
     dependencies:
       '@types/mdast': 4.0.4
-      mdast-util-to-markdown: 2.1.2
+      mdast-util-to-markdown: 2.2.3
       unified: 11.0.5
 
   remend@1.4.0: {}

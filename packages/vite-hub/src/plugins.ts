@@ -1631,7 +1631,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     })
     if (devOperationsOnly) consolePlugin.apply = "serve"
     plugins.push(consolePlugin)
-    if (options.agent && !devOperationsOnly) plugins.push(consoleInvocationRootPlugin(undefined, undefined, invocationRootState))
+    if (options.agent && !devOperationsOnly) plugins.push(consoleInvocationRootPlugin(invocationRootState))
   }
 
   if (options.auth) {
