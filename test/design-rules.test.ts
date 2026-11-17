@@ -114,13 +114,11 @@ const motionAllowlist: Record<string, { count: number, wave: Wave }> = {
   "packages/docs/runtime/app/components/DocsAsideLeftBody.vue": { count: 1, wave: "W5" },
   "packages/docs/runtime/app/components/content/PageList.vue": { count: 2, wave: "W5" },
   // W5: the Console.
-  "packages/vite-hub/src/console/runtime/client/styles.css": { count: 1, wave: "W5" },
   "packages/vite-hub/src/console/runtime/components/console-app.vue": { count: 1, wave: "W5" },
   "packages/vite-hub/src/console/runtime/components/console-auth-chart.vue": { count: 1, wave: "W5" },
   "packages/vite-hub/src/console/runtime/components/console-auth.vue": { count: 1, wave: "W5" },
   "packages/vite-hub/src/console/runtime/components/console-search-palette.vue": { count: 3, wave: "W5" },
   "packages/vite-hub/src/console/runtime/components/console-sidebar.vue": { count: 1, wave: "W5" },
-  "packages/vite-hub/src/console/runtime/components/console-toaster.vue": { count: 1, wave: "W5" },
   "packages/vite-hub/src/console/runtime/components/console-usage-chart.vue": { count: 1, wave: "W5" },
   "packages/vite-hub/src/console/runtime/components/invocation/invocation.css": { count: 10, wave: "W5" },
   "packages/vite-hub/src/console/standalone-page.ts": { count: 2, wave: "W5" },
