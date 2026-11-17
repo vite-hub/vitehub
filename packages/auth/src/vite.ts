@@ -36,7 +36,8 @@ export const AUTH_DEFINITION_ID = "#vitehub/auth/definition"
 export const AUTH_SERVER_ID = "#vitehub/auth/server"
 export const AUTH_VITE_PLUGIN_NAME = "@vite-hub/auth/vite"
 
-// No "#": the browser loads these two from `/@id/<id>` in dev, and "#" starts the URL fragment.
+// No "#": the browser loads these two from `/@id/<id>` in dev, and "#" starts the URL fragment. Not reported to Vite
+// yet (repro: https://github.com/onmax/repros/tree/repro/vite-virtual-id-hash/vite-virtual-id-hash).
 const RESOLVED_AUTH_ABILITIES_ID = "\0virtual:vitehub/auth/abilities"
 const RESOLVED_AUTH_CLIENT_ID = "\0virtual:vitehub/auth/client"
 const RESOLVED_AUTH_DEFINITION_ID = `\0${AUTH_DEFINITION_ID}`

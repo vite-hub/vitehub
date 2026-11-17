@@ -8,7 +8,7 @@ import { forgeResponseError } from "../provider.ts"
 /**
  * The bytes of one Git blob, by its sha. The blob of a symlink holds the link target.
  * Gap: `forges` reads files by path only, and GitHub follows a symlink path to its target.
- * Proposed upstream as `provider.contents.blob(repo, sha, options)`.
+ * Proposed upstream as `provider.contents.blob(repo, sha, options)` (https://github.com/danielroe/forges/issues/295).
  */
 export async function forgeBlob(provider: ForgeProvider, repo: RepoRef, sha: string, options: { signal?: AbortSignal } = {}): Promise<Uint8Array> {
   if (provider.forge !== "github") {

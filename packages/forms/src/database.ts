@@ -1,7 +1,7 @@
 import { and, desc, eq, lt, or } from "drizzle-orm"
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
-import { formsDiagnostics } from "./errors.ts"
+import { formsDiagnostics, isFormsDiagnostic } from "./errors.ts"
 
 import type { AnyRelations } from "drizzle-orm"
 import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core"
@@ -61,12 +61,22 @@ function toSubmission(row: Row): FormSubmission {
   }
 }
 
+/** SQLite, libSQL, and D1 say `no such table`. Drizzle wraps the driver error in `cause`. */
+function isMissingTable(error: unknown): boolean {
+  for (let current = error, depth = 0; current instanceof Error && depth < 5; current = current.cause, depth++) {
+    if (/no such table:?\s*[`"']?vitehub_form_submissions/i.test(current.message)) return true
+  }
+  return false
+}
+
 async function guarded<T>(action: string, run: () => Promise<T>): Promise<T> {
   try {
     return await run()
   }
   catch (cause) {
-    throw formsDiagnostics.FORMS_R0001({ message: `[vitehub] Forms could not ${action}. Apply the Forms tables with \`vitehub database generate\` and \`vitehub database migrate\`.`, cause })
+    if (isFormsDiagnostic(cause)) throw cause
+    if (isMissingTable(cause)) throw formsDiagnostics.FORMS_TABLES_MISSING({ action, cause })
+    throw formsDiagnostics.FORMS_R0001({ message: `[vitehub] Forms could not ${action}.`, cause })
   }
 }
 

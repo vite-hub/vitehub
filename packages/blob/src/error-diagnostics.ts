@@ -102,7 +102,14 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     // Published numbered errors.
     BLOB_R0027: withFix("Use one of the store names that the message lists, or add the store to `blob.stores` in the Vite config, for example `stores: { default: { driver: \"fs\" }, media: { driver: \"fs\" } }`."),
-    BLOB_C0001: withFix("Set `blob.driver` to a supported driver, for example `\"fs\"`, `\"cloudflare\"`, `\"vercel\"`, `\"netlify-blobs\"`, `\"minio\"`, or `\"s3\"`. Check the spelling."),
+    BLOB_C0001: {
+      why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
+        ? `\`blob.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`
+        : `\`blob.driver\` ${driver} is not a Blob driver.`,
+      fix: ({ renamed }: { driver: string, renamed?: string }) => renamed
+        ? `Set \`blob: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
+        : "Set `blob.driver` to a supported driver, for example `\"fs\"`, `\"cloudflare\"`, `\"vercel\"`, `\"netlify-blobs\"`, `\"minio\"`, or `\"s3\"`. Check the spelling.",
+    },
     BLOB_C0002: withFix("Set `blob.serve.headers` to an object of header names and string values, for example `{ \"Cache-Control\": \"public, max-age=300\" }`."),
     BLOB_C0003: withFix("Make each value in `blob.serve.headers` a string, for example `\"public, max-age=300\"`. Write a number as a string."),
     BLOB_C0004: withFix("Use a valid HTTP header in `blob.serve.headers`. A header name has no spaces or colons, and a value has no line breaks."),
