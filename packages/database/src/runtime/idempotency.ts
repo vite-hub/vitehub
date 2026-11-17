@@ -34,7 +34,8 @@ const sweepInterval = 60_000
 const ready = new WeakMap<object, Promise<void>>()
 const swept = new WeakMap<object, number>()
 
-async function query(db: IdempotencyDatabase, statement: SQL): Promise<Record<string, unknown>[]> {
+/** Runs one statement on a Drizzle database and resolves its rows as objects. */
+export async function queryRows(db: IdempotencyDatabase, statement: SQL): Promise<Record<string, unknown>[]> {
   if (db.execute) {
     // postgres.js resolves the rows. node-postgres and PGlite resolve `{ rows }`.
     const result = await db.execute(statement)
@@ -51,7 +52,7 @@ function createTable(db: IdempotencyDatabase): Promise<void> {
       // `IF NOT EXISTS` does not serialize Postgres catalog writes. A losing creator retries after the winner commits.
       // Retry each statement separately: a caller can lose both the table race and the subsequent index race.
       const create = async (statement: SQL) => {
-        await query(db, statement).catch(() => query(db, statement))
+        await queryRows(db, statement).catch(() => queryRows(db, statement))
       }
       await create(sql`CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY NOT NULL, claim TEXT, result TEXT, expires_at ${expiresAt} NOT NULL)`)
       await create(sql`CREATE INDEX IF NOT EXISTS vitehub_idempotency_keys_expires_at ON ${table} (expires_at)`)
@@ -72,21 +73,21 @@ async function claimKey(db: IdempotencyDatabase, key: string, claim: string, now
       expires_at = CASE WHEN ${expired} THEN excluded.expires_at ELSE ${table}.expires_at END
     RETURNING claim, result`
   try {
-    return (await query(db, statement))[0]
+    return (await queryRows(db, statement))[0]
   }
   catch (error) {
     // A `vite-hub/test` reset gives the same Database object a new, empty backend, so the table can be gone. Create it
     // again and try once more; any other error fails the same way again.
     ready.delete(db)
     await createTable(db).catch(() => { throw error })
-    return (await query(db, statement))[0]
+    return (await queryRows(db, statement))[0]
   }
 }
 
 async function sweep(db: IdempotencyDatabase, now: number): Promise<void> {
   if (now - (swept.get(db) ?? 0) < sweepInterval) return
   swept.set(db, now)
-  await query(db, sql`DELETE FROM ${table} WHERE expires_at <= ${now}`)
+  await queryRows(db, sql`DELETE FROM ${table} WHERE expires_at <= ${now}`)
 }
 
 function invalidSeconds(value: number | undefined): boolean {
@@ -130,9 +131,9 @@ export async function runIdempotent<T>(
   }
   catch (error) {
     // The key is free again, so a retry runs `fn` again. When the delete fails too, the claim ends after `timeout`.
-    await query(db, sql`DELETE FROM ${table} WHERE id = ${key} AND claim = ${claim}`).catch(() => {})
+    await queryRows(db, sql`DELETE FROM ${table} WHERE id = ${key} AND claim = ${claim}`).catch(() => {})
     throw error
   }
-  await query(db, sql`UPDATE ${table} SET claim = NULL, result = ${stored}, expires_at = ${Date.now() + ttl} WHERE id = ${key} AND claim = ${claim}`)
+  await queryRows(db, sql`UPDATE ${table} SET claim = NULL, result = ${stored}, expires_at = ${Date.now() + ttl} WHERE id = ${key} AND claim = ${claim}`)
   return [undefined, value]
 }

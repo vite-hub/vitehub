@@ -377,8 +377,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         }
       }
     })
-    nuxt.options.alias["#docs/shell"] =addTemplate({ filename: "docs/shell.mjs", write: true, getContents: () => `export const ownsApp = ${ownsApp}\n` }).dst
-    addTemplate({ filename: "docs/shell.d.mts", write: true, getContents: () => "export declare const ownsApp: boolean\n" })
+    // Pages outside the sections are plain articles. In the docs site they use the `default` layout, which an app
+    // page uses too. In an app with its own `app.vue`, they get a layout of their own, so app pages keep theirs.
+    // The declaration names that one layout, so a site's typecheck accepts it as a layout of the app.
+    const articleLayout = ownsApp ? "default" : "docs-article"
+    nuxt.options.alias["#docs/shell"] = addTemplate({ filename: "docs/shell.mjs", write: true, getContents: () => `export const ownsApp = ${ownsApp}\nexport const articleLayout = ${JSON.stringify(articleLayout)}\n` }).dst
+    addTemplate({ filename: "docs/shell.d.mts", write: true, getContents: () => `export declare const ownsApp: boolean\nexport declare const articleLayout: ${JSON.stringify(articleLayout)}\n` })
     // comark-ui's blocks add their styles when they mount. The page links them instead, so the first paint, before the
     // app hydrates, shows no raw blocks, such as an anchor's screen reader text or a tab row as plain text, and nothing
     // moves when it does. They are one static file, because Vite's CSS pipeline does not parse some of their newer
@@ -741,10 +745,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     addImportsDir([join(runtime, "app/composables"), join(runtime, "app/utils")])
     nuxt.hook("app:templates", (app) => {
       app.layouts.docs ??= { file: join(runtime, "app/layouts/docs.vue"), name: "docs" }
-      // Pages outside the sections are plain articles. In the docs site they use the `default` layout, which an app
-      // page uses too. In an app with its own `app.vue`, they get a layout of their own, so app pages keep theirs.
-      const article = ownsApp ? "default" : "docs-article"
-      app.layouts[article] ??= { file: join(runtime, "app/layouts/default.vue"), name: article }
+      app.layouts[articleLayout] ??= { file: join(runtime, "app/layouts/default.vue"), name: articleLayout }
     })
     // A prerendered page has a payload, and the sidebar links every page, so Nuxt's default of prefetching each link in
     // view downloaded every payload in the sidebar on the first visit, megabytes on a large site. A link prefetches when
@@ -783,6 +784,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     addServerHandler({ route: "/api/_docs/page/**", handler: resolver.resolve("./runtime/server/page.js") })
     addServerHandler({ route: "/api/_docs/search.json", handler: resolver.resolve("./runtime/server/search.js") })
     addServerHandler({ route: "/sitemap.xml", handler: resolver.resolve("./runtime/server/sitemap.js") })
+    // One URL per page: the canonical link and the sitemap name `/docs/kv`, so `/docs/kv/` redirects there.
+    addServerHandler({ middleware: true, handler: resolver.resolve("./runtime/server/trailing-slash.js") })
     // Content serves the agent files. HEAD too: link checkers probe with it, and a GET-only route answers it with a 404.
     for (const method of ["get", "head"] as const) {
       for (const route of ["/llms.txt", "/llms-full.txt", "/sitemap.md"]) addServerHandler({ route, method, handler: resolver.resolve("./runtime/server/llms.js") })

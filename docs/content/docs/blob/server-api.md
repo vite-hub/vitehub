@@ -145,6 +145,8 @@ A missing source returns [`BLOB_NOT_FOUND`](/docs/blob/limits-and-errors#blob_no
 
 Pass the cursor from `blob.list()` unchanged to the next call on the same store, with the same `prefix` and `folded`. Netlify Blobs listings fail if they cannot decode the cursor.
 
+A Netlify Blobs listing makes one request for each page. Its files have the pathname, `httpEtag`, `size`, and `uploadedAt` that the list answer holds, but no `contentType` and empty `customMetadata`. Call `blob.head(pathname)` for the content type and custom metadata of one file.
+
 With `folded: true`, the files-sdk drivers (S3 and S3-compatible stores, R2, GCS, and Azure) ask the provider for folders, so each page is one request. A page holds at most `limit` blobs and folders together.
 
 With a partial prefix such as `docs/re`, a page can be empty while `hasMore` is true. Continue with the cursor to reach the matches.

@@ -21,7 +21,7 @@ icon: i-lucide-code-2
 | `usePublicEnv` from `vite-hub/env`, or from `#vitehub/env/public` in browser code | Read generated Public Env. |
 | `useServerEnv` from `vite-hub/env` | Read Server Env in server code. |
 | `deriveSecret` from `vite-hub/env` | Derive a purpose-specific secret from [`VITEHUB_SECRET`](/docs/env/app-secret). |
-| `seal`, `unseal` from `vite-hub/env` | Encrypt and sign a JSON value for one purpose, with an optional `ttl`, and read it back as a `Result`. See [Seal a value](/docs/env/app-secret#seal-a-value). |
+| `seal`, `unseal` from `vite-hub/env` | Encrypt and sign a JSON value for one purpose, with an optional `ttl`, and read it back as a `Result`. See [Sign and seal values](/docs/env/seal). |
 | `requireServiceToken`, `checkServiceToken` from `vite-hub/env` | Check the `Authorization: Bearer` token of a machine route against a server variable. See [Service tokens](/docs/env/service-tokens). |
 | `verifyWebhook` from `vite-hub/env` | Check the signature of a Stripe, GitHub, or HMAC webhook against a server variable, and return `[error, body]`. See [Verify webhooks](/docs/env/webhooks). |
 | `SecretEnv` from `vite-hub/env` | A secret value that prints hidden by default. |

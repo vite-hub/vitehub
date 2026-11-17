@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { setImmediate } from "node:timers/promises"
 
 import { ViteHubError } from "@vite-hub/runtime"
+import { registerRunScope } from "@vite-hub/runtime/internal/run-scope"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { normalizeQueueOptions } from "../src/config.ts"
@@ -95,6 +96,24 @@ describe("local queue provider config", () => {
 })
 
 describe("local queue delivery", () => {
+  it("runs each job inside the run scopes, such as the Workspace scope that drops a failed job's writes", async () => {
+    const events: string[] = []
+    registerRunScope(async (run) => {
+      events.push("enter")
+      try {
+        await run()
+      }
+      finally {
+        events.push("leave")
+      }
+    })
+    install({ welcome: { handler: async () => { events.push("handler") } } })
+
+    await dynamicQueue.send("welcome", {})
+
+    await vi.waitFor(() => expect(events).toEqual(["enter", "handler", "leave"]))
+  })
+
   it("runs the Queue Definition after sendQueue() accepts the job", async () => {
     const handler = vi.fn(async (_job: QueueJob) => {})
     install({ welcome: { handler } })

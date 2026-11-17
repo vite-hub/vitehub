@@ -312,6 +312,8 @@ A lease gives one caller at a time a key, such as one Schedule occurrence or one
 | `createMemoryLeaseStore()` | One process and tests | One process |
 | `createSqlLeaseStore(client)` | Several instances on one Database | Every process on the Database |
 
+In a ViteHub app, `useLeases()` from `@vite-hub/database` returns a SQL store on the app's Database, on every driver including D1. Use `createSqlLeaseStore()` for a SQL client outside ViteHub Database.
+
 ```ts fragment
 import { createSqlLeaseStore } from '@vite-hub/runtime'
 import postgres from 'postgres'
