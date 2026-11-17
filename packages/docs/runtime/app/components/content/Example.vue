@@ -23,24 +23,18 @@ const view = defineModel<"preview" | "code">("view", { default: "preview" })
 const loader = props.name ? examples[props.name] : undefined
 const live = loader ? defineAsyncComponent(loader) : undefined
 const mounts = ref(0)
-const seg = useTemplateRef<HTMLElement>("seg")
-const thumb = ref<{ left: number, width: number, slide: boolean } | null>(null)
+const views = ["preview", "code"] as const
 
-// The thumb slides under the pressed button. Its place is measured, because "Preview" and "Code" differ in width.
-function place(slide = false) {
-  const button = seg.value?.querySelector<HTMLElement>(`[data-view="${view.value}"]`)
-  if (button?.offsetWidth) thumb.value = { left: button.offsetLeft, width: button.offsetWidth, slide }
+// A segmented switch is a radio group: arrow keys move the choice and the focus, and only the checked radio is a tab
+// stop. The motion layer moves the raised look from one radio to the other.
+function onKeydown(event: KeyboardEvent) {
+  const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key]
+  if (!step) return
+  event.preventDefault()
+  const next = views[(views.indexOf(view.value) + step + views.length) % views.length]!
+  view.value = next
+  nextTick(() => (event.currentTarget instanceof HTMLElement ? event.currentTarget : null)?.querySelector<HTMLElement>(`[data-view="${next}"]`)?.focus())
 }
-
-// A switch in a hidden tab measures zero, so it's placed again, without sliding, whenever its size changes: when its
-// tab opens or the font loads.
-let resizes: ResizeObserver | undefined
-watch(view, () => nextTick(() => place(true)))
-onMounted(() => {
-  resizes = new ResizeObserver(() => place())
-  if (seg.value) resizes.observe(seg.value)
-})
-onBeforeUnmount(() => resizes?.disconnect())
 </script>
 
 <template>
@@ -55,10 +49,8 @@ onBeforeUnmount(() => resizes?.disconnect())
         <UIcon name="i-lucide-rotate-ccw" class="size-3.5" />
         Reset
       </button>
-      <div ref="seg" class="vh-seg" role="group" aria-label="View">
-        <span v-if="thumb" class="vh-seg-thumb" :class="{ 'is-still': !thumb.slide }" :style="{ transform: `translateX(${thumb.left - 3}px)`, width: `${thumb.width}px` }" aria-hidden="true" />
-        <button type="button" data-focus-inset data-view="preview" :aria-pressed="view === 'preview'" :class="{ 'is-unmeasured': !thumb }" @click="view = 'preview'">Preview</button>
-        <button type="button" data-focus-inset data-view="code" :aria-pressed="view === 'code'" :class="{ 'is-unmeasured': !thumb }" @click="view = 'code'">Code</button>
+      <div class="vh-seg" role="radiogroup" aria-label="View" @keydown="onKeydown">
+        <button v-for="name in views" :key="name" type="button" role="radio" data-focus-inset :data-view="name" :aria-checked="view === name" :tabindex="view === name ? 0 : -1" @click="view = name">{{ name === "preview" ? "Preview" : "Code" }}</button>
       </div>
     </div>
     <div class="vh-example-body">
@@ -121,24 +113,13 @@ onBeforeUnmount(() => resizes?.disconnect())
   }
 }
 
-/* A segmented switch: a muted track and a raised thumb that slides to the pressed button. */
+/* A segmented switch: a muted track, and a raised look on the checked radio, which the motion layer moves. */
 .vh-seg {
   position: relative;
   display: inline-flex;
   border-radius: calc(var(--ui-radius) * 2);
   background: var(--ui-bg-elevated);
   padding: 3px;
-}
-
-.vh-seg-thumb {
-  position: absolute;
-  top: 3px;
-  bottom: 3px;
-  left: 3px;
-  border-radius: 6px;
-  background: var(--vh-raised);
-  box-shadow: 0 0 0 1px var(--ui-border);
-  transition: transform 200ms var(--vh-ease-out), width 200ms var(--vh-ease-out);
 }
 
 .vh-seg button {
@@ -152,13 +133,9 @@ onBeforeUnmount(() => resizes?.disconnect())
   transition: color 150ms ease;
 }
 
-/* Before the thumb is measured, the pressed button carries the raised surface itself. */
-.vh-seg button.is-unmeasured[aria-pressed="true"] {
+.vh-seg button[aria-checked="true"] {
   background: var(--vh-raised);
   box-shadow: 0 0 0 1px var(--ui-border);
-}
-
-.vh-seg button[aria-pressed="true"] {
   color: var(--ui-text-highlighted);
 }
 
@@ -167,7 +144,6 @@ onBeforeUnmount(() => resizes?.disconnect())
     color: var(--ui-text-highlighted);
   }
 }
-
 
 /* Touch screens get 44px targets. */
 @media (pointer: coarse) {
@@ -178,16 +154,6 @@ onBeforeUnmount(() => resizes?.disconnect())
 
   .vh-example-play {
     min-height: 2.75rem;
-  }
-}
-
-.vh-seg-thumb.is-still {
-  transition: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .vh-seg-thumb {
-    transition: none;
   }
 }
 

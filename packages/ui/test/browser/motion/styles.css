@@ -55,3 +55,48 @@ summary.plain {
 .own-press {
   transition: scale 150ms ease-out;
 }
+
+/* A segmented group with no indicator: a muted track, and a raised look on the selected item. */
+.plain-group {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--ui-bg-elevated);
+}
+
+.plain-group > button {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--ui-text-muted);
+  font: 500 12px/1 var(--font-sans, sans-serif);
+  transition: color 150ms ease, background-color 150ms ease;
+}
+
+.plain-group > [aria-selected="true"], .plain-group > [aria-checked="true"] {
+  background: var(--ui-bg);
+  box-shadow: 0 0 0 1px var(--ui-border);
+  color: var(--ui-text-highlighted);
+}
+
+/* A grid that marks the hovered item, as the docs landing does: each item renders the mark while it is active. */
+.hover-grid {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hover-grid > li {
+  position: relative;
+  padding: 8px 16px;
+  font: 500 12px/1 var(--font-sans, sans-serif);
+}
+
+.hover-mark {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--ui-text-highlighted);
+  pointer-events: none;
+}

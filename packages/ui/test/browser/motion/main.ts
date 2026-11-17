@@ -20,6 +20,8 @@ const today = new URLSearchParams(location.search).get("mode") === "today";
 // The press of `vitehubTheme.button` before the motion layer.
 const todayPress = "transition-[color,background-color,box-shadow,transform] duration-150 ease-out motion-safe:active:not-disabled:scale-[.97]";
 const buttonClass = today ? todayPress : undefined;
+// The UTabs indicator transition of Nuxt UI's theme before the motion layer.
+const todayIndicator = "transition-[translate,width] duration-200 ease-out";
 
 addCollection(lucide);
 
@@ -29,8 +31,29 @@ const tab = ref("overview");
 const on = ref(false);
 const checked = ref(false);
 const plan = ref("free");
+const plainTab = ref("Overview");
+const segment = ref("Preview");
+const offTab = ref("One");
+const hovered = ref<string | null>(null);
 
 const plainRoles = ["button", "link", "tab", "radio", "menuitem", "menuitemradio", "menuitemcheckbox", "option", "switch", "checkbox"];
+
+// A plain group with no indicator, keyboard included: the selected item draws its own look, and the select effect
+// moves a copy of it.
+function plainGroup(testId: string, role: "tablist" | "radiogroup", items: string[], model: { value: string }): VNode {
+  const itemRole = role === "tablist" ? "tab" : "radio";
+  const attribute = role === "tablist" ? "aria-selected" : "aria-checked";
+  const pick = (item: string, focus = false) => {
+    model.value = item;
+    if (focus) requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-test=${testId}] [data-item="${item}"]`)?.focus());
+  };
+  return h("div", { "class": "plain-group", role, "aria-label": testId, "data-test": testId, "onKeydown": (event: KeyboardEvent) => {
+    const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    pick(items[(items.indexOf(model.value) + step + items.length) % items.length]!, true);
+  } }, items.map(item => h("button", { "type": "button", "role": itemRole, "data-item": item, [attribute]: String(model.value === item), "tabindex": model.value === item ? 0 : -1, "onClick": () => pick(item) }, item)));
+}
 
 function row(title: string, children: VNode[]): VNode {
   return h("section", { class: "row" }, [h("h2", title), ...children]);
@@ -67,12 +90,22 @@ const app = createApp({
       h(UButton, { "data-test": "button-link", to: "#link", variant: "link", label: "A link", class: buttonClass }),
     ]),
     row("UTabs", [
-      h(UTabs, { "data-test": "tabs", "modelValue": tab.value, "onUpdate:modelValue": (value: string | number) => (tab.value = String(value)), content: false, items: [{ label: "Overview", value: "overview" }, { label: "Logs", value: "logs" }, { label: "Settings", value: "settings" }] }),
+      h(UTabs, { "data-test": "tabs", "ui": today ? { indicator: todayIndicator } : undefined, "modelValue": tab.value, "onUpdate:modelValue": (value: string | number) => (tab.value = String(value)), content: false, items: [{ label: "Overview", value: "overview" }, { label: "Logs", value: "logs" }, { label: "Settings", value: "settings" }] }),
     ]),
     row("USwitch, UCheckbox, URadioGroup", [
       h(USwitch, { "data-test": "switch", "modelValue": on.value, "onUpdate:modelValue": (value: boolean) => (on.value = value), label: "Live" }),
       h(UCheckbox, { "data-test": "checkbox", "modelValue": checked.value, "onUpdate:modelValue": (value: boolean | "indeterminate") => (checked.value = value === true), label: "Notify me" }),
       h(URadioGroup, { "data-test": "radio", "modelValue": plan.value, "onUpdate:modelValue": (value: string) => (plan.value = value), orientation: "horizontal", items: [{ label: "Free", value: "free" }, { label: "Pro", value: "pro" }] }),
+    ]),
+    row("Select one of many", [
+      plainGroup("plain-tabs", "tablist", ["Overview", "Deployments", "Logs"], plainTab),
+      plainGroup("plain-segment", "radiogroup", ["Preview", "Code"], segment),
+      h("div", { "data-motion": "none" }, [plainGroup("select-off", "tablist", ["One", "Two"], offTab)]),
+      h("ul", { "class": "hover-grid", "data-motion-select": "", "data-test": "hover-grid", "onPointerleave": () => (hovered.value = null) }, ["Blob", "Queue", "Agent"].map(name =>
+        h("li", { "data-item": name, "data-state": hovered.value === name ? "active" : undefined, "onPointerenter": () => (hovered.value = name) }, [
+          hovered.value === name ? h("span", { "class": "hover-mark", "data-motion-indicator": "", "aria-hidden": "true" }) : null,
+          name,
+        ]))),
     ]),
     row("Plain elements by role", [
       h("button", { "class": "plain", "data-test": "plain-button" }, "button"),
