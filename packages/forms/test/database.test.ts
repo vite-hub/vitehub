@@ -136,7 +136,7 @@ it("answers a form post without the Forms tables with the code and the fix", asy
 it("keeps the Forms code that the Database lookup throws", async () => {
   const store = createDrizzleFormsStore(() => { throw formsDiagnostics.FORMS_DATABASE_MISSING({ database: "inbox" }) })
   const [error] = await createFormsInbox(store).list()
-  expect(error?.code).toBe("FORMS_DATABASE_MISSING")
+  expect(error).toMatchObject({ code: "FORMS_DATABASE_MISSING" })
 })
 
 it("keeps FORMS_R0001 for other Database errors", async () => {
