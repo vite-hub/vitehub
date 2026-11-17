@@ -11,7 +11,7 @@ import type { MigrationPlan } from "./internal/migration-plan.ts"
 import { dirname, isAbsolute, join, relative, resolve } from "pathe"
 
 import { formatRuntimeDiagnosticError, isRuntimeDiagnostic } from "@vite-hub/runtime"
-import { withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
+import { loadAllEnv, withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
 
 import { resolveConfigValue } from "./config-value.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
@@ -202,7 +202,7 @@ async function runExport(args: string[], context: ViteHubCliContext, getConfig?:
   let env = context.env ?? process.env
   if (parsed.stage) {
     const { loadEnv } = await import("vite")
-    env = { ...loadEnv(parsed.stage, projectRoot, ""), ...env }
+    env = { ...loadAllEnv(loadEnv, parsed.stage, projectRoot), ...env }
   }
   const { describeExportTarget, exportDatabase } = await import("./internal/export.ts")
   const time = new Date().toISOString().replaceAll(":", "").replaceAll(".", "")
@@ -216,7 +216,7 @@ async function runExport(args: string[], context: ViteHubCliContext, getConfig?:
     }
     catch (error) {
       const problem = error instanceof Error ? error.message : String(error)
-      const failure = isRuntimeDiagnostic(error) && error.code === "DATABASE_EXPORT_FAILED" ? error : databaseErrorDiagnostics.DATABASE_EXPORT_FAILED({ cause: error, database: name, problem })
+      const failure = databaseErrorDiagnostics.DATABASE_EXPORT_FAILED.is(error) ? error : databaseErrorDiagnostics.DATABASE_EXPORT_FAILED({ cause: error, database: name, problem })
       context.stderr.write(`${formatRuntimeDiagnosticError(failure)}\n`)
       return 1
     }
@@ -235,7 +235,7 @@ async function runSeed(args: string[], context: ViteHubCliContext, getConfig?: R
   return await withViteStageEnvironment(env, async () => {
     if (parsed.stage) {
       const { loadEnv } = await import("vite")
-      env = { ...loadEnv(parsed.stage, context.rootDir, ""), ...env }
+      env = { ...loadAllEnv(loadEnv, parsed.stage, context.rootDir), ...env }
       Object.assign(process.env, env)
     }
     const config = await getConfig?.({ strict: false })
@@ -270,6 +270,233 @@ async function runSeed(args: string[], context: ViteHubCliContext, getConfig?: R
     }
     return 0
   })
+}
+
+const sqlUsage = "vitehub database sql [<query>] [--remote] [--stage <name>] [--database <name>] [--json]"
+
+function writeSqlUsage(context: ViteHubCliContext): void {
+  context.stdout.write([
+    `Usage: ${sqlUsage}`,
+    "",
+    "Runs SQL on a database and prints the rows of each statement as a table. Without",
+    "<query>, it reads the SQL from stdin. Without `--remote`, it uses the local SQLite file",
+    "or PGlite folder that `vitehub database migrate` uses.",
+    "",
+    "Options:",
+    "  --remote           Use the remote database, with the credentials of `vitehub database export --remote`.",
+    "  --stage <name>     Load Vite env files for this mode. Variables from the current",
+    "                     process take precedence.",
+    "  --database <name>  The database to use. Needed when the app has several.",
+    "  --json             Print one JSON array with `{ columns, rows, rowsAffected }` for each statement.",
+    "  -h, --help         Show this help.",
+    "",
+  ].join("\n"))
+}
+
+const dropUsage = "vitehub database drop [--remote] [--stage <name>] [--database <name>] [--force]"
+
+function writeDropUsage(context: ViteHubCliContext): void {
+  context.stdout.write([
+    `Usage: ${dropUsage}`,
+    "",
+    "Drops every table and view of a database, and the migrations table with them, in one",
+    "transaction. Run `vitehub database migrate` to create the tables again. It asks before it",
+    "drops. Without a terminal to ask, it needs `--force`. Without `--remote`, it uses the local",
+    "SQLite file or PGlite folder that `vitehub database migrate` uses.",
+    "",
+    "Options:",
+    "  --remote           Use the remote database, with the credentials of `vitehub database export --remote`.",
+    "  --stage <name>     Load Vite env files for this mode. Variables from the current",
+    "                     process take precedence.",
+    "  --database <name>  The database to drop. Needed when the app has several.",
+    "  --force            Drop without asking.",
+    "  -h, --help         Show this help.",
+    "",
+  ].join("\n"))
+}
+
+/** Terminal input of `sql` and `drop`. Tests replace it. */
+export interface DbCliIo {
+  /** Asks whether `drop` may drop the tables. Defaults to a prompt when stdin and stderr are terminals. */
+  confirm?: (question: string) => Promise<boolean>
+  /** Reads the SQL of `sql` when no argument has it. Defaults to stdin when stdin is not a terminal. */
+  readStdin?: () => Promise<string | undefined>
+}
+
+interface TargetArgs {
+  database?: string
+  remote: boolean
+  stage?: string
+}
+
+/** Parses the target flags of `sql` and `drop`, plus their boolean flags and positionals. */
+function parseTargetArgs(args: string[], flags: readonly string[]): (TargetArgs & { flags: Set<string>, positionals: string[] }) | string {
+  const parsed: TargetArgs & { flags: Set<string>, positionals: string[] } = { flags: new Set(), positionals: [], remote: false }
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!
+    // SQL can start with `-`, such as a `-- comment`. Only `-x` or `--name` is an option.
+    if (!/^--?[a-z]/i.test(arg)) {
+      parsed.positionals.push(arg)
+      continue
+    }
+    if (arg === "--remote") {
+      parsed.remote = true
+      continue
+    }
+    if (flags.includes(arg)) {
+      parsed.flags.add(arg)
+      continue
+    }
+    const option = (["--database", "--stage"] as const).find(name => arg === name || arg.startsWith(`${name}=`))
+    if (!option) return `Unknown option: ${arg}`
+    const value = arg === option ? args[++index] : arg.slice(option.length + 1)
+    if (!value || value.startsWith("-")) return `${option} requires a value.`
+    parsed[option.slice(2) as "database" | "stage"] = value
+  }
+  return parsed
+}
+
+/** Picks the one database of `sql` and `drop` and loads the stage env. Writes the problem and returns undefined on failure. */
+async function resolveCommandTarget(parsed: TargetArgs, context: ViteHubCliContext, getConfig?: ResolvedDBViteConfigProvider) {
+  const config = await getConfig?.({ strict: false })
+  if (!config?.databaseNames.length) {
+    context.stderr.write("[vitehub] ViteHub has no resolved Database config. Run the command in a project that uses `hubDatabase()`.\n")
+    return
+  }
+  if (parsed.database && !config.databases[parsed.database]) {
+    context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: parsed.database }))}\n`)
+    return
+  }
+  if (!parsed.database && config.databaseNames.length > 1) {
+    context.stderr.write(`[vitehub] The app has several databases. Add --database <name> to pick one of: ${config.databaseNames.join(", ")}.\n`)
+    return
+  }
+  const database = config.databases[parsed.database ?? config.databaseNames[0]!]!
+  let env = context.env ?? process.env
+  if (parsed.stage) {
+    const { loadEnv } = await import("vite")
+    env = { ...loadEnv(parsed.stage, config.rootDir, ""), ...env }
+  }
+  return { database, env, projectRoot: config.rootDir }
+}
+
+/** Asks on the terminal through stderr. Only `y` or `yes`, in any case, is a yes. */
+async function askOnTerminal(question: string): Promise<boolean> {
+  const { createInterface } = await import("node:readline/promises")
+  const terminal = createInterface({ input: process.stdin, output: process.stderr })
+  try {
+    return /^y(?:es)?$/i.test((await terminal.question(question)).trim())
+  }
+  finally {
+    terminal.close()
+  }
+}
+
+async function readStdin(): Promise<string | undefined> {
+  if (process.stdin.isTTY) return
+  const chunks: Buffer[] = []
+  for await (const chunk of process.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)))
+  return Buffer.concat(chunks).toString("utf8")
+}
+
+async function runSql(args: string[], context: ViteHubCliContext, getConfig: ResolvedDBViteConfigProvider | undefined, io: DbCliIo): Promise<number> {
+  const parsed = parseTargetArgs(args, ["--json"])
+  if (typeof parsed === "string" || parsed.positionals.length > 1) {
+    context.stderr.write(`[vitehub] ${typeof parsed === "string" ? parsed : "Pass the SQL as one argument. Quote it, or pipe it on stdin."}\n`)
+    writeSqlUsage(context)
+    return 1
+  }
+  const query = parsed.positionals[0] ?? await (io.readStdin ?? readStdin)()
+  if (!query?.trim()) {
+    context.stderr.write("[vitehub] No SQL to run. Pass it as an argument, such as `vitehub database sql \"select 1\"`, or pipe it on stdin.\n")
+    return 1
+  }
+  const resolved = await resolveCommandTarget(parsed, context, getConfig)
+  if (!resolved) return 1
+  const { database } = resolved
+  const fail = (problem: string, cause?: unknown) => {
+    context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_SQL_FAILED({ cause, database: database.name, problem }))}\n`)
+    return 1
+  }
+  const { formatSqlResult, openSqlConnection } = await import("./internal/sql.ts")
+  let connection: import("./internal/sql.ts").SqlConnection | undefined
+  try {
+    const opened = await openSqlConnection(database, { env: resolved.env, fetch: context.fetch, projectRoot: resolved.projectRoot, remote: parsed.remote })
+    if ("problem" in opened) return fail(opened.problem)
+    if ("missing" in opened) return fail(`It uses ${opened.missing}, which does not exist. Run \`vitehub database migrate\` to create it.`)
+    connection = opened.connection
+    const results = await connection.run(query)
+    if (parsed.flags.has("--json")) {
+      context.stdout.write(`${JSON.stringify(results, jsonValue, 2)}\n`)
+      return 0
+    }
+    context.stderr.write(`[vitehub] Database "${database.name}" (${connection.target}).\n`)
+    context.stdout.write(results.map(formatSqlResult).join("\n"))
+    return 0
+  }
+  catch (error) {
+    return fail(error instanceof Error ? error.message : String(error), error)
+  }
+  finally {
+    await connection?.close()
+  }
+}
+
+/** JSON has no bigint or bytes. Bigints become strings, and bytes become hex strings. */
+function jsonValue(_key: string, value: unknown): unknown {
+  if (typeof value === "bigint") return value.toString()
+  if (value instanceof ArrayBuffer) return Buffer.from(value).toString("hex")
+  if (ArrayBuffer.isView(value)) return Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString("hex")
+  return value
+}
+
+async function runDrop(args: string[], context: ViteHubCliContext, getConfig: ResolvedDBViteConfigProvider | undefined, io: DbCliIo): Promise<number> {
+  const parsed = parseTargetArgs(args, ["--force"])
+  if (typeof parsed === "string" || parsed.positionals.length) {
+    context.stderr.write(`[vitehub] ${typeof parsed === "string" ? parsed : `Unknown argument: ${parsed.positionals[0]}`}\n`)
+    writeDropUsage(context)
+    return 1
+  }
+  const resolved = await resolveCommandTarget(parsed, context, getConfig)
+  if (!resolved) return 1
+  const { database } = resolved
+  const fail = (problem: string, cause?: unknown) => {
+    context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_DROP_FAILED({ cause, database: database.name, problem }))}\n`)
+    return 1
+  }
+  const { openSqlConnection, planDrop } = await import("./internal/sql.ts")
+  let connection: import("./internal/sql.ts").SqlConnection | undefined
+  try {
+    const opened = await openSqlConnection(database, { env: resolved.env, fetch: context.fetch, projectRoot: resolved.projectRoot, remote: parsed.remote })
+    if ("problem" in opened) return fail(opened.problem)
+    if ("missing" in opened) {
+      context.stdout.write(`[vitehub] Database "${database.name}" (${opened.missing}): it does not exist, so there is nothing to drop.\n`)
+      return 0
+    }
+    connection = opened.connection
+    const plan = await planDrop(connection)
+    if (!plan.statements.length) {
+      context.stdout.write(`[vitehub] Database "${database.name}" (${connection.target}): it has no tables to drop.\n`)
+      return 0
+    }
+    if (!parsed.flags.has("--force")) {
+      const question = `Drop ${plan.objects.length} ${plan.objects.length === 1 ? "table or view" : "tables and views"} of the database "${database.name}" (${connection.target})? All their data is lost. [y/N] `
+      const confirm = io.confirm ?? (process.stdin.isTTY && process.stderr.isTTY ? askOnTerminal : undefined)
+      if (!confirm || !await confirm(question)) {
+        context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_DROP_NOT_CONFIRMED({ database: database.name }))}\n`)
+        return 1
+      }
+    }
+    await connection.runInTransaction(plan.statements)
+    context.stdout.write(`[vitehub] Database "${database.name}" (${connection.target}): dropped ${plan.objects.join(", ")}.\n`)
+    return 0
+  }
+  catch (error) {
+    return fail(error instanceof Error ? error.message : String(error), error)
+  }
+  finally {
+    await connection?.close()
+  }
 }
 
 const viteHubFlags = new Set(["--allow-data-loss", "--dry-run", "--non-interactive", "--schema-snapshot"])
@@ -438,13 +665,12 @@ async function runDrizzleKit(
     }
     if (feature === "migrate" && database) await ensureLocalDatabaseDirectory(database, projectRoot, context)
     const migrationsDir = run.database?.migrationsDir ? resolve(projectRoot, run.database.migrationsDir) : undefined
-    const foldersBefore = schemaSnapshot && migrationsDir ? await listMigrationFolders(migrationsDir) : []
+    const foldersBefore = feature === "generate" && migrationsDir ? await listMigrationFolders(migrationsDir) : []
     const result = await runDrizzleKitWithConfig(feature, args, context, { bin: drizzleKitBin, configFile: toConfigPath(projectRoot, configFile), database: run.database?.name ?? "default", projectRoot })
     if (result !== 0) return result
-    if (feature === "generate" && migrationsDir && run.database?.dialect === "sqlite" && run.database.cloudflare) {
-      // Keep the Wrangler name of each D1 migration in a committed file, so a later folder cannot renumber it.
-      const { recordD1MigrationNames } = await import("./internal/d1-migrations.ts")
-      recordD1MigrationNames(migrationsDir)
+    if (feature === "generate" && migrationsDir) {
+      const { orderGeneratedMigrations } = await import("./internal/contributed-migrations.ts")
+      orderGeneratedMigrations(migrationsDir, foldersBefore)
     }
     if (schemaSnapshot) {
       // `usesD1Http()` is false for every generate, but its type guard narrows `database` to undefined after it.
@@ -456,6 +682,22 @@ async function runDrizzleKit(
       const folder = (await listMigrationFolders(migrationsDir)).find(name => !foldersBefore.includes(name))
       const snapshot = await writeSchemaSnapshot(context, { bin: drizzleKitBin, configFile: resolve(projectRoot, configFile), folder, migrationsDir, projectRoot })
       if (snapshot !== 0) return snapshot
+    }
+    if (feature === "generate" && migrationsDir && run.database) {
+      // Contributed SQL goes after the migrations that Drizzle Kit just wrote, so their order never changes.
+      const contributed = config?.migrationContributionsByDatabase?.[run.database.name] ?? []
+      if (contributed.length) {
+        const { describeContributedMigration, planContributedMigrations, writeContributedMigrations } = await import("./internal/contributed-migrations.ts")
+        const { pending } = planContributedMigrations(migrationsDir, contributed, run.database.dialect)
+        writeContributedMigrations(migrationsDir, pending).forEach((folder, index) => {
+          context.stdout.write(`[vitehub] Database "${run.database!.name}": added the migration ${relative(projectRoot, join(migrationsDir, folder))} from ${describeContributedMigration(pending[index]!)}.\n`)
+        })
+      }
+      if (run.database.dialect === "sqlite" && run.database.cloudflare) {
+        // Keep the Wrangler name of each D1 migration in a committed file, so a later folder cannot renumber it.
+        const { recordD1MigrationNames } = await import("./internal/d1-migrations.ts")
+        recordD1MigrationNames(migrationsDir)
+      }
     }
   }
   return 0
@@ -803,6 +1045,7 @@ export function createDbCliContributor(
   getConfig?: ResolvedDBViteConfigProvider,
   /** Import aliases of the host, such as Vite `resolve.alias`, for the seed file. */
   getAlias?: () => Record<string, string> | undefined,
+  io: DbCliIo = {},
 ): ViteHubCliContributor | undefined {
   if (options === false) return
 
@@ -878,6 +1121,36 @@ export function createDbCliContributor(
         return await runSeed(args, context, getConfig, getAlias)
       },
       usage: seedUsage,
+    })
+  }
+
+  if (options?.sql !== false) {
+    features.push({
+      description: "Run SQL on a database and print the rows.",
+      name: "sql",
+      run: async (args, context) => {
+        if (args.includes("-h") || args.includes("--help")) {
+          writeSqlUsage(context)
+          return 0
+        }
+        return await runSql(args, context, getConfig, io)
+      },
+      usage: sqlUsage,
+    })
+  }
+
+  if (options?.drop !== false) {
+    features.push({
+      description: "Drop every table of a database, and its migrations table.",
+      name: "drop",
+      run: async (args, context) => {
+        if (args.includes("-h") || args.includes("--help")) {
+          writeDropUsage(context)
+          return 0
+        }
+        return await runDrop(args, context, getConfig, io)
+      },
+      usage: dropUsage,
     })
   }
 

@@ -187,6 +187,12 @@ async function discoverTargets(session, origin, folder) {
       route.reason ??= "left out by --only";
       return;
     }
+    // Optional parameters and the catch-all can expand to a path already captured.
+    const existing = shots.find((shot) => shot.path === path);
+    if (existing) {
+      route.shot ??= existing.file;
+      return;
+    }
     const shot = await shoot(session, origin, path, folder);
     if (landed.has(shot.landed)) {
       route.reason ??= `${path} opens ${shot.landed}, captured from ${landed.get(shot.landed)}`;

@@ -411,6 +411,23 @@ describe("createTrustedHostRuntime", () => {
     }
   });
 
+  it.skipIf(process.platform !== "linux")("stops commands that left their process group when the session closes", async () => {
+    const sandbox = await resolveSandbox({ runtime: createTrustedHostRuntime() }, {});
+    const session = await sandboxProvider(sandbox).createSession();
+    const result = await session.run({ command: "setsid sh -c 'echo $$; exec sleep 600 >/dev/null 2>&1' &" });
+    const leftover = Number(result.stdout.trim());
+    try {
+      expect(leftover).toBeGreaterThan(0);
+      await session.destroy?.();
+      // A killed orphan can stay a zombie until its new parent reaps it.
+      await expect.poll(() => readFile(`/proc/${leftover}/stat`, "utf8").then(stat => !/\) Z /.test(stat), () => false)).toBe(false);
+    } finally {
+      try {
+        process.kill(leftover, "SIGKILL");
+      } catch {}
+    }
+  });
+
   it("closes completed command sessions idempotently", async () => {
     const sandbox = await resolveSandbox({ runtime: createTrustedHostRuntime() }, {});
     const session = await sandboxProvider(sandbox).createSession();

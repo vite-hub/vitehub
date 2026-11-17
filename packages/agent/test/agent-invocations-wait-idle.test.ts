@@ -156,7 +156,8 @@ describe("vitehub agent invocations wait-idle", () => {
     expect(result.stderr).toBe("Read failed, retrying: Console request failed with HTTP 503: unavailable.\n")
 
     const unreachable = await waitIdle([], appConsole(() => "unavailable").fetch)
-    expect(unreachable).toMatchObject({ exitCode: 1, sleeps: [], stderr: "Console request failed with HTTP 503: unavailable.\n" })
+    expect(unreachable).toMatchObject({ exitCode: 1, sleeps: [] })
+    expect(unreachable.stderr).toMatch(/^\[AGENT_R0511\] Console request failed with HTTP 503: unavailable\.\n.*fix: /s)
   })
 
   it.each([

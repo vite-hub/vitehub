@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -122,6 +122,38 @@ describe("glob() calls in a module", () => {
     const code = `import { glob } from "vite-hub/source"\nexport const docs = glob("docs/**/*.md")`
     const output = transform.call({ parse }, code, "/project/server/content.ts", { ssr: true }) as { code: string } | undefined
     expect(output?.code).toContain(`import __vitehubGlob0 from`)
+  })
+
+  it("reports a glob() with options that are not literals as a hint with its place", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-source-glob-hint-"))
+    tempDirs.push(root)
+    const plugin = hubSource()
+    const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string) => unknown }).handler
+    const warn = vi.fn()
+    const environment = { config: { consumer: "server", command: "build", root, logger: { warn } } }
+    const code = `import { glob } from "vite-hub/source"\nconst cwd = "docs"\nexport const docs = glob({ cwd })`
+    transform.call({ parse, environment }, code, join(root, "server/content.ts"))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("SOURCE_GLOB_OPTIONS_NOT_LITERAL"))
+    const hints = JSON.parse(await readFile(join(root, ".vitehub/hints.json"), "utf8"))
+    expect(hints.hints).toEqual([expect.objectContaining({ code: "SOURCE_GLOB_OPTIONS_NOT_LITERAL", sources: ["server/content.ts:3:21"] })])
+  })
+
+  it("reports the hint in a legacy SSR build without an environment", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-source-glob-legacy-hint-"))
+    tempDirs.push(root)
+    const plugin = hubSource()
+    const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string, options?: { ssr?: boolean }) => unknown }).handler
+    const config = plugin.config as (config: { build: { ssr: boolean } }, env: { command: "build" | "serve", mode: string }) => unknown
+    await config({ build: { ssr: true } }, { command: "build", mode: "production" })
+    const warn = vi.fn()
+    const rollupWarn = vi.fn()
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "build", logger: { warn }, plugins: [], base: "/", build: { ssr: true } })
+    const code = `import { glob } from "vite-hub/source"\nconst cwd = "docs"\nexport const docs = glob({ cwd })`
+    transform.call({ parse, warn: rollupWarn }, code, join(root, "server/content.ts"), { ssr: true })
+    expect(rollupWarn).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("SOURCE_GLOB_OPTIONS_NOT_LITERAL"))
+    const hints = JSON.parse(await readFile(join(root, ".vitehub/hints.json"), "utf8"))
+    expect(hints.hints).toEqual([expect.objectContaining({ code: "SOURCE_GLOB_OPTIONS_NOT_LITERAL", sources: ["server/content.ts:3:21"] })])
   })
 
   it("keeps legacy SSR build state when Nitro config runs afterward", async () => {

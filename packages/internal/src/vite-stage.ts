@@ -33,6 +33,21 @@ export interface ViteStageServerInput {
 
 type QueueCarrier = typeof globalThis & { [viteStageQueueKey]?: Promise<void> }
 
+/**
+ * Vite's `loadEnv(mode, envDir, "")`: every `.env` value of the mode and the whole shell. With `DEBUG=vite:env`, Vite
+ * logs that result to stderr, secrets included. loadEnv is synchronous, so this drops only the writes of this call.
+ */
+export function loadAllEnv(loadEnv: ViteStageModule<ViteStageServer>["loadEnv"], mode: string, envDir: string | false): Record<string, string> {
+  const write = process.stderr.write
+  process.stderr.write = () => true
+  try {
+    return loadEnv(mode, envDir, "")
+  }
+  finally {
+    process.stderr.write = write
+  }
+}
+
 // Packages bundle this module separately, so the process-wide queue lives on globalThis.
 const viteStageQueueKey = Symbol.for("vitehub.cli.vite-stage-queue")
 
@@ -63,7 +78,7 @@ async function runStageServer<TServer extends ViteStageServer, TResult>(
       server: { hmr: false, middlewareMode: true },
     }), input.stderr)
     // Keep values that Vite set during startup, such as NODE_ENV.
-    for (const [key, value] of [...Object.entries(vite.loadEnv(input.stage, server.config.envDir, "")), ...selectedEnvironment]) {
+    for (const [key, value] of [...Object.entries(loadAllEnv(vite.loadEnv, input.stage, server.config.envDir)), ...selectedEnvironment]) {
       process.env[key] = value
     }
     return await callback(server)
