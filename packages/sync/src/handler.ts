@@ -1,4 +1,4 @@
-import { and, asc, eq, getTableColumns, gt, isNull, lt, max, sql } from "drizzle-orm"
+import { and, asc, eq, exists, getTableColumns, gt, isNull, lt, max, sql } from "drizzle-orm"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import * as v from "valibot"
 
@@ -316,7 +316,7 @@ async function apply(scoped: Scoped, mutation: SyncMutation, attempt = 0): Promi
       checked = current
       // A failed guard aborts the whole batch, including the ledger and change log.
       const unchanged = db.select({ key: keyColumn }).from(target).where(whereSql(table, current))
-      ledger = db.insert(syncMutations).values({ id: sql`CASE WHEN EXISTS (${unchanged}) THEN ${id} ELSE NULL END`, name, createdAt: now })
+      ledger = db.insert(syncMutations).values({ id: sql`CASE WHEN ${exists(unchanged)} THEN ${id} ELSE NULL END`, name, createdAt: now })
     }
     if (mutation.op === "delete") {
       // Deleting a missing row changes nothing, so a repeated delete is not an error.
