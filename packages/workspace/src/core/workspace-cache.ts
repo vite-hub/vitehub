@@ -21,10 +21,8 @@ export function getCachedWorkspaceStore(definition: WorkspaceDefinition, create:
   return store
 }
 
-/** Drops the cached Store of a definition. With `store`, only when the cache still holds that Store. */
-export function invalidateCachedWorkspaceStore(definition: WorkspaceDefinition, store?: WorkspaceStore): void {
-  const cache = storeByDefinition()
-  if (!store || cache.get(definition) === store) cache.delete(definition)
+export function invalidateCachedWorkspaceStore(definition: WorkspaceDefinition): void {
+  storeByDefinition().delete(definition)
 }
 
 export function resetWorkspaceStoreCache(): void {

@@ -1295,6 +1295,37 @@ describe("GitHub workspace store", () => {
     ]);
   });
 
+  it("drops a failed request's writes for a Workspace that outlives the request and for direct Store writes", async () => {
+    seedRemote(".vitehub/workspaces/docs/index.md", "# Index\n");
+    const { createWorkspace } = await import("../src/core/workspace.ts");
+    const { runWorkspaceRequest } = await import("../src/core/request-scope.ts");
+    const { getCachedWorkspaceStore } = await import("../src/core/workspace-cache.ts");
+    const definition: WorkspaceDefinition = {
+      name: "docs",
+      store: { driver: "github", repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
+    };
+    // A module-level Workspace serves every request.
+    const workspace = createWorkspace(definition);
+    // Source materialization and sync write to the Store without the Workspace methods.
+    const store = getCachedWorkspaceStore(definition, () => { throw new Error("The Workspace created the Store.") });
+
+    await expect(runWorkspaceRequest(async () => {
+      await workspace.writeFile("draft.md", "half done\n");
+      await store.writeFile("source.md", { path: "source.md", content: "from a Source\n" });
+      throw new Error("failed");
+    })).rejects.toThrow("failed");
+    await runWorkspaceRequest(async () => {
+      await expect(workspace.exists("draft.md")).resolves.toBe(false);
+      await workspace.writeFile("saved.md", "saved\n");
+      await workspace.snapshot({ name: "save" });
+    });
+
+    expect(fake.tree("main").map(entry => entry.path).sort()).toEqual([
+      ".vitehub/workspaces/docs/index.md",
+      ".vitehub/workspaces/docs/saved.md",
+    ]);
+  });
+
   it("keeps staged writes that another request also made when a request fails", async () => {
     seedRemote(".vitehub/workspaces/docs/index.md", "# Index\n");
     const { createWorkspace } = await import("../src/core/workspace.ts");

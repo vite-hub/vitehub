@@ -1,18 +1,22 @@
-import { invalidateCachedWorkspaceStore } from "./workspace-cache.ts"
 import type { AsyncLocalStorage } from "node:async_hooks"
-import type { WorkspaceDefinition, WorkspaceStore } from "./types.ts"
 
-/** The Workspaces that one request wrote to, with the Store that holds its staged writes. */
+import { workspaceStoreDiscard } from "../storage/discard.ts"
+import type { WorkspaceStoreDiscardCarrier } from "../storage/discard.ts"
+import type { WorkspaceStore } from "./types.ts"
+
+/** The Stores that one request staged writes in. */
 interface WorkspaceRequest {
-  staged: Map<WorkspaceDefinition, WorkspaceStore>
+  staged: Set<WorkspaceStore>
 }
+
+type DiscardableStore = WorkspaceStore & Required<WorkspaceStoreDiscardCarrier>
 
 // Every copy of this package in one process shares the request storage and the writers, like the Store cache.
 const runtimeGlobal = globalThis as typeof globalThis & Record<symbol, unknown>
 const storageKey = Symbol.for("vitehub.workspace.request")
 const writersKey = Symbol.for("vitehub.workspace.writers")
 /** Writes made outside a request, such as in a Queue job, which no request may drop. */
-const outsideRequest: WorkspaceRequest = { staged: new Map() }
+const outsideRequest: WorkspaceRequest = { staged: new Set() }
 
 function requestStorage(): AsyncLocalStorage<WorkspaceRequest> | undefined {
   const existing: unknown = runtimeGlobal[storageKey]
@@ -32,41 +36,56 @@ function writers(): WeakMap<WorkspaceStore, Set<WorkspaceRequest>> {
   return (runtimeGlobal[writersKey] ??= new WeakMap()) as WeakMap<WorkspaceStore, Set<WorkspaceRequest>>
 }
 
+function isDiscardable(store: WorkspaceStore): store is DiscardableStore {
+  return typeof (store as WorkspaceStoreDiscardCarrier)[workspaceStoreDiscard] === "function"
+}
+
+const stagingMethods = ["mkdir", "rebase", "removeEmptyDirectory", "rm", "setMeta", "writeFile", "writeFileConditional", "writeFileStream"] as const
+
 /**
- * Records a write to a Store that keeps writes staged until `snapshot()`: the GitHub and Cloudflare Artifacts Stores.
- * Other Stores write through, so a failed request has nothing to drop.
+ * Records which request stages writes in a Store that keeps them until `snapshot()`, for every caller of the Store:
+ * Workspace methods, Source materialization, and sync. Other Stores write through and are returned as they are.
  */
-export function noteWorkspaceWrite(definition: WorkspaceDefinition, store: WorkspaceStore): void {
-  if (typeof store.rebase !== "function") return
-  const request = requestStorage()?.getStore() ?? outsideRequest
-  if (request !== outsideRequest) request.staged.set(definition, store)
-  const staged = writers().get(store)
-  if (staged) staged.add(request)
-  else writers().set(store, new Set([request]))
-}
-
-/** Records that a snapshot committed every staged write of the Store. */
-export function noteWorkspaceSnapshot(store: WorkspaceStore): void {
-  writers().delete(store)
+export function trackStagedWrites(store: WorkspaceStore): WorkspaceStore {
+  if (!isDiscardable(store)) return store
+  for (const name of stagingMethods) {
+    const method: unknown = store[name]
+    if (typeof method !== "function") continue
+    Reflect.set(store, name, (...args: unknown[]) => {
+      const request = requestStorage()?.getStore() ?? outsideRequest
+      if (request !== outsideRequest) request.staged.add(store)
+      const staged = writers().get(store)
+      if (staged) staged.add(request)
+      else writers().set(store, new Set([request]))
+      return Reflect.apply(method, store, args)
+    })
+  }
+  const snapshot = store.snapshot
+  store.snapshot = async (options) => {
+    const result = await Reflect.apply(snapshot, store, [options])
+    writers().delete(store)
+    return result
+  }
+  return store
 }
 
 /**
- * Runs one request. When it fails, the cached Stores that only this request wrote to since their last snapshot are
- * dropped, so the next request loads the branch again and its snapshot cannot commit the failed request's writes.
+ * Runs one request. When it throws, each Store that only this request staged writes in since its last snapshot drops
+ * them, so a later snapshot cannot commit them. Facades that hold the Store see the same branch as a new request.
  */
 export async function runWorkspaceRequest<T>(next: () => T): Promise<Awaited<T>> {
   const storage = requestStorage()
   if (!storage) return await next()
-  const request: WorkspaceRequest = { staged: new Map() }
+  const request: WorkspaceRequest = { staged: new Set() }
   try {
     return await storage.run(request, next)
   }
   catch (error) {
-    for (const [definition, store] of request.staged) {
+    for (const store of request.staged) {
       const staged = writers().get(store)
-      if (staged?.size !== 1 || !staged.has(request)) continue
+      if (staged?.size !== 1 || !staged.has(request) || !isDiscardable(store)) continue
       writers().delete(store)
-      invalidateCachedWorkspaceStore(definition, store)
+      await store[workspaceStoreDiscard]()
     }
     throw error
   }
