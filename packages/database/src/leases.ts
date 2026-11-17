@@ -1,14 +1,7 @@
-// A package import, not a relative one, so Nuxt and hosted builds can alias the registry to their generated runtime.
-import { useDatabase } from "@vite-hub/database/runtime/registry"
-
+import { lookupDrizzleDatabase as lookup } from "./idempotency.ts"
 import { createDatabaseLeaseStore } from "./runtime/leases.ts"
 
 import type { LeaseStore } from "@vite-hub/runtime"
-import type { IdempotencyDatabase } from "./runtime/idempotency.ts"
-
-// SAFETY: as in `withIdempotency()`, every runtime Database is a Drizzle database, and `useDatabase()` takes any name at
-// runtime and throws `DATABASE_NOT_FOUND` for an unknown one.
-const lookup = useDatabase as unknown as (name?: string) => { db: IdempotencyDatabase }
 
 const stores = new WeakMap<object, LeaseStore>()
 

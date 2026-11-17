@@ -39,11 +39,21 @@ function leaseClient(db: IdempotencyDatabase): LeaseSqlClient {
 /**
  * Leases in the `vitehub_leases` table of a Drizzle database, on every Database driver: postgres.js, node-postgres,
  * PGlite, libSQL, and D1. Each operation is one statement, so D1 needs no transaction. The store reads the database
- * on the first operation, where a D1 binding is active.
+ * on the first operation, where a D1 binding is active. When that read fails, such as outside a request on D1, the
+ * operation returns `RUNTIME_LEASE_FAILED` with the error as `cause`, and the next operation reads the database again.
  */
 export function createDatabaseLeaseStore(db: IdempotencyDatabase): LeaseStore {
   let store: LeaseStore | undefined
-  const resolve = () => store ??= createSqlLeaseStore(leaseClient(db))
+  function resolve(): LeaseStore {
+    if (store) return store
+    try {
+      store = createSqlLeaseStore(leaseClient(db))
+      return store
+    }
+    catch (cause) {
+      return createSqlLeaseStore({ dialect: "sqlite", query: async () => { throw cause } })
+    }
+  }
   return {
     acquire: async (key, options) => await resolve().acquire(key, options),
     get: async key => await resolve().get(key),

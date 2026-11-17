@@ -146,6 +146,26 @@ it("returns RUNTIME_LEASE_FAILED with the Database error as the cause", async ()
   expect(error).toMatchObject({ code: "RUNTIME_LEASE_FAILED", cause: expect.any(Error) })
 })
 
+it("returns RUNTIME_LEASE_FAILED when a D1 binding is not active, and reads the Database again on the next call", async () => {
+  let binding: object | undefined
+  const missing = new Error("Database \"default\" needs a D1 binding.")
+  // A stand-in for the D1 adapter of a Database: outside a request, any read throws DATABASE_MISSING_CONNECTION.
+  const db = new Proxy({}, {
+    get(_, property) {
+      if (!binding) throw missing
+      // SAFETY: the stand-in has the D1 methods that Drizzle calls.
+      return Reflect.get(drizzleD1(binding as never), property)
+    },
+  })
+  const leases = createDatabaseLeaseStore(db as IdempotencyDatabase)
+
+  expect(await leases.acquire("sync:stripe-payouts", { ttl: 30 })).toEqual([expect.objectContaining({ code: "RUNTIME_LEASE_FAILED", cause: missing }), undefined])
+  expect(await leases.get("sync:stripe-payouts")).toEqual([expect.objectContaining({ code: "RUNTIME_LEASE_FAILED", cause: missing }), undefined])
+
+  binding = createD1()
+  expect((await leases.acquire("sync:stripe-payouts", { ttl: 30 }))[1]).not.toBeNull()
+})
+
 it("warns that leases in a local libSQL file are for one process only", async () => {
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
   const root = await mkdtemp(join(tmpdir(), "vitehub-leases-"))
