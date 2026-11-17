@@ -1,5 +1,5 @@
 import { expectTypeOf, test } from "vitest"
-import { ref } from "vue"
+import { computed, ref } from "vue"
 
 import { createSync } from "../src/client.ts"
 import { useSync } from "../src/vue.ts"
@@ -13,7 +13,8 @@ declare global {
   interface ViteHubSyncMap {
     todos: SyncDefinition<unknown, Todo, { complete: { id: string }, add: { id?: string, title: string } }>
     meetings: SyncDefinition<unknown, { id: string, at: Date, count: bigint }>
-    comments: SyncDefinition<unknown, { id: string, ownerId: string, todoId: string, body: string }>
+    comments: SyncDefinition<unknown, { id: string, ownerId: string, todoId: string, body: string }, Record<string, never>, "todoId">
+    memos: SyncDefinition<unknown, { id: string, body: string }, Record<string, never>, never>
   }
 }
 
@@ -36,6 +37,49 @@ test("useSync() and createSync() type rows, inserts and updates as JSON, so a Da
   meetings.insert({ at: new Date() })
   // @ts-expect-error The browser sends JSON, so a bigint column takes text.
   createSync("meetings").update("a", { count: 1n })
+})
+
+test("useSync() and createSync() take only the `subsets` columns in `where`", () => {
+  useSync("comments", { where: () => ({ todoId: "t1" }) })
+  createSync("comments", { where: { todoId: "t1" } })
+  // @ts-expect-error `body` is not in `subsets`.
+  useSync("comments", { where: { body: "x" } })
+  // @ts-expect-error `body` is not in `subsets`.
+  createSync("comments", { where: { body: "x" } })
+  // @ts-expect-error A subset value has the type of its column.
+  createSync("comments", { where: { todoId: 1 } })
+  useSync("memos")
+  // @ts-expect-error A definition without `subsets` takes no subset.
+  createSync("memos", { where: { body: "x" } })
+  // @ts-expect-error A definition without `subsets` takes no subset.
+  useSync("memos", { where: () => ({ body: "x" }) })
+})
+
+test("a `where` from a getter, a ref, or a variable takes no column outside `subsets`, also next to a subset column", () => {
+  // @ts-expect-error `body` is not in `subsets`.
+  useSync("comments", { where: () => ({ todoId: "t1", body: "x" }) })
+  // @ts-expect-error `body` is not in `subsets`.
+  useSync("comments", { where: ref({ todoId: "t1", body: "x" }) })
+  const mixed = { todoId: "t1", body: "x" }
+  // @ts-expect-error `body` is not in `subsets`.
+  useSync("comments", { where: mixed })
+  // @ts-expect-error `body` is not in `subsets`.
+  createSync("comments", { where: mixed })
+  const subset = { todoId: "t1" }
+  useSync("comments", { where: subset })
+  createSync("comments", { where: subset })
+  useSync("comments", { where: () => (Math.random() > 0.5 ? { todoId: "t1" } : undefined) })
+  const either = {} as { todoId: string } | { todoId: string, body: string }
+  // @ts-expect-error One member of the union has `body`, which is not in `subsets`.
+  createSync("comments", { where: either })
+  // @ts-expect-error One member of the union has `body`, which is not in `subsets`.
+  useSync("comments", { where: either })
+  // @ts-expect-error One member of the union has `body`, which is not in `subsets`.
+  useSync("comments", { where: () => either })
+  // @ts-expect-error One member of the union has `body`, which is not in `subsets`.
+  useSync("comments", { where: ref(either) })
+  // @ts-expect-error One member of the union has `body`, which is not in `subsets`.
+  useSync("comments", { where: computed(() => either) })
 })
 
 test("useSync() and createSync() type the subset, the actions and their optimistic functions", () => {

@@ -3,7 +3,7 @@ import { expectTypeOf, it } from "vitest"
 
 import { defineSync } from "../src/index.ts"
 
-import type { InferSyncActions, InferSyncRow, SyncDefinition, SyncJsonRow, SyncRowOf } from "../src/index.ts"
+import type { InferSyncActions, InferSyncRow, InferSyncSubsets, SyncDefinition, SyncJsonRow, SyncRowOf } from "../src/index.ts"
 
 const todos = sqliteTable("todos", { id: text("id").primaryKey(), ownerId: text("owner_id").notNull(), done: integer("done", { mode: "boolean" }).notNull() })
 
@@ -35,6 +35,15 @@ it("infers the row from the table", () => {
   // @ts-expect-error `where` returns column values of the table.
   defineSync({ table: todos, where: () => ({ owner: "x" }) })
   expectTypeOf<SyncRowOf<"unknown">>().toEqualTypeOf<Record<string, unknown>>()
+})
+
+it("infers the columns of `subsets`, and refuses a name that is not a column", () => {
+  const listed = defineSync({ table: todos, where: () => ({}), subsets: ["ownerId"] })
+  expectTypeOf<InferSyncSubsets<typeof listed>>().toEqualTypeOf<"ownerId">()
+  const none = defineSync({ table: todos, where: () => ({}) })
+  expectTypeOf<InferSyncSubsets<typeof none>>().toEqualTypeOf<never>()
+  // @ts-expect-error `subsets` has column names of the table.
+  defineSync({ table: todos, where: () => ({}), subsets: ["owner"] })
 })
 
 it("infers the arguments of each action from its annotation", () => {

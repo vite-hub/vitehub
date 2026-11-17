@@ -161,13 +161,13 @@ interface SyncStore<TRow, TArgs = Record<string, never>> {
  * Options of `createSync()`. The first call for a name and subset sets them, later calls share that store.
  * @experimental
  */
-interface SyncOptions<TRow = SyncRow, TArgs = Record<string, never>> {
+interface SyncOptions<TRow = SyncRow, TArgs = Record<string, never>, TWhere = Partial<TRow>> {
   /**
    * A subset of the rows, such as `{ issueId }`: column values that each row of the subset has. Each subset is its own
    * store, with its own rows in IndexedDB, so a subset that the browser saw before shows at once. The server adds it to
-   * its own `where`, so a subset can only narrow what the caller may see.
+   * its own `where`, so a subset can only narrow what the caller may see. The columns are the `subsets` of the definition.
    */
-  where?: Partial<TRow>
+  where?: TWhere
   /** Optimistic functions of actions, by action name. Without one, the action changes the rows when the server answers. */
   actions?: SyncOptimisticActions<TRow, TArgs>
   /** The app base URL. Default: the Vite or Nuxt base, else `/`. */
