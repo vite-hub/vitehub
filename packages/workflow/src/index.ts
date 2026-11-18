@@ -3,6 +3,7 @@ export {
   NonRetryableError,
   type WorkflowErrorCode,
   type WorkflowErrorDetails,
+  type WorkflowProviderFailure,
   type WorkflowOperationName,
   type WorkflowProviderName,
 } from "./errors.ts"
@@ -40,6 +41,7 @@ export type {
   WorkflowRun,
   WorkflowRunError,
   WorkflowRunStep,
+  WorkflowResultErrorCode,
   WorkflowRunStatus,
   WorkflowSignalResult,
   WorkflowSharedOptions,

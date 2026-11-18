@@ -46,7 +46,7 @@ describe("durable Agent data handoff", () => {
         createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
           start: async (input: AgentWorkflowInvocationPayload) => {
             payload = JSON.parse(JSON.stringify(input))
-            return { id: `signal-${source}`, provider: "openworkflow", status: "queued" }
+            return [undefined, { id: `signal-${source}`, provider: "openworkflow", status: "queued" }]
           },
         }) as never,
       }),
@@ -99,7 +99,7 @@ describe("durable Agent data handoff", () => {
       workflow: async () => ({ ...await import("@vite-hub/workflow"), createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
         start: async (input: AgentWorkflowInvocationPayload) => {
           payload = JSON.parse(JSON.stringify(input))
-          return { id: "prepared-profile", provider: "openworkflow", status: "queued" }
+          return [undefined, { id: "prepared-profile", provider: "openworkflow", status: "queued" }]
         },
       }) as never }),
     })
@@ -147,7 +147,7 @@ describe("durable Agent data handoff", () => {
         createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
           start: async (input: unknown) => {
             payload = JSON.parse(JSON.stringify(input))
-            return { id: "replay-cancellation-run", provider: "openworkflow", status: "queued" }
+            return [undefined, { id: "replay-cancellation-run", provider: "openworkflow", status: "queued" }]
           },
         }) as never,
       }),
@@ -197,7 +197,7 @@ describe("durable Agent data handoff", () => {
         createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
           start: async (input: unknown) => {
             payload = input
-            return { id: "discovered-run", provider: "openworkflow", status: "queued" }
+            return [undefined, { id: "discovered-run", provider: "openworkflow", status: "queued" }]
           },
         }) as never,
       }),
@@ -237,7 +237,7 @@ describe("durable Agent data handoff", () => {
         createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
           start: async (input: unknown) => {
             payload = input
-            return { id: "parsed-data-preflight", provider: "openworkflow", status: "queued" }
+            return [undefined, { id: "parsed-data-preflight", provider: "openworkflow", status: "queued" }]
           },
         }) as never,
       }),
@@ -295,7 +295,7 @@ describe("durable Agent data handoff", () => {
         createWorkflow: (name: unknown) => String(name).startsWith(recoveryWorkflowPrefix) ? {} as never : ({
           start: async (input: unknown) => {
             payload = input
-            return { id: "nonportable-data", provider: "openworkflow", status: "queued" }
+            return [undefined, { id: "nonportable-data", provider: "openworkflow", status: "queued" }]
           },
         }) as never,
       }),

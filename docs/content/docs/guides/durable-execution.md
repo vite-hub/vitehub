@@ -178,15 +178,17 @@ import { startWorkflow } from 'vite-hub/workflow'
 export default defineEventHandler(async (event) => {
   const order = await readBody<{ orderId: string, amountCents: number, email: string }>(event)
   if (!order) throw new HTTPError({ status: 400, message: 'Order body is required' })
-  return startWorkflow('checkout', order, { id: `checkout-${order.orderId}` })
+  const [error, run] = await startWorkflow('checkout', order, { id: `checkout-${order.orderId}` })
+  if (error) throw error
+  return run
 })
 ```
 
-The id is the run id on Cloudflare and OpenWorkflow, so a double click does not start a second checkout, and `getWorkflowRun()` reads the run with the same id. Start with a letter, a digit, or `_`, then use only letters, digits, `-`, and `_` in the id, up to 100 characters, so it works on every provider. Cloudflare rejects other ids, and ViteHub fails the start with `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID` before it calls Cloudflare. A Vercel `native` entry rejects an explicit id with `WORKFLOW_RUN_ID_UNSUPPORTED`; let Workflow DevKit assign it.
+The id is the run id on Cloudflare and OpenWorkflow, so a double click does not start a second checkout, and `getWorkflowRun()` reads the run with the same id. Start with a letter, a digit, or `_`, then use only letters, digits, `-`, and `_` in the id, up to 100 characters, so it works on every provider. Cloudflare rejects other ids, and `startWorkflow()` returns the error `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID` before it calls Cloudflare. A Vercel `native` entry returns the error `WORKFLOW_RUN_ID_UNSUPPORTED` for an explicit id; let Workflow DevKit assign it.
 
 ## Inspect the run
 
-`startWorkflow()` returns the run `id` and a `status`. Read the run later with [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run), or from the CLI while the dev server runs:
+`startWorkflow()` returns `[error, run]`. The run has an `id` and a `status`. Read the run later with [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run), or from the CLI while the dev server runs:
 
 ```bash [Terminal]
 pnpm vitehub workflow start checkout '{"orderId":"order_1042","amountCents":4200,"email":"ada@example.com"}'

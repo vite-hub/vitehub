@@ -52,10 +52,12 @@ const app = { hooks: { hook: (_name, callback) => hooks.push(callback) } }
 try {
   const worker = await createOpenWorkflowWorker()
   try {
-    const run = await startWorkflow("pipeline", 1)
+    const [startError, run] = await startWorkflow("pipeline", 1)
+    assert.equal(startError, undefined)
     assert.equal(await worker.tick(), 1)
     await worker.stop()
-    const completed = await getWorkflowRun("pipeline", run.id)
+    const [getError, completed] = await getWorkflowRun("pipeline", run.id)
+    assert.equal(getError, undefined)
     assert.equal(completed.status, "completed", JSON.stringify(completed))
     assert.equal(completed.result, 2)
     assert.equal((await state.loadWorkflowDefinition("pipeline")).options.rootStep, false)
@@ -64,7 +66,8 @@ try {
   }
   assert.equal(await installOpenWorkflow(app), true)
   for (const name of ["demo", "named"]) {
-    const run = await startWorkflow(name)
+    const [error, run] = await startWorkflow(name)
+    assert.equal(error, undefined)
     assert.equal(run.status, "queued")
   }
 } finally {
