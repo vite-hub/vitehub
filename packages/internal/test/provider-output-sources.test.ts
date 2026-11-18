@@ -1773,7 +1773,7 @@ it("skips unrelated nested repositories while retaining requested and imported o
 
   await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ imported: true })
   await expect(readFile(retained.resolve(requested), "utf8")).resolves.toContain("requested = true")
-  await expect(readFile(retained.resolve(join(unrelatedRepository, "large-cache.bin")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(retained.resolve(join(unrelatedRepository, "runtime-source.mjs")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
 it("retains nested repositories when a requested handler has a computed import", async () => {

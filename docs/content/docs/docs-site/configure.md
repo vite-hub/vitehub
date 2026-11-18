@@ -563,7 +563,7 @@ pnpm add @vite-hub/comments
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: [
-    ['vite-hub/nuxt', { host: 'node', console: { auth: false } }],
+    ['vite-hub/nuxt', { console: { auth: false } }],
     'vite-hub/docs/nuxt',
   ],
 })

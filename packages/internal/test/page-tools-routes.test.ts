@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import { addViteHubPageToolRoutes, viteHubPageToolsBase, viteHubPageToolsIndexHtml } from "../src/build/page-tools.ts"
 import { createNitroServerKit } from "../src/nitro-kit.ts"
 import { VITEHUB_APP_BASE_URL } from "../src/build/vite.ts"
+import { viteHubPageToolsLoader } from "../src/runtime/page-tools-shared.ts"
 
 describe("addViteHubPageToolRoutes", () => {
   it.each([
@@ -75,17 +76,19 @@ describe("viteHubPageToolsIndexHtml", () => {
 
   it("imports the loader only with the hint", () => {
     const page = viteHubPageToolsIndexHtml(html, "/")!
+    // The loader URL points into the asset route above, with a cache-busting version.
+    expect(viteHubPageToolsLoader).toMatch(/^\/_vitehub\/page\/assets\/loader\.js\?v=\d+$/)
     expect(run(page, "/")).toEqual([])
     expect(run(page, "/", "theme=dark")).toEqual([])
-    expect(run(page, "/?vitehub")).toEqual(["/_vitehub/page/assets/loader.js?v=21"])
-    expect(run(page, "/pricing", "theme=dark; vitehub-tools=1")).toEqual(["/_vitehub/page/assets/loader.js?v=21"])
+    expect(run(page, "/?vitehub")).toEqual([viteHubPageToolsLoader])
+    expect(run(page, "/pricing", "theme=dark; vitehub-tools=1")).toEqual([viteHubPageToolsLoader])
     // A link to a comment thread loads the tools too, also after the person turned them off.
-    expect(run(page, "/pricing?comment=3", "vitehub-tools=0")).toEqual(["/_vitehub/page/assets/loader.js?v=21"])
+    expect(run(page, "/pricing?comment=3", "vitehub-tools=0")).toEqual([viteHubPageToolsLoader])
     expect(run(page, "/pricing?commentary=3")).toEqual([])
   })
 
   it("imports the loader below the Vite base", () => {
-    expect(run(viteHubPageToolsIndexHtml(html, "/portal/")!, "/portal/?vitehub")).toEqual(["/portal/_vitehub/page/assets/loader.js?v=21"])
-    expect(run(viteHubPageToolsIndexHtml("<p>No body</p>", "./")!, "/?vitehub")).toEqual(["/_vitehub/page/assets/loader.js?v=21"])
+    expect(run(viteHubPageToolsIndexHtml(html, "/portal/")!, "/portal/?vitehub")).toEqual([`/portal${viteHubPageToolsLoader}`])
+    expect(run(viteHubPageToolsIndexHtml("<p>No body</p>", "./")!, "/?vitehub")).toEqual([viteHubPageToolsLoader])
   })
 })

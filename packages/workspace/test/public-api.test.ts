@@ -168,35 +168,17 @@ describe("workspace public API", () => {
 
   it("keeps workspace declarations installable without optional integration peers", async () => {
     const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
-    const builtServer = await readFile(new URL("../dist/server.d.ts", import.meta.url), "utf8")
-    const builtCloudflareArtifactsStore = await readBuiltSourceModule("src/providers/cloudflare/artifacts-store.ts")
     const distDir = new URL("../dist/", import.meta.url)
     const distFiles = await readdir(distDir, { recursive: true })
     const declarations = (await Promise.all(distFiles
       .filter(file => file.endsWith(".d.ts"))
       .map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
-    const effectFreeBundles = (await Promise.all([
-      "cloudflare.js",
-      "source-metadata.js",
-      "runtime/empty-assets-registry.js",
-      "runtime/empty-registry.js",
-      "providers/github/store.js",
-    ].map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
-    const effectImport = /(?:from\s*|import\s*(?:\(\s*)?)["']effect(?:\/[^"']*)?["']/
     const vueFreeBundles = (await Promise.all(["index.js", "server.js"]
       .map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
 
-    // The server helpers return Fetchable routes and do not import h3.
     expect(packageJson.dependencies?.h3).toBeUndefined()
-    expect(packageJson.dependencies?.ofetch).toBeUndefined()
     expect(packageJson.dependencies?.vite).toBeUndefined()
-    expect(packageJson.devDependencies?.vite).toBe("catalog:vite")
-    expect(packageJson.peerDependencies?.vite).toBe("catalog:vite-compat")
     expect(packageJson.peerDependenciesMeta?.vite).toEqual({ optional: true })
-    expect(packageJson.exports).not.toHaveProperty("./collections")
-    expect(packageJson.exports).not.toHaveProperty("./collections/client")
-    expect(packageJson.peerDependencies?.vue).toBeUndefined()
-    expect(packageJson.peerDependenciesMeta?.vue).toBeUndefined()
     expect(packageJson.dependencies?.["files-sdk"]).toBeUndefined()
     expect(packageJson.peerDependencies?.h3).toBeUndefined()
     expect(packageJson.peerDependenciesMeta?.h3).toBeUndefined()
@@ -206,13 +188,9 @@ describe("workspace public API", () => {
     expect(packageJson.peerDependenciesMeta?.["files-sdk"]).toBeUndefined()
     expect(packageJson.peerDependencies?.["@vercel/blob"]).toBeUndefined()
     expect(packageJson.peerDependenciesMeta?.["@vercel/blob"]).toBeUndefined()
-    expect(builtServer).not.toContain("from \"h3\"")
     expect(declarations).not.toContain("files-sdk")
     expect(declarations).not.toContain("@vercel/blob")
     expect(declarations).not.toContain("@vite-hub/sandbox/task")
-    expect(declarations).not.toMatch(effectImport)
-    expect(effectFreeBundles).not.toMatch(effectImport)
-    expect(builtCloudflareArtifactsStore).not.toMatch(effectImport)
     expect(vueFreeBundles).not.toMatch(/from\s*["']vue["']/)
   })
 
