@@ -135,14 +135,43 @@ interface VercelWorkflowBuilders {
   shouldTransformFile: typeof import("@workflow/builders").shouldTransformFile
 }
 
+function packageNameOf(specifier: string): string {
+  const [scope, name] = specifier.split("/")
+  return scope!.startsWith("@") && name ? `${scope}/${name}` : scope!
+}
+
+/** Reads the optional peers that the package of `file` declares, from the nearest `package.json` that has a name. */
+function createOptionalPeerReader(): (file: string) => ReadonlySet<string> {
+  const peersByDirectory = new Map<string, ReadonlySet<string>>()
+  const read = (directory: string): ReadonlySet<string> => {
+    const cached = peersByDirectory.get(directory)
+    if (cached) return cached
+    let peers: ReadonlySet<string> = new Set()
+    const manifest = join(directory, "package.json")
+    const metadata: unknown = existsSync(manifest) ? JSON.parse(readFileSync(manifest, "utf8")) : undefined
+    if (isRuntimeRecord(metadata) && typeof metadata.name === "string") {
+      const meta = isRuntimeRecord(metadata.peerDependenciesMeta) ? metadata.peerDependenciesMeta : {}
+      peers = new Set(Object.entries(meta).filter(([, value]) => isRuntimeRecord(value) && value.optional === true).map(([name]) => name))
+    }
+    else if (dirname(directory) !== directory) {
+      peers = read(dirname(directory))
+    }
+    peersByDirectory.set(directory, peers)
+    return peers
+  }
+  return file => read(dirname(file))
+}
+
 /**
  * Lets a Workflow bundle import optional packages that the app did not install. Vite DevTools becomes an empty
- * module. `@vite-hub/kv`, an optional peer that Agents load only when a Chat connector runs, becomes a module that
- * fails on import, as the missing package would.
+ * module. `@vite-hub/kv`, an optional peer that Agents load only when a Chat connector runs, and any optional peer
+ * that a package loads with `import()`, such as `@modelcontextprotocol/sdk` in `@vite-hub/source/mcp`, become a
+ * module that fails on import, as the missing package would.
  */
 export function createOptionalPackagesPlugin(rootDir: string): Plugin {
   const require = createRequire(join(rootDir, "package.json"))
   const namespace = "vitehub-optional-package"
+  const optionalPeersOf = createOptionalPeerReader()
   return {
     name: namespace,
     setup(build) {
@@ -159,6 +188,12 @@ export function createOptionalPackagesPlugin(rootDir: string): Plugin {
       })
       build.onResolve({ filter: /^@vite-hub\/kv$/ }, async (args) => {
         if (args.pluginData === namespace) return
+        const resolved = await build.resolve(args.path, { importer: args.importer, kind: args.kind, pluginData: namespace, resolveDir: args.resolveDir })
+        return resolved.errors.length ? { namespace, path: args.path } : resolved
+      })
+      build.onResolve({ filter: /^[^./#]/ }, async (args) => {
+        if (args.kind !== "dynamic-import" || args.pluginData === namespace || !isAbsolute(args.importer)) return
+        if (!optionalPeersOf(args.importer).has(packageNameOf(args.path))) return
         const resolved = await build.resolve(args.path, { importer: args.importer, kind: args.kind, pluginData: namespace, resolveDir: args.resolveDir })
         return resolved.errors.length ? { namespace, path: args.path } : resolved
       })
