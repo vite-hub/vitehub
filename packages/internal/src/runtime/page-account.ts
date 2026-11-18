@@ -12,6 +12,8 @@
  *
  * This file runs only in the browser. `tsconfig.browser.json` checks it.
  */
+import { installMotion } from "@vite-hub/ui/motion"
+
 import { viteHubPageSvgIcon } from "./page-pill.ts"
 import { viteHubPageToolsLinkParams, viteHubPageToolsQuery, viteHubPillButtonStyles } from "./page-tools-shared.ts"
 
@@ -104,6 +106,8 @@ export function mountViteHubPageAccount(options: ViteHubPageAccountOptions): voi
   const { account, bar, signal } = options
   const pill = bar.parentElement
   const shadow = bar.attachShadow({ mode: "open" })
+  // The motion layer watches the states inside the account item, such as its menu button.
+  signal.addEventListener("abort", installMotion(shadow), { once: true })
   const style = document.createElement("style")
   style.textContent = styles
 

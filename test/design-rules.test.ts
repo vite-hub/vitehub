@@ -78,7 +78,6 @@ const motionSurfaces = [
   ...surfaces,
   "packages/ui/theme.css",
   "packages/ui/comment-marks.css",
-  "packages/ui/icon-swap.css",
   "packages/kit/src",
   "packages/internal/src/runtime",
   "packages/comments/src",
@@ -120,15 +119,6 @@ const motionAllowlist: Record<string, { count: number, wave: Wave }> = {
   "packages/vite-hub/src/console/runtime/components/console-usage-chart.vue": { count: 1, wave: "W5" },
   "packages/vite-hub/src/console/runtime/components/invocation/invocation.css": { count: 10, wave: "W5" },
   "packages/vite-hub/src/console/standalone-page.ts": { count: 2, wave: "W5" },
-  // W5: @vite-hub/ui parts, the page pill and tools, and the comments overlay.
-  "packages/comments/src/overlay/styles.ts": { count: 8, wave: "W5" },
-  "packages/internal/src/runtime/page-pill.ts": { count: 12, wave: "W5" },
-  "packages/internal/src/runtime/page-tools-loader.ts": { count: 7, wave: "W5" },
-  "packages/internal/src/runtime/page-tools-shared.ts": { count: 2, wave: "W5" },
-  "packages/internal/src/runtime/page-tools-window.ts": { count: 1, wave: "W5" },
-  "packages/ui/comment-marks.css": { count: 7, wave: "W5" },
-  "packages/ui/icon-swap.css": { count: 1, wave: "W5" },
-  "packages/ui/styles.css": { count: 28, wave: "W5" },
 }
 
 const motionProperty = /^(?:transform|translate|scale|rotate|all|(?:min-|max-)?(?:width|height)|inset|top|right|bottom|left|margin(?:-\w+)?|clip-path|grid-template-(?:rows|columns)|flex-basis)$/

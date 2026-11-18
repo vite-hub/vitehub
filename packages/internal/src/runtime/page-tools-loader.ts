@@ -1,3 +1,5 @@
+import { createSpring, installMotion, springs, writeMotionStyle } from "@vite-hub/ui/motion"
+
 import { mountViteHubPageAccount } from "./page-account.ts"
 import { invariant } from "../invariant.ts"
 import { closeViteHubPagePill, dragViteHubPageDock, mountViteHubPagePill, storedViteHubPageDock, viteHubPageHexagonSize, viteHubPagePillStyles, viteHubPageSvgIcon } from "./page-pill.ts"
@@ -68,25 +70,23 @@ function startOf(module: unknown): ViteHubPageToolModule["default"] | undefined 
 // around it (10px on touch screens) and runs off the edge of the screen, so a pointer pushed against the edge finds
 // it, without taking more clicks from the page. Dragging it moves it to another place, like the pill's mark. The pill's
 // clipped hexagon would round into a circle at this size. After the exit button, it takes over from the pill's hexagon
-// at the hexagon's size and shrinks to its own toward the edge, from the point that keeps its place along the edge.
+// at the hexagon's size and shrinks to its own toward the edge, from the point that keeps its place along the edge, on
+// a `snappy` spring of the motion layer. On page load it is just there, as the pill is.
 const offMarkStyles = `:host([off]){--vitehub-hex-h:14px;filter:drop-shadow(0 1px 2px rgb(0 0 0/25%))}
-:host([off]) button{position:relative;display:block;width:var(--vitehub-hex-w);min-width:0;height:var(--vitehub-hex-h);padding:0;border-radius:4px;pointer-events:auto;cursor:grab;opacity:.55;transition:opacity 150ms ease-out;animation:vitehub-off-in 200ms cubic-bezier(.23,1,.32,1)}
+:host([off]) button{position:relative;display:block;width:var(--vitehub-hex-w);min-width:0;height:var(--vitehub-hex-h);padding:0;border-radius:4px;pointer-events:auto;cursor:grab;opacity:.55;transition:opacity 150ms ease-out}
 :host([off][edge=bottom]) button{transform-origin:calc(var(--at) * 1%) 100%}
 :host([off][edge=top]) button{transform-origin:calc(var(--at) * 1%) 0}
 :host([off][edge=left]) button{transform-origin:0 calc(var(--at) * 1%)}
 :host([off][edge=right]) button{transform-origin:100% calc(var(--at) * 1%)}
-:host([off][closing]) button{animation:vitehub-off-from-pill 240ms cubic-bezier(.23,1,.32,1)}
+:host([off][closing]) button{opacity:1}
 :host([off][dragging]) button{opacity:1;cursor:grabbing}
 :host([off]) button::before{content:"";position:absolute;inset:-6px}
-svg{display:block;width:100%;height:100%;overflow:visible;fill:rgb(17 17 17/92%);stroke:rgb(255 255 255/18%);stroke-width:1px;vector-effect:non-scaling-stroke;transition:fill 150ms ease-out,scale 150ms ease-out}
+svg{display:block;width:100%;height:100%;overflow:visible;fill:rgb(17 17 17/92%);stroke:rgb(255 255 255/18%);stroke-width:1px;vector-effect:non-scaling-stroke;transition:fill 150ms ease-out}
 :host([off]) button:focus-visible{opacity:1}
 :host([off][dragging]) svg{scale:none}
 @media(hover:hover){:host([off]) button:hover{opacity:1;background:none}button:hover svg{fill:rgb(38 38 38/94%)}}
-button:active svg{scale:.96}
 @media(any-pointer:coarse){:host([off]){--vitehub-hex-h:20px}:host([off]) button{min-width:0;height:var(--vitehub-hex-h)}:host([off]) button::before{inset:-10px}}
-@keyframes vitehub-off-in{from{opacity:0;scale:.6}}
-@keyframes vitehub-off-from-pill{from{opacity:1;scale:var(--vitehub-off-from)}}
-@media(prefers-reduced-motion:reduce){:host([off]) button,svg{animation:none;transition:none}}`
+@media(prefers-reduced-motion:reduce){:host([off]) button,svg{transition:none}}`
 /** The key in `localStorage` that keeps the page tools off in this browser, so each page draws only the small mark. */
 const offKey = "vitehub-tools-off"
 
@@ -257,6 +257,9 @@ function mountOffMark(stopped: AbortSignal, turnOn: () => void, focus: boolean, 
   }, { once: true, signal: watching.signal })
   watchPageAsk(place, watching.signal)
   const shadow = mark.attachShadow({ mode: "open" })
+  // The motion layer squashes the mark's icon when it is pressed.
+  const stopMotion = installMotion(shadow)
+  watching.signal.addEventListener("abort", stopMotion, { once: true })
   const style = document.createElement("style")
   style.textContent = `${viteHubPagePillStyles}\n${offMarkStyles}`
   const button = document.createElement("button")
@@ -267,8 +270,15 @@ function mountOffMark(stopped: AbortSignal, turnOn: () => void, focus: boolean, 
   shadow.append(style, button)
   document.documentElement.append(mark)
   if (from) {
-    mark.style.setProperty("--vitehub-off-from", String(from / viteHubPageHexagonSize(mark).height))
-    button.addEventListener("animationend", () => mark.removeAttribute("closing"), { once: true })
+    // It starts at the size of the pill's hexagon and springs to its own.
+    const start = from / viteHubPageHexagonSize(mark).height
+    const shrink = createSpring(start, (value, velocity) => {
+      const rest = velocity === 0 && value === 1
+      writeMotionStyle(button, { scale: rest ? null : value.toFixed(4) })
+      if (rest) mark.removeAttribute("closing")
+    }, springs.snappy)
+    shrink.set(start)
+    shrink.to(1, { preset: springs.snappy })
   }
   // The pill opens where the mark is dropped: both keep the same dock.
   const dragged = dragViteHubPageDock({
@@ -380,7 +390,7 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
     for (const tool of session.tools) if (tool.param) url.searchParams.delete(tool.param)
     if (url.href !== location.href) history.replaceState(history.state, "", url)
     // The tools stop at once. The bar folds into its hexagon at its size, and then the small mark takes its place.
-    const folded = pill.hasAttribute("collapsed") ? undefined : viteHubPageHexagonSize(pill).height
+    const folded = viteHubPageHexagonSize(pill).height
     const closed = closeViteHubPagePill(pill)
     for (const controller of controllers) controller.abort()
     void closed.then(() => {
@@ -452,6 +462,8 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
     }
     const mountLaunch = () => {
       const shadow = bar.attachShadow({ mode: "open" })
+      const stopMotion = installMotion(shadow)
+      signal.addEventListener("abort", stopMotion, { once: true })
       const style = document.createElement("style")
       style.textContent = viteHubPillButtonStyles
       shadow.append(style, launch)
@@ -505,13 +517,10 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
             createTab: () => {
               const tab = document.createElement("vitehub-tab")
               tab.slot = "tab"
+              // It comes out from under the bar, as a tooltip comes out of its trigger: the appear effect of the motion layer.
+              tab.setAttribute("data-motion-appear", "vitehub-pill")
               pill.append(tab)
               attempt.signal.addEventListener("abort", () => tab.remove(), { once: true })
-              if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
-                const edge = pill.getAttribute("edge")
-                const from = edge === "top" ? "0 -100%" : edge === "left" ? "-100% 0" : edge === "right" ? "100% 0" : "0 100%"
-                tab.animate([{ translate: from, opacity: 0 }, { translate: "0 0", opacity: 1 }], { duration: 220, easing: "cubic-bezier(.32,.72,0,1)" })
-              }
               return tab
             },
             onOpen: handler => { activate = handler },

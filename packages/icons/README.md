@@ -68,6 +68,6 @@ Each icon is one file in `svg/`. Keep the rules of the set, so a new icon sits n
 - One 1.5px stroke with round caps and joins. No fills and no other stroke widths.
 - Corner radius 2 for a frame (2.5 for the Agent head), 1.5 for a block inside it, and 1 or less for a small mark.
 - Coordinates on the half-pixel grid. A dot is a `h.01` path, so it is as wide as the stroke.
-- One idea per icon, with as few parts as it needs. Put the one part that can move on hover in `<g data-motion="">`, and set its motion in `@vite-hub/ui/styles.css`.
+- One idea per icon, with as few parts as it needs. Put the one part that carries the idea in `<g data-motion="">`. No icon moves on hover: motion comes from what a person does with a control ([docs/design/motion.md](../../docs/design/motion.md)).
 
 `vp run build` writes `dist/`. The tests check the frame, the stroke, and the grid.

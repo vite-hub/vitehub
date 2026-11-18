@@ -28,7 +28,6 @@
   "type": "module",
   "sideEffects": [
     "./dist/comment-marks.css",
-    "./dist/icon-swap.css",
     "./dist/styles.css",
     "./dist/theme.css"
   ],
@@ -81,7 +80,6 @@
     },
     "./package.json": "./package.json",
     "./comment-marks.css": "./dist/comment-marks.css",
-    "./icon-swap.css": "./dist/icon-swap.css",
     "./styles.css": "./dist/styles.css",
     "./theme.css": "./dist/theme.css"
   },

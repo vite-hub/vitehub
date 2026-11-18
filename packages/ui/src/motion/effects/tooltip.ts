@@ -52,6 +52,8 @@ interface Box {
   /** Opacity of the box, for the reduced motion crossfade. */
   fade: Spring;
   timers: Set<number>;
+  /** True for a tooltip. Only a tooltip takes the place of the last one; an element with `data-motion-appear` rises on its own. */
+  handoff: boolean;
   /** True while a step sets its springs, so a spring that does not move yet does not clear the box. */
   holding: boolean;
   done?: () => void;
@@ -84,11 +86,15 @@ function roleElement(box: HTMLElement): HTMLElement | null {
   return box.matches("[role=tooltip]") ? box : box.querySelector<HTMLElement>(":scope > [role=tooltip]");
 }
 
+/** An element that is not a tooltip but appears next to its trigger in the same way, such as a comment's draft bubble. */
+const appearSelector = "[data-motion-appear]";
+
 /**
  * The box that a person sees. Reka names the trigger with a visually hidden `role=tooltip` element inside the box, so
  * then the box is its parent.
  */
 function visualBox(element: HTMLElement): HTMLElement | null {
+  if (element.matches(appearSelector)) return element;
   if (element.matches("[role=tooltip]")) return visuallyHidden(element) ? element.parentElement : element;
   const inner = element.querySelector<HTMLElement>(":scope > [role=tooltip]");
   return inner && visuallyHidden(inner) ? element : null;
@@ -100,7 +106,18 @@ function isOpen(box: HTMLElement): boolean {
   return !box.hidden && !box.hasAttribute("data-closed");
 }
 
+/**
+ * The trigger of a tooltip: the element that `aria-describedby` points at it. The trigger of a `data-motion-appear`
+ * element is the nearest element around it that its value selects, else a sibling that it selects, or none for an
+ * empty value.
+ */
 function findTrigger(box: HTMLElement): Element | null {
+  const anchor = box.getAttribute("data-motion-appear");
+  if (anchor !== null) {
+    const parent = box.parentElement;
+    if (!anchor || !parent) return null;
+    return parent.closest(anchor) ?? [...parent.children].find(sibling => sibling !== box && sibling.matches(anchor)) ?? null;
+  }
   const id = roleElement(box)?.id;
   if (!id) return null;
   const root = box.getRootNode() as Document | ShadowRoot;
@@ -229,7 +246,9 @@ function createBox(element: HTMLElement, rest: DOMRect, trigger: DOMRect | undef
     side,
     edge: edgeOf(side, rest, trigger),
     trigger,
-    mode: hasTextOfItsOwn(element) ? "clip" : "scale",
+    // A box of parts that are not a label, such as a bubble with a field, is revealed. Scaling would squeeze its parts.
+    mode: hasTextOfItsOwn(element) || element.matches(appearSelector) ? "clip" : "scale",
+    handoff: !element.matches(appearSelector),
     radius: style.borderRadius || "0px",
     timers: new Set<number>(),
     holding: true,
@@ -313,7 +332,7 @@ function start(element: HTMLElement, tip: Tip): void {
   tip.box = box;
   tip.text = labelText(box);
   writeMotionStyle(element, { opacity: null });
-  const from = handoff && nextTo(handoff, box) ? handoff : undefined;
+  const from = box.handoff && handoff && nextTo(handoff, box) ? handoff : undefined;
   if (from) handoff = undefined;
   if (prefersReducedMotion()) {
     if (from) leaveGhost(from, true);
@@ -364,7 +383,7 @@ function leaveGhost(box: Box, reduced: boolean): void {
     box.fade.to(0, { tween: crossfade });
     return;
   }
-  handoff = box;
+  if (box.handoff) handoff = box;
   if (box.old) box.old.spring.to(0, { tween: labelOutOnLeave });
   box.label.to(0, { tween: labelOutOnLeave });
   box.width.to(Math.min(narrow, box.rest.width), { preset: widen });
@@ -408,7 +427,7 @@ function leave(element: HTMLElement, tip: Tip): void {
     return;
   }
   const ghost = createBox(ghostElement, box.rest, undefined);
-  Object.assign(ghost, { side: box.side, edge: box.edge, trigger: box.trigger, mode: box.mode, origin: box.origin, radius: box.radius });
+  Object.assign(ghost, { side: box.side, edge: box.edge, trigger: box.trigger, mode: box.mode, origin: box.origin, radius: box.radius, handoff: box.handoff });
   const old = ghostElement.querySelector<HTMLElement>(":scope > [aria-hidden=true][style*=absolute]");
   if (oldLabel !== undefined && old) ghost.old = { element: old, spring: createSpring(oldLabel, () => draw(ghost)) };
   for (const name of ["x", "y", "width", "label", "fade"] as const) ghost[name].set(values[name][0]);
@@ -520,7 +539,10 @@ function stopWatchingMoves(): void {
 
 /**
  * Something appears next to its trigger: a tooltip rises from behind its trigger, narrow and without its label,
- * widens to fit, and blurs its label in. When the next trigger opens its tooltip while this one leaves, the new one
+ * widens to fit, and blurs its label in. An element with `data-motion-appear` that is not a tooltip, such as a comment's
+ * draft bubble or a tab that comes out of a bar, appears the same way when it is added to the page. Its trigger is the
+ * nearest element around it, or a sibling, that the attribute's value selects; with an empty value it rises from 8px
+ * past its own edge, on the side that `data-side` names. Its parts are revealed, not squeezed, while it widens. When the next trigger opens its tooltip while this one leaves, the new one
  * takes the place, size, and speed of the old one and slides over. A tooltip that closes narrows and sinks back behind
  * its trigger. Under reduced motion it crossfades in 150ms.
  *
@@ -530,7 +552,7 @@ function stopWatchingMoves(): void {
 export const tooltip: MotionEffect = {
   name: "tooltip",
   // Reka puts `role=tooltip` on a visually hidden copy of the label inside the box, so the box is its parent.
-  selector: "[role=tooltip], :has(> [role=tooltip])",
+  selector: `[role=tooltip], :has(> [role=tooltip]), ${appearSelector}`,
   enter(element) {
     if (visualBox(element) !== element || !isOpen(element)) return;
     open(element);

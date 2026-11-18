@@ -25,7 +25,6 @@ Markdown images and image attachments use compact thumbnails with an expanded pr
 | `@vite-hub/ui/vite`     | Vue with Vite setup                                                                       | Configures the Nuxt UI and Comark Vite plugins                                                 |
 | `@vite-hub/ui/styles.css` | The styles of every part | Tailwind CSS and the Nuxt UI imports |
 | `@vite-hub/ui/comment-marks.css` | Comment pins, areas, and text highlights in plain CSS, for a page or a shadow root without Vue. `styles.css` includes it | Rendering the marks with their data attributes |
-| `@vite-hub/ui/icon-swap.css` | A copy and check icon cross-fade in plain CSS, for a page or a shadow root that runs no script of ours. `CopyButton` uses `swapIcon` instead, and `styles.css` leaves the file out | Rendering the button with its data attributes |
 
 Import components from the root. A production build keeps only the components that the app imports. `markdown-editor` and `workspace` have their own entries because their dependencies are large, and a chat page must not load them. The components do not need a ViteHub Agent: `Chat` and `PromptInput` render the messages and status of any AI SDK chat, such as `new Chat()` of `@ai-sdk/vue` on a route that returns `streamText().toUIMessageStreamResponse()`.
 
@@ -292,7 +291,7 @@ Every control moves the same way, from what a person does with it, not from code
 
 - Turn the layer off for one subtree with `data-motion="none"`, such as a canvas or an animated figure that draws its own motion.
 - Turn it off for the app with `createViteHubUI({ motion: false })`.
-- Without Vue, call it yourself. Pass a shadow root to watch the state attributes inside it too:
+- Without Vue, call it yourself. With no argument it covers the document. A surface on someone else's page, such as a bar in a shadow root, passes its host element and its shadow roots instead, so the page around it does not move:
 
 ```ts
 import { installMotion } from "@vite-hub/ui/motion";

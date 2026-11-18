@@ -340,18 +340,6 @@
   opacity: 1;
 }
 
-/* Under reduced motion the surface opens and closes at once. The labels still fade. */
-@media (prefers-reduced-motion: no-preference) {
-  .vh-primitive-rail__surface {
-    transition: width 150ms cubic-bezier(0.2, 0, 0, 1);
-  }
-}
-
-/* Escape and a menu trigger close the rail at once, so a menu opens next to an icon that does not move. */
-.vh-primitive-rail[data-dismissed] .vh-primitive-rail__surface {
-  transition: none;
-}
-
 .vh-primitive-rail__item[aria-current="page"] {
   background: var(--vh-bg-accented);
   color: var(--vh-highlighted);
@@ -385,210 +373,6 @@
   flex: none;
   height: 1.125rem;
   width: 1.125rem;
-}
-
-.vh-primitive-icon [data-motion] {
-  transform-box: view-box;
-  transform-origin: var(--vh-primitive-icon-origin, 12px 12px);
-}
-
-/* Each icon moves once when a pointer enters or keyboard focus arrives. Nothing moves while idle. */
-@media (prefers-reduced-motion: no-preference) {
-  .vh-primitive-rail__item:focus-visible .vh-primitive-icon [data-motion] {
-    animation: vh-primitive-icon 320ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-}
-
-@media (hover: hover) and (prefers-reduced-motion: no-preference) {
-  .vh-primitive-rail__item:hover .vh-primitive-icon [data-motion] {
-    animation: vh-primitive-icon 320ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-}
-
-@keyframes vh-primitive-icon {
-  50% {
-    opacity: var(--vh-primitive-icon-opacity, 1);
-    transform: var(--vh-primitive-icon-motion, none);
-  }
-}
-
-.vh-primitive-icon[data-icon="agent"] {
-  --vh-primitive-icon-motion: scaleY(0.2);
-  --vh-primitive-icon-origin: 12px 14px;
-}
-
-.vh-primitive-icon[data-icon="auth"] {
-  --vh-primitive-icon-motion: translateY(-1.5px);
-}
-
-.vh-primitive-icon[data-icon="blob"] {
-  --vh-primitive-icon-motion: translate(1px, -1px);
-}
-
-.vh-primitive-icon[data-icon="browser"] {
-  --vh-primitive-icon-motion: translate(1.5px, 1.5px);
-}
-
-.vh-primitive-icon[data-icon="bundle"] {
-  --vh-primitive-icon-motion: translateY(-1px);
-}
-
-.vh-primitive-icon[data-icon="cache"] {
-  --vh-primitive-icon-motion: translateY(-1.5px);
-}
-
-.vh-primitive-icon[data-icon="channels"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
-}
-
-.vh-primitive-icon[data-icon="cms"] {
-  --vh-primitive-icon-motion: translate(-1px, -1px);
-}
-
-.vh-primitive-icon[data-icon="codemods"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
-}
-
-.vh-primitive-icon[data-icon="comments"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
-}
-
-.vh-primitive-icon[data-icon="compare"] {
-  --vh-primitive-icon-motion: translateX(-1.5px);
-}
-
-.vh-primitive-icon[data-icon="connections"] {
-  --vh-primitive-icon-motion: translateY(1.5px);
-}
-
-.vh-primitive-icon[data-icon="content"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
-}
-
-.vh-primitive-icon[data-icon="database"] {
-  --vh-primitive-icon-motion: translateY(-1.5px);
-}
-
-.vh-primitive-icon[data-icon="decisions"] {
-  --vh-primitive-icon-motion: translate(1px, -1px);
-}
-
-.vh-primitive-icon[data-icon="development"] {
-  --vh-primitive-icon-motion: rotate(14deg);
-}
-
-.vh-primitive-icon[data-icon="docs"] {
-  --vh-primitive-icon-motion: skewY(-6deg);
-  --vh-primitive-icon-origin: 12px 12px;
-}
-
-.vh-primitive-icon[data-icon="email"] {
-  --vh-primitive-icon-motion: translateY(1.5px);
-}
-
-.vh-primitive-icon[data-icon="env"] {
-  --vh-primitive-icon-motion: rotate(-16deg);
-  --vh-primitive-icon-origin: 7.5px 16.5px;
-}
-
-.vh-primitive-icon[data-icon="forge"] {
-  --vh-primitive-icon-motion: translateX(-1px);
-}
-
-.vh-primitive-icon[data-icon="forms"] {
-  --vh-primitive-icon-motion: translateY(1px);
-}
-
-.vh-primitive-icon[data-icon="gateways"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
-}
-
-.vh-primitive-icon[data-icon="guides"] {
-  --vh-primitive-icon-motion: rotate(45deg);
-}
-
-.vh-primitive-icon[data-icon="hosts"] {
-  --vh-primitive-icon-motion: translateY(-1.5px);
-}
-
-.vh-primitive-icon[data-icon="i18n"] {
-  --vh-primitive-icon-motion: translateY(-1.5px);
-}
-
-.vh-primitive-icon[data-icon="kv"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
-}
-
-.vh-primitive-icon[data-icon="logs"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
-}
-
-.vh-primitive-icon[data-icon="mcp"] {
-  --vh-primitive-icon-motion: translateY(-1px);
-}
-
-.vh-primitive-icon[data-icon="queue"] {
-  --vh-primitive-icon-motion: translateX(2px);
-}
-
-.vh-primitive-icon[data-icon="rate-limit"] {
-  --vh-primitive-icon-motion: rotate(-70deg);
-  --vh-primitive-icon-origin: 12px 16px;
-}
-
-.vh-primitive-icon[data-icon="realtime"] {
-  --vh-primitive-icon-motion: scale(1.12);
-  --vh-primitive-icon-opacity: 0.4;
-}
-
-.vh-primitive-icon[data-icon="reference"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
-}
-
-.vh-primitive-icon[data-icon="sandbox"] {
-  --vh-primitive-icon-motion: scale(0.7);
-}
-
-.vh-primitive-icon[data-icon="schedule"] {
-  --vh-primitive-icon-motion: translateX(4.5px);
-}
-
-.vh-primitive-icon[data-icon="shell"] {
-  --vh-primitive-icon-opacity: 0;
-}
-
-.vh-primitive-icon[data-icon="skills"] {
-  --vh-primitive-icon-motion: translateY(1.5px);
-}
-
-.vh-primitive-icon[data-icon="source"] {
-  --vh-primitive-icon-motion: translateY(1.5px);
-}
-
-.vh-primitive-icon[data-icon="start"] {
-  --vh-primitive-icon-motion: skewY(-10deg);
-  --vh-primitive-icon-origin: 5px 8.5px;
-}
-
-.vh-primitive-icon[data-icon="ui"] {
-  --vh-primitive-icon-motion: translate(-1px, -1px);
-}
-
-.vh-primitive-icon[data-icon="usage"] {
-  --vh-primitive-icon-motion: scaleY(0.75);
-  --vh-primitive-icon-origin: 12px 17px;
-}
-
-.vh-primitive-icon[data-icon="web-container"] {
-  --vh-primitive-icon-motion: translateY(-1px);
-}
-
-.vh-primitive-icon[data-icon="workflow"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
-}
-
-.vh-primitive-icon[data-icon="workspace"] {
-  --vh-primitive-icon-motion: translateY(-1px);
 }
 
 /* A picture's Remove button in a comment box is a 20px round badge in the inverted color, as in Drop. The button is a
@@ -1035,10 +819,10 @@
     color: var(--vh-error);
   }
 
+  /* The disclosure effect of the motion layer turns the chevron with a spring (`data-motion-turn`). */
   [data-trace-chevron] svg {
     stroke: currentColor;
     stroke-width: 2;
-    transition: rotate 150ms;
   }
 
   [data-slot="trace-collapsible-trigger"][aria-expanded="true"] [data-trace-chevron] svg {
@@ -1048,38 +832,6 @@
   [data-slot="trace-collapsible-content"] {
     min-width: 0;
     overflow: hidden;
-  }
-
-  [data-slot="trace-collapsible-content"][data-open] {
-    animation: vh-trace-open 200ms ease-out;
-  }
-
-  [data-slot="trace-collapsible-content"][data-closed] {
-    animation: vh-trace-close 200ms ease-out;
-  }
-
-  @keyframes vh-trace-open {
-    from {
-      height: 0;
-    }
-    to {
-      height: var(--collapsible-panel-height);
-    }
-  }
-
-  @keyframes vh-trace-close {
-    from {
-      height: var(--collapsible-panel-height);
-    }
-    to {
-      height: 0;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    [data-slot="trace-collapsible-content"] {
-      animation: none !important;
-    }
   }
 
   [data-slot="trace-collapsible-content-inner"] {
@@ -1706,10 +1458,6 @@
     flex: 1;
   }
 
-  [data-slot="prompt-input-toolbar"] button:active:not(:disabled) {
-    scale: 0.96;
-  }
-
   /* On a phone the Send button sends, so it gets a 48px target around its 32px circle without a larger circle. */
   @media (pointer: coarse) {
     [data-slot="prompt-input-toolbar"] button {
@@ -1833,26 +1581,20 @@
     color: var(--vh-highlighted);
   }
 
-  /* A pending state pings, as Kibo UI's StatusIndicator does. */
-  :is([data-slot="connection-status-indicator"]:not([data-status="connected"]), [data-slot="sync-status-indicator"]:is([data-status="loading"], [data-status="synchronizing"]))::after {
-    animation: vh-status-ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
-    background: inherit;
-    border-radius: inherit;
-    content: "";
-    inset: 0;
-    position: absolute;
+  /* A pending state pulses while it waits, as a running workspace step does. Work that runs fades, it does not travel
+     (docs/design/motion.md, "Spinners and fades"). */
+  :is([data-slot="connection-status-indicator"]:not([data-status="connected"]), [data-slot="sync-status-indicator"]:is([data-status="loading"], [data-status="synchronizing"])) {
+    animation: vh-status-pulse 1.5s ease-in-out infinite;
   }
 
-  @keyframes vh-status-ping {
-    75%,
-    100% {
-      opacity: 0;
-      transform: scale(2.25);
+  @keyframes vh-status-pulse {
+    50% {
+      opacity: 0.35;
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    :is([data-slot="connection-status-indicator"], [data-slot="sync-status-indicator"])::after {
+    :is([data-slot="connection-status-indicator"], [data-slot="sync-status-indicator"]) {
       animation: none;
     }
   }
@@ -2000,18 +1742,13 @@
     white-space: nowrap;
   }
 
-  /* A live or pending status pings, as the connection dot does. */
-  [data-slot="status-indicator"][data-pulse]::after {
-    animation: vh-status-ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
-    background: inherit;
-    border-radius: inherit;
-    content: "";
-    inset: 0;
-    position: absolute;
+  /* A live or pending status pulses, as the connection dot does. */
+  [data-slot="status-indicator"][data-pulse] {
+    animation: vh-status-pulse 1.5s ease-in-out infinite;
   }
 
   @media (prefers-reduced-motion: reduce) {
-    [data-slot="status-indicator"][data-pulse]::after {
+    [data-slot="status-indicator"][data-pulse] {
       animation: none;
     }
   }
@@ -2099,7 +1836,6 @@
     position: absolute;
     right: 0;
     text-align: start;
-    transition: top 160ms ease;
   }
 
   button[data-slot="comment-margin-card"] {
@@ -2124,7 +1860,6 @@
     left: auto;
     position: fixed;
     right: 1rem;
-    transition: top 160ms ease;
     width: 18rem;
     z-index: 1;
   }
@@ -2151,10 +1886,6 @@
 
   [data-slot="comment-margin-card"] [data-slot="comment-list-text"] {
     -webkit-line-clamp: 3;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    [data-slot="comment-margin-card"], [data-slot="comment-layer-popover"][data-margin="true"] { transition: none; }
   }
 
   [data-slot="comment-layer-item"] {
@@ -2322,19 +2053,18 @@
 
   /* A new comment is one line beside its pin, as in Drop: no card around a field, a hairline and a soft shadow instead
      of a border, and the corner nearest the pin kept small so the bubble points at it. The 1.4375rem radius is the send
-     button's 1rem plus the 0.4375rem between it and the edge, so a one-line bubble is a capsule. It pops in from that
-     corner. The bubble is the field's frame (`frame="none"`), so its hairline grows firmer while the field has the focus. */
+     button's 1rem plus the 0.4375rem between it and the edge, so a one-line bubble is a capsule. It comes out of its spot
+     with the appear effect of the motion layer (`data-motion-appear`), as a tooltip comes out of its trigger. The bubble is
+     the field's frame (`frame="none"`), so its hairline grows firmer while the field has the focus. */
   [data-slot="comment-layer-item"][data-draft="true"] > [data-slot="comment-layer-popover"] {
     --vh-bubble-edge: color-mix(in oklab, var(--vh-highlighted) 8%, transparent);
     --vh-bubble-radius: 1.4375rem;
-    animation: vh-comment-bubble-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
     border: 0;
     border-radius: 0.375rem var(--vh-bubble-radius) var(--vh-bubble-radius);
     box-shadow:
       0 0 0 1px var(--vh-bubble-edge),
       0 2px 4px color-mix(in oklab, var(--vh-highlighted) 6%, transparent),
       0 10px 24px -6px color-mix(in oklab, var(--vh-highlighted) 18%, transparent);
-    transform-origin: top left;
     width: 18rem;
   }
 
@@ -2349,30 +2079,14 @@
 
   [data-slot="comment-layer-item"][data-draft="true"][data-flip-x="true"] > [data-slot="comment-layer-popover"] {
     border-radius: var(--vh-bubble-radius) 0.375rem var(--vh-bubble-radius) var(--vh-bubble-radius);
-    transform-origin: top right;
   }
 
   [data-slot="comment-layer-item"][data-draft="true"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
     border-radius: var(--vh-bubble-radius) var(--vh-bubble-radius) var(--vh-bubble-radius) 0.375rem;
-    transform-origin: bottom left;
   }
 
   [data-slot="comment-layer-item"][data-draft="true"][data-flip-x="true"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
     border-radius: var(--vh-bubble-radius) var(--vh-bubble-radius) 0.375rem;
-    transform-origin: bottom right;
-  }
-
-  @keyframes vh-comment-bubble-in {
-    from {
-      opacity: 0;
-      scale: 0.96;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    [data-slot="comment-layer-item"][data-draft="true"] > [data-slot="comment-layer-popover"] {
-      animation: none;
-    }
   }
 
   [data-slot="comment-composer"] {
@@ -2393,32 +2107,8 @@
     padding-block: 0.5rem 0.125rem;
   }
 
-  [data-slot="comment-composer"][data-shake="shake"] {
-    animation: vh-comment-shake 400ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
-  }
-
   [data-slot="comment-composer"][data-shake="flash"] [data-slot="prompt-input-group"] {
     animation: vh-comment-flash 450ms ease both;
-  }
-
-  @keyframes vh-comment-shake {
-    10%,
-    90% {
-      transform: translateX(-1px);
-    }
-    20%,
-    80% {
-      transform: translateX(3px);
-    }
-    30%,
-    50%,
-    70% {
-      transform: translateX(-5px);
-    }
-    40%,
-    60% {
-      transform: translateX(5px);
-    }
   }
 
   @keyframes vh-comment-flash {
@@ -2426,12 +2116,6 @@
     60% {
       border-color: var(--vh-error);
       box-shadow: 0 0 0 3px color-mix(in oklab, var(--vh-error) 25%, transparent);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    [data-slot="comment-composer"][data-shake="shake"] {
-      animation: none;
     }
   }
 
@@ -3495,12 +3179,12 @@
     height: 0.8rem;
     stroke: currentColor;
     stroke-width: 2;
-    transition: transform 150ms ease;
     width: 0.8rem;
   }
 
+  /* The disclosure effect of the motion layer turns the chevron with a spring (`data-motion-turn`). */
   .vh-agent-tool-list__disclosure[open] > summary .vh-agent-tool-list__chevron {
-    transform: rotate(180deg);
+    rotate: 180deg;
   }
 
   .vh-agent-tool-list__body {
@@ -3893,17 +3577,14 @@
     white-space: nowrap;
   }
 
-  /* The handle glides to the block under the pointer. A narrow screen has no room beside the text, as in Nuxt UI. */
+  /* The handle moves to the block under the pointer with the list mover of the motion layer (UEditorDragHandle). A
+     narrow screen has no room beside the text, as in Nuxt UI. */
   .vh-editor-drag-handle {
     align-items: center;
     display: flex;
     justify-content: center;
-    transition: top 200ms ease-out, left 200ms ease-out;
   }
   .vh-editor-drag-handle__handle { cursor: grab; padding-inline: 0.25rem; }
-  @media (prefers-reduced-motion: reduce) {
-    .vh-editor-drag-handle { transition: none; }
-  }
   @media (max-width: 639.98px) {
     .vh-editor-drag-handle { display: none; }
   }
@@ -3991,13 +3672,12 @@
     height: var(--vh-agent-control);
     justify-content: center;
     padding: 0;
-    transition: background-color 150ms ease-out, color 150ms ease-out, scale 150ms ease-out;
+    transition: background-color 150ms ease-out, color 150ms ease-out;
     width: var(--vh-agent-control);
   }
   .vh-agent-session__toggle > * { height: 1rem; width: 1rem; }
   .vh-agent-session__toggle:hover { background: var(--vh-agent-hover); color: var(--vh-text); }
   .vh-agent-session__toggle[aria-pressed="true"] { background: var(--vh-agent-pressed); color: var(--vh-highlighted); }
-  .vh-agent-session__toggle:active { scale: 0.96; }
 
   .vh-agent-session__body { display: flex; flex: 1 1 0; min-height: 0; position: relative; }
   .vh-agent-session__scroll { flex: 1 1 0; min-width: 0; overflow-y: auto; scrollbar-gutter: stable; }
@@ -4098,9 +3778,8 @@
     text-decoration: none;
     width: 100%;
   }
-  .vh-agent-session__row[data-interactive] { cursor: pointer; transition: background-color 150ms ease-out, scale 150ms ease-out; }
+  .vh-agent-session__row[data-interactive] { cursor: pointer; transition: background-color 150ms ease-out; }
   .vh-agent-session__row[data-interactive]:hover { background: var(--vh-agent-hover); }
-  .vh-agent-session__row[data-interactive]:active { scale: 0.98; }
   .vh-agent-session__row-icon { color: var(--vh-muted); flex: none; height: 1rem; width: 1rem; }
   .vh-agent-session__row-label { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .vh-agent-session__row-value {
@@ -4184,7 +3863,8 @@
   .vh-agent-session__work-summary:hover { color: var(--vh-text); }
   .vh-agent-session__work-count { color: var(--vh-muted); font-size: 0.75rem; }
   .vh-agent-session__work-failed { color: var(--vh-error); }
-  .vh-agent-session__work-chevron { height: 0.875rem; transition: rotate 150ms ease-out; width: 0.875rem; }
+  /* The disclosure effect of the motion layer turns the chevron with a spring (`data-motion-turn`). */
+  .vh-agent-session__work-chevron { height: 0.875rem; width: 0.875rem; }
   .vh-agent-session__work[data-open] .vh-agent-session__work-chevron { rotate: 180deg; }
   .vh-agent-session__work[data-open] .vh-agent-session__work-summary {
     align-self: stretch;
@@ -4562,10 +4242,6 @@
     transform-origin: top left;
   }
   .vh-device-frame[data-dragging] .vh-device-frame__page { pointer-events: none; }
-  @media (prefers-reduced-motion: no-preference) {
-    .vh-device-frame[data-on]:not([data-dragging]) .vh-device-frame__footprint { transition: width 200ms ease-out, height 200ms ease-out; }
-    .vh-device-frame[data-on]:not([data-dragging]) .vh-device-frame__page { transition: transform 200ms ease-out; }
-  }
   .vh-device-frame__readout {
     background: var(--vh-highlighted);
     border-radius: calc(var(--vh-radius) * 0.75);

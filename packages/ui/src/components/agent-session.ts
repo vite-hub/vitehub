@@ -658,7 +658,7 @@ export const AgentSessionWorkGroup = defineComponent({
           h("span", summary),
           props.label ? h("span", { class: "vh-agent-session__work-count" }, `${props.entries.length} ${props.entries.length === 1 ? "step" : "steps"}`) : null,
           failed ? h("span", { class: "vh-agent-session__work-failed" }, `${failed} failed`) : null,
-          icon("i-lucide-chevron-down", { class: "vh-agent-session__work-chevron" }),
+          icon("i-lucide-chevron-down", { class: "vh-agent-session__work-chevron", "data-motion-turn": "180" }),
         ]),
         open.value
           ? h("div", { class: "vh-agent-session__work-list" }, props.entries.map((entry) =>

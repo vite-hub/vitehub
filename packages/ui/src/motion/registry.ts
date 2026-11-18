@@ -9,6 +9,8 @@ export const motionStateAttributes = [
   "data-state",
   "data-checked",
   "data-open",
+  "open",
+  "data-leaving",
 ] as const;
 
 export type MotionStateAttribute = (typeof motionStateAttributes)[number];

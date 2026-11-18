@@ -65,7 +65,7 @@ const publicEntries = [".", "./headless", "./markdown-editor", "./motion", "./nu
 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
-    expect(Object.keys(packageJson.exports).sort()).toEqual([...publicEntries, "./comment-marks.css", "./icon-swap.css", "./package.json", "./styles.css", "./theme.css"].sort());
+    expect(Object.keys(packageJson.exports).sort()).toEqual([...publicEntries, "./comment-marks.css", "./package.json", "./styles.css", "./theme.css"].sort());
     expect(packageJson.peerDependencies).toMatchObject({
       "@iconify-json/lucide": expect.any(String),
       "@nuxt/ui": expect.any(String),

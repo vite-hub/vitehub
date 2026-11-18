@@ -7,12 +7,13 @@ export { createSpring, getMotionSlowFactor, setMotionSlowFactor, springs } from 
 export type { Spring, SpringFrame, SpringPreset, SpringTarget } from "./motion/spring.ts";
 export type { MotionContentChange } from "./motion/registry.ts";
 // The helpers for what only a component knows: a label, an icon, or a count that changes, a finished action, a list
-// that changes, work that runs, a file drop, and a delete that can be undone.
+// that changes, work that runs, a file drop, a delete that can be undone, and a box that refuses an action.
 export { morphText } from "./motion/helpers/text.ts";
 export { swapIcon } from "./motion/helpers/icon.ts";
 export type { IconEnter, IconExit, SwapIconOptions } from "./motion/helpers/icon.ts";
 export { rollNumber } from "./motion/helpers/number.ts";
 export { ring } from "./motion/helpers/ring.ts";
+export { shake } from "./motion/helpers/shake.ts";
 export { createMotionList } from "./motion/list.ts";
 export type { MotionList, MotionListOptions, MotionListOrigin, MotionListPlay } from "./motion/list.ts";
 export { createProgress } from "./motion/progress.ts";

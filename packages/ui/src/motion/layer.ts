@@ -4,7 +4,8 @@ import { defineMotionEffect, listMotionEffects, motionStateAttributes, onMotionE
 import type { MotionContentChange, MotionEffect, MotionPress, MotionStateAttribute } from "./registry.ts";
 import { settleSprings } from "./spring.ts";
 
-type MotionRoot = Document | ShadowRoot;
+/** What an install covers: the document, a shadow root, or an element and everything in it, such as the host of a bar. */
+type MotionRoot = Document | ShadowRoot | Element;
 
 const optOut = "[data-motion=\"none\"]";
 const roots = new Map<MotionRoot, { installs: number; observer: MutationObserver }>();
@@ -12,6 +13,9 @@ const roots = new Map<MotionRoot, { installs: number; observer: MutationObserver
 const presses = new Map<number | "key", Array<{ element: HTMLElement; press: MotionPress; leave?: () => void }>>();
 let stopWatching: Array<() => void> = [];
 let builtInsDefined = false;
+// A page can load more than one copy of this module, such as the app's and the one in the bundle of the page pill. The
+// copy that starts a press marks the event with this key, so the press of another copy does not squash it again.
+const pressedBy = Symbol.for("vite-hub.motion.pressed");
 
 /** True when the element or one of its ancestors, also across shadow roots, has `data-motion="none"`. */
 export function isMotionOff(element: Element): boolean {
@@ -24,19 +28,50 @@ export function isMotionOff(element: Element): boolean {
   return false;
 }
 
-/** The innermost element on the event path that matches `selector` and is not inside `[data-motion="none"]`. */
+// The selectors of effects that this browser cannot read, such as `:has()` before Firefox 121. Their effects do not apply.
+const unreadable = new Set<string>();
+
+/** `element.matches(selector)`, false for a selector that this browser cannot read. */
+function matches(element: Element, selector: string): boolean {
+  if (unreadable.has(selector)) return false;
+  try {
+    return element.matches(selector);
+  }
+  catch {
+    unreadable.add(selector);
+    return false;
+  }
+}
+
+/**
+ * True when an install covers the element: an installed element contains it, or its root is installed, also through the
+ * shadow hosts around it. An app that installs the document covers the shadow roots in it, and the page pill, which
+ * installs only its own host and shadow roots, does not move the buttons of the page that it is on.
+ */
+function covered(element: Element): boolean {
+  let node: Element = element;
+  for (;;) {
+    for (const root of roots.keys()) if (root instanceof Element && root.contains(node)) return true;
+    const root = node.getRootNode();
+    if ((root instanceof Document || root instanceof ShadowRoot) && roots.has(root)) return true;
+    if (!(root instanceof ShadowRoot)) return false;
+    node = root.host;
+  }
+}
+
+/** The innermost element on the event path that matches `selector`, that an install covers, and that is not inside `[data-motion="none"]`. */
 function find(path: EventTarget[], selector: string): HTMLElement | undefined {
   let lastOff = -1;
   path.forEach((node, index) => {
     if (node instanceof Element && node.matches(optOut)) lastOff = index;
   });
-  const index = path.findIndex(node => node instanceof HTMLElement && node.matches(selector));
-  return index === -1 || index <= lastOff ? undefined : path[index] as HTMLElement;
+  const index = path.findIndex(node => node instanceof HTMLElement && matches(node, selector));
+  return index === -1 || index <= lastOff || !covered(path[index] as HTMLElement) ? undefined : path[index] as HTMLElement;
 }
 
 function begin(id: number | "key", event: PointerEvent | KeyboardEvent, path: EventTarget[]): void {
   end(id);
-  if (prefersReducedMotion()) return;
+  if (prefersReducedMotion() || Reflect.get(event, pressedBy)) return;
   const started: Array<{ element: HTMLElement; press: MotionPress; leave?: () => void }> = [];
   for (const effect of listMotionEffects()) {
     if (!effect.press) continue;
@@ -54,6 +89,7 @@ function begin(id: number | "key", event: PointerEvent | KeyboardEvent, path: Ev
     started.push(item);
   }
   if (!started.length) return;
+  Reflect.set(event, pressedBy, true);
   presses.set(id, started);
   if (started.some(item => item.press.move)) document.addEventListener("pointermove", onPointerMove, { capture: true, passive: true });
 }
@@ -129,7 +165,7 @@ function collectContent(records: MutationRecord[], effects: MotionEffect[]): voi
     if (removed.length && children.every(node => added.includes(node))) oldText = removed.map(node => node.textContent ?? "").join("");
     else if (texts.size === 1 && children.length === 1 && texts.has(children[0]!)) oldText = texts.get(children[0]!) ?? "";
     for (const effect of watching) {
-      if (element.matches(effect.selector) && !isMotionOff(element)) effect.content!(element, { added, removed, oldText });
+      if (matches(element, effect.selector) && !isMotionOff(element)) effect.content!(element, { added, removed, oldText });
     }
   }
 }
@@ -146,7 +182,7 @@ function onMutations(records: MutationRecord[]): void {
       const value = element.getAttribute(attribute);
       if (value === record.oldValue) continue;
       for (const effect of effects) {
-        if (effect.state && element.matches(effect.selector) && !isMotionOff(element)) {
+        if (effect.state && matches(element, effect.selector) && !isMotionOff(element)) {
           effect.state(element, { attribute, oldValue: record.oldValue, value });
         }
       }
@@ -156,7 +192,9 @@ function onMutations(records: MutationRecord[]): void {
       if (!(node instanceof HTMLElement) || !node.isConnected) continue;
       for (const effect of effects) {
         if (!effect.enter) continue;
-        const found = [...(node.matches(effect.selector) ? [node] : []), ...node.querySelectorAll<HTMLElement>(effect.selector)];
+        const self = matches(node, effect.selector);
+        if (unreadable.has(effect.selector)) continue;
+        const found = [...(self ? [node] : []), ...node.querySelectorAll<HTMLElement>(effect.selector)];
         for (const element of found) if (!isMotionOff(element)) effect.enter(element);
       }
     }
@@ -205,8 +243,11 @@ function startDocument(): void {
 
 /**
  * Starts the motion layer: press, toggle, select, drag, and appear motion for every element by its role, from
- * `defineMotionEffect` effects. It listens once on the document and reads the composed path, so it also reaches
- * elements in shadow DOM. Pass a shadow root to also watch the state attributes inside it.
+ * `defineMotionEffect` effects, in `root`: the document by default, a shadow root, or an element and everything in it.
+ * It listens once on the document and reads the composed path, so a press also reaches the shadow roots inside an
+ * installed root. Pass a shadow root to also watch the state attributes inside it: an observer does not see into a
+ * shadow root. A surface that installs only its own host and shadow roots, such as the page pill, does not move the
+ * elements of the page around it.
  *
  * It is safe to call more than once. Returns a function that stops this install. The layer stops when every install
  * has stopped. On the server it does nothing.

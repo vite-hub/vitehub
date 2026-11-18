@@ -65,13 +65,19 @@ Use `Progress` for work that runs, `DropField` for files that a person drags in,
 
 `v-ring="done"` rings an element once each time `done` becomes true, for a finished action such as saved or copied. `createViteHubUI()` registers it.
 
+Some motion comes from attributes, with no part:
+
+- `data-motion-appear="<trigger>"` on an element that appears next to its trigger, such as a bubble next to a pin, makes it come out of the trigger as a tooltip does. The value selects the trigger around the element or next to it.
+- `data-motion-turn="180"` on a chevron in a control with `aria-expanded`, or in a `<details>`, turns it with a spring when the control opens. Set the same `rotate` in CSS for the open state.
+- `data-leaving="true"` on a mark that the page removes a moment later folds a copy of it away.
+
 ## Animation
 
 Each part continues from where it is when its value changes again in the middle of its motion. The element keeps the final text for screen readers the whole time, and holds plain text again at the end. With reduced motion turned on in the system, the parts crossfade in 150ms. Inside `data-motion="none"` they change at once.
 
 ## Without Vue
 
-`morphText(element, text)`, `rollNumber(element, value, format?)`, `swapIcon(container, icon, { exit, enter })`, `ring(element)`, `createMotionList(container)`, `createProgress(host)`, `createDropField(field, options)`, and `createHoldToDelete(button, options)` from `@vite-hub/ui/motion` do the same on any element.
+`morphText(element, text)`, `rollNumber(element, value, format?)`, `swapIcon(container, icon, { exit, enter })`, `ring(element)`, `shake(element)` for a box that refuses an action, `createMotionList(container)`, `createProgress(host)`, `createDropField(field, options)`, and `createHoldToDelete(button, options)` from `@vite-hub/ui/motion` do the same on any element.
 
 ## API Reference
 

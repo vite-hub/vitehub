@@ -22,6 +22,7 @@ import {
   useDocumentPointerDown,
 } from "../internal/comment-outside.ts";
 import { mentionQuery, rankPeople } from "../internal/comment-mentions.ts";
+import { shake as shakeBox } from "../motion/helpers/shake.ts";
 import { displayName, toPerson } from "../internal/comment-person.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { matchesAccept } from "../internal/prompt-files.ts";
@@ -275,13 +276,16 @@ export const CommentComposer = defineComponent({
     const lines = typeof ResizeObserver === "function" ? new ResizeObserver(() => measureLines()) : undefined;
     watch([() => props.modelValue, () => props.layout, () => props.size], measureLines, { flush: "post" });
 
+    // The box shakes with the `shake` helper of the motion layer. Under reduced motion its frame flashes a color instead.
+    // `data-shake` names the refusal for the stylesheet and for tests.
     async function shake() {
       const reduced = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      // Clear first, so a second shake restarts the animation.
+      // Clear first, so a second flash restarts its animation.
       shaking.value = null;
       await nextTick();
       void root.value?.offsetWidth;
       shaking.value = reduced ? "flash" : "shake";
+      if (!reduced && root.value) shakeBox(root.value);
       clearTimeout(timer);
       timer = setTimeout(() => (shaking.value = null), 450);
       focus();

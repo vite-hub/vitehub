@@ -44,7 +44,8 @@ export const TraceCollapsible = defineComponent({
 
 const chevron = () =>
   h("span", { "aria-hidden": "true", "data-slot": "trace-icon", "data-trace-chevron": "" }, [
-    h("svg", { fill: "none", viewBox: "0 0 24 24" }, [
+    // The trigger's disclosure turns the chevron by 90 degrees with the motion layer.
+    h("svg", { "data-motion-turn": "90", fill: "none", viewBox: "0 0 24 24" }, [
       h("path", { d: "m9 18 6-6-6-6", "stroke-linecap": "round", "stroke-linejoin": "round" }),
     ]),
   ]);
@@ -62,7 +63,7 @@ export const TraceCollapsibleTrigger = defineComponent({
 
 export const TraceCollapsibleContent = defineComponent({
   name: "TraceCollapsibleContent",
-  // Classes go to the inner element, as in shadcn/ui, so padding and borders do not break the height animation.
+  // Classes go to the inner element, as in shadcn/ui. The panel opens at once: a person reads it.
   inheritAttrs: false,
   setup(_props, { attrs, slots }) {
     return () =>

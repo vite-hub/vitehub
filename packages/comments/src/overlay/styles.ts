@@ -22,7 +22,8 @@ export const overlayStyles = `
 .avatar { width: 24px; height: 24px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: #18181b; overflow: hidden; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 
-.cursor { position: fixed; transform: translate(-2px, -2px); transition: left 80ms linear, top 80ms linear; }
+/* Each cursor moves to its next place with the list mover of the motion layer. */
+.cursor { position: fixed; transform: translate(-2px, -2px); }
 .cursor svg { display: block; filter: drop-shadow(0 1px 1px rgb(0 0 0 / .25)); }
 .cursor span { display: inline-block; margin: 2px 0 0 12px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; color: #18181b; white-space: nowrap; box-shadow: 0 1px 3px rgb(0 0 0 / .2); }
 
@@ -38,7 +39,9 @@ export const overlayStyles = `
 @media (pointer: coarse) { .card input { font-size: 16px; } }
 .card .row { display: flex; justify-content: flex-end; gap: 6px; }
 
-.toast { position: fixed; left: 50%; bottom: 68px; translate: -50% 0; z-index: 2147483001; max-width: min(520px, calc(100vw - 32px)); padding: 8px 8px 8px 14px; background: var(--vh-bg); color: var(--vh-text); border: 1px solid var(--vh-border); border-radius: 12px; box-shadow: 0 8px 24px -6px rgb(0 0 0 / .16); display: flex; gap: 12px; align-items: center; font-size: 13px; text-wrap: pretty; }
+/* The toast is the item of a notifications region, so the toast effect of the motion layer brings it in from the bottom edge. */
+.toasts { position: fixed; left: 50%; bottom: 68px; translate: -50% 0; z-index: 2147483001; display: grid; justify-items: center; margin: 0; padding: 0; list-style: none; }
+.toast { max-width: min(520px, calc(100vw - 32px)); padding: 8px 8px 8px 14px; background: var(--vh-bg); color: var(--vh-text); border: 1px solid var(--vh-border); border-radius: 12px; box-shadow: 0 8px 24px -6px rgb(0 0 0 / .16); display: flex; gap: 12px; align-items: center; font-size: 13px; text-wrap: pretty; }
 .toast[data-kind="error"] { border-color: color-mix(in oklab, var(--vh-error) 45%, transparent); }
 .toast a { color: var(--vh-primary); font-weight: 500; white-space: nowrap; text-underline-offset: 3px; }
 .toast > span { padding: 4px 0; }
@@ -52,7 +55,8 @@ export const overlayStyles = `
 [data-slot="comment-layer-item"] { --pin-x: 0px; --pin-y: calc(var(--vh-comment-pin-size) * -1); }
 [data-slot="comment-layer-item"][data-kind="text"] { --pin-x: 0px; --pin-y: calc(var(--vh-comment-pin-size) / -2); }
 [data-slot="comment-layer-item"]:is([data-kind="area"], [data-kind="image"]) { --pin-x: calc(var(--vh-comment-pin-size) / -2); --pin-y: calc(var(--vh-comment-pin-size) / -2); }
-[data-slot="comment-pin"] { touch-action: manipulation; transform: translate(var(--pin-x), var(--pin-y)); }
+/* The pin's own transform is its zoom and its active size, from comment-marks.css. */
+[data-slot="comment-pin"] { touch-action: manipulation; translate: var(--pin-x) var(--pin-y); }
 [data-kind="text"] > [data-slot="comment-pin"] { transform-origin: 0 50%; }
 [data-slot="comment-pin"] [data-slot="avatar-stack"] { --vh-avatar-size: var(--vh-comment-pin-size); display: block; }
 [data-slot="comment-pin"] [data-slot="avatar-stack-item"] {
@@ -76,21 +80,20 @@ export const overlayStyles = `
   left: min(calc(var(--pin-x) + 36px), calc(100vw - 12px - var(--popover-room) - var(--vh-comment-x, 0px)));
   top: var(--pin-y); width: var(--popover-room); max-width: none;
   border-radius: 6px 16px 16px 16px; box-shadow: 0 8px 24px rgb(0 0 0 / .16), 0 1px 3px rgb(0 0 0 / .08);
-  transform-origin: 0 14px; animation: vitehub-comments-pop 160ms cubic-bezier(.23, 1, .32, 1);
 }
 [data-draft="true"] > [data-slot="comment-layer-popover"] { --popover-width: 300px; border-radius: 6px 18px 18px 18px; }
-[data-slot="comment-layer-popover"][data-preview="true"] { --popover-width: 18rem; animation: none; }
+[data-slot="comment-layer-popover"][data-preview="true"] { --popover-width: 18rem; }
 [data-slot="comment-layer-item"][data-flip-x="true"] > [data-slot="comment-layer-popover"] {
-  left: auto; right: clamp(calc(var(--vh-comment-x, 0px) + 12px - 100vw), calc(-28px - var(--pin-x)), calc(var(--vh-comment-x, 100vw) - var(--popover-room) - 12px)); top: calc(var(--pin-y) + 36px); border-radius: 16px 6px 16px 16px; transform-origin: 100% 0;
+  left: auto; right: clamp(calc(var(--vh-comment-x, 0px) + 12px - 100vw), calc(-28px - var(--pin-x)), calc(var(--vh-comment-x, 100vw) - var(--popover-room) - 12px)); top: calc(var(--pin-y) + 36px); border-radius: 16px 6px 16px 16px;
 }
 [data-slot="comment-layer-item"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
-  top: auto; bottom: calc(-28px - var(--pin-y)); border-radius: 16px 16px 16px 6px; transform-origin: 0 100%;
+  top: auto; bottom: calc(-28px - var(--pin-y)); border-radius: 16px 16px 16px 6px;
 }
 [data-slot="comment-layer-item"][data-flip-x="true"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
-  bottom: calc(8px - var(--pin-y)); border-radius: 16px 16px 6px 16px; transform-origin: 100% 100%;
+  bottom: calc(8px - var(--pin-y)); border-radius: 16px 16px 6px 16px;
 }
 [data-slot="comment-layer-item"][data-above="true"] > [data-slot="comment-layer-popover"] {
-  top: auto; bottom: calc(var(--pin-y) * -1 + 4px); border-radius: 16px 16px 16px 6px; transform-origin: 0 100%;
+  top: auto; bottom: calc(var(--pin-y) * -1 + 4px); border-radius: 16px 16px 16px 6px;
 }
 [data-slot="comment-layer-popover"][data-floating="true"] { border-radius: 16px; }
 /* The overlay places a card beside its pin itself, so it turns off the CSS anchor placement of @vite-hub/ui/styles.css. */
@@ -114,16 +117,16 @@ export const overlayStyles = `
    areas of threads are in their own root, under the page's floating controls (see areaStyles). */
 [data-slot="comment-layer-area"] { position: fixed; }
 
-/* The bar over selected text: the pill's dark glass on a light page, its light twin on a dark one. */
+/* The bar over selected text: the pill's dark glass on a light page, its light twin on a dark one. It rises from the
+   text with the appear effect of the motion layer (data-motion-appear), so its centering is a transform. */
 .selection-bar {
-  position: fixed; z-index: 2147483001; translate: -50% -100%; display: flex; gap: 4px; padding: 4px;
+  position: fixed; z-index: 2147483001; transform: translate(-50%, -100%); display: flex; gap: 4px; padding: 4px;
   border: 1px solid rgb(255 255 255 / 12%); border-radius: 12px; background: rgb(17 17 17 / 92%);
   box-shadow: 0 8px 24px rgb(0 0 0 / 25%); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
   font: 500 12px/1 "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased;
   --bar-text: #d4d4d4; --bar-strong: #fafafa; --bar-hover: rgb(255 255 255 / 8%);
-  transform-origin: 50% 100%; animation: vitehub-comments-pop 140ms cubic-bezier(.23, 1, .32, 1);
 }
-.selection-bar[data-below="true"] { translate: -50% 0; transform-origin: 50% 0; }
+.selection-bar[data-below="true"] { transform: translateX(-50%); }
 :host(.dark) .selection-bar {
   border-color: rgb(0 0 0 / 10%); background: rgb(250 250 250 / 94%); box-shadow: 0 8px 24px rgb(0 0 0 / 40%);
   --bar-text: #404040; --bar-strong: #0a0a0a; --bar-hover: rgb(0 0 0 / 6%);
@@ -131,22 +134,12 @@ export const overlayStyles = `
 .selection-bar button {
   all: unset; position: relative; box-sizing: border-box; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
   border-radius: 8px; color: var(--bar-text); cursor: pointer; touch-action: manipulation; white-space: nowrap;
-  transition: background-color 150ms, color 150ms, scale 150ms; transition-timing-function: cubic-bezier(.23, 1, .32, 1);
+  transition: background-color 150ms, color 150ms; transition-timing-function: cubic-bezier(.23, 1, .32, 1);
 }
 .selection-bar button::before { content: ""; position: absolute; inset: -9px -2px; }
 @media (hover: hover) and (pointer: fine) { .selection-bar button:hover { background: var(--bar-hover); color: var(--bar-strong); } }
-.selection-bar button:active { scale: .96; }
 .selection-bar button:focus-visible { outline: 2px solid var(--bar-strong); outline-offset: 1px; }
 
-@keyframes vitehub-comments-pop { from { opacity: 0; scale: .96; } }
-@keyframes vitehub-comments-enter { from { opacity: 0; transform: translateY(4px); } }
-.toast, .card { animation: vitehub-comments-enter 180ms cubic-bezier(.23, 1, .32, 1); }
-@media (prefers-reduced-motion: reduce) {
-  .toast, .card, .selection-bar, [data-slot="comment-layer-popover"] { animation: none; }
-  .selection-bar button { transition-property: background-color, color; }
-  .selection-bar button:active { scale: none; }
-  .cursor { transition: none; }
-}
 `
 
 /**
