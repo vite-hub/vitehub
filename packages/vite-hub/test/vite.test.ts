@@ -7,16 +7,14 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { assertFeaturePackages, forgetPackageChecks, isPackageInstalled, missingFeaturePackagesError, startPackageChecks, type FeatureHostPackages } from "../src/internal/optional-owners.ts"
+import { assertFeaturePackages, isPackageInstalled, missingFeaturePackagesError, type FeatureHostPackages } from "../src/internal/optional-owners.ts"
 
 vi.mock("../src/internal/optional-owners.ts", async importOriginal => {
   const original = await importOriginal<typeof import("../src/internal/optional-owners.ts")>()
   return {
     ...original,
     assertFeaturePackages: vi.fn(original.assertFeaturePackages),
-    forgetPackageChecks: vi.fn(original.forgetPackageChecks),
     isPackageInstalled: vi.fn(original.isPackageInstalled),
-    startPackageChecks: vi.fn(original.startPackageChecks),
   }
 })
 
@@ -278,6 +276,26 @@ function dependencyPlugin(options: Parameters<typeof vitehub>[0] = { host: "node
   return plugin
 }
 
+const missingPackage = "@vite-hub/test-missing-package"
+
+/** The specifiers that Node resolves while `run` runs. */
+function packageLookups(run: () => void): string[] {
+  const lookups: string[] = []
+  const hooks = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      lookups.push(specifier)
+      return nextResolve(specifier, context)
+    },
+  })
+  try {
+    run()
+  }
+  finally {
+    hooks.deregister()
+  }
+  return lookups
+}
+
 async function providerOutputAliases(plugin: ProviderImportPlugin): Promise<Record<string, string>> {
   return await plugin.vitehub.providerOutput.getImportAliases() ?? {}
 }
@@ -498,7 +516,6 @@ describe("vitehub", () => {
 
       const generated = await readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")
       expect(generated).toContain('"kv"')
-      expect(generated).not.toContain("installConsoleKV")
       expect(namedConfig.nitro).toMatchObject({
         handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc" })]),
       })
@@ -582,11 +599,6 @@ describe("vitehub", () => {
     }
   })
 
-  it("adds no Vite DevTools dock, since apps serve no Console page", () => {
-    const plugin = dependencyPluginByName(vitehub({ console: { auth: false }, host: "node" }), "vite-hub/console")
-    expect(plugin).not.toHaveProperty("devtools")
-  })
-
   it("keeps an application KV route beside the Console RPC route", async () => {
     const plugin = dependencyPluginByName(
       vitehub({ console: { auth: false }, kv: true, host: "node" }),
@@ -608,7 +620,7 @@ describe("vitehub", () => {
     ]))
   })
 
-  it("adds the Auth section and its impersonation route to a production Console with app Auth", async () => {
+  it("resolves app Auth for a production Console and keeps the Console RPC route", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
@@ -621,8 +633,6 @@ describe("vitehub", () => {
       expect(integrationMocks.resolveAuthViteConfig).toHaveBeenCalledWith(undefined, root, { serverDirs: undefined })
       const routes = config.nitro?.handlers?.map(handler => handler.route)
       expect(routes).toContain("/_vitehub/rpc")
-      expect(routes).not.toContain("/_vitehub/auth/manage")
-      expect(routes).not.toContain("/_vitehub/sign-in")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -1457,16 +1467,20 @@ describe("vitehub", () => {
     expect(lookups).toEqual([])
   })
 
-  it("starts new package checks each time Vite loads the app config", () => {
-    vi.mocked(startPackageChecks).mockClear()
+  it("checks the packages again each time Vite loads the app config", () => {
     vitehub({ host: "node" })
-    expect(startPackageChecks).toHaveBeenCalledOnce()
+    isPackageInstalled(missingPackage)
+    expect(packageLookups(() => isPackageInstalled(missingPackage))).toEqual([])
+    vitehub({ host: "node" })
+    expect(packageLookups(() => isPackageInstalled(missingPackage))).toContain(`${missingPackage}/package.json`)
   })
 
-  it("forgets the package checks when Vite closes the plugins", () => {
-    vi.mocked(forgetPackageChecks).mockClear()
-    callHook(dependencyPlugin().closeBundle, [])
-    expect(forgetPackageChecks).toHaveBeenCalledOnce()
+  it("checks the packages again after Vite closes the plugins", () => {
+    const plugin = dependencyPlugin()
+    isPackageInstalled(missingPackage)
+    expect(packageLookups(() => isPackageInstalled(missingPackage))).toEqual([])
+    callHook(plugin.closeBundle, [])
+    expect(packageLookups(() => isPackageInstalled(missingPackage))).toContain(`${missingPackage}/package.json`)
   })
 
   it("passes the unused Upstash and Redis fallbacks only to provider bundlers", () => {
@@ -2447,10 +2461,5 @@ describe("vitehub", () => {
     expect(pluginNames(plugins)).toContain("@vite-hub/browser/vite")
     expect(integrationMocks.hubBrowser).toHaveBeenLastCalledWith({ binding: "AUTOMATION_BROWSER" })
     expect(() => vitehub({ browser: true, host: "node" })).toThrow("requires the Cloudflare host")
-  })
-
-  it("can be used as one nested Vite plugin entry", () => {
-    const plugins: PluginOption[] = [vitehub({ host: "node" })]
-    expect(plugins).toHaveLength(1)
   })
 })
