@@ -1,7 +1,7 @@
 import { gatewayDiagnostics } from "./diagnostics.ts"
 
 import type { AskAnswers, AskEntry, AskQuestion, AskQuestions } from "./ask.ts"
-import type { AiGatewayAskResult, AiGatewayUsage } from "./types.ts"
+import type { AiGatewayAskError, AiGatewayAskResult, AiGatewayUsage } from "./types.ts"
 import type { IfQuestion, Question as JevQuestion, Questions as JevQuestions, SwitchQuestion } from "advocaat"
 
 type Advocaat = typeof import("advocaat")
@@ -204,18 +204,18 @@ async function requestJevWithRetry(
   state: AdvocaatEntry,
   batch: Record<string, AdvocaatQuestion>,
   options: JevRoute & { signal?: AbortSignal },
-): Promise<JevResponse> {
+): Promise<[error: Extract<AiGatewayAskError, { status: number }>, response: undefined] | [error: undefined, response: JevResponse]> {
   const provider = options.label
   for (let attempt = 0; ; attempt++) {
     try {
-      return await requestJev(advocaat, state, batch, options)
+      return [undefined, await requestJev(advocaat, state, batch, options)]
     }
     catch (error) {
       if (options.signal?.aborted) throw error
       const status = errorStatus(error)
       const details = { cause: error, providerStatus: status, requestId: errorRequestId(error) }
       if (status === 401 || status === 403) {
-        throw Object.assign(gatewayDiagnostics.GATEWAYS_R0008({ provider, status, env: options.keyEnv, option: options.keyOption, cause: error }), { ...details, status: 503 })
+        return [Object.assign(gatewayDiagnostics.GATEWAYS_R0008({ provider, status, env: options.keyEnv, option: options.keyOption, cause: error }), { ...details, providerStatus: status, status: 503 as const }), undefined]
       }
       // A failed fetch is surfaced as a TypeError without a status. Response
       // decoding and validation can also throw TypeError, but those are
@@ -226,7 +226,7 @@ async function requestJevWithRetry(
         : retryableJevStatuses.has(status)
       if (!transient) throw error
       if (attempt + 1 >= jevAttempts) {
-        throw Object.assign(gatewayDiagnostics.GATEWAYS_R0009({ provider, status, attempts: jevAttempts, cause: error }), { ...details, status: 502 })
+        return [Object.assign(gatewayDiagnostics.GATEWAYS_R0009({ provider, status, attempts: jevAttempts, cause: error }), { ...details, status: 502 as const }), undefined]
       }
       await waitForRetry(attempt, options.signal)
     }
@@ -442,7 +442,11 @@ export async function askJev<const Q extends AskQuestions>(context: JevRequestCo
     context.abortSignal?.throwIfAborted()
     const observed = await observeJevBatch(context.observe, { ...(options.model ? { model: options.model } : {}), provider: options.name }, questions, batch, { count: batches.length, index: batchIndex })
     try {
-      const response = await requestJevWithRetry(advocaat, entry, batch, { ...options, signal: context.abortSignal })
+      const [error, response] = await requestJevWithRetry(advocaat, entry, batch, { ...options, signal: context.abortSignal })
+      if (error) {
+        await observed.failed(error)
+        return [error, undefined]
+      }
       await observed.usage(response)
       const usage = jevUsageRecord(options.name, response)
       if (usage) context.recordUsage?.(usage)
@@ -463,8 +467,6 @@ export async function askJev<const Q extends AskQuestions>(context: JevRequestCo
     }
     catch (error) {
       await observed.failed(error)
-      // A rejected key and a provider that keeps failing are results. Other errors are bugs or bad input, so they throw.
-      if (gatewayDiagnostics.GATEWAYS_R0008.is(error) || gatewayDiagnostics.GATEWAYS_R0009.is(error)) return [error, undefined]
       throw error
     }
   }

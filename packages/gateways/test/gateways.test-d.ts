@@ -30,6 +30,16 @@ describe("AI gateway capabilities", () => {
     const [error, answers] = await typesafe().ask("Invoice 42", { label: ask.choice("Which label?", ["invoice", "none"]), spam: ask.if("Is it spam?") })
 
     expectTypeOf(error).toEqualTypeOf<AiGatewayAskError | undefined>()
+    if (error?.code === "GATEWAYS_R0008") {
+      expectTypeOf(error.status).toEqualTypeOf<503>()
+      expectTypeOf(error.providerStatus).toEqualTypeOf<401 | 403>()
+      expectTypeOf(error.requestId).toEqualTypeOf<string | undefined>()
+    }
+    if (error?.code === "GATEWAYS_R0009") {
+      expectTypeOf(error.status).toEqualTypeOf<502>()
+      expectTypeOf(error.providerStatus).toEqualTypeOf<number | undefined>()
+      expectTypeOf(error.requestId).toEqualTypeOf<string | undefined>()
+    }
     if (!error) {
       expectTypeOf(answers).toEqualTypeOf<{
         readonly label: AskChoiceAnswer<{ invoice: null, none: null }>

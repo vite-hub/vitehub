@@ -65,7 +65,10 @@ export interface AiGatewayAskOptions {
  * Why `gateway.ask()` or `askWithModel().ask()` returned no answers. `GATEWAYS_R0008`: the provider rejected the key.
  * `GATEWAYS_R0009`: Jev kept failing after retries. `GATEWAYS_ASK_MODEL_FAILED`: the model request of `askWithModel()` failed.
  */
-export type AiGatewayAskError = Diagnostic<unknown, "GATEWAYS_ASK_MODEL_FAILED" | "GATEWAYS_R0008" | "GATEWAYS_R0009">
+export type AiGatewayAskError =
+  | Diagnostic<unknown, "GATEWAYS_ASK_MODEL_FAILED">
+  | (Diagnostic<unknown, "GATEWAYS_R0008"> & { status: 503, providerStatus: 401 | 403, requestId?: string | undefined })
+  | (Diagnostic<unknown, "GATEWAYS_R0009"> & { status: 502, providerStatus?: number | undefined, requestId?: string | undefined })
 
 /** `[error, answers]`. Check `error` first. When `error` is `undefined`, `answers` has one answer per question key. */
 export type AiGatewayAskResult<Q extends AskQuestions> = [error: AiGatewayAskError, answers: undefined] | [error: undefined, answers: AskAnswers<Q>]
