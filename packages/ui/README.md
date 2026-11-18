@@ -297,7 +297,9 @@ Every control moves the same way, from what a person does with it, not from code
 ```ts
 import { installMotion } from "@vite-hub/ui/motion";
 
-const uninstall = installMotion(shadowRoot);
+const host = document.createElement("div");
+document.body.append(host);
+const uninstall = installMotion(host.attachShadow({ mode: "open" }));
 ```
 
 That brings every effect. A script with its own small bundle, such as a toolbar that you put on other pages, takes `installMotion` from `@vite-hub/ui/motion/core` and lists the effects it runs, so the others stay out of the bundle:
