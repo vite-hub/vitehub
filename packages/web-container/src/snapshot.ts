@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { cp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { access, cp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import { gzipSync } from "node:zlib"
@@ -8,7 +8,7 @@ import { invariant } from "@vite-hub/internal/invariant"
 
 import { webContainerErrorDiagnostics } from "./error-diagnostics.ts"
 import { snapshotLinksFile, type SnapshotLinks } from "./links.ts"
-import { aliasName, lockedAliases, sameRecord, withoutAliases, withoutTarballIntegrity } from "./lockfile.ts"
+import { aliasName, lockedAliases, lockedFiles, sameRecord, withoutAliases, withoutFilePackages, withoutTarballIntegrity } from "./lockfile.ts"
 import { readTree } from "./tree.ts"
 
 const run = promisify(execFile)
@@ -65,6 +65,8 @@ export class SnapshotLockfileMismatchError extends Error {
  * Native binaries are left out: the install uses `--cpu=wasm32`, swaps packages for their wasm builds, and adds the
  * wasm binding of rolldown. Install scripts do not run. Source maps are dropped.
  * The snapshot cannot hold symlinks or executable bits, so it lists them, and `bootWebContainer` restores them.
+ * It is encoded with msgpack directly: @webcontainer/snapshot runs out of memory on large trees
+ * (https://github.com/stackblitz/webcontainer-core/issues/2187).
  * Creation requires a POSIX host (Linux, macOS, or WSL); Windows npm shims cannot be restored as POSIX bin links.
  */
 export async function createNodeModulesSnapshot(options: CreateNodeModulesSnapshotOptions): Promise<NodeModulesSnapshot> {
@@ -77,8 +79,16 @@ export async function createNodeModulesSnapshot(options: CreateNodeModulesSnapsh
   const manifest: Manifest = JSON.parse(originalManifest.toString("utf8"))
   const frozen = options.lockfile !== undefined && options.frozenLockfile !== false
   let aliases = options.lockfile === undefined ? {} : lockedAliases(options.lockfile)
+  if (frozen && options.lockfile !== undefined) {
+    // A `file:` package that the app no longer has, such as a workspace package that became an optional peer, fails
+    // `npm ci` with ENOENT. The app changed since the lockfile, so update the lockfile as for other changes.
+    for (const file of lockedFiles(options.lockfile)) {
+      const found = await access(join(dir, file)).then(() => true, () => false)
+      if (!found) throw new SnapshotLockfileMismatchError(`The lockfile installs ${file}, which the app does not have. Pass frozenLockfile: false to update it.`)
+    }
+  }
   try {
-    if (options.lockfile !== undefined) await writeFile(lockPath, options.lockfile)
+    if (options.lockfile !== undefined) await writeFile(lockPath, frozen ? options.lockfile : withoutFilePackages(options.lockfile))
     else await rm(lockPath, { force: true })
 
     // The wasm builds have the versions of the packages they replace, which the install decides. When it decides other

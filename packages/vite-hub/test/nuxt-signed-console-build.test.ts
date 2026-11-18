@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -123,6 +123,21 @@ describe("Signed Console calls in Nuxt with a separate Nitro build", () => {
       await viteHubNuxt({ console: true, env: false, host: "node", publicUrl }, nuxt)
       const config = await nitroConfig()
       expect(config.replace).toMatchObject({ __VITEHUB_PUBLIC_URL__: JSON.stringify({ url: publicUrl }) })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("gives project.get the name option in development", async () => {
+    const { app, root } = await nuxtFixture()
+    try {
+      const { nitroConfig, nuxt } = createNuxt(app, true)
+      await viteHubNuxt({ console: true, env: false, host: "node", name: "glosa", publicUrl }, nuxt)
+      const config = await nitroConfig()
+      const plugin = (config.plugins as string[]).find(file => file.includes("/.vitehub/nitro/console/"))
+      if (!plugin) throw new TypeError("Expected the generated Console plugin.")
+      expect(await readFile(plugin, "utf8")).toContain(`installConsoleProjectName(${JSON.stringify(app)}, "glosa")`)
     }
     finally {
       await rm(root, { force: true, recursive: true })

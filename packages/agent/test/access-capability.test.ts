@@ -102,7 +102,7 @@ function createWorkspace(
   }
 
   return {
-    history: createRuntimeWorkspace({ name: "access-fixture", store: { provider: "memory" } }).history,
+    history: createRuntimeWorkspace({ name: "access-fixture", store: { driver: "memory" } }).history,
     fs: executor ? attachWorkspaceSourceRequestExecution(fs, executor) : fs,
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     tools: asUnknownBoundary({
@@ -346,7 +346,7 @@ describe("access capability", () => {
       await rm(root, { recursive: true, force: true })
       await rm(`${root}.meta.json`, { force: true })
     })
-    registerWorkspace(name, { sources: { docs: source }, store: { provider, root } })
+    registerWorkspace(name, { sources: { docs: source }, store: { driver: provider, root } })
     const workspace = useWorkspace(name)
     await workspace.fs.list("")
     const resolved = await resolveAgentCapabilities({
@@ -886,7 +886,7 @@ describe("access capability", () => {
 
     expect(result.stdout).toBe("native rg\n")
     expect(startSession).toHaveBeenCalledWith({ paths: ["portal/app"] })
-    expect(exec).toHaveBeenCalledWith("sh", ["-lc", `rg -i "months.*stock" portal/app --max-depth 3`], expect.objectContaining({ cwd: "/workspace" }))
+    expect(exec).toHaveBeenCalledWith("sh", ["-c", `rg -i "months.*stock" portal/app --max-depth 3`], expect.objectContaining({ cwd: "/workspace" }))
     expect(close).toHaveBeenCalled()
   })
 

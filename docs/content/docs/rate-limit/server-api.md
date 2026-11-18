@@ -20,7 +20,19 @@ await requireRateLimit(event, 'image-upload', {
 })
 ```
 
-The ID, `limit`, `window`, `enforcement`, and `failure` must be static literals, because ViteHub writes the provider config before runtime. `event` and `key` are runtime values, so the identity can change per request.
+The ID, `limit`, `window`, `enforcement`, and `failure` must be literals, or a `const` with a literal value in the same file, because ViteHub writes the provider config before runtime. `event`, `key`, `message`, and `code` are runtime values, so the identity can change per request.
+
+```ts [server/utils/publish-burst.ts]
+import type { H3Event } from 'h3'
+import { checkRateLimit } from 'vite-hub/rate-limit'
+
+/** The quota page shows the same number. */
+export const PUBLISH_BURST = 30
+
+export async function publishBurst(event: H3Event, ownerId: string) {
+  return await checkRateLimit(event, 'file-upload', { key: ownerId, limit: PUBLISH_BURST, window: '1m' })
+}
+```
 
 - `event` is any request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties: an H3 2 event in a ViteHub app, or a Web `Request`, such as the one `withAuth()` passes.
 - Without `key`, the guard counts by `event['~standard'].runtime.clientAddress`. On Cloudflare, the `cf-connecting-ip` header comes first.
@@ -34,10 +46,35 @@ The ID, `limit`, `window`, `enforcement`, and `failure` must be static literals,
 | `enforcement` | `"best-effort" \| "strict"` | `"best-effort"` | Lowest guarantee the driver must give. |
 | `failure` | `"deny" \| "allow"` | `"deny"` | Whether an unavailable driver denies or allows the request. |
 | `key` | `string` | request client address | Identity of a user, tenant, account, or API client. |
+| `message` | `string` | `"Rate limit exceeded."` | Message of the `429` error. |
+| `code` | `string` | none | `data.code` of the `429` error. |
+
+## Set the message of the 429
+
+The default `429` says `Rate limit exceeded.`. Pass `message` to tell the user what to do, and `code` when the client translates errors by code:
+
+```ts [server/api/demo/session.post.ts]
+import { defineHandler } from 'h3'
+import { requireRateLimit } from 'vite-hub/rate-limit'
+
+export default defineHandler(async (event) => {
+  await requireRateLimit(event, 'demo-session', {
+    code: 'errorTooManyTries',
+    limit: 10,
+    message: 'Too many tries. Wait a minute and try again.',
+    window: '1m',
+  })
+  return { started: true }
+})
+```
+
+The client gets `{ status: 429, message: 'Too many tries. Wait a minute and try again.', data: { code: 'errorTooManyTries' } }` and the `Retry-After` header. `message` and `code` can be runtime values, such as a translated text. They change only the `429`. The `503` of an unavailable limiter keeps its message. For a different status or body, use `checkRateLimit()`.
+
+An app error handler that builds its own response must copy `error.headers`, or the client gets no `Retry-After`. The evlog Nitro module (`evlog/nitro/v3`, up to 2.35.1) builds a new response for `/api` routes and drops the header.
 
 ## Check without throwing
 
-`checkRateLimit(event, id, options)` takes the same arguments and consumes the same counters as `requireRateLimit()`, but it returns an `[error, decision]` Result instead of throwing. Use it when a limited request still gets an answer, such as a cached or cheaper result.
+`checkRateLimit(event, id, options)` takes the same arguments, without `message` and `code`, and consumes the same counters as `requireRateLimit()`, but it returns an `[error, decision]` Result instead of throwing. Use it when a limited request still gets an answer, such as a cached or cheaper result.
 
 ```ts [server/api/og.get.ts]
 import { defineEventHandler } from 'h3'
@@ -122,8 +159,8 @@ Every direct limiter exposes its resolved `policy` and the provider features tha
 `kvRateLimitDriver()` counts in a KV store instead, so every process that uses the store shares the counts. The store needs an atomic `increment`: the `redis`, `database`, and `upstash` KV drivers have one.
 
 ```ts
-import { createRateLimiter } from '@vite-hub/rate-limit'
-import { kvRateLimitDriver } from '@vite-hub/rate-limit/drivers/kv'
+import { createRateLimiter } from 'vite-hub/rate-limit'
+import { kvRateLimitDriver } from 'vite-hub/rate-limit/drivers/kv'
 import { kv } from 'vite-hub/kv'
 
 const limiter = createRateLimiter({
@@ -134,4 +171,4 @@ const limiter = createRateLimiter({
 })
 ```
 
-A custom driver returns `[null, result]` after it consumes the counter. It returns `[error, undefined]` only for expected outages that the failure policy handles. Config, provider-contract, and code defects must throw.
+A custom driver returns a `Result` like other ViteHub operations: `[undefined, result]` after it consumes the counter, and `[error, undefined]` only for expected outages that the failure policy handles. Config, provider-contract, and code defects must throw.

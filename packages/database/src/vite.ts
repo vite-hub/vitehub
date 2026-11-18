@@ -81,6 +81,7 @@ const RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID = `\0${DB_VIRTUAL_DEFINITION_DE
 const NITRO_MIGRATIONS_DIR = ".vitehub/database/migrations"
 const NITRO_REQUEST_SCOPE_MIDDLEWARE = ".vitehub/nitro/database/request-scope.mjs"
 const NITRO_REQUEST_STATS_MIDDLEWARE = ".vitehub/nitro/database/request-stats.mjs"
+const NITRO_DEV_REGISTRY_PLUGIN = ".vitehub/nitro/database/dev-registry.mjs"
 const HOSTED_RUNTIME_DIR = ".vitehub/database"
 const DB_REGISTRY_ENTRY_PATTERN = /(?:^|\/)(?:@vite-hub\/database|database)\/dist\/runtime\/registry\.js$/
 // The Database root, directly or through the `vite-hub/database` facade that the framework aliases to a file.
@@ -342,7 +343,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
 
   function integrationReadReplication() {
     const database = resolvedOptions()
-    return database && database.driver === "d1" ? database.readReplication : undefined
+    return database && database.driver === "cloudflare" ? database.readReplication : undefined
   }
 
   function databaseRoot() {
@@ -454,6 +455,16 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
     return renderShippedMigrationsModule(runtimeConfig, resolveMigrateOnStart(resolvedOptions()))
   }
 
+  // In `vite dev`, Node loads Agent, Workspace, and Connections itself, and their Database calls reach a copy of this
+  // package without the app's Databases. Loading the registry through Vite at startup shares its Databases with that copy.
+  function installNitroDevRegistry() {
+    if (!nitroOptions?.dev || !runtimeConfig) return
+    const plugin = resolve(databaseRoot(), NITRO_DEV_REGISTRY_PLUGIN)
+    writeFileIfChangedSync(plugin, "import \"@vite-hub/database/runtime/registry\"\n\nexport default function viteHubDatabaseDevRegistry() {}\n")
+    const plugins = nitroOptions.plugins ??= []
+    if (!plugins.includes(plugin)) plugins.push(plugin)
+  }
+
   // A Node server build applies pending migrations before it handles requests. In Nuxt the Database module installs it.
   function installNitroMigrateOnStart() {
     const database = resolvedOptions()
@@ -505,6 +516,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
         mergeNitroCloudflareD1Bindings()
         installNitroPostgresRequestScope()
         installNitroRequestStats()
+        installNitroDevRegistry()
         installNitroMigrateOnStart()
         // Keep the feature hook surface when Nitro augments Vite's Plugin type.
         const hooks: DatabaseNitroHooks = nitro.hooks
@@ -736,7 +748,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
           const options = resolvedOptions()
           return `export default ${serializeGeneratedRegistry({
             ...runtimeConfig?.definitionDefaults ?? {
-              ...(options && options.driver === "d1" ? { cloudflare: cloudflareOptions(options) ?? {} } : {}),
+              ...(options && options.driver === "cloudflare" ? { cloudflare: cloudflareOptions(options) ?? {} } : {}),
               ...(options && options.connection ? { connection: options.connection } : {}),
             },
             ...(resolved?.command === "serve" ? { dev: true } : {}),

@@ -1,7 +1,7 @@
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 import { readHostCredentialsFromEnv } from "./host-credentials.ts"
 import { classifyProviderFailure, cloudflareProductOfPath, readProviderErrorCodes } from "./provider-failure.ts"
-import { Diagnostic } from "nostics"
+import type { Diagnostic } from "nostics"
 
 import type { ProviderFailureKind, ProviderFailureSource } from "./provider-failure.ts"
 
@@ -165,20 +165,17 @@ export interface ProvisionRequest {
   <T>(path: string, options: ParsedProvisionRequestOptions<T>): Promise<T>
 }
 
-export class ProvisionRequestError extends Diagnostic {
-  readonly codes: readonly (number | string)[]
-  /** What the failure means. Match on this, not on the status or the message. */
-  readonly kind: ProviderFailureKind
-  readonly status: number
+/** `INTERNAL_R0013`: a provider API call of provisioning failed. Match on `kind`, not on the status or the message. */
+export type ProvisionRequestError = Diagnostic & { readonly codes: readonly (number | string)[], readonly kind: ProviderFailureKind, readonly status: number }
 
-  constructor(method: string, path: string, status: number, codes: readonly (number | string)[], kind: ProviderFailureKind) {
-    const suffix = codes.length ? ` Provider code${codes.length === 1 ? "" : "s"}: ${codes.join(", ")}.` : ""
-    super({ code: "INTERNAL_R0013", docs: "https://vitehub.dev/docs/development/diagnostics/internal_r0013", why: `Provision request failed: ${method} ${path} (${status}).${suffix}` }, ProvisionRequestError)
-    this.name = "ProvisionRequestError"
-    this.codes = codes
-    this.kind = kind
-    this.status = status
-  }
+function provisionRequestError(method: string, path: string, status: number, codes: readonly (number | string)[], kind: ProviderFailureKind): ProvisionRequestError {
+  const suffix = codes.length ? ` Provider code${codes.length === 1 ? "" : "s"}: ${codes.join(", ")}.` : ""
+  return Object.assign(internalErrorDiagnostics.INTERNAL_R0013({ message: `Provision request failed: ${method} ${path} (${status}).${suffix}` }), { codes, kind, status })
+}
+
+/** Whether `error` is a failed provider API call of provisioning. */
+export function isProvisionRequestError(error: unknown): error is ProvisionRequestError {
+  return error instanceof Error && Reflect.get(error, "code") === "INTERNAL_R0013"
 }
 
 // Minimal JSON REST client for provisioning. Uses the provided fetch; no SDK dependency.
@@ -201,7 +198,7 @@ function createJsonClient(source: (path: string) => ProviderFailureSource, baseU
     if (!response.ok) {
       const codes = readProviderErrorCodes(await response.json().catch(() => undefined))
       const kind = classifyProviderFailure(source(path), { codes, status: response.status }) ?? "unavailable"
-      throw new ProvisionRequestError(method ?? "GET", path, response.status, codes, kind)
+      throw provisionRequestError(method ?? "GET", path, response.status, codes, kind)
     }
     const value: unknown = await response.json()
     const parse = ownParser(options)

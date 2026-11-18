@@ -7,7 +7,7 @@ import { createRealtimeYDoc as packagedCreateYDoc, readRealtimeYDoc as packagedR
 
 it("opens a new collaborative document through real memory Workspace facades", async () => {
   const name = "realtime-new-memory-document";
-  registerWorkspace(name, defineWorkspace({ store: { provider: "memory" }, rules: { "/**": { write: true, mediaType: "text/markdown" } } }));
+  registerWorkspace(name, defineWorkspace({ store: { driver: "memory" }, rules: { "/**": { write: true, mediaType: "text/markdown" } } }));
   const readable = useWorkspace(name);
   const writable = useWorkspace(name, { mode: "write" });
   await expect(readRealtimeWorkspaceDocument(readable, writable, "guides/new.md")).resolves.toEqual({ baselineDigest: undefined, markdown: "" });
@@ -24,7 +24,7 @@ it.each([
   ["packaged", packagedWorkspaceDocument],
 ] as const)("reports a conflict for a deleted document through the %s adapter", async (entry, createAdapter) => {
   const name = `realtime-deleted-memory-document-${entry}`;
-  registerWorkspace(name, defineWorkspace({ store: { provider: "memory" }, rules: { "/**": { write: true, mediaType: "text/markdown" } } }));
+  registerWorkspace(name, defineWorkspace({ store: { driver: "memory" }, rules: { "/**": { write: true, mediaType: "text/markdown" } } }));
   const workspace = useWorkspace(name, { mode: "write" });
   const adapter = createAdapter(name);
   const context = { authority: "memory", definition: "docs", documentId: "guides/page.md" } as const;
@@ -46,7 +46,7 @@ describe.each([
     const name = `realtime-hook-error-${entry}-${hook}`;
     let checkAuxiliary = false;
     registerWorkspace(name, defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       rules: { "/**": { write: true, mediaType: "text/markdown" } },
       hooks: {
         [hook]: async () => {

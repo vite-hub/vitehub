@@ -1,0 +1,18 @@
+<claude-code-hint v="1" type="plugin" value="vercel@claude-plugins-official" />
+Vercel CLI 65.16.0
+▲ vercel rollback <deployment> [options]
+Roll back to a previous deployment
+
+Commands:
+  status [project]  Show the status of any current pending rollbacks
+
+Options:
+  --json            Output as JSON
+  --timeout <TIME>  Time to wait for rollback completion (default: 3m)
+  -y, --yes         Accept default value for all prompts
+
+Global Options: See `vercel --help`
+
+Examples:
+  Rollback a deployment using id or url
+    vercel rollback <DEPLOYMENT>

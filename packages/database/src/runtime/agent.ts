@@ -62,19 +62,26 @@ export function createAgentDatabase(databases: Record<string, AgentDatabaseEntry
 }
 
 /**
- * Runs `SELECT 1` on each named Database and returns whether it answered, by name. A Database that fails is `false`,
- * and its error goes to the server log, so the result holds no connection details.
+ * Runs `SELECT 1` on each named Database and returns whether it answered within `timeoutMs`, by name. A Database that
+ * fails or takes longer is `false`, and its error goes to the server log, so the result holds no connection details.
  */
-export async function pingDatabaseEntries(databases: Record<string, AgentDatabaseEntry>, names: readonly string[]): Promise<Record<string, boolean>> {
+export async function pingDatabaseEntries(databases: Record<string, AgentDatabaseEntry>, names: readonly string[], timeoutMs = 2_000): Promise<Record<string, boolean>> {
   const handle = createAgentDatabase(databases)
   const results = await Promise.all(names.map(async (name) => {
+    let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      await handle.database(name).exec("SELECT 1")
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`No answer within ${timeoutMs} ms.`)), timeoutMs)
+      })
+      await Promise.race([handle.database(name).exec("SELECT 1"), timeout])
       return [name, true] as const
     }
     catch (error) {
       console.error(`[vitehub] Database ${JSON.stringify(name)} did not answer SELECT 1.`, error)
       return [name, false] as const
+    }
+    finally {
+      clearTimeout(timer)
     }
   }))
   return Object.fromEntries(results)

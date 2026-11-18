@@ -1,0 +1,15 @@
+root-accessors: moved 2 Drizzle call(s) on `useDatabase()` to its `db`
+Dry run: no files were written.
+
+Files to change (2):
+  server/api/notes.get.ts
+  server/api/notes.post.ts
+
+Manual follow-ups (0):
+  none
+
+Notes:
+  - `useDatabase(name)` throws `DATABASE_NOT_FOUND` for a name without a Database Definition.
+
+Next steps:
+  - Run your typecheck. The generated types in `.vitehub/types/` type the new imports after `vite dev` or `vitehub types prepare`.

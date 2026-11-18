@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { docsAppPath, normalizeDocsPath } from "#docs/navigation"
+import { docsCanonicalUrl } from "#docs/navigation"
 import { ownsApp } from "#docs/shell"
 import design from "#docs/theme"
 
@@ -17,8 +17,8 @@ const { site, appBase } = useDocsConfig()
 const appConfig = useAppConfig()
 const theme = computed(() => resolveDocsTheme(design, appConfig.ui))
 
-// One canonical URL per page: the configured origin, no trailing slash, and no query.
-const canonical = () => `${site.url}${docsAppPath(normalizeDocsPath(route.path), appBase).replace(/\/+$/, "")}`
+// The same URL that the sitemap lists and that a trailing slash redirects to.
+const canonical = () => docsCanonicalUrl(site.url, route.path, appBase)
 
 if (active) {
   useHead({

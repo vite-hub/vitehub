@@ -7,7 +7,7 @@ import { channelsConsoleHost } from "./channels-console-host.ts"
 import "./index.ts"
 import { reserveAgentChannelItem } from "./internal/channel-item-reservation.ts"
 import { runAgentWithContext } from "./internal/agent-run.ts"
-import { AgentInvocationClaimConflict, exclusiveAgentInvocation, inheritedAgentInvocationClaim, type AgentInvocationJournal, type AgentInvocationRecordStatus, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations } from "./invocations.ts"
+import { exclusiveAgentInvocation, inheritedAgentInvocationClaim, type AgentInvocationJournal, type AgentInvocationRecordStatus, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations } from "./invocations.ts"
 import { agentInvocationName } from "./internal/agent-invocation-name.ts"
 import { channelMessageRunId } from "./internal/channel-run-id.ts"
 import { getAgentChannelStatusDefinition, type AgentChannelStatusDefinition } from "./internal/channel-status.ts"
@@ -294,7 +294,7 @@ async function runChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(
   }
   catch (error) {
     await reservation?.releaseClaim()
-    if (error instanceof AgentInvocationClaimConflict) {
+    if (isRuntimeRecord(error) && error.code === "AGENT_INVOCATION_CLAIM_CONFLICT") {
       const conflicting = await run.invocations?.getByRunId(id, run.agentName)
       if (conflicting && !(conflicting.status === "pending" && conflicting.annotations?.[pendingAgentInvocationAnnotation] === true)) {
         return { id, invocationStatus: conflicting.status, key, reason: "existing", status: "skipped" }
@@ -356,7 +356,8 @@ export async function replayChannel<TRuntimeConfig extends AgentRuntimeConfig = 
         })
       }
       catch (error) {
-        if (cursor && isRuntimeRecord(error) && error.name === "CollectionCursorError") {
+        // A Source collection names its cursor error `CollectionCursorError`. The Gmail history raises AGENT_R0936 without the Channel name.
+        if (cursor && isRuntimeRecord(error) && (error.name === "CollectionCursorError" || error.code === "AGENT_R0936")) {
           throw agentDiagnostics.AGENT_R0936({ message: `[vitehub] Invalid Channel "${channel}" history cursor.` })
         }
         throw error

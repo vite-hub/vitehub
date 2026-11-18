@@ -59,7 +59,7 @@ describe("Workspace glob cwd", () => {
   it("matches relative patterns in materialized Sources through the public Workspace", async () => {
     const workspace = createWorkspace({
       name: "glob-cwd",
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: { docs: custom({ mount: "", materialize: "lazy", files: globCwdPaths.map(path => ({ path, content: path })) }) },
     })
     await checkGlobCwd(workspace)
@@ -100,7 +100,7 @@ describe("Workspace glob cwd", () => {
     const request = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("unexpected provider request"))
     const store = provider === "memory"
       ? createMemoryWorkspaceStore()
-      : createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "test-token" }, "descriptor-cwd")
+      : createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "test-token" }, "descriptor-cwd")
     const querySchema = {
       "~standard": {
         jsonSchema: { input: () => ({ type: "object", properties: {} }) },

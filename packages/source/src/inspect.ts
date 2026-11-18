@@ -189,6 +189,7 @@ function definitionFields(collection: DiscoveredCollection): ViteHubDefinitionFi
     : sourceFields(readMember(options, "source"))
   if (!options) return [...fields, { label: "Options", value: dynamic }]
   const authorize = readMember(options, "authorize")
+  const access = readMember(options, "access")
   fields.push({ label: "Transform", value: readMember(options, "transform") ? "Yes" : "No" })
   if (authorize) {
     fields.push({
@@ -196,6 +197,7 @@ function definitionFields(collection: DiscoveredCollection): ViteHubDefinitionFi
       value: !authorize.method && staticValue(authorize.value) === true ? "Signed-in session" : isFunction(authorize) ? "Callback" : dynamic,
     })
   }
+  if (access) fields.push({ label: "Access", value: staticValue(access.value) === "public" ? "Public" : dynamic })
   return fields
 }
 

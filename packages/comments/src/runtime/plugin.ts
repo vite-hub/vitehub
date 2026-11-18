@@ -36,6 +36,8 @@ export interface CommentsPluginOptions extends CommentsSessionOptions {
   users?: InstallCommentsOptions["users"]
   /** The Blob store for attachments, when the app has Blob. */
   attachments?: InstallCommentsOptions["attachments"]
+  /** `checkRateLimit` of ViteHub Rate Limit, when it counts in a KV store that every server process shares. */
+  rateLimit?: InstallCommentsOptions["rateLimit"]
   /** Who keeps the tables up to date: `comments` for a Database that `comments()` opens itself. Default `app`. */
   schema?: InstallCommentsOptions["schema"]
   /** The tables of a Postgres Database. Default: the SQLite tables. */
@@ -77,6 +79,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
         ...(options.dialect ? { dialect: options.dialect } : {}),
         ...(options.users ? { users: options.users } : {}),
         ...(options.attachments ? { attachments: options.attachments } : {}),
+        ...(options.rateLimit ? { rateLimit: options.rateLimit } : {}),
       })
     })().catch((error: unknown) => {
       building = undefined
@@ -104,7 +107,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
         installRequestStandardContext(request)
         // SAFETY: the runtime adapter installed this Request's Standard Context before the identity check.
         const event = request as Request & CommentsRequestEvent
-        const { user, gate } = await resolveCommentsIdentity(options.comments, event, { ...options, session: options.session ?? options.githubLogin?.user })
+        const { user, gate } = await resolveCommentsIdentity(options.comments, event, options)
         const page = new URL(request.url).searchParams.get("page")
         const subject = page ? (await resolveCommentsPage(options.comments, event, request, page)).subject : undefined
         if (await options.comments.can({ user, action: "read", ...(subject ? { subject } : {}) }, gate)) return true

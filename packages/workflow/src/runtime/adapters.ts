@@ -327,9 +327,11 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
 const warnedInlineOpenWorkflowNames = new Set<string>()
 
 /**
- * Every OpenWorkflow worker registers the discovered Workflow Definitions of the build registry when it starts. Any
- * worker can claim a run, so a run of another definition, such as an inline `createWorkflow(name, handler)` or an Agent
- * Workflow, could wait in storage on a worker that never registers it. Those runs execute inline in this process.
+ * Every OpenWorkflow worker registers the Workflow Definitions of the build registry when it starts: discovered
+ * Workflows and discovered Agent Workflows. Any worker can claim a run, so a run of an inline
+ * `createWorkflow(name, handler)` could wait in storage on a worker that never registers it. Those runs execute inline
+ * in this process. A turn of an Agent that is not discovered fails with `WORKFLOW_AGENT_NOT_DISCOVERED`, so Agent turns are
+ * never inline.
  */
 function isDurableOpenWorkflowDefinition(name: string): boolean {
   const registry = getWorkflowRuntimeRegistry()
@@ -349,6 +351,8 @@ function createOpenWorkflowAdapter(config: ResolvedWorkflowOptions): WorkflowRun
     run: async (context) => {
       const { definition, event, name, options, payload, startAt } = context
       if (isDurableOpenWorkflowDefinition(name)) return await runOpenWorkflow(config, name, payload, definition, options, resolveDispatchObserver(event), startAt)
+      // An Agent turn must be durable. The registry has every discovered Agent, so this one is not discovered.
+      if (definition?.internalAgentWorkflow || definition?.internalAgentInvocationRecovery) throw workflowErrorDiagnostics.WORKFLOW_AGENT_NOT_DISCOVERED({ name })
       if (!warnedInlineOpenWorkflowNames.has(name)) {
         warnedInlineOpenWorkflowNames.add(name)
         console.warn(`[vitehub:workflow] The Workflow ${JSON.stringify(name)} is not a discovered file, so OpenWorkflow workers cannot run it. Its runs execute inline in this process and are not durable. Move it to server/workflows/ to make it durable.`)
@@ -370,28 +374,28 @@ async function waitUntilTime(startAt: number | undefined): Promise<void> {
 
 function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
   return {
-    cancel: () => unsupportedOperation(config.provider, "cancellation"),
+    cancel: () => unsupportedOperation(config.driver, "cancellation"),
     async get({ id, name }: GetWorkflowAdapterContext): Promise<WorkflowRun<unknown, unknown>> {
       const run = getWorkflowRunState(name, id)
       if (run) {
         if (run.status === "running") {
           return {
             id,
-            provider: config.provider,
+            provider: config.driver,
             status: run.startAt === undefined ? "running" : "queued",
           }
         }
         return {
           ...(run.status === "failed" ? { error: toWorkflowRunError(run.error) } : {}),
           id,
-          provider: config.provider,
+          provider: config.driver,
           result: isSerializedResponse(run.result) ? deserializeResponse(run.result) : run.result,
           status: run.status,
         }
       }
       return {
         id,
-        provider: config.provider,
+        provider: config.driver,
         status: "unknown",
       }
     },
@@ -401,21 +405,21 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
         return {
           ...(existing.status === "failed" ? { error: toWorkflowRunError(existing.error) } : {}),
           id,
-          metadata: config.provider === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined,
+          metadata: config.driver === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined,
           payload: existing.payload as TPayload | undefined,
-          provider: config.provider,
+          provider: config.driver,
           result: (isSerializedResponse(existing.result) ? deserializeResponse(existing.result) : existing.result) as TResult | undefined,
           status: existing.status === "running" ? "queued" : existing.status,
         }
       }
       resolveDispatchObserver(event)?.()
       // Only `vite dev` has a recorder. It records the run in the dev history.
-      const recordRun = getWorkflowDevRecorder()?.start(name, id, config.provider)
+      const recordRun = getWorkflowDevRecorder()?.start(name, id, config.driver)
       const execute = () => runSerializedWorkflowHandler({
         id,
         name,
         payload,
-        provider: config.provider,
+        provider: config.driver,
       // SAFETY: Workflow provider normalization establishes the asserted run contract.
       }, definition as never)
       // A timer holds a delayed run in this process. It is not durable: a restart loses the run.
@@ -437,13 +441,13 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
 
       return {
         id,
-        metadata: config.provider === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined,
+        metadata: config.driver === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined,
         payload,
-        provider: config.provider,
+        provider: config.driver,
         status: "queued",
       }
     },
-    resume: () => unsupportedOperation(config.provider, "signals"),
+    resume: () => unsupportedOperation(config.driver, "signals"),
   }
 }
 
@@ -482,14 +486,14 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
     },
     async resume(token, payload) {
       // `vite dev` runs every Workflow inline, and an inline run never waits for a signal.
-      if (getWorkflowDevRecorder()) unsupportedOperation(config.provider, "signals")
+      if (getWorkflowDevRecorder()) unsupportedOperation(config.driver, "signals")
       try {
         return await resumeVercelWorkflowSignal(token, payload)
       }
       catch (error) {
         // Without the Workflow DevKit, an app with no native entry runs only inline. Installing the SDK does not help.
         if (getViteHubErrorShape(error)?.code === "VERCEL_WORKFLOW_SDK_LOAD_FAILED" && !await hasNativeWorkflowDefinition()) {
-          unsupportedOperation(config.provider, "signals")
+          unsupportedOperation(config.driver, "signals")
         }
         throw error
       }
@@ -505,10 +509,10 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
 }
 
 export function getWorkflowRuntimeAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
-  if (config.provider === "cloudflare") {
+  if (config.driver === "cloudflare") {
     return createCloudflareAdapter(config)
   }
-  if (config.provider === "openworkflow") {
+  if (config.driver === "openworkflow") {
     return createOpenWorkflowAdapter(config)
   }
   return createVercelAdapter(config)

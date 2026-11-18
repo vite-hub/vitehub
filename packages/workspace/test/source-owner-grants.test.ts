@@ -189,7 +189,7 @@ describe("history.rebase owner grants", () => {
   })
 
   it("rejects forged, missing, foreign, and wrong-path rebase grants", async () => {
-    const definition: WorkspaceDefinition = { name: "rebase-grants", sources: { docs: docsSource({ materialize: "lazy" }) }, store: { provider: "memory" } }
+    const definition: WorkspaceDefinition = { name: "rebase-grants", sources: { docs: docsSource({ materialize: "lazy" }) }, store: { driver: "memory" } }
     const view = createWorkspaceSourceView(definition, createMemoryWorkspaceStore())
     const other = createWorkspaceSourceView({ ...definition, name: "rebase-grants-other" }, createMemoryWorkspaceStore())
     const rebase = vi.fn(async (_options?: WorkspaceRebaseOptions) => {})

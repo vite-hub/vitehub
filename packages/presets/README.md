@@ -123,7 +123,7 @@ symlink resolution. Trusted GitHub release archives use the HTTPS archive path.
 Workers call `commitRepair` with a message and explicit repair paths, then
 `pushRepair`. The host commits because the provider sandbox protects Git metadata. For a
 conflicting PR, the host first prepares a merge against the exact base commit.
-Installation runs after merge preparation. The worker resolves dependency conflicts and calls `refreshDependencies` before validation, then commits through the same tool. Changing dependency inputs requires another refresh and validation before committing.
+Installation runs after merge preparation. The worker resolves dependency conflicts and calls `refreshDependencies` before validation, then commits through the same tool. Changing dependency inputs requires another refresh and validation before committing. `commitRepair` rejects a base merge whose result undoes changes the base made since the PR branched: lines the base added that the result lacks, or lines the base removed that it brings back. Lockfiles are exempt because the host regenerates them. When the PR deliberately replaces such a change, the worker passes the file in `baseOverrides` with a reason, and the merge commit message lists it.
 Unattended Codex runs preauthorize only the assigned host tools. Capability checks
 still run on the host, and the native shell keeps its edit sandbox.
 
@@ -139,7 +139,7 @@ GitHub request results re-enter the current head's normal merge gates. An enqueu
 | `false` | The Babysitter never merges. |
 | `"auto"` | The worker may call `requestAutoMerge`, which requests GitHub native auto-merge. |
 | `"direct"` | Before a model pass, the host squash-merges a PR that is ready. |
-| `{ strategy: "direct", method, ready, trustedAuthors, markDraftsReady, bypassInheritedChecks }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, an optional `ready` hook, optional trusted authors, optional draft authors, and optional required checks to merge past when they only repeat the base's failure. |
+| `{ strategy: "direct", method, ready, trustedAuthors, markDraftsReady, bypassInheritedChecks, foldStacks }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, an optional `ready` hook, optional trusted authors, optional draft authors, optional required checks to merge past when they only repeat the base's failure, and stack folding (default `true`). |
 
 A direct merge needs passing required checks, completed and successful
 current-head checks and statuses, loaded and resolved review threads, a
@@ -254,11 +254,14 @@ disable lifecycle and build scripts; custom commands are trusted host configurat
 workspaces from an earlier process when its temporary directory is inside the
 service directory. Claims take main repairs and priority-labelled PRs first, then reviewed heads,
 then heads whose checks all passed, then stack parents. A restart releases the claims of the previous process.
-A stacked PR whose parent merged into the default branch is retargeted to the
-default branch; until then the child waits. With `merge: "direct"`,
-`repairStackChildren: true` (default `false`) repairs a child's checks, conflicts
-and feedback alongside its open parent. The child never merges into the parent's
-branch and waits for it once its reviewed head has nothing left to repair. A provider rate limit is retried `providerRetries` times (default `3`); after that, model
+With `merge.foldStacks` (default `true`), a ready stacked PR whose base is the
+branch of one open PR in the same repository merges into that branch with a merge
+commit, so the stack lands with its parent, and the host emits `babysitter.stack.folded`.
+A fold and the parent's own merge never run at the same time. Other stacked PRs
+wait: a stacked PR whose parent merged into the default branch is retargeted to the
+default branch. With `merge: "direct"`, `repairStackChildren: true` (default `false`)
+repairs a child's checks, conflicts and feedback alongside its open parent, and the
+child waits for it once its reviewed head has nothing left to repair. A provider rate limit is retried `providerRetries` times (default `3`); after that, model
 dispatch waits for `providerCooldownMs` (five minutes by default), doubling per
 consecutive cooldown up to an hour. The pass waits for the cooldown instead of
 failing and spends no no-progress budget. `modelConcurrency` caps model passes.
@@ -275,7 +278,9 @@ go when the PR closes, after `idleDays` (7) without a pass, and least recently
 used first above `budgetGb` (60) or below `minFreePercent` (15) free disk.
 `warmWorkspaces: { resumeThreads: true }` also continues the previous pass's
 provider thread when that pass pushed or recorded a wait on the same base and
-release.
+release. The host stores only that session in `provider-sessions.sqlite`: it
+deletes the session of every pass that cannot be resumed, and the last one when
+the PR's workspace goes. Without `resumeThreads`, it stores no provider session.
 While the built-in resource guard pauses model passes for a spent token budget, low temporary space or exhausted proxy accounts, host work continues. A token budget of `0` stops every claim.
 
 Colocated `instructions.md` fills the preset's instruction slot without adding

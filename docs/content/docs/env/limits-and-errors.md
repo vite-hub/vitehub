@@ -31,7 +31,7 @@ Wrong declaration helper calls and schema results use `ENV_R####` Nostics codes.
 
 ## Seal errors
 
-[`unseal()`](/docs/env/app-secret#seal-a-value) returns these codes as `[error, undefined]`. Each error has `code`, `why`, `fix`, and `docs`.
+[`unseal()`](/docs/env/seal) returns these codes as `[error, undefined]`. Each error has `code`, `why`, `fix`, and `docs`.
 
 ### ENV_SEAL_EXPIRED
 
@@ -39,7 +39,7 @@ The `ttl` that `seal()` got has passed. `why` gives the expiry time. Seal a new 
 
 ### ENV_SEAL_INVALID
 
-The string is not a value from `seal()`, someone changed it, or another root secret sealed it. A rotation of `VITEHUB_SECRET` gives this code for every value sealed before it. Treat the string as untrusted and seal a new value.
+The string is not a value from `seal()`, someone changed it, or another root secret sealed it. After a rotation of `VITEHUB_SECRET`, values sealed before it give this code unless the old secret is in `VITEHUB_SECRET_PREVIOUS`. Treat the string as untrusted and seal a new value.
 
 ### ENV_SEAL_SCHEMA_MISMATCH
 
@@ -51,7 +51,7 @@ The value was sealed for another purpose. Pass the purpose that `seal()` used. T
 
 ### ENV_SEAL_ARGUMENT_INVALID
 
-`seal()` and `unseal()` throw this code for a bad argument: an empty purpose, a `ttl` that is not a positive number of seconds, a value that `JSON.stringify()` cannot write, or a `secret` shorter than 32 characters.
+`seal()` and `unseal()` throw this code for a bad argument: an empty purpose, a `ttl` that is not a positive number of seconds, a value that `JSON.stringify()` cannot write, or a `secret` shorter than 32 characters or an empty `secret` list.
 
 ### ENV_NOT_GENERATED
 

@@ -19,7 +19,7 @@ export type { ForgeCachedResponse, ForgeConditionalRequests, ForgeMemoryCacheOpt
 export { githubAppCredentials, readGitHubAppPrivateKey } from "./github-app.ts"
 export { githubInstallationFor, githubInstallationRouting } from "./github-installations.ts"
 export type { GitHubInstallationEnv, GitHubInstallationRouting } from "./github-installations.ts"
-export type { GitHubAppCredentials, GitHubAppInput, GitHubAppRepository } from "./github-app.ts"
+export type { GitHubAppCredentials, GitHubAppDelivery, GitHubAppInput, GitHubAppRepository } from "./github-app.ts"
 export { BranchMovedError } from "forges"
 export { abortError, forgeErrorStatus, forgeProvider, forgeResponseError, isForgeResponseError, withSignal } from "./provider.ts"
 export type { ForgeConnection, ForgeKind } from "./provider.ts"

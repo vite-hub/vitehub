@@ -10,7 +10,7 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `comments` from `@vite-hub/comments/vite`, also its default export | The Vite plugin for an app without `vite-hub`. See [`comments()` options](#comments-options). |
+| `comments` from `@vite-hub/comments/vite`, also its default export | The Vite plugin for an app without `vite-hub`. See [`comments()` options](#comments-options) and [Use without ViteHub](/docs/comments#use-without-vitehub). |
 | `defineComments` from `vite-hub/comments` | Define Comments in `server/comments.ts`. Export the result as `comments`. |
 | `Comments`, `CommentThread`, `CommentMessage`, `CommentAnchor`, `CommentUser`, `CommentSubject`, `CommentsErrorCode` from `vite-hub/comments` | Types for the runtime, threads, messages, anchors, people, subjects, and error codes, shared with the browser client and comment operations. |
 | `defineCommentSubject` from `vite-hub/comments` | Your own subject kind, with its numbering scope. See [Comments in your own UI](/docs/comments/configure#comments-in-your-own-ui). |
@@ -18,9 +18,9 @@ icon: i-lucide-code-2
 | `normalizeCommentPage` from `vite-hub/comments` | The page key that Comments stores for a path. |
 | `installComments` from `vite-hub/comments/server` | Connect a definition to a Drizzle Database in tests or outside ViteHub. The generated Nitro plugin calls it on the first Comments call. |
 | `contentField`, `formatContentField`, `parseContentField` from `vite-hub/content/client` | Write and read [Content field addresses](#content-field-addresses). |
-| `connectRealtimeRoom` from `@vite-hub/realtime/client` | Join a Realtime room for presence, as the overlay does for [presence rooms](#presence-rooms). |
+| `connectRealtimeRoom` from `vite-hub/realtime/client` | Join a Realtime room for presence, as the overlay does for [presence rooms](#presence-rooms). |
 
-Without `vite-hub`, import the same names from `@vite-hub/comments`. `@vite-hub/comments/vite` also exports `hubComments()`, the build integration that `vitehub()` adds for you.
+`@vite-hub/comments/vite` also exports `hubComments()`, the build integration that `vitehub()` adds for you.
 
 ## `comments()` options
 
@@ -184,7 +184,7 @@ interface CommentsGitHubAccess {
 
 ### Anchors
 
-An anchor says where a thread sits. The overlay writes an `element` anchor with hints on click. The `@vite-hub/comments/client` browser client also writes `text`, `area`, and `image` anchors.
+An anchor says where a thread sits. The overlay writes an `element` anchor with hints on click. The `vite-hub/comments/client` browser client also writes `text`, `area`, and `image` anchors.
 
 ```ts
 type CommentAnchor =
@@ -342,11 +342,11 @@ Field paths use dots between keys, such as `hero.title` or `cards.0.title`. An i
 
 ## Presence rooms
 
-When the host has a [Realtime room authority](/docs/realtime/configure#choose-a-room-authority), Comments adds the Realtime Definition `comments`, with one room per page. The overlay connects read-only and shares only presence: who is on the page, and each cursor as an element and a point in its box. The room stores nothing; threads stay in the Database.
+When the host has a [Realtime room driver](/docs/realtime/configure#choose-a-driver), Comments adds the Realtime Definition `comments`, with one room per page. The overlay connects read-only and shares only presence: who is on the page, and each cursor as an element and a point in its box. The room stores nothing; threads stay in the Database.
 
 The server sets each person in the room from `identify` or the Auth session, and checks `authorize` with `read` and the page subject. Clients send the normalized page in `params: { page }`, and the server checks that the room is `commentRoom(page)` before it grants access. After a change, the overlay sends other browsers a data-free hint, and they reload threads over HTTP.
 
-`connectRealtimeRoom(definition, documentId, options?)` from `@vite-hub/realtime/client` is the overlay's client. It joins one room for presence without editing the document. See [Realtime server API](/docs/realtime/server-api#presence-without-an-editor).
+`connectRealtimeRoom(definition, documentId, options?)` from `vite-hub/realtime/client` is the overlay's client. It joins one room for presence without editing the document. See [Realtime server API](/docs/realtime/server-api#presence-without-an-editor).
 
 ## Generated output
 
@@ -356,6 +356,6 @@ With `server/comments.ts` or `comments()`, the integration writes these build fi
 - `.vitehub/nitro/comments/plugin.mjs` installs Comments with its Database at server start. It registers the overlay and sign-in prompt as the `comments` page tool.
 - `.vitehub/nitro/comments/page-session.mjs` serves `GET /_vitehub/page/session`.
 - `definition.mjs`, only from `comments()` without `server/comments.ts`, exports `defineComments()` with no options.
-- `comments.mjs`, with a room authority, is the Realtime presence room definition.
+- `comments.mjs`, with a room driver, is the Realtime presence room definition.
 
 The package serves the page tools loader at `/_vitehub/page/assets/loader.js`. These routes work without the Console. A root-relative Vite `base` or Nuxt `app.baseURL` prefixes them. Absolute and protocol-relative Vite asset URLs leave them at root, unless you set an explicit ViteHub application base.

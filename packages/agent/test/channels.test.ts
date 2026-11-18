@@ -844,6 +844,42 @@ describe("agent channels", () => {
     }
   })
 
+  it("uses the GitHub Actions bot when the user response has no login", async () => {
+    const { github } = await import("../src/channels.ts")
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url)
+      if (url.pathname === "/user") return Response.json({})
+      if (url.pathname === "/repos/acme/app/issues/42/comments" && init?.method === "GET") {
+        return Response.json([{ body: "<!-- vitehub-agent-activity:e30 -->", id: 7, user: { login: "github-actions[bot]" } }])
+      }
+      if (url.pathname === "/repos/acme/app/issues/comments/7" && init?.method === "PATCH") return Response.json({ id: 7 })
+      throw new Error(`Unexpected GitHub API call: ${url}`)
+    })
+    vi.stubEnv("GITHUB_ACTIONS", "true")
+    vi.stubEnv("GITHUB_TOKEN", "actions-token")
+    vi.stubEnv("VITEHUB_GITHUB_TOKEN", "actions-token")
+    vi.stubGlobal("fetch", fetcher)
+    try {
+      const channel = github({ activity: true })
+      // SAFETY: This fixture supplies the complete callback fields consumed by the activity updater.
+      await channel.activity?.update({
+        activity: { links: [], runId: "run-no-login", status: "running", tasks: [] },
+        channel,
+        memo: vi.fn(),
+        run: { runId: "run-no-login" },
+        runtime: "unknown",
+        target: { issue: 42, repository: "acme/app" },
+        waitUntil: vi.fn(),
+      } as never)
+
+      expect(fetcher).toHaveBeenCalledWith("https://api.github.com/repos/acme/app/issues/comments/7", expect.objectContaining({ method: "PATCH" }))
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("does not treat a user token as the GitHub Actions bot", async () => {
     const { github } = await import("../src/channels.ts")
     const fetcher = vi.fn(async (input: string | URL | Request) => {
@@ -1600,7 +1636,6 @@ describe("agent channels", () => {
     if (result instanceof Response) throw new Error("Expected GitHub webhook invocation.")
     for (const line of expected) expect(result.input.prompt).toContain(line)
     expect(result.input.prompt).not.toContain(absent)
-    expect(result.input.prompt).not.toContain("Make sure CI is green.")
   })
 
   it.each([

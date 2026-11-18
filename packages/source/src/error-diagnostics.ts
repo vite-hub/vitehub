@@ -9,6 +9,22 @@ const dynamicError = {
 export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/source/diagnostics",
   codes: {
+    SOURCE_COLLECTION_ACCESS_CONFLICT: {
+      why: "[vitehub] A Collection cannot set both `access: \"public\"` and `authorize`.",
+      fix: "Keep `access: \"public\"` to let anyone read the route, or keep `authorize` to check each request. Remove the other.",
+    },
+    SOURCE_COLLECTION_ACCESS_REQUIRED: {
+      why: "[vitehub] A routed Collection must set authorize or access. Without one, the generated /api route would serve every item to anyone.",
+      fix: "Set `authorize: true` to require a signed-in session, a callback to decide each request, or `access: \"public\"` for a public route. Set `route: false` to keep the Collection server-only.",
+    },
+    SOURCE_COLLECTION_AUTHORIZE_FALSE: {
+      why: "[vitehub] Collection `authorize: false` does not make a route public.",
+      fix: "Replace `authorize: false` with `access: \"public\"` to let anyone read the route. Use `authorize: true` or a callback to require sign-in.",
+    },
+    SOURCE_COLLECTION_PUBLIC_TRANSFORM_REQUIRED: {
+      why: "[vitehub] A Collection over table() with `access: \"public\"` would serve every column of each row, such as password hashes or emails.",
+      fix: "Add `transform` that returns only the public fields, or replace `access: \"public\"` with `authorize: true` or a callback.",
+    },
     SOURCE_R0023: {
       ...dynamicError,
       fix: "Pass the `cursor` of the last page of this Collection without changes, or omit `cursor` to read the first page.",
@@ -168,6 +184,10 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SOURCE_B0010: {
       why: ({ route, other }: { route: string, other: string }) => `[vitehub] defineContent({ seo: { mcp } }) serves its MCP server at ${JSON.stringify(route)}, and ${other} answers there too.`,
       fix: "One route serves one MCP server. Give the app MCP server another route, such as `vitehub({ mcp: { route: '/mcp/app' } })`, or another `publicRoute`. Or set `seo: { mcp: false }` in server/content.ts.",
+    },
+    SOURCE_GLOB_OPTIONS_NOT_LITERAL: {
+      why: "glob() here takes options that are not literals, so the build cannot bundle its files. It reads them from disk at runtime, which hosts such as Cloudflare Workers do not have.",
+      fix: "Write the options of `glob()` as literals in the call, such as `glob({ cwd: \"content\", include: [\"**/*.md\"] })`, so the build can find and bundle the files.",
     },
   },
 })

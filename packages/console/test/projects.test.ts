@@ -1,10 +1,16 @@
 import { createClient } from "@libsql/client"
 import { drizzle } from "drizzle-orm/libsql"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { readConsolePublicKeys, signConsoleRequest, verifyConsoleSignature } from "@vite-hub/internal/console-signature"
 
-import { createConsoleProjectStore } from "../src/projects.ts"
+import { createConsoleProjectStore, scopeConsoleProjectStore } from "../src/projects.ts"
+import { renameProject } from "../server/utils/console.ts"
+
+import type { ConsoleTeamCaller } from "../server/utils/console.ts"
+
+// The route helpers import the app's Database. These tests give each helper its store directly.
+vi.mock("vite-hub/database", () => ({ useDatabase: () => ({}) }))
 
 const secret = "s".repeat(64)
 const table = "CREATE TABLE `console_projects` (`id` text PRIMARY KEY NOT NULL, `team_id` text NOT NULL, `url` text NOT NULL, `label` text, `key_sealed` text NOT NULL, `public_key` text NOT NULL, `created_by` text NOT NULL, `created_at` integer NOT NULL, UNIQUE (`team_id`, `url`))"
@@ -73,5 +79,55 @@ describe("project store", () => {
     await expect(store.remove(project!.id)).resolves.toBe(true)
     await expect(store.remove(project!.id)).resolves.toBe(false)
     await expect(store.list()).resolves.toEqual([])
+  })
+
+  it("renames a project of the team, and an empty label removes the label", async () => {
+    const { db } = await database()
+    const store = createConsoleProjectStore(db, secret, "team-1")
+    const project = await store.create({ createdBy: "u", label: "vitehub-calories", url: "https://app.example.com" })
+    await expect(store.rename(project!.id, " Calories ")).resolves.toEqual({ ...project, label: "Calories" })
+    await expect(store.get(project!.id)).resolves.toMatchObject({ label: "Calories", publicKey: project!.publicKey })
+    await expect(store.rename(project!.id, " ")).resolves.toMatchObject({ label: null })
+    await expect(store.rename(project!.id, null)).resolves.toMatchObject({ label: null })
+    const scoped = scopeConsoleProjectStore(store, [project!.id])
+    await expect(scoped.rename(project!.id, "Scoped")).resolves.toMatchObject({ label: "Scoped" })
+    await expect(scopeConsoleProjectStore(store, []).rename(project!.id, "Hidden")).resolves.toBeUndefined()
+    // Another team cannot rename it.
+    await expect(createConsoleProjectStore(db, secret, "team-2").rename(project!.id, "Mine")).resolves.toBeUndefined()
+    await expect(store.get(project!.id)).resolves.toMatchObject({ label: "Scoped" })
+  })
+})
+
+describe("renameProject()", () => {
+  async function caller(roles: string[]): Promise<{ caller: ConsoleTeamCaller, id: string }> {
+    const { db } = await database()
+    const projects = createConsoleProjectStore(db, secret, "team-1")
+    const project = await projects.create({ createdBy: "u", url: "https://app.example.com" })
+    return { caller: { projects, roles, teamId: "team-1", user: { email: "ada@example.com", id: "ada", name: "Ada" } }, id: project!.id }
+  }
+
+  it("lets owners and admins rename, and answers the renamed project", async () => {
+    for (const role of ["owner", "admin"]) {
+      const { caller: admin, id } = await caller([role])
+      const response = await renameProject(admin, id, { label: "Calories" })
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toMatchObject({ project: { id, label: "Calories" } })
+    }
+  })
+
+  it("refuses members, a label that is not text, and a project of another team", async () => {
+    const { caller: member, id } = await caller(["member"])
+    const forbidden = await renameProject(member, id, { label: "Calories" })
+    expect(forbidden.status).toBe(403)
+    await expect(member.projects.get(id)).resolves.toMatchObject({ label: null })
+
+    const { caller: owner, id: owned } = await caller(["owner"])
+    for (const body of [undefined, {}, { label: 3 }]) {
+      const invalid = await renameProject(owner, owned, body)
+      expect(invalid.status).toBe(400)
+      await expect(invalid.json()).resolves.toMatchObject({ code: "CONSOLE_PROJECT_INVALID" })
+    }
+    const missing = await renameProject(owner, "not-a-project", { label: "Calories" })
+    expect(missing.status).toBe(404)
   })
 })

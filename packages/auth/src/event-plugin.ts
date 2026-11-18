@@ -2,6 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { APIError } from "better-auth"
 import { createAuthEndpoint, createAuthMiddleware, getSessionFromCtx, sensitiveSessionMiddleware } from "better-auth/api"
 import type { BetterAuthPlugin, GenericEndpointContext, SecondaryStorage } from "better-auth"
+import { getStandardContext } from "@vite-hub/runtime/internal/h3"
+import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { parseAuthEventList, parseAuthEventWindow } from "./events.ts"
 import { authRequestEvent } from "./request.ts"
 import type { ViteHubContext } from "@vite-hub/runtime"
@@ -13,7 +15,7 @@ const authHandlerEvent = new AsyncLocalStorage<ViteHubContext>()
 export function runWithAuthEvent<T>(event: ViteHubContext, run: () => T): T {
   return authHandlerEvent.run(event, run)
 }
-import type { AuthDevice, AuthEventActor, AuthEventListInput, AuthEventMetadata, AuthEventsConfiguration, AuthEventType } from "./events.ts"
+import type { AuthDevice, AuthEvent, AuthEventActor, AuthEventListInput, AuthEventMetadata, AuthEventsConfiguration, AuthEventType } from "./events.ts"
 
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" ? value as Record<string, unknown> : {}
@@ -59,9 +61,9 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
   const createdSessions = new WeakSet<object>()
   const recordedSessions = new WeakSet<object>()
   async function append(type: AuthEventType, userId: string | null, ctx: GenericEndpointContext | null, metadata: AuthEventMetadata = {}, fallback?: string): Promise<boolean> {
+    const event: AuthEvent = { id: crypto.randomUUID(), type, time: new Date().toISOString(), actor: actor(ctx, fallback), userId, metadata }
     try {
-      await options.store.append({ id: crypto.randomUUID(), type, time: new Date().toISOString(), actor: actor(ctx, fallback), userId, metadata })
-      return true
+      await options.store.append(event)
     }
     catch {
       // Auth mutations may already be committed. Do not turn a completed sign-in into a retry.
@@ -69,6 +71,31 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
       console.warn("[vitehub] AUTH_EVENT_WRITE_FAILED: Could not record an auth event.")
       return false
     }
+    if (options.onEvent) await notify(options.onEvent, event, ctx)
+    return true
+  }
+  /** Hand the callback to the host `waitUntil()` when it has one, so it does not delay the response. Else wait for it. */
+  async function notify(onEvent: NonNullable<AuthEventsConfiguration["onEvent"]>, event: AuthEvent, ctx: GenericEndpointContext | null): Promise<void> {
+    const task = (async () => {
+      try {
+        await onEvent(event)
+      }
+      catch (error) {
+        console.error(authErrorDiagnostics.AUTH_EVENT_CALLBACK_FAILED({ type: event.type, cause: error }))
+      }
+    })()
+    const request = authHandlerEvent.getStore() ?? (ctx?.request ? authRequestEvent(ctx.request) : undefined)
+    const waitUntil = request ? getStandardContext(request).waitUntil : undefined
+    if (waitUntil) {
+      try {
+        waitUntil(task)
+        return
+      }
+      catch {
+        // A host that refuses the task still gets the callback, before the response.
+      }
+    }
+    await task
   }
   async function deleted(session: { userId: string, id: string, impersonatedBy?: unknown }, ctx: GenericEndpointContext | null) {
     const type = ctx?.path === "/sign-out" ? "user.signed_out" : ctx?.path === "/admin/stop-impersonating" ? "impersonation.stopped" : "session.revoked"

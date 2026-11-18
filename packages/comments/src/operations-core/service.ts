@@ -1,5 +1,7 @@
 import * as v from "valibot"
 
+import type { SharedRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
+
 import { builtinCommentSubjects, defaultPolicy, deniedForMissingPolicy } from "./define.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
 import { isPagePath } from "./path.ts"
@@ -81,6 +83,11 @@ export interface CommentsRuntime {
   /** The Blob store for attachments, when the app has one and no `storeAttachment`. */
   attachments?: CommentsAttachmentStore
   forge?: CommentsForgeHooks
+  /**
+   * `checkRateLimit` of ViteHub Rate Limit, when it counts in a KV store that every server process shares. Guest writes
+   * then count under the Rate Limit name `comments`. Without it, they count in the memory of this process.
+   */
+  rateLimit?: SharedRateLimit
   /** Work that runs after the answer, such as `onMention`. `flush()` of the server API waits for it. */
   background?: (task: Promise<unknown>) => void
 }
@@ -168,10 +175,10 @@ async function mayMention(runtime: CommentsRuntime, user: CommentsUser | null, f
 }
 
 /** Where `@` finds people: `people`, else Auth, else the authors of threads that `reader` may read. */
-function peopleOf(runtime: CommentsRuntime, reader: CommentsUser | null, gate?: CommentsPolicyGate): CommentsPeople {
+function peopleOf(runtime: CommentsRuntime, reader: CommentsUser | null, gate?: CommentsPolicyGate, console?: boolean): CommentsPeople {
   const explicit = runtime.definition.people ?? runtime.users
   if (explicit) return explicit
-  const readable = (thread: CommentThread) => can(runtime, { action: "read", thread, user: reader }, gate).catch(() => false)
+  const readable = (thread: CommentThread) => can(runtime, { action: "read", thread, user: reader, ...(console ? { console: true } : {}) }, gate).catch(() => false)
   return {
     byIds: ids => runtime.store.knownUsersByIds(ids, readable),
     search: (query, limit) => runtime.store.knownUsers(query, limit, readable),
@@ -179,8 +186,8 @@ function peopleOf(runtime: CommentsRuntime, reader: CommentsUser | null, gate?: 
 }
 
 /** People that `@` suggests to `user`, without the ones that may not be mentioned in the thread. */
-export async function suggest(runtime: CommentsRuntime, input: { query: string, limit: number, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, gate?: CommentsPolicyGate }): Promise<CommentUser[]> {
-  const found = await peopleOf(runtime, input.user, input.gate).search(input.query, input.limit * 2)
+export async function suggest(runtime: CommentsRuntime, input: { query: string, limit: number, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, gate?: CommentsPolicyGate, console?: boolean }): Promise<CommentUser[]> {
+  const found = await peopleOf(runtime, input.user, input.gate, input.console).search(input.query, input.limit * 2)
   // Accents and case do not count, as in the menu, so an app's `search` that finds "José" for "jose" keeps him.
   const needle = foldName(input.query.trim())
   const people: CommentUser[] = []
@@ -204,11 +211,11 @@ function escapeRegExp(value: string): string {
 }
 
 /** The mentioned ids must be real people that `user` may mention there, and the text must name each one with `@name`. */
-export async function checkMentions(runtime: CommentsRuntime, input: { body: string, ids: readonly string[] | undefined, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, gate?: CommentsPolicyGate }): Promise<CommentUser[]> {
+export async function checkMentions(runtime: CommentsRuntime, input: { body: string, ids: readonly string[] | undefined, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, gate?: CommentsPolicyGate, console?: boolean }): Promise<CommentUser[]> {
   const unique = [...new Set(input.ids ?? [])]
   if (!unique.length) return []
   if (unique.length > maximumMentions) throw fail(commentsErrorDiagnostics.COMMENTS_R0007({ message: `A message mentions at most ${maximumMentions} people.` }), 400)
-  const found = new Map((await peopleOf(runtime, input.user, input.gate).byIds(unique)).map(person => [person.id, person]))
+  const found = new Map((await peopleOf(runtime, input.user, input.gate, input.console).byIds(unique)).map(person => [person.id, person]))
   const people: CommentUser[] = []
   for (const mentioned of unique) {
     const person = found.get(mentioned)
@@ -348,6 +355,8 @@ export interface WriteOptions {
   user?: CommentsUser | null
   /** What the server checked about `user`, for the mention checks. */
   gate?: CommentsPolicyGate
+  /** Console admission of the calling reader, never of a mentioned recipient. */
+  console?: boolean
   waitUntil?: (task: Promise<unknown>) => void
   /** Whether the caller may read the thread that a retry of `createThread` gets back. Default: yes. */
   canRead?: (thread: CommentThread) => Promise<boolean>
@@ -378,7 +387,7 @@ export async function createThread(runtime: CommentsRuntime, input: CreateThread
   const attachments = attachmentsOf(input.attachments)
   const body = cleanBody(runtime, { attachments, body: input.body, subject: input.subject, ...(metadata ? { metadata } : {}) })
   const user = options.user === undefined ? { ...input.author } : options.user
-  const mentioned = await checkMentions(runtime, { body, ids: input.mentions, subject: input.subject, user, ...(options.gate ? { gate: options.gate } : {}) })
+  const mentioned = await checkMentions(runtime, { console: options.console, body, ids: input.mentions, subject: input.subject, user, ...(options.gate ? { gate: options.gate } : {}) })
   const author = personOf(input.author)
   const threadId = newId("thread")
   const created = await runtime.store.createThread({
@@ -419,7 +428,7 @@ export async function replyToThread(runtime: CommentsRuntime, thread: CommentThr
   const attachments = attachmentsOf(input.attachments)
   const body = cleanBody(runtime, { attachments, body: input.body, subject: thread.subject, ...(thread.metadata ? { metadata: thread.metadata } : {}) })
   const user = options.user === undefined ? { ...input.author } : options.user
-  const mentioned = await checkMentions(runtime, { body, ids: input.mentions, thread, user, ...(options.gate ? { gate: options.gate } : {}) })
+  const mentioned = await checkMentions(runtime, { console: options.console, body, ids: input.mentions, thread, user, ...(options.gate ? { gate: options.gate } : {}) })
   const id = newId("message")
   let next: CommentThread
   try {
@@ -449,7 +458,7 @@ export async function editMessage(runtime: CommentsRuntime, thread: CommentThrea
   const target = thread.messages.find(entry => entry.id === messageId)
   if (!target) throw fail(commentsErrorDiagnostics.COMMENTS_R0003({ messageId }), 404)
   const body = cleanBody(runtime, { attachments: target.attachments, body: input.body, subject: thread.subject, ...(thread.metadata ? { metadata: thread.metadata } : {}) })
-  const mentioned = await checkMentions(runtime, { body, ids: input.mentions, thread, user: options.user, ...(options.gate ? { gate: options.gate } : {}) })
+  const mentioned = await checkMentions(runtime, { console: options.console, body, ids: input.mentions, thread, user: options.user, ...(options.gate ? { gate: options.gate } : {}) })
   const next = await runtime.store.editMessage(thread.id, target.id, { body, mentions: mentioned.map(person => person.id), now: Date.now() })
   const fresh = mentioned.filter(person => !target.mentions.includes(person.id))
   await announce(runtime, next, next.messages.find(entry => entry.id === target.id), mentioned, fresh, { comment: false, ...(options.waitUntil ? { waitUntil: options.waitUntil } : {}) })

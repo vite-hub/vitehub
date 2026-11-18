@@ -223,7 +223,7 @@ function ownNetworkPolicyMember<T extends object, K extends keyof T>(
 
 // A literal specifier lets the server bundler include the SDK. Nitro output has no `node_modules`, so a variable
 // specifier cannot load the SDK there.
-async function loadVercelSandbox(): Promise<NonNullable<VercelSandboxOptions["create"]>> {
+export async function loadVercelSandbox(): Promise<NonNullable<VercelSandboxOptions["create"]>> {
   try {
     const { Sandbox } = await import("@vercel/sandbox");
     return async (options: VercelSandboxCreateOptions) =>
@@ -253,7 +253,8 @@ function createVercelSession(
   const startCommand = (options: Parameters<RuntimeSession["run"]>[0]) => {
     options.abortSignal?.throwIfAborted();
     return instance.runCommand({
-      args: ["-lc", options.command],
+      // Not a login shell: a profile, such as Debian's /etc/profile in a custom image, would set PATH again and drop `env.PATH`.
+      args: ["-c", options.command],
       cmd: "sh",
       cwd: options.workingDirectory ?? workspace,
       detached: true,

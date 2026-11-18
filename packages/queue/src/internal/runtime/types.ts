@@ -1,4 +1,4 @@
-import type { QueueProviderOptions, ResolvedQueueOptions } from "../../types.ts"
+import type { QueueDriverOptions, ResolvedQueueOptions } from "../../types.ts"
 
 /** Only the generated development integration enables handler error details. */
 interface QueueDevelopmentOptions {
@@ -6,4 +6,4 @@ interface QueueDevelopmentOptions {
 }
 
 export type QueueRuntimeOptions = ResolvedQueueOptions & QueueDevelopmentOptions
-export type QueueRuntimeProviderOptions = QueueProviderOptions & QueueDevelopmentOptions
+export type QueueRuntimeDriverOptions = QueueDriverOptions & QueueDevelopmentOptions

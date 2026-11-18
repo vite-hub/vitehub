@@ -1,6 +1,5 @@
-import { formatDiagnostic } from "nostics"
-
 import { parserHash } from "./commit-cache.ts"
+import { warnDiagnostic } from "./diagnostic-log.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { contentKV } from "./kv.ts"
 
@@ -63,7 +62,7 @@ type CommitPage = { commits: GitHubFileCommit[], more: boolean }
 function limitOf(options: ContentHistoryOptions): number {
   const limit = options.limit ?? 20
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
-    throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.history() limit must be an integer from 1 to 100." })
+    throw contentErrorDiagnostics.CONTENT_HISTORY_INPUT_INVALID({ problem: "limit must be an integer from 1 to 100." })
   }
   return limit
 }
@@ -160,7 +159,7 @@ export function createContentHistory(runtime: ContentHistoryRuntime): ContentHis
     if (await definition.authenticated()) return true
     if (!warned.has(source)) {
       warned.add(source)
-      console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0040({ source })))
+      warnDiagnostic(contentErrorDiagnostics.CONTENT_R0040({ source }))
     }
     return false
   }
@@ -171,7 +170,7 @@ export function createContentHistory(runtime: ContentHistoryRuntime): ContentHis
     // The cursor of a Source page is the number of commits that earlier calls returned.
     let position = cursor === undefined ? 0 : Number(cursor)
     if (cursor !== undefined && (!/^\d+$/.test(cursor) || !Number.isSafeInteger(position))) {
-      throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.history() received the cursor ${JSON.stringify(cursor)}, which is not a cursor of a Source page. Pass the cursor of the previous call.` })
+      throw contentErrorDiagnostics.CONTENT_HISTORY_CURSOR_INVALID({ cursor })
     }
     const sha = await runtime.published(source)
     if (!sha) return { entries: [] }
@@ -197,10 +196,10 @@ export function createContentHistory(runtime: ContentHistoryRuntime): ContentHis
    */
   async function history(path: string, options: ContentHistoryOptions = {}): Promise<ContentHistoryResult | null> {
     if (typeof path !== "string" || !path) {
-      throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.history() requires an app path such as \"/docs/guide\"." })
+      throw contentErrorDiagnostics.CONTENT_HISTORY_INPUT_INVALID({ problem: "requires an app path such as \"/docs/guide\"." })
     }
     if (options === null || typeof options !== "object") {
-      throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.history() options must be an object." })
+      throw contentErrorDiagnostics.CONTENT_HISTORY_INPUT_INVALID({ problem: "options must be an object." })
     }
     const limit = limitOf(options)
     const document = await runtime.resolve?.(path)

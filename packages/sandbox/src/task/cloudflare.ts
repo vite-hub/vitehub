@@ -26,6 +26,7 @@ const cloudflareSandboxPackages = 'ca-certificates curl file git jq procps tini 
 const durableObjectModule = '@vite-hub/sandbox/_internal/cloudflare'
 
 // @cloudflare/sandbox 1.0 exports only the `import` condition, so `require.resolve` cannot find it.
+// Reported upstream: https://github.com/cloudflare/sandbox-sdk/issues/1053.
 function resolveModule(id: string) {
   return resolvePathSync(id, { conditions: ['workerd', 'worker', 'import', 'default'], url: import.meta.url })
 }

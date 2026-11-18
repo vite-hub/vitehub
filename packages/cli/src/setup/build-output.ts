@@ -8,7 +8,7 @@ import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { isRecord, optionalString } from "./deploy/host.ts"
 import { setupFailure, setupExitCodes } from "./envelope.ts"
 
-import type { DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
+import type { DeploymentDeployManifest, DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { DeployHost } from "./deploy/host.ts"
 import type { SetupProject } from "./project.ts"
@@ -30,6 +30,13 @@ export interface BuildOutput {
   identityName?: string
   /** The host variable names that the app reads, from `env` of `deployment.json`. Empty when the build lists none. */
   env: DeploymentEnvEntry[]
+  /**
+   * The folder of the stage env files that the app loads: Vite's resolved `envDir`, from `deployment.json`. It is
+   * `false` when the app loads no env file, and the project root for a build that does not record it.
+   */
+  envDir: string | false
+  /** What deploy does after the upload: the paths to check and the IndexNow submission. Empty when the build has none. */
+  deploy: DeploymentDeployManifest
 }
 
 function stringList(value: unknown): string[] {
@@ -55,6 +62,16 @@ function readEnvEntry(value: unknown): DeploymentEnvEntry[] {
   }]
 }
 
+/** `deploy` of `deployment.json`. Only paths that start with one `/` and a key that IndexNow accepts. */
+function readDeploy(value: unknown): DeploymentDeployManifest {
+  if (!isRecord(value)) return { check: [] }
+  const check = stringList(value.check).filter(path => path.startsWith("/") && !path.startsWith("//"))
+  const indexNow = isRecord(value.indexNow) ? value.indexNow : undefined
+  const key = optionalString(indexNow?.key)
+  const url = optionalString(indexNow?.url)
+  return { check, ...(key && /^[\w-]{8,128}$/u.test(key) && url && URL.canParse(url) ? { indexNow: { key, url: new URL(url).origin } } : {}) }
+}
+
 /** Reads `<output>/deployment.json`, which the build writes, and checks that it is for `host`. */
 export async function readBuildOutput(root: string, host: DeployHost): Promise<BuildOutput> {
   const outputDir = join(root, resolveDeploymentPlan(host).output.directory)
@@ -70,5 +87,8 @@ export async function readBuildOutput(root: string, host: DeployHost): Promise<B
   if (built !== host) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_HOST_MISMATCH({ built: built ?? "an unknown host", host }), setupExitCodes.conflict)
   const identityName = isRecord(manifest) && isRecord(manifest.identity) ? optionalString(manifest.identity.name) : undefined
   const env = isRecord(manifest) && Array.isArray(manifest.env) ? manifest.env.flatMap(readEnvEntry) : []
-  return { env, outputDir, ...(identityName ? { identityName } : {}) }
+  const recordedEnvDir = isRecord(manifest) ? manifest.envDir : undefined
+  const envDir = recordedEnvDir === false ? false : typeof recordedEnvDir === "string" ? join(outputDir, recordedEnvDir) : root
+  const deploy = readDeploy(isRecord(manifest) ? manifest.deploy : undefined)
+  return { deploy, env, envDir, outputDir, ...(identityName ? { identityName } : {}) }
 }

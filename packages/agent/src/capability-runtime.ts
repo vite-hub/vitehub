@@ -5,6 +5,7 @@ import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { agentStreamErrorSymbol } from "./agent-output.ts"
 import { hostObservability, isHostObservabilityCapability } from "./internal/observability-host.ts"
 import { asUnknownBoundary, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { isSourceSkillsOf } from "./internal/source-skills.ts"
 import { resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
@@ -1225,6 +1226,10 @@ async function applyCapabilityWorkspaceContributions<
           && sameGitHubSourceScope(prOptions, existingOptions)
           && !registries.some(entry => entry.sources.includes(key))) {
           delete remaining[key]
+          // The checkout holds the replaced Source's Skills itself, so the Skill Sources mounted inside it go too.
+          for (const skillsKey of Object.keys(remaining)) {
+            if (isSourceSkillsOf(skillsKey, key)) delete remaining[skillsKey]
+          }
           replacedSources.add("vitehubGitHubPullRequest")
           continue
         }

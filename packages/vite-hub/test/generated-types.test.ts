@@ -100,6 +100,7 @@ async function createNestedProject() {
 function collectionModule(name: string): string {
   return [
     `export const ${name} = {`,
+    `  access: "public" as const,`,
     `  async page() { return { items: [], nextCursor: null } },`,
     `  async parseQuery(input: object) { return input },`,
     `}`,
@@ -893,6 +894,7 @@ export default defineContent(${options})
     await write(`{ llms: { title: "Docs" } }`)
     const llms = join(root, ".vitehub/content/llms.mjs")
     expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).filter((handler: { route?: string }) => handler.route !== undefined)).toEqual([
+      { handler: llms, method: "get", route: "/:locale/llms-full.txt" },
       { handler: join(root, ".vitehub/content/markdown.mjs"), middleware: true, lazy: false, route: "/**" },
       { handler: llms, method: "get", route: "/llms-full.txt" },
       { handler: llms, method: "get", route: "/llms.txt" },
