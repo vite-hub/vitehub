@@ -17,8 +17,7 @@ export interface ContentSourceOptions {
   /**
    * The public URL of each document, such as `/:id` or `/docs/:id`. The id is the document path without its leading
    * slash, such as `guides/start`, and `:<name>` reads a frontmatter value. `defineContent({ seo: { sitemap: true } })`
-   * lists the documents of a Source with a `url`. A function that reads only `key` lets a read of one page by its URL,
-   * such as `content.markdown("/docs/kv.md")`, read only that file.
+   * lists the documents of a Source with a `url`.
    */
   url?: ContentDocumentUrl
   /** The display name of the Source, such as its `llms.txt` section. Defaults to the Source name in title case. */

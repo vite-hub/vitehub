@@ -11,6 +11,7 @@ vi.mock("#docs/content", () => ({ content: undefined }))
 vi.mock("#docs/example-sources", () => ({ default: {} }))
 vi.mock("#docs/image-sizes", () => ({ default: {} }))
 vi.mock("#docs/agent", () => ({ default: { llms: {} } }))
+vi.mock("nitro", () => ({ serverFetch: () => new Response(null, { status: 404 }) }))
 vi.mock("nitro/runtime-config", () => ({ useRuntimeConfig: () => ({ public: { docs: { appBase: "/", site: { name: "Docs", url: "", description: "" }, mcp: false } } }) }))
 vi.mock("#docs/parser", () => ({ default: { plugins: [{ name: "count-parses", post: parsed }] }, githubRepo: null }))
 vi.mock("#docs/manifest", async () => {
@@ -80,11 +81,39 @@ it.each([undefined, "docs-1"])("reads packed production pages from %s through Co
   expect(response.status).toBe(200)
   expect(JSON.stringify(await response.json())).toContain("Only in the production bundle.")
   const { docsContent } = await import("../src/runtime/content.ts")
-  const copy = await docsContent().markdown("/raw/docs/kv.md")
+  const { default: raw } = await import("../src/runtime/server/raw.ts")
+  const rawServer = new H3().get("/raw/**", raw)
+  const copy = await (await rawServer.fetch(new Request("https://docs.example.com/raw/docs/kv.md"))).text()
   expect(copy).toContain("Rewritten for agents.")
   expect(copy).not.toContain("Only in the production bundle.")
   expect((await docsContent().page("/docs/kv"))?.content).toContain("Rewritten for agents.")
   expect(read).not.toHaveBeenCalled()
+})
+
+it("serves exact raw URLs and reads only the requested page on a cold runtime", async () => {
+  const { default: manifest } = await import("#docs/manifest")
+  const { findDocsPage } = await import("../src/navigation.ts")
+  const page = findDocsPage(manifest, "/docs/kv")!.page
+  const fixtures = [
+    { ...page, path: "/docs/Guide", file: "upper.md" },
+    { ...page, path: "/docs/guide", file: "lower.md" },
+    { ...page, path: "/docs/missing", file: "missing.md" },
+  ]
+  manifest.pages.push(...fixtures)
+  onTestFinished(() => { manifest.pages.splice(-fixtures.length) })
+  read.mockImplementation((store: string, file: string) => store === "docs" && file !== "missing.md" ? `Body of ${file}` : null)
+  const { default: raw } = await import("../src/runtime/server/raw.ts")
+  const { default: markdown } = await import("../src/runtime/server/markdown.ts")
+  const server = new H3().use(markdown).get("/raw/**", raw)
+  const request = (path: string) => server.fetch(new Request(`https://docs.example.com${path}`))
+
+  expect(await (await request("/docs/Guide.md")).text()).toContain("Body of upper.md")
+  expect(read.mock.calls.filter(([store]) => store === "docs")).toEqual([["docs", "upper.md"]])
+  expect(await (await request("/raw/docs/Guide.md")).text()).toContain("Body of upper.md")
+  expect(await (await request("/raw/docs/guide.md")).text()).toContain("Body of lower.md")
+  for (const path of ["/raw/docs/GUIDE.md", "/raw/docs/guide/.md", "/raw/docs/missing.md"]) {
+    expect((await request(path)).status).toBe(404)
+  }
 })
 
 it("retries a page after storage or parsing fails", async () => {

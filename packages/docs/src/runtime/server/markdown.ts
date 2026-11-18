@@ -1,5 +1,8 @@
 import { defineContentMarkdownHandler } from "@vite-hub/content/markdown"
 import { serverFetch } from "nitro"
+import { useRuntimeConfig } from "nitro/runtime-config"
+
+import { docsAppPath } from "../../navigation.ts"
 
 import type { ContentMiddleware } from "@vite-hub/content/markdown"
 
@@ -8,9 +11,16 @@ import type { ContentMiddleware } from "@vite-hub/content/markdown"
  * Content converts the HTML that Nitro renders for the same request. nuxt-agent-discovery answers the docs pages first.
  * Content loads on the first request that asks for Markdown or gets an HTML page.
  */
-const handler: ContentMiddleware = defineContentMarkdownHandler(
-  () => import("../content.ts").then(module => module.docsContent()),
+const markdown = defineContentMarkdownHandler(
+  () => import("../content.ts").then(module => module.docsMarkdownContent()),
   { render: request => serverFetch(request) },
 )
+
+const handler: ContentMiddleware = async (event, next) => {
+  const path = new URL(event.req.url).pathname
+  const raw = docsAppPath("/raw/", useRuntimeConfig().public.docs.appBase)
+  if (path.startsWith("/raw/") || path.startsWith(raw)) return await next?.()
+  return await markdown(event, next)
+}
 
 export default handler

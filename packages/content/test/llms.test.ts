@@ -9,7 +9,7 @@ import { files } from "@vite-hub/source"
 import { acceptsMarkdown, contentSource, defineContent, defineContentLlmsHandler, defineContentMarkdownHandler, renderContentLlms, renderContentMarkdownNotFound, renderContentSitemapMarkdown, seo } from "../src/index.ts"
 import { historyWorkspace } from "./history-workspace.ts"
 
-import type { ContentSourceOptions, DefineContentSeoOptions } from "../src/index.ts"
+import type { DefineContentSeoOptions } from "../src/index.ts"
 
 const cleanup: Array<() => Promise<void> | void> = []
 
@@ -395,51 +395,109 @@ describe("llms files of Sources", { timeout: 30_000 }, () => {
     expect(await content.page("/guide")).toMatchObject({ url: "https://example.com/portal/guide" })
   })
 
-  /** A Source whose `url` reads only the file key, as a docs manifest gives it, and that counts its reads. */
-  function indexedSite(options: Pick<ContentSourceOptions, "seo"> = {}) {
-    const pages: Record<string, string> = {
-      "guide.md": "---\ntitle: Guide\ndescription: Start here.\n---\nRead the guide.\n",
-      "about.md": "---\ntitle: About\n---\nAbout us.\n",
-      "logo.svg": "<svg/>",
-    }
-    const urls: Record<string, string> = { "guide.md": "/docs/guide", "about.md": "/about", "logo.svg": "/logo" }
-    const reads: string[] = []
+  it("looks up only published Markdown pages through Comark", async () => {
+    const pages: Record<string, string> = { "guide.md": "Read the guide.", "hidden.md": "Hidden", "empty.md": "", "logo.svg": "<svg/>" }
     const source = {
       keys: async () => Object.keys(pages),
-      getItem: async (key: string) => {
-        reads.push(key)
-        return pages[key] ?? ""
-      },
+      getItem: async (key: string) => pages[key] ?? "",
       getItemRaw: async (key: string) => pages[key],
     }
     const content = defineContent({
       route: false,
       logger: false,
-      sources: { docs: contentSource(source, { url: ({ key }) => key === undefined ? null : urls[key] ?? null, ...options }) },
-      seo: { site: "https://example.com", markdown: { prefix: "/raw" }, llms: true, mcp: true },
+      sources: { docs: contentSource(source, {
+        url: ({ key }) => key === "guide.md" ? "/docs/../guide" : key === "logo.svg" ? "/guide/" : `/${key?.split(".")[0]}`,
+      }) },
+      seo: { site: "https://example.com", markdown: true },
     })
     cleanup.push(() => content.dispose())
-    return { content, reads }
-  }
-
-  it("reads one page by its URL through the URL index, without reading the other files", async () => {
-    const { content, reads } = indexedSite()
-    expect(await content.markdown("/raw/docs/guide.md")).toBe("# Guide\n\n> Start here.\n\nRead the guide.\n")
-    expect(reads).toEqual(["guide.md"])
-    expect(await content.hasMarkdown("/docs/guide.md")).toBe(true)
-    expect(await content.page("/about")).toMatchObject({ title: "About", path: "/about", url: "https://example.com/about" })
-    expect(await content.markdown("/raw/missing.md")).toBeNull()
-    expect(await content.markdown("/raw/logo.md")).toBeNull()
-    expect(reads).toEqual(["guide.md", "guide.md", "about.md", "logo.svg"])
-    // The listing reads every file, and gives the same copy.
-    expect((await content.llms({ file: "llms-full.txt" }))).toContain("Read the guide.")
-    expect(await content.markdown("/raw/docs/guide.md")).toBe("# Guide\n\n> Start here.\n\nRead the guide.\n")
+    content.from("docs").hooks.hook("file:parsed", (context) => {
+      if (context.file?.meta.key === "docs/hidden.md") context.file = null
+      if (context.file?.meta.key === "docs/guide.md") context.file.data.title = "Published guide"
+    })
+    expect(await content.markdown("/guide.md")).toContain("# Published guide")
+    expect(await content.page("/guide")).toMatchObject({ title: "Published guide" })
+    expect(await content.hasMarkdown("/guide.md")).toBe(true)
+    for (const path of ["/hidden", "/empty"]) {
+      expect(await content.hasMarkdown(`${path}.md`)).toBe(false)
+      expect(await content.markdown(`${path}.md`)).toBeNull()
+      expect(await content.page(path)).toBeNull()
+    }
+    delete pages["guide.md"]
+    pages["new.md"] = "New copy"
+    await content.cache.snapshot("docs")
+    expect(await content.hasMarkdown("/guide.md")).toBe(false)
+    expect(await content.markdown("/new.md")).toContain("New copy")
   })
 
-  it("reads through the listing when an option reads the id of a page", async () => {
-    const { content } = indexedSite({ seo: ({ id }) => ({ title: `Page ${id}` }) })
-    expect(await content.markdown("/raw/docs/guide.md")).toBe("# Page guide\n\n> Start here.\n\nRead the guide.\n")
-    expect(await content.page("/about")).toMatchObject({ title: "Page about" })
+  it("gives URL and copy callbacks the adapted Source document", async () => {
+    const content = defineContent({
+      route: false,
+      logger: false,
+      sources: { docs: contentSource(files({ "guide.md": "---\nslug: start\n---\nGuide" }, { prefix: "manual" }), {
+        url: (document) => {
+          try {
+            return document.key === "manual/guide.md" ? `/${document.data.slug}` : null
+          }
+          catch {
+            return null
+          }
+        },
+        markdown: (page) => {
+          try {
+            return `Copy of ${page.id}`
+          }
+          catch {
+            return null
+          }
+        },
+      }) },
+      seo: { markdown: true },
+    })
+    cleanup.push(() => content.dispose())
+    expect(await content.hasMarkdown("/start.md")).toBe(true)
+    expect(await content.markdown("/start.md")).toContain("Copy of manual/guide")
+  })
+
+  it("uses real frontmatter and IDs even when route callbacks catch errors", async () => {
+    const content = defineContent({
+      route: false,
+      logger: false,
+      sources: {
+        routed: contentSource(files({ "guide.md": "---\nslug: start\n---\nGuide" }), {
+          url: (document) => {
+            try {
+              return `/${document.data.slug}`
+            }
+            catch {
+              return null
+            }
+          },
+        }),
+        rendered: contentSource(files({ "about.md": "About" }), {
+          url: () => "/about",
+          seo: (document) => {
+            try {
+              return { title: `Page ${document.id}` }
+            }
+            catch {
+              return { title: "Unknown" }
+            }
+          },
+          markdown: (page) => {
+            try {
+              return `${page.title}: ${page.id}`
+            }
+            catch {
+              return null
+            }
+          },
+        }),
+      },
+    })
+    cleanup.push(() => content.dispose())
+    expect(await content.markdown("/start.md")).toContain("Guide")
+    expect(await content.markdown("/about.md")).toBe("Page about: about")
   })
 
   it("rejects page options without a url, and a prefix with a trailing slash", () => {
