@@ -54,7 +54,7 @@ describe("vitehub init", () => {
     expect(files[".gitignore"]!.split("\n")).toContain(".vitehub")
 
     // The config is the fixture with the host and one key per feature.
-    const fixture = (await readFile(join(installation, "vite.config.ts"), "utf8")).replace("vitehub({ host: \"node\" })", "VITEHUB")
+    const fixture = (await readFile(join(installation, "vite.config.ts"), "utf8")).replace("vitehub()", "VITEHUB")
     const config = files["vite.config.ts"]!
     expect(config.replace(/vitehub\(\{.*\}\)/u, "VITEHUB")).toBe(fixture)
     expect(locateViteHubConfig("vite.config.ts", config)).toMatchObject({

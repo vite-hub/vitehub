@@ -428,7 +428,9 @@ export const portabilityExamples = [
       "",
       "export default defineEventHandler(async (event) => {",
       "  const { email } = await readBody<{ email: string }>(event)",
-      '  return startWorkflow("onboard-user", { email })',
+      '  const [error, run] = await startWorkflow("onboard-user", { email })',
+      "  if (error) throw error",
+      "  return run",
       "})",
     ],
     hosts: [

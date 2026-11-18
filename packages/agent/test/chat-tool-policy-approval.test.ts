@@ -73,7 +73,7 @@ function harness() {
 const user = { id: "user-message-1", parts: [{ text: "Refund my order.", type: "text" }], role: "user" }
 
 async function send(handler: ReturnType<typeof createChannelChatRouteHandler>, messages: unknown[]): Promise<Chunk[]> {
-  const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+  const response = await handler(new Request("https://example.com/_vitehub/agents/support/chat", {
     body: JSON.stringify({ id: "thread-1", messages }),
     headers: { "content-type": "application/json" },
     method: "POST",

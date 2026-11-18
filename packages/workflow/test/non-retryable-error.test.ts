@@ -13,6 +13,7 @@ import { createWorkflowSteps } from "../src/runtime/execute.ts"
 import { resetOpenWorkflowRuntime } from "../src/runtime/openworkflow.ts"
 import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { unwrap } from "./unwrap.ts"
 
 const calls: string[] = []
 const caught: unknown[] = []
@@ -150,10 +151,10 @@ describe("Inline runs", () => {
     setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({ decline: async () => ({ default: definition }) })
 
-    const started = await startWorkflow("decline")
+    const started = await unwrap(startWorkflow("decline"))
 
     await vi.waitFor(async () => {
-      await expect(getWorkflowRun("decline", started.id)).resolves.toMatchObject({
+      await expect(unwrap(getWorkflowRun("decline", started.id))).resolves.toMatchObject({
         error: { message: "card declined", name: "NonRetryableError" },
         status: "failed",
       })
@@ -183,12 +184,12 @@ describe("OpenWorkflow (SQLite)", () => {
   }
 
   it("fails the run at once when a step file throws it, and reports the step as failed", async () => {
-    const started = await startWorkflow("declineInStep")
+    const started = await unwrap(startWorkflow("declineInStep"))
 
     await tick()
     await tick()
 
-    const run = await getWorkflowRun("declineInStep", started.id)
+    const run = await unwrap(getWorkflowRun("declineInStep", started.id))
     expect(run).toMatchObject({ error: { message: "card declined", name: "NonRetryableError" }, status: "failed" })
     expect(run.steps).toEqual([
       expect.objectContaining({ attempt: 1, error: { message: "card declined" }, name: "declineInStep/01.charge.ts", status: "failed" }),
@@ -197,12 +198,12 @@ describe("OpenWorkflow (SQLite)", () => {
   })
 
   it("fails the run at once when a single-file handler throws it", async () => {
-    const started = await startWorkflow("decline")
+    const started = await unwrap(startWorkflow("decline"))
 
     await tick()
     await tick()
 
-    await expect(getWorkflowRun("decline", started.id)).resolves.toMatchObject({
+    await expect(unwrap(getWorkflowRun("decline", started.id))).resolves.toMatchObject({
       error: { message: "card declined", name: "NonRetryableError" },
       status: "failed",
     })
@@ -210,15 +211,15 @@ describe("OpenWorkflow (SQLite)", () => {
   })
 
   it("throws the same error again on replay, without running the step again", async () => {
-    const started = await startWorkflow("refund")
+    const started = await unwrap(startWorkflow("refund"))
 
     await tick()
-    await expect(getWorkflowRun("refund", started.id)).resolves.toMatchObject({ status: "running" })
+    await expect(unwrap(getWorkflowRun("refund", started.id))).resolves.toMatchObject({ status: "running" })
 
     await delay(300)
     await tick()
 
-    await expect(getWorkflowRun("refund", started.id)).resolves.toMatchObject({ result: "refunded", status: "completed" })
+    await expect(unwrap(getWorkflowRun("refund", started.id))).resolves.toMatchObject({ result: "refunded", status: "completed" })
     expect(calls).toEqual(["charge"])
     expect(caught).toHaveLength(2)
     for (const error of caught) {

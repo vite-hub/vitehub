@@ -673,6 +673,112 @@ export async function linkWorkflow() {
   }
 })
 
+it("bundles native Vercel steps that import a Markdown template and an optional package the app did not install", { timeout: buildOutputTestTimeout }, async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-native-step-resolution-")
+  const workflowDir = join(rootDir, "server", "workflows")
+  await mkdir(workflowDir, { recursive: true })
+  // An Agent-like package loads `@vite-hub/kv` lazily. The empty package hides the playground's copy, as in an app without it.
+  await mkdir(join(rootDir, "node_modules", "agent-like"), { recursive: true })
+  await writeFile(join(rootDir, "node_modules", "agent-like", "package.json"), JSON.stringify({ name: "agent-like", type: "module", exports: "./index.js" }))
+  await writeFile(join(rootDir, "node_modules", "agent-like", "index.js"), 'export const loadKV = () => import("@vite-hub/kv")\n')
+  await mkdir(join(rootDir, "node_modules", "@vite-hub", "kv"), { recursive: true })
+  await writeFile(join(rootDir, "node_modules", "@vite-hub", "kv", "package.json"), JSON.stringify({ name: "@vite-hub/kv", type: "module", exports: {} }))
+  await writeFile(join(workflowDir, "prompt.md"), "Summarize the call from {{ data.name }}.\n")
+  await writeFile(join(workflowDir, "summary.ts"), `
+import { loadKV } from "agent-like"
+import renderPrompt from "./prompt.md?markdown-template"
+export async function promptStep(name: string) {
+  "use step"
+  if (name === "kv") await loadKV()
+  return await renderPrompt({ name })
+}
+export async function summary(name: string) {
+  "use workflow"
+  return await promptStep(name)
+}
+`)
+  await writeFile(join(workflowDir, "summarize.ts"), 'import { summary } from "./summary.ts"\nexport default { handler: async () => undefined, options: { native: summary } }\n')
+
+  await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), rootDir, workflow: { driver: "vercel" } })
+
+  const output = await readFile(join(rootDir, ".vercel/output/functions/.well-known/workflow/v1/flow.func/index.mjs"), "utf8")
+  const steps = output.slice(0, output.indexOf("workflowCode ="))
+  expect(steps).toContain("Summarize the call from {{ data.name }}.")
+  expect(steps).toContain('Cannot find package "@vite-hub/kv". Install it to use it in a Workflow.')
+  expect(steps).not.toMatch(/import\(["']@vite-hub\/kv["']\)/)
+  expect(steps).toContain('"step//./server/workflows/summary//promptStep"')
+})
+
+it.each(["regular", "symlinked"])("uses the %s project tsconfig for native Vercel steps", { timeout: buildOutputTestTimeout }, async (config) => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-native-tsconfig-")
+  const workflowDir = join(rootDir, "server", "workflows")
+  await mkdir(workflowDir, { recursive: true })
+  await writeFile(join(workflowDir, "tsconfig.json"), "{}")
+  const tsconfig = JSON.stringify({ compilerOptions: { paths: { "@app/*": ["./server/*"] } } })
+  if (config === "symlinked") {
+    await mkdir(join(rootDir, "config"))
+    await writeFile(join(rootDir, "config", "tsconfig.json"), tsconfig)
+    await symlink("config/tsconfig.json", join(rootDir, "tsconfig.json"), "file")
+  }
+  else {
+    await writeFile(join(rootDir, "tsconfig.json"), tsconfig)
+  }
+  await writeFile(join(rootDir, "server", "helper.ts"), 'export const message = "resolved by the project tsconfig"\n')
+  await writeFile(join(workflowDir, "summary.ts"), `
+import { message } from "@app/helper"
+async function summarizeStep() {
+  "use step"
+  return message
+}
+async function summary() {
+  "use workflow"
+  return await summarizeStep()
+}
+export default { handler: async () => undefined, options: { native: summary } }
+`)
+
+  await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), rootDir, workflow: { driver: "vercel" } })
+
+  const output = await readFile(join(rootDir, ".vercel/output/functions/.well-known/workflow/v1/flow.func/index.mjs"), "utf8")
+  expect(output.slice(0, output.indexOf("workflowCode ="))).toContain("resolved by the project tsconfig")
+})
+
+it("lists bundled package steps in the Vercel manifest when package discovery is disabled", { timeout: buildOutputTestTimeout }, async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-native-manifest-")
+  const workflowDir = join(rootDir, "server", "workflows")
+  const packageDir = join(rootDir, "node_modules", "step-helpers")
+  await mkdir(workflowDir, { recursive: true })
+  await mkdir(packageDir, { recursive: true })
+  await writeFile(join(packageDir, "package.json"), JSON.stringify({ name: "step-helpers", type: "module", exports: "./index.js" }))
+  await writeFile(join(packageDir, "index.js"), 'export async function packageStep() { "use step"; return "package step" }\n')
+  await writeFile(join(workflowDir, "summary.ts"), `
+import { packageStep } from "step-helpers"
+async function summarizeStep() {
+  "use step"
+  return await packageStep()
+}
+async function summary() {
+  "use workflow"
+  return await summarizeStep()
+}
+export default { handler: async () => undefined, options: { native: summary } }
+`)
+
+  vi.stubEnv("WORKFLOW_DISCOVER_NODE_MODULES", "0")
+  try {
+    await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), rootDir, workflow: { driver: "vercel" } })
+  }
+  finally {
+    vi.unstubAllEnvs()
+  }
+
+  const outputDir = join(rootDir, ".vercel/output/functions/.well-known/workflow/v1")
+  const stepId = "step//./node_modules/step-helpers/index//packageStep"
+  const output = await readFile(join(outputDir, "flow.func/index.mjs"), "utf8")
+  expect(output.slice(0, output.indexOf("workflowCode ="))).toContain(stepId)
+  await expect(readFile(join(outputDir, "manifest.json"), "utf8")).resolves.toContain(stepId)
+})
+
 it("keeps native Workflow and step IDs stable across staged builds", { timeout: buildOutputTestTimeout * 2 }, async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-stable-ids-")
   const workflowDir = join(rootDir, "server", "workflows")
@@ -734,7 +840,7 @@ it("gives a Schedule function the native Workflow IDs of the flow function on ev
   await writeFile(join(rootDir, "src", "server.ts"), `export default { fetch: () => new Response("ok") }\n`)
   await writeFile(join(rootDir, "server", "workflows", "durable.ts"), `export async function greet(name: string) {\n  "use step"\n  return "hello " + name\n}\nexport async function durable(name: string) {\n  "use workflow"\n  return await greet(name)\n}\n`)
   await writeFile(join(rootDir, "server", "workflows", "welcome.ts"), `import { defineWorkflow } from "@vite-hub/workflow"\nimport { durable } from "./durable.ts"\n\nexport default defineWorkflow("welcome", async () => "inline", { native: durable })\n`)
-  await writeFile(join(rootDir, "src", "nightly.schedule.ts"), `import { defineSchedule } from "@vite-hub/schedule"\nimport { startWorkflow } from "@vite-hub/workflow"\n\nexport default defineSchedule({\n  cron: "0 3 * * *",\n  handler: async () => {\n    await startWorkflow("welcome", "Ava")\n  },\n})\n`)
+  await writeFile(join(rootDir, "src", "nightly.schedule.ts"), `import { defineSchedule } from "@vite-hub/schedule"\nimport { startWorkflow } from "@vite-hub/workflow"\n\nexport default defineSchedule({\n  cron: "0 3 * * *",\n  handler: async () => {\n    const [error] = await startWorkflow("welcome", "Ava")\n    if (error) throw error\n  },\n})\n`)
 
   const ids = (text: string) => [...new Set(text.match(/(?:workflow|step)\/\/\.\/[^"]+?\/\/(?:durable|greet)/g))].sort()
   const build = async () => {

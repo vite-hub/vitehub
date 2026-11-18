@@ -11,11 +11,11 @@ import { readViteHubVersion } from "./version.ts"
 import type { Plugin } from "vite"
 
 export interface HealthOptions {
-  /** The route that answers the health check. Default: `/api/_vitehub/health`. */
+  /** The route that answers the health check. Default: `/_vitehub/health`. */
   route?: string
 }
 
-export const defaultHealthRoute = "/api/_vitehub/health"
+export const defaultHealthRoute = "/_vitehub/health"
 
 /** How long one Database, KV store, or Blob store may take to answer the health check. */
 export const healthCheckTimeoutMs = 2_000
