@@ -291,6 +291,13 @@ export const vitehubTheme = {
     },
     compoundVariants: [{ transition: true, class: { content: "data-[state=open]:animate-none data-[state=closed]:animate-none" } }],
   },
+  // The motion layer of `@vite-hub/ui/motion` moves the knob, so it has no transition of its own. As in the prototype of
+  // docs/design/motion.md, the knob is smaller while the switch is off and lands larger when it turns on.
+  switch: {
+    slots: {
+      thumb: "transition-none data-[state=unchecked]:scale-75",
+    },
+  },
   table: {
     slots: {
       th: "h-9 px-2.5 py-2 text-xs font-medium text-muted",
@@ -298,7 +305,8 @@ export const vitehubTheme = {
     },
   },
   // Tabs are an underline under the active label, as on vitehub.dev and in Vercel's dashboard, not a segmented pill.
-  // The label keeps its weight, so switching moves nothing.
+  // The label keeps its weight, so switching moves nothing. The indicator gets no CSS transition: the select effect of
+  // the motion layer moves it with a spring.
   tabs: {
     defaultVariants: {
       color: "neutral",
@@ -308,7 +316,7 @@ export const vitehubTheme = {
     slots: {
       list: "gap-1",
       trigger: "data-[state=inactive]:text-muted data-[state=active]:text-highlighted hover:data-[state=inactive]:not-disabled:text-highlighted",
-      indicator: "bg-(--ui-text-highlighted)",
+      indicator: "bg-(--ui-text-highlighted) transition-none",
     },
     variants: {
       size: {
