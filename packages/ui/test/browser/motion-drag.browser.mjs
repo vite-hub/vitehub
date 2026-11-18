@@ -44,6 +44,11 @@ async function open(query = "", options = {}) {
   return { context, errors, page }
 }
 
+/** The box of an element after it is scrolled into view, so the mouse can reach it on a page that grows with each unit. */
+async function boxInView(locator) {
+  await locator.scrollIntoViewIfNeeded()
+  return locator.boundingBox()
+}
 
 const sliders = [
   { name: "USlider", root: "[data-test=slider]", track: "[data-test=slider] [data-slot=track]", value: "[data-test=slider] [role=slider]", thumb: "[data-test=slider] [role=slider]" },
@@ -82,7 +87,7 @@ async function sampleSlider(page, slider) {
 
 /** Drags from 20% to 85% of the track in a few big steps, a fast flick, holds, then lets go. */
 async function flick(page, slider, { hold = 400 } = {}) {
-  const box = await page.locator(slider.track).boundingBox()
+  const box = await boxInView(page.locator(slider.track))
   const y = box.y + box.height / 2
   const thumb = await page.locator(slider.thumb).boundingBox()
   await page.mouse.move(thumb.x + thumb.width / 2, thumb.y + thumb.height / 2)
@@ -133,7 +138,7 @@ describe("slider", () => {
   test("a flick toward the start keeps the tail inside the track too", async () => {
     const { context, page } = await open()
     const slider = sliders[0]
-    const box = await page.locator(slider.track).boundingBox()
+    const box = await boxInView(page.locator(slider.track))
     const y = box.y + box.height / 2
     const trace = await sampleSlider(page, slider)
     await page.mouse.move(box.x + box.width * 0.9, y)
@@ -194,7 +199,7 @@ describe("divider", () => {
   for (const subject of handles) {
     test(`${subject.name}: a drag past the limit bends the divider, the panel stays at its limit, and it springs back straight`, async () => {
       const { context, errors, page } = await open()
-      const box = await page.locator(subject.handle).boundingBox()
+      const box = await boxInView(page.locator(subject.handle))
       const x = box.x + box.width / 2
       const y = box.y + box.height / 2
       await page.mouse.move(x, y)
@@ -221,7 +226,7 @@ describe("divider", () => {
   test("within its limits the handle stays under the pointer on every frame, with no bend", async () => {
     const { context, page } = await open()
     for (const subject of handles) {
-      const box = await page.locator(subject.handle).boundingBox()
+      const box = await boxInView(page.locator(subject.handle))
       const x = box.x + box.width / 2
       const y = box.y + box.height / 2
       await page.evaluate((selector) => {
@@ -271,7 +276,7 @@ describe("drag motion off", () => {
     const frames = await trace.stop()
     assert.ok(frames.every(frame => frame.x === 1 && frame.y === 1), "the thumb does not stretch or grow")
     assert.ok(frames.every(frame => frame.tail === null), "there is no tail")
-    const box = await page.locator("[data-test=resize]").boundingBox()
+    const box = await boxInView(page.locator("[data-test=resize]"))
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     await page.mouse.down()
     await page.mouse.move(box.x + 150, box.y + box.height / 2, { steps: 10 })
