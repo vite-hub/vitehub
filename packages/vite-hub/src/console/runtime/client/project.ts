@@ -43,7 +43,7 @@ export function projectAppUrl(path: string): string {
 
 /**
  * A URL that the app returned, such as the served URL of a Blob file, on the project origin. A path such as
- * `/api/_vitehub/blob/a.png` gets the project origin. An absolute URL stays as it is.
+ * `/_vitehub/blob/a.png` gets the project origin. An absolute URL stays as it is.
  */
 export function resolveProjectUrl(url: string): string {
   const origin = (active.app ?? active).origin

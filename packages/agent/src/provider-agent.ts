@@ -50,9 +50,10 @@ import { agentToolJsonSchema, hasAgentToolStandardSchema } from "./tool-schema.t
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
-import { agentSteeringText } from "./internal/model-steering.ts"
+import { agentSteeringInput } from "./internal/model-steering.ts"
 import { isAuxiliaryAgentAdapterContext, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
 import { attachmentStringBytes, currentInputAttachments, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
+import { chatContextModelText, isChatReplyPartType } from "./internal/chat-message-header.ts"
 export { isArrayBufferValue, isBlobValue, isUint8ArrayValue } from "./messages.ts"
 import { workspaceAutoCommitDisabled, workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { approveAgentToolRequest, executeApprovedAgentTool, withAgentToolExecutionBudget } from "./tool-runtime.ts"
@@ -2190,13 +2191,8 @@ function providerMessageContent(message: Message, includeAttachments: boolean): 
     if (part.type === "approval-request") return JSON.stringify({ input: part.input, reason: part.reason, toolCallId: part.toolCallId || part.id, toolName: part.name, type: part.type })
     if (part.type === "approval-decision") return JSON.stringify({ approved: part.approved, reason: part.reason, toolCallId: part.id, type: part.type })
     if (part.type === "data" || part.type.startsWith("data-")) {
-      if (message.role === "assistant" && !part.type.startsWith("data-chat-reply-") && part.type !== "data-chat-user-message-context") return []
-      // Chat context parts may carry the exact text for the model in `data.modelText`.
-      const data = part.data
-      const isChatContext = part.type === "data-chat-message-header" || part.type.startsWith("data-chat-reply-") || part.type === "data-chat-user-message-context"
-      return isChatContext && typeof data === "object" && data !== null && "modelText" in data && typeof data.modelText === "string"
-        ? data.modelText
-        : JSON.stringify(data)
+      if (message.role === "assistant" && !isChatReplyPartType(part.type)) return []
+      return chatContextModelText(part) ?? JSON.stringify(part.data)
     }
     return []
   }).filter(Boolean).join("\n")
@@ -3697,9 +3693,10 @@ async function* runProvider<
       unregister = registerAgentInvocationInputHandler(invocationId, {
         async sendInput(input, inputOptions) {
           if (inputOptions.mode === "steer") {
-            const text = agentSteeringText(input)
-            if (text === undefined) return "unsupported"
-            if (!acceptingSteering || drainingSteering || !activeTurnId || !text?.trim()) return "unsupported"
+            const steering = agentSteeringInput(input)
+            if ("issue" in steering) return { outcome: "unsupported", reason: steering.issue }
+            const text = steering.text
+            if (!acceptingSteering || drainingSteering || !activeTurnId) return "unsupported"
             let finishSteering!: () => void
             const pending = new Promise<void>((resolve) => { finishSteering = resolve })
             pendingSteering.add(pending)

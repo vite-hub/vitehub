@@ -432,7 +432,7 @@ describe("blob config", () => {
     expect(normalizeBlobOptions({ serve: { access: "public" } })).toEqual({
       serve: {
         access: "public",
-        route: "/api/_vitehub/blob",
+        route: "/_vitehub/blob",
         store: "default",
       },
       store: {
@@ -587,7 +587,7 @@ describe("blob config", () => {
     })).toEqual({
       serve: {
         access: "public",
-        route: "/api/_vitehub/blob",
+        route: "/_vitehub/blob",
         store: "assets",
       },
       store: {

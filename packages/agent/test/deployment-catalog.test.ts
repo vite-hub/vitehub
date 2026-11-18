@@ -278,7 +278,7 @@ async function createDeploymentRuntimeFixture(
       const body = method === "GET" || method === "HEAD" ? undefined : "{}"
       if (adapter === "deno") {
         if (!capture.denoHandler) throw new Error("Deno server handler was not registered.")
-        return await capture.denoHandler(new Request(`https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`, {
+        return await capture.denoHandler(new Request(`https://example.com/_vitehub/agents/${agent}/${requestedRoute}`, {
           ...(body ? { body } : {}),
           headers: { "content-type": "application/json", "x-hub-signature-256": "sha256=original-signature" },
           method,
@@ -286,7 +286,7 @@ async function createDeploymentRuntimeFixture(
       }
       if (adapter === "netlify") {
         return await route.default(
-          new Request(`https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`, {
+          new Request(`https://example.com/_vitehub/agents/${agent}/${requestedRoute}`, {
             ...(body ? { body } : {}),
             headers: { "content-type": "application/json", "x-hub-signature-256": "sha256=original-signature" },
             method,
@@ -299,7 +299,7 @@ async function createDeploymentRuntimeFixture(
           },
         )
       }
-      const url = new URL(requestedRoute === "alias" ? "https://example.com/api/github/webhook/" : `https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`)
+      const url = new URL(requestedRoute === "alias" ? "https://example.com/api/github/webhook/" : `https://example.com/_vitehub/agents/${agent}/${requestedRoute}`)
       const request = new Request(url, {
         ...(body ? { body } : {}),
         headers: { "content-type": "application/json", "x-hub-signature-256": "sha256=original-signature" },
@@ -415,8 +415,8 @@ describe("generated Agent deployment catalog", () => {
     runtime = undefined
 
     for (const route of [
-      "/api/_vitehub/agents/[agent]/chat",
-      "/api/_vitehub/agents/[agent]/webhooks/custom",
+      "/_vitehub/agents/[agent]/chat",
+      "/_vitehub/agents/[agent]/webhooks/custom",
     ]) {
       await expect(createDeploymentRuntimeFixture("nitro", "support", route))
         .rejects.toThrow("Agent inspection route conflicts with the generated route")
@@ -424,7 +424,7 @@ describe("generated Agent deployment catalog", () => {
     await expect(createDeploymentRuntimeFixture(
       "nitro",
       "support",
-      "/api/_vitehub/agents/[agent]/discord/gateway",
+      "/_vitehub/agents/[agent]/discord/gateway",
       true,
     )).rejects.toThrow("Agent inspection route conflicts with the generated route")
 

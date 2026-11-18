@@ -62,7 +62,7 @@ function sent(): Array<[unknown, unknown]> {
 
 describe("Console documents client with a locale", () => {
   it("reads and writes one document in its locale, and leaves lists and schedules alone", async () => {
-    const client = createConsoleDocumentsClient("/api/_vitehub/console/documents", "content", "es")
+    const client = createConsoleDocumentsClient("/_vitehub/console/documents", "content", "es")
     await client.get("docs", "guide")
     await client.get("docs", "guide", "published")
     await client.raw("docs", "guide")
@@ -90,7 +90,7 @@ describe("Console documents client with a locale", () => {
   })
 
   it("sends no locale without one", async () => {
-    const client = createConsoleDocumentsClient("/api/_vitehub/console/documents", "content")
+    const client = createConsoleDocumentsClient("/_vitehub/console/documents", "content")
     await client.get("docs", "guide")
     await client.publish("docs", [{ digest: "digest", id: "guide" }])
     expect(sent()).toEqual([

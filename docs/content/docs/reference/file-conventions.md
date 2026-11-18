@@ -8,6 +8,8 @@ icon: i-lucide-folder-tree
 
 ViteHub finds each Definition (a file that declares one feature, such as a queue) by its path. The path, not an option in the file, sets its name, the Discovery Identity.
 
+A file in the directory convention also turns its feature on, so the app needs no key for it in the ViteHub options. A suffix file does not. See [Definition discovery](/docs/development/definition-discovery#a-definition-file-turns-its-feature-on).
+
 ## Definition files
 
 | Definition | Directory convention | Suffix convention | Discovery Identity |

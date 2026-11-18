@@ -31,7 +31,7 @@ async function setup(options: DefineCommentsOptions = {}, attachments?: Map<stri
       : {}),
     ...options,
   })
-  const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
+  const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
   const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(new URL(String(input), origin), init)
     // Browsers send Origin on writes.
@@ -128,7 +128,7 @@ describe("createRestTransport", () => {
     const stored = await ada.upload({ name: "shot.png", type: "image/png", data: Buffer.from(png).toString("base64"), subject: { kind: "drop", id: "1" } })
     expect(stored).toEqual({ key: "files/1/shot.png", name: "shot.png", type: "image/png", size: 7 })
     const url = ada.attachmentUrl(stored.key)
-    expect(url).toBe("/api/_vitehub/comments/attachments/files/1/shot.png")
+    expect(url).toBe("/_vitehub/comments/attachments/files/1/shot.png")
 
     const read = (token: string, path = url) => app.fetch(new Request(`${origin}${path}`, { headers: { "x-share-token": token } }))
     // Nobody reads a file before a message lists it.
@@ -161,7 +161,7 @@ describe("createRestTransport", () => {
       const author = { id: "ada", name: "Ada" }
       const [, denied] = await comments.create({ page: "/private", anchor, body: "Private", attachments: [key], author })
       for (let index = 0; index < 205; index++) await comments.reply(denied!.id, { body: "Private reference", attachments: [key], author })
-      const read = () => app.fetch(new Request(`${origin}/api/_vitehub/comments/attachments/${key}`, { headers: { "x-share-token": "ada" } }))
+      const read = () => app.fetch(new Request(`${origin}/_vitehub/comments/attachments/${key}`, { headers: { "x-share-token": "ada" } }))
       expect((await read()).status).toBe(404)
       await comments.create({ page: "/public", anchor, body: "Readable reference", attachments: [key], author })
       const response = await read()
@@ -177,7 +177,7 @@ describe("createRestTransport", () => {
     const files = new Map<string, Blob>([["files/evil.svg", new Blob(["<svg onload=alert(1)>"], { type: "image/svg+xml" })]])
     const { as, app } = await setup({}, files)
     await as("ada").create({ subject: { kind: "drop", id: "1" }, anchor: { kind: "page" }, body: "See", attachments: ["files/evil.svg"] })
-    const response = await app.fetch(new Request(`${origin}/api/_vitehub/comments/attachments/files/evil.svg`, { headers: { "x-share-token": "ada" } }))
+    const response = await app.fetch(new Request(`${origin}/_vitehub/comments/attachments/files/evil.svg`, { headers: { "x-share-token": "ada" } }))
     expect(response.headers.get("content-type")).toBe("application/octet-stream")
     expect(response.headers.get("content-disposition")).toBe("attachment; filename*=UTF-8''evil.svg")
   })

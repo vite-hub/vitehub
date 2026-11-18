@@ -129,6 +129,7 @@ const consoleRoutes: Record<string, ConsoleRoute> = {
   "blob": { booleans: { folded: "true", showVitehub: "true" }, numbers: ["limit"], operation: "blob.list", strings: ["cursor", "prefix", "store"] },
   "channels": { operation: "channels.list" },
   "channels/conversation": { numbers: ["limit"], operation: "channels.conversation", strings: ["agent", "channel", "cursor", "thread"] },
+  "channels/deliveries": { numbers: ["limit"], operation: "channels.deliveries", strings: ["agent", "channel"] },
   "channels/export": { booleans: { media: "true" }, operation: "conversations.export", strings: ["agent", "channel", "format", "thread"] },
   "channels/threads": { numbers: ["limit"], operation: "channels.threads", strings: ["agent", "channel", "cursor"] },
   "database": { numbers: ["limit", "offset"], operation: "databases.browse", strings: ["database", "direction", "search", "sort", "table"] },
