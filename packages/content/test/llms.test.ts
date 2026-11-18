@@ -419,7 +419,7 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
           const result = await handler.request("https://example.com/blog/hello", { headers: { accept: "text/html" } })
           const fields = result.headers.get("vary")!.toLowerCase().split(/,\s*/)
           if (vary === "*" || prepared === "*") expect(fields).toEqual(["*"])
-          else expect(new Set(fields)).toEqual(new Set([...vary.toLowerCase().split(/,\s*/), "cookie", "accept"]))
+          else expect(new Set(fields)).toEqual(new Set([...vary.toLowerCase().split(/,\s*/), "cookie", "user-agent", "accept"]))
           expect(await result.text()).toBe("page")
         }
       }
@@ -436,12 +436,12 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
       for (const method of ["GET", "HEAD"]) {
         const response = await app(content).request(`https://example.com${path}`, { method, headers: { accept: "text/markdown" } })
         expect(response.status).toBe(200)
-        expect(response.headers.get("vary")).toBe("Accept")
+        expect(response.headers.get("vary")).toBe("User-Agent, Accept")
         expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
         expect(await response.text()).toBe(method === "HEAD" ? "" : "# Version 1.0\n\nVersion body.\n")
       }
       const browser = await app(content).request(`https://example.com${path}`, { headers: { accept: "text/html" } })
-      expect(browser.headers.get("vary")).toBe("Accept")
+      expect(browser.headers.get("vary")).toBe("User-Agent, Accept")
     }
     const missing = app(content, () => new Response("gone", { status: 404 }))
     const response = await missing.request("https://example.com/blog/nope.1", { headers: { accept: "text/markdown" } })
@@ -487,7 +487,7 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     const negotiated = await app(content).request("https://example.com/blog/hello", { headers: { accept: "text/markdown" } })
     expect(negotiated.status).toBe(200)
     expect(negotiated.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
-    expect(negotiated.headers.get("vary")).toBe("Accept")
+    expect(negotiated.headers.get("vary")).toBe("User-Agent, Accept")
     expect(await negotiated.text()).toBe("# Hello\n\n> The first post.\n\nHello body.\n")
     const home = await app(content).request("https://example.com/", { headers: { accept: "text/markdown, text/html;q=0.9" } })
     expect(await home.text()).toMatch(/^# Home\n/)
@@ -496,11 +496,11 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     expect(await twin.text()).toBe("# Hello\n\n> The first post.\n\nHello body.\n")
   })
 
-  it("keeps HTML for browsers and marks page responses with Vary: Accept", async () => {
+  it("keeps HTML for browsers and marks page responses with Vary", async () => {
     const content = await site({ site: "https://example.com", markdown: true })
     const browser = await app(content).request("https://example.com/blog/hello", { headers: { accept: "text/html,application/xhtml+xml,*/*;q=0.8" } })
     expect(await browser.text()).toBe("page")
-    expect(browser.headers.get("vary")).toBe("Accept")
+    expect(browser.headers.get("vary")).toBe("User-Agent, Accept")
     // A draft has no copy: the request goes on to the app.
     expect(await (await app(content).request("https://example.com/blog/draft", { headers: { accept: "text/markdown" } })).text()).toBe("page")
     expect(await (await app(content).request("https://example.com/logo.png", { headers: { accept: "text/markdown" } })).text()).toBe("page")
@@ -527,7 +527,7 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     }))
     const negotiated = await missing.request("https://example.com/blog/draft", { headers: { accept: "text/markdown" } })
     expect(negotiated.status).toBe(404)
-    expect(negotiated.headers.get("vary")).toBe("Accept")
+    expect(negotiated.headers.get("vary")).toBe("User-Agent, Accept")
     expect(await negotiated.text()).toContain("The page `/blog/draft` does not exist on https://example.com.")
     // A 404 Response and an unmatched route count the same. A browser keeps the app's own 404 page.
     expect((await app(content, () => new Response("gone", { status: 404 })).request("https://example.com/x.md")).headers.get("content-type")).toBe("text/markdown; charset=utf-8")
@@ -586,7 +586,7 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     const html = (body = "<p>page</p>", status = 200) => () => new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } })
     const page = await app(content, html()).request("https://example.com/blog/hello", { headers: { accept: "text/html" } })
     expect(page.headers.get("link")).toBe("</blog/hello.md>; rel=\"alternate\"; type=\"text/markdown\"")
-    expect(page.headers.get("vary")).toBe("Accept")
+    expect(page.headers.get("vary")).toBe("User-Agent, Accept")
     expect((await app(content, html()).request("https://example.com/", { method: "HEAD" })).headers.get("link")).toBe("</index.md>; rel=\"alternate\"; type=\"text/markdown\"")
     // A page without a copy does not change with Accept. A page 404 does: a Markdown request gets the Markdown 404.
     const plain = await app(content, html()).request("https://example.com/blog/draft")
@@ -594,7 +594,7 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     expect(plain.headers.get("vary")).toBeNull()
     const missing = await app(content, html("<p>gone</p>", 404)).request("https://example.com/blog/nope")
     expect(missing.headers.get("link")).toBeNull()
-    expect(missing.headers.get("vary")).toBe("Accept")
+    expect(missing.headers.get("vary")).toBe("User-Agent, Accept")
     // An existing Link header keeps its values.
     const linked = await app(content, () => new Response("<p>page</p>", { headers: { "content-type": "text/html", link: "</style.css>; rel=preload; as=style" } }))
       .request("https://example.com/blog/hello")
@@ -607,10 +607,10 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
       for (const path of ["/blog/hello", "/unrelated"]) {
         const handler = app(content, () => response.clone())
         const result = await handler.request(`https://example.com${path}`, { headers: { accept: "application/json" } })
-        expect(result.headers.get("vary")).toBe(path === "/blog/hello" ? "Accept" : null)
+        expect(result.headers.get("vary")).toBe(path === "/blog/hello" ? "User-Agent, Accept" : null)
         expect(result.headers.get("link")).toBeNull()
         const markdown = await handler.request(`https://example.com${path}`, { headers: { accept: "text/markdown" } })
-        expect(markdown.headers.get("vary")).toBe(path === "/blog/hello" ? "Accept" : null)
+        expect(markdown.headers.get("vary")).toBe(path === "/blog/hello" ? "User-Agent, Accept" : null)
         if (path === "/blog/hello") expect(await markdown.text()).toMatch(/^# Hello\n/)
         else expect(await markdown.text()).toBe(await response.clone().text())
       }
@@ -623,7 +623,7 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     for (const accept of ["text/html", "text/markdown"]) {
       const result = await handler.request("https://example.com/missing", { headers: { accept } })
       expect(result.status).toBe(404)
-      expect(result.headers.get("vary")).toBe("Accept")
+      expect(result.headers.get("vary")).toBe("User-Agent, Accept")
       expect(result.headers.get("content-type")?.includes("text/markdown")).toBe(accept === "text/markdown")
     }
   })
@@ -689,7 +689,7 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
       expect((await app.request("https://example.com/about-app.md", { headers: { "if-none-match": twin.headers.get("etag")! } })).status).toBe(304)
       const negotiated = await app.request("https://example.com/about-app", { headers: { accept: "text/markdown" } })
       expect(await negotiated.text()).toBe(expected)
-      expect(negotiated.headers.get("vary")).toBe("Cookie, Accept")
+      expect(negotiated.headers.get("vary")).toBe("Cookie, User-Agent, Accept")
       expect(negotiated.headers.get("content-location")).toBe("/about-app.md")
       // The page renders for the same reader, with the reader's cookies.
       const signedIn = await app.request("https://example.com/about-app.md", { headers: { cookie: "session=abc" } })
@@ -711,7 +711,7 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
       // The HTML page links its copy.
       const page = await app.request("https://example.com/about-app", { headers: { accept: "text/html" } })
       expect(page.headers.get("link")).toBe("</about-app.md>; rel=\"alternate\"; type=\"text/markdown\"")
-      expect(page.headers.get("vary")).toBe("Cookie, Accept")
+      expect(page.headers.get("vary")).toBe("Cookie, Accept, User-Agent")
     })
 
     it("resolves links against nested page URLs, including trailing slashes", async () => {
@@ -820,8 +820,9 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
         },
       }))
       server.get("/d/launch-plan", shell)
+      server.get("/blog/hello", shell)
       server.get("/d/launch-plan.md", event => new Response(`# Launch plan\n\nShip on Monday. Reader: ${event.req.headers.get("cookie") ?? "none"}\n`, {
-        headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "private, no-store", "vary": "Cookie", "x-robots-tag": "noindex, nofollow" },
+        headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "private, no-store", "vary": "Cookie", "x-robots-tag": "noindex, nofollow", "set-cookie": "seen=1; Path=/" },
       }))
       server.get("/d/old-plan", shell)
       server.get("/d/old-plan.md", () => new Response("<p>Not Markdown</p>", { headers: { "content-type": "text/html" } }))
@@ -831,7 +832,11 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
 
     it("serves the route's copy for Accept: text/markdown and keeps the .md answer of the route", async () => {
       for (const markdown of [true, { pages: true }] as const) {
-        const app = docs(await site({ site: "https://example.com", markdown }))
+        const app = new H3().use((event) => {
+          if (event.url.pathname !== "/d/launch-plan") return
+          event.res.headers.set("cache-control", "public, max-age=600")
+          event.res.headers.set("x-robots-tag", "index, follow")
+        }).use(docs(await site({ site: "https://example.com", markdown })))
         renders = 0
         const response = await app.request("https://example.com/d/launch-plan", { headers: { accept: "text/markdown", cookie: "session=abc", "if-none-match": "\"old\"" } })
         expect(response.status).toBe(200)
@@ -839,13 +844,17 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
         expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
         expect(response.headers.get("content-location")).toBe("/d/launch-plan.md")
         expect(response.headers.get("cache-control")).toBe("private, no-store")
-        expect(response.headers.get("vary")).toBe("Cookie, Accept")
-        expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow")
+        expect(response.headers.get("vary")).toBe("Cookie, User-Agent, Accept")
+        expect(response.headers.get("x-robots-tag")).toBe("index, follow, noindex, nofollow")
+        expect(response.headers.getSetCookie()).toEqual(["seen=1; Path=/"])
         expect(response.headers.get("link")).toBe("<https://example.com/d/launch-plan>; rel=\"canonical\"")
         // The route wins over a converted copy: one render asks the route, and the page does not render.
         expect(renders).toBe(1)
         const etag = response.headers.get("etag")!
-        expect((await app.request("https://example.com/d/launch-plan", { headers: { accept: "text/markdown", cookie: "session=abc", "if-none-match": etag } })).status).toBe(304)
+        const fresh = await app.request("https://example.com/d/launch-plan", { headers: { accept: "text/markdown", cookie: "session=abc", "if-none-match": etag } })
+        expect(fresh.status).toBe(304)
+        expect(fresh.headers.get("cache-control")).toBe("private, no-store")
+        expect(fresh.headers.get("vary")).toBe("Cookie, User-Agent, Accept")
         const direct = await app.request("https://example.com/d/launch-plan.md")
         expect(await direct.text()).toBe("# Launch plan\n\nShip on Monday. Reader: none\n")
         expect(direct.headers.get("x-robots-tag")).toBe("noindex, nofollow")
@@ -856,11 +865,19 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
       const app = docs(await site({ site: "https://example.com", markdown: true }))
       const response = await app.request("https://example.com/d/old-plan", { headers: { accept: "text/markdown" } })
       expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8")
+      expect(response.headers.get("vary")).toBe("User-Agent, Accept")
     })
 
     it("gives AI fetchers the copy by User-Agent", async () => {
       const app = docs(await site({ site: "https://example.com", markdown: true }))
       const claude = "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-User/1.0; +Claude-User@anthropic.com)"
+      renders = 0
+      for (const path of ["/d/launch-plan", "/blog/hello", "/d/nope"]) {
+        const browser = await app.request(`https://example.com${path}`, { headers: { accept: "text/html", "user-agent": "Mozilla/5.0" } })
+        expect(browser.headers.get("content-type")).toMatch(/^text\/html/)
+        expect(browser.headers.get("vary")).toBe("User-Agent, Accept")
+      }
+      expect(renders).toBe(0)
       const fetched = await app.request("https://example.com/d/launch-plan", { headers: { accept: "text/html, */*", "user-agent": claude } })
       expect(await fetched.text()).toMatch(/^# Launch plan/)
       expect(fetched.headers.get("vary")).toBe("Cookie, User-Agent, Accept")
@@ -869,9 +886,6 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
       const missing = await app.request("https://example.com/d/nope", { headers: { "user-agent": "PerplexityBot/1.0" } })
       expect(missing.status).toBe(404)
       expect(missing.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
-      // A browser gets the page.
-      const browser = await app.request("https://example.com/d/launch-plan", { headers: { accept: "text/html", "user-agent": "Mozilla/5.0 (Macintosh) Safari/605.1.15" } })
-      expect(browser.headers.get("content-type")).toBe("text/html; charset=utf-8")
     })
 
     it("converts pages for AI fetchers without asking itself again", async () => {
@@ -884,7 +898,11 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
 
     it("reads the User-Agent list from userAgents", async () => {
       const off = docs(await site({ site: "https://example.com", markdown: { userAgents: [] } }))
-      expect((await off.request("https://example.com/d/launch-plan", { headers: { "user-agent": "ClaudeBot/1.0" } })).headers.get("content-type")).toBe("text/html; charset=utf-8")
+      const page = await off.request("https://example.com/d/launch-plan", { headers: { "user-agent": "ClaudeBot/1.0" } })
+      expect(page.headers.get("content-type")).toBe("text/html; charset=utf-8")
+      expect(page.headers.get("vary")).toBe("Accept")
+      const copy = await off.request("https://example.com/d/launch-plan", { headers: { accept: "text/markdown" } })
+      expect(copy.headers.get("vary")).toBe("Cookie, Accept")
       const own = docs(await site({ site: "https://example.com", markdown: { userAgents: ["ReadingAgent"] } }))
       expect(await (await own.request("https://example.com/d/launch-plan", { headers: { "user-agent": "readingagent/2" } })).text()).toMatch(/^# Launch plan/)
       expect((await own.request("https://example.com/d/launch-plan", { headers: { "user-agent": "ClaudeBot/1.0" } })).headers.get("content-type")).toBe("text/html; charset=utf-8")
