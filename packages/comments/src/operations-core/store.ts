@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, lt, lte, or, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gt, inArray, isNotNull, lt, lte, or, sql } from "drizzle-orm"
 import type { SQL } from "drizzle-orm"
 import type { LibSQLDatabase } from "drizzle-orm/libsql"
 
@@ -182,6 +182,12 @@ export interface CommentsStore {
   /** Deletes every thread of a scope with its messages, and returns their ids. Numbers of the scope are never reused. */
   deleteScope: (scope: string) => Promise<string[]>
   /**
+   * Deletes the messages of one person. A thread with no message left goes too. A thread that they started keeps the
+   * replies of other people, without the person's name and image, and a thread that they resolved forgets who resolved
+   * it. Returns the ids of the threads that changed or went.
+   */
+  deleteUser: (userId: string) => Promise<string[]>
+  /**
    * The people that wrote in a thread, for a store without an Auth adapter. Only authors of threads that `canRead`
    * accepts count, and a message without a thread never shows.
    */
@@ -263,9 +269,11 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     for (const statement of build(db)) await statement
   }
 
+  // Each mutation needs a newer snapshot even when the clock has not advanced.
+  const newer = (now: number) => sql`case when ${threads.updatedAt} >= ${now} then ${threads.updatedAt} + 1 else ${now} end`
+
   function touching(target: CommentsDatabase, id: string, now: number, values: Partial<typeof threads.$inferInsert> = {}, only?: SQL) {
-    // Each mutation needs a newer snapshot even when the clock has not advanced.
-    const updatedAt = sql`case when ${threads.updatedAt} >= ${now} then ${threads.updatedAt} + 1 else ${now} end`
+    const updatedAt = newer(now)
     // A resolution uses the same timestamp so it acknowledges every earlier reply.
     return target.update(threads).set({ ...values, updatedAt, ...(values.status === "resolved" ? { resolvedAt: updatedAt } : {}) }).where(and(eq(threads.id, id), only))
   }
@@ -478,6 +486,29 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
         for (const part of chunks(removed.map(row => row.id))) await db.delete(messages).where(inArray(messages.threadId, part))
       }
       return removed.map(row => row.id)
+    },
+    async deleteUser(userId) {
+      const written = await db.selectDistinct({ id: messages.threadId }).from(messages).where(eq(messages.authorId, userId))
+      // A thread that keeps replies keeps the id of the person who started it, but not their name and image.
+      const started = await db.select({ id: threads.id }).from(threads)
+        .where(and(eq(threads.authorId, userId), or(isNotNull(threads.authorName), isNotNull(threads.authorImage))))
+      // `resolvedBy` holds the JSON of the person, so the pattern finds candidates and the parsed id decides.
+      const candidates = await db.select({ id: threads.id, resolvedBy: threads.resolvedBy }).from(threads)
+        .where(sql`${threads.resolvedBy} like ${`%${escapeLike(JSON.stringify(userId))}%`} escape '\\'`)
+      const resolved = candidates.filter(row => parseJson<CommentUser | undefined>(row.resolvedBy, undefined)?.id === userId).map(row => row.id)
+      const touched = [...new Set([...written, ...started].map(row => row.id).concat(resolved))]
+      if (!touched.length) return []
+      const now = Date.now()
+      await together(target => [
+        target.delete(messages).where(eq(messages.authorId, userId)),
+        // A thread goes when no message is left in it.
+        ...chunks(touched).map(part => target.delete(threads).where(and(inArray(threads.id, part),
+          sql`not exists (select 1 from ${messages} where ${messages.threadId} = ${threads.id})`))),
+        target.update(threads).set({ authorName: null, authorImage: null }).where(eq(threads.authorId, userId)),
+        ...chunks(resolved).map(part => target.update(threads).set({ resolvedBy: null }).where(inArray(threads.id, part))),
+        ...chunks(touched).map(part => target.update(threads).set({ updatedAt: newer(now) }).where(inArray(threads.id, part))),
+      ])
+      return touched
     },
     async knownUsersByIds(ids, canRead) {
       const seen = new Map<string, CommentUser>()

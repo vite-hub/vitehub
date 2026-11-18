@@ -11,6 +11,21 @@ const withFix = (fix: string) => ({ ...dynamicError, fix })
 export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/auth/diagnostics",
   codes: {
+    // Account deletion errors. `defineAuth()` throws them for its options, and a user deletion for the rows of a
+    // Server Primitive.
+    AUTH_DELETE_ACCOUNT_FAILED: {
+      why: ({ owner }: { owner: string }) => `Auth could not delete the ${owner} data of the user, so it kept the account.`,
+      fix: "Read `error.cause` for the error of the Server Primitive, such as a missing table or a Database that does not answer. Fix it, then let the user delete the account again. Rows that Auth already deleted stay deleted.",
+    },
+    AUTH_DELETE_ACCOUNT_INVALID: {
+      why: "`defineAuth()` deleteAccount must be `true` or an object of Better Auth `user.deleteUser` options without `enabled`.",
+      fix: "Pass `deleteAccount: true`, or `deleteAccount: { beforeDelete: async (user) => { ... } }` to also delete the app's own rows of the user.",
+    },
+    AUTH_DELETE_USER_UNSUPPORTED: {
+      why: "`defineAuth()` does not take Better Auth `user.deleteUser`, because it would delete the user without the user's rows in ViteHub Server Primitives.",
+      fix: "Move the options to `deleteAccount`, without `enabled`: `user: { deleteUser: { enabled: true, beforeDelete } }` becomes `deleteAccount: { beforeDelete }`.",
+    },
+
     // Event, password, and sign-out errors. The event store, the events route, the password verifier, and `signOut()`
     // throw them.
     AUTH_EVENT_CALLBACK_FAILED: {

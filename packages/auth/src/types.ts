@@ -24,13 +24,27 @@ export type AuthReservedOption =
   | "adminClaim"
   | "basePath"
   | "database"
+  | "deleteAccount"
   | "preset"
   | "route"
   | "runtime"
   | "secondaryStorage";
-export type AuthBetterAuthOptions = Omit<BetterAuthOptions, AuthReservedOption | "session"> & {
+export type AuthBetterAuthOptions = Omit<BetterAuthOptions, AuthReservedOption | "session" | "user"> & {
   session?: AuthSessionOptions
+  user?: AuthUserOptions
 }
+
+/** Better Auth `user` options. `deleteAccount` replaces `deleteUser`. */
+export type AuthUserOptions = Omit<NonNullable<BetterAuthOptions["user"]>, "deleteUser"> & {
+  /** Use `deleteAccount`, so that Auth also deletes the rows of the user in ViteHub Server Primitives. */
+  deleteUser?: never
+}
+
+/**
+ * Better Auth `user.deleteUser` options without `enabled`. `beforeDelete` runs first: delete the app's own rows of the
+ * user there, or throw an `APIError` to keep the account.
+ */
+export type AuthDeleteAccountOptions = Omit<NonNullable<NonNullable<BetterAuthOptions["user"]>["deleteUser"]>, "enabled">
 
 /** Session fields to write when a refresh extends the session. */
 export type AuthSessionRefreshFields = Partial<Session> & Record<string, unknown>
@@ -65,6 +79,7 @@ export interface AuthRuntimeContext<TEnv extends Record<string, unknown> = AuthR
 export type AuthRuntimeOptions = Partial<Omit<BetterAuthOptions, "basePath" | "database">> & {
   /** A Better Auth adapter, or `"memory"` to keep users and sessions in the memory of one server process. */
   database?: BetterAuthOptions["database"] | "memory"
+  deleteAccount?: true | AuthDeleteAccountOptions
   events?: AuthEventsConfiguration | false
 }
 
@@ -139,6 +154,12 @@ export type AuthAppDatabase = ((options: BetterAuthOptions) => DBAdapter<BetterA
 export interface AuthViteHubOptions {
   /** Ignore `VITEHUB_ADMIN_CLAIM` for this Auth Definition. Independent Console Auth sets this to `false`. */
   adminClaim?: false
+  /**
+   * Let users delete their account with Better Auth `deleteUser()`. Auth also deletes the rows of the user in ViteHub
+   * Server Primitives, such as their comments and form submissions. Pass options to run `beforeDelete` for the app's
+   * own rows.
+   */
+  deleteAccount?: true | AuthDeleteAccountOptions
   /** Opt in to durable auth events with an explicit store. */
   events?: AuthEventsConfiguration | false
   console?: AuthConsoleOptions;
@@ -225,6 +246,7 @@ export type AuthBetterAuthRuntimeOptions<
       | "access"
       | "adminClaim"
       | "database"
+      | "deleteAccount"
       | "preset"
       | "route"
       | "runtime"
@@ -238,6 +260,7 @@ export type AuthBetterAuthRuntimeOptions<
       | "access"
       | "adminClaim"
       | "database"
+      | "deleteAccount"
       | "preset"
       | "route"
       | "runtime"

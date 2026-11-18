@@ -76,6 +76,22 @@ export default defineAuth({
 
 The plugin also adds a column for each `additionalFields` entry of `user`, `session`, `account`, and `verification`, and the tables and columns of `twoFactor()`, `username()`, `anonymous()`, `phoneNumber()`, `lastLoginMethod()`, `apiKey()` from `@better-auth/api-key`, and `stripe()` from `@better-auth/stripe` when the Definition module imports and calls them. It writes them to `.vitehub/auth/schema.ts` with `createAuthSqliteSchema()` or `createAuthPostgresSchema()`. Write `additionalFields` inline with a literal `type`, or Auth fails with `AUTH_C0055`. Tables of other plugins go in the Database Definition. When the SQLite Database has some of the tables already, for example an app that wrote the Better Auth tables itself, the plugin reads them from the snapshot of the latest migration, and `createAuthSqliteSchema(options, existing)` keeps their column defaults, unique keys, indexes, and foreign keys. The next migration then adds columns, tables, and indexes and rebuilds no table, so the drop of a rebuild cannot delete the rows that reference `user` or `organization`. The tables of `authSqliteSchema` and `authPostgresSchema` have typed columns. Before it opens the Database, the adapter compares the tables and columns that the options need with the Database, and fails with `AUTH_C0056` for a missing one or for model or field remapping.
 
+## Delete an account
+
+```ts
+// server/auth.ts
+import { defineAuth } from "@vite-hub/auth";
+import { authDatabase } from "@vite-hub/auth/database";
+
+export default defineAuth({
+  database: authDatabase(),
+  emailAndPassword: { enabled: true },
+  deleteAccount: true,
+});
+```
+
+`deleteAccount` turns on Better Auth `deleteUser`. Before Better Auth deletes the user, Auth deletes the rows of the user in each Server Primitive that the app uses: the messages of Comments and the submissions of Forms. Each primitive registers its rows when the server starts. Then Auth deletes the rows of each Better Auth table with a field that references the user, such as passkeys and MCP tokens, and the `apikey` rows of the user, also when the app schema has no foreign keys. Pass `deleteAccount: { beforeDelete }`, the Better Auth `user.deleteUser` options without `enabled`, to delete the app's own rows first, or throw an `APIError` there to keep the account. When a primitive fails, Auth keeps the account and fails with `AUTH_DELETE_ACCOUNT_FAILED`. Better Auth `user.deleteUser` fails with `AUTH_DELETE_USER_UNSUPPORTED`.
+
 ## First admin
 
 `VITEHUB_ADMINS` is a comma-separated list of social accounts, each `<provider>:<account id>`, such as `github:22072217`. When a listed account signs in or is linked, its user gets the first `adminRoles` entry of Better Auth's `admin()` plugin (`admin` by default), in place of the default role. Removing an entry does not remove the role. Without `admin()`, Auth fails with `AUTH_C0051`. The Auth Console lists the rule in its access notes. Emails are refused (`AUTH_C0058`), because a password sign-up does not prove email ownership. The removed `VITEHUB_ADMIN_EMAILS` fails with `AUTH_C0057`.

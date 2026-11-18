@@ -1,4 +1,5 @@
 import { clientAddressKey, createClientRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
+import { registerViteHubUserData } from "@vite-hub/internal/runtime/user-data"
 
 import { createDrizzleFormsStore } from "./database.ts"
 import { isFormDefinition } from "./define.ts"
@@ -6,6 +7,7 @@ import { formsDiagnostics } from "./errors.ts"
 import { handleFormRequest } from "./handler.ts"
 import { createFormsInbox } from "./inbox.ts"
 import { createMemoryFormsStore } from "./memory.ts"
+import { formsTableNames } from "./table-names.ts"
 
 import type { FormsDatabase } from "./database.ts"
 import type { FormsInbox } from "./inbox.ts"
@@ -55,6 +57,7 @@ const emptyFormsStore: FormsStore = {
   list: async () => [],
   get: async () => undefined,
   setStatus: async () => undefined,
+  deleteUser: async () => undefined,
 }
 
 /** The forms and inbox of the running app, for the Console and MCP tools. */
@@ -92,6 +95,8 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
       })
     : options.memory ? createMemoryFormsStore() : undefined
   Reflect.set(globalThis, installedKey, { names: [...forms.keys()].sort(), inbox: createFormsInbox(store ?? emptyFormsStore) } satisfies InstalledForms)
+  // Auth `deleteAccount` deletes the submissions that the user sent.
+  if (store) registerViteHubUserData({ owner: "forms", tables: Object.values(formsTableNames), delete: userId => store.deleteUser(userId) })
   const { sendEmail, session, context } = options
   // Rate Limit on Cloudflare needs each limit name at build time, so a Worker counts in the memory of its isolate.
   const rateLimit = createClientRateLimit({ name: "forms", unavailable: "Forms could not count this message in Rate Limit", ...(options.rateLimit ? { shared: options.rateLimit } : {}) })

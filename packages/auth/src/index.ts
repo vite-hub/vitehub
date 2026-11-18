@@ -21,6 +21,7 @@ export type {
   AuthDefinitionInput,
   AuthDefinitionOptions,
   AuthDefinitionResolver,
+  AuthDeleteAccountOptions,
   AuthFor,
   AuthGuardedHandler,
   AuthOptions,

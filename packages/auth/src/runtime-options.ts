@@ -25,6 +25,7 @@ import { optionsKey } from "./options-key.ts"
 import { authCloudflareEnv } from "./request.ts"
 import { assertNoRuntimeOption, validateAuthAccessPolicy } from "./definition.ts"
 import { createAccessPolicyPlugin } from "./access-policy.ts"
+import { createDeleteAccount, validateDeleteAccount } from "./delete-account.ts"
 import { assertMembersSessionStore, createMembersGate, readMembers, withMemberScopes } from "./members.ts"
 
 import type { BetterAuthOptions } from "better-auth"
@@ -138,11 +139,13 @@ function stripViteHubOptions(
     adminClaim: _adminClaim,
     console: _console,
     database,
+    deleteAccount,
     events,
     route: _route,
     secondaryStorage,
     ...rest
   } = applyAuthPreset(options)
+  validateDeleteAccount({ deleteAccount, user: rest.user })
 
   if (isAuthDatabasePlacement(database)) {
     throw authErrorDiagnostics.AUTH_C0061({ message: "Auth `database` must be a Better Auth adapter, such as `authDatabase()`. `true` and `{ name }` do not create storage, so users and sessions would stay in memory." })
@@ -180,8 +183,10 @@ function stripViteHubOptions(
   const membersGate = members.length ? createMembersGate(members, admins, declaredPlugins) : undefined
   const adminsPlugin = admins.length ? createAdminsPlugin(admins, declaredPlugins) : undefined
   const adminClaimPlugin = adminClaim ? createAdminClaimPlugin(adminClaim, declaredPlugins) : undefined
+  const accountDeletion = deleteAccount ? createDeleteAccount(deleteAccount) : undefined
   const plugins = [
     ...declaredPlugins,
+    ...(accountDeletion ? [accountDeletion.plugin] : []),
     ...(impersonation ? [createImpersonationPlugin()] : []),
     ...(adminsPlugin ? [adminsPlugin] : []),
     ...(adminClaimPlugin ? [adminClaimPlugin] : []),
@@ -197,6 +202,7 @@ function stripViteHubOptions(
     ...rest,
     ...storage,
     ...sessionRefresh,
+    ...(accountDeletion ? { user: { ...rest.user, deleteUser: accountDeletion.deleteUser } } : {}),
     ...(membersGate ? { socialProviders: withMemberScopes(members, rest.socialProviders) } : {}),
     // Claim reservations need the database's primary key, including when sessions use secondary storage.
     ...(adminClaimPlugin ? { verification: { ...rest.verification, storeInDatabase: true } } : {}),
