@@ -7,7 +7,7 @@ import { formatDiagnostic } from "nostics"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 import { systemdStopTimeoutSeconds } from "./systemd.ts"
 
-/** The machine that built the output. Native packages in the output run only on this OS, CPU, and C library. */
+/** The build machine. Its OS, CPU, and C library family do not establish native ABI compatibility. */
 export interface BuildPlatform {
   arch: string
   libc: "glibc" | "musl" | undefined
@@ -133,8 +133,12 @@ export function renderDockerfile(dockerfile: Dockerfile): string {
     `# --init reaps child processes. The build-time default stop timeout is ${stopTimeout} seconds.`,
     "# If VITEHUB_SHUTDOWN_DRAIN_MS is set at runtime, use --stop-timeout = ceil(budget in seconds) + 30.",
     ...(dockerfile.platform ? ["# The output has native packages for this CPU, so the image uses the same platform."] : []),
-    ...(dockerfile.hasNativePackages ? [`# Native ABI compatibility is not inferred. Build the app in ${dockerfile.baseImage} for the target CPU, or use docker: false and a compatible Dockerfile.`] : []),
-    `FROM ${dockerfile.platform ? `--platform=${dockerfile.platform} ` : ""}${dockerfile.baseImage}`,
+    ...(dockerfile.hasNativePackages ? [
+      `# Native ABI compatibility is not inferred. Build the app in ${dockerfile.baseImage} for the target CPU, or use a compatible Linux Node base for both steps.`,
+      "# To use the same exact base as the app build, pass --build-arg VITEHUB_NODE_IMAGE=<image-or-digest> to docker build.",
+      `ARG VITEHUB_NODE_IMAGE=${dockerfile.baseImage}`,
+    ] : []),
+    `FROM ${dockerfile.platform ? `--platform=${dockerfile.platform} ` : ""}${dockerfile.hasNativePackages ? "${VITEHUB_NODE_IMAGE}" : dockerfile.baseImage}`,
     `WORKDIR ${appDir}`,
     "COPY . .output/",
     // Relative data paths resolve in the working directory, as in the systemd unit.

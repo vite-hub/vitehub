@@ -1,10 +1,13 @@
+import { execFile } from "node:child_process"
+import { once } from "node:events"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { runInNewContext } from "node:vm"
+import { promisify } from "node:util"
 
 import { resolveConfig } from "vite"
-import { describe, expect, it, onTestFinished, vi } from "vitest"
+import { describe, expect, it, onTestFinished } from "vitest"
 
 import { findNativePackages, renderDockerfile, resolveDockerfile, type BuildPlatform } from "../src/dockerfile.ts"
 import { vitehub, type ViteHubOptions } from "../src/index.ts"
@@ -55,31 +58,36 @@ describe("renderDockerfile()", () => {
   })
 
   it("runs the generated probe against Nitro's host and port when they override HOST and PORT", async () => {
+    const server = createServer((request, response) => {
+      response.writeHead(request.url === "/healthz" ? 200 : 404).end()
+    })
+    onTestFinished(() => { server.close() })
+    server.listen(0, "127.0.0.1")
+    await once(server, "listening")
+    const address = server.address()
+    if (!address || typeof address === "string") throw new Error("Expected a TCP listener")
+
     const text = renderDockerfile(resolveDockerfile({ drainMs: 0, healthRoute: "/healthz", name: "app", nativePackages: [], platform: linux }))
     const probe = text.match(/^HEALTHCHECK .* CMD (.+)$/m)?.[1]
     if (!probe) throw new Error("Expected a health check")
     const args: unknown = JSON.parse(probe)
     if (!Array.isArray(args) || args[0] !== "node" || args[1] !== "-e" || typeof args[2] !== "string") throw new Error("Expected an exec-form Node command")
-    const exit = vi.fn()
-    const fetch = vi.fn(async (url: string) => ({ ok: url === "http://127.0.0.2:8080/healthz" }))
-    await runInNewContext(args[2], {
-      fetch,
-      process: { env: { HOST: "0.0.0.0", PORT: "3000", NITRO_HOST: "127.0.0.2", NITRO_PORT: "8080" }, exit },
+    await promisify(execFile)(process.execPath, ["-e", args[2]], {
+      env: { HOST: "192.0.2.1", PORT: "0", NITRO_HOST: "127.0.0.1", NITRO_PORT: String(address.port) },
+      timeout: 3000,
     })
-    expect(fetch).toHaveBeenCalledWith("http://127.0.0.2:8080/healthz")
-    expect(exit).toHaveBeenCalledWith(0)
   })
 
   it("pins the CPU and C library of the build when the output has native packages", () => {
     const glibc = renderDockerfile(resolveDockerfile({ drainMs: 0, name: "app", nativePackages: ["@libsql/linux-x64-gnu"], platform: linux }))
     expect(glibc.split("\n")[0]).toBe("# check=skip=FromPlatformFlagConstDisallowed")
-    expect(glibc).toContain("\nFROM --platform=linux/amd64 node:24-slim\n")
+    expect(glibc).toContain("\nARG VITEHUB_NODE_IMAGE=node:24-slim\nFROM --platform=linux/amd64 ${VITEHUB_NODE_IMAGE}\n")
     expect(glibc).toContain("Native ABI compatibility is not inferred. Build the app in node:24-slim for the target CPU")
     const musl = renderDockerfile(resolveDockerfile({ drainMs: 0, name: "app", nativePackages: ["@libsql/linux-arm64-musl"], platform: { ...linux, arch: "arm64", libc: "musl" } }))
-    expect(musl).toContain("\nFROM --platform=linux/arm64 node:24-alpine\n")
+    expect(musl).toContain("\nARG VITEHUB_NODE_IMAGE=node:24-alpine\nFROM --platform=linux/arm64 ${VITEHUB_NODE_IMAGE}\n")
     // A macOS build has no Linux binaries to match, so the build warns instead.
     const darwin = renderDockerfile(resolveDockerfile({ drainMs: 0, name: "app", nativePackages: ["@libsql/darwin-arm64"], platform: { arch: "arm64", libc: undefined, nodeVersion: "22.1.0", os: "darwin" } }))
-    expect(darwin).toContain("\nFROM node:22-slim\n")
+    expect(darwin).toContain("\nARG VITEHUB_NODE_IMAGE=node:22-slim\nFROM ${VITEHUB_NODE_IMAGE}\n")
     expect(darwin).not.toContain("check=skip")
   })
 })

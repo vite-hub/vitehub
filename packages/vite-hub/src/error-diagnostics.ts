@@ -95,7 +95,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_DOCKERFILE_NATIVE_PACKAGES_NOT_LINUX: {
       why: ({ os, packages }: { os: string, packages: string }) => `The build ran on ${os}, so these native packages in \`.output\` hold ${os} code: ${packages}. The Linux image of \`.output/Dockerfile\` cannot load them.`,
-      fix: "Build the app in the same Linux Node image that will run it, for the target CPU, then build the generated Dockerfile. Or set `docker: false` in `vitehub()` and use a Dockerfile with compatible build and runtime stages.",
+      fix: "Install dependencies and build the app in the Linux Node image for the target CPU. Use that same base for the generated Dockerfile with `docker build --build-arg VITEHUB_NODE_IMAGE=<image>`. Or set `docker: false` in `vitehub()` and use a Dockerfile with compatible build and runtime stages.",
     },
     VITE_HUB_HOST_PROVIDER_CONFLICT: {
       why: ({ detected, host, variable }: { detected: string, host: string, variable: string }) => `\`vitehub({ host: "${host}" })\` builds ${host} output, but \`${variable}\` is set, so this build runs on the ${detected} host, which cannot run ${host} output.`,

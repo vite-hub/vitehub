@@ -352,11 +352,15 @@ CMD ["node",".output/server/index.mjs"]
   build on macOS or Windows with native packages prints
   [`VITE_HUB_DOCKERFILE_NATIVE_PACKAGES_NOT_LINUX`](/docs/development/diagnostics/vite_hub_dockerfile_native_packages_not_linux).
   Matching the C library family does not guarantee binary compatibility. In a
-  clean checkout, install dependencies and build inside the same Linux Node
-  image named in `FROM`, on the target CPU, then build the generated Dockerfile.
-  For example, use `node:24-slim` on `linux/amd64` for both steps. If the app
-  needs a different Linux distribution or system libraries, set `docker: false`
-  and use your own compatible build and runtime images.
+  clean checkout, install dependencies and build inside the Linux Node image
+  named by `ARG VITEHUB_NODE_IMAGE`, on the target CPU. Then build the generated
+  Dockerfile with that same image. For example, use `node:24-slim` on
+  `linux/amd64` for both steps. To pin the base, build the app in a Linux Node
+  image pinned to a digest and pass the same reference to
+  `docker build --build-arg VITEHUB_NODE_IMAGE="$NODE_IMAGE" -t my-app .output`,
+  where `NODE_IMAGE` holds that reference. Changing the runtime base alone
+  does not rebuild the native packages. If the app needs extra system libraries
+  or a different image layout, set `docker: false` and use your own Dockerfile.
 
 Each build replaces the file. To add system packages, such as `git`, start your
 own Dockerfile `FROM` the image that you built. Set `docker: false` in
