@@ -267,3 +267,29 @@ summary.plain {
   position: absolute;
   inset: 0 -7px;
 }
+
+/* Together: a toolbar row and the rows of a MotionList, each with a button. */
+.together-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+}
+
+.together-list {
+  width: 360px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.together-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--ui-border);
+  font: 500 13px/1 var(--font-sans, sans-serif);
+}
