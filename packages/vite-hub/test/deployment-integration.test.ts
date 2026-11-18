@@ -994,6 +994,8 @@ describe("built-in host integration", () => {
         "DRY_RUN=false",
         "PUBSUB_TOPIC=",
         "VITEHUB_PAYMENT_LINK=https://pay.example.com/from-env",
+        "VITEHUB_EXECUTOR_API_KEY=sk-not-a-var-either",
+        "VITEHUB_PUBLIC_EXECUTOR_LABEL=public-label",
         "",
       ].join("\n"))
       await writeFile(join(root, ".env.development"), "LOG_LEVEL=debug\n")
@@ -1019,6 +1021,9 @@ describe("built-in host integration", () => {
               pubsubTopic: env({ optional: true, source: env.source("PUBSUB_TOPIC") }),
               logLevel: env({ default: "info", source: env.source("LOG_LEVEL") }),
               paymentLink: env({ source: env.source("PAYMENT_LINK") }),
+              executorKeyAlias: env({ source: env.source("EXECUTOR_API_KEY") }),
+              canonicalKeyAlias: env({ source: env.source("VITEHUB_EXECUTOR_API_KEY") }),
+              publicExecutorLabel: env({ source: env.source("EXECUTOR_API_KEY") }),
             },
           },
         }), nitro() as never],
@@ -1031,18 +1036,17 @@ describe("built-in host integration", () => {
         expect(wrangler).not.toHaveProperty("vars.EXECUTOR_URL")
         return
       }
-      const expected = {
+      const generated = {
         EXECUTOR_URL: "https://executor.example.com",
         // Server Env reads the canonical name first, so the Worker gets the same value under the same name.
         VITEHUB_GMAIL_ACCOUNT: "acc_canonical",
         DRY_RUN: "false",
-        // The Wrangler config wins.
-        PAYMENT_LINK: "https://pay.example.com/from-wrangler",
+        VITEHUB_PUBLIC_EXECUTOR_LABEL: "public-label",
       }
-      expect(wrangler).toHaveProperty("vars", expected)
+      expect(wrangler).toHaveProperty("vars", { ...generated, PAYMENT_LINK: "https://pay.example.com/from-wrangler" })
       // Named environments do not inherit vars, and keep their own.
-      expect(wrangler).toHaveProperty("env.staging.vars", { EXECUTOR_URL: expected.EXECUTOR_URL, VITEHUB_GMAIL_ACCOUNT: expected.VITEHUB_GMAIL_ACCOUNT, DRY_RUN: "true", VITEHUB_PAYMENT_LINK: "https://pay.example.com/from-env" })
-      expect(wrangler).toHaveProperty("env.production.vars", { ...expected, PAYMENT_LINK: "https://pay.example.com/production" })
+      expect(wrangler).toHaveProperty("env.staging.vars", { ...generated, DRY_RUN: "true", VITEHUB_PAYMENT_LINK: "https://pay.example.com/from-env" })
+      expect(wrangler).toHaveProperty("env.production.vars", { ...generated, PAYMENT_LINK: "https://pay.example.com/production" })
     }
     finally {
       await rm(root, { force: true, recursive: true })

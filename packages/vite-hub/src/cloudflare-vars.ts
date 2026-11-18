@@ -16,20 +16,25 @@ interface CloudflareServerEnvVar {
  */
 export function cloudflareServerEnvVars(registry: EnvRuntimeRegistry, env: Record<string, string | undefined>): CloudflareServerEnvVar[] {
   const vars: CloudflareServerEnvVar[] = []
+  const secretNames = new Set<string>()
   const visit = (value: unknown): void => {
     if (!isRecord(value) || value.kind === "literal") return
     const source = value.source
-    if (isRecord(source) && source.kind === "env") {
-      if (value.secret === true) return
+    if (isRecord(source) && typeof value.secret === "boolean" && typeof value.required === "boolean") {
+      if (source.kind !== "env") return
       const names = (Array.isArray(source.names) ? source.names : [source.name]).filter((name): name is string => typeof name === "string")
-      const name = names.find(name => Boolean(env[name]))
+      if (value.secret) {
+        for (const name of names) secretNames.add(name)
+        return
+      }
+      const name = names.find(name => Object.hasOwn(env, name) && Boolean(env[name]))
       if (name) vars.push({ names, name, value: env[name]! })
       return
     }
     for (const child of Object.values(value)) visit(child)
   }
   visit(registry)
-  return vars
+  return vars.filter(({ name }) => !secretNames.has(name))
 }
 
 /**

@@ -87,6 +87,7 @@ import type { KVVitePluginAPI } from "@vite-hub/kv/vite"
 import type { McpOptions } from "@vite-hub/mcp"
 import { resolveViteHubBundleDefines, type ViteAlias } from "@vite-hub/internal/build/bundle-options"
 import { cloneRecord } from "@vite-hub/internal/object"
+import { loadAllEnv } from "@vite-hub/internal/vite-stage"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { RateLimitOptions } from "@vite-hub/rate-limit"
 import type { RealtimeOptions } from "@vite-hub/realtime"
@@ -1170,7 +1171,7 @@ function deploymentPlugins(
               const envPlugin = deploymentEnvPlugin.current
               if (plan.host !== "cloudflare" || !options.cloudflare?.vars || !envPlugin) return []
               // Read the build environment the way the Env plugin does, so `.env.development` never applies.
-              const buildEnv = { ...loadEnv(environment.mode, envPlugin.api.resolveProjectRoot(viteRoot), ""), ...process.env }
+              const buildEnv = { ...loadAllEnv(loadEnv, environment.mode, envPlugin.api.resolveProjectRoot(viteRoot)), ...process.env }
               return cloudflareServerEnvVars(envPlugin.api.getServerEnvRegistry(), buildEnv)
             }
             const deploy = resolveDeployManifest({ deploy: options.deploy, health: options.health, publicUrl: typeof options.publicUrl === "string" ? normalizePublicUrl(options.publicUrl) : undefined })
