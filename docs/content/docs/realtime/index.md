@@ -151,7 +151,7 @@ checkpoint.snapshot
 ::
 
 ::product-features
-  :::product-feature-item{title="One file defines a room" icon="i-lucide-file-code-2" to="/docs/realtime/get-started#configure-realtime"}
+  :::product-feature-item{title="One file defines a room" icon="i-lucide-file-code-2" to="/docs/realtime/get-started#define-realtime"}
   Add a file to `server/realtime`. Your editor connects to its name.
   :::
 

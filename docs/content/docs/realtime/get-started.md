@@ -15,8 +15,8 @@ In this tutorial, you open the same document in two browser tabs. You type in on
 > [!NOTE] Before you start
 > Use the app from [Installation](/docs/getting-started/installation), with Vue added: `@vitejs/plugin-vue`, an `index.html`, and a `src/main.ts` that mounts `src/App.vue`. Run every command from the app root. You need no account. This tutorial keeps everything in memory, so a server restart loses your documents. The room is also public: anyone who can reach your server can join it. Turn on [Auth](/docs/auth) before you use it for private documents.
 
-::tutorial-step{title="Configure Realtime"}
-## Configure Realtime
+::tutorial-step{title="Define Realtime"}
+## Define Realtime
 
 Add Realtime, Workspace, the TipTap editor for Vue, and Drizzle to your app. Realtime checks sessions with Auth, which uses the `drizzle-orm` of your app:
 
@@ -26,61 +26,10 @@ pnpm add @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3 drizzle-orm@1.0.0-
 
 Realtime uses the Tiptap and Yjs of your app, so the editor and your Tiptap components share one copy. pnpm and npm install them with Realtime. When you pin Tiptap, use 3.31.4 or later, the same version for every `@tiptap/*` package.
 
-Then add `realtime` and `workspace` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other options of your app. In Vite, also keep the Vue plugin.
+You do not add ViteHub options. The two files that you create next turn on Realtime and Workspace. In a Vite app, keep the Vue plugin in `vite.config.ts`.
 
-:::tabs{sync="framework"}
-::::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: {
-    realtime: true,
-    workspace: true,
-  },
-})
-```
-::::
-
-::::tabs-item{label="Nitro"}
-```ts [vite.config.ts]
-import { nitro } from 'nitro/vite'
-import vue from '@vitejs/plugin-vue'
-import { vitehub } from 'vite-hub'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [
-    vue(),
-    vitehub({
-      realtime: true,
-      workspace: true,
-    }), nitro(),
-  ],
-})
-```
-::::
-
-::::tabs-item{label="Vite"}
-```ts [vite.config.ts]
-import vue from '@vitejs/plugin-vue'
-import { vitehub } from 'vite-hub'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [
-    vue(),
-    vitehub({
-      realtime: true,
-      workspace: true,
-    }),
-  ],
-})
-```
-::::
-:::
-
-- `realtime: true` keeps the rooms in the memory of your dev server. A Node build shares them across instances through Redis or Postgres with `REDIS_URL` or a Postgres Default Database. See [Configure](/docs/realtime/configure#choose-a-driver) for the other choices.
-- `workspace: true` turns on Workspace. A Workspace is a folder of files that your server can read and write. Realtime saves your documents there.
+- Realtime keeps the rooms in the memory of your dev server. A Node build shares them across instances through Redis or Postgres with `REDIS_URL` or a Postgres Default Database. See [Configure](/docs/realtime/configure#choose-a-driver) for the other choices.
+- A Workspace is a folder of files that your server can read and write. Realtime saves your documents there.
 
 Create `server/realtime/docs.ts`. The file name is the name of the room setup: `docs`.
 

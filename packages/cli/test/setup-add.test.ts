@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { cp, readdir, readFile, writeFile } from "node:fs/promises"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -367,6 +368,21 @@ describe("vitehub add", () => {
     expect((await add(["queue", "--no-install", "--yes"], root)).exitCode).toBe(0)
   })
 
+  it("replaces an explicit opt-out when adding a Queue starter", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{ queue: false }") })
+    const result = await add(["queue", "--name", "jobs", "--yes", "--no-install"], root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain("queue: true")
+    expect(existsSync(join(root, "server/queues/jobs.ts"))).toBe(true)
+  })
+
+  it("requires a ViteHub call before adding a Queue starter", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": "export default { plugins: [] }\n" })
+    const result = await add(["queue", "--name", "jobs", "--yes", "--no-install"], root)
+    expect(result.json.error).toMatchObject({ code: "SETUP_CONFIG_MANUAL" })
+    expect(existsSync(join(root, "server/queues/jobs.ts"))).toBe(false)
+  })
+
   it.each(fixtures)("adds each native feature to a copy of docs-hosts/%s once", async (fixture, host, configFile) => {
     const native = featureIds.filter(id => featureSupport(id, host).level === "native")
     expect(native.length).toBeGreaterThan(5)
@@ -673,6 +689,17 @@ describe("vitehub add", () => {
     expect(conflict.exitCode).toBe(3)
     expect(conflict.json.error?.code).toBe("SETUP_FILE_EXISTS")
     expect(await readFile(join(root, "server/queues/welcome-email.ts"), "utf8")).toBe(`${starter}// edited\n`)
+  })
+
+  it("writes no key when the starter Definition turns the feature on", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ host: "cloudflare" }') })
+
+    const { exitCode, json } = await add(["queue", "--name", "welcome-email", "--no-install", "--yes"], root)
+
+    expect(exitCode, JSON.stringify(json.error)).toBe(0)
+    expect(json.changes.map(change => change.path)).toEqual(["server/queues/welcome-email.ts"])
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(viteConfig('{ host: "cloudflare" }'))
+    expect((await runSetup<SetupStatus>(["status", "--json"], root)).json.features.find(item => item.id === "queue")).toMatchObject({ enabled: "on", reason: "default" })
   })
 
   it("rejects --name for a feature without Definitions and an unsafe name", async () => {

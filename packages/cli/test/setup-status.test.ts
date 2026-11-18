@@ -161,10 +161,11 @@ describe("vitehub status", () => {
 
   it("keeps explicit false authoritative with unresolved Nuxt discovery", async () => {
     const root = await createProject({
-      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], serverDir: process.env.SERVER_DIR, vitehub: { comments: false } })`,
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], serverDir: process.env.SERVER_DIR, vitehub: { comments: false, connections: false } })`,
       "package.json": pnpmManifest,
     })
     const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+    // Comments and Connections turn on Database. Unresolved discovery leaves features without a key unknown.
     expect(feature(json, "comments")).toMatchObject({ enabled: "off", reason: "config" })
     expect(feature(json, "database").enabled).toBe("off")
   })
