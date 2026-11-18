@@ -80,7 +80,7 @@ const container = await bootWebContainer({
 
 The stages are `checking`, `unsupported`, `booting`, `mounting`, `installing`, `starting`, `ready`, and `error`. Each step has its duration in milliseconds.
 
-To show a notice before the reader starts the app, call `checkWebContainerSupport()`. It checks `crossOriginIsolated` and `SharedArrayBuffer`, not the browser name. `bootWebContainer()` throws `WebContainerUnsupportedError` with the same reason.
+To show a notice before the reader starts the app, call `checkWebContainerSupport()`. It checks `crossOriginIsolated` and `SharedArrayBuffer`, not the browser name. `bootWebContainer()` throws `WEB_CONTAINER_UNSUPPORTED` with the same reason.
 
 ## In production
 

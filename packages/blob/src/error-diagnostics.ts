@@ -16,7 +16,7 @@ export const blobErrors = /*#__PURE__*/ defineErrors({
   codes: {
     BLOB_CONFLICT: {
       why: ({ detail, operation, store }: BlobErrorParams) => detail ?? `The Blob ${operation} operation conflicts with existing objects in the "${store}" store.`,
-      fix: "Use a free pathname or an empty folder. `blob.copy()` and `media.move()` replace an object with `{ overwrite: true }`, and `media.removeFolder()` removes the objects of a folder with `{ force: true }`.",
+      fix: "Use a free pathname or an empty folder. `blob.copy()` and `media.move()` replace an object with `{ overwrite: true }`, and `media.removeFolder()` removes the objects of a folder with `{ force: true }`. For a `put()` with `ifMatch` or `overwrite: false`, another writer changed the object: read it again, merge, and retry with its new `httpEtag`.",
     },
     BLOB_INVALID_CURSOR: {
       why: "The Blob list cursor is not valid. It is not a cursor that a `list()` result of this store returned.",
@@ -82,6 +82,10 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
         ? "Blob changed repeatedly while preparing its response."
         : `Blob changed while reading its filesystem ${step}.`,
       fix: "Retry the call when the other writes to the same pathname end. Another request or process wrote the object while ViteHub read it.",
+    },
+    BLOB_PUT_CONDITION_UNSUPPORTED: {
+      why: ({ driver }: { driver: string }) => `Blob driver "${driver}" cannot check a \`put()\` condition in the provider, so it cannot write only if the object is unchanged or new.`,
+      fix: "Use a store that checks `ifMatch` and `overwrite: false`: `cloudflare` with its R2 binding, `vercel`, `netlify-blobs`, `s3` on AWS, or `fs`. Or write without a condition.",
     },
     BLOB_RESERVED_PATH: {
       why: ({ operation, pathname }: { operation: string, pathname: string }) => `The ${operation} operation cannot change ${pathname}. ViteHub owns the paths under \`_vitehub/\`.`,
@@ -161,7 +165,7 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_R0021: withFix("In the Vercel dashboard, connect the Blob store to the project for the Production, Preview, and Development environments. Then run `vitehub provision run --host vercel` again."),
     BLOB_R0022: withFix("Run `vitehub provision run --host vercel` again. If it fails again, check the provider status and the API token, then report it at https://github.com/vite-hub/vitehub/issues with the message."),
     BLOB_R0023: withFix("Remove `blob: false` from the Vite config, or remove the `blob` calls from server code."),
-    BLOB_R0024: withFix("Pass `expiresIn` in seconds as a positive integer, for example `blob.sign(pathname, { method: \"GET\", expiresIn: 300 })`."),
+    BLOB_R0024: withFix("Pass `expiresIn` as a positive whole number of seconds or as a duration, for example `blob.sign(pathname, { method: \"GET\", expiresIn: \"5m\" })`."),
     BLOB_R0025: withFix("Use a driver that can sign this request, or remove the option that the message names. `cloudflare` binds `createOnly`, `fs` binds `maxSize`, `vercel` binds both, and drivers such as `s3` bind neither. For a `GET`, you can also serve the object through `blob.serve` instead of a signed URL."),
     BLOB_R0026: withFix("Call `store()` on the `blob` export, for example `blob.store(\"media\")`, not on a handle that `blob.store()` returned."),
     BLOB_R0028: withFix("Use one of the store names that the message lists, or add the store to `blob.stores` in the Vite config, for example `stores: { default: { driver: \"fs\" }, media: { driver: \"fs\" } }`."),

@@ -922,7 +922,7 @@ describe("Content on the GitHub store", () => {
     const intro = await posts.save("docs/pages/intro", { data: { title: "Intro" }, body: "Hi\n" })
     expect(intro.path).toBe("docs/pages/intro.md")
     expect((await posts.save("packages/ui/docs/readme", { data: { title: "UI" }, body: "" })).path).toBe("packages/ui/docs/readme.md")
-    await expect(posts.save("docs/other/new", { data: { title: "No" }, body: "" })).rejects.toMatchObject({ code: "CONTENT_R0008", message: expect.stringContaining("outside collection") })
+    await expect(posts.save("docs/other/new", { data: { title: "No" }, body: "" })).rejects.toMatchObject({ code: "CONTENT_DOCUMENT_OUTSIDE_COLLECTION", message: expect.stringContaining("outside collection") })
     await expect(content.resolve("/intro")).resolves.toBeNull()
     await expect(content.resolve("/intro", { ref: "draft" })).resolves.toEqual({ collection: "posts", id: "docs/pages/intro" })
 

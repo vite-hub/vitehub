@@ -1,5 +1,5 @@
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
-import { createError, defineEventHandler, readValidatedBody } from "h3";
+import { defineEventHandler, HTTPError, readValidatedBody } from "h3";
 import { createMessage, streamAgent } from "vite-hub/agent";
 import { getRuntimeContext } from "vite-hub/runtime";
 import { z } from "zod";
@@ -22,17 +22,17 @@ export default defineEventHandler(async (event) => {
   const { id, revision, text } = await readValidatedBody(event, requestSchema.parse);
   const store = chatStore();
   const thread = store.get(owner, id);
-  if (!thread) throw createError({ statusCode: 404 });
+  if (!thread) throw new HTTPError({ status: 404 });
   if (thread.revision !== revision || activeChats.has(id)) {
-    throw createError({ statusCode: 409, statusMessage: "Chat changed. Reload its saved history." });
+    throw new HTTPError({ status: 409, message: "Chat changed. Reload its saved history." });
   }
-  if (thread.messages.length >= 40) throw createError({ statusCode: 409, statusMessage: "Start a new chat after 20 turns." });
+  if (thread.messages.length >= 40) throw new HTTPError({ status: 409, message: "Start a new chat after 20 turns." });
   if (Date.now() - windowStart > 60_000) { requests = 0; windowStart = Date.now(); }
-  if (activeChats.size >= 2 || ++requests > 20) throw createError({ statusCode: 429, statusMessage: "Wait before sending another message." });
+  if (activeChats.size >= 2 || ++requests > 20) throw new HTTPError({ status: 429, message: "Wait before sending another message." });
   const mode = process.env.CHAT_MODE || "offline";
-  if (!["offline", "model"].includes(mode)) throw createError({ statusCode: 503, statusMessage: "Invalid CHAT_MODE." });
+  if (!["offline", "model"].includes(mode)) throw new HTTPError({ status: 503, message: "Invalid CHAT_MODE." });
   if (mode === "model" && !process.env.AI_GATEWAY_API_KEY) {
-    throw createError({ statusCode: 503, statusMessage: "Set AI_GATEWAY_API_KEY on the server." });
+    throw new HTTPError({ status: 503, message: "Set AI_GATEWAY_API_KEY on the server." });
   }
 
   const user = textMessage("user", text);

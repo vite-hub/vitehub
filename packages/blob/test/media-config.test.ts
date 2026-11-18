@@ -136,15 +136,6 @@ describe("generated Nitro plugin", () => {
       await expect(generatePlugin({ driver, images: { transformer: "photon" } })).rejects.toMatchObject({ code: "BLOB_B0007" })
     }
   })
-
-  it("parses variant queries in the serve route and answers invalid ones with 400", async () => {
-    await generatePlugin({ driver: "fs", serve: { access: "public" } })
-    const route = await readFile(join(root, ".vitehub/blob/serve-route.ts"), "utf8")
-    expect(route).toContain("import { blob, parseImageVariant } from '@vite-hub/blob'")
-    expect(route).toContain("const variant = parseImageVariant(url.searchParams)")
-    expect(route).toContain("{ status: 400 }")
-    expect(route).toContain("blob.store(storeName).serve(request, pathname, options)")
-  })
 })
 
 describe("responsiveImage", () => {

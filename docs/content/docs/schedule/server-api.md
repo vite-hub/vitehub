@@ -114,18 +114,20 @@ import { defineEventHandler } from 'h3'
 import { runSchedule } from 'vite-hub/schedule'
 
 export default defineEventHandler(async () => {
-  const run = await runSchedule('daily-report')
+  const [error, run] = await runSchedule('daily-report')
+  if (error) throw error
   return { id: run.id, status: run.status }
 })
 ```
 
 Pass `scheduledAt` to run the Definition as if its cron fired at that time: `runSchedule('daily-report', { scheduledAt: '2026-01-31T23:59:00Z' })`. It takes a `Date` or an ISO 8601 date-time with `Z` or an offset. The handler gets it as `scheduledAt`, and the run records it. It defaults to now.
 
-When the handler fails, `runSchedule()` resolves with the failed run. It rejects with:
+`runSchedule()` returns `[error, run]`. When the handler fails, `run` has `status: 'failed'`, and `error` is `undefined`. `error` is:
 
-- `SCHEDULE_DEFINITION_NOT_FOUND` for an unknown name.
-- `SCHEDULE_MANUAL_RUN_DISABLED` when the Definition does not set `manual: true`.
 - `SCHEDULE_INVALID_SCHEDULED_AT` when `scheduledAt` is not a valid date-time.
+- `SCHEDULE_RUN_STORE_FAILED` when the store of Schedule Runs fails. `error.cause` has the store error. Before retrying, confirm that the handler did not already run or that it is safe to repeat.
+
+A setup error throws: `SCHEDULE_DEFINITION_NOT_FOUND` for an unknown name, and `SCHEDULE_MANUAL_RUN_DISABLED` when the Definition does not set `manual: true`.
 
 ## Run Static Schedules in a custom Node process
 

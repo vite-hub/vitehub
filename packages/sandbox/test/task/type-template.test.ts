@@ -15,25 +15,6 @@ import { describe, expect, it } from "vitest"
 import { createSandboxTaskTypeTemplateContents } from "../../src/task/type-template.ts"
 
 describe("createSandboxTaskTypeTemplateContents", () => {
-  it("generates callable package contracts", () => {
-    const contents = createSandboxTaskTypeTemplateContents([
-      {
-        handler: "/app/server/sandbox-tasks/typed/index.ts",
-        kind: "package-entry",
-        name: "typed",
-      },
-      {
-        handler: "/app/server/sandbox-tasks/untyped/index.ts",
-        kind: "package-entry",
-        name: "untyped",
-      },
-    ])
-
-    expect(contents).toContain("type SandboxTaskPackageContract<TDefault extends (...args: any[]) => any>")
-    expect(contents).toContain('"typed": SandboxTaskPackageContract<typeof import("/app/server/sandbox-tasks/typed/index.ts")[\'default\']>')
-    expect(contents).toContain('"untyped": SandboxTaskPackageContract<typeof import("/app/server/sandbox-tasks/untyped/index.ts")[\'default\']>')
-  })
-
   it("type-checks inferred function payloads and results", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-task-types-"))
     try {

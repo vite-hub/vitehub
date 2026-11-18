@@ -24,11 +24,11 @@ export default defineNuxtConfig({
 })
 ```
 
-The module installs Nuxt UI, `@vite-hub/ui`, `nuxt-agent-discovery`, and `nuxt-link-checker` for you. Do not add them to `modules`. Content serves the agent files: `/raw/<page>.md`, `llms.txt`, `llms-full.txt`, `sitemap.md`, `sitemap.xml`, and the MCP server. Set `site.url` to the public origin: llms.txt, canonical links, and the raw Markdown links use it.
+The module installs Nuxt UI, `@vite-hub/ui`, `nuxt-agent-discovery`, and `nuxt-link-checker` for you, so a new site does not add them to `modules`. An app that already lists `@nuxt/ui` keeps it before the docs module, as in [Add docs to an existing app](#add-docs-to-an-existing-app). Content serves the agent files: `/raw/<page>.md`, `llms.txt`, `llms-full.txt`, `sitemap.md`, `sitemap.xml`, and the MCP server. Set `site.url` to the public origin: llms.txt, canonical links, and the raw Markdown links use it.
 
 The shell uses Lucide, Simple Icons, and VS Code Icons. Install `@iconify-json/lucide`, `@iconify-json/simple-icons`, and `@iconify-json/vscode-icons` to serve them from your app. Without them, `@nuxt/icon` gets them from the Iconify API.
 
-Apps that use `vite-hub` can import the root and the assistant from `vite-hub/docs` and `vite-hub/docs/assistant`.
+Apps that use `vite-hub` add `vite-hub/docs/nuxt` to `modules` in place of `@vite-hub/docs/nuxt`, and import the root and the assistant from `vite-hub/docs` and `vite-hub/docs/assistant`.
 
 ### Add docs to an existing app
 
@@ -123,7 +123,7 @@ The `components` module exports a default map of Comark tags to Vue components. 
 | `navigation` | Listed | `false` keeps the page out of the sidebar. Or `{ title, order, group, kind, panel }`. See [Panels](#panels). |
 | `seo` | None | `{ title, description, image, index }` for search results and shares when they must differ from the page. `image` is a path in `public/` or a URL, or `false` for no share image. `index: false` asks search engines not to index the page. See [Pages that search engines skip](#pages-that-search-engines-skip). |
 
-Dotted keys work too, such as `navigation.order: 2`. A wrong field stops the build with `DocsContentError`. In development, the terminal shows the error and the site keeps the last valid pages until you fix the file.
+Dotted keys work too, such as `navigation.order: 2`. A wrong field stops the build with `DOCS_CONTENT_INVALID`. In development, the terminal shows the error and the site keeps the last valid pages until you fix the file.
 
 `.navigation.yml` in a section folder:
 
@@ -163,7 +163,7 @@ navigation.panel: true
 - `article` is prose with the outline on the right.
 - `tutorial` numbers each `::tutorial-step` block. With `codePanel: true`, a sticky panel on wide screens shows the file tree and the file that the reader is on. Code blocks named `commands/...` or `output/...`, and shell blocks, stay in the prose.
 - `landing` is a wide Overview page without the outline. A section Overview ends with the catalog of every section.
-- `home` is the page's own blocks at full width under the site header, with no title, actions, sidebar, or outline. Use it for a product home page built from your `components/content/` blocks; it keeps its search entry, Markdown copy, and share image.
+- `home` is a product home page under the site header, with no title, actions, sidebar, or outline. Your `components/content/` blocks, such as a `::product-hero`, take the full width. The Markdown between them, such as a heading, a list, or a code group, gets the prose styles and the width of a docs page. The page keeps its search entry, Markdown copy, and share image.
 
 The left navigation (the section rail and the page sidebar) and the right outline show on every docs page. Turn them off for one page with `sidebar: false` or `toc: false`. A page that needs the width, such as a playground, sets `sidebar: collapsed`: wide screens show a narrow column with the logo, a button that opens the navigation, search, and the site links, or the rail on a site that has one. An app page in the docs layout sets it with `definePageMeta({ layout: "docs", sidebar: "collapsed" })`. A code panel tutorial starts collapsed too.
 
@@ -205,7 +205,7 @@ Most changes are options in `nuxt.config.ts`:
 | `mcp` | On | `{ name, guide }`, or `false` to turn off the MCP server. |
 | `llms` | None | `{ details, sections }`. Text under the description of `/llms.txt`, and sections of links before the page sections. |
 | `linkChecker` | On | `false` turns off `nuxt-link-checker`, which fails the build on detected link errors in prerendered pages. Fragments on other pages are checked against the final built HTML. Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build checks that the rule leads to a docs page instead. Set the app's own `linkChecker` options to change it. |
-| `seoAudit` | `"warn"` | The search check of prerendered pages. `"warn"` logs the problems, `"error"` or `true` stops the build with `DocsSeoError`, and `false` turns it off. It reports a sitemap URL that is not a prerendered page, a title or description that is missing, shared, or outside 10 to 60 and 70 to 160 characters, a page that has no single `h1`, skips a heading level, has fewer than 150 words, or has no link to it, an indexed page without `og:title`, `og:type`, `og:image`, and `og:url`, a page over 2 MB of HTML, which Googlebot cuts, and links to a redirect page or to `/mcp`. A page without a share image (`seo.image: false`, or `ogImage: false`) needs no `og:image`, and a site without `site.url` needs no `og:url`. |
+| `seoAudit` | `"warn"` | The search check of prerendered pages. `"warn"` logs the problems, `"error"` or `true` stops the build with `DOCS_SEO_FAILED`, and `false` turns it off. It reports a sitemap URL that is not a prerendered page, a title or description that is missing, shared, or outside 10 to 60 and 70 to 160 characters, a page that has no single `h1`, skips a heading level, has fewer than 150 words, or has no link to it, an indexed page without `og:title`, `og:type`, `og:image`, and `og:url`, a page over 2 MB of HTML, which Googlebot cuts, and links to a redirect page or to `/mcp`. A page without a share image (`seo.image: false`, or `ogImage: false`) needs no `og:image`, and a site without `site.url` needs no `og:url`. |
 | `ogImage` | On | Share images. `{ component }` renders the app's own template from `components/OgImage/`, or `false` turns them off. See [Search and share](#search-and-share). |
 | `assistant` | `false` | `true`, or `{ agent }`. See [Docs assistant](#docs-assistant). |
 | `comments` | On with `vite-hub/nuxt` | `false` turns Comments off, or `{ database, dialect, overlay }`. See [Comments](#comments). |
@@ -353,14 +353,14 @@ The module sets the `comments` option of `vite-hub/nuxt`, which turns on the Dat
 - `@` suggests the users of ViteHub Auth when the app has Auth, else the people who wrote in the threads.
 - The Console's Comments section lists the threads.
 
-Turn it off with `docs: { comments: false }`. An object goes to the `comments` option of `vite-hub/nuxt`, such as `{ database: "docs" }` or `{ overlay: false }`. A site without `vite-hub/nuxt` has no Comments; `comments: true` there fails the build with `DocsCommentsSetupError`.
+Turn it off with `docs: { comments: false }`. An object goes to the `comments` option of `vite-hub/nuxt`, such as `{ database: "docs" }` or `{ overlay: false }`. A site without `vite-hub/nuxt` has no Comments; `comments: true` there fails the build with `DOCS_COMMENTS_VITEHUB_MISSING`.
 
 ## Docs assistant
 
 The docs assistant answers reader questions from your pages and links the pages that it used. It is a ViteHub Agent preset, `docsAssistant`. By default it runs on your ChatGPT plan, so you need no API key: with Codex on Node.js, and with a model-backed Driver in a Cloudflare Worker build.
 
 ```sh
-pnpm add vite-hub @vite-hub/agent @vite-hub/workflow @vite-hub/connections @vite-hub/database drizzle-orm @openai/codex
+pnpm add vite-hub @vite-hub/agent @vite-hub/workflow @vite-hub/connections @vite-hub/database drizzle-orm@1.0.0-rc.5 @openai/codex
 ```
 
 ```ts
@@ -438,11 +438,11 @@ export default defineContent({
 
 ## Errors
 
-| Error | When | Fix |
+| Code | When | Fix |
 | --- | --- | --- |
-| `DocsContentError` | A page frontmatter or a `.navigation.yml` file does not match the schema. The message names the file and the field. | Fix the field. The schema is `docsPageSchema` and `docsSectionSchema` from `@vite-hub/docs`. |
-| `DocsRedirectError` | A production build with the link checker on finds a redirect route rule into the docs that no page answers, or one that hides a docs page. | Point the rule to a page, or remove it. |
-| `DocsAssistantSetupError` | `assistant` is on, and `vite-hub/nuxt` with `agent: true` is missing. | Add `vite-hub/nuxt` with `agent: true` and `connections: true`, or turn `assistant` off. |
+| `DOCS_CONTENT_INVALID` | A page frontmatter or a `.navigation.yml` file does not match the schema. The message names the file and the field. | Fix the field. The schema is `docsPageSchema` and `docsSectionSchema` from `@vite-hub/docs`. |
+| `DOCS_REDIRECTS_BROKEN` | A production build with the link checker on finds a redirect route rule into the docs that no page answers, or one that hides a docs page. | Point the rule to a page, or remove it. |
+| `DOCS_ASSISTANT_AGENTS_MISSING` | `assistant` is on, and `vite-hub/nuxt` with `agent: true` is missing. | Add `vite-hub/nuxt` with `agent: true` and `connections: true`, or turn `assistant` off. |
 
 ## Inspect
 
