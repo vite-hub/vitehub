@@ -82,8 +82,13 @@ export async function stateOf(auth: McpOAuthAuth): Promise<McpOAuthState> {
 
 export const pathOf = (url: string): string => new URL(url).pathname.replace(/\/+$/, "")
 
-// SAFETY: `authForRequest()` returns the app's Better Auth, which has every member that McpOAuthAuth names once `mcpOAuth()` is installed.
-export const appAuth = (request: Pick<Request, "headers" | "url">): McpOAuthAuth => authForRequest(request) as unknown as McpOAuthAuth
+export const appAuth = (request: Pick<Request, "headers" | "url">): McpOAuthAuth => mcpOAuthAuth(authForRequest(request))
+
+/** The app's Better Auth, as the MCP helpers read it. */
+export function mcpOAuthAuth(auth: object): McpOAuthAuth {
+  // SAFETY: The app's Better Auth has every member that McpOAuthAuth names once `mcpOAuth()` is installed.
+  return auth as McpOAuthAuth
+}
 
 /** The person and the client of a valid MCP access token. */
 export interface McpCaller {
@@ -145,7 +150,8 @@ const bearerToken = (headers: Pick<Headers, "get">): string | undefined => /^Bea
  * Check an MCP access token for any `mcpOAuth()` resource at the origin of the request, for `requireCaller()`, which
  * accepts the token on every route of the app.
  */
-export async function verifyAppAccessToken(token: string, request: Pick<Request, "url">, auth: McpOAuthAuth): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID">> {
+export async function verifyAppAccessToken(token: string, request: Pick<Request, "url">, instance: object): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID">> {
+  const auth = mcpOAuthAuth(instance)
   const state = await stateOf(auth)
   const { origin, pathname } = new URL(request.url)
   return await verifyToken(token, auth, state, state.resources.filter(entry => new URL(entry).origin === origin), pathname)

@@ -57,8 +57,8 @@ import { notMemberError } from "../members.ts"
 import type { AuthMemberErrorCode } from "../members.ts"
 import type { Result } from "@vite-hub/runtime"
 import { signedOutError } from "../caller.ts"
+import { verifyAppAccessToken } from "../mcp-token.ts"
 import type { AuthCaller, AuthCallerErrorCode, AuthCallerUser } from "../caller.ts"
-import type { McpOAuthAuth } from "../mcp-token.ts"
 
 export { createBetterAuthOptions, getAuthForDefinition } from "../auth-instance.ts"
 export { resetAuth } from "../runtime-state.ts"
@@ -952,10 +952,7 @@ async function readCaller(event: AuthRequestInput, definition: AuthDefinition): 
     const auth = authForRequest(request, authRequestEvent(event), definition)
     // Without `mcpOAuth()`, a bearer token is Better Auth's, such as a session token of `bearer()`.
     if ((await auth.$context).options.plugins?.some(plugin => plugin.id === "oauth-provider")) {
-      // Loaded only for a bearer token, so apps without MCP clients do not bundle the token check.
-      const { verifyAppAccessToken } = await import("../mcp-token.ts")
-      // SAFETY: The app's Better Auth with `mcpOAuth()` has every member that McpOAuthAuth names.
-      const [error, caller] = await verifyAppAccessToken(token, request, auth as unknown as McpOAuthAuth)
+      const [error, caller] = await verifyAppAccessToken(token, request, auth)
       if (error) return [error, undefined]
       return [undefined, Object.freeze({
         client: { id: caller.clientId, name: caller.clientName },
