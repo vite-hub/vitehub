@@ -14,6 +14,7 @@ import { createWorkflowSteps, resolveWorkflowStepOptions, runProviderStep } from
 import { resetOpenWorkflowRuntime } from "../src/runtime/openworkflow.ts"
 import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { unwrap } from "./unwrap.ts"
 
 const attempts: string[] = []
 const signals: AbortSignal[] = []
@@ -117,12 +118,12 @@ describe("OpenWorkflow (SQLite)", () => {
         }),
       }),
     })
-    const started = await startWorkflow("report")
+    const started = await unwrap(startWorkflow("report"))
 
     for (let tickCount = 0; tickCount < 4; tickCount++) await tick()
 
     expect(attempts).toEqual(["sync", "sync"])
-    await expect(getWorkflowRun("report", started.id)).resolves.toMatchObject({ error: { message: "GitHub is down" }, status: "failed" })
+    await expect(unwrap(getWorkflowRun("report", started.id))).resolves.toMatchObject({ error: { message: "GitHub is down" }, status: "failed" })
   })
 
   it.each([0, 1])("enforces explicit step timeouts with %i retries", async (limit) => {
@@ -139,24 +140,24 @@ describe("OpenWorkflow (SQLite)", () => {
         },
       }),
     })
-    const started = await startWorkflow("report")
+    const started = await unwrap(startWorkflow("report"))
     for (let tickCount = 0; tickCount < 4; tickCount++) await tick()
 
     expect(attempts).toHaveLength(limit + 1)
-    await expect(getWorkflowRun("report", started.id)).resolves.toMatchObject({ error: { name: "WORKFLOW_STEP_TIMEOUT" }, status: "failed" })
+    await expect(unwrap(getWorkflowRun("report", started.id))).resolves.toMatchObject({ error: { name: "WORKFLOW_STEP_TIMEOUT" }, status: "failed" })
   })
 
   it("fails an attempt at its timeout", async () => {
     setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     setWorkflowRuntimeRegistry({ report: async () => ({ default: folderWorkflow({ retries: { limit: 0 }, timeout: 20 }, waitForAbort) }) })
-    const started = await startWorkflow("report")
+    const started = await unwrap(startWorkflow("report"))
 
     await tick()
     await tick()
 
     expect(attempts).toEqual(["sync"])
     expect(signals[0]?.aborted).toBe(true)
-    await expect(getWorkflowRun("report", started.id)).resolves.toMatchObject({ error: { message: expect.stringContaining("timeout of 20 ms"), name: "WORKFLOW_STEP_TIMEOUT" }, status: "failed" })
+    await expect(unwrap(getWorkflowRun("report", started.id))).resolves.toMatchObject({ error: { message: expect.stringContaining("timeout of 20 ms"), name: "WORKFLOW_STEP_TIMEOUT" }, status: "failed" })
   })
 })
 

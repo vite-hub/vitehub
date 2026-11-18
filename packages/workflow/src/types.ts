@@ -1,3 +1,5 @@
+import type { Result } from "@vite-hub/runtime"
+
 export type WorkflowDriver = "cloudflare" | "openworkflow" | "vercel"
 
 export interface CloudflareWorkflowBinding<TPayload = unknown> {
@@ -269,13 +271,26 @@ export type WorkflowStartArguments<TPayload> = undefined extends TPayload
   ? [payload?: TPayload, options?: WorkflowStartOptions]
   : [payload: TPayload, options?: WorkflowStartOptions]
 
+/**
+ * Codes that `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, and the methods of a
+ * WorkflowHandle return in the `[error, data]` tuple. Config errors throw instead.
+ */
+export type WorkflowResultErrorCode =
+  | "WORKFLOW_CLOUDFLARE_RUN_ID_INVALID"
+  | "WORKFLOW_OPERATION_UNSUPPORTED"
+  | "WORKFLOW_PROVIDER_OPERATION_FAILED"
+  | "WORKFLOW_R0014"
+  | "WORKFLOW_RUN_ID_UNSUPPORTED"
+  | "WORKFLOW_START_DELAY_INVALID"
+
+/** `cancel()`, `getRun()`, and `start()` return `[error, data]`, as `cancelWorkflow()`, `getWorkflowRun()`, and `startWorkflow()` do. */
 export interface WorkflowHandle<TPayload = unknown, TResult = unknown> {
-  cancel: (id: string) => Promise<WorkflowRun<unknown, unknown>>
+  cancel: (id: string) => Promise<Result<WorkflowRun<unknown, unknown>, WorkflowResultErrorCode>>
   /** Starts a run after the response, through `waitUntil`. A failure goes to the log. */
   defer: (...args: WorkflowStartArguments<TPayload>) => void
-  getRun: (id: string) => Promise<WorkflowRun<unknown, unknown>>
+  getRun: (id: string) => Promise<Result<WorkflowRun<unknown, unknown>, WorkflowResultErrorCode>>
   name: string
-  start: (...args: WorkflowStartArguments<TPayload>) => Promise<WorkflowRun<TPayload, TResult>>
+  start: (...args: WorkflowStartArguments<TPayload>) => Promise<Result<WorkflowRun<TPayload, TResult>, WorkflowResultErrorCode>>
 }
 
 /** Milliseconds, a duration such as `"30 minutes"` or `"3 days"`, or a `Date` that the run must not start before. */

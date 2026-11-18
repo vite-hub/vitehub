@@ -6,6 +6,7 @@ import { AwsClient } from "aws4fetch"
 
 import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobDriverStreamOptions, BlobListOptions, BlobListResult, BlobMultipartPart, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import { bareETag } from "../internal/etag.ts"
 import isBlob from "../internal/is-blob.ts"
 import { assertValidPathname } from "../internal/pathname.ts"
 
@@ -33,6 +34,8 @@ interface R2PutOptionsLike {
   httpMetadata?: { contentType?: string }
 }
 
+type R2PutCondition = { etagDoesNotMatch: "*" } | { etagMatches: string }
+
 interface R2BucketLike {
   createMultipartUpload(key: string, options?: R2PutOptionsLike): Promise<R2MultipartUploadLike>
   delete(key: string): Promise<void>
@@ -40,6 +43,8 @@ interface R2BucketLike {
   head(key: string): Promise<R2ObjectLike | null>
   list(options?: { cursor?: string, delimiter?: string, include?: string[], limit?: number, prefix?: string }): Promise<{ cursor?: string, delimitedPrefixes?: string[], objects: R2ObjectLike[], truncated?: boolean }>
   put(key: string, value: BlobPutBody, options?: R2PutOptionsLike): Promise<R2ObjectLike>
+  /** R2 writes nothing and returns `null` when the condition does not hold. */
+  put(key: string, value: BlobPutBody, options: R2PutOptionsLike & { onlyIf: R2PutCondition }): Promise<R2ObjectLike | null>
   resumeMultipartUpload(key: string, uploadId: string): R2MultipartUploadLike
 }
 
@@ -140,6 +145,12 @@ function assertListPageCursor(result: { cursor?: string, truncated?: boolean }) 
 }
 
 export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig> {
+  const putOptionsOf = (body: BlobPutBody, putOptions: BlobPutOptions): R2PutOptionsLike => ({
+    customMetadata: putOptions.customMetadata,
+    httpMetadata: {
+      contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
+    },
+  })
   return {
     name: "cloudflare",
     options,
@@ -217,13 +228,14 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
       }
     },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
+      return mapObject(await getBucket(options).put(pathname, body, putOptionsOf(body, putOptions)))
+    },
+    async putIf(pathname, body, putOptions, condition) {
       const object = await getBucket(options).put(pathname, body, {
-        customMetadata: putOptions.customMetadata,
-        httpMetadata: {
-          contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
-        },
+        ...putOptionsOf(body, putOptions),
+        onlyIf: condition.type === "create" ? { etagDoesNotMatch: "*" } : { etagMatches: bareETag(condition.etag) },
       })
-      return mapObject(object)
+      return object ? mapObject(object) : null
     },
     sign: (pathname, signOptions) => signRequest(options, pathname, signOptions),
   }

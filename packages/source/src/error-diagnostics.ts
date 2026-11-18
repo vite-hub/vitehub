@@ -185,6 +185,11 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ route, other }: { route: string, other: string }) => `[vitehub] defineContent({ seo: { mcp } }) serves its MCP server at ${JSON.stringify(route)}, and ${other} answers there too.`,
       fix: "One route serves one MCP server. Give the app MCP server another route, such as `vitehub({ mcp: { route: '/mcp/app' } })`, or another `publicRoute`. Or set `seo: { mcp: false }` in server/content.ts.",
     },
+    // Named errors. Keep these codes in alphabetical order.
+    SOURCE_GITHUB_ARCHIVE_INVALID: {
+      why: "[vitehub] The archive of the github() Source has an entry with an invalid size.",
+      fix: "Load the Source again: GitHub or `git archive` sent a cut or broken archive. If it fails again, check the network and that the ref of the `github()` Source exists.",
+    },
     SOURCE_GLOB_OPTIONS_NOT_LITERAL: {
       why: "glob() here takes options that are not literals, so the build cannot bundle its files. It reads them from disk at runtime, which hosts such as Cloudflare Workers do not have.",
       fix: "Write the options of `glob()` as literals in the call, such as `glob({ cwd: \"content\", include: [\"**/*.md\"] })`, so the build can find and bundle the files.",

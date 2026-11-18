@@ -1,3 +1,4 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
@@ -47,7 +48,7 @@ type ToolGrant = ReturnType<typeof toolGrant.issue>
 
 function spend(grant: ToolGrant, action: CommentAction, threadId: string): void {
   const allowed = toolGrant.consume(grant)
-  if (allowed.action !== action || allowed.threadId !== threadId) throw new TypeError(`[vitehub] A Comments tool wrote ${action} with the grant of ${allowed.action}.`)
+  invariant(allowed.action === action && allowed.threadId === threadId, "each Comments tool spends the grant that it issued for the same action and thread")
 }
 
 /**

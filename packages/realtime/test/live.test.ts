@@ -625,14 +625,14 @@ describe("re-seeding", () => {
 describe("identity and authorization", () => {
   function secured(memory: ReturnType<typeof createMemoryAdapter>, extra: {
     auth?: true
-    authorize?: (context: RealtimeAuthorizeContext) => boolean | void
+    authorize?: (context: RealtimeAuthorizeContext) => boolean
     identify?: (context: RealtimeRequestContext) => RealtimeUser | null
   } = {}) {
     return liveDefinition(memory.adapter, {}, {
       auth: extra.auth,
       authorize: extra.authorize ?? (({ documentId, mode, user }) => {
         if (documentId === "secret") return user?.id === "ana"
-        if (mode === "write") return user?.id !== "viewer"
+        return mode === "read" || user?.id !== "viewer"
       }),
       identify: extra.identify ?? (({ request }) => {
         const id = request.headers.get("x-user")
@@ -645,7 +645,10 @@ describe("identity and authorization", () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
     const events: unknown[] = []
     const server = createTestServer(secured(memory, {
-      authorize: ({ event }) => { events.push(event) },
+      authorize: ({ event }) => {
+        events.push(event)
+        return true
+      },
       identify: ({ event, request }) => {
         events.push(event)
         expect(event["~standard"].req).toBe(request)
@@ -711,6 +714,18 @@ describe("identity and authorization", () => {
 
     const editor = await server.connect("page", { headers: { "x-user": "ana" } })
     expect(paragraphs(editor.doc)).toEqual(["Start"])
+  })
+
+  it("denies when authorize() returns undefined", async () => {
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const authorize = vi.fn(({ mode }: RealtimeAuthorizeContext): boolean | undefined => (mode === "write" ? true : undefined))
+    // SAFETY: A JavaScript definition can return undefined, which the type does not allow.
+    const server = createTestServer(secured(memory, { authorize: authorize as (context: RealtimeAuthorizeContext) => boolean }))
+
+    expect((await server.connect("page", { headers: { "x-user": "ana" } })).closed).toEqual({ code: 403, reason: "rejected" })
+    expect((await server.post("page", "refresh", { headers: { "x-user": "ana" } })).status).toBe(403)
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ mode: "read" }))
+    expect(memory.adapter.load).not.toHaveBeenCalled()
   })
 
   it("requires an identity when auth is true", async () => {

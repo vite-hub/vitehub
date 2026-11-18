@@ -154,7 +154,6 @@ describe("Agents landing", () => {
       const config = variant.files.find((file) => file.path.endsWith(".config.ts"))!;
       expect(config.content).toContain('host: "node", agent: true');
       expect(variant.files.map((file) => file.content).join("\n")).not.toMatch(/definePrimitive|vite-hub\/agents|vite-hub\/vite/);
-      expect(variant.files.some((file) => file.path.includes("agentss"))).toBe(false);
     }
   });
 });

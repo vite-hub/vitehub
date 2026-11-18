@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from "vitest"
 import { enableWorkflowDevRuns } from "../src/runtime/dev-runs.ts"
 import { getWorkflowRun, startWorkflow } from "../src/runtime/client.ts"
 import { enterWorkflowRuntimeEvent, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { unwrap } from "./unwrap.ts"
 
 afterEach(() => {
   resetWorkflowRuntime()
@@ -31,5 +32,5 @@ it("runs the Workflow inline without the binding on a development server", async
   enableWorkflowDevRuns()
   cloudflareWorkerWithoutBinding()
 
-  await expect(startWorkflow("welcome", { name: "Ada" }, { id: "run-1" })).resolves.toMatchObject({ provider: "cloudflare", status: "queued" })
+  await expect(unwrap(startWorkflow("welcome", { name: "Ada" }, { id: "run-1" }))).resolves.toMatchObject({ provider: "cloudflare", status: "queued" })
 })

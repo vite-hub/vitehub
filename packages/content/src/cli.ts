@@ -555,11 +555,16 @@ async function runLocalCheck(parsed: ParsedContentArgs, context: ContentCliConte
     return writeCheck(result, parsed, context)
   }
   catch (error) {
-    const failure: ContentCliFailure = { message: error instanceof Error ? error.message : String(error) }
-    if (isRecord(error) && String(error.code) === error.code) failure.code = error.code
-    if (isRecord(error) && String(error.fix) === error.fix) failure.fix = error.fix
-    return writeFailure(parsed, context, failure)
+    return writeFailure(parsed, context, failureOf(error))
   }
+}
+
+/** The message, and the code and fix of a diagnostic, of a thrown error. */
+function failureOf(error: unknown): ContentCliFailure {
+  const failure: ContentCliFailure = { message: error instanceof Error ? error.message : String(error) }
+  if (isRecord(error) && String(error.code) === error.code) failure.code = error.code
+  if (isRecord(error) && String(error.fix) === error.fix) failure.fix = error.fix
+  return failure
 }
 
 /** The lines of one head: the commit, the pin, the last check, the rejected commit, the last webhook, and the diagnostic. */
@@ -707,7 +712,7 @@ function defaultEditor(env: NodeJS.ProcessEnv): ((file: string) => Promise<void>
       child.once("error", reject)
       child.once("exit", resolve)
     })
-    if (code !== 0) throw new Error(`The editor \`${command}\` exited with code ${code}.`)
+    if (code !== 0) throw contentErrorDiagnostics.CONTENT_EDITOR_FAILED({ command, code })
   }
 }
 
@@ -886,7 +891,7 @@ async function runEdit(parsed: ParsedContentArgs, context: ContentCliContext, ca
     }
     catch (error) {
       await cleanup()
-      return writeFailure(parsed, context, { message: error instanceof Error ? error.message : String(error) })
+      return writeFailure(parsed, context, failureOf(error))
     }
     try {
       text = await readFile(file, "utf8")

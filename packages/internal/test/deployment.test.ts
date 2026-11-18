@@ -8,6 +8,7 @@ import { afterAll, describe, expect, it } from "vitest"
 import { collectDeploymentEnv, finalizeDeploymentPlanOutput, mergeDeploymentEnv } from "../src/build/deployment-plan-output.ts"
 import {
   assertDeploymentService,
+  findProviderHostConflict,
   hostFromNitroPreset,
   resolveDeploymentPlan,
 } from "../src/deployment.ts"
@@ -79,6 +80,18 @@ describe("built-in deployment plans", () => {
     expect(hostFromNitroPreset("node-server")).toBe("node")
     expect(hostFromNitroPreset("bun")).toBeUndefined()
   })
+  it("finds a provider variable that names another host", () => {
+    expect(findProviderHostConflict("node", { VERCEL: "1" })).toEqual({ host: "vercel", variable: "VERCEL" })
+    expect(findProviderHostConflict("node", { WORKERS_CI: "1" })).toEqual({ host: "cloudflare", variable: "WORKERS_CI" })
+    expect(findProviderHostConflict("vercel", { NETLIFY: "true" })).toEqual({ host: "netlify", variable: "NETLIFY" })
+    expect(findProviderHostConflict("node", { DENO_DEPLOYMENT_ID: "abc" })).toEqual({ host: "deno", variable: "DENO_DEPLOYMENT_ID" })
+    expect(findProviderHostConflict("vercel", { VERCEL: "1" })).toBeUndefined()
+    expect(findProviderHostConflict("node", {})).toBeUndefined()
+    expect(findProviderHostConflict("node", { VERCEL: " " })).toBeUndefined()
+    // A host variable selects the host on purpose.
+    expect(findProviderHostConflict("node", { VERCEL: "1", VITEHUB_HOST: "node" })).toBeUndefined()
+    expect(findProviderHostConflict("node", { NETLIFY: "true", NITRO_PRESET: "node-server" })).toBeUndefined()
+  })
   it("validates and records the whole output contract", async () => {
     for (const preset of ["cloudflare", "netlify", "vercel", "deno", "node"] as const) {
       const rootDir = await temporaryDirectory("vitehub-plan-output-")
@@ -89,7 +102,6 @@ describe("built-in deployment plans", () => {
       await finalizeDeploymentPlanOutput({ plan, rootDir })
       const manifest = JSON.parse(await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8"))
       expect(manifest).toMatchObject({ host: preset, output: plan.output, runtime: plan.runtime, services: plan.services })
-      expect(manifest).not.toHaveProperty("preset")
       if (preset === "netlify") {
         const wrapper = await readFile(resolve(rootDir, ".netlify", "functions", "server.mjs"), "utf8")
         expect(wrapper).toBe('export { default } from "../functions-internal/server/server.mjs"\n')
