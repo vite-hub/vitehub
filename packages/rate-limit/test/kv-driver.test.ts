@@ -154,14 +154,16 @@ describe("kvRateLimitDriver", () => {
 
   it("does not credit a refund that finishes after another instance resets the window", async () => {
     const kv = fakeKV()
-    const entered = Promise.withResolvers<void>()
-    const resume = Promise.withResolvers<void>()
+    let notifyEntered!: () => void
+    const entered = new Promise<void>(resolve => { notifyEntered = resolve })
+    let resumeRefund!: () => void
+    const resume = new Promise<void>(resolve => { resumeRefund = resolve })
     const pendingStore: RateLimitKVStorage = {
       ...kv,
       async increment(key, ttl) {
         if (key.endsWith(":refunds")) {
-          entered.resolve()
-          await resume.promise
+          notifyEntered()
+          await resume
         }
         return kv.increment(key, ttl)
       },
@@ -172,9 +174,9 @@ describe("kvRateLimitDriver", () => {
     const second = limiter(kv)
     await first.consume(input)
     const pending = first.refund(input)
-    await entered.promise
+    await entered
     await expect(second.reset(input)).resolves.toEqual({ status: "reset" })
-    resume.resolve()
+    resumeRefund()
     await expect(pending).resolves.toEqual({ status: "refunded" })
     await expect(second.consume(input)).resolves.toMatchObject({ allowed: true })
     await expect(second.consume(input)).resolves.toMatchObject({ allowed: false })

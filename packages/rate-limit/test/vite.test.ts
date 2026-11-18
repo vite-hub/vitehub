@@ -138,7 +138,7 @@ describe("hubRateLimit", () => {
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ command: "serve", logger: { warn: vi.fn() }, plugins: [kvPlugin], root } as never)
 
     await expect(runBuildStart(plugin)).resolves.toBeUndefined()
-    expect(await readFile(join(root, ".vitehub/nitro/rate-limit/plugin.ts"), "utf8")).toContain('const config = {"memoryFallback":true,"driver":"kv"}')
+    expect(await readFile(join(root, ".vitehub/nitro/rate-limit/plugin.ts"), "utf8")).toContain('const config = {"driver":"kv","memoryFallback":true}')
   })
 
   it("fails a build that counts a strict Rate Limit in memory, and accepts it in `vite dev`", async () => {
@@ -458,7 +458,7 @@ describe("hubRateLimit", () => {
       root,
     } as never)
     const installer = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")
-    expect(installer).toContain('const config = {"driver":"cloudflare","namespace":"formula"}')
+    expect(installer).toContain('const config = {"driver":"cloudflare"}')
   })
 
   it("counts a Cloudflare window other than 10s or 1m in KV", async () => {
@@ -493,7 +493,7 @@ describe("hubRateLimit", () => {
     expect(resolvedConfig).toHaveProperty("nitro.cloudflare.wrangler.ratelimits", [expect.objectContaining({ name: getCloudflareRateLimitBindingName("upload") })])
     const installer = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")
     expect(installer).toContain('import { getKVStoreDriver, kv } from "vite-hub/kv"')
-    expect(installer).toContain('const config = {"driver":"cloudflare"}')
+    expect(installer).toContain('const config = {"driver":"cloudflare","namespace":"formula"}')
     expect(installer).toContain("setRateLimitRuntimeConfig(config, { driver: () => getKVStoreDriver(), storage: kv, store: 'default' })")
     const manifest = JSON.parse(await readFile(join(root, ".vitehub", "rate-limit", "manifest.json"), "utf8"))
     expect(manifest.rateLimits.map((entry: { name: string, provider: string }) => [entry.name, entry.provider])).toEqual([["tutor", "kv"], ["upload", "cloudflare"]])
