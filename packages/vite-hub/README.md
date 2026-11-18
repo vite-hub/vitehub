@@ -142,6 +142,8 @@ Nuxt's Cloudflare preset enables Nitro deployment configuration by default and
 writes `.output/server/wrangler.json`. Set `nitro.cloudflare.deployConfig: false`
 only when you manage that configuration yourself. `vitehub deploy` uploads the Worker secrets with each new version.
 See [Upload secrets with the version](https://vitehub.dev/docs/frameworks-hosts/cloudflare#upload-secrets-with-the-version).
+With `cloudflare: { vars: true }`, the build writes the non-secret Server Env values it finds to the Worker's `vars`.
+See [Worker vars from Server Env](https://vitehub.dev/docs/frameworks-hosts/cloudflare#worker-vars-from-server-env).
 
 A successful build proves that ViteHub discovered the configured definitions and wrote the selected output. It does not prove that remote resources exist, credentials are valid, deployment succeeded, or a hosted provider completed a live operation. Follow the selected [host guide](https://vitehub.dev/docs/frameworks-hosts) for provisioning, environment variables, deployment commands, and current proof.
 

@@ -8,7 +8,6 @@ describe("removed vitehub() options", () => {
     ["devtools", false, "Remove `devtools`."],
     ["logs", true, "Move it to `observability: { logs: ... }`."],
     ["contentImportBase", "vite-hub/content", "Remove `contentImportBase`."],
-    ["cloudflare", { secretsFile: ".env" }, "Remove `cloudflare`."],
   ])("fails on `%s` instead of ignoring it", (key, value, fix) => {
     // SAFETY: the test passes an option that ViteHubOptions no longer declares, as an old config does.
     const options = { host: "node", env: false, [key]: value } as ViteHubOptions
@@ -17,6 +16,11 @@ describe("removed vitehub() options", () => {
       message: expect.stringContaining(`\`${key}\` in \`vitehub()\` is no longer a ViteHub option.`),
     }))
     expect(() => vitehub(options)).toThrow(fix)
+  })
+
+  it("rejects removed secretsFile while accepting Worker vars", () => {
+    expect(() => vitehub({ host: "cloudflare", env: false, cloudflare: { vars: true } })).not.toThrow()
+    expect(() => vitehub({ host: "cloudflare", env: false, cloudflare: { secretsFile: ".env" } } as ViteHubOptions)).toThrow("Remove `cloudflare.secretsFile`.")
   })
 
   it("accepts `host`", () => {

@@ -1006,6 +1006,81 @@ describe("built-in host integration", () => {
     }
   }, 30_000)
 
+  it.each([true, undefined])("writes non-secret Server Env from the build environment to Worker vars with cloudflare.vars %s", async (vars) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cloudflare-vars-build-"))
+    try {
+      await mkdir(join(root, "server", "routes"), { recursive: true })
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "index.html"), "<main>ok</main>\n")
+      await writeFile(join(root, "server", "routes", "index.ts"), "export default () => 'ok'\n")
+      await writeFile(join(root, ".env"), [
+        "EXECUTOR_URL=https://executor.example.com",
+        "EXECUTOR_API_KEY=sk-not-a-var",
+        "VITEHUB_GMAIL_ACCOUNT=acc_canonical",
+        "GMAIL_ACCOUNT=acc_conventional",
+        "DRY_RUN=false",
+        "PUBSUB_TOPIC=",
+        "VITEHUB_PAYMENT_LINK=https://pay.example.com/from-env",
+        "VITEHUB_EXECUTOR_API_KEY=sk-not-a-var-either",
+        "VITEHUB_PUBLIC_EXECUTOR_LABEL=public-label",
+        "",
+      ].join("\n"))
+      await writeFile(join(root, ".env.development"), "LOG_LEVEL=debug\n")
+      await writeFile(join(root, "wrangler.json"), JSON.stringify({
+        vars: { PAYMENT_LINK: "https://pay.example.com/from-wrangler" },
+        env: { staging: { vars: { DRY_RUN: "true" } }, production: { vars: { PAYMENT_LINK: "https://pay.example.com/production" } } },
+      }))
+      const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
+      const builder = await createBuilder({
+        logLevel: "silent",
+        root,
+        plugins: [vitehub({
+          host: "cloudflare",
+          ...(vars ? { cloudflare: { vars } } : {}),
+          env: {
+            server: {
+              executor: {
+                url: env({ source: env.source("EXECUTOR_URL") }),
+                apiKey: env({ secret: true, source: env.source("EXECUTOR_API_KEY") }),
+              },
+              gmailAccount: env(),
+              dryRun: env.boolean({ default: true, source: env.source("DRY_RUN") }),
+              pubsubTopic: env({ optional: true, source: env.source("PUBSUB_TOPIC") }),
+              logLevel: env({ default: "info", source: env.source("LOG_LEVEL") }),
+              paymentLink: env({ source: env.source("PAYMENT_LINK") }),
+              paymentLinkAlias: env({ source: env.source("VITEHUB_PAYMENT_LINK", { canonical: false }) }),
+              executorKeyAlias: env({ source: env.source("EXECUTOR_API_KEY") }),
+              canonicalKeyAlias: env({ source: env.source("VITEHUB_EXECUTOR_API_KEY") }),
+              publicExecutorLabel: env({ source: env.source("EXECUTOR_API_KEY") }),
+            },
+          },
+        }), nitro() as never],
+      } as Parameters<typeof createBuilder>[0])
+      await builder.buildApp()
+
+      const wrangler: unknown = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8"))
+      if (!vars) {
+        expect(wrangler).toMatchObject({ vars: { PAYMENT_LINK: "https://pay.example.com/from-wrangler" } })
+        expect(wrangler).not.toHaveProperty("vars.EXECUTOR_URL")
+        return
+      }
+      const generated = {
+        EXECUTOR_URL: "https://executor.example.com",
+        // Server Env reads the canonical name first, so the Worker gets the same value under the same name.
+        VITEHUB_GMAIL_ACCOUNT: "acc_canonical",
+        DRY_RUN: "false",
+        VITEHUB_PUBLIC_EXECUTOR_LABEL: "public-label",
+      }
+      expect(wrangler).toHaveProperty("vars", { ...generated, PAYMENT_LINK: "https://pay.example.com/from-wrangler" })
+      // Named environments do not inherit vars, and keep their own.
+      expect(wrangler).toHaveProperty("env.staging.vars", { ...generated, DRY_RUN: "true", VITEHUB_PAYMENT_LINK: "https://pay.example.com/from-env" })
+      expect(wrangler).toHaveProperty("env.production.vars", { ...generated, PAYMENT_LINK: "https://pay.example.com/production" })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 60_000)
+
   it.each([undefined, "APP_", false] as const)("uses exact Wrangler requirements with prefix %s", async (prefix) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-secret-aliases-"))
     try {
