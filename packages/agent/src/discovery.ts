@@ -9,7 +9,7 @@ import {
   mergeDefinitions,
   normalizeSuffixDefinitionName,
 } from "@vite-hub/internal/definition-catalog"
-import { argumentExpression, findProperty, moduleTokens, scanModule, staticValue, unwrapExpression, walk } from "@vite-hub/internal/build/scan-module"
+import { argumentExpression, exportNames, findProperty, moduleTokens, scanModule, staticValue, unwrapExpression, walk } from "@vite-hub/internal/build/scan-module"
 
 import type { CallExpression, Expression, Node, ObjectExpression, ScannedModule } from "@vite-hub/internal/build/scan-module"
 
@@ -454,17 +454,25 @@ function discoverFolderAgentDefinitions(scanDirs: string[]): DiscoveredAgentDefi
 }
 
 /**
- * The host imports the default export of each discovered Agent file. A file without one, such as a folder of helpers
- * under `server/agents/`, fails at build time with its path, not later in a generated route. A CommonJS file is not
- * read: its default export is `module.exports`.
+ * Throws when an Agent file that discovery found has no runtime default export. The host imports that default, and a
+ * file without one, such as a folder of helpers under `server/agents/`, would crash the generated routes. A CommonJS
+ * file, with no `import` or `export` statement, is not read: `module.exports` is its default.
  */
-function assertDefaultAgentExport(definition: DiscoveredAgentDefinition): void {
-  if (/\.cjs$/i.test(definition.handler)) return
-  const { program } = scanModule(readFileSync(definition.handler, "utf8"), definition.handler)
-  const exportsDefault = program.body.some(statement => statement.type === "ExportDefaultDeclaration"
-    || (statement.type === "ExportNamedDeclaration" && statement.specifiers.some(specifier => exportName(specifier.exported) === "default"))
-    || (statement.type === "ExportAllDeclaration" && statement.exported !== null && exportName(statement.exported) === "default"))
-  if (!exportsDefault) throw agentDiagnostics.AGENT_DEFINITION_EXPORT_MISSING({ file: definition.handler, name: definition.name })
+export function assertAgentDefaultExport(definition: Pick<DiscoveredAgentDefinition, "handler" | "name">): void {
+  const file = definition.handler
+  if (/\.c[jt]s$/i.test(file)) return
+  const source = readFileSync(file, "utf8")
+  const { program } = scanModule(source, file)
+  if (!program.body.some(statement => statement.type === "ImportDeclaration" || statement.type.startsWith("Export"))) return
+  // `exportNames()` leaves out `export type` and `export default interface`, but not a local type exported as default.
+  const typeNames = new Set(program.body.flatMap((statement) => {
+    const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
+    return declaration?.type === "TSInterfaceDeclaration" || declaration?.type === "TSTypeAliasDeclaration" ? [declaration.id.name] : []
+  }))
+  const typeDefault = program.body.some(statement => statement.type === "ExportNamedDeclaration" && !statement.source
+    && statement.specifiers.some(specifier => exportName(specifier.exported) === "default" && specifier.local.type === "Identifier" && typeNames.has(specifier.local.name)))
+  if (exportNames(source, file).includes("default") && !typeDefault) return
+  throw agentDiagnostics.AGENT_DEFINITION_EXPORT_MISSING({ file, name: definition.name })
 }
 
 export function discoverAgentDefinitions(options:
@@ -497,9 +505,7 @@ export function discoverAgentDefinitions(options:
       }),
     ])
 
-    const definitions = mergeDefinitions("agent", directoryDefinitions, folderDefinitions)
-    for (const definition of definitions) assertDefaultAgentExport(definition)
-    return definitions
+    return mergeDefinitions("agent", directoryDefinitions, folderDefinitions)
   }
 
   const roots = new Set([options.rootDir, ...(options.scanDirs || [])].filter(Boolean))
