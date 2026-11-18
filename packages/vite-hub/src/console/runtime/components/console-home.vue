@@ -22,6 +22,7 @@ import { consoleAddablePrimitives, openConsoleAddPrimitive } from "../client/add
 import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import { recentTimestamp } from "../client/format";
+import { consoleCompareUrl } from "../client/project-link";
 import { useConsoleProjects } from "../client/project-session";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
@@ -93,6 +94,7 @@ const agentsEnabled = computed(() => sections.value.includes("agents"));
 // The build that serves the app, from `project.get`. A development server has none.
 const projects = useConsoleProjects();
 const build = computed(() => projects.info.value?.build);
+const compareUrl = computed(() => consoleCompareUrl(build.value));
 const sessionItems = computed(() =>
   recentSessions.items.value.slice(0, 5).map((item) => ({
     agentName: item.agentName,
@@ -316,6 +318,17 @@ onBeforeUnmount(() => {
                       <span v-if="build.commit?.branch" class="hidden font-mono sm:inline">{{ build.commit.branch }}</span>
                       <ConsoleRelativeTime :value="build.time" />
                     </span>
+                    <UButton
+                      v-if="compareUrl"
+                      icon="i-lucide-git-compare-arrows"
+                      label="Compare"
+                      :to="compareUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      variant="ghost"
+                      size="xs"
+                      title="Compare the live commit with the default branch on GitHub"
+                    />
                   </li>
                 </ul>
               </section>

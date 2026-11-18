@@ -63,7 +63,7 @@ const fixtureRoutes: Record<string, string> = {
 // A production app answers `project.get` with the build that serves it, so the Overview shows its Last deploy.
 const projectFixture = {
   build: {
-    commit: { author: "Maxi", branch: "main", message: "feat(content): add the ferry schedule to the travel guide", sha: "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f" },
+    commit: { author: "Maxi", branch: "main", message: "feat(content): add the ferry schedule to the travel guide", repository: "vite-hub/vitehub", sha: "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f" },
     time: new Date(Date.now() - 2 * 3_600_000).toISOString(),
   },
   name: "playground-console",

@@ -153,13 +153,13 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/api/avatars/[...path].get.ts]
-import { createError, defineEventHandler, getRouterParam } from 'h3'
+import { defineEventHandler, getRouterParam, HTTPError } from 'h3'
 import { blob } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   const [error, file] = await blob.get(getRouterParam(event, 'path')!)
   if (error) throw error
-  if (!file) throw createError({ statusCode: 404 })
+  if (!file) throw new HTTPError({ status: 404 })
   return file
 })
 ```
