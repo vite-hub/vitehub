@@ -1567,6 +1567,47 @@ describe("vitehub", () => {
     }
   })
 
+  describe("host and provider variables", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs()
+      vi.restoreAllMocks()
+    })
+    const stubProvider = (name: string, value: string) => {
+      for (const host of ["VITEHUB_HOST", "NITRO_PRESET", "SERVER_PRESET", "WORKERS_CI", "NETLIFY", "NOW_BUILDER", "VERCEL", "VERCEL_ENV", "DENO_DEPLOY", "DENO_DEPLOYMENT_ID"]) vi.stubEnv(host, "")
+      vi.stubEnv(name, value)
+    }
+
+    it.each([
+      ["VERCEL", "1", "node"],
+      ["NETLIFY", "true", "node"],
+      ["WORKERS_CI", "1", "vercel"],
+      ["DENO_DEPLOYMENT_ID", "abc", "cloudflare"],
+    ] as const)("fails a production build when %s names another host than %s", async (name, value, host) => {
+      stubProvider(name, value)
+      await expect(applyDeploymentConfig({ host })).rejects.toMatchObject({
+        code: "VITE_HUB_HOST_PROVIDER_CONFLICT",
+        fix: expect.stringContaining(`VITEHUB_HOST=${host}`),
+      })
+    })
+
+    it("builds when the provider variable names the same host, or VITEHUB_HOST selects it", async () => {
+      stubProvider("VERCEL", "1")
+      await expect(applyDeploymentConfig({ host: "vercel" })).resolves.toBeDefined()
+      await expect(applyDeploymentConfig({})).resolves.toBeDefined()
+      vi.stubEnv("VITEHUB_HOST", "node")
+      await expect(applyDeploymentConfig({ host: "node" })).resolves.toBeDefined()
+    })
+
+    it("warns once in dev", async () => {
+      stubProvider("VERCEL", "1")
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+      const plugin = dependencyPluginByName(vitehub({ host: "node" }), "vite-hub/deployment-host")
+      for (let run = 0; run < 2; run++) await callHook(plugin.config, [{}, { command: "serve", mode: "development" }])
+      expect(warn).toHaveBeenCalledOnce()
+      expect(String(warn.mock.calls[0]![0])).toContain("VITE_HUB_HOST_PROVIDER_CONFLICT")
+    })
+  })
+
   it.each([
     ["deno", false, "deno-server"],
     ["cloudflare", true, "cloudflare-module"],
