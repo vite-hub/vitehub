@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 import type { Lock, StateAdapter } from "chat"
 
 /** State storage that retains its data across process and host restarts. */
@@ -18,7 +19,7 @@ export function requireAtomicAgentStateLock(state: StateAdapter): AtomicAgentSta
   // SAFETY: The State contract may include optional extension methods, checked below before use.
   const candidate = state as Partial<AtomicAgentStateLockAdapter>
   if (typeof candidate.mutateWithLock !== "function") {
-    throw new Error("[vitehub] This operation requires State with atomic lease-fenced cache mutations (mutateWithLock).")
+    throw agentDiagnostics.AGENT_STATE_ATOMIC_LOCK_MISSING()
   }
   // SAFETY: The adapter explicitly implements the atomic mutation contract checked above.
   return candidate as AtomicAgentStateLockAdapter

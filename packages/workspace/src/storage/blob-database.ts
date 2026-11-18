@@ -549,7 +549,7 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       for (const entry of await draft.store.list("", { recursive: true })) {
         if (entry.type === "file") files[entry.path] = (await draft.store.readFile(entry.path))!
       }
-      const revision = await this.#commit({ ifHead: draft.head?.id ?? null, files, message: options.name })
+      const revision = await this.#commit({ ifHead: draft.head?.id ?? null, files, message: options.name, ...(options.author ? { metadata: { author: options.author } } : {}) })
       this.#dirty = false
       this.#draft = undefined
       this.#baseline = undefined

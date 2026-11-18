@@ -1,3 +1,4 @@
+import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 import { forwardedRequestOrigin } from "./request-origin.ts"
 
 /**
@@ -34,6 +35,12 @@ export interface McpToolAnnotations {
   openWorldHint?: boolean
 }
 
+/**
+ * How a tool may be called, as the OpenAI Apps SDK and SEP-1488 read it: `noauth` without a token, `oauth2` with an
+ * access token that has the `scopes`.
+ */
+export type McpSecurityScheme = { type: "noauth" } | { type: "oauth2", scopes?: readonly string[] }
+
 /** A tool as `tools/list` shows it, with the handler that `tools/call` runs. It has the shape of an okmcp `defineTool()`. */
 export interface McpTool {
   name: string
@@ -54,6 +61,8 @@ export interface McpTool {
   scopes?: readonly string[]
   /** What `tools/list` shows in the `_meta` of the tool, such as `{ ui: { resourceUri } }` of MCP Apps. */
   _meta?: McpMeta
+  /** How the tool may be called. `tools/list` shows them on the tool. */
+  securitySchemes?: readonly McpSecurityScheme[]
   handler(input: Record<string, unknown>): Promise<McpToolResult>
 }
 
@@ -102,7 +111,7 @@ export interface McpPrompt {
   title?: string
   description?: string
   arguments?: McpPromptArgument[]
-  /** Throw {@link McpMethodError} to answer with a JSON-RPC error, such as `-32602` for invalid arguments. */
+  /** Throw `INTERNAL_MCP_ARGUMENTS_INVALID` or another MCP method code to answer with its JSON-RPC error, such as `-32602`. */
   get(input: Record<string, string>): Promise<McpPromptResult>
 }
 
@@ -139,18 +148,32 @@ export interface McpResource {
   list?: () => Promise<McpListedResource[]>
   /**
    * Returns the contents, or `undefined` when no such resource exists. `variables` are the values of the template.
-   * Throw {@link McpMethodError} to answer with another JSON-RPC error.
+   * Throw an MCP method code, such as `INTERNAL_MCP_RESOURCE_NOT_FOUND`, to answer with its JSON-RPC error.
    */
   read(uri: string, variables: Record<string, string>): Promise<McpResourceContents[] | undefined>
 }
 
-/** An error that a prompt or resource throws to answer with this JSON-RPC error. */
-// Internal invariant: `serveMcp()` catches it and answers with its JSON-RPC error, so it never reaches the app.
-export class McpMethodError extends Error {
-  constructor(readonly code: number, message: string, readonly data?: unknown) {
-    super(message)
-    this.name = "McpMethodError"
-  }
+/** The JSON-RPC error code of each code that a prompt or resource throws to answer with that JSON-RPC error. */
+const mcpMethodRpcCodes: Readonly<Record<string, number>> = {
+  INTERNAL_MCP_ARGUMENTS_INVALID: -32602,
+  INTERNAL_MCP_METHOD_FAILED: -32603,
+  INTERNAL_MCP_RESOURCE_NOT_FOUND: -32002,
+}
+
+/** `INTERNAL_MCP_ARGUMENTS_INVALID`: a prompt or resource got arguments it does not accept. Answers `-32602`. */
+export function mcpArgumentsInvalid(detail: string, cause?: unknown): Error {
+  return internalErrorDiagnostics.INTERNAL_MCP_ARGUMENTS_INVALID(cause === undefined ? { detail } : { cause, detail })
+}
+
+/** `INTERNAL_MCP_METHOD_FAILED`: a prompt or resource handler threw. Answers `-32603`. */
+export function mcpMethodFailed(name: string, cause: unknown): Error {
+  return internalErrorDiagnostics.INTERNAL_MCP_METHOD_FAILED({ cause, name })
+}
+
+/** The JSON-RPC error code of an MCP method error, or `undefined` for another error. */
+export function mcpMethodRpcCode(error: unknown): number | undefined {
+  const code: unknown = error instanceof Error ? Reflect.get(error, "code") : undefined
+  return typeof code === "string" && Object.hasOwn(mcpMethodRpcCodes, code) ? mcpMethodRpcCodes[code] : undefined
 }
 
 /** What one request may see: the server identity and the tools, prompts, and resources of the caller. */
@@ -259,13 +282,14 @@ function stringRecord(value: unknown): Record<string, string> | undefined {
   return entries as Record<string, string>
 }
 
-/** Answers a prompt or resource method, and turns a thrown {@link McpMethodError} into its JSON-RPC error. */
+/** Answers a prompt or resource method, and turns a thrown MCP method code into its JSON-RPC error. */
 async function answer(id: JsonRpcId, run: () => Promise<unknown>): Promise<Response> {
   try {
     return reply(id, await run())
   }
   catch (error) {
-    if (error instanceof McpMethodError) return rpcError(id, error.code, error.message, 200, error.data)
+    const rpcCode = mcpMethodRpcCode(error)
+    if (rpcCode !== undefined && error instanceof Error) return rpcError(id, rpcCode, error.message, 200, Reflect.get(error, "data"))
     console.error("[vitehub] MCP request failed:", error)
     return rpcError(id, -32603, "The request failed on the server.")
   }
@@ -378,7 +402,7 @@ export async function serveMcp(request: Request, server: McpServer): Promise<Res
     if (typeof uri !== "string" || !uri) return rpcError(id, -32602, "resources/read needs a uri.")
     return await answer(id, async () => {
       const contents = await readResource(server, uri)
-      if (!contents) throw new McpMethodError(-32002, `Resource not found: ${uri}. Call resources/list or resources/templates/list for the resources of this server.`, { uri })
+      if (!contents) throw Object.assign(internalErrorDiagnostics.INTERNAL_MCP_RESOURCE_NOT_FOUND({ uri }), { data: { uri } })
       return { contents }
     })
   }
@@ -408,6 +432,7 @@ export async function serveMcp(request: Request, server: McpServer): Promise<Res
           inputSchema: tool.inputSchema,
           ...(tool.annotations ? { annotations: tool.annotations } : {}),
           ...(tool._meta ? { _meta: tool._meta } : {}),
+          ...(tool.securitySchemes ? { securitySchemes: tool.securitySchemes } : {}),
         })),
       })
     case "tools/call": {

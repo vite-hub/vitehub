@@ -25,13 +25,18 @@ The command finds every module in the app that a codemod supports and runs those
 
 ## Upgrade ViteHub
 
+`vitehub migrate [dir]` runs every upgrade codemod that applies, in one run. See [Upgrade ViteHub](/docs/codemods/upgrade-vitehub).
+
 | Codemod | Moves |
 | --- | --- |
 | [`define-forms`](/docs/codemods/upgrade-vitehub#define-forms) | The former define forms of Schedule, Sandbox Task, Content, and Database to the one form of each |
-| [`vitehub-options`](/docs/codemods/upgrade-vitehub#vitehub-options) | The options that moved in `vitehub()`: `logs` into `observability`, Env declarations into `vitehub({ env })`, and `contentImportBase` removed |
+| [`vitehub-options`](/docs/codemods/upgrade-vitehub#vitehub-options) | The options that moved in `vitehub()`: `preset` to `host`, `logs` into `observability`, Env declarations into `vitehub({ env })`, and `devtools` and `contentImportBase` removed |
 | [`queue-workflow-verbs`](/docs/codemods/upgrade-vitehub#queue-workflow-verbs) | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
 | [`one-entry-imports`](/docs/codemods/upgrade-vitehub#one-entry-imports) | Imports of subpaths that moved into one entry per concept, and `vite-hub/task` to `nitro/task` |
 | [`agent-surface`](/docs/codemods/upgrade-vitehub#agent-surface) | The old Agent names to `invoker`, `loadAgent()`, `agentWorkflow()`, `extends`, and the merged Agent entries |
+| [`driver-key`](/docs/codemods/upgrade-vitehub#driver-key) | The old keys that select a backend (`provider`, `authority`) and the old driver names, such as `cloudflare-kv-binding` and `d1`, to `driver` and the host name |
+| [`tsconfig-paths`](/docs/codemods/upgrade-vitehub#tsconfig-paths) | `#vitehub/*` entries of tsconfig `paths` that point into `.vitehub/` or `.nuxt/`, which ViteHub now types itself |
+| [`shell-driver`](/docs/codemods/upgrade-vitehub#shell-driver) | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()` |
 
 The codemods do not upgrade Nuxt or install packages. ViteHub supports Nuxt 5 and Nitro 3 only.
 

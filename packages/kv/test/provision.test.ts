@@ -28,7 +28,7 @@ function createContext(handler: (url: URL, init?: RequestInit) => Response, env:
 }
 
 function namedStore(namespaceName: string, options: { binding?: string, namespaceId?: string } = {}): CloudflareKVStoreConfig {
-  return { driver: "cloudflare-kv-binding", namespaceName, ...options }
+  return { driver: "cloudflare", namespaceName, ...options }
 }
 
 describe("KV Cloudflare provision step", () => {
@@ -59,7 +59,7 @@ describe("KV Cloudflare provision step", () => {
         cache: namedStore("shared", { binding: "CACHE" }),
         pinned: namedStore("pinned", { binding: "PINNED", namespaceId: "configured-id" }),
         sessions: namedStore("shared", { binding: "SESSIONS" }),
-        default: { binding: "UNNAMED", driver: "cloudflare-kv-binding" },
+        default: { binding: "UNNAMED", driver: "cloudflare" },
       },
     })).plan(context)
 
@@ -129,7 +129,7 @@ describe("KV Cloudflare provision step", () => {
 
     const actions = await createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)
 
-    await expect(actions[0]!.apply()).rejects.toMatchObject({ name: "ProvisionRequestError", status: 403 })
+    await expect(actions[0]!.apply()).rejects.toMatchObject({ code: "INTERNAL_R0013", status: 403 })
   })
 
   it("reads the id back after a 409 conflict", async () => {
@@ -156,7 +156,7 @@ describe("KV Cloudflare provision step", () => {
 
     const actions = await createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)
 
-    await expect(actions[0]!.apply()).rejects.toMatchObject({ codes: [], kind: "invalid", name: "ProvisionRequestError", status: 400 })
+    await expect(actions[0]!.apply()).rejects.toMatchObject({ codes: [], kind: "invalid", code: "INTERNAL_R0013", status: 400 })
     expect(requests.map(request => request.method)).toEqual(["GET", "POST"])
   })
 
@@ -167,7 +167,7 @@ describe("KV Cloudflare provision step", () => {
 
     const actions = await createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)
 
-    await expect(actions[0]!.apply()).rejects.toMatchObject({ name: "ProvisionRequestError", status: 400 })
+    await expect(actions[0]!.apply()).rejects.toMatchObject({ code: "INTERNAL_R0013", status: 400 })
   })
 
   it("describes the KV Store ids it records without network access", () => {
@@ -207,7 +207,7 @@ describe("KV Cloudflare provision step", () => {
     for (const options of [
       undefined,
       false,
-      { driver: "cloudflare-kv-binding" },
+      { driver: "cloudflare" },
       namedStore("app-cache", { namespaceId: "configured-id" }),
       { driver: "upstash", token: "t", url: "https://example.upstash.io" },
     ] satisfies Array<KVOptions | undefined>) {

@@ -446,12 +446,23 @@ export type AgentChannelDeliveryEventType =
   | "rejected"
   | "retrying"
   | "superseded"
+  | "trigger.completed"
+  | "trigger.failed"
+  | "trigger.started"
 
 export interface AgentChannelDeliveryEventInput {
   attempt?: number
   error?: string
   messageId?: string
+  /** `trigger.completed`: `"response"` when the trigger answered without an Invocation, `"input"` when it started one. */
+  outcome?: "input" | "response"
+  /** The `reason` of a trigger's answer, such as `ignored(reason)`. */
+  reason?: string
   runId?: string
+  /** The HTTP status of a trigger's answer. */
+  status?: number
+  /** The trigger that the `trigger.*` event is about. */
+  trigger?: string
   type: AgentChannelDeliveryEventType
 }
 

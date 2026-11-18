@@ -57,7 +57,7 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     RATE_LIMIT_R0011: {
       ...dynamicError,
-      fix: "Pass only `key`, `limit`, `window`, `enforcement`, and `failure` in the options of `requireRateLimit()` or `checkRateLimit()`.",
+      fix: "Pass only `key`, `limit`, `window`, `enforcement`, and `failure` in the options of `checkRateLimit()`. `requireRateLimit()` also accepts `message` and `code`.",
     },
     RATE_LIMIT_R0012: {
       ...dynamicError,
@@ -69,11 +69,11 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     RATE_LIMIT_R0015: {
       ...dynamicError,
-      fix: "Remove `enforcement: \"strict\"` from this Rate Limit to use the Cloudflare binding, or use the `kv` provider for strict counts.",
+      fix: "Remove `enforcement: \"strict\"` from this Rate Limit to use the Cloudflare binding, or use the `kv` driver for strict counts.",
     },
     RATE_LIMIT_R0016: {
       ...dynamicError,
-      fix: "Set `window` of this Rate Limit to \"10s\" or \"1m\" to use the Cloudflare binding, or use the `kv` provider for other windows.",
+      fix: "Set `window` of this Rate Limit to \"10s\" or \"1m\" to use the Cloudflare binding, or use the `kv` driver for other windows.",
     },
     RATE_LIMIT_R0019: {
       ...dynamicError,
@@ -101,7 +101,7 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     RATE_LIMIT_R0025: {
       ...dynamicError,
-      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[null, { allowed }]` from `consume()`, with `allowed` as a boolean.",
+      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[undefined, { allowed }]` from `consume()`, with `allowed` as a boolean.",
     },
     RATE_LIMIT_R0026: {
       ...dynamicError,
@@ -149,7 +149,7 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     RATE_LIMIT_R0037: {
       ...dynamicError,
-      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[null, { used }]` from `peek()`, with `used` as a whole number of 0 or more and an optional `resetAt` in milliseconds.",
+      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[undefined, { used }]` from `peek()`, with `used` as a whole number of 0 or more and an optional `resetAt` in milliseconds.",
     },
     RATE_LIMIT_R0038: {
       ...dynamicError,
@@ -169,15 +169,15 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     RATE_LIMIT_R0042: {
       ...dynamicError,
-      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[null]` from `reset()`, or `[error]` for an outage.",
+      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[undefined, undefined]` from `reset()`, or `[error, undefined]` for an outage.",
     },
     RATE_LIMIT_R0043: {
       ...dynamicError,
-      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[null, result]` from `peek()`, or `[error, undefined]` for an outage.",
+      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[undefined, result]` from `peek()`, or `[error, undefined]` for an outage.",
     },
     RATE_LIMIT_R0044: {
       ...dynamicError,
-      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[null, result]` from `consume()`, or `[error, undefined]` for an outage.",
+      fix: "Fix the custom driver that you pass to `createRateLimiter()`: return `[undefined, result]` from `consume()`, or `[error, undefined]` for an outage.",
     },
     RATE_LIMIT_R0045: {
       ...dynamicError,
@@ -192,8 +192,8 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Enable KV in the app and build again. For a custom runtime, pass the KV driver, storage, and store name to `setRateLimitRuntimeConfig()`.",
     },
     RATE_LIMIT_B0001: { ...dynamicError, fix: "Set `rateLimit: { namespace }` in `vitehub()`, or `namespace` in `hubRateLimit()`, to a name that is different for each Worker and environment, such as `\"acme-api-production\"`." },
-    RATE_LIMIT_B0002: { ...dynamicError, fix: "Set `provider: \"kv\"` in `hubRateLimit()` with a Redis or Upstash KV store, or call `createRateLimiter()` with your own driver." },
-    RATE_LIMIT_B0003: { ...dynamicError, fix: "Set `provider` in `hubRateLimit()` to `\"cloudflare\"` or `\"kv\"`, or to `\"memory\"` only for a deploy with one server process." },
+    RATE_LIMIT_B0002: { ...dynamicError, fix: "Set `driver: \"kv\"` in `hubRateLimit()` with a Redis or Upstash KV store, or call `createRateLimiter()` with your own driver." },
+    RATE_LIMIT_B0003: { ...dynamicError, fix: "Set `driver` in `hubRateLimit()` to `\"cloudflare\"` or `\"kv\"`, or to `\"memory\"` only for a deploy with one server process." },
     RATE_LIMIT_B0004: { ...dynamicError, fix: "Write every file that declares a Rate Limit before `vite build` starts. Do not create or change these files from a plugin during the build." },
     RATE_LIMIT_KV_RUNTIME_STORE_UNSUPPORTED: {
       ...dynamicError,
@@ -201,11 +201,27 @@ export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     RATE_LIMIT_KV_STORE_UNSUPPORTED: {
       ...dynamicError,
-      fix: "Use a KV driver that every server process shares: `kv: { driver: 'redis' }`, a Postgres Database, or Upstash. Or remove `provider: 'kv'` to let ViteHub choose.",
+      fix: "Use a KV driver that every server process shares: `kv: { driver: 'redis' }`, a Postgres Database, or Upstash. Or remove `driver: 'kv'` to let ViteHub choose.",
+    },
+    RATE_LIMIT_KV_TIMEOUT: {
+      why: "The KV store did not answer the Rate Limit within 1000 milliseconds.",
+      fix: "Check that the KV store of the Rate Limit is reachable and not overloaded, then retry. Until it answers, `consume()` applies the `failure` policy of the Rate Limit.",
+    },
+    RATE_LIMIT_MEMORY_PER_PROCESS: {
+      why: "Rate Limit counts requests in the memory of each server process. With several instances, each one allows the full limit.",
+      fix: "Enable KV on Node so that ViteHub selects the kv driver, or set `rateLimit.driver` to \"kv\" and configure a Redis KV store or a Postgres Database. Keep `memory` only for one server process.",
     },
     RATE_LIMIT_MEMORY_STRICT_UNSUPPORTED: {
       ...dynamicError,
-      fix: "Count in a shared store: on Node, set `rateLimit: { provider: 'kv' }` with a Redis or Postgres KV store. Or set `enforcement: 'best-effort'` on the Rate Limit.",
+      fix: "Count in a shared store: on Node, set `rateLimit: { driver: 'kv' }` with a Redis or Postgres KV store. Or set `enforcement: 'best-effort'` on the Rate Limit.",
+    },
+    RATE_LIMIT_REFUSAL_OPTION_INVALID: {
+      ...dynamicError,
+      fix: "Pass `message` and `code` of `requireRateLimit()` as non-empty strings, such as `message: \"Too many tries. Wait a minute.\"`, or remove them to use the default `429` error.",
+    },
+    RATE_LIMIT_RENAMED_PROVIDER_KEY: {
+      why: ({ value }: { value: string }) => `\`rateLimit.provider\` is ${value}. ViteHub renamed this key to \`driver\`, and it does not read \`provider\`, so Rate Limit would not use the driver you chose.`,
+      fix: ({ value }: { value: string }) => `Set \`rateLimit: { driver: ${value} }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
     },
   },
 })

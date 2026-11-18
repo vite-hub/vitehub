@@ -35,7 +35,7 @@ A required Env value that is not set fails in Server Env first. Then `email.send
  })
 ```
 
-Add the `email` option. On the Cloudflare host, `email: true` selects the `cloudflare-email` driver and generates the `EMAIL` binding. Restart the dev server after you change the config.
+Add the `email` option. On the Cloudflare host, `email: true` selects the `cloudflare` driver and generates the `EMAIL` binding. Restart the dev server after you change the config.
 
 ```diff [vite.config.ts]
      email: {

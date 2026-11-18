@@ -1,5 +1,6 @@
 import type { GitHubEvidence, GitHubReviewThread, GitHubPullRequestRecord } from './types.ts'
 import type { Snapshot } from './store.ts'
+import { presetsErrorDiagnostics } from '../../error-diagnostics.ts'
 
 const author = (value: GitHubEvidence) => ({ login: value.user?.login ?? value.author?.login ?? null, type: value.user?.type ?? value.author?.__typename ?? 'unknown' })
 const commentsOf = (thread: GitHubReviewThread): GitHubEvidence[] => Array.isArray(thread.comments) ? thread.comments : thread.comments?.nodes ?? []
@@ -118,6 +119,6 @@ export function snapshotPrompt(snapshot: Snapshot): string {
 export function assertPromptFits(message: string, limit = 950_000): void {
   const bytes = Buffer.byteLength(message, 'utf8')
   if (message.length > limit || bytes > limit) {
-    throw new Error(`GitHubPullRequest prompt exceeds transport safety limit: ${message.length} characters, ${bytes} UTF-8 bytes; limit ${limit}. All review/comment bodies were retained. No truncated prompt was sent.`)
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_PROMPT_TOO_LARGE({ characters: message.length, bytes, limit })
   }
 }

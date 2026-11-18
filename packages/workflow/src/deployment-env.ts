@@ -24,7 +24,7 @@ function valueEntry(value: WorkflowRuntimeConfigValue | undefined, secret: boole
  * Cloudflare Workflows and Vercel Workflow read none.
  */
 export function workflowDeploymentEnv(workflow: ResolvedWorkflowOptions | undefined): DeploymentEnvEntry[] {
-  if (workflow?.provider !== "openworkflow") return []
+  if (workflow?.driver !== "openworkflow") return []
   const { postgres, sqlite } = workflow
   // A configured `namespaceId` or `schema` wins over its variable.
   const namespace = (configured: string | undefined) => configured ? [] : [entry(["OPENWORKFLOW_NAMESPACE_ID"], false, false, true)]

@@ -20,9 +20,9 @@ icon: i-lucide-sliders-horizontal
 | `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Access policy that every Content reader and surfaces check with `content.can()`. See [Access](#access). |
 | `route` | `boolean` | The `/api/content/**` route. `true` (default) serves it. `false` serves no `/api/content/**`. |
 | `access` | `'public'` | Serves `/api/content/**` and every other reader to everyone without asking `authorize` for `read`. `authorize` still decides writes and publishing. See [Public access](#public-access). |
-| `live` | `'auto' \| false` | Live co-editing of Markdown. `auto` (default) turns it on when Realtime is on and the host has a room authority. See [Live editing](/docs/content/editing-together#live-editing). |
+| `live` | `'auto' \| false` | Live co-editing of Markdown. `auto` (default) turns it on when Realtime is on and the host has a room driver. See [Live editing](/docs/content/editing-together#live-editing). |
 | `seo` | `{ site?, sitemap?, robots? }` | `/sitemap.xml` and `/robots.txt` from collections and Sources with a `url`. See [Sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt). |
-| `plugins` | Comark Content plugins | Used by each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` as needed. A Comark parse plugin here throws `CONTENT_R0006`. |
+| `plugins` | Comark Content plugins | Used by each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` as needed. A Comark parse plugin here throws `CONTENT_PLUGINS_PARSE_PLUGIN`. |
 | `markdown` | Comark parser options | Used by each instance. Put Comark parse plugins, such as `comark-knap`, in `markdown.plugins`. |
 | Other Comark options | `cache`, `hooks`, `logger`, `onError`, `baseURL` | Passed to each instance. ViteHub sets `basePath` to `/api/content`. |
 
@@ -121,7 +121,7 @@ pages: documents({
 })
 ```
 
-The Console's new-document form offers each glob's folder and builds the path there. An id is the path below the folder all globs share, without extension: `content/news/launch.md` is `news/launch`. With no shared folder, the id is the whole path without extension (`posts/a.md` is `posts/a`). Saving an id that no glob matches throws `CONTENT_R0008`. If globs of two collections can match the same file, `defineContent()` throws `CONTENT_R0006`. Content lists only each glob's folder when it reads a revision, so it skips other files in a large repository.
+The Console's new-document form offers each glob's folder and builds the path there. An id is the path below the folder all globs share, without extension: `content/news/launch.md` is `news/launch`. With no shared folder, the id is the whole path without extension (`posts/a.md` is `posts/a`). Saving an id that no glob matches throws `CONTENT_DOCUMENT_OUTSIDE_COLLECTION`. If globs of two collections can match the same file, `defineContent()` throws `CONTENT_COLLECTION_PATHS_OVERLAP`. Content lists only each glob's folder when it reads a revision, so it skips other files in a large repository.
 
 ::warning
 Adding a glob can change existing ids. Ids are relative to the folder all globs share, so a glob in another folder moves that folder up: `posts/**/*.md` has ids like `hello`, but `['posts/**/*.md', 'news/*.md']` has ids like `posts/hello`. Schedules, saved `expect` entries, and links with ids then point at other documents. Ids stay the same when the new glob is inside the current folder, such as `['posts/**/*.md', 'posts/archive/**/*.md']`. Otherwise, change the collection `url` so URLs stay the same, publish or cancel pending schedules first, and expect each document's history under its new id.
@@ -274,7 +274,7 @@ export async function renameSite() {
 }
 ```
 
-`content.collection('settings')` has `kind: 'singleton'` and `id`. A collection has `kind: 'documents'`. Generic code, such as a tool, can pass the id as for a collection. Any other id throws `CONTENT_R0008`. See [Singletons](/docs/content/server-api#singletons) for every method.
+`content.collection('settings')` has `kind: 'singleton'` and `id`. A collection has `kind: 'documents'`. Generic code, such as a tool, can pass the id as for a collection. Any other id throws `CONTENT_SINGLETON_ID_MISMATCH`. See [Singletons](/docs/content/server-api#singletons) for every method.
 
 #### Data files
 
@@ -400,7 +400,7 @@ Runtime methods, such as `save()` and `publish()`, are trusted server API and sk
 
 ### Public access
 
-`/api/content/**` serves published documents and every Source. So do the SEO routes that you turn on, such as `/llms-full.txt`, Markdown copies, and `/mcp`, and preview URLs. Without `authorize`, they serve everyone. A `github()` Source can read a private repository with `VITEHUB_GITHUB_TOKEN`, so `defineContent()` throws `CONTENT_R0006` until you choose who reads it:
+`/api/content/**` serves published documents and every Source. So do the SEO routes that you turn on, such as `/llms-full.txt`, Markdown copies, and `/mcp`, and preview URLs. Without `authorize`, they serve everyone. A `github()` Source can read a private repository with `VITEHUB_GITHUB_TOKEN`, so `defineContent()` throws `CONTENT_PUBLIC_SOURCE_UNDECIDED` until you choose who reads it:
 
 ```diff [server/content.ts]
  export default defineContent({

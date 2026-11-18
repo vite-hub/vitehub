@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createFakeGitHub } from "../../workspace/test/fake-github.ts"
 
-import type { DocsPackedFiles } from "../src/files.ts"
+import type { DocsDevFiles, DocsPackedFiles } from "../src/files.ts"
 import type { DocsModuleOptions, DocsPublicConfig } from "../src/nuxt.ts"
 import { docsAgentCopy } from "../src/agent-copy.ts"
 import { createDocsManifest } from "../src/manifest.ts"
@@ -46,22 +46,42 @@ vi.mock("node:fs", async (importOriginal) => ({
   ...await importOriginal<typeof import("node:fs")>(),
   watch: watchContent,
 }))
-// The test runner resolves workspace packages from anywhere, so resolve only from the app's own node_modules.
-vi.mock("node:module", async (importOriginal) => ({
-  ...await importOriginal<typeof import("node:module")>(),
-  createRequire: (from: string) => ({
-    resolve: (id: string) => {
-      const file = join(dirname(from), "node_modules", id)
-      if (existsSync(file)) return file
-      throw new Error(`Cannot find module '${id}'`)
-    },
-  }),
-}))
+// Resolve Comments only from the app, while keeping real resolution for the docs module's dependencies.
+// `comarkApp.root` supplies the app's comark-ui fixture when set.
+const comarkApp = vi.hoisted(() => ({ root: "" }))
+vi.mock("node:module", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:module")>()
+  return {
+    ...original,
+    createRequire: (from: string) => ({
+      resolve: (id: string) => {
+        if (comarkApp.root && String(from).endsWith("/src/nuxt.ts") && id.startsWith("comark-ui/")) {
+          return original.createRequire(join(comarkApp.root, "app.js")).resolve(id)
+        }
+        if (id !== "@vite-hub/comments/package.json" && !id.startsWith("comark-ui/")) return original.createRequire(from).resolve(id)
+        const file = join(dirname(from), "node_modules", id)
+        if (existsSync(file)) return file
+        throw new Error(`Cannot find module '${id}'`)
+      },
+    }),
+  }
+})
 const { default: setup, DocsCommentsSetupError } = await import("../src/nuxt.ts")
 const { extendPages } = await import("@nuxt/kit")
 // SAFETY: the @nuxt/kit mock above keeps the module definition's moduleDependencies on the setup function.
 const moduleDependencies = (setup as unknown as { moduleDependencies: (nuxt: unknown) => Promise<Record<string, unknown>> }).moduleDependencies
 const roots: string[] = []
+/** The `callHook` of the fake Nuxt that `setupDocs` creates. */
+const nuxtCallHook = vi.fn(async (_name: string) => {})
+
+/** Loads the `#docs/files` module of a development server through Vite, as Nitro does. */
+async function devFiles(nitro: { virtual?: Record<string, string | (() => string)> }, dir: string): Promise<DocsDevFiles> {
+  const template = nitro.virtual?.["#docs/files"]
+  if (typeof template !== "function") throw new Error("#docs/files is not generated in development")
+  const file = join(dir, "docs-files.mjs")
+  writeFileSync(file, template())
+  return (await import(/* @vite-ignore */ file) as { default: DocsDevFiles }).default
+}
 
 /** The manifest that the generated `docs/manifest.mjs` exports. */
 function manifestTemplate(): unknown {
@@ -73,6 +93,7 @@ afterEach(async () => {
   for (const hook of hooks.get("close") ?? []) await hook()
   vi.useRealTimers()
   watchContent.mockClear()
+  nuxtCallHook.mockClear()
   updateTemplates.mockReset()
   hooks.clear()
   templates.clear()
@@ -80,7 +101,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false, layers: Array<{ config: Record<string, unknown> }> = []) {
+async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false, layers: Array<{ cwd?: string, config: Record<string, unknown> }> = []) {
   const buildDir = mkdtempSync(join(tmpdir(), "docs-nuxt-"))
   templateDir = buildDir
   roots.push(buildDir)
@@ -94,7 +115,7 @@ async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false, la
   }
   const nuxt = {
     options,
-    callHook: vi.fn(async () => {}),
+    callHook: nuxtCallHook,
     hook: (name: string, hook: Hook) => hooks.set(name, [...hooks.get(name) ?? [], hook]),
   }
   await setup(docs, nuxt as never)
@@ -156,7 +177,8 @@ describe("docs in an existing app", () => {
     const app = appWithDocs({ "docs/guide/index.md": "Guide" }, true)
     const options = await setupDocs({ dir: app.dir }, "/", false, [{ config: { srcDir: app.srcDir } }]) as Awaited<ReturnType<typeof setupDocs>> & { app: { head: Record<string, unknown> } }
     expect(options.app.head).toEqual({})
-    expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = false\n")
+    expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = false\nexport const articleLayout = \"docs-article\"\n")
+    expect(templates.get("docs/shell.d.mts")?.()).toContain("export declare const articleLayout: \"docs-article\"\n")
     // The app config keeps the app's colors and slot classes. The docs layouts scope the theme with <UTheme>.
     expect(options.appConfig).toEqual({ ui: { prose: { codeIcon: expect.any(Object) } } })
     expect(templates.get("docs/theme.mjs")?.()).toContain('"pageHeader":{')
@@ -185,7 +207,8 @@ describe("docs in an existing app", () => {
     expect(options.appConfig).toMatchObject({ ui: { colors: { primary: "neutral", neutral: "neutral" } } })
     expect(templates.get("docs/theme.mjs")?.()).toBe('export default {"ui":{},"props":{}}\n')
     expect(templates.has("docs/theme.css")).toBe(false)
-    expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = true\n")
+    expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = true\nexport const articleLayout = \"default\"\n")
+    expect(templates.get("docs/shell.d.mts")?.()).toContain("export declare const articleLayout: \"default\"\n")
     const layouts: Record<string, { file: string }> = {}
     await callHook("app:templates", { layouts, templates: [] })
     expect(Object.keys(layouts).sort()).toEqual(["default", "docs"])
@@ -286,6 +309,21 @@ describe("docs Nuxt setup", () => {
     expect(readdirSync(stylesDir)).toEqual([file])
   })
 
+  it("bundles the icons that pages name, so no page loads one from the icon endpoint", async () => {
+    const app = appWithDocs({ "docs/guide/index.md": "Guide" })
+    writeFileSync(join(app.dir, "docs/guide/index.md"), [
+      "---", "title: Guide", "---", "",
+      ":::product-feature-item{title=\"Locks\" icon=\"i-lucide-lock\"}", ":::", "",
+      "Runs on :icon{name=\"i-simple-icons-nodedotjs\"} Node, not on multi-step-ui or i-.", "",
+    ].join("\n"))
+    await setupDocs({ dir: app.dir })
+    const icons = new Set<string>()
+    await callHook("icon:clientBundleIcons", icons)
+    expect(icons).toContain("lucide:lock")
+    expect(icons).toContain("simple-icons:nodedotjs")
+    expect([...icons].filter(icon => icon.startsWith("step"))).toEqual([])
+  })
+
   it("prefetches a link when the reader points at it or focuses it, not when it scrolls into view", async () => {
     const options = await setupDocs({})
     expect(options.experimental.defaults.nuxtLink.prefetchOn).toEqual({ visibility: false, interaction: true })
@@ -300,8 +338,26 @@ describe("docs Nuxt setup", () => {
   it("links the comark-ui stylesheet at runtime, below the base of the running server", async () => {
     const options = await setupDocs({})
     const [file] = readdirSync(join(options.buildDir, "docs/styles"))
-    expect(templates.get("docs/comark-css.mjs")?.()).toBe(`export default ${JSON.stringify(file)}\n`)
+    expect(templates.get("docs/comark-css.mjs")?.()).toBe(`export default ${JSON.stringify(file)}\nexport const names = []\n`)
     expect(JSON.stringify(options.app.head)).not.toContain("/_docs/")
+  })
+
+  it("links comark-ui's style.css with the layer order first, marked for each package but comark-time", async () => {
+    const root = mkdtempSync(join(tmpdir(), "docs-comark-"))
+    roots.push(root)
+    mkdirSync(join(root, "node_modules/comark-ui/dist"), { recursive: true })
+    writeFileSync(join(root, "node_modules/comark-ui/package.json"), JSON.stringify({
+      name: "comark-ui",
+      dependencies: { "comark-zoom": "*", "comark-time": "*", "comark-include": "*", "shiki": "*" },
+      exports: { "./package.json": "./package.json", "./style.css": "./dist/style.css" },
+    }))
+    writeFileSync(join(root, "node_modules/comark-ui/dist/style.css"), ".cz{}\n.ctm{}\n.cmm{}")
+    comarkApp.root = root
+    onTestFinished(() => { comarkApp.root = "" })
+    const options = await setupDocs({})
+    const [file] = readdirSync(join(options.buildDir, "docs/styles"))
+    expect(readFileSync(join(options.buildDir, "docs/styles", file!), "utf8")).toBe("@layer theme, base, comark, components, utilities;\n.cz{}\n.ctm{}\n.cmm{}")
+    expect(templates.get("docs/comark-css.mjs")?.()).toBe(`export default ${JSON.stringify(file)}\nexport const names = ["zoom","include","mermaid","issues"]\n`)
   })
 
   it("gives app pages a Markdown copy unless markdownPages is false", async () => {
@@ -322,6 +378,19 @@ describe("docs Nuxt setup", () => {
     const nitro = { options: { routeRules: {}, output: { publicDir } }, hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) } }
     for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
     expect(() => compiled[0]!()).toThrow(/\/mcp, which has no page or file/)
+  })
+
+  it("tells the link checker module that indexed pages exist, but still checks them in the compiled output", async () => {
+    const options = await setupDocs({})
+    // A build that prerenders some routes must not fetch a new page from the live site.
+    expect(Reflect.get(options, "linkChecker")).toMatchObject({ excludeLinks: expect.arrayContaining(["/docs/kv/configure"]) })
+    const publicDir = join(options.buildDir, "public")
+    mkdirSync(publicDir)
+    writeFileSync(join(publicDir, "index.html"), `<a href="/docs/kv/configure">Configure</a>`)
+    const compiled: Array<() => void> = []
+    const nitro = { options: { routeRules: {}, output: { publicDir } }, hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) } }
+    for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
+    expect(() => compiled[0]!()).toThrow(/\/docs\/kv\/configure, which has no page or file/)
   })
 
   it.each(["/", "/portal/"])("combines Docs and app link exclusions in the compiled output under %s", async (appBase) => {
@@ -369,7 +438,7 @@ describe("docs Nuxt setup", () => {
     expect(() => compiled[0]!()).toThrow(/_vitehub, which has no page or file/)
   })
 
-  it("registers source assets, writes raw copies from the right directory and loads configured components", async () => {
+  it("reads source files in development through Vite, writes raw copies from the right directory and loads configured components", async () => {
     const dir = mkdtempSync(join(tmpdir(), "docs-sources-"));
     roots.push(dir);
     for (const name of ["a", "b"]) {
@@ -388,15 +457,19 @@ describe("docs Nuxt setup", () => {
       "/",
       true,
     );
-    const nitro: { serverAssets?: unknown[] } = {};
+    const nitro: { serverAssets?: unknown[], virtual?: Record<string, string | (() => string)> } = {};
     for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never);
-    expect(nitro.serverAssets).toEqual(
-      expect.arrayContaining([
-        { baseName: "docs-0", dir: join(dir, "a"), pattern: "**/*.md" },
-        { baseName: "docs-1", dir: join(dir, "b"), pattern: "**/*.md" },
-      ]),
-    );
-    expect(nitro.serverAssets).toEqual(expect.arrayContaining([{ baseName: "docs-agent", dir: join(options.buildDir, "docs/agent"), pattern: "**/*.md" }]));
+    // Nitro reads server assets from disk, and the Cloudflare development server runs in workerd, which cannot.
+    expect(nitro.serverAssets ?? []).toEqual([]);
+    mkdirSync(join(options.buildDir, "docs/agent/docs_1"), { recursive: true });
+    writeFileSync(join(options.buildDir, "docs/agent/docs_1/index.md"), "Agent copy b");
+    const files = await devFiles(nitro, dir);
+    expect(await files.read("docs-0", "index.md")).toBe("---\ntitle: a\n---\nSource a");
+    expect(await files.read("docs-1", "index.md")).toBe("---\ntitle: b\n---\nSource b");
+    expect(await files.read("docs-agent", "docs_1/index.md")).toBe("Agent copy b");
+    for (const [store, file] of [["docs-0", "missing.md"], ["docs-agent", "constructor"], ["__proto__", "index.md"], ["docs-0", "../b/index.md"]]) {
+      expect(await files.read(store!, file!)).toBeNull();
+    }
     expect(templates.get("docs/custom-components.mjs")?.()).toContain("markdown-components.ts");
     expect(watchContent.mock.calls.map((call) => call[0])).toEqual([
       join(dir, "a"),
@@ -431,8 +504,7 @@ describe("docs Nuxt setup", () => {
     expect(existsSync(join(copied, "draft.md"))).toBe(false);
     const nitro: { serverAssets?: unknown[], virtual?: Record<string, string | (() => string)> } = {};
     for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never);
-    if (dev) expect(nitro.serverAssets).toContainEqual({ baseName: "docs-0", dir: copied, pattern: "**/*.md" });
-    else expect(nitro.serverAssets ?? []).toEqual([]);
+    expect(nitro.serverAssets ?? []).toEqual([]);
     // `nuxi build` empties the build folder after the modules load, so the copy is written again before the build.
     rmSync(join(options.buildDir, "docs"), { recursive: true, force: true });
     for (const hook of hooks.get("build:before") ?? []) await hook();
@@ -445,6 +517,12 @@ describe("docs Nuxt setup", () => {
       expect(files.index["docs-0"]?.["guide/start.md"]).toBeDefined();
       expect(files.index["docs-0"]?.["draft.md"]).toBeUndefined();
       expect(files.index["docs-agent"]?.["docs_0/guide/start.md"]).toBeDefined();
+    }
+    else {
+      const files = await devFiles(nitro, options.buildDir);
+      expect(await files.read("docs-0", "guide/start.md")).toBe("---\ntitle: Start\n---\nFrom a Source");
+      expect(await files.read("docs-0", "draft.md")).toBeNull();
+      expect(await files.read("docs-agent", "docs_0/guide/start.md")).toContain("Rewritten.");
     }
     // Content renders the raw copy on request, so the build writes none.
     expect(existsSync(join(options.buildDir, "docs/raw"))).toBe(false);
@@ -588,6 +666,34 @@ describe("docs Nuxt setup", () => {
     },
   );
 
+  it("restarts development when an edit adds or removes an agent copy, which the files module lists", async () => {
+    vi.useFakeTimers()
+    const content = mkdtempSync(join(tmpdir(), "docs-copies-"))
+    roots.push(content)
+    mkdirSync(join(content, "docs"))
+    const page = join(content, "docs/index.md")
+    writeFileSync(page, "---\ntitle: Page\n---\n# Tools")
+    // Only a page with tools has an agent copy.
+    const options = await setupDocs({ dir: content, rawMarkdown: source => source.replace("# Tools", "# Tools for agents") }, "/", true)
+    await callHook("build:before")
+    const copy = join(options.buildDir, "docs/agent/docs_0/docs/index.md")
+    expect(existsSync(copy)).toBe(true)
+    const changed = watchContent.mock.calls[0]![2]!
+    const edit = async (body: string) => {
+      writeFileSync(page, `---\ntitle: Page\n---\n${body}`)
+      changed("change", "docs/index.md")
+      await vi.advanceTimersByTimeAsync(100)
+    }
+    // The copy changes, and Vite reloads it.
+    await edit("# Tools\n\nMore.")
+    await vi.waitFor(() => expect(readFileSync(copy, "utf8")).toContain("More."))
+    expect(nuxtCallHook).not.toHaveBeenCalledWith("restart")
+    // The copy is gone, and the files module would still import it.
+    await edit("# No tools")
+    await vi.waitFor(() => expect(nuxtCallHook).toHaveBeenCalledWith("restart"))
+    expect(existsSync(copy)).toBe(false)
+  })
+
   it("gives the page route and search the app's parser module", async () => {
     const options = await setupDocs({ parser: "./docs.parser.ts" })
     expect(templates.get("docs/parser.mjs")?.()).toBe(`export { default } from ${JSON.stringify(resolve(options.rootDir, "docs.parser.ts"))}\nexport const githubRepo = null\n`)
@@ -639,6 +745,35 @@ describe("docs Nuxt setup", () => {
     await notify("unlink")
     expect(generated.get("docs/examples.mjs")).toBe("export default {\n\n}\n")
     expect(generated.get("docs/example-sources.mjs")).toBe("export default {}\n")
+  })
+
+  it("gives the parser the size of each picture in the public folders of the app and its layers", async () => {
+    const png = (width: number, height: number) => {
+      const bytes = Buffer.alloc(33)
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes)
+      bytes.write("IHDR", 12, "ascii")
+      bytes.writeUInt32BE(width, 16)
+      bytes.writeUInt32BE(height, 20)
+      return bytes
+    }
+    const app = mkdtempSync(join(tmpdir(), "docs-public-app-"))
+    const layer = mkdtempSync(join(tmpdir(), "docs-public-layer-"))
+    roots.push(app, layer)
+    mkdirSync(join(app, "public/screenshots"), { recursive: true })
+    writeFileSync(join(app, "public/screenshots/console.png"), png(1280, 720))
+    writeFileSync(join(app, "public/logo.png"), png(64, 64))
+    writeFileSync(join(app, "public/notes.txt"), "Not a picture.\n")
+    mkdirSync(join(layer, "assets"), { recursive: true })
+    writeFileSync(join(layer, "assets/logo.png"), png(32, 32))
+    writeFileSync(join(layer, "assets/banner.png"), png(1200, 300))
+    const options = await setupDocs({}, "/", false, [{ cwd: app, config: { srcDir: join(app, "app") } }, { cwd: layer, config: { srcDir: join(layer, "app"), dir: { public: "assets" } } }])
+    const nitro: { alias?: Record<string, string> } = {}
+    for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never)
+
+    const sizes = JSON.parse((await templates.get("docs/image-sizes.mjs")?.() ?? "").replace(/^export default /, ""))
+    // The app's own `/logo.png` wins over the layer's.
+    expect(sizes).toEqual({ "/screenshots/console.png": [1280, 720], "/logo.png": [64, 64], "/banner.png": [1200, 300] })
+    expect(nitro.alias?.["#docs/image-sizes"]).toBe(join(options.buildDir, "docs/image-sizes.mjs"))
   })
 
   it("parses with the built-in plugins only without a parser module", async () => {
@@ -703,12 +838,15 @@ describe("docs Nuxt setup", () => {
     expect(routes.some(path => path.startsWith("/portal"))).toBe(false)
     expect(handlers.map(handler => handler.route)).toEqual([
       "/api/_docs/page/**", "/api/_docs/search.json", "/sitemap.xml",
+      // The trailing-slash redirect: middleware, with no route.
+      undefined,
       "/llms.txt", "/llms-full.txt", "/sitemap.md",
       "/llms.txt", "/llms-full.txt", "/sitemap.md",
       "/mcp",
       // The Markdown copies of app pages: middleware, with no route.
       undefined,
     ])
+    expect(handlers[3]).toMatchObject({ middleware: true, handler: expect.stringMatching(/runtime\/server\/trailing-slash\.js$/) })
     expect(handlers.at(-1)).toMatchObject({ middleware: true, handler: expect.stringMatching(/runtime\/server\/markdown\.js$/) })
     // Nitro gets the raw route directly, so nuxt-agent-discovery still lets the build prerender the copies.
     expect((nitro as { handlers?: Array<{ route: string, method: string }> }).handlers?.map(handler => [handler.route, handler.method])).toEqual([["/raw/**", "get"], ["/raw/**", "head"]])
@@ -780,7 +918,7 @@ describe("docs Comments", () => {
       mkdirSync(join(rootDir, "node_modules/@vite-hub/comments"), { recursive: true })
       writeFileSync(join(rootDir, "node_modules/@vite-hub/comments/package.json"), JSON.stringify({ name: "@vite-hub/comments", exports: { "./package.json": "./package.json" } }))
     }
-    return { options: { rootDir, modules, ...(docs ? { docs } : {}) } }
+    return { options: { rootDir, modules, alias: {}, ...(docs ? { docs } : {}) } }
   }
   const docsModule = Object.assign(() => undefined, { getMeta: async () => ({ name: "@vite-hub/docs" }) })
 

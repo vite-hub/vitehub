@@ -48,6 +48,10 @@ const secretRuntimeNamespace: ViteHubCliCommandNamespace = {
 }
 
 runViteHubCliEntrypoint({
+  // Help text needs no project. Loading a Nuxt project for it takes seconds.
+  helpNamespaces: {
+    database: async () => (await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/cli")))?.createDbCliContributor()?.namespaces[0],
+  },
   loadConfig: loadViteHubCliConfig,
   runtimeFeatureGuard: async (namespace, feature, cwd) => {
     if (namespace !== "agent" || feature !== "invocations") return true

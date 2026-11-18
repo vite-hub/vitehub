@@ -10,7 +10,7 @@ afterEach(() => {
 })
 
 function cloudflareWorkerWithoutBinding(handler = vi.fn(async () => ({ ok: true }))) {
-  setWorkflowRuntimeConfig({ provider: "cloudflare" })
+  setWorkflowRuntimeConfig({ driver: "cloudflare" })
   setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler } }) })
   enterWorkflowRuntimeEvent({ req: { runtime: { cloudflare: { env: { OTHER: "value" } } } } })
   return handler

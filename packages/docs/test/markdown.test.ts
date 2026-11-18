@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { textContent } from "comark/utils"
 
-import { createDocsParser, docsSearchSections } from "../src/markdown.ts"
+import { createDocsParser, docsImageSizes, docsSearchSections } from "../src/markdown.ts"
 
 import type { ComarkPlugin, Node as ComarkNode } from "comark"
 
@@ -76,6 +76,40 @@ describe("docs parser", () => {
       { id: "install", text: "Install", depth: 2, children: [{ id: "from-npm", text: "From npm", depth: 3 }] },
       { id: "use", text: "Use", depth: 2 },
     ])
+  })
+})
+
+describe("public image sizes", () => {
+  const parseWithSizes = createDocsParser({ plugins: [docsImageSizes({ "/screenshots/console.png": [1280, 720] })] })
+  const images = async (markdown: string) => {
+    const found: Array<Record<string, unknown>> = []
+    const visit = (nodes: ComarkNode[]) => {
+      for (const node of nodes) {
+        if (typeof node === "string" || node[0] === null) continue
+        if (node[0] === "img") found.push(node[1])
+        visit(node.slice(2) as ComarkNode[])
+      }
+    }
+    visit((await parseWithSizes(markdown)).nodes)
+    return found
+  }
+
+  it("gives an image of the public folder its width and height", async () => {
+    expect(await images("![Console](/screenshots/console.png?v=2)")).toEqual([
+      expect.objectContaining({ src: "/screenshots/console.png?v=2", width: "1280", height: "720" }),
+    ])
+  })
+
+  it("keeps the side an author set and gives the other at the picture's ratio", async () => {
+    expect(await images("![Console](/screenshots/console.png){width=640}")).toEqual([expect.objectContaining({ width: "640", height: "360" })])
+    expect(await images("![Console](/screenshots/console.png){height=72}")).toEqual([expect.objectContaining({ width: "128", height: "72" })])
+  })
+
+  it("leaves other images and sides in other units alone", async () => {
+    const [percent, other] = await images("![Console](/screenshots/console.png){width=50%}\n\n![Other](/other.png)")
+    expect(percent).toMatchObject({ width: "50%" })
+    expect(percent).not.toHaveProperty("height")
+    expect(other).not.toHaveProperty("width")
   })
 })
 
@@ -292,6 +326,23 @@ describe("HTML-only blocks", () => {
     const { nodes } = await parse("Run :suggestion[npm]{to=\"pnpm\"} first.\n")
 
     expect(find(nodes, "p")?.[3]).toMatchObject(["comark-html", { block: "suggestion", inline: true }, "npm"])
+  })
+
+  it("draws a chart with a note as HTML, since only the HTML renderer draws its marks", async () => {
+    const { nodes } = await parse("::chart{title=\"Deploys\"}\n| day | deploys |\n| --- | --: |\n| mon | 3 |\n| tue | 5 |\n:::annotation{at=\"tue\" mark=\"circle\"}\nRelease day.\n:::\n::\n")
+    const node = find(nodes, "comark-html")
+
+    expect(find(nodes, "chart")).toBeUndefined()
+    expect(node?.[1]).toMatchObject({ block: "chart" })
+    expect(node?.[1].html).toContain("cch-marked")
+    expect(node?.[1].html).toContain("Release day.")
+  })
+
+  it("leaves a chart without notes to the Vue component", async () => {
+    const { nodes } = await parse("::chart{title=\"Deploys\"}\n| day | deploys |\n| --- | --: |\n| mon | 3 |\n| tue | 5 |\n::\n")
+
+    expect(find(nodes, "chart")).toBeDefined()
+    expect(find(nodes, "comark-html")).toBeUndefined()
   })
 
   it("draws the HTML-only blocks inside an example's preview", async () => {

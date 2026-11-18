@@ -49,6 +49,25 @@ describe("Cloudflare docs artifact", () => {
     expect(await response.text()).toContain(content);
   });
 
+  it("writes one _redirects rule for each path, as Cloudflare rejects a second one", () => {
+    const sources = readFileSync(resolve(docsRoot, ".output/public/_redirects"), "utf8")
+      .split("\n")
+      .map(line => line.trim().split(/\s+/)[0])
+      .filter(source => source && !source.startsWith("#"));
+    expect(sources).toContain("/docs/server-primitives/kv/");
+    expect(sources.filter((source, index) => sources.indexOf(source) !== index)).toEqual([]);
+  });
+
+  it.each(["/docs/server-primitives/kv", "/docs/server-primitives/kv/"])("redirects the removed page %s to its new page", async (path) => {
+    let location = path;
+    for (let hop = 0; hop < 3 && location.startsWith("/docs/server-primitives/"); hop++) {
+      const response = await server.fetch(location, { headers: { accept: "text/html" }, redirect: "manual" });
+      expect(response.status).toBe(301);
+      location = new URL(response.headers.get("location") ?? "", "http://localhost").pathname;
+    }
+    expect(location).toBe("/docs/kv");
+  });
+
   it("serves the OpenAPI document", async () => {
     const response = await server.fetch("/openapi.json");
     expect(response.status).toBe(200);

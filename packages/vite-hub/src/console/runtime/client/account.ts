@@ -73,7 +73,10 @@ async function json<T>(path: string, init: RequestInit = {}): Promise<T> {
   const body: unknown = await response.json().catch(() => undefined)
   if (!response.ok) {
     const message: unknown = body instanceof Object ? Reflect.get(body, "message") : undefined
-    throw failure({ status: response.status }, String(message) === message && message ? message : `The Console answered ${response.status}.`)
+    // A code of the Console catalog also carries its fix.
+    const fix: unknown = body instanceof Object ? Reflect.get(body, "fix") : undefined
+    const why = String(message) === message && message ? message : `The Console answered ${response.status}.`
+    throw failure({ status: response.status }, String(fix) === fix && fix ? `${why} ${fix}` : why)
   }
   // SAFETY: The Console server owns these routes and their answers.
   return body as T
@@ -300,6 +303,8 @@ export interface ConsoleAccountCheck {
   status: ConsoleAccountAppStatus
   /** The HTTP status of the app's answer. */
   code: number
+  /** The name that a connected app reports in `project.get`. */
+  name?: string
   /** The build that the connected app runs, from its `project.get` answer. */
   build?: ConsoleProjectBuild
 }
@@ -311,8 +316,9 @@ const variableProblems = new Set(["CONSOLE_KEY_NOT_CONFIGURED", "CONSOLE_KEY_UNK
 export async function checkConsoleAccountProject(id: string): Promise<ConsoleAccountCheck> {
   const result = await json<{ linked: boolean, status: number, answer?: unknown }>(`/api/projects/${encodeURIComponent(id)}/check`, { method: "POST" })
   if (result.linked) {
+    const name: unknown = result.answer instanceof Object ? Reflect.get(result.answer, "name") : undefined
     const build = consoleProjectBuildOf(result.answer instanceof Object ? Reflect.get(result.answer, "build") : undefined)
-    return { status: "connected", code: result.status, ...(build ? { build } : {}) }
+    return { status: "connected", code: result.status, ...(String(name) === name && name.trim() ? { name: name.trim() } : {}), ...(build ? { build } : {}) }
   }
   const answerCode: unknown = result.answer instanceof Object ? Reflect.get(result.answer, "code") : undefined
   const code = String(answerCode)
@@ -324,6 +330,13 @@ export async function checkConsoleAccountProject(id: string): Promise<ConsoleAcc
 /** Link an app to the active team. The answer names the variable and the public key to set on the app. */
 export async function linkConsoleAccountProject(url: string, label?: string): Promise<ConsoleAccountProject> {
   const { project } = await json<{ project: ConsoleAccountProject }>("/api/projects", { body: JSON.stringify({ url, ...(label ? { label } : {}) }), method: "POST" })
+  return project
+}
+
+/** Rename an app of the active team. An empty name removes the label, so the Console shows the name that the app reports. */
+export async function renameConsoleAccountProject(id: string, label: string): Promise<ConsoleAccountProject> {
+  const name = label.replace(/\s+/g, " ").trim()
+  const { project } = await json<{ project: ConsoleAccountProject }>(`/api/projects/${encodeURIComponent(id)}`, { body: JSON.stringify({ label: name || null }), method: "PATCH" })
   return project
 }
 
@@ -381,3 +394,48 @@ export const earlyConsoleTeam: EarlyLoad<ConsoleTeamDetails> = early(loadConsole
 
 /** The data of Account settings, loaded early. */
 export const earlyConsoleSignInState: EarlyLoad<ConsoleSignInState> = early(loadConsoleSignInState)
+
+/** A name of a stage, as `GET /api/projects/<id>/env/<stage>` lists it. The Console never lists values. */
+export interface ConsoleEnvVariable {
+  name: string
+  updatedAt: string
+}
+
+/**
+ * The env values of one stage of a project. `off` is a Console that stores no values, which is the default: `message`
+ * says how its operator turns them on.
+ */
+export type ConsoleEnvStage =
+  | { off: true, message: string }
+  | { off: false, stage: string, stages: string[], variables: ConsoleEnvVariable[], canReveal: boolean }
+
+function envPath(projectId: string, ...parts: string[]): string {
+  return [`/api/projects/${encodeURIComponent(projectId)}/env`, ...parts.map(encodeURIComponent)].join("/")
+}
+
+export async function loadConsoleEnvStage(projectId: string, stage: string): Promise<ConsoleEnvStage> {
+  const response = await fetch(envPath(projectId, stage), { credentials: "same-origin", headers: { accept: "application/json" } })
+  const body: unknown = await response.json().catch(() => undefined)
+  const field = (name: string): unknown => body instanceof Object ? Reflect.get(body, name) : undefined
+  const message = field("message")
+  if (field("code") === "CONSOLE_ENV_VALUES_OFF") return { message: String(message), off: true }
+  if (!response.ok) throw failure({ status: response.status }, typeof message === "string" && message ? message : `The Console answered ${response.status}.`)
+  // SAFETY: The Console server owns this route and its answer.
+  return { ...(body as Omit<ConsoleEnvStage & { off: false }, "off">), off: false }
+}
+
+/** Set or replace a value. Only owners and admins. The page never shows the value again. */
+export async function setConsoleEnvValue(projectId: string, stage: string, name: string, value: string): Promise<void> {
+  await json(envPath(projectId, stage, name), { body: JSON.stringify({ value }), method: "PUT" })
+}
+
+export async function deleteConsoleEnvValue(projectId: string, stage: string, name: string): Promise<void> {
+  const response = await fetch(envPath(projectId, stage, name), { credentials: "same-origin", method: "DELETE" })
+  if (!response.ok && response.status !== 404) throw failure({ status: response.status }, `The Console answered ${response.status}.`)
+}
+
+/** Read one value. The Console writes who read it in the env activity first. */
+export async function revealConsoleEnvValue(projectId: string, stage: string, name: string): Promise<string | undefined> {
+  const { values } = await json<{ values: Record<string, string> }>(envPath(projectId, stage, "reveal"), { body: JSON.stringify({ names: [name] }), method: "POST" })
+  return values[name]
+}

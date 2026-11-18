@@ -40,16 +40,16 @@ describe("built-in deployment plans", () => {
   )
   it("keeps service guarantees explicit", () => {
     expect(resolveDeploymentPlan("cloudflare").services.queue).toMatchObject({
-      adapter: "cloudflare",
+      driver: "cloudflare",
       supported: true,
     })
     expect(resolveDeploymentPlan("node").services.queue).toEqual({
-      adapter: "local",
+      driver: "local",
       guarantee: "single-host",
       supported: true,
     })
     expect(resolveDeploymentPlan("node").services.rateLimit).toEqual({
-      adapter: "memory",
+      driver: "memory",
       guarantee: "process-local",
       supported: true,
     })
@@ -145,6 +145,21 @@ describe("built-in deployment plans", () => {
     const text = await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8")
     expect(JSON.parse(text).env).toEqual(env)
     expect(text).not.toContain("canary-value-91b0")
+  })
+  it("records the resolved envDir relative to the manifest, so the CLI reads the env files that the app reads", async () => {
+    const rootDir = await temporaryDirectory("vitehub-plan-env-dir-")
+    const plan = resolveDeploymentPlan("node")
+    const entry = resolve(rootDir, plan.output.directory, plan.output.entry!)
+    await mkdir(dirname(entry), { recursive: true })
+    await writeFile(entry, "export {}\n", "utf8")
+    const manifest = async () => JSON.parse(await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8"))
+
+    await finalizeDeploymentPlanOutput({ envDir: resolve(rootDir, "config"), plan, rootDir })
+    expect((await manifest()).envDir).toBe("../config")
+    await finalizeDeploymentPlanOutput({ envDir: false, plan, rootDir })
+    expect((await manifest()).envDir).toBe(false)
+    await finalizeDeploymentPlanOutput({ plan, rootDir })
+    expect(await manifest()).not.toHaveProperty("envDir")
   })
   it("omits env when the app has no Env plugin", async () => {
     const rootDir = await temporaryDirectory("vitehub-plan-no-env-")

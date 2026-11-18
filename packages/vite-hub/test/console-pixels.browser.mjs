@@ -9,6 +9,7 @@
 // `capture` starts the playground on `--port` (default 4381) and stops it when it ends. `--url <origin>` uses a
 // playground that already runs. `--only <text>` captures only the paths that contain the text. The playground loads the
 // Console from source, so build only its dependencies once: `corepack pnpm exec vp run --cache -t @vite-hub/auth#build`.
+// `capture` also fails a shot when a `.ui-sdk` scope root holds a Nuxt UI component (see `nuxtUIInScopes`).
 //
 // `compare` prints the changed-pixel share of each shot, writes a diff image of each changed shot to `--diff <dir>`
 // (default `<head>-diff`), and exits with 1 when a shot is missing or its share is above `--threshold` (percent,
@@ -73,7 +74,7 @@ async function capture(folder) {
     const unstable = shots.filter((shot) => !shot.stable);
     console.log(`${shots.length} shots of ${targets.paths.length} paths in ${seconds}s -> ${folder}`);
     for (const route of targets.routes.filter((entry) => !entry.shot)) console.log(`not captured: ${route.path} (${route.reason})`);
-    for (const shot of unstable) console.log(`unstable: ${shot.file} (${shot.reason})`);
+    for (const shot of unstable) console.log(`failed: ${shot.file} (${shot.reason})`);
     if (unstable.length) process.exitCode = 1;
   }
   finally {
@@ -149,7 +150,11 @@ async function openContext(browser, scheme, viewport) {
   page.on("request", (request) => open.add(request));
   page.on("requestfinished", (request) => open.delete(request));
   page.on("requestfailed", (request) => open.delete(request));
-  return { context, open, page, scheme, viewport };
+  // Errors of the page, to say why the Console did not mount.
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  return { context, errors, open, page, scheme, viewport };
 }
 
 /**
@@ -180,6 +185,12 @@ async function discoverTargets(session, origin, folder) {
   const visit = async (path, route) => {
     if (options.only && !path.includes(options.only)) {
       route.reason ??= "left out by --only";
+      return;
+    }
+    // Optional parameters and the catch-all can expand to a path already captured.
+    const existing = shots.find((shot) => shot.path === path);
+    if (existing) {
+      route.shot ??= existing.file;
       return;
     }
     const shot = await shoot(session, origin, path, folder);
@@ -247,8 +258,46 @@ async function shoot(session, origin, path, folder) {
   }
   const file = `${scheme}-${viewport.width}-${path === "/" ? "home" : path.slice(1).replaceAll("/", "_")}.png`;
   await writeFile(join(folder, file), image);
-  const reason = busy ?? (tries === 8 ? "the page kept changing" : undefined);
+  const scopes = await page.evaluate(nuxtUIInScopes);
+  const reason = busy
+    ?? (scopes.nuxtUI === 0 ? "no Nuxt UI component found on the page, so the scope check cannot see one" : undefined)
+    ?? (scopes.inside.length ? `a .ui-sdk scope root holds Nuxt UI: ${scopes.inside.join(", ")}` : undefined)
+    ?? (tries === 8 ? "the page kept changing" : undefined);
   return { file, path, ...current, stable: !reason, ...(reason ? { reason } : {}) };
+}
+
+/**
+ * Runs in the page. A `.ui-sdk` scope root holds no Nuxt UI component: inside it, the scoped kit family restyles every
+ * `[data-slot]`, and 8 slot names (`button`, `input`, `label`, ...) are the same in Nuxt UI and ui-sdk, so a slot name
+ * cannot tell them apart. The Vue component that renders an element can: in the dev build, each element knows its
+ * component, and each Nuxt UI component knows its file under `@nuxt/ui`. Returns the Nuxt UI components whose output
+ * starts inside a scope root, and how many elements Nuxt UI renders on the page (zero means the check went blind).
+ */
+function nuxtUIInScopes() {
+  const fromNuxtUI = (instance) => /[\\/]@nuxt[\\/]ui[\\/]/.test(instance.type.__file ?? "");
+  let nuxtUI = 0;
+  for (const element of document.querySelectorAll("*")) if (element.__vueParentComponent && fromNuxtUI(element.__vueParentComponent)) nuxtUI++;
+  const inside = new Set();
+  for (const root of document.querySelectorAll(".ui-sdk")) {
+    for (const element of [root, ...root.querySelectorAll("*")]) {
+      // Walk up the components that render this element while their output starts inside the root, and keep the outermost
+      // Nuxt UI one (UButton, not the ULinkBase inside it). A Nuxt UI component around the root, such as a card with a
+      // scope root in its slot, starts outside it and ends the walk.
+      let outermost;
+      for (let instance = element.__vueParentComponent; instance; instance = instance.parent) {
+        const start = instance.subTree?.el ?? instance.vnode.el;
+        if (!(start instanceof Node) || !root.contains(start)) break;
+        if (fromNuxtUI(instance)) outermost = instance;
+      }
+      if (outermost) inside.add(outermost);
+    }
+  }
+  const describe = (instance) => {
+    const start = instance.subTree?.el ?? instance.vnode.el;
+    const slot = start instanceof Element ? start.getAttribute("data-slot") : null;
+    return `U${instance.type.__file.split(/[\\/]/).pop().replace(/\.vue$/, "")}${slot ? ` [data-slot="${slot}"]` : ""}`;
+  };
+  return { inside: [...new Set([...inside].map(describe))], nuxtUI };
 }
 
 /**
@@ -257,9 +306,14 @@ async function shoot(session, origin, path, folder) {
  * Returns why the page did not settle in 30 seconds.
  */
 async function settle(session, url) {
-  const { open, page, viewport } = session;
+  const { errors, open, page, viewport } = session;
   open.clear();
+  errors.length = 0;
   await page.goto(url);
+  // On a cold start, Vite optimizes dependencies and reloads the page, so the requests can stop before the Console
+  // mounts. Wait for the Vue app and its router first.
+  await page.waitForFunction(() => document.querySelector("#app")?.__vue_app__?.config.globalProperties.$router, null, { timeout: 120_000 })
+    .catch((error) => { throw new Error(`The Console did not mount on ${url}. Page errors:\n${errors.join("\n") || "none"}`, { cause: error }); });
   // The headless pointer starts at 0,0 over the rail, and the rail expands over the page on hover.
   await page.mouse.move(viewport.width - 1, viewport.height - 1);
   const deadline = Date.now() + 30_000;

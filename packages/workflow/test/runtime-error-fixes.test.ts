@@ -44,10 +44,10 @@ describe("Workflow runtime error fixes", () => {
     })
   })
 
-  it("names the provider option of an OpenWorkflow worker", async () => {
-    await expect(createOpenWorkflowWorker({ config: { provider: "vercel" } as never })).rejects.toMatchObject({
+  it("names the driver option of an OpenWorkflow worker", async () => {
+    await expect(createOpenWorkflowWorker({ config: { driver: "vercel" } as never })).rejects.toMatchObject({
       code: "WORKFLOW_R0017",
-      fix: expect.stringContaining("provider: \"openworkflow\""),
+      fix: expect.stringContaining("driver: \"openworkflow\""),
     })
   })
 })

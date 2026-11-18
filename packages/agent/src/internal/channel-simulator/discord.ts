@@ -75,7 +75,7 @@ header .search { margin-left: auto; width: 144px; height: 24px; border-radius: 4
 .composer { flex: none; margin: 0 16px; display: flex; align-items: flex-start; background: var(--input); border-radius: 8px; }
 .composer:focus-within { box-shadow: 0 0 0 2px var(--brand); }
 .composer .plus { flex: none; width: 24px; height: 24px; margin: 10px 16px; border-radius: 50%; background: var(--plus); color: var(--input); font-size: 20px; line-height: 24px; font-weight: 700; }
-.composer textarea { flex: 1; min-height: 44px; max-height: 50vh; padding: 11px 10px 11px 0; border: 0; outline: 0; resize: none; background: none; color: var(--text); font: inherit; }
+.composer textarea { flex: 1; min-height: 44px; max-height: min(50vh, 200px); padding: 11px 10px 11px 0; border: 0; outline: 0; resize: none; background: none; color: var(--text); font: inherit; }
 .composer textarea::placeholder { color: var(--faint); }
 .composer .emoji { flex: none; margin: 10px 4px; width: 24px; height: 24px; color: var(--muted); }
 .composer .send { flex: none; width: 32px; height: 32px; margin: 6px 8px 6px 4px; border-radius: 4px; display: grid; place-items: center; color: var(--muted); }

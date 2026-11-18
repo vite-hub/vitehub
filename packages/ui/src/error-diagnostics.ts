@@ -11,5 +11,13 @@ export const uiErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   codes: {
     UI_R0001: { ...dynamicError, fix: "Pick the file again. The browser could not read the file that the message names." },
     UI_R0002: { ...dynamicError, fix: "Use the component that the message names as it says: inside its parent, such as `CommentLayer`, `ChoicesInput`, or `MessageScroller`, or with the props that the message names." },
+    UI_RELATIVE_TIME_NOW_INVALID: {
+      why: "RelativeTime cannot read the supplied clock value.",
+      fix: "Pass a valid Date, an ISO date string, or milliseconds as now.",
+    },
+    UI_RELATIVE_TIME_THRESHOLD_INVALID: {
+      why: ({ threshold }: { threshold: string }) => `RelativeTime threshold "${threshold}" is not a duration.`,
+      fix: 'Pass a number and a unit, such as "3w", or "none" as threshold.',
+    },
   },
 })

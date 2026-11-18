@@ -6,7 +6,7 @@ import { join } from "pathe"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { findDataLoss, splitSqlStatements } from "./migration-sql.ts"
 
-import type { DataLossStatement, TableColumns } from "./migration-sql.ts"
+import type { DataLossStatement, ReferencingKey, TableColumns, TableReferences } from "./migration-sql.ts"
 
 /** A migration in the migrations folder that the database has not applied. */
 export interface PendingMigration {
@@ -62,8 +62,8 @@ export function readMigrations(migrationsDir: string, database?: string): Migrat
     }))
 }
 
-/** Reads the table columns from the Drizzle snapshot of a migration folder. */
-function readSnapshotColumns(migrationsDir: string, tag: string): TableColumns | undefined {
+/** Reads the table columns and the foreign keys with an ON DELETE action from the Drizzle snapshot of a migration folder. */
+function readSnapshotTables(migrationsDir: string, tag: string): { columns: TableColumns, references: TableReferences } | undefined {
   const file = join(migrationsDir, tag, "snapshot.json")
   if (!existsSync(file)) return
   let snapshot: unknown
@@ -75,6 +75,7 @@ function readSnapshotColumns(migrationsDir: string, tag: string): TableColumns |
   }
   if (!isRecord(snapshot) || !Array.isArray(snapshot.ddl)) return
   const tables = new Map<string, string[]>()
+  const references = new Map<string, ReferencingKey[]>()
   for (const entity of snapshot.ddl) {
     if (!isRecord(entity) || typeof entity.name !== "string") continue
     if (entity.entityType === "tables" && !tables.has(entity.name.toLowerCase())) tables.set(entity.name.toLowerCase(), [])
@@ -83,8 +84,15 @@ function readSnapshotColumns(migrationsDir: string, tag: string): TableColumns |
       columns.push(entity.name)
       tables.set(entity.table.toLowerCase(), columns)
     }
+    const onDelete = typeof entity.onDelete === "string" ? entity.onDelete.toUpperCase() : undefined
+    if (entity.entityType === "fks" && typeof entity.table === "string" && typeof entity.tableTo === "string"
+      && (onDelete === "CASCADE" || onDelete === "SET NULL" || onDelete === "SET DEFAULT")) {
+      const keys = references.get(entity.tableTo.toLowerCase()) ?? []
+      keys.push({ table: entity.table, columns: Array.isArray(entity.columns) ? entity.columns.filter((column): column is string => typeof column === "string") : [], onDelete })
+      references.set(entity.tableTo.toLowerCase(), keys)
+    }
   }
-  return tables
+  return { columns: tables, references }
 }
 
 export function readPendingMigration(migrationsDir: string, tag: string, entries: readonly MigrationEntry[]): PendingMigration {
@@ -92,6 +100,18 @@ export function readPendingMigration(migrationsDir: string, tag: string, entries
   const statements = sql.split("--> statement-breakpoint").map(statement => statement.trim()).filter(statement => splitSqlStatements(statement).length)
   // A hand-written D1 migration has no folder, so there is no previous snapshot to compare a rebuild with.
   const index = entries.findIndex(entry => entry.tag === tag)
-  const before = index < 0 ? undefined : index > 0 ? readSnapshotColumns(migrationsDir, entries[index - 1]!.tag) : new Map<string, string[]>()
-  return { dataLoss: findDataLoss(statements, before), name: tag, statements }
+  let before: TableColumns | undefined = index < 0 ? undefined : new Map<string, string[]>()
+  let references: TableReferences | undefined
+  for (let previous = index - 1; previous >= 0; previous--) {
+    const snapshot = readSnapshotTables(migrationsDir, entries[previous]!.tag)
+    before = snapshot?.columns
+    references = snapshot?.references
+    if (before) break
+    // Index-only SQL cannot change table columns. Anything else leaves the schema unknown;
+    // never carry a stale snapshot across arbitrary contributed DDL.
+    const intervening = splitSqlStatements(readFileSync(migrationSqlFile(migrationsDir, entries[previous]!.tag), "utf8"))
+    if (!intervening.every(statement => /^\s*(?:CREATE\s+(?:UNIQUE\s+)?INDEX\s|DROP\s+INDEX\s)/i.test(statement))) break
+    before = new Map<string, string[]>()
+  }
+  return { dataLoss: findDataLoss(statements, before, references), name: tag, statements }
 }

@@ -223,8 +223,38 @@ if (!labeller.dryRun && labeller.mode === 'send') {
 | `env.boolean()` | `true`, `false`, `1`, or `0`, any case, spaces trimmed | `boolean` |
 | `env.number()` | A finite number | `number` |
 | `env.enum(['a', 'b'])` | One of the listed strings | `"a" \| "b"` |
+| `env.list()` | Strings separated by commas or line breaks, for example `a.com, b.com` | `Array<string>` |
+| `env.list(env.number())` | Comma-separated items, each parsed by the item helper | `Array<number>` |
+| `env.json()` | JSON text | `unknown` |
+| `env.json(env.schemaFrom(module, name))` | JSON text that matches the schema | The schema output |
 
-Typed helpers accept every `env()` option except `schema` and `type`. A `default` uses the parsed type, for example `env.boolean({ default: false })`. With `secret: true`, you get `SecretEnv<boolean>` or `SecretEnv<number>`. `env.enum()` cannot be secret, because its choices appear in generated types, the Console, and error causes. Cloudflare `vars` that are already booleans or numbers pass as they are.
+Typed helpers accept every `env()` option except `schema` and `type`. A `default` uses the parsed type, for example `env.boolean({ default: false })` or `env.list({ default: ['a.com'] })`. With `secret: true`, you get `SecretEnv<boolean>` or `SecretEnv<number>`. `env.enum()` cannot be secret, because its choices appear in generated types, the Console, and error causes. Cloudflare `vars` that are already booleans or numbers pass as they are.
+
+### Lists and JSON values
+
+`env.list()` splits the value on commas and line breaks, trims each item, and drops empty items, so `a, b,,` gives `["a", "b"]`. Spaces inside an item stay, so `publish preview packages` is one item. Pass `env.boolean()`, `env.number()`, or `env.enum([...])` without options to parse each item, and put the options on the list: `env.list(env.number(), { default: [80] })`. An error names the item that failed, for example `Item 2: Expected a finite number.`
+
+`env.json()` reads the value as JSON. To check its shape in `env.server`, export a [Standard Schema](https://standardschema.dev) from a module and pass it with `env.schemaFrom()`. The schema gets the parsed value:
+
+```ts [server/env.schema.ts]
+import * as v from 'valibot'
+
+export const labeller = v.object({
+  labels: v.array(v.string()),
+  threshold: v.number(),
+})
+```
+
+```ts fragment
+env: {
+  server: {
+    adminEmails: env.list({ default: [] }),
+    labeller: env.json(env.schemaFrom('./server/env.schema.ts', 'labeller')),
+  },
+}
+```
+
+`useServerEnv().adminEmails` is a `string[]`, and `labeller` is `{ labels: string[]; threshold: number }`. Text that is not JSON fails with `ENV_RUNTIME_VALUE_INVALID` and the cause `Expected valid JSON.` A string `default` of `env.json()` is JSON text too. In `env.public` and `env.define` with `mode: 'build'`, pass the schema object itself: `env.json(labeller, { mode: 'build' })`.
 
 Error details hold the declaration path and source kind, never the rejected value. `inspectServerEnv()` reports a value that does not parse as `invalid`.
 

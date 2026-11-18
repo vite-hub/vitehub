@@ -1,0 +1,8 @@
+/* The Console after the move: Tailwind with the ui-sdk layer after base, the kit tokens, the default family, and the
+   kit Tailwind bridge. No Nuxt UI and no theme.css. */
+@layer theme, base, ui-sdk, components, utilities;
+@import "tailwindcss";
+@import "../../../../kit/src/styles/tokens.css";
+@import "../../../../kit/src/styles/default.css";
+@import "../../../../kit/src/styles/tailwind.css";
+@import "./page.css";

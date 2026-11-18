@@ -4,6 +4,7 @@ export {
   aggregateAuthEvents,
   auth,
   can,
+  checkAuthMember,
   createAuthHandler,
   default,
   getAuth,
@@ -14,9 +15,11 @@ export {
   requireAbility,
   requireAuth,
   requireAuthorization,
+  signOut,
   useAuth,
   withAnonymousAuthorization,
   withAuth,
   withAuthorization,
 } from "./internal/server.ts"
 export type { AbilityErrorData } from "./internal/server.ts"
+export type { AuthMemberErrorCode } from "./members.ts"

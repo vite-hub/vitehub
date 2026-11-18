@@ -400,7 +400,7 @@ const cases = [
  * Console check the CLI's signed calls on Node.
  */
 function hubOptions(item) {
-  return { host: item.host, agent: true, auth: true, console: true, publicUrl: `http://127.0.0.1:${item.port}`, realtime: item.host === "node" ? { authority: "memory" } : true }
+  return { host: item.host, agent: true, auth: true, console: true, publicUrl: `http://127.0.0.1:${item.port}`, realtime: item.host === "node" ? { driver: "memory" } : true }
 }
 
 async function writeFixture(item) {

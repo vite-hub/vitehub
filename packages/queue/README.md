@@ -67,7 +67,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   nitro: { preset: "cloudflare-module", serverEntry: "./src/server.ts" },
-  plugins: [hubQueue({ provider: "cloudflare" }), nitro()],
+  plugins: [hubQueue({ driver: "cloudflare" }), nitro()],
 });
 ```
 
@@ -81,7 +81,7 @@ A successful build writes `.vitehub/queue/registry.mjs` with the `welcome-email`
 
 That build proves discovery and generated output only. In the built Worker, `sendQueue()` needs a deployed Cloudflare binding and an existing queue before it can return `[undefined, { status: "queued" }]`. In `vite dev`, it needs neither: see [Run jobs in vite dev](#run-jobs-in-vite-dev). Use the [Cloudflare host guide](https://vitehub.dev/docs/frameworks-hosts/cloudflare) for provisioning and deployment checks. Do not import `.vitehub` or `dist` files from application code.
 
-## Choose a provider
+## Choose a driver
 
 | Provider   | Choose it when                                                                                        | Generated output                                                    | Enqueue options                                                |
 | ---------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------- |
@@ -90,7 +90,7 @@ That build proves discovery and generated output only. In the built Worker, `sen
 | Local      | One Node server runs the jobs: `node .output/server/index.mjs`, Docker, or a WebContainer               | A Nitro plugin that runs stored jobs in the server process         | `delaySeconds`, `idempotencyKey`                               |
 | Postgres   | One or more Node servers share a Postgres database                                                    | A Nitro plugin that starts workers in each server process           | `delaySeconds`, `idempotencyKey`                               |
 
-The ViteHub framework host selects Cloudflare for `host: "cloudflare"` and Vercel for `host: "vercel"`. For `host: "node"` and a Nitro `node-server` preset, it selects the postgres provider when the app has a Postgres Default Database, else the local provider. `vitehub({ queue: { provider: "postgres" } })` or `{ provider: "local" }` picks one on Node. Set `provider` explicitly when host inference would be ambiguous. Netlify cannot infer one. ViteHub provides no Queue Provider for Deno. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before choosing a deployment target.
+The ViteHub framework host selects Cloudflare for `host: "cloudflare"` and Vercel for `host: "vercel"`. For `host: "node"` and a Nitro `node-server` preset, it selects the postgres driver when the app has a Postgres Default Database, else the local driver. `vitehub({ queue: { driver: "postgres" } })` or `{ driver: "local" }` picks one on Node. Set `driver` explicitly when host inference would be ambiguous. Netlify cannot infer one. ViteHub provides no Queue driver for Deno. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before choosing a deployment target.
 
 Cloudflare needs a concrete request-scoped binding at runtime. Its generated queue resources can be created through the ViteHub Cloudflare provision step when the required account credentials are present. Cloudflare rejects Vercel-only options such as `idempotencyKey`, `region`, and `retentionSeconds`.
 
@@ -112,7 +112,7 @@ export default defineConfig({
 })
 ```
 
-`hubQueue({ provider: "local", base: "data/queue" })` selects it explicitly and changes the directory.
+`hubQueue({ driver: "local", base: "data/queue" })` selects it explicitly and changes the directory.
 
 Direct clients from `createQueueClient()` always redact plain handler errors. They cannot share a directory with the generated dev engine, which reports error details: that fails with `QUEUE_LOCAL_MODE_MISMATCH`. Use `useQueue()` in the dev server, or give the direct client a separate `base` directory.
 
@@ -129,7 +129,7 @@ The server logs the directory and this durability once when it starts. `vitehub 
 
 ## Run jobs on several Node servers
 
-The postgres provider keeps the jobs in the `vitehub_queue_jobs` table, and every server process of the app takes due jobs from it. Install `postgres` (postgres.js). The jobs use the postgres.js client of the Default Database, so they connect as the Database does, whatever variable or URL its Definition reads. With `driver: "node-postgres"`, the jobs open their own postgres.js client on the connection URL of the Database. A node-postgres Database that reads only the PG* variables needs `QUEUE_POSTGRES_URL`. `QUEUE_POSTGRES_URL` on the server overrides it. An explicit `provider: "postgres"` without a Postgres Default Database needs `QUEUE_POSTGRES_URL`.
+The postgres driver keeps the jobs in the `vitehub_queue_jobs` table, and every server process of the app takes due jobs from it. Install `postgres` (postgres.js). The jobs use the postgres.js client of the Default Database, so they connect as the Database does, whatever variable or URL its Definition reads. When the Database sets `driver: "node-postgres"`, the jobs open their own postgres.js client on the connection URL of the Database. A node-postgres Database that reads only the PG* variables needs `QUEUE_POSTGRES_URL`. `QUEUE_POSTGRES_URL` on the server overrides it. An explicit `driver: "postgres"` without a Postgres Default Database needs `QUEUE_POSTGRES_URL`.
 
 ```ts
 // vite.config.ts
@@ -139,7 +139,7 @@ import { defineConfig } from "vite"
 
 export default defineConfig({
   nitro: { preset: "node-server", serverEntry: "./src/server.ts" },
-  plugins: [hubQueue({ provider: "postgres" }), nitro()],
+  plugins: [hubQueue({ driver: "postgres" }), nitro()],
 })
 ```
 
@@ -208,6 +208,32 @@ Providers, the local one included, can retry failed delivery, so handlers must t
 On Cloudflare, successful handlers acknowledge the message. Failed handlers retry by default unless the error is a Queue error that a retry cannot fix or `onError` returns an explicit acknowledge or retry action. On Vercel, `callbackOptions.retry` can return an explicit directive; returning nothing preserves provider behavior. Application error codes do not choose retry policy.
 
 `sendQueue()`, `dynamicQueue.send()`, `send()`, and `sendBatch()` return `[error, data]`. `error.code` is `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE`, or `QUEUE_UNSUPPORTED_OPTION`, and each error has `why`, `fix`, `docs`, and `cause`. Configuration errors, for example an unknown Queue name or a missing Cloudflare binding, throw. `JSON.stringify(error)` and Queue delivery reports omit `cause`, so keep credentials and provider responses there. Throw `ViteHubError` from a handler for an application code. See the [Queue error reference](https://vitehub.dev/docs/queue/limits-and-errors) for each code and the retry policy.
+
+## Add a Queue from another plugin
+
+A package can add a Queue Definition from its Vite plugin, so the app needs no file in `server/queues/`. Put the entry in `vitehub.queues`:
+
+```ts
+import { fileURLToPath } from "node:url"
+
+import type { Plugin } from "vite"
+import type { QueueContributingPlugin } from "@vite-hub/queue/vite"
+
+export function webhooks(): Plugin & QueueContributingPlugin {
+  return {
+    name: "@acme/webhooks",
+    vitehub: {
+      queues: [{
+        name: "acme-webhooks",
+        definition: { module: fileURLToPath(new URL("./deliver.js", import.meta.url)) },
+        reason: "Delivers webhooks after their delay.",
+      }],
+    },
+  }
+}
+```
+
+`definition.module` is an absolute path or `file:` URL of a module with `export default defineQueue(...)`. `vitehub.queues` can also be a function that gets `{ root, projectRoot, serverDirs }` and returns the list. Queue treats the entry like a discovered file: it goes in the registry and the generated types, and gets its Cloudflare binding, Vercel consumer route, provisioning, and inspection. `vitehub inspect` shows the plugin and the reason. A name that a file or another plugin also uses fails with `QUEUE_DEFINITION_DUPLICATE`, and an invalid entry fails with `QUEUE_CONTRIBUTION_INVALID`.
 
 ## Public imports
 

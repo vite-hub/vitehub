@@ -6,7 +6,8 @@ import { describe, expect, it } from "vitest"
 import { parse } from "valibot"
 
 import { publicPackageBinContracts, publicPackageExportContracts } from "./public-package-exports"
-import { packageDir, packageInfos, packageManifestSchema, readPackageManifest, repoRoot } from "./utils/repo"
+import { listWorkspacePackageInfos } from "../packages/internal/src/workspace-inventory.ts"
+import { packageDir, packageInfos, packageManifestSchema, readPackageManifest, repoRoot, toRepoPath, walkFiles } from "./utils/repo"
 
 describe("public package export contracts", () => {
   it("limits the OAuth Provider peer to the MCP Auth subpaths", () => {
@@ -134,7 +135,12 @@ describe("public package export contracts", () => {
     const manifest = readPackageManifest("ui")
     const contract = publicPackageExportContracts.find(contract => contract.specifier === "@vite-hub/ui/markdown-editor")
     for (const peer of Object.keys(manifest.peerDependencies || {}).filter(name => name === "@nuxt/ui" || name.startsWith("@tiptap/"))) {
-      expect(contract?.optionalRuntimePeers, `${peer} is needed to import the editor`).toContain(peer)
+      // The ui-sdk drag handle loads on first render, not when MarkdownEditor is imported.
+      if (peer === "@tiptap/extension-drag-handle" || peer === "@tiptap/extension-drag-handle-vue-3") {
+        expect(contract?.optionalRuntimePeers).not.toContain(peer)
+      } else {
+        expect(contract?.optionalRuntimePeers, `${peer} is needed to import the editor`).toContain(peer)
+      }
       expect(contract?.optionalDeclarationPeers, `${peer} is needed to typecheck the editor`).toContain(peer)
     }
   })
@@ -216,9 +222,12 @@ describe("public package export contracts", () => {
     const manifest = readPackageManifest("realtime")
     const packConfig = readFileSync(join(packageDir("realtime"), "vite.config.ts"), "utf8")
 
-    expect(manifest.dependencies?.["@tiptap/pm"]).toEqual(expect.any(String))
-    expect(manifest.devDependencies?.["@tiptap/pm"]).toBeUndefined()
-    for (const dependency of ["@tiptap/core", "@tiptap/extension-collaboration", "@tiptap/y-tiptap"]) {
+    // The editor and its document model come from the app's Tiptap and Yjs, which the package manager installs as peers.
+    for (const dependency of ["@tiptap/core", "@tiptap/pm", "yjs"]) {
+      expect(manifest.peerDependencies?.[dependency], `realtime should take ${dependency} from the app`).toEqual(expect.any(String))
+      expect(manifest.dependencies?.[dependency]).toBeUndefined()
+    }
+    for (const dependency of ["@tiptap/extension-collaboration", "@tiptap/y-tiptap"]) {
       expect(manifest.dependencies?.[dependency], `realtime should install ${dependency}`).toEqual(expect.any(String))
       expect(manifest.devDependencies?.[dependency]).toBeUndefined()
     }
@@ -269,6 +278,16 @@ describe("public package export contracts", () => {
     const source = readFileSync(join(packageDir("sandbox"), "src/task/internal/shared/request-payload.ts"), "utf8")
     expect(source).toMatch(/event: ViteHubContext/)
     expect(source).toContain("getStandardContext(event).req.json()")
+  })
+
+  it("bundles private workspace packages into every published dist", () => {
+    // npm has no private packages, so an import of one fails in the consumer's install (`Cannot find package`).
+    const privateNames = listWorkspacePackageInfos(repoRoot).filter(info => info.private).map(info => info.packageName.replace("/", "\\/"))
+    const privateImport = new RegExp(`(?:\\bfrom|\\bimport|\\brequire\\s*\\()\\s*["'](${privateNames.join("|")})(?:\\/[^"']*)?["']`, "g")
+    const found = packageInfos.flatMap(info => walkFiles(join(packageDir(info.name), "dist"), { extensions: new Set(["cjs", "js", "mjs", "ts", "mts", "cts", "vue"]) })
+      .flatMap(file => [...readFileSync(file, "utf8").matchAll(privateImport)].map(match => `${toRepoPath(file)} imports ${match[1]}`)))
+
+    expect(found).toEqual([])
   })
 
   it("points every contract at a built artifact", () => {

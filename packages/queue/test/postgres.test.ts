@@ -367,8 +367,8 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     const ran: QueueJob[] = []
     setQueueRuntimeRegistry({ jobs: async () => ({ handler: (job: QueueJob) => void ran.push(job) }) })
     try {
-      startPostgresQueue({ database: "default", provider: "postgres" }, async () => ({ default: { db } }))
-      const client = await createPostgresQueueRuntimeClient({ database: "default", provider: "postgres", queue: "jobs" })
+      startPostgresQueue({ database: "default", driver: "postgres" }, async () => ({ default: { db } }))
+      const client = await createPostgresQueueRuntimeClient({ database: "default", driver: "postgres", queue: "jobs" })
       const [error] = await client.send({ n: 1 })
       expect(error).toBeUndefined()
       await client.send({ n: 2 }, { delaySeconds: 60 })
@@ -401,7 +401,7 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     const db = createNodePostgresDatabase(definition, { binding: "DB" })
     const queue = `node_postgres_${randomUUID()}`
     const ran: unknown[] = []
-    const config = { database: "default", provider: "postgres" } as const
+    const config = { database: "default", driver: "postgres" } as const
     setQueueRuntimeRegistry({ [queue]: async () => ({ handler: (job: QueueJob) => void ran.push(job.payload) }) })
     setQueueRuntimeConfig(config, createPostgresQueueRuntimeClient)
     try {
@@ -428,7 +428,7 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     const db = createPostgresDatabase(definition, { binding: "DB" })
     const queue = `connection_${randomUUID()}`
     const ran: unknown[] = []
-    const config = { database: "default", provider: "postgres" } as const
+    const config = { database: "default", driver: "postgres" } as const
     setQueueRuntimeRegistry({ [queue]: async () => ({ handler: (job: QueueJob) => void ran.push(job.payload) }) })
     setQueueRuntimeConfig(config, createPostgresQueueRuntimeClient)
     try {
@@ -473,9 +473,9 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     const factory = vi.fn(createLocalQueueRuntimeClient)
     const handler = vi.fn()
     setQueueRuntimeRegistry({ [queue]: async () => ({ handler }) })
-    if (mode === "local app") setQueueRuntimeConfig({ provider: "local" }, factory)
+    if (mode === "local app") setQueueRuntimeConfig({ driver: "local" }, factory)
     try {
-      const client = await createQueueClient({ provider: "postgres", queue })
+      const client = await createQueueClient({ driver: "postgres", queue })
       expect((await client.send("one"))[0]).toBeUndefined()
       expect((await client.sendBatch([{ body: "two" }]))[0]).toBeUndefined()
       await new Promise(resolve => setTimeout(resolve, 1200))

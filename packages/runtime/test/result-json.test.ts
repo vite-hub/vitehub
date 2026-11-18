@@ -38,7 +38,7 @@ it.each([
   const data = { token: "private metadata" }
   const sources = ["private/provider.ts:42"]
   const diagnostic = new Diagnostic({ code: "EXAMPLE_INVALID", why: "Invalid input.", fix: "Try again.", docs: "https://example.test/errors", cause, data, sources })
-  diagnostic.name = "ProviderError"
+  Object.assign(diagnostic, { name: "ProviderError" })
   const stack = diagnostic.stack
   const serialize = diagnostic.toJSON
   protect(diagnostic)

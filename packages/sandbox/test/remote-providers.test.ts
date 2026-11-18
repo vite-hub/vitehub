@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 
 import { createCloudflareRuntime, type CloudflareSandboxStub } from "../src/cloudflare.ts";
@@ -29,6 +33,30 @@ describe("remote Sandbox providers", () => {
     await session.close();
     await session.close();
     expect(cleanup).toHaveBeenCalledTimes(2);
+  });
+
+  // A login shell reads the profiles. Debian's /etc/profile, as in a custom Sandbox image, sets PATH again and drops env.PATH.
+  it("runs Vercel commands without a login shell, so a profile keeps the PATH", async () => {
+    const home = await mkdtemp(join(tmpdir(), "vitehub-vercel-profile-"));
+    try {
+      await writeFile(join(home, ".profile"), "export PATH=/from/profile\n");
+      const instance = vercelInstance();
+      instance.runCommand = async (options) => {
+        if (!options.args?.some(arg => arg.includes("printenv"))) return vercelCommand("");
+        const stdout = await new Promise<string>((resolve, reject) => execFile(options.cmd, options.args ?? [], { env: { ...options.env, HOME: home } }, (error, out) => error ? reject(error) : resolve(out)));
+        return vercelCommand(stdout);
+      };
+      const session = await (await resolveSandbox({ runtime: createVercelRuntime({ create: async () => instance }) }, {})).open();
+      try {
+        await expect(session.exec("printenv", ["PATH"], { env: { PATH: process.env.PATH! } })).resolves.toMatchObject({ stdout: `${process.env.PATH}\n` });
+      }
+      finally {
+        await session.close();
+      }
+    }
+    finally {
+      await rm(home, { force: true, recursive: true });
+    }
   });
 
   it("streams Vercel process output before exit and forwards stdin only when requested", async () => {
@@ -277,7 +305,12 @@ describe("remote Sandbox providers", () => {
   });
 
   it("bounds remote requirement checks with their configured timeout", async () => {
-    const stub = cloudflareStub(async () => await new Promise<never>(() => {}));
+    let finish!: () => void;
+    const stub = cloudflareStub(async () => {
+      await new Promise<void>(resolve => finish = resolve);
+      return { exitCode: 137, stderr: "", stdout: "", success: false };
+    });
+    stub.cancelExec = async () => finish();
     const sandbox = await resolveSandbox({
       requires: [{ command: "node", timeout: 20 }],
       runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
@@ -608,13 +641,15 @@ describe("remote Sandbox providers", () => {
 
   it("cancels only the aborted Cloudflare command, not the Sandbox", async () => {
     const execIds: Array<string | undefined> = [];
+    let finish!: () => void;
     const stub = cloudflareStub(async (_command, options) => {
       execIds.push(options?.id);
-      return await new Promise<never>(() => {});
+      await new Promise<void>(resolve => finish = resolve);
+      return { exitCode: 137, stderr: "", stdout: "", success: false };
     });
     const destroy = vi.fn(async () => {});
     stub.destroy = destroy;
-    stub.cancelExec = vi.fn(async () => {});
+    stub.cancelExec = vi.fn(async () => finish());
     const sandbox = await resolveSandbox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
     const session = await sandbox.open();
     const controller = new AbortController();
