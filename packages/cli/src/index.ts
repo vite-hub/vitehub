@@ -55,6 +55,8 @@ type ViteHubCliEntrypointStream =
   | { flush?: never, write: (chunk: string | Uint8Array) => void | PromiseLike<unknown> }
 
 interface ViteHubCliLoadedConfig {
+  /** The Nitro config that the plugins wrote. `vitehub inspect routes` reads its `handlers`. */
+  nitro?: unknown
   plugins: readonly unknown[]
   root: string
   vitehubConfigResolved?: true
@@ -124,7 +126,7 @@ export interface RunViteHubCliOptions {
   /** Replaces how `vitehub deploy` loads the Provision Steps of the project config for a host. */
   loadProvision?: (host: ProvisionProvider) => Promise<ViteHubCliProvision>
   loadConfig?: (rootDir: string, command: "build" | "serve", mode?: string) => Promise<ViteHubCliLoadedConfig>
-  loadNuxtViteConfig?: (rootDir: string, command: "build" | "serve", mode?: string) => Promise<{ plugins: readonly unknown[], root?: string } | undefined>
+  loadNuxtViteConfig?: (rootDir: string, command: "build" | "serve", mode?: string) => Promise<{ nitro?: unknown, plugins: readonly unknown[], root?: string } | undefined>
   spawn?: ViteHubCliSpawn
   stderr?: ViteHubCliStreams["stderr"]
   stdout?: ViteHubCliStreams["stdout"]
@@ -135,7 +137,7 @@ export interface RunViteHubCliEntrypointOptions extends Omit<RunViteHubCliOption
   stdout?: ViteHubCliEntrypointStream
 }
 
-async function loadNuxtViteConfig(rootDir: string, command: "build" | "serve", mode?: string): Promise<{ plugins: readonly unknown[], root?: string } | undefined> {
+async function loadNuxtViteConfig(rootDir: string, command: "build" | "serve", mode?: string): Promise<{ nitro?: unknown, plugins: readonly unknown[], root?: string } | undefined> {
   const hasNuxtConfig = ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.cts", "nuxt.config.js", "nuxt.config.mjs", "nuxt.config.cjs"]
     .some(file => existsSync(resolve(rootDir, file)))
   if (!hasNuxtConfig) return
@@ -182,6 +184,18 @@ async function loadNuxtViteConfig(rootDir: string, command: "build" | "serve", m
     }
     const config = await resolveConfig(inlineConfig, command, mode ?? (command === "build" ? "production" : "development"))
     return {
+      // Vite plugins write their routes to the Vite config, Nuxt modules to `nitro.handlers` and `serverHandlers`.
+      nitro: { handlers: [
+        ...resolveRouteHandlers({
+          ...Object(Reflect.get(config, "nitro")),
+          alias: { ...nuxt.options.alias, ...Reflect.get(nuxt.options.nitro, "alias"), ...Reflect.get(Object(Reflect.get(config, "nitro")), "alias") },
+        }, config.root),
+        ...resolveRouteHandlers({
+          ...nuxt.options.nitro,
+          alias: { ...nuxt.options.alias, ...Reflect.get(nuxt.options.nitro, "alias") },
+          handlers: [...nitroHandlers(nuxt.options.nitro), ...nuxt.options.serverHandlers],
+        }, nuxt.options.rootDir || rootDir),
+      ] },
       plugins: config.plugins,
       root: config.root,
     }
@@ -189,6 +203,41 @@ async function loadNuxtViteConfig(rootDir: string, command: "build" | "serve", m
   finally {
     await nuxt.close()
   }
+}
+
+function nitroHandlers(nitro: unknown): unknown[] {
+  const handlers: unknown = Reflect.get(Object(nitro), "handlers")
+  return Array.isArray(handlers) ? handlers : []
+}
+
+// Match Nitro's path templates, longest-prefix aliases, and root-relative files.
+function resolveRouteHandlers(nitro: unknown, projectRoot: string): unknown[] {
+  const options = Object(nitro)
+  const rootDir = resolve(projectRoot, Reflect.get(options, "rootDir") || ".")
+  const pathOptions = {
+    ...options,
+    rootDir,
+    buildDir: resolve(rootDir, Reflect.get(options, "buildDir") || "."),
+  }
+  const aliases = Object.entries(Reflect.get(options, "alias") || {})
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    .sort(([a], [b]) => b.length - a.length)
+  return nitroHandlers(nitro).map((entry) => {
+    const handler: unknown = Reflect.get(Object(entry), "handler")
+    if (typeof handler !== "string") return entry
+    let file = handler.replace(/{{ ?([\w.]+) ?}}/g, (_, key: string) => {
+      const value = key.split(".").reduce<unknown>((object, part) => Reflect.get(Object(object), part), pathOptions)
+      return value ? String(value) : key
+    })
+    const visited = new Set<string>()
+    while (true) {
+      const alias = aliases.find(([key]) => file === key || file.startsWith(`${key}/`))
+      if (!alias || visited.has(alias[0])) break
+      visited.add(alias[0])
+      file = alias[1] + file.slice(alias[0].length)
+    }
+    return { ...Object(entry), handler: /^[#\u0000]/.test(file) ? file : resolve(rootDir, file) }
+  })
 }
 
 function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnOptions = {}) {
@@ -337,6 +386,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     const plugins = nuxtConfig?.plugins ?? config.plugins
     return {
       contribution: await collectViteHubCliContribution(plugins),
+      handlers: resolveRouteHandlers(nuxtConfig ? nuxtConfig.nitro : config.nitro, nuxtConfig?.root || config.root || cwd),
       operations: await loadCliOperations(plugins, stderr),
       plugins,
       rootDir: resolve(nuxtConfig?.root || config.root || cwd),
@@ -365,15 +415,15 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   const helpNamespace = await loadHelpNamespace(args, options.helpNamespaces)
   if (helpNamespace) return await runNamespace(helpNamespace, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
 
-  // Provider Output and host resources must match what a production build deploys.
-  const command = args[0] === "inspect" && (args[1] === "output" || args[1] === "resources") ? "build" : "serve"
-  const { contribution, operations, plugins, rootDir } = await (stage ? withViteStageEnvironment(env, () => loadProject(command)) : loadProject(command))
+  // Provider Output, host resources, and routes must match what a production build deploys.
+  const command = args[0] === "inspect" && (args[1] === "output" || args[1] === "resources" || args[1] === "routes") ? "build" : "serve"
+  const { contribution, handlers, operations, plugins, rootDir } = await (stage ? withViteStageEnvironment(env, () => loadProject(command)) : loadProject(command))
   const runtimeNamespaces = (options.runtimeNamespaces ?? []).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name))
   // A runtime namespace runs before the project loads, so it replaces a project namespace of the same name.
   const runtimeNames = new Set(runtimeNamespaces.map(namespace => namespace.name))
   const namespaces = [
     ...mergeOperationNamespaces(contribution.namespaces, createOperationNamespaces(operations)).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name) && !runtimeNames.has(namespace.name)),
-    createInspectNamespace(plugins, operations),
+    createInspectNamespace(plugins, operations, handlers),
     createProvisionNamespace(contribution.provision),
     createSeedNamespace(contribution.seeds),
     ...runtimeNamespaces,

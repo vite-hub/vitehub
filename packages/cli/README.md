@@ -45,19 +45,20 @@ The CLI owns the `inspect` namespace. Plugin command contributions with that nam
 Usage: vitehub <namespace> <feature> [args...]
 
 Available namespaces:
-  inspect      Inspect discovered Definitions, host resources, and generated Provider Output.
+  inspect      Inspect discovered Definitions, host resources, server routes, and generated Provider Output.
   provision    Idempotently create missing provider resources.
 ```
 
 ## Inspect the project
 
-`inspect definitions` lists the Definitions that each active package discovered. The Console reads the same package-owned summaries. `inspect output` lists generated Provider Output files and shows which exist. `inspect resources` lists the D1, KV, R2, Queue, and Vercel Blob resources that Definitions map to, with each id and its source: config, env, Provision State, generated provider output, or bound by name. It never calls a provider API. Both commands resolve Vite configuration for build with production mode and load Nuxt with development disabled, so production-only contributors are included. Other commands use development configuration.
+`inspect definitions` lists the Definitions that each active package discovered. The Console reads the same package-owned summaries. `inspect output` lists generated Provider Output files and shows which exist. `inspect resources` lists the D1, KV, R2, Queue, and Vercel Blob resources that Definitions map to, with each id and its source: config, env, Provision State, generated provider output, or bound by name. It never calls a provider API. `inspect routes` lists the server routes and middleware that ViteHub and other Vite plugins add to the build, with each method, path, owner, and handler file. Routes in `server/routes` and `server/api` are not listed. These three commands resolve Vite configuration for build with production mode and load Nuxt with development disabled, so production-only contributors are included. Other commands use development configuration.
 
 ```sh
 pnpm vitehub inspect definitions --kind queue
 pnpm vitehub inspect definitions --json
 pnpm vitehub inspect output --json
 pnpm vitehub inspect resources --json
+pnpm vitehub inspect routes
 ```
 
 Human output is the default. `--json` prints a stable object. Both forms redact secret-like keys, Worker `vars` values, and URLs with embedded credentials.

@@ -71,6 +71,19 @@ Each entry ends with where its id came from. `--json` prints `{ "resources": [..
 
 For the Vercel Blob store, the id is `BLOB_STORE_ID`, which Vercel sets for the store connected to the project. Off Vercel, the CLI reports only whether `BLOB_READ_WRITE_TOKEN` is set, never its value, and a configured `token` shows as `config` with no store id or token. D1 over HTTP, PostgreSQL Databases, and Definitions whose `cloudflare` value cannot be read statically are not listed.
 
+`inspect routes` lists the server routes and middleware that ViteHub and other Vite plugins add to the build, with the method, the path, the owner, and the handler file. The owner is the ViteHub area of a generated handler, such as `blob` or `queue`, the package of a package file, or `app`. Routes in `server/routes` and `server/api` are not listed. Like `inspect output`, it loads the configuration that a production build uses.
+
+```bash [Terminal]
+pnpm vitehub inspect routes
+pnpm vitehub inspect routes --json
+```
+
+```txt [Output]
+METHOD  PATH                      OWNER           HANDLER
+*       /**                       queue           .vitehub/nitro/queue/middleware.ts  (middleware)
+*       /_vitehub/blob/signed/**  @vite-hub/blob  @vite-hub/blob/dist/runtime/signed.js
+```
+
 ::note
 Package authors add summaries through `vitehub.inspect` on the Vite plugin, and host resources with `resources()`.
 ::
