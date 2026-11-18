@@ -91,6 +91,8 @@
     "test/console-invocation-views",
     // Browser code of the comments overlay, also checked by tsconfig.console.json.
     "test/console-comment-thread-dismissal.test.ts",
+    // Runs the IndexedDB device of `@vite-hub/device`, also checked by tsconfig.console.json.
+    "test/console-stored-boot.test.ts",
     // The page pill script, also checked by tsconfig.console.json.
     "src/page"
   ]
