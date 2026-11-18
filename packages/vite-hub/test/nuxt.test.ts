@@ -2615,6 +2615,52 @@ describe("ViteHub Nuxt integration", () => {
     await expect(runNitroConfigHook(nitroOptions(nuxt))).rejects.toMatchObject({ code: "RATE_LIMIT_MEMORY_STRICT_UNSUPPORTED" })
   })
 
+  it("refreshes the Rate Limit installer and manifest on a Cloudflare Nitro-only rebuild", async () => {
+    const root = `${tmp}/vitehub-nuxt`
+    const definition = resolve(root, "server/rate-limit.ts")
+    const installer = resolve(root, ".vitehub/nitro/rate-limit/plugin.ts")
+    const manifest = resolve(root, ".vitehub/rate-limit/manifest.json")
+    const policy = (window: string) => `import { requireRateLimit } from "vite-hub/rate-limit"\nrequireRateLimit(event, "uploads", { limit: 25, window: "${window}" })\n`
+    await mkdir(resolve(definition, ".."), { recursive: true })
+    onTestFinished(() => rm(definition, { force: true }))
+    mocks.vitehub.mockReturnValue([hubRateLimit({ driver: "cloudflare", namespace: "uploads-worker" }), hubKV({ driver: "upstash" }, { hosting: "cloudflare" })])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    await viteHubNuxtModule({ console: false, env: false, host: "cloudflare" }, nuxt)
+    const config = nitroOptions(nuxt)
+    await writeFile(definition, policy("1m"))
+    await runNitroConfigHook(config)
+    expect(config).toHaveProperty("cloudflare.wrangler.ratelimits", [expect.objectContaining({ simple: { limit: 25, period: 60 } })])
+    await expect(readFile(installer, "utf8")).resolves.not.toContain("getKVStoreDriver")
+    await writeFile(definition, policy("1d"))
+    await runNitroConfigHook(config)
+    expect(config).not.toHaveProperty("cloudflare.wrangler.ratelimits.0")
+    await expect(readFile(installer, "utf8")).resolves.toContain("getKVStoreDriver")
+    await expect(readFile(manifest, "utf8").then(JSON.parse)).resolves.toMatchObject({ rateLimits: [{ name: "uploads", provider: "kv" }] })
+  })
+
+  it("validates Cloudflare dev startup and updates against inferred production KV", async () => {
+    vi.stubEnv("KV_REST_API_URL", "https://rate-limit-kv.test")
+    vi.stubEnv("KV_REST_API_TOKEN", "test-token")
+    const root = `${tmp}/vitehub-nuxt`
+    const definition = resolve(root, "server/rate-limit.ts")
+    const policy = (window: string) => `import { requireRateLimit } from "vite-hub/rate-limit"\nrequireRateLimit(event, "uploads", { limit: 25, window: "${window}" })\n`
+    await mkdir(resolve(definition, ".."), { recursive: true })
+    onTestFinished(() => rm(definition, { force: true }))
+    const kv = hubKV(undefined, { hosting: "cloudflare" })
+    const rateLimit = hubRateLimit()
+    const error = vi.fn()
+    const config = { build: { outDir: "dist" }, command: "serve", logger: { error }, nitro: { preset: "cloudflare-module" }, plugins: [kv, rateLimit], resolve: { alias: [] }, root }
+    const runKVConfig = typeof kv.config === "function" ? kv.config : kv.config!.handler
+    await Reflect.apply(runKVConfig, {}, [config, { command: "serve", mode: "development" }])
+    expect(kv.api.getConfig().kv).toMatchObject({ store: { driver: "cloudflare" } })
+    await writeFile(definition, policy("1d"))
+    await Reflect.apply(rateLimit.configResolved as Function, {}, [config])
+    await expect(readFile(resolve(root, ".vitehub/nitro/rate-limit/plugin.ts"), "utf8")).resolves.toContain('{"driver":"memory"}')
+    await writeFile(definition, policy("1h"))
+    await Reflect.apply(rateLimit.handleHotUpdate as Function, {}, [{ file: definition, server: { config } }])
+    expect(error).not.toHaveBeenCalled()
+  })
+
   it.each(["build", "dev", "prepare"])("validates explicit KV in Nitro replay (%s)", async (mode) => {
     mocks.vitehub.mockReturnValue([hubRateLimit({ driver: "kv" }), hubKV({ driver: "fs-lite" })])
     const { nuxt, runNitroConfigHook } = createNuxt(mode === "dev")
@@ -4348,7 +4394,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       ...names("vite-hub/env", "checkServiceToken", "requireServiceToken", "useServerEnv", "verifyWebhook"),
       ...names("vite-hub/kv", "kv"),
       ...names("vite-hub/queue", "defineQueue", "deferQueue", "useQueue", "sendQueue"),
-      ...names("vite-hub/rate-limit", "checkRateLimit", "peekRateLimit", "requireRateLimit", "resetRateLimit"),
+      ...names("vite-hub/rate-limit", "checkRateLimit", "peekRateLimit", "refundRateLimit", "requireRateLimit", "resetRateLimit"),
       ...names("vite-hub/schedule", "cancelSchedule", "getSchedule", "listSchedules", "startSchedule"),
     ])
   })

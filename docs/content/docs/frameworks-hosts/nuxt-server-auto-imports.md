@@ -49,7 +49,7 @@ The module scans the server directory of the app and of each Nuxt layer.
 | I18n | `i18n` | None. Messages are collected from source files; translations live in `locales/` or the configured Workspace. | `getRequestI18n`, `useTranslations` |
 | KV | `kv` | None | `kv` |
 | Queue | `queue` | `server/queues/` | `defineQueue`, `deferQueue`, `useQueue`, `sendQueue` |
-| Rate Limit | `rateLimit` | None. The build reads the `requireRateLimit()` and `checkRateLimit()` calls in server files. | `checkRateLimit`, `peekRateLimit`, `requireRateLimit`, `resetRateLimit` |
+| Rate Limit | `rateLimit` | None. The build reads the `requireRateLimit()`, `checkRateLimit()`, and `refundRateLimit()` calls in server files. | `checkRateLimit`, `peekRateLimit`, `refundRateLimit`, `requireRateLimit`, `resetRateLimit` |
 | Realtime | `realtime` | `server/realtime/` | `defineRealtime`, `isRealtimeAvailable`, `refreshRealtimeDocument` |
 | Sandbox Task | `sandboxTask` | `server/sandbox-tasks/` | `runSandboxTask` |
 | Schedule | `schedule` | `server/schedules/` | `cancelSchedule`, `getSchedule`, `listSchedules`, `startSchedule` |
