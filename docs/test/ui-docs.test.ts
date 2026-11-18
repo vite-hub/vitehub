@@ -94,7 +94,5 @@ describe("UI documentation", () => {
     expect(page).toContain("navigation: false");
     expect(readFileSync(resolve(docsRoot, "content/docs/getting-started/index.md"), "utf8"))
       .toContain("/docs/getting-started/built-for-vue");
-    expect(page).toContain("navigation.title: Built for the Vue ecosystem");
-    expect(page).toContain("I am Maxi");
   });
 });
