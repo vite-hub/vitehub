@@ -18,7 +18,7 @@ import type { Plugin, UserConfig } from "vite"
 export const FORMS_VITE_PLUGIN_NAME = "@vite-hub/forms/vite"
 
 /** The route of every form, below the app base. */
-export const formsRoute = "/api/_vitehub/forms"
+export const formsRoute = "/_vitehub/forms"
 
 const extensions = [".ts", ".mts", ".js", ".mjs"]
 const namePattern = /^[a-z0-9][a-z0-9-]*$/
@@ -141,7 +141,7 @@ export function renderFormsHandler(forms: readonly DiscoveredForm[], options: Hu
 
 /**
  * Forms in a ViteHub app: each `server/forms/<name>.ts` that default-exports `defineForm()` gets the route
- * `POST <base>api/_vitehub/forms/<name>`, and its submissions go to the `vitehub_form_submissions` table of the
+ * `POST <base>_vitehub/forms/<name>`, and its submissions go to the `vitehub_form_submissions` table of the
  * default Database.
  */
 export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { databases: (context: { projectRoot?: string, root?: string, rootDir?: string }) => unknown[], operations: OperationContributions } } {

@@ -1,7 +1,7 @@
 export { defineAuth } from "./definition.ts"
 export { checkGitHubOrgMember, isGitHubOrgMember } from "./github.ts"
 export type { GitHubOrgMemberErrorCode, GitHubOrgMemberOptions } from "./github.ts"
-export type { AuthDuration, AuthPreset, AuthStatelessPreset, AuthStatelessPresetOptions } from "./presets.ts"
+export type { AuthPreset, AuthStatelessPreset, AuthStatelessPresetOptions } from "./presets.ts"
 export type {
   AuthBetterAuthOptions,
   AuthBetterAuthRuntimeOptions,

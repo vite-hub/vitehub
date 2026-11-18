@@ -1,7 +1,9 @@
+import { parseDuration } from "@vite-hub/runtime"
 import { accessRouteSyntaxError } from "./application-path.ts"
 import { validateAuthEvents } from "./events-config.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 
+import type { Duration } from "@vite-hub/runtime"
 import type {
   AuthAccessConfiguration,
   AuthAccessPolicy,
@@ -123,11 +125,11 @@ function validateAuthAccessPublic(value: unknown): void {
 /** Also checked when a Definition callback returns the options. */
 export function validateAuthAccessPolicy(value: unknown): asserts value is AuthAccessPolicy | undefined {
   if (typeof value === "undefined") return
-  const recheck = isPlainObject(value) ? value.recheck : undefined
-  if (!isPlainObject(value) || typeof value.allow !== "function"
-    || (typeof recheck !== "undefined" && (typeof recheck !== "number" || !Number.isFinite(recheck) || recheck < 0))) {
-    throw authErrorDiagnostics.AUTH_C0065({ message: "`defineAuth()` access.policy must be an object with an `allow` function and an optional `recheck` of 0 or more milliseconds." })
+  if (!isPlainObject(value) || typeof value.allow !== "function") {
+    throw authErrorDiagnostics.AUTH_C0065({ message: "`defineAuth()` access.policy must be an object with an `allow` function and an optional `recheck` duration such as \"5m\"." })
   }
+  // SAFETY: parseDuration() checks the value at runtime and names `recheck` in its error.
+  if (value.recheck !== undefined) parseDuration(value.recheck as Duration, "recheck")
 }
 
 export function defineAuth<const TOptions extends AuthResolvedDefinitionOptions>(

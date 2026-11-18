@@ -24,7 +24,7 @@ export interface CommentsPluginOptions extends CommentsSessionOptions {
   /** The Database of `defineComments({ database })`, or undefined when the app has none. The first Comments call reads it. */
   database: () => CommentsDatabase | undefined | Promise<CommentsDatabase | undefined>
   /**
-   * Path of the overlay script below the app base, such as `/api/_vitehub/comments/assets/overlay.js`. The page tools
+   * Path of the overlay script below the app base, such as `/_vitehub/comments/assets/overlay.js`. The page tools
    * loader imports it for people that may read comments.
    */
   overlay: string | false

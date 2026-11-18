@@ -41,7 +41,7 @@ function mockTelegramApi() {
 function mention(handler: ReturnType<typeof createChannelWebhookRouteHandler>, chatId: number, from: typeof maxi, messageId: number, text: string) {
   const chat = { id: chatId, title: "Support", type: "group" }
   const tasks: Array<Promise<unknown>> = []
-  const response = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+  const response = handler(new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
     body: JSON.stringify({ message: { chat, date: telegramDate, from, message_id: messageId, text: `@vitehub_test_bot ${text}` }, update_id: messageId }),
     method: "POST",
   }), "telegram", {

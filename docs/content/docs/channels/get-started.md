@@ -160,10 +160,10 @@ export default defineChannel({
 - `webhook()` checks the secret in the `Authorization: Bearer <secret>` header.
 - `on.webhook` runs the handler for each delivery. `webhook` is the default event name.
 
-Every Channel that receives webhooks has the route `/api/_vitehub/channels/<name>`. Send the same body twice:
+Every Channel that receives webhooks has the route `/_vitehub/channels/<name>`. Send the same body twice:
 
 ```bash [commands/webhook]
-curl -X POST http://localhost:3000/api/_vitehub/channels/builds \
+curl -X POST http://localhost:3000/_vitehub/channels/builds \
   -H 'authorization: Bearer local-secret' -H 'content-type: application/json' \
   -d '{"id":"build-42"}'
 ```

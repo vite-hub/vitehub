@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 In this guide, you render a project name field with ui-sdk parts and the kit styles. Then an Agent renames the project on the open page.
 
-You need Node.js 22.22 or newer and pnpm. For Nuxt, you need Nuxt 5, which is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. To try the parts without an install, open the [Playground](/playground?template=ui).
+You need Node.js 24.15 or newer and pnpm. For Nuxt, you need Node.js 24.15 or newer on 24.x, or 26 or newer, and Nuxt 5, which is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. To try the parts without an install, open the [Playground](/playground?template=ui).
 
 ::tutorial-step{title="Install"}
 ## Install

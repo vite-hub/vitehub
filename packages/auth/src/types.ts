@@ -1,4 +1,4 @@
-import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize } from "@vite-hub/runtime"
+import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize, Duration } from "@vite-hub/runtime"
 // From the H3 entry, so the declarations also carry its `H3Event` augmentation and an H3 2 event is an `AuthRequestInput`.
 import type { ViteHubContext } from "@vite-hub/runtime/internal/h3"
 import type { Auth, BetterAuthOptions, DBAdapter, Session, User } from "better-auth"
@@ -132,8 +132,8 @@ export interface AuthAccessPolicy {
    * request fails and the session stays.
    */
   allow: (context: AuthAccessPolicyContext) => boolean | Promise<boolean>
-  /** Milliseconds that an allowed answer holds for one session or one MCP user. `0` asks on each request. Default: 300000. */
-  recheck?: number
+  /** How long an allowed answer holds for one session or one MCP user, such as `"5m"`. `"0s"` asks on each request. Default: `"5m"`. */
+  recheck?: Duration
 }
 
 export interface AuthAccessConfiguration {
