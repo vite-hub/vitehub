@@ -5,9 +5,9 @@ import type { SendWebhookErrorCode } from "./errors.ts"
 import type { SendWebhookResult } from "./runtime.ts"
 
 export { defineWebhook } from "./define.ts"
-export type { WebhookDefinition, WebhookOptions, WebhookSignature } from "./define.ts"
+export type { WebhookDefinition, WebhookEvent, WebhookOptions, WebhookSignature } from "./define.ts"
 export type { SendWebhookErrorCode, WebhookDeliveryErrorCode } from "./errors.ts"
-export type { SendWebhookResult } from "./runtime.ts"
+export type { SendWebhookResult, WebhookEventBody } from "./runtime.ts"
 
 /** The webhooks of `server/webhooks/`. The generated `.vitehub/webhooks.d.ts` adds one key for each file. */
 export interface WebhookRegistry {}
