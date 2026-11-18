@@ -55,7 +55,7 @@ export function unwrap(node: unknown): unknown {
   return v.is(wrapperSchema, node) ? unwrap(node.expression) : node
 }
 
-// Doctor links parents as `parent` in current releases and as `__doctorParent` in earlier ones.
+// Doctor links parents as a non-enumerable `__doctorParent`, still in 0.1.3. A node can also carry its own `parent`.
 // `buildScopes()` records them too, so a parent is known for every node in an indexed file.
 const parents = new WeakMap<object, AstNode>()
 

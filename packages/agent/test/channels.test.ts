@@ -1636,7 +1636,6 @@ describe("agent channels", () => {
     if (result instanceof Response) throw new Error("Expected GitHub webhook invocation.")
     for (const line of expected) expect(result.input.prompt).toContain(line)
     expect(result.input.prompt).not.toContain(absent)
-    expect(result.input.prompt).not.toContain("Make sure CI is green.")
   })
 
   it.each([

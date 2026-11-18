@@ -133,4 +133,4 @@ await welcome.start({ email: "ada@example.com" })
 // welcome.start() is a type error.
 ```
 
-This is a breaking type fix. Pass the required payload at each handle call. Functions that take a workflow name do not infer a handler from the string, and stored run results stay `unknown`.
+Functions that take a workflow name do not infer a handler from the string, and stored run results stay `unknown`.

@@ -406,6 +406,20 @@ describe("renamed Workspace Store drivers", () => {
     expect(() => normalizeWorkspaceStoreOptions({ driver, root: "content" } as never)).toThrow(expected)
   })
 
+  it.each([
+    ["github", "github"],
+    ["cloudflare-artifacts", "cloudflare"],
+  ])("rejects the former provider key %s instead of making a local Store", (provider, driver) => {
+    const expected = expect.objectContaining({
+      code: "WORKSPACE_RENAMED_STORE_PROVIDER_KEY",
+      fix: expect.stringContaining(`store: { driver: "${driver}" }`),
+    })
+    // SAFETY: An app config without types still passes the former key. quiver-wiki sets this shape.
+    expect(() => normalizeWorkspaceStoreOptions({ provider, root: "/", repository: "acme/wiki" } as never)).toThrow(expected)
+    // SAFETY: An app config without types still passes the former key.
+    expect(() => normalizeWorkspaceOptions({ store: { provider } } as never, { env: {}, rootDir: "/repo" })).toThrow(expected)
+  })
+
   it("keeps the driver list for a name that was never a driver", () => {
     // SAFETY: An app config without types passes an unknown driver name.
     expect(() => normalizeWorkspaceStoreOptions({ driver: "s3" } as never)).toThrow(expect.objectContaining({

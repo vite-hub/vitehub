@@ -4,7 +4,7 @@ import { relative, resolve } from "node:path";
 import { defineConfig } from "vite-plus";
 import * as v from "valibot";
 
-import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
+import { browserTarget, normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 import { end, parseProgram, start } from "@vite-hub/internal/ast";
 
 import frameworkPackageManifest from "./package.json" with { type: "json" };
@@ -448,6 +448,7 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-settings-value.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/client/auth-management.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/client/add-primitive.ts", to: "dist/console/runtime/client" },
+        { from: "src/console/runtime/client/command-search.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/components/console-add-primitive.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/client/app-identity.ts", to: "dist/console/runtime/client" },
         { from: "src/console/runtime/client/sidebar.ts", to: "dist/console/runtime/client" },
@@ -716,6 +717,7 @@ export default defineConfig({
       minify: true,
       outExtensions: () => ({ js: ".js" }),
       platform: "browser",
+      target: browserTarget,
       tsconfig: "tsconfig.build.json",
     },
     {
@@ -726,6 +728,7 @@ export default defineConfig({
       minify: true,
       outExtensions: () => ({ js: ".js" }),
       platform: "browser",
+      target: browserTarget,
       tsconfig: "tsconfig.build.json",
     },
     {
@@ -738,6 +741,7 @@ export default defineConfig({
       minify: true,
       outExtensions: () => ({ js: ".js" }),
       platform: "browser",
+      target: browserTarget,
       tsconfig: "tsconfig.build.json",
     },
   ],

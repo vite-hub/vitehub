@@ -50,8 +50,9 @@ import { agentToolJsonSchema, hasAgentToolStandardSchema } from "./tool-schema.t
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
+import { agentSteeringText } from "./internal/model-steering.ts"
 import { isAuxiliaryAgentAdapterContext, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
-import { attachmentStringBytes, currentInputAttachments, getMessageText, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
+import { attachmentStringBytes, currentInputAttachments, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
 export { isArrayBufferValue, isBlobValue, isUint8ArrayValue } from "./messages.ts"
 import { workspaceAutoCommitDisabled, workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { approveAgentToolRequest, executeApprovedAgentTool, withAgentToolExecutionBudget } from "./tool-runtime.ts"
@@ -3560,8 +3561,11 @@ async function* runProvider<
           `-c '${(`mcp_servers.t3-code.tools={${Object.keys(context.tools ?? {}).map(name => `${JSON.stringify(name)}={approval_mode="approve"}`).join(",")}}`).replaceAll("'", "'\\''")}'`,
         ]
         : []),
-      // Login profiles reset PATH and hide the invocation's managed browser CLI.
-      ...(options.provider === "codex" && capabilityEnvironment?.PATH ? ['-c "allow_login_shell=false"'] : []),
+      // A login shell reads /etc/profile, which sets PATH again on Debian. It drops the PATH that the run sets (managed
+      // browser CLI, toolchain, driver.env) and, on a launched runner such as SSH, the folder of Codex's apply_patch.
+      ...(options.provider === "codex" && (options.launch !== undefined || capabilityEnvironment?.PATH || toolchainPath.length || providerEnvironmentOverrides?.PATH)
+        ? ['-c "allow_login_shell=false"']
+        : []),
       ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
     ].filter(Boolean).join(" ") || undefined
     if (options.provider === "claude-code"
@@ -3693,13 +3697,8 @@ async function* runProvider<
       unregister = registerAgentInvocationInputHandler(invocationId, {
         async sendInput(input, inputOptions) {
           if (inputOptions.mode === "steer") {
-            const messages = input.messages ?? (Array.isArray(input.prompt) ? input.prompt : input.message && typeof input.message !== "string" ? [input.message] : [])
-            if (messages.some(message => !Array.isArray(message.parts) || message.parts.some(part => part.type !== "text"))) return "unsupported"
-            const text = typeof input.prompt === "string"
-              ? input.prompt
-              : typeof input.message === "string"
-                ? input.message
-                : messages.map(getMessageText).filter((value): value is string => typeof value === "string").join("\n\n")
+            const text = agentSteeringText(input)
+            if (text === undefined) return "unsupported"
             if (!acceptingSteering || drainingSteering || !activeTurnId || !text?.trim()) return "unsupported"
             let finishSteering!: () => void
             const pending = new Promise<void>((resolve) => { finishSteering = resolve })

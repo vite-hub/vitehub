@@ -74,7 +74,8 @@ The layer loads the threads of the subject, draws a pin for each, and shows a to
 - A draft pin has no number. The server gives it one on send.
 - A drag in comment mode draws an area, with its corners and size while the drag lasts. The comment is about that area.
 - With `placement="margin"`, every thread is a card in a column on the right edge of the screen, level with its pin. Click a card or its pin to open the thread in that card and reply there. A new comment is written there too. On a screen narrower than 900px, threads open beside their pins.
-- A thread opens in a small card, as in Drop: 14px text, tight rows, and Edit and Delete over the name's row. Set `size="md"` for the larger thread of a panel.
+- A thread opens in a small card, as in Drop: 340px wide, with a small corner that points at its pin, 14px text, tight rows, and Edit and Delete over the name's row. Set `size="md"` for the larger thread of a panel.
+- The card opens under its pin and to the right. Near the right edge it opens to the left, and near the bottom it opens above the pin. The browser picks the side from the card's real size with [CSS anchor positioning](https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_anchor_positioning). A browser without it guesses from a 360 by 420 px card.
 
 An anchor stays on its element when the layout changes. When the element is gone, ambiguous, or no longer holds the quoted text, the thread is detached: it stays in the list without a pin. A pin also hides while a scroll container clips its element. See [Anchors](#anchors).
 
@@ -143,7 +144,7 @@ comments.people.value; // The people that the state knows, for mention names.
 | `autoStart` | Load threads and listen for keys on mount. Default `true`. When `false`, call `start()` yourself. |
 | `can` | What the user may do in a thread. See [Permissions](#permissions). |
 | `visibility` | `"all"` or `"hidden"`. Default `"all"`. Pass a ref to keep the reader's choice. See [Hide comments](#hide-comments). |
-| `flashMs` | How long a comment just sent shows while comments are hidden. Default `2500`. |
+| `flashMs` | How long a comment just sent shows while comments are hidden. The time stops while the reader points at or focuses its pin. Default `2500`. |
 
 ## Hide comments
 
@@ -151,7 +152,7 @@ A reader can hide the comments on the page and still write them. Set `visibility
 
 - the open thread, such as one opened from the list,
 - the comment being written,
-- a comment or reply just sent, for `flashMs`. Then it pops out: it shrinks and fades in 180 ms, or only fades under `prefers-reduced-motion`.
+- a comment or reply just sent, for `flashMs`. Like a toast, the time stops while the reader points at or focuses its pin. Then it pops out: it shrinks and fades in 130 ms, or goes at once under `prefers-reduced-motion`.
 
 Writing or opening a comment never changes `visibility`. Pass a ref to keep the choice, such as one saved in `localStorage`:
 
@@ -170,7 +171,7 @@ comments.flash(id); // Show a thread for a moment. send(), create(), and reply()
 
 `CommentPanel` keeps its selected thread’s page marks visible while comments are hidden, without opening a page popover. Returning to the list or unmounting the panel releases that exception. Custom panels can call `const release = comments.retainMark(id)` and call `release()` when they close or switch threads; active flashes keep their own timers.
 
-`CommentLayer` follows the state: a pin that stops showing keeps its place for 180 ms with `data-leaving="true"`. The ViteHub pill has an eye next to **Comments** for people who may comment, and keeps the choice in this browser.
+`CommentLayer` follows the state: a pin that stops showing keeps its place for `commentLeaveMs` (130 ms) with `data-leaving="true"`. The ViteHub pill has an eye next to **Comments** for people who may comment, and keeps the choice in this browser.
 
 To draw marks somewhere else, such as in a frame, use `createCommentVisibility()`. It has no framework, so a page can keep one and send its `only` list to the frame:
 
@@ -181,11 +182,12 @@ const visibility = createCommentVisibility({ visibility: "hidden", flashMs: 2500
 visibility.subscribe(() => frame.postMessage({ only: visibility.only, leaving: visibility.leaving }));
 visibility.open(threadId); // The open thread shows. open(null) closes it.
 visibility.flash(sent.id); // A comment just sent shows for flashMs.
+visibility.hover(sent.id); // The time stops while the reader is on its pin. hover(null) when the reader leaves.
 visibility.set("all"); // Every comment shows again.
 visibility.stop(); // Clears the timers.
 ```
 
-`only` lists the ids that still show while comments are hidden, and is empty while all show. `leaving` lists the ids that stopped showing in the last 180 ms. `isShown(id)` answers for one id.
+`only` lists the ids that still show while comments are hidden, and is empty while all show. `leaving` lists the ids that stopped showing in the last `commentLeaveMs`. Import `commentLeaveMs` from `vite-hub/ui/headless` to time a pop-out you draw yourself. `isShown(id)` answers for one id.
 
 ## Side panel
 
@@ -289,7 +291,7 @@ async function upload(files: File[]): Promise<string[]> {
 </template>
 ```
 
-`attachmentUrl` turns a key into a URL. With it, an image shows as a thumbnail that opens full size, and other files show as link chips. Without it, the message shows file names. An attachment counts as an image when its name has an image extension, such as `.png`, or no extension. When the key does not tell, return the media type with the URL:
+`attachmentUrl` turns a key into a URL. With it, an image shows as a thumbnail that opens full size, and other files show as link chips. A thumbnail keeps the shape of its image, up to 10rem tall. Without it, the message shows file names. An attachment counts as an image when its name has an image extension, such as `.png`, or no extension. When the key does not tell, return the media type with the URL:
 
 ```ts
 // The files that `upload` stored, by key
@@ -346,7 +348,7 @@ Or set the tokens on your own class:
 
 The buttons read their icons from the app's icon config: Nuxt UI's `appConfig.ui.icons` for names such as `check` and `close`, and `appConfig.viteHubUI.icons` for `edit`, `delete`, `reopen`, and the toolbar. See [Icons](/docs/ui/installation#icons) for every name.
 
-`--vh-ui-comment-mark` sets the color of a drawn area. It defaults to the focus blue (`--vh-focus`), else the ViteHub blue, so an area shows on a dark page and on a white image in it. The pins and areas take their look from [`comment-marks.css`](#comment-marks-without-vue), so `--vh-ui-comment-pin-size` and the other tokens there change them too.
+A saved area is a thin grey line, a tint of the text color, so a page with many areas stays calm. `--vh-ui-comment-mark` sets the color of the area that you draw. It defaults to the focus blue (`--vh-focus`), else the ViteHub blue, so it shows on a dark page and on a white image in it. The pins and areas take their look from [`comment-marks.css`](#comment-marks-without-vue), so `--vh-ui-comment-pin-size` and the other tokens there change them too.
 
 ## Comment marks without Vue
 
@@ -365,9 +367,9 @@ document.head.append(Object.assign(document.createElement("style"), { textConten
 | Element | Attributes | Look |
 | --- | --- | --- |
 | `data-slot="comment-mark-pin"` | `data-shape="point"` or `"round"`, `data-active="true"`, `data-status="resolved"` | A 28px pin. A point is a drop whose small bottom-left corner is the spot. A round pin is for an area or an image. An `<img>` child fills it. |
-| `data-slot="comment-mark-area"` | `data-active="true"`, `data-status="resolved"`, `data-draft="true"` | A 1px blue line at half strength with no fill. Active is full blue with a tint, resolved is dashed and grey, and a draft is 2px with a fill. |
+| `data-slot="comment-mark-area"` | `data-active="true"`, `data-status="resolved"`, `data-draft="true"` | A 1px grey line, 22% of the ink, with no fill. Active is a firmer grey line (45%), resolved is dashed and grey, and a draft is 2px comment blue with a fill. |
 | `data-slot="comment-mark-handle"` | `data-corner="top-left"`, `"top-right"`, `"bottom-left"`, or `"bottom-right"` | A round handle on a corner of its area. |
-| A pin or an area | `data-leaving="true"` | It shrinks and fades in 180ms. Remove it after that. With reduced motion, it only fades. |
+| A pin or an area | `data-leaving="true"` | It shrinks and fades in 130ms (`commentLeaveMs`). Remove it after that. With reduced motion, it has no animation and is hidden at once. |
 
 Place a pin with `left` and `top`, and an area with `left`, `top`, `width`, and `height`. Highlight commented text with the CSS Custom Highlight API and these names:
 
@@ -378,7 +380,7 @@ CSS.highlights.set("vh-comment-active", new Highlight(activeRange));
 CSS.highlights.set("vh-comment-draft", new Highlight(draftRange));
 ```
 
-The marks use the ViteHub theme tokens when the page has them, else the theme's own values. Add the `dark` class or `data-theme="dark"` to the root or the shadow host for dark mode. Set `--vh-ui-comment-mark`, `--vh-ui-comment-pin`, `--vh-ui-comment-pin-text`, `--vh-ui-comment-surface`, `--vh-ui-comment-muted`, `--vh-ui-comment-ink` (the text color that highlights tint), or `--vh-ui-comment-pin-size` to change one. Inside a scaled layer, set `--vh-comment-zoom` to the inverse of its scale, so the marks keep their size on screen.
+The marks use the ViteHub theme tokens when the page has them, else the theme's own values. Add the `dark` class or `data-theme="dark"` to the root or the shadow host for dark mode. Set `--vh-ui-comment-mark`, `--vh-ui-comment-pin`, `--vh-ui-comment-pin-text`, `--vh-ui-comment-surface`, `--vh-ui-comment-muted`, `--vh-ui-comment-ink` (the text color that highlights and saved areas tint), or `--vh-ui-comment-pin-size` to change one. Inside a scaled layer, set `--vh-comment-zoom` to the inverse of its scale, so the marks keep their size on screen.
 
 ## Sizes
 
@@ -387,7 +389,8 @@ The marks use the ViteHub theme tokens when the page has them, else the theme's 
 - The thread text is 14px on a 1.5 line, and the rows are tighter.
 - The name and the time of a message share a baseline.
 - With a mouse, Edit and Delete show over the end of the name's row on hover, so the text uses the full width of the card. A touch screen keeps them in their own column.
-- The reply box is shorter, its buttons are 28px, and a focused box shows its edge without the 3px halo.
+- The reply box is shorter and its buttons are 28px. It is a soft filled field with no divider above it, and it shows its edge only while it has the focus, without the 3px halo.
+- In `CommentLayer`, the card is 340px wide, its corner nearest the pin is small, and its messages fill the card before they scroll.
 
 A thread passes its size on to its messages, its reply box, and its edit box. For a one-line box for a new comment, use `layout="row"` with `size="sm"`.
 
@@ -523,7 +526,7 @@ The component ref exposes `close()`. Call it when a parent dialog or panel wants
 
 ### CommentReply
 
-One message of a thread. The first message is the comment, the rest are replies. Its author can edit and delete it. Renders a `div` with `data-slot="comment-reply"`. The body is [Markdown](/docs/ui/markdown), with a `comment-mention` chip for each person in `message.mentions`. The edit box closes after `onEdit` succeeds. On failure, it stays open with the text and error.
+One message of a thread. The first message is the comment, the rest are replies. Its author can edit and delete it. Renders a `div` with `data-slot="comment-reply"`. Its time is a [Relative Time](/docs/ui/relative-time), as is the time of each row in a list. The body is [Markdown](/docs/ui/markdown), with a `comment-mention` chip for each person in `message.mentions`. The edit box closes after `onEdit` succeeds. On failure, it stays open with the text and error.
 
 Edit and Delete show when you give their handlers. An unchanged edit keeps its mention ids, even when a name is unknown. For changed text, pass mentioned people in `people` so the composer can check which names remain.
 
@@ -698,3 +701,4 @@ Open, Resolved, and Mine toggles. Renders a `div` with `data-slot="comment-filte
 - [Prompt Input](/docs/ui/prompt-input) is the composer's box.
 - [Attachment](/docs/ui/attachment) shows the files of a message.
 - [Markdown](/docs/ui/markdown) renders the messages.
+- [Relative Time](/docs/ui/relative-time) shows when each comment was written.

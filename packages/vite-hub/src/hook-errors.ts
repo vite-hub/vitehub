@@ -18,8 +18,11 @@ function isDiagnostic(error: unknown): error is Diagnostic {
 }
 
 /**
- * Prints a diagnostic once, with its fix, docs link and cause. Rolldown wraps a hook error in "Build failed with 1 error"
- * and keeps only its message and stack, so the fix and cause of a ViteHub code would not reach the terminal.
+ * Prints a diagnostic once, with its fix, docs link and cause. Rolldown wraps a hook error in "Build failed with 1 error".
+ * It keeps `fix`, `docs` and `cause` on `errors[0]` and prints `cause`, but no bundler prints `fix`, so the fix of a
+ * ViteHub code would not reach the terminal. Rolldown also drops `url` (https://github.com/rolldown/rolldown/issues/11739).
+ * `vite dev` prints neither `cause` nor `url`; not reported to Vite yet (repro:
+ * https://github.com/onmax/repros/tree/repro/vite-dev-error-cause/vite-dev-error-cause).
  */
 function report(error: unknown): never {
   if (isDiagnostic(error) && !printed.has(error)) {

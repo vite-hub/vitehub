@@ -3683,11 +3683,12 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     )
   })
 
-  it("adds generated and Cloudflare types to Nuxt and Nitro", async () => {
+  it("adds the global Workers types to Nitro only, so app code keeps DOM types", async () => {
     const { nuxt } = createNuxt()
 
     await viteHubNuxtModule({ host: "cloudflare" }, nuxt)
 
+    const app = { include: ["../.vitehub/types.d.ts", expect.stringContaining("cloudflare-workers.d.ts")] }
     expect(nuxt.options).toMatchObject({
       nitro: {
         typescript: {
@@ -3696,14 +3697,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
           },
         },
       },
-      typescript: {
-        sharedTsConfig: {
-          include: ["../.vitehub/types.d.ts", expect.stringContaining("cloudflare-types.d.ts")],
-        },
-        tsConfig: {
-          include: ["../.vitehub/types.d.ts", expect.stringContaining("cloudflare-types.d.ts")],
-        },
-      },
+      typescript: { sharedTsConfig: app, tsConfig: app },
     })
   })
 
@@ -3733,16 +3727,10 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
 
     await viteHubNuxtModule({ host: "cloudflare", queue }, nuxt)
 
-    const typescript = {
-      tsConfig: {
-        include: [
-          "../.vitehub/types.d.ts",
-          ...(enabled ? ["../.vitehub/queue.d.ts"] : []),
-          expect.stringContaining("cloudflare-types.d.ts"),
-        ],
-      },
-    }
-    expect(nuxt.options).toMatchObject({ nitro: { typescript }, typescript })
+    const include = (cloudflare: string) => ({
+      tsConfig: { include: ["../.vitehub/types.d.ts", ...(enabled ? ["../.vitehub/queue.d.ts"] : []), expect.stringContaining(cloudflare)] },
+    })
+    expect(nuxt.options).toMatchObject({ nitro: { typescript: include("cloudflare-types.d.ts") }, typescript: include("cloudflare-workers.d.ts") })
   })
 
   it("exposes materialized Email templates to Nuxt and Nitro on Vercel", async () => {
@@ -4681,6 +4669,50 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       { from: "vite-hub/blob/vue", name: "useUpload" },
     ])
     expect(imports(withoutBlob.nuxt)).toEqual([{ from: "vite-hub/source/client", name: "useCollection" }, { from: "vite-hub/decisions/vue", name: "useChoices" }, { from: "vite-hub/forms/vue", name: "useFormAction" }, { from: "vite-hub/forms/formisch", name: "useFormSubmit" }])
+  })
+
+  it("auto-imports useSync only when the app has server/sync/", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-sync-"))
+    try {
+      await mkdir(resolve(root, "server/sync"), { recursive: true })
+      const withSync = createNuxt()
+      withSync.nuxt.options.rootDir = root
+      withSync.nuxt.options.serverDir = resolve(root, "server")
+      const withoutSync = createNuxt()
+
+      await viteHubNuxtModule({ host: "node" }, withSync.nuxt)
+      await viteHubNuxtModule({ host: "node" }, withoutSync.nuxt)
+
+      // SAFETY: The module initializes Nuxt's imports collection.
+      const imports = (nuxt: typeof withSync.nuxt) => (nuxt.options as typeof nuxt.options & { imports: { imports: Array<{ from: string, name: string }> } }).imports.imports
+      expect(imports(withSync.nuxt)).toContainEqual({ from: "vite-hub/sync/vue", name: "useSync" })
+      expect(imports(withSync.nuxt)).toContainEqual({ from: "vite-hub/sync/client", name: "clearSync" })
+      expect(imports(withoutSync.nuxt)).not.toContainEqual({ from: "vite-hub/sync/vue", name: "useSync" })
+      // Without Auth, no plugin clears Sync on sign-out.
+      expect(withSync.nuxt.options.plugins).toEqual([])
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("clears Sync after a sign-out of ViteHub Auth, only when the app has Auth and server/sync/", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-sync-auth-"))
+    try {
+      await mkdir(resolve(root, "server/sync"), { recursive: true })
+      const { nuxt } = createNuxt()
+      nuxt.options.rootDir = root
+      nuxt.options.serverDir = resolve(root, "server")
+
+      await viteHubNuxtModule({ auth: true, host: "node" }, nuxt)
+
+      const src = resolve(root, ".vitehub/sync/nuxt-sign-out.mjs")
+      expect(nuxt.options.plugins).toContainEqual({ src, mode: "client" })
+      expect(await readFile(src, "utf8")).toContain("onSignOut(() => clearSync())")
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it("rejects a configured Nuxt composable that would bind a different useChat", async () => {

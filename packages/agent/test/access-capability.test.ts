@@ -886,7 +886,7 @@ describe("access capability", () => {
 
     expect(result.stdout).toBe("native rg\n")
     expect(startSession).toHaveBeenCalledWith({ paths: ["portal/app"] })
-    expect(exec).toHaveBeenCalledWith("sh", ["-lc", `rg -i "months.*stock" portal/app --max-depth 3`], expect.objectContaining({ cwd: "/workspace" }))
+    expect(exec).toHaveBeenCalledWith("sh", ["-c", `rg -i "months.*stock" portal/app --max-depth 3`], expect.objectContaining({ cwd: "/workspace" }))
     expect(close).toHaveBeenCalled()
   })
 

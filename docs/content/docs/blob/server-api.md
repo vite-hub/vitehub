@@ -47,7 +47,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/api/files/[...path].get.ts]
-import { createError, defineEventHandler, getRouterParam } from 'h3'
+import { defineEventHandler, getRouterParam, HTTPError } from 'h3'
 import { blob } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
@@ -56,7 +56,7 @@ export default defineEventHandler(async (event) => {
   if (error) throw error
 
   if (!object) {
-    throw createError({ statusCode: 404 })
+    throw new HTTPError({ status: 404 })
   }
 
   return object
@@ -78,7 +78,7 @@ ViteHub writes the keys of `blob.stores` to `.vitehub/types/blob.d.ts`. Then a s
 Pass `{ mode: 'read' }` to `blob.store()` when code only reads. The handle has `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET`, and `media.get()`, `media.list()`, and `media.variants()`. It has no `put()`, `delete()`, upload, or multipart methods, in types or at runtime. For the default store, use `blob.store('default', { mode: 'read' })`.
 
 ```ts [server/api/reports/[...path].get.ts]
-import { createError, defineEventHandler, getRouterParam } from 'h3'
+import { defineEventHandler, getRouterParam, HTTPError } from 'h3'
 import { blob } from 'vite-hub/blob'
 
 const reports = blob.store('reports', { mode: 'read' })
@@ -87,7 +87,7 @@ export default defineEventHandler(async (event) => {
   const [error, file] = await reports.get(getRouterParam(event, 'path')!)
   if (error) throw error
   // reports.put() is a type error.
-  return file ?? createError({ statusCode: 404 })
+  return file ?? new HTTPError({ status: 404 })
 })
 ```
 
@@ -129,7 +129,7 @@ Methods decode a URL-encoded `pathname` once and remove leading slashes. A pathn
 
 ```ts [server/api/reports/[id]/archive.post.ts] fragment
 const [error, archived] = await blob.copy(`reports/${id}.pdf`, `archive/${id}.pdf`)
-if (error?.code === 'BLOB_NOT_FOUND') throw createError({ statusCode: 404 })
+if (error?.code === 'BLOB_NOT_FOUND') throw new HTTPError({ status: 404 })
 if (error) throw error
 ```
 
@@ -144,6 +144,8 @@ A missing source returns [`BLOB_NOT_FOUND`](/docs/blob/limits-and-errors#blob_no
 | `netlify-blobs` | Reads the object and writes it again. |
 
 Pass the cursor from `blob.list()` unchanged to the next call on the same store, with the same `prefix` and `folded`. Netlify Blobs listings fail if they cannot decode the cursor.
+
+A Netlify Blobs listing makes one request for each page. Its files have the pathname, `httpEtag`, `size`, and `uploadedAt` that the list answer holds, but no `contentType` and empty `customMetadata`. Call `blob.head(pathname)` for the content type and custom metadata of one file.
 
 With `folded: true`, the files-sdk drivers (S3 and S3-compatible stores, R2, GCS, and Azure) ask the provider for folders, so each page is one request. A page holds at most `limit` blobs and folders together.
 
@@ -644,7 +646,7 @@ const avatar = image({ maxSize: '2MB' })
 export default defineEventHandler(async (event) => {
   const result = avatar['~standard'].validate(await readBody(event))
   if (result.issues) {
-    throw createError({ statusCode: 400, message: result.issues[0]!.message })
+    throw new HTTPError({ status: 400, message: result.issues[0]!.message })
   }
   await saveAvatar(event, result.value) // { pathname, contentType, size }
 })

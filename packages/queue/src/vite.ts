@@ -1,7 +1,7 @@
 import { durabilityModuleFile } from "@vite-hub/internal/durability"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalAddition, getResolvedFeatureOptions, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, getDeploymentHost, getResolvedFeatureOptions, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit, mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
 import { cloneRecord as cloneNitroConfig } from "@vite-hub/internal/object"
@@ -20,6 +20,7 @@ import type { CollectedQueueContribution } from "./contributions.ts"
 import type { DiscoveredQueueDefinition, QueueOptions } from "./types.ts"
 import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
+import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
@@ -130,8 +131,15 @@ function normalizeQueueForHosting(queue: QueueOptions | undefined, hosting: stri
   return normalizeQueueOptions(queue, { hosting })
 }
 
-function resolveQueueHosting(queue: QueueOptions | undefined, nitro: Record<string, unknown>, postgresDatabase = false): string {
-  const host = resolveHost({ nitro })
+/**
+ * The host of this build: the Nitro preset, else the host that `vitehub()` selected. `vite dev` has no Nitro preset, so
+ * a Node app in dev reads its host from `vitehub()`.
+ */
+function resolveQueueHost(config: object, nitro: Record<string, unknown>): ViteHubHost | undefined {
+  return resolveHost({ nitro, hosting: getDeploymentHost(config) })
+}
+
+function resolveQueueHosting(queue: QueueOptions | undefined, host: ViteHubHost | undefined, postgresDatabase = false): string {
   const hosting = getHostingProvider(host)
   if (hosting) return hosting
   // A Node server has no hosted Queue. Without an explicit driver, Queue runs in the server processes: on the
@@ -195,7 +203,7 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueOptions | 
   }
   kit.addPlugin(plugin, "start")
   kit.addHandler({ handler: middleware, middleware: true, route: "/**" }, "start")
-  const queueHosting = resolveQueueHosting(queue, nitro)
+  const queueHosting = resolveQueueHosting(queue, resolveQueueHost(config, nitro))
   const resolvedVercelQueue = queueHosting === "vercel" ? normalizeQueueOptions(queue, { hosting: queueHosting }) : undefined
   if (resolvedVercelQueue && resolvedVercelQueue.driver === "vercel" && hostsVercelQueueConsumers(nitro)) {
     addVercelQueueConsumers(kit, definitions, nitroOwnsPaths ? root : undefined)
@@ -287,14 +295,13 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
     cloudflareQueues: boolean
     definitions: DiscoveredQueueDefinition[] | undefined
     development: boolean
-    nitro: Record<string, unknown>
     nitroQueue: QueueOptions | undefined
     postgres: boolean
     queue: QueueOptions | undefined
   }>()
-  function recordNodeWrite(rootDir: string, queue: QueueOptions | undefined, nitro: Record<string, unknown>, definitions: DiscoveredQueueDefinition[] | undefined) {
-    if (resolveHost({ nitro }) !== "node") return
-    nodeWrites.set(rootDir, { cloudflareQueues, definitions, development: localDevelopment, nitro, nitroQueue, postgres: postgresDatabase, queue })
+  function recordNodeWrite(rootDir: string, queue: QueueOptions | undefined, host: ViteHubHost | undefined, definitions: DiscoveredQueueDefinition[] | undefined) {
+    if (host !== "node") return
+    nodeWrites.set(rootDir, { cloudflareQueues, definitions, development: localDevelopment, nitroQueue, postgres: postgresDatabase, queue })
   }
 
   return {
@@ -360,8 +367,9 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
           nuxtConfiguredDefinitions = definitions
           const configuredNitro = mergeNitroConfig(config, nitro, projectQueue, projectRoot, definitions)
           databasePlugin = findDatabasePlugin(viteConfig?.plugins) ?? databasePlugin
-          postgresDatabase = resolveHost({ nitro: configuredNitro }) === "node" && hasPostgresDefaultDatabase(databasePlugin)
-          hosting = resolveQueueHosting(projectQueue, configuredNitro, postgresDatabase)
+          const host = resolveQueueHost(config, configuredNitro)
+          postgresDatabase = host === "node" && hasPostgresDefaultDatabase(databasePlugin)
+          hosting = resolveQueueHosting(projectQueue, host, postgresDatabase)
           const nitroHosting = getHostingProvider(resolveHost({ nitro: configuredNitro }))
           const resolvedQueue = normalizeQueueOptions(projectQueue, { hosting: nitroHosting })
           nitroQueue = resolvedQueue?.driver && nitroHosting && resolvedQueue.driver !== nitroHosting ? false : projectQueue
@@ -372,7 +380,7 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
           nuxtStates.set(root, nuxtState)
           if (state) Object.assign(state, nuxtState)
           writtenQueue = await writeQueueNitroIntegration(projectRoot, nitroQueue, hosting, cloudflareQueues, definitions, localDevelopment, internalOptions.importBase, database())
-          recordNodeWrite(projectRoot, projectQueue, configuredNitro, definitions)
+          recordNodeWrite(projectRoot, projectQueue, host, definitions)
           return configuredNitro
         },
       },
@@ -411,8 +419,9 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
       const nitro = mergeNitroConfig(config, configuredNitro, queue, config.root, configuredDefinitions)
       ;(config as { nitro?: unknown }).nitro = nitro
       databasePlugin = findDatabasePlugin(config.plugins) ?? databasePlugin
-      postgresDatabase = resolveHost({ nitro }) === "node" && hasPostgresDefaultDatabase(databasePlugin)
-      hosting = resolveQueueHosting(queue, nitro, postgresDatabase)
+      const host = resolveQueueHost(config, nitro)
+      postgresDatabase = host === "node" && hasPostgresDefaultDatabase(databasePlugin)
+      hosting = resolveQueueHosting(queue, host, postgresDatabase)
       cloudflareQueues = supportsCloudflareQueues(nitro)
       const nitroHosting = getHostingProvider(resolveHost({ nitro }))
       const resolvedQueue = normalizeQueueOptions(queue, { hosting: nitroHosting })
@@ -420,7 +429,7 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
       validatesNitroDefinitions = hasNitroConfigContext(config) && nitroQueue !== false
       localDevelopment = config.command === "serve" && !preview
       writtenQueue = await writeQueueNitroIntegration(config.root, nitroQueue, hosting, cloudflareQueues, configuredDefinitions, localDevelopment, internalOptions.importBase, database())
-      recordNodeWrite(config.root, queue, nitro, configuredDefinitions)
+      recordNodeWrite(config.root, queue, host, configuredDefinitions)
       buildStates.set(config, {
         configuredDefinitions,
         contributions,
@@ -458,7 +467,7 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
       for (const [rootDir, write] of nodeWrites) {
         if (write.postgres === postgresDatabase) continue
         write.postgres = postgresDatabase
-        hosting = resolveQueueHosting(write.queue, write.nitro, postgresDatabase)
+        hosting = resolveQueueHosting(write.queue, "node", postgresDatabase)
         writtenQueue = await writeQueueNitroIntegration(rootDir, write.nitroQueue, hosting, write.cloudflareQueues, write.definitions, write.development, internalOptions.importBase, database())
       }
     },

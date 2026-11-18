@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { normalizeQueueOptions } from "../src/config.ts"
+import { createQueueClient } from "../src/runtime/create-client.ts"
 
 describe("normalizeQueueOptions", () => {
   it("defaults the driver from hosting", () => {
@@ -58,6 +59,22 @@ describe("normalizeQueueOptions", () => {
   it("does not infer postgres on hosts with their own Queue", () => {
     expect(normalizeQueueOptions(undefined, { hosting: "cloudflare", postgresDatabase: true })).toEqual({ driver: "cloudflare" })
     expect(normalizeQueueOptions(undefined, { hosting: "vercel", postgresDatabase: true })).toEqual({ driver: "vercel" })
+  })
+
+  it("rejects the former provider key instead of picking the host driver", () => {
+    // SAFETY: An app config without types still passes the former key.
+    expect(() => normalizeQueueOptions({ provider: "vercel" } as never, { hosting: "node-server" })).toThrow(expect.objectContaining({
+      code: "QUEUE_RENAMED_PROVIDER_KEY",
+      fix: expect.stringContaining('`queue: { driver: "vercel" }`'),
+    }))
+  })
+
+  it("rejects the former provider key of createQueueClient() instead of picking the Vercel client", async () => {
+    // SAFETY: A caller without types still passes the former key.
+    await expect(createQueueClient({ provider: "cloudflare", binding: {} } as never)).rejects.toMatchObject({
+      code: "QUEUE_RENAMED_PROVIDER_KEY",
+      fix: expect.stringContaining('`queue: { driver: "cloudflare" }`'),
+    })
   })
 
   it("throws on unknown drivers", () => {
