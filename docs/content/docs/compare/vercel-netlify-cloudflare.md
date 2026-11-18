@@ -44,7 +44,7 @@ the [Vercel Queues](/docs/guides/vercel-queues) and
 | Host | Host service | From the host docs | ViteHub on this host |
 | --- | --- | --- | --- |
 | Vercel | [Cron Jobs](https://vercel.com/docs/cron-jobs/usage-and-pricing) | All plans, 100 cron jobs per project. Hobby runs at most once per day, at any minute of the hour you set. Pro and Enterprise run as often as once per minute. | Vercel Cron Jobs output for static Schedules. |
-| Netlify | [Scheduled functions](https://docs.netlify.com/build/functions/scheduled-functions/) | All plans. 30-second run limit, UTC. Run only on published deploys. | One scheduled function per static Schedule, with `hubSchedule({ providerOutput: 'standalone' })`. |
+| Netlify | [Scheduled functions](https://docs.netlify.com/build/functions/scheduled-functions/) | All plans. 30-second run limit, UTC. Run only on published deploys. | One scheduled function per static Schedule. |
 | Cloudflare | [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/) | UTC. A Cron Trigger can run for 15 minutes of wall-clock time. | Cron trigger output. |
 
 ViteHub Schedule needs a five-field UTC cron string and does not retry a

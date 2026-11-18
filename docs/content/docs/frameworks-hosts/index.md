@@ -55,7 +55,7 @@ const host = detectHost() ?? "node";
 
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
-  vitehub: { host, schedule: true },
+  vitehub: { host },
 });
 ```
 :::
@@ -69,7 +69,7 @@ import { nitro } from "nitro/vite";
 const host = detectHost() ?? "node";
 
 export default defineConfig({
-  plugins: [vitehub({ host, schedule: true }), nitro()],
+  plugins: [vitehub({ host }), nitro()],
 });
 ```
 :::
@@ -82,7 +82,7 @@ import { defineConfig } from "vite";
 const host = detectHost() ?? "node";
 
 export default defineConfig({
-  plugins: [vitehub({ host, schedule: true })],
+  plugins: [vitehub({ host })],
 });
 ```
 :::
@@ -93,13 +93,16 @@ app picks the default.
 
 | Host | Guide | Production output | Default providers | Rejected when enabled with `true` |
 | --- | --- | --- | --- | --- |
-| `node` | [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) | `.output/server/index.mjs` | Blob `fs`, KV `database` with Postgres or `fs-lite`, Queue `local`, Rate Limit `memory` | Sandbox |
+| `node` | [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) | `.output/server/index.mjs` | Blob `fs`, KV `database` with Postgres or `fs-lite`, Queue `postgres` with Postgres or `local`, Rate Limit `kv` with shared KV or `memory` | Sandbox, Schedule |
 | `cloudflare` | [Cloudflare](/docs/frameworks-hosts/cloudflare) | `.output/server/wrangler.json` | Blob R2, KV Workers KV, Queue, Rate Limit, and Sandbox on Cloudflare | None |
-| `vercel` | [Vercel](/docs/frameworks-hosts/vercel) | `.vercel/output/**` | Blob Vercel Blob, KV Upstash Redis, Vercel Queues, Vercel Sandbox | Rate Limit |
-| `netlify` | [Netlify](/docs/frameworks-hosts/netlify) | `.netlify/**` | Blob Netlify Blobs | Queue, Rate Limit, Sandbox |
-| `deno` | [Deno](/docs/frameworks-hosts/deno) | `.output/server/index.mjs` | KV Deno KV | Blob, Queue, Rate Limit, Sandbox, Schedule |
+| `vercel` | [Vercel](/docs/frameworks-hosts/vercel) | `.vercel/output/**` | Blob Vercel Blob, KV Upstash Redis, Vercel Queues, Vercel Sandbox | Rate Limit, Realtime |
+| `netlify` | [Netlify](/docs/frameworks-hosts/netlify) | `.netlify/**` | Blob Netlify Blobs | Agent, Queue, Rate Limit, Realtime, Sandbox |
+| `deno` | [Deno](/docs/frameworks-hosts/deno) | `.output/main.ts` with static Schedules, otherwise `.output/server/index.mjs` | KV Deno KV, Schedule `Deno.cron` | Blob, Queue, Rate Limit, Realtime, Sandbox |
 
 - A rejected feature fails the build. It does not fall back to another provider.
+- On `node`, use `schedule: { runtime: { driver: "process" } }` to run Schedules in
+  the server, or `schedule: { providerOutput: false }` to wake them yourself.
+  On `netlify`, Agent needs `agent: { invocations: false }`.
 - Browser and `email: true` require the `cloudflare` host.
 - Blob without an explicit store requires a host with a Blob provider.
 - KV without an explicit driver uses Upstash Redis on every host except

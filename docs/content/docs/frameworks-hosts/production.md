@@ -40,7 +40,7 @@ List the data that must survive a process restart, a new container, and a deploy
 
 For Agents, [Chat History and sessions](/docs/agents/chat-history-sessions#partition-transcripts) covers Agent State and [Invocation storage](/docs/agents/invocation-storage#store-invocation-history) covers journals. You need both. A saved transcript does not let a model call resume after a crash.
 
-[Schedule stores](/docs/schedule/configure#storage) keep records and run history. A KV store does not elect one Process Runtime or deduplicate across replicas. Run one scheduler per store, or add coordination in the host and make target side effects safe to repeat.
+[Schedule stores](/docs/schedule/configure#storage) keep records and run history. A KV store alone does not deduplicate runs across replicas. In the Process Runtime, servers use a Postgres or remote libSQL Default Database to claim occurrences in `vitehub_leases`. Without a shared lease store, run one scheduler. Share the KV store so all servers see the same run history. Make target side effects safe to repeat: another server can run the same occurrence if the lease expires. See [Run on more than one server](/docs/schedule/configure#run-on-more-than-one-server).
 
 Before rollout, write realistic data, replace the process or container, and read the data again. Test backup restore separately. Set retention and deletion rules for customer data, traces, uploads, and provider session files.
 
