@@ -192,7 +192,7 @@ interface RealtimeDefinitionIdentity {
   origins?: (context: RealtimeOriginContext) => boolean | Promise<boolean>
 }
 
-type RealtimeAuthorize = (context: RealtimeAuthorizeContext) => boolean | void | Promise<boolean | void>
+type RealtimeAuthorize = (context: RealtimeAuthorizeContext) => boolean | Promise<boolean>
 
 /**
  * Who can use the rooms. Set one: `auth: true` requires an identified user, `authorize()` decides each request, and
@@ -203,14 +203,14 @@ export type RealtimeDefinitionAccess = RealtimeDefinitionIdentity & (
     access?: never
     /** Require an identified user. Without `identify`, the identity is the ViteHub Auth session. */
     auth: true
-    /** Allow or deny one access mode. Return `false` to deny. Write denial makes a connection read-only. */
+    /** Allow or deny one access mode. Only `true` allows. Write denial makes a connection read-only. */
     authorize?: RealtimeAuthorize
   }
   | {
     access?: never
     /** Require an identified user. Without `identify`, the identity is the ViteHub Auth session. */
     auth?: boolean
-    /** Allow or deny one access mode. Return `false` to deny. Write denial makes a connection read-only. */
+    /** Allow or deny one access mode. Only `true` allows. Write denial makes a connection read-only. */
     authorize: RealtimeAuthorize
   }
   | {

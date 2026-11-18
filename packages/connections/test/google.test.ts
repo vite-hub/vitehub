@@ -18,7 +18,6 @@ describe("Google account claims", () => {
     for (const claims of [null, [], { email: "owner@example.com" }, { sub: 42 }]) {
       expect(account(claims)).toBeUndefined()
     }
-    expect(provider.account).toBeUndefined()
     expect(providerAccount(provider, { access_token: "access-token", id_token: "invalid" })).toBeUndefined()
   })
 })

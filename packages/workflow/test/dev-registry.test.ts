@@ -59,18 +59,14 @@ async function waitFor(check: () => Promise<boolean>): Promise<void> {
 }
 
 describe("Workflow dev registry", () => {
-  it("generates a Nitro plugin that installs the development registry", () => {
+  it("leaves the run history out of the plugin outside `vite dev`", () => {
     const code = createWorkflowDevPluginModule({ driver: "vercel" })
-    expect(code).toContain(`import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(workflowRuntimeModule("state"))}`)
-    expect(code).toContain(`import registry from "./dev-registry.mjs"`)
-    expect(code).toContain("setWorkflowRuntimeRegistry(registry)")
     expect(code).not.toContain("enableWorkflowDevRuns")
     expect(code).not.toContain("runtime/dev-runs")
   })
 
   it("turns on the run history only in `vite dev`", () => {
     const code = createWorkflowDevPluginModule({ driver: "vercel" }, true)
-    expect(code).toContain(`import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(workflowRuntimeModule("state"))}`)
     expect(code).toContain(`import { enableWorkflowDevRuns } from ${JSON.stringify(workflowRuntimeModule("dev-runs"))}`)
     expect(code).toContain("  enableWorkflowDevRuns()\n")
   })

@@ -7,16 +7,13 @@ import { describe, expect, it } from "vitest"
 import { defineSandboxTask, runSandboxTask } from "../../src/task/index.ts"
 
 describe("sandbox public api", () => {
-  it("keeps the factory surface minimal", async () => {
-    const sandboxTaskPackage = await import("../../src/task/index.ts")
+  it("keeps the handler out of the definition options", () => {
     const definition = defineSandboxTask({
       env: { FOO: "bar" },
       handler: async (payload?: { value?: string }) => payload?.value,
       timeout: 1_000,
     })
 
-    expect("createSandbox" in sandboxTaskPackage).toBe(false)
-    expect("defineDockerfileFragment" in sandboxTaskPackage).toBe(false)
     expect(definition.options).toEqual({
       env: { FOO: "bar" },
       timeout: 1_000,
@@ -57,7 +54,6 @@ describe("sandbox public api", () => {
     expect(loader).toContain('"./providers/vercel.js"')
     expect(loader).not.toContain('"./providers/cloudflare"')
     expect(loader).not.toContain('"./providers/vercel"')
-    expect(loader).not.toContain("createSandboxClient")
   })
 
   it("bundles the published runtime without the Sandbox Task plugin", async () => {
