@@ -207,7 +207,7 @@ async function publishAll(): Promise<void> {
 </script>
 
 <template>
-  <ConsolePageHeader :title="label">
+  <ConsolePageHeader :title="setup?.sourceHeadsOnly ? 'Content' : label">
     <template #right>
       <UPopover v-if="canPublishAny && publishable.length" v-model:open="publishOpen">
         <UButton label="Publish" :loading="publishing" :aria-label="`Publish ${publishable.length} ${publishable.length === 1 ? 'change' : 'changes'}`">
@@ -232,7 +232,10 @@ async function publishAll(): Promise<void> {
   </ConsolePageHeader>
 
   <div class="min-h-0 flex-1 overflow-y-auto" :aria-busy="loading">
-    <div class="mx-auto grid max-w-5xl grid-cols-1 gap-8 px-4 py-6 sm:px-6">
+    <div v-if="setup?.sourceHeadsOnly" class="mx-auto grid max-w-5xl px-4 py-6 sm:px-6">
+      <ConsoleContentHeads />
+    </div>
+    <div v-else class="mx-auto grid max-w-5xl grid-cols-1 gap-8 px-4 py-6 sm:px-6">
       <ConsoleState v-if="failed" class="py-6" :error="error" title="Couldn't load the dashboard" :retry="() => emit('reload')" />
 
       <!-- Counts: the numbers lead and the labels follow quietly. -->

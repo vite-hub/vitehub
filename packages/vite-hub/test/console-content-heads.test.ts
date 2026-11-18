@@ -67,7 +67,8 @@ describe("Content Source heads", () => {
   it("names the head state and the webhook result", () => {
     expect(contentHeadStatus({ live: false, pinned: false, diagnostic: null })).toEqual({ label: "Not live", tone: "neutral" })
     expect(contentHeadStatus({ live: true, pinned: false, diagnostic: null })).toEqual({ label: "Live", tone: "success" })
-    expect(contentWebhookResult({ id: null, at: "", sha: "4f9c2e1a7b", result: "moved" })).toEqual({ label: "Moved the head to 4f9c2e1", tone: "success" })
+    expect(contentWebhookResult({ id: null, at: "", sha: "978e88b", result: "moved" })).toEqual({ label: "Moved the head", tone: "success" })
+    expect(contentWebhookResult({ id: null, at: "", sha: "978e88b", result: "kept" })).toEqual({ label: "Kept the head", tone: "neutral" })
     expect(contentWebhookResult({ id: null, at: "", sha: null, result: "failed", error: "GitHub answered 502" })).toEqual({ label: "Failed: GitHub answered 502", tone: "error" })
   })
 })

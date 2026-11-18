@@ -44,12 +44,12 @@ export function contentHeadStatus(head: Pick<ConsoleContentHead, "diagnostic" | 
   return { label: "Live", tone: "success" }
 }
 
-/** What the last push webhook did, such as `Moved the head to 4f9c2e1`. */
+/** What the last push webhook did. Its payload SHA need not match the head it moved or kept. */
 export function contentWebhookResult(webhook: ConsoleContentWebhook): { label: string, tone: Tone } {
   const commit = webhook.sha ? ` ${shortCommit(webhook.sha)}` : ""
   switch (webhook.result) {
-    case "moved": return { label: `Moved the head to${commit}`, tone: "success" }
-    case "kept": return { label: `Kept the head at${commit}`, tone: "neutral" }
+    case "moved": return { label: "Moved the head", tone: "success" }
+    case "kept": return { label: "Kept the head", tone: "neutral" }
     case "pinned": return { label: `Kept the pin, ignored${commit}`, tone: "warning" }
     case "rejected": return { label: `Rejected${commit}`, tone: "error" }
     case "failed": return { label: webhook.error ? `Failed: ${webhook.error}` : "Failed", tone: "error" }
