@@ -66,15 +66,14 @@ On Node or Docker, ViteHub selects OpenWorkflow, and each server runs its worker
 
 ## Build the checkout Workflow in ViteHub
 
-Enable Workflow on Node. ViteHub selects OpenWorkflow:
+The Workflow Definition below turns on Workflow. On Node, ViteHub selects OpenWorkflow:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: {
-  },
+  vitehub: {},
 })
 ```
 :::
@@ -87,8 +86,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({
-    }),
+    vitehub(),
     nitro(),
   ],
 })
