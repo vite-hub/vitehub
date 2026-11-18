@@ -56,6 +56,7 @@ describe("Invocation conversation plan", () => {
       kind: "activities",
       activities: [activities[1], activities[2]],
       deliveredAnswerCount: 0,
+      omittedHistory: 0,
       promptId: undefined,
     });
   });
