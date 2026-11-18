@@ -222,9 +222,12 @@ describe("public package export contracts", () => {
     const manifest = readPackageManifest("realtime")
     const packConfig = readFileSync(join(packageDir("realtime"), "vite.config.ts"), "utf8")
 
-    expect(manifest.dependencies?.["@tiptap/pm"]).toEqual(expect.any(String))
-    expect(manifest.devDependencies?.["@tiptap/pm"]).toBeUndefined()
-    for (const dependency of ["@tiptap/core", "@tiptap/extension-collaboration", "@tiptap/y-tiptap"]) {
+    // The editor and its document model come from the app's Tiptap and Yjs, which the package manager installs as peers.
+    for (const dependency of ["@tiptap/core", "@tiptap/pm", "yjs"]) {
+      expect(manifest.peerDependencies?.[dependency], `realtime should take ${dependency} from the app`).toEqual(expect.any(String))
+      expect(manifest.dependencies?.[dependency]).toBeUndefined()
+    }
+    for (const dependency of ["@tiptap/extension-collaboration", "@tiptap/y-tiptap"]) {
       expect(manifest.dependencies?.[dependency], `realtime should install ${dependency}`).toEqual(expect.any(String))
       expect(manifest.devDependencies?.[dependency]).toBeUndefined()
     }

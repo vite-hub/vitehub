@@ -109,7 +109,7 @@ describe("Content live leases", { timeout: 30_000 }, () => {
   it("rejects an unknown acquire kind", async () => {
     const { content } = await setup()
     await expect(rejection(content.sessions.acquire("posts", "hello", { kind: "view" as never, session: "tab-ana-0001", user: ana })))
-      .resolves.toMatchObject({ code: "CONTENT_R0008" })
+      .resolves.toMatchObject({ code: "CONTENT_SESSION_KIND_INVALID" })
   })
 })
 

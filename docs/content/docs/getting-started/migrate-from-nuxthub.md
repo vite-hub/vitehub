@@ -174,7 +174,7 @@ For a custom serving route on Nitro 3, see
 -  const meta = await blob.head(pathname)
 +  const [error, meta] = await blob.head(pathname)
 +  if (error) throw error
-+  if (!meta) throw createError({ statusCode: 404 })
++  if (!meta) throw new HTTPError({ status: 404 })
 ```
 
 `blob.serve()` sends `Cache-Control: private, no-cache` and

@@ -25,6 +25,7 @@ const ConsoleMcpClient = () => import("../components/console-mcp-client.vue");
 const ConsoleMcpCallback = () => import("../components/console-mcp-callback.vue");
 const ConsoleSkills = () => import("../components/console-skills.vue");
 const ConsoleSetup = () => import("../components/console-setup.vue");
+const ConsoleWebhooks = () => import("../components/console-webhooks.vue");
 import {
   consoleDatabasesSchemaPath,
   consoleDatabasesTablePath,
@@ -417,6 +418,16 @@ function addContributedRoutes(navigation) {
           props,
         });
       }
+      continue;
+    }
+    if (details.view.kind === "webhooks") {
+      router.addRoute({
+        component: ConsoleWebhooks,
+        name,
+        path: `/${section}`,
+        meta: { consoleSection: section, title: `${details.label} · ViteHub Console` },
+        props: { definitionsBase: "/_vitehub/api/definitions", details, sectionsBase },
+      });
       continue;
     }
     if (details.view.kind === "operation-view") {
