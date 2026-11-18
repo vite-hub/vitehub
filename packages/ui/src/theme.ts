@@ -117,7 +117,9 @@ export const vitehubTheme = {
       footer: "px-4 py-3 sm:px-4",
     },
   },
-  // Menus open many times a day, so they appear at once. Floating surfaces use the 12px Geist radius and its layered shadow.
+  // Menus, popovers, and dialogs are read, so they open and close at once (docs/design/motion.md, rule 9): the theme turns
+  // off every enter and leave animation of Nuxt UI on them, and only their trigger moves, with the press of the motion
+  // layer. Floating surfaces use the 12px Geist radius and its layered shadow.
   dropdownMenu: {
     slots: {
       content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
@@ -130,6 +132,11 @@ export const vitehubTheme = {
       content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
       label: "text-xs font-medium text-muted",
       itemDescription: "text-clip whitespace-normal",
+    },
+  },
+  editorSuggestionMenu: {
+    slots: {
+      content: "data-[state=open]:animate-none data-[state=closed]:animate-none",
     },
   },
   empty: {
@@ -169,7 +176,7 @@ export const vitehubTheme = {
     ],
     slots: {
       base: "pointer-coarse:text-base",
-      content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md",
+      content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
     },
   },
   inputNumber: {
@@ -198,13 +205,19 @@ export const vitehubTheme = {
     },
   },
   // Dialogs: 12px radius and a layered shadow. The top stays in place, so content that grows below a field moves
-  // nothing above it.
+  // nothing above it. A dialog and its backdrop open and close at once.
   modal: {
     variants: {
       // Nuxt UI sets the backdrop color in this variant, so it goes here to win over Nuxt UI's gray wash.
       overlay: {
         true: {
           overlay: "bg-black/40 dark:bg-black/60",
+        },
+      },
+      transition: {
+        true: {
+          overlay: "data-[state=open]:animate-none data-[state=closed]:animate-none",
+          content: "data-[state=open]:animate-none data-[state=closed]:animate-none",
         },
       },
       fullscreen: {
@@ -226,7 +239,7 @@ export const vitehubTheme = {
   },
   popover: {
     slots: {
-      content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md",
+      content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
     },
   },
   select: {
@@ -246,6 +259,11 @@ export const vitehubTheme = {
       itemTrailingIcon: "size-3.5 opacity-75",
       content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md",
     },
+    variants: {
+      position: {
+        popper: { content: "data-[state=open]:animate-none data-[state=closed]:animate-none" },
+      },
+    },
   },
   selectMenu: {
     defaultVariants: {
@@ -258,7 +276,26 @@ export const vitehubTheme = {
     ],
     slots: {
       base: "pointer-coarse:text-base",
-      content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md",
+      content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
+    },
+  },
+  // A side panel and its backdrop open and close at once, as a dialog does. Nuxt UI slides it in a compound variant of
+  // each side, so the override is a compound variant too.
+  slideover: {
+    variants: {
+      transition: {
+        true: {
+          overlay: "data-[state=open]:animate-none data-[state=closed]:animate-none",
+        },
+      },
+    },
+    compoundVariants: [{ transition: true, class: { content: "data-[state=open]:animate-none data-[state=closed]:animate-none" } }],
+  },
+  // The motion layer of `@vite-hub/ui/motion` moves the knob, so it has no transition of its own. As in the prototype of
+  // docs/design/motion.md, the knob is smaller while the switch is off and lands larger when it turns on.
+  switch: {
+    slots: {
+      thumb: "transition-none data-[state=unchecked]:scale-75",
     },
   },
   table: {
@@ -268,7 +305,8 @@ export const vitehubTheme = {
     },
   },
   // Tabs are an underline under the active label, as on vitehub.dev and in Vercel's dashboard, not a segmented pill.
-  // The label keeps its weight, so switching moves nothing.
+  // The label keeps its weight, so switching moves nothing. The indicator gets no CSS transition: the select effect of
+  // the motion layer moves it with a spring.
   tabs: {
     defaultVariants: {
       color: "neutral",
@@ -278,7 +316,7 @@ export const vitehubTheme = {
     slots: {
       list: "gap-1",
       trigger: "data-[state=inactive]:text-muted data-[state=active]:text-highlighted hover:data-[state=inactive]:not-disabled:text-highlighted",
-      indicator: "bg-(--ui-text-highlighted)",
+      indicator: "bg-(--ui-text-highlighted) transition-none",
     },
     variants: {
       size: {
@@ -301,9 +339,18 @@ export const vitehubTheme = {
       root: "rounded-xl ring-0 shadow-(--vh-shadow-floating)",
     },
   },
+  // The appear effect of the motion layer moves toasts: a toast comes in from its edge, and the others make room with a
+  // spring. So the theme turns off Nuxt UI's slide, pulse, and swipe animations and the transition of the stack.
+  toaster: {
+    slots: {
+      base: "animate-none! transition-none",
+    },
+  },
+  // The appear effect of the motion layer moves tooltips: a tooltip rises from behind its trigger and slides between
+  // triggers. So the theme turns off Nuxt UI's scale in and out.
   tooltip: {
     slots: {
-      content: "rounded-md ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md",
+      content: "rounded-md ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md data-[state=delayed-open]:animate-none data-[state=instant-open]:animate-none data-[state=closed]:animate-none",
     },
   },
 };

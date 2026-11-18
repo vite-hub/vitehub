@@ -81,8 +81,11 @@ export function onMotionEffectsChange(listener: () => void): () => void {
   return () => changeListeners.delete(listener);
 }
 
-/** The CSS properties that the motion layer may write. */
-export type MotionStyleProperty = "scale" | "translate" | "rotate" | "filter" | "opacity";
+/**
+ * The CSS properties that the motion layer may write. `clip-path` hides the part of a tooltip that is still behind its
+ * trigger.
+ */
+export type MotionStyleProperty = "scale" | "translate" | "rotate" | "filter" | "opacity" | "clip-path";
 
 /** Writes motion properties inline. An empty string or `null` removes the property, so the stylesheet applies again. */
 export function writeMotionStyle(element: HTMLElement | SVGElement, values: Partial<Record<MotionStyleProperty, string | null>>): void {
