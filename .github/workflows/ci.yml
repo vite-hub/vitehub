@@ -37,7 +37,7 @@ jobs:
       - prepublish-contracts
       - consumer-contracts
       - consumer-contracts-success
-      - node-22
+      - node-floor
       - docs
       - docs-snippets
       - docs-deploy
@@ -74,7 +74,7 @@ jobs:
             "contracts-examples",
             "consumer-contracts",
             "consumer-contracts-success",
-            "node-22",
+            "node-floor",
             "prepublish-contracts",
             "verify-providers",
           ])
@@ -507,12 +507,12 @@ jobs:
     steps:
       - run: echo 'All consumer contract shards passed'
 
-  # The standalone package floor is Node.js 22.18; Nitro integrations require
-  # 22.22. StackBlitz WebContainers run only Node.js 22. This job covers built-ins with
-  # different behavior on 22: fs glob, node:sqlite, module hooks, Response
-  # brand checks, TextDecoder, and structuredClone.
-  node-22:
-    name: node 22.18
+  # The workspace and every package require Node.js 24.11. Other jobs run the
+  # newest Node.js 24. This job runs the tests for built-ins that change between
+  # releases (fs glob, node:sqlite, module hooks, Response brand checks,
+  # TextDecoder, and structuredClone) on the exact floor.
+  node-floor:
+    name: node 24.11
     if: *full-suite
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -521,25 +521,19 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
-      # Contributor dependencies require a newer runtime than the standalone
-      # package floor. Install them on Node 24, then test on the exact floor.
-      - uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
         with:
-          node-version: "22.18.0"
-          run-install: false
+          node-version: "24.11.0"
 
-      - name: Require Node.js 22.18
-        run: node -e 'if (process.version !== "v22.18.0") throw new Error("Expected Node.js v22.18.0, got " + process.version)'
-      # Node 22.18 bundles Corepack 0.33, which expects pnpm's old JS entrypoint.
-      # Bootstrap the exact Corepack version independently of workspace dependencies.
+      - name: Require Node.js 24.11
+        run: node -e 'if (process.version !== "v24.11.0") throw new Error("Expected Node.js v24.11.0, got " + process.version)'
+      # Node 24.11 bundles Corepack 0.34.0. Corepack finds the pnpm 11+ binary
+      # only from 0.34.5. Bootstrap the exact Corepack version independently of
+      # workspace dependencies.
       - name: Install Corepack with native pnpm support
         run: npm install --global corepack@0.34.6 # zizmor: ignore[adhoc-packages]
-      # Cached Vite tasks filter environment overrides. Persist this job's
-      # runtime policy so pack-time pnpm subprocesses can use the package floor.
-      - name: Allow the package runtime floor
-        run: corepack pnpm --runtime-on-fail=ignore config set --location=project runtimeOnFail ignore
-      # Install-time builds ran on Node 24. Build the targets together on 22.18
-      # so each dependency runs once, preserving uncached floor validation.
+      # The restored task cache can hold builds from a newer Node.js 24. Build the
+      # targets together on 24.11 so each dependency runs once, preserving
+      # uncached floor validation.
       - name: Clear install-time build cache
         run: vp cache clean
       - name: Build tested packages
@@ -630,7 +624,7 @@ jobs:
       - typecheck
       - service-tests
       - consumer-contracts-success
-      - node-22
+      - node-floor
       - docs
       - docs-snippets
       - verify-providers
@@ -721,7 +715,7 @@ jobs:
       - contract-tests
       - package-tests-success
       - consumer-contracts-success
-      - node-22
+      - node-floor
       - docs-snippets
       - docs-demo
       - verify-providers
@@ -1055,7 +1049,7 @@ jobs:
       - typecheck
       - service-tests
       - consumer-contracts-success
-      - node-22
+      - node-floor
       - docs-snippets
       - console
       - verify-providers

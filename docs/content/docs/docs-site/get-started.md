@@ -13,7 +13,7 @@ icon: i-lucide-rocket
 In this tutorial, you build the docs site of Lumen, a made-up command-line tool. The site has a home page and one section with two pages. At the end, you read a page in the browser, and you read its Markdown copy with `curl`.
 
 > [!NOTE] Before you start
-> You need Node.js 22.22 or newer and pnpm. You need no account and no API key. You start from an empty folder.
+> You need Node.js 24.11 or newer and pnpm. You need no account and no API key. You start from an empty folder.
 
 ::tutorial-step{title="Create the app"}
 ## Create the app
@@ -84,7 +84,7 @@ description: Install Lumen and compress your first folder of images.
 navigation.title: Overview
 ---
 
-Lumen needs Node.js 22.22 or newer. Read [Install Lumen](/docs/guide/install) first.
+Lumen needs Node.js 24.11 or newer. Read [Install Lumen](/docs/guide/install) first.
 ```
 
 Add a second page:

@@ -15,7 +15,7 @@ Most ViteHub applications should install the `vite-hub` framework distribution a
 pnpm add @vite-hub/channels
 ```
 
-The package requires Node.js 22.18 or newer. Vite is an optional peer and is needed only for Channel discovery.
+The package requires Node.js 24.11 or newer. Vite is an optional peer and is needed only for Channel discovery.
 
 ## Send through an explicit Channel
 

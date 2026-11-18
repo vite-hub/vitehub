@@ -13,7 +13,7 @@ npx @vite-hub/codemods [dir] [--dry-run]
 npx @vite-hub/codemods <codemod> [dir] [--dry-run]
 ```
 
-The package installs the binary `vitehub-codemods`. It requires Node.js 22.18 or newer.
+The package installs the binary `vitehub-codemods`. It requires Node.js 24.11 or newer.
 
 | Argument | Description |
 | --- | --- |

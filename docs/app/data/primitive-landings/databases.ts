@@ -45,7 +45,7 @@ function setup(nuxt: boolean): PrimitiveProjectFile {
     content: `# Database setup
 
 ${nuxt ? "Start from a Nuxt 5 application. Use pnpm 11.5 or newer and install Nuxt with pnpm add nuxt@npm:nuxt-nightly@5x." : "Use Vite 8 with Nitro 3's Vite integration for server execution."}
-${nuxt ? "Requires Node.js 22.22+ on 22.x, 24.11+ on 24.x, or 26+." : "Requires Node.js 22.22 or newer."}
+Requires Node.js 24.11 or newer.
 
 \`\`\`sh
 pnpm add vite-hub @vite-hub/database drizzle-orm@1.0.0-rc.5

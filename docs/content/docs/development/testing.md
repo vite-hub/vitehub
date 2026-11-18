@@ -78,7 +78,7 @@ Import the test functions from `node:test` in place of `vitest`, and start Node 
 
 `vite-hub/test/register` starts one Vite server of your app in `test` mode with its `vite.config.ts`, or with the Vite options of its `nuxt.config.ts`, as Vitest does. Node then loads the modules that `vitehub()` generates, such as the Database schema and Server Env, from that server. It also resolves app imports without extensions, such as `import { users } from '../databases/default/schema'`. The test processes that `node --test` starts share the server.
 
-Node 22.18 or newer runs TypeScript test files without a flag. Nuxt auto-imports are not available in a test: import `h3`, `vite-hub/*`, and your own server files by path.
+Node 24.11 or newer runs TypeScript test files without a flag. Nuxt auto-imports are not available in a test: import `h3`, `vite-hub/*`, and your own server files by path.
 
 `reset()` is a plain function, so the same setup works with any runner that has a `beforeEach` hook.
 

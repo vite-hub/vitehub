@@ -29,7 +29,7 @@ or Agent Definitions.
 pnpm add @vite-hub/runtime
 ```
 
-The package declares Node.js 22.18 or newer. Import the root entry for portable
+The package declares Node.js 24.11 or newer. Import the root entry for portable
 Runtime contracts. The `/operations` entry exports `defineOperation()`, its types,
 and the `vitehub: { operations }` contribution types of a Vite plugin.
 

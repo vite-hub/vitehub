@@ -13,7 +13,7 @@ Decisions turns what a person types into choices from a list that you give. You 
 In this tutorial, you build a filter box. A person types "nord parts except vak supply". Your page shows one supplier to include and one to exclude.
 
 > [!NOTE] Before you start
-> Use the app from the **Vite** path in [Installation](/docs/getting-started/installation). You need Node.js 22.22 or newer and pnpm.
+> Use the app from the **Vite** path in [Installation](/docs/getting-started/installation). You need Node.js 24.11 or newer and pnpm.
 >
 > Until the last step, you need no API key and no network. A small offline stand-in answers in place of the model. The last step uses a real model, which needs an API key and can cost money.
 
