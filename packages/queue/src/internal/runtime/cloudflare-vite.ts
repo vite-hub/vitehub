@@ -1,4 +1,5 @@
 import { createCloudflareHostedWorker } from "@vite-hub/internal/runtime/cloudflare-hosted"
+import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 
 import { normalizeQueueOptions } from "../../config.ts"
 import { getCloudflareQueueDefinitionName } from "../../integrations/cloudflare.ts"
@@ -44,7 +45,7 @@ export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOption
   const queueConfig = options.queue === false ? false : normalizeQueueOptions(options.queue, { hosting: "cloudflare" })!
   const registry = options.registry
   const definitions = options.definitions
-  const registryDefinitions = !definitions && queueConfig !== false && queueConfig.provider === "cloudflare"
+  const registryDefinitions = !definitions && queueConfig !== false && queueConfig.driver === "cloudflare"
     ? createRegistryDefinitionNames(registry, queueConfig.namePrefix ?? "")
     : undefined
 
@@ -65,7 +66,7 @@ export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOption
     }),
     async queue(batch, env, context) {
       applyRuntimeState()
-      if (queueConfig === false || queueConfig?.provider !== "cloudflare") {
+      if (queueConfig === false || queueConfig?.driver !== "cloudflare") {
         return
       }
 
@@ -92,7 +93,7 @@ export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOption
           onError: definition.options?.onError,
           onMessage: async (message, currentBatch) => {
             await runWithQueueRuntimeEvent(runtimeEvent, async () => {
-              await definition.handler(createQueueJob(message, currentBatch))
+              await runInRunScopes(() => definition.handler(createQueueJob(message, currentBatch)))
             })
           },
         })(batch)

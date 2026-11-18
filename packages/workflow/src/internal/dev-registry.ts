@@ -5,11 +5,12 @@ import { dirname, relative, resolve } from "node:path"
 import { createImportPath } from "@vite-hub/internal/build/paths"
 
 import { discoverWorkflowDefinitions } from "../discovery.ts"
-import { createWorkflowRegistryContents, workflowPackageName } from "./vite-build.ts"
+import { createWorkflowRegistryContents, installedAgentWorkflowModules, withAgentInvocationRecoveryDefinitions } from "./vite-build.ts"
 
 import { defaultOpenWorkflowSqlitePath } from "./openworkflow-defaults.ts"
 
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions } from "../types.ts"
+import type { AgentWorkflowModules } from "./vite-build.ts"
 
 // Provider servers install the discovered Workflow registry in production. In
 // `vite dev`, and in builds for hosts without a Provider Output server (Node,
@@ -21,19 +22,19 @@ const devRegistryFile = "dev-registry.mjs"
 const devPluginFile = "dev-plugin.mjs"
 
 /**
- * Agent Workflows need the Agent registry transform of the provider build, so
- * the development registry does not contain them.
+ * The Workflow Definitions of the startup registry. With `agents`, it also has each discovered Agent Workflow and its
+ * invocation recovery Workflow, as a provider build does. OpenWorkflow needs them: its worker registers the
+ * definitions of this registry when it starts, and runs only those. Other providers keep running Agent turns inline.
  */
-function isWorkflowDevDefinition(definition: DiscoveredWorkflowDefinition): boolean {
-  return definition.source !== "agent-workflow" && definition.source !== "agent-workflow-recovery"
+export function discoverWorkflowDevDefinitions(rootDir: string, serverDirs?: string[], agents = false): DiscoveredWorkflowDefinition[] {
+  return agents
+    ? withAgentInvocationRecoveryDefinitions(discoverWorkflowDefinitions({ rootDir, serverDirs }))
+    : discoverWorkflowDefinitions({ mode: "standalone", rootDir, serverDirs })
 }
 
-export function discoverWorkflowDevDefinitions(rootDir: string, serverDirs?: string[]): DiscoveredWorkflowDefinition[] {
-  return discoverWorkflowDefinitions({ mode: "standalone", rootDir, serverDirs })
-}
-
-function createWorkflowDevRegistryModule(registryFile: string, definitions: DiscoveredWorkflowDefinition[], importBase = workflowPackageName): string {
-  return createWorkflowRegistryContents(registryFile, definitions.filter(isWorkflowDevDefinition), { workflow: importBase })
+/** True when the startup registry must have the Agent Workflows, because an OpenWorkflow worker runs the Agent turns. */
+export function registersAgentWorkflows(workflow: false | ResolvedWorkflowOptions | undefined): boolean {
+  return workflow !== undefined && workflow !== false && workflow.driver === "openworkflow"
 }
 
 /**
@@ -44,7 +45,7 @@ function createWorkflowDevRegistryModule(registryFile: string, definitions: Disc
 export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflowOptions | undefined, dev = false, databaseImport?: string): string {
   // Provider Output builds own their registry; reserve a path without changing runtime state.
   if (workflow === undefined) return "export default function viteHubWorkflowStartupPlugin() {}\n"
-  const openWorkflow = workflow !== false && workflow.provider === "openworkflow"
+  const openWorkflow = workflow !== false && workflow.driver === "openworkflow"
   const runtimeConfig = dev && workflow !== false ? localDevWorkflowOptions(workflow) : workflow
   return [
     "import { definePlugin } from \"nitro\"",
@@ -109,7 +110,7 @@ export interface WorkflowVercelNitroRegistry {
  * with local code.
  */
 function localDevWorkflowOptions(workflow: ResolvedWorkflowOptions): ResolvedWorkflowOptions {
-  if (workflow.provider !== "openworkflow" || workflow.remote === true) return workflow
+  if (workflow.driver !== "openworkflow" || workflow.remote === true) return workflow
   if (workflow.postgres?.url !== undefined || workflow.sqlite?.path !== undefined) return workflow
   return { ...workflow, sqlite: { ...workflow.sqlite, path: defaultOpenWorkflowSqlitePath } }
 }
@@ -122,9 +123,13 @@ async function writeIfChanged(file: string, contents: string): Promise<boolean> 
 }
 
 export interface WorkflowDevRegistryFilesOptions {
+  /** The Agent files that Agent Workflow entries import. Without them, the Agent package that the app installs. */
+  agentModules?: AgentWorkflowModules
   /** The module that exports `getPostgresConnectionUrl()`, when the app has a Postgres Default Database. */
   databaseImport?: string
   definitions: DiscoveredWorkflowDefinition[]
+  /** Install generated Agent State and Capability loaders before workers start. */
+  transformRegistry?: (code: string, id: string) => string | Promise<string>
   /** True in `vite dev`: the plugin turns on the run history. */
   dev?: boolean
   importBase?: string
@@ -154,8 +159,16 @@ export async function writeWorkflowDevRegistryFiles(options: WorkflowDevRegistry
   await mkdir(directory, { recursive: true })
   const registry = resolve(directory, devRegistryFile)
   const plugin = resolve(directory, devPluginFile)
+  let registryContents = createWorkflowRegistryContents(registry, options.definitions, {
+    agent: options.definitions.some(definition => definition.source === "agent-workflow")
+      ? options.agentModules ?? await installedAgentWorkflowModules(options.projectRoot)
+      : undefined,
+    // As in a provider build: the Agent loads this Workflow entry, else the one that it resolves.
+    workflow: options.importBase,
+  })
+  if (options.transformRegistry) registryContents = await options.transformRegistry(registryContents, registry)
   const files: Array<[string, string]> = [
-    [registry, createWorkflowDevRegistryModule(registry, options.definitions, options.importBase)],
+    [registry, registryContents],
     [plugin, options.vercel && options.workflow
       ? createWorkflowVercelNitroPluginModule(plugin, options.vercel, options.workflow)
       : createWorkflowDevPluginModule(options.workflow, options.dev, options.databaseImport)],

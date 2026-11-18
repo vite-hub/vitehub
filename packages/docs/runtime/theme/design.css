@@ -169,6 +169,20 @@ html:where(.vh-docs).dark .shiki span {
   overflow-wrap: break-word;
 }
 
+/* On a home page, the Markdown between the app's blocks keeps the reading measure and the gutter of a docs page. */
+.vh-docs-home-prose {
+  width: 100%;
+  max-width: var(--vh-content-width);
+  margin-inline: auto;
+  padding: 0 1rem 4rem;
+}
+
+@media (min-width: 40rem) {
+  .vh-docs-home-prose {
+    padding-inline: 1.5rem;
+  }
+}
+
 /* Headings such as error codes have no spaces, so they break where needed on narrow phones. `anywhere`, not `break-word`, so it also works when a site puts a heading in a flex or grid item. */
 .docs-content :where(h1, h2, h3, h4) {
   overflow-wrap: anywhere;

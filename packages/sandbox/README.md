@@ -103,7 +103,7 @@ Spawned `vercel` processes stream `stdout` and `stderr` while they run. Consume 
 
 Spawned `cloudflare` processes stream `stdout` and `stderr` through `streamProcessLogs()` with the same 1 MiB per-channel limit and `SANDBOX_R0159` error. A custom `getSandbox` stub without `streamProcessLogs()` returns each channel's full output after the process exits. The built-in Durable Object starts each spawned command in its own process group with bash job control, and `child.kill()`, a `timeout`, or an aborted `signal` signals that whole group, so child processes stop too.
 
-For trusted-host processes, `child.kill()` sends `SIGTERM`, then sends `SIGKILL` after a 250 ms grace period if needed. On POSIX hosts it terminates the process group, including descendants. `child.kill(signal)` forwards the explicit signal and waits for the process to finish without automatic escalation.
+For trusted-host processes, `child.kill()` sends `SIGTERM`, then sends `SIGKILL` after a 250 ms grace period if needed. On POSIX hosts it terminates the process group, including descendants. `child.kill(signal)` forwards the explicit signal and waits for the process to finish without automatic escalation. Every trusted-host command starts with the `VITEHUB_SANDBOX_SESSION` environment variable. On Linux, closing the session also stops the processes that have it and left their process group, for example with `setsid`.
 
 A `timeout` or an aborted `signal` stops only that command, on every runtime. The Sandbox and its other processes keep running. `exec()` rejects with the abort reason. For `spawn()`, the runtime kills the process and `wait()` rejects with the abort reason.
 
@@ -141,7 +141,32 @@ export async function openHostedSandboxes(namespace: CloudflareDurableObjectName
 
 Use `runtime: "vercel"` for the default Vercel Sandbox configuration. Cloudflare remains tag-only because its Durable Objects namespace is required. The Vercel runtime imports `@vercel/sandbox`. Install it in the app, and the server build includes it.
 
-The Cloudflare runtime talks to the Sandbox Durable Object that the ViteHub Cloudflare host integration generates. That class starts the Container with the Workers Container API, uses `Files` from `@cloudflare/sandbox` 1.x, preserves Durable Object idle reuse, and the runtime bounds each transport operation with a deadline. It retries only operations that are safe to repeat, such as file reads and full file writes, when Cloudflare marks the error `retryable`. It retries a command or a new process only when the Container was not ready to receive it; other errors keep the Cloudflare flag in `error.data.retryable`. Pass `getSandbox` to use another Durable Object that implements `CloudflareSandboxStub`. Its `cancelExec(id)` must stop the `exec` command that was started with that `id`, and nothing else. The Vercel runtime exposes only the ports declared when the microVM is created. Both reject host `cwd`; materialize a Workspace into their working tree instead.
+The Cloudflare runtime talks to the Sandbox Durable Object that the ViteHub Cloudflare host integration generates. That class starts the Container with the Workers Container API, uses `Files` from `@cloudflare/sandbox` 1.x, preserves Durable Object idle reuse, and the runtime bounds each transport operation with a deadline. It retries only operations that are safe to repeat, such as file reads and full file writes, when Cloudflare marks the error `retryable`. It retries a command or a new process only when the Container was not ready to receive it; other errors keep the Cloudflare flag in `error.data.retryable`. Sessions with the same Sandbox ID share one Container and its files. `open()` does not delete the Home or workspace files of an earlier or concurrent session; only a `checkout` empties the workspace first. A new Container starts with no files. Pass `getSandbox` to use another Durable Object that implements `CloudflareSandboxStub`. Its `cancelExec(id)` must stop the `exec` command that was started with that `id`, and nothing else. The Vercel runtime exposes only the ports declared when the microVM is created. Both reject host `cwd`; materialize a Workspace into their working tree instead.
+
+Both hosted runtimes take the same `networkPolicy` option for outbound traffic:
+
+```ts
+import { resolveSandbox } from "@vite-hub/sandbox";
+import type { CloudflareDurableObjectNamespace } from "@vite-hub/sandbox";
+
+export async function openRestrictedSandbox(namespace: CloudflareDurableObjectNamespace) {
+  const sandbox = await resolveSandbox({
+    runtime: { kind: "cloudflare", namespace, networkPolicy: { allow: ["registry.npmjs.org", "*.github.com"] } },
+  }, {});
+  console.log(sandbox.plan.executionAuthority.network); // "restricted"
+  return sandbox;
+}
+```
+
+| Value | Outbound traffic | `executionAuthority.network` |
+| --- | --- | --- |
+| `"allow-all"` (default) | All traffic. | `"unrestricted"` |
+| `"deny-all"` | No traffic. | `"none"` |
+| `{ allow: [...] }` | HTTP and HTTPS to the listed hostnames only. Other hosts and protocols fail. | `"restricted"` |
+
+`"*.example.com"` matches subdomains of `example.com`, not `example.com` itself. Vercel matches HTTPS hosts by TLS SNI and does not decrypt the traffic. Vercel also takes `subnets` and its other policy forms. On Cloudflare, the generated Worker exports a `SandboxOutbound` entrypoint, and Cloudflare sends HTTP on port 80 and HTTPS on port 443 to an allowed host through it. The entrypoint checks the request host against the list again, because a command can send a `Host` header that differs from the TLS server name. It answers 403 for other hosts. Cloudflare decrypts that HTTPS traffic and signs it again with its own CA. ViteHub sets `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, and `GIT_SSL_CAINFO` on every command, so Node.js, curl, Python requests, and Git trust that CA. Names of other hosts do not resolve. The Cloudflare list takes at most 64 hostnames and no IP addresses. The Worker needs a `compatibility_date` of `2025-11-17` or later.
+
+Cloudflare applies the policy when the Container starts, so each Sandbox ID has one policy at a time, not each container class. When a Sandbox ID that runs opens with another policy, ViteHub stops its Container and the next command starts a new one with the new policy. Files and processes in the old Container are lost. A custom `getSandbox` starts its own Container, so it cannot take `networkPolicy`. An invalid policy throws `SANDBOX_NETWORK_POLICY_INVALID`.
 
 If Cloudflare Sandbox or Vercel cleanup fails, retry `session.close()`. The session rejects new operations after the first close attempt. Concurrent close calls wait for the same cleanup.
 
@@ -292,7 +317,7 @@ A `runtime` can also be an object with `name`, `prepare(input)` and `open(input,
 
 ## Security boundary
 
-A Sandbox isolates Home, configuration, and declared process environment from ambient machine state. It does not necessarily isolate the filesystem, network, installed executables, or trusted project code; the complete normalized provider declaration is `sandbox.plan.executionAuthority` and is copied unchanged onto every opened session. Dimensions the provider cannot establish remain `unknown`. The built-in `cloudflare` runtime reports `network: "unrestricted"`, because it starts every Container with internet access. With a custom `getSandbox`, `network` stays `unknown`. Use `"trusted-host"` only when the Agent may act with the host user's authority, and use an isolated Sandbox runtime such as `vercel`, `cloudflare`, or `container` for untrusted code.
+A Sandbox isolates Home, configuration, and declared process environment from ambient machine state. It does not necessarily isolate the filesystem, network, installed executables, or trusted project code; the complete normalized provider declaration is `sandbox.plan.executionAuthority` and is copied unchanged onto every opened session. Dimensions the provider cannot establish remain `unknown`. The built-in `cloudflare` and `vercel` runtimes report `network` from `networkPolicy`: `"unrestricted"` by default, `"none"` for `"deny-all"`, and `"restricted"` for an allowlist. With a custom Cloudflare `getSandbox`, `network` stays `unknown`. Use `"trusted-host"` only when the Agent may act with the host user's authority, and use an isolated Sandbox runtime such as `vercel`, `cloudflare`, or `container` for untrusted code.
 
 Resolved environment values, file contents, state keys, and physical Home paths are excluded from `sandbox.plan`; `sandbox.plan.home.state` lists declared target paths with opaque stable identities. Requirement failures discard command output, while every process inside the Sandbox remains trusted and can still read or log its credentials. Stable preparation identity uses declaration targets and state keys, never secret values or temporary paths.
 
@@ -316,7 +341,7 @@ const launch = sshLaunch({
 // Pass launch to driver.launch in an Agent Definition.
 ```
 
-The target must expose the same working-directory and credential paths, for example through a shared sidecar volume. Host keys are verified. Environment names come from the resolved provider launch context; values travel through SSH environment requests. An explicit `forwardEnvironment` narrows the list while retaining framework-required names. `serveSsh` accepts valid environment names from authenticated clients unless `acceptEnvironment` restricts them.
+The target must expose the same working-directory and credential paths, for example through a shared sidecar volume. Host keys are verified. Environment names come from the resolved provider launch context; values travel through SSH environment requests. An explicit `forwardEnvironment` narrows the list while retaining framework-required names. `serveSsh` accepts valid environment names from authenticated clients unless `acceptEnvironment` restricts them. It runs each command with `/bin/sh -c`, not a login shell, so a profile cannot replace the forwarded `PATH`.
 
 A sidecar that is still starting refuses connections. `sshLaunch` connects again for up to `connectRetryMs` (30 seconds by default) while the SSH port refuses connections, so a provider probe or launch right after a pod restart waits for the sidecar. Authentication, host key, and command failures are not retried. Set `connectRetryMs: 0` to fail on the first refused connection.
 
@@ -324,7 +349,7 @@ The launch command includes a cancellable `prepare` callback. Agent Drivers awai
 
 The `vite-hub` distribution also exposes this module as `vite-hub/sandbox/ssh`, and `vitehub sandbox serve` and `vitehub sandbox check` run the server and a Driver readiness check without a project config. See the [CLI reference](https://vitehub.dev/docs/development/cli#commands).
 
-This transport grants arbitrary command execution as the configured user. It is not a sandbox and does not synchronize Workspace files. Server shutdown closes connections and stops supervised process groups. `close({ drainTimeoutMs })` stops new connections at once and waits up to `drainTimeoutMs` for open connections to close before it ends them, so a stopping container can let running commands finish. `connections` counts the open connections. `vitehub sandbox serve --drain-timeout <ms>` uses this on SIGTERM and SIGINT.
+This transport grants arbitrary command execution as the configured user. It is not a sandbox and does not synchronize Workspace files. Server shutdown closes connections and stops supervised process groups. When a command ends, the server stops its process group. On Linux it also stops the processes that the command started outside that group, for example with `setsid`. It finds them by the `VITEHUB_SSH_COMMAND` environment variable. `close({ drainTimeoutMs })` stops new connections at once and waits up to `drainTimeoutMs` for open connections to close before it ends them, so a stopping container can let running commands finish. `connections` counts the open connections. `vitehub sandbox serve --drain-timeout <ms>` uses this on SIGTERM and SIGINT.
 
 ## Sandbox Tasks
 
@@ -346,7 +371,7 @@ For Cloudflare, install `@cloudflare/sandbox` 1.x instead and use the ViteHub Cl
 
 ### Run one Sandbox Task
 
-Register discovery and select the provider in Vite:
+Register discovery and select the driver in Vite:
 
 ```ts
 // vite.config.ts
@@ -354,7 +379,7 @@ import { hubSandboxTask } from "@vite-hub/sandbox/task/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [hubSandboxTask({ provider: "vercel" })],
+  plugins: [hubSandboxTask({ driver: "vercel" })],
   build: {
     ssr: "src/server.ts",
   },
@@ -418,13 +443,14 @@ The Definition entrypoint does not import `@vite-hub/sandbox/task`. ViteHub call
 
 ### Provider and lifecycle limits
 
-- Set `cpu` (vCPUs) and `memory` (MiB) next to `provider`, such as `hubSandboxTask({ provider: "cloudflare", cpu: 1, memory: 4096 })`. They are minimums, and ViteHub picks the smallest provider size that fits both. Vercel gets `resources.vcpus`: 1 or an even number up to 32, with 2048 MiB for each vCPU. Cloudflare gets the smallest instance type from `lite` to `standard-4`, and the default is `standard-1` (1/2 vCPU, 4096 MiB). On Cloudflare the size belongs to the Container class, so it applies to every task of the app. ViteHub keeps the `instance_type` of your own `containers` entry and fails the build when it is smaller than `cpu` or `memory`. `maxInstances` sets the Cloudflare Container limit (default 12).
-- Provider selection belongs to application or host configuration, not to a Definition. `hubSandboxTask({ provider: "vercel" })` and `hubSandboxTask({ provider: "cloudflare" })` are the direct-package forms. The `vite-hub` distribution can infer these from its Vercel and Cloudflare hosts.
-- `vitehub.sandboxTask.timeout` must be a positive integer no greater than `2_147_483_647`. It bounds one execution attempt after provider startup, including package preparation, staging, and execution. Queueing, Sandbox startup, and retry delays can make the complete `runSandboxTask()` call take longer. An elapsed attempt timeout sends an internal abort signal to cancellable provider operations and returns a `SANDBOX_TASK_TIMEOUT` error in a non-2xx JSON response. On Vercel, the Sandbox session gets the task timeout plus 30 seconds, because its clock starts before Sandbox setup. ViteHub then ends the run at the task timeout, not the VM.
+- Set `cpu` (vCPUs) and `memory` (MiB) next to `driver`, such as `hubSandboxTask({ driver: "cloudflare", cpu: 1, memory: 4096 })`. They are minimums, and ViteHub picks the smallest driver size that fits both. Vercel gets `resources.vcpus`: 1 or an even number up to 32, with 2048 MiB for each vCPU. Cloudflare gets the smallest instance type from `lite` to `standard-4`, and the default is `standard-1` (1/2 vCPU, 4096 MiB). On Cloudflare the size belongs to the Container class, so it applies to every task of the app. ViteHub keeps the `instance_type` of your own `containers` entry and fails the build when it is smaller than `cpu` or `memory`. `maxInstances` sets the Cloudflare Container limit (default 12).
+- Driver selection belongs to application or host configuration, not to a Definition. `hubSandboxTask({ driver: "vercel" })` and `hubSandboxTask({ driver: "cloudflare" })` are the direct-package forms. The `vite-hub` distribution infers the driver from its Vercel and Cloudflare hosts, and takes the same options in `vitehub({ sandboxTask: { ... } })`.
+- `vitehub.sandboxTask.timeout` must be a positive integer no greater than `2_147_483_647`. Without it, a run stops after 5 minutes on every driver. It bounds one execution attempt after driver startup, including package preparation, staging, and execution. Queueing, Sandbox startup, and retry delays can make the complete `runSandboxTask()` call take longer. An elapsed attempt timeout sends an internal abort signal to cancellable driver operations and returns a `SANDBOX_TASK_TIMEOUT` error in a non-2xx JSON response. On Vercel, the Sandbox session gets the task timeout plus 30 seconds, because its clock starts before Sandbox setup. ViteHub then ends the run at the task timeout, not the VM.
 - Pass `signal` to `runSandboxTask()` when it belongs to a request or Agent Invocation. ViteHub forwards it to Sandbox startup and execution, cancels queued Cloudflare runs and retry backoff, and preserves the caller's abort reason. A Definition timeout remains the independent bound for each execution attempt.
 - A failed run's JSON response keeps `error.code`, `error.message`, and `error.details`. Outside `vite dev`, the details do not include `stack`, `stdout`, `stderr`, their previews, `output`, `cause`, `cwd`, or `args`. `resolveSandboxTaskRunner(name).run()` throws the error with all details for server logs.
 - Vercel Sandbox sessions are closed in a `finally` block after success or failure. Cloudflare also creates and closes a unique Sandbox for each run unless you configure `sandboxId` or pass one to `runSandboxTask()`. Session cleanup failures return a non-2xx JSON response, even after a successful handler. So do Cloudflare invocation-file cleanup failures in a Sandbox that stays open after the run. A Sandbox that ViteHub closes after the run loses its files when it closes, so ViteHub does not delete them separately.
-- An explicit Cloudflare `sandboxId` opts into a shared Sandbox identity. ViteHub deletes invocation-local files after each attempt, caches prepared projects by digest inside that Sandbox, and serializes runs with the same ID within one runtime isolate. Separate Worker isolates can still enter the Sandbox concurrently, so use external coordination when deployment-wide serialization is required. The provider normally leaves an explicitly named Sandbox for idle shutdown; setting `keepAlive: true` makes ViteHub close its session after the run.
+- Cloudflare can retry the whole Task before its first command starts. After that, only the transport retries an individual command when a cold start proves it did not run. Handler errors do not replay the Task.
+- An explicit Cloudflare `sandboxId` opts into a shared Sandbox identity. ViteHub deletes invocation-local files after each attempt, caches prepared projects by digest inside that Sandbox, and serializes runs with the same ID within one runtime isolate. Separate Worker isolates can still enter the Sandbox concurrently, so use external coordination when deployment-wide serialization is required. ViteHub leaves an explicitly named Sandbox for idle shutdown after every run, also after a timeout or an abort. A timeout or an abort stops only that run's command, so runs from other isolates keep their Container. `sleepAfter` sets the idle time (default `"5m"`), and `keepAlive: true` raises it to the 6 hour Cloudflare maximum. A Sandbox without an ID still closes after each run, also with `keepAlive: true`.
 
 When `resolveSandboxTaskRunner().run()` throws, its error cause retains the original provider diagnostic. If execution and cleanup both fail, the cause chain contains an `AggregateError` with both failures. The primary error code and message stay unchanged. JSON error responses omit causes.
 
@@ -441,7 +467,7 @@ const runner = await resolveSandboxTaskRunner("release-notes");
 console.log(runner.executionAuthority);
 ```
 
-The descriptor reports the provider's complete `ExecutionAuthority`, including dimensions it cannot establish as `unknown`. Apply provider controls such as Vercel `networkPolicy`, keep secrets in server environment or provider configuration, and do not treat container execution alone as authorization for untrusted code.
+The descriptor reports the provider's complete `ExecutionAuthority`, including dimensions it cannot establish as `unknown`. Set `networkPolicy` in the `vercel` or `cloudflare` provider options to limit outbound traffic, keep secrets in server environment or provider configuration, and do not treat container execution alone as authorization for untrusted code.
 
 Payloads, context, and results must be JSON-serializable. Nested `Blob` and `Uint8Array` values cross the Sandbox boundary through invocation-local binary files, and Node.js `Buffer` values retain their type.
 

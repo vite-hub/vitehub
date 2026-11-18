@@ -58,7 +58,7 @@ function readRemote(config: KVStoreConfig | InferredKVStoreConfig, store: string
 /** Applies `vite dev` mode: hosted stores are marked remote, and a Cloudflare store gets its local fallback. */
 function resolveDevStore(store: ResolvedKVStoreConfig, remote: boolean | undefined): ResolvedKVStoreConfig {
   if (store.driver === "upstash") return { ...store, remote: true }
-  if (store.driver !== "cloudflare-kv-binding") return store
+  if (store.driver !== "cloudflare") return store
   return remote ? { ...store, remote: true } : { ...store, localBase: cloudflareKVLocalBase(store.binding) }
 }
 
@@ -111,7 +111,7 @@ function resolveCloudflareStore(
       namespaceId: trimmed(config.namespaceId) ?? readEnv(env, "KV_NAMESPACE_ID"),
       namespaceName: trimmed(config.namespaceName),
     },
-    { driver: "cloudflare-kv-binding" as const, binding: "KV" },
+    { driver: "cloudflare" as const, binding: "KV" },
   )
 }
 
@@ -132,16 +132,22 @@ function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string |
 
 function resolveStoreDriver(store: KVStoreConfig, env: Record<string, string | undefined>, name: string): ResolvedKVStoreConfig {
   switch (store.driver) {
-    case "cloudflare-kv-binding": return resolveCloudflareStore(store, env)
+    case "cloudflare": return resolveCloudflareStore(store, env)
     case "database": return resolveDatabaseStore(store, name)
     case "deno-kv": return resolveDenoStore(store)
     case "fs-lite": return resolveFsLiteStore(store, name)
     case "redis": return resolveRedisStore(store, name)
     case "upstash": return resolveUpstashStore(store, resolveStoreBase(store.base, name))
-    // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
-    default: throw kvErrorDiagnostics.KV_INVALID_DRIVER({ driver: JSON.stringify((store as { driver: unknown }).driver) })
+    default: {
+      // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
+      const driver = (store as { driver: unknown }).driver
+      throw kvErrorDiagnostics.KV_INVALID_DRIVER({ driver: JSON.stringify(driver) ?? String(driver), renamed: renamedKVDrivers.get(String(driver)) })
+    }
   }
 }
+
+/** Driver names that ViteHub renamed to the host name. `npx @vite-hub/codemods driver-key` moves them. */
+const renamedKVDrivers = new Map([["cloudflare-kv-binding", "cloudflare"]])
 
 function createResolvedConfig(store: ResolvedKVModuleOptions["store"], stores?: Record<string, ResolvedKVModuleOptions["store"]>): ResolvedKVModuleOptions {
   return stores ? { store, stores: { default: store, ...stores } } : { store }

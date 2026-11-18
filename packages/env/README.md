@@ -87,6 +87,12 @@ export async function sync(event: ViteHubContext) {
 }
 ```
 
+## Set the values on the host
+
+The build writes the host variable names of each `env.server` declaration to `deployment.json`, never the values. `vitehub env diff` shows which names the linked host lacks, and `vitehub env push` sets them from the shell and `.env.<stage>` with the host CLI. See [Check and push host env](https://vitehub.dev/docs/development/cli#check-and-push-host-env).
+
+To keep the values in git, encrypt `.env.<stage>` with [dotenvx](https://dotenvx.com/encryption) and keep the private key out of git. `vitehub env push` decrypts `encrypted:` values with `DOTENV_PRIVATE_KEY_<STAGE>` from the shell or `.env.keys`. See [Encrypted env files](https://vitehub.dev/docs/development/cli#encrypted-env-files).
+
 ## Derive secrets from one root secret
 
 `deriveSecret(purpose)` from `@vite-hub/env` derives a 32-byte hex secret from `VITEHUB_SECRET` with HKDF-SHA256, salt `vitehub`. Auth derives its secret the same way. The Vite development server generates and keeps a root secret in `.vitehub/env/secret` when none is set; builds never generate one. `vitehub secret generate` prints a new root secret and `vitehub secret derive <purpose>` prints a derived one. The root secret signs and authenticates; it does not encrypt stored data. See [App secret](https://vitehub.dev/docs/env/app-secret).
@@ -109,18 +115,75 @@ export async function uploadUrl(userId: string) {
 
 export async function readTicket(ticket: string) {
   const [error, upload] = await unseal("my-app:upload", ticket, { schema: Upload });
-  if (error) return undefined; // ENV_SEAL_EXPIRED, ENV_SEAL_INVALID, ENV_SEAL_SCHEMA_MISMATCH, or ENV_SEAL_WRONG_PURPOSE
+  if (error) return undefined; // ENV_SEAL_EXPIRED, ENV_SEAL_INVALID, ENV_SEAL_SCHEMA_MISMATCH, ENV_SEAL_USED_UP, or ENV_SEAL_WRONG_PURPOSE
   return upload;
 }
 ```
 
 Each purpose gets its own key, derived from `VITEHUB_SECRET` with `deriveSecret()`, so a value sealed for one purpose does not open as another. `ttl` is in seconds; without it, the value does not expire. `schema` takes any Standard Schema and types the value; without it, the value is `unknown`. `unseal()` returns a `Result`; a missing root secret or a bad argument throws. Web Crypto does the work, so the same string opens on Node, Workers, Deno, and Bun.
 
-A rotation of `VITEHUB_SECRET` makes every sealed value unreadable. That is correct for short-lived tokens. For values that you store, such as provider credentials, pass a separate root secret: `seal("my-app:credentials", value, { secret: env.credentialsKey })`, with the same `secret` for `unseal()`. See [App secret](https://vitehub.dev/docs/env/app-secret#seal-a-value).
+To rotate `VITEHUB_SECRET`, put the old secret in `VITEHUB_SECRET_PREVIOUS` (one secret, or a comma-separated list). `seal()` uses `VITEHUB_SECRET`, and `unseal()` also tries each old secret, so open links and cookies keep working until they expire. For values that you store, such as provider credentials, pass a separate root secret: `seal("my-app:credentials", value, { secret: env.credentialsKey })`, with the same `secret` for `unseal()`. To rotate it, pass `[newKey, oldKey]`: `seal()` uses the first, and `unseal()` tries each. See [Sign and seal values](https://vitehub.dev/docs/env/seal).
+
+### Single-use values
+
+Pass `uses` and a `db` to make a share link that opens once, or N times, and then is gone. Pass the same `db` to `unseal()`. Each read takes one use with one conditional `UPDATE`, so of two reads of the last use on any instances, one gets the value and the other gets `ENV_SEAL_USED_UP`.
+
+```ts
+// server/api/share/[token].get.ts
+import { defineEventHandler, getRouterParam, HTTPError } from "h3";
+import { unseal } from "vite-hub/env";
+import { db } from "vite-hub/database";
+
+// Create the link elsewhere: await seal("my-app:share", { apiKey }, { uses: 1, ttl: 3600, db })
+export default defineEventHandler(async (event) => {
+  const [error, shared] = await unseal("my-app:share", getRouterParam(event, "token")!, { db });
+  if (error) throw new HTTPError({ status: 410, message: error.why }); // ENV_SEAL_USED_UP, ENV_SEAL_EXPIRED, ...
+  return shared;
+});
+```
+
+The token holds the encrypted value. The `vitehub_env_seal_uses` table holds only a random id, the uses left, and the expiry, so a leak of the database does not leak values. `db` is a SQLite, libSQL, or D1 Drizzle database; KV cannot take a use atomically. A value that does not open, has expired, or does not match `schema` keeps its uses. `unseal()` without `db` throws `ENV_SEAL_ARGUMENT_INVALID` for a value sealed with `uses`.
+
+## Protect a machine route
+
+`requireServiceToken(event, name)` from `vite-hub/env` checks that a request carries `Authorization: Bearer <token>` with a token from the server variable `name`. Use it for routes that scripts, CI runners, and webhooks call. It needs no Auth setup.
+
+```ts
+// server/api/runs.post.ts
+import { defineEventHandler } from "h3";
+import { requireServiceToken } from "vite-hub/env";
+
+export default defineEventHandler((event) => {
+  requireServiceToken(event, "INGEST_TOKEN");
+  return { ok: true };
+});
+```
+
+It compares in constant time. A wrong or missing token throws a `401` HTTP error with `ENV_SERVICE_TOKEN_INVALID`. When the variable has no token, every request fails with `503` and `ENV_SERVICE_TOKEN_UNSET`. The variable holds one token, or a comma-separated list while you rotate. `checkServiceToken(event, name)` returns the same result as `[error, undefined]`. See [Service tokens](https://vitehub.dev/docs/env/service-tokens).
+
+## Verify a webhook
+
+`verifyWebhook(event, { provider, secret })` from `vite-hub/env` checks the signature of a Stripe, GitHub, or other HMAC-SHA256 webhook in a plain route. `secret` is the name of the server variable with the signing secret. It reads the raw body once, compares in constant time, and returns `[error, body]` with the parsed JSON body.
+
+```ts
+// server/api/stripe/webhook.post.ts
+import { defineEventHandler, HTTPError } from "h3";
+import { verifyWebhook } from "vite-hub/env";
+
+export default defineEventHandler(async (event) => {
+  const [error, stripeEvent] = await verifyWebhook<{ type: string }>(event, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" });
+  if (error) throw new HTTPError({ status: 400, message: error.message });
+  return { received: stripeEvent.type };
+});
+```
+
+`provider` is `"stripe"` (`Stripe-Signature`, at most `toleranceSeconds` old, default 300), `"github"` (`X-Hub-Signature-256`, with a JSON or form body), or `"hmac"` with a `header` and optional `prefix`, `encoding`, and `secretEncoding`. The codes are `ENV_WEBHOOK_SIGNATURE_INVALID`, `ENV_WEBHOOK_SECRET_UNSET`, and `ENV_WEBHOOK_BODY_INVALID`. The variable holds one secret, or a comma-separated list while you rotate. See [Verify webhooks](https://vitehub.dev/docs/env/webhooks).
+
+`signWebhook(body, { provider, secret })` signs an outgoing body and returns the headers to send with it. `provider` is `"github"` (`x-hub-signature-256: sha256=<hex>`) or `"stripe"` (`stripe-signature: t=<unix>,v1=<hex>`). Here `secret` is the secret itself, not a variable name. Send the exact body that you signed, so `verifyWebhook()` and other standard receivers accept it.
 
 ## Typed server values
 
-Host variables are strings. Declare `env.boolean()`, `env.number()`, or `env.enum()` when server code needs another type. ViteHub parses the value when Server Env resolves and generates the exact type.
+Host variables are strings. Declare `env.boolean()`, `env.number()`, `env.enum()`, `env.list()`, or `env.json()` when server code needs another type. ViteHub parses the value when Server Env resolves and generates the exact type.
 
 ```ts fragment
 // vite.config.ts
@@ -134,6 +197,21 @@ env: {
 ```
 
 `useServerEnv().dryRun` is a `boolean`, `minConfidence` is a `number`, and `mode` is `"draft" | "send"`. Defaults use the parsed type. `env.enum()` cannot be secret because its allowed values are public metadata. An invalid value throws `ENV_RUNTIME_VALUE_INVALID` with the declaration path; the value is never included.
+
+`env.list()` reads items separated by commas or line breaks: it trims each item and drops empty items. `env.list(env.number())` parses each item with the item helper. `env.json()` reads JSON text, and `env.json(env.schemaFrom("./server/env.schema.ts", "settings"))` checks it with a Standard Schema from a module:
+
+```ts fragment
+// vite.config.ts
+env: {
+  server: {
+    adminEmails: env.list({ default: [] }), // string[]
+    ports: env.list(env.number()), // number[]
+    settings: env.json(env.schemaFrom("./server/env.schema.ts", "settings")), // schema output
+  },
+}
+```
+
+Put `default`, `secret`, `source`, and `optional` on the list, not on the item helper. Text that is not JSON fails with `ENV_RUNTIME_VALUE_INVALID`. See [Lists and JSON values](https://vitehub.dev/docs/env/configure#lists-and-json-values).
 
 For a pattern, a custom refinement, or a transform, export a Standard Schema from a module and point the declaration at it. The server build imports the module and runs the schema on the raw value:
 
@@ -348,7 +426,7 @@ Both commands load the Vite config in the selected stage mode, including `.env.<
 vitehub env status --url https://my-app.example.com
 ```
 
-The result has `ok` and one entry per declaration: `path`, `names`, `name` (the host variable that supplied the value), `source`, `provider`, `required`, `secret`, `status`, and `blocking`. The status is `available`, `defaulted`, `missing`, `invalid`, or `error`, as in `inspectServerEnv()`. The result never holds a value, a preview, or a length.
+The result has `ok`, the `host` that the app runs on when it is known, and one entry per declaration: `path`, `names`, `name` (the host variable that supplied the value), `source`, `provider`, `required`, `secret`, `status`, and `blocking`. The status is `available`, `defaulted`, `missing`, `invalid`, or `error`, as in `inspectServerEnv()`. The result never holds a value, a preview, or a length.
 
 ### Managed credentials
 

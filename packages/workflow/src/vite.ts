@@ -1,4 +1,5 @@
 import { durabilityModuleFile } from "@vite-hub/internal/durability"
+import { invariant } from "@vite-hub/internal/invariant"
 import { workflowDurabilityUrl } from "./durability.ts"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { workflowRuntimeModule } from "./internal/runtime-modules.ts"
@@ -14,12 +15,14 @@ import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import { normalizeWorkflowOptions } from "./config.ts"
+import { workflowDeploymentEnv } from "./deployment-env.ts"
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import { inspectWorkflowDefinitions } from "./inspect.ts"
-import { discoverWorkflowDevDefinitions, workflowDevGeneratedDir, workflowTestSetupFile, writeWorkflowDevRegistryFiles } from "./internal/dev-registry.ts"
+import { discoverWorkflowDevDefinitions, registersAgentWorkflows, workflowDevGeneratedDir, workflowTestSetupFile, writeWorkflowDevRegistryFiles } from "./internal/dev-registry.ts"
 import { writeWorkflowTypes } from "./internal/registry-types.ts"
-import { createCloudflareWorkflowNitroConfig, createOptionalPackagesPlugin, createVercelWorkflowModuleTransform, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, resolveWorkflowProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
+import { addVercelWorkflowNitroRoutes, createCloudflareWorkflowNitroConfig, createOptionalPackagesPlugin, createVercelWorkflowModuleTransform, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, resolveWorkflowProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { WorkflowVercelNitroRegistry } from "./internal/dev-registry.ts"
 import type { AgentWorkflowModules, VercelWorkflowModuleTransform } from "./internal/vite-build.ts"
@@ -47,6 +50,8 @@ interface WorkflowNitroConfigOptions {
 export { workflowRuntimeModule }
 
 export type WorkflowVitePlugin = Plugin & Partial<Pick<ProviderOutputEnvironmentOwner, "nitro">> & {
+  /** The variables that Workflow reads on the deployed host. See `workflowDeploymentEnv()`. */
+  api: { deploymentEnv: DeploymentEnvContribution }
   vitehub?: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & {
     operations?: readonly OperationContributionEntry[]
     workflow?: {
@@ -78,6 +83,15 @@ function agentWorkflowModules(plugins: unknown): AgentWorkflowModules | undefine
     // SAFETY: Vite plugin objects may expose ViteHub's optional agent extension, which this reads defensively.
     const modules = (plugin as AgentWorkflowRegistryPlugin | null | undefined)?.vitehub?.agent?.workflowModules
     if (modules) return modules
+  }
+}
+
+/** The same Agent setup transform is used by provider builds and Node startup registries. */
+function agentWorkflowRegistryTransform(plugins: unknown): ((code: string, id: string) => string | Promise<string>) | undefined {
+  for (const plugin of [plugins].flat(Infinity)) {
+    // SAFETY: Vite plugin objects may expose this optional ViteHub Agent extension.
+    const transform = (plugin as AgentWorkflowRegistryPlugin | null | undefined)?.vitehub?.agent?.transformWorkflowRegistry
+    if (transform) return transform
   }
 }
 
@@ -246,19 +260,21 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
   }
 
   async function prepareScheduleRuntime(artifactDir?: string, config = resolved) {
-    // Internal invariant: the Schedule plugin calls this during the build, after configResolved() sets `resolved`.
-    if (!config) throw new Error("[vitehub] Workflow runtime preparation requires resolved Vite config.")
+    invariant(config, "the Schedule plugin prepares the Workflow runtime during the build, after configResolved() sets the Vite config")
     const build = scheduledBuildConfig(config)
     const workflowOptions = build?.workflow ?? workflow
-    if (resolveWorkflow(workflowOptions)?.provider !== "vercel") return
+    if (resolveWorkflow(workflowOptions)?.driver !== "vercel") return
     const rootDir = resolveViteHubProjectRoot(config.root)
     const aliases = await providerImportAliases(config)
     // SAFETY: The framework adds optional forwarded server directories to the active Vite configuration.
     const workflowServerDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? build?.serverDirs
     const providerSources = discoverWorkflowProviderSources(config.root, workflowServerDirs)
+    // The flow function holds the native Workflow IDs of the published `.vitehub/workflow/sources` copy, relative to the
+    // project root. This copy has the same layout under `artifactDir`, and its IDs are relative to `artifactDir`, so a
+    // Schedule starts IDs that the flow function knows on every build.
     const retainedSources = artifactDir
       ? await retainProviderOutputSources({
-          artifactDir: resolve(artifactDir, "sources"),
+          artifactDir: resolve(artifactDir, ".vitehub", "workflow", "sources"),
           paths: [
             ...providerOutputAliasSources(aliases, [config.root]),
             ...providerSources.paths,
@@ -295,7 +311,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
       },
       bundlePlugins: [
         createOptionalPackagesPlugin(rootDir),
-        ...(native ? [await createVercelWorkflowTransformPlugin(rootDir)] : []),
+        ...(native ? [await createVercelWorkflowTransformPlugin(rootDir, artifactDir)] : []),
       ].filter((plugin): plugin is EsbuildPlugin => Boolean(plugin)),
       native,
       registryFile: artifacts.registryFile,
@@ -314,6 +330,18 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
   }
 
   let devRootDir: string | undefined
+  // The options of the Nitro instance that builds this app, and whether its Vercel build has a native Workflow entry.
+  let nitroOptions: object | undefined
+  let vercelNativeEntry = false
+
+  /**
+   * Nitro writes the Vercel routes after the native Workflow build, so Nitro must also write the Workflow DevKit
+   * webhook route. Only a native entry can create a webhook. Nitro reads its options when it writes the config, after
+   * this plugin knows whether the app has a native entry.
+   */
+  function addVercelWorkflowWebhookRoute(): void {
+    if (startupBuild && vercelNativeEntry && nitroOptions) addVercelWorkflowNitroRoutes(nitroOptions)
+  }
   let databasePlugin: DatabaseVitePlugin | undefined
   let postgresDatabaseImport: string | undefined
 
@@ -325,7 +353,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
   }
 
   function postgresDatabaseImportFor(postgres: boolean | undefined): string | undefined {
-    return devWorkflow?.provider === "openworkflow" && postgres ? internalOptions.databaseImport ?? "@vite-hub/database" : undefined
+    return devWorkflow?.driver === "openworkflow" && postgres ? internalOptions.databaseImport ?? "@vite-hub/database" : undefined
   }
   let devStartupPlugin: string | undefined
   let devWorkflow: ResolvedWorkflowOptions | undefined
@@ -340,10 +368,15 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
     }
   }
 
+  /** The plugins of the latest Vite config. The Agent plugin gives the Agent files that Agent Workflow entries import. */
+  let configPlugins: unknown
+
   async function writeDevRegistry(rootDir: string, workflow: false | ResolvedWorkflowOptions | undefined, vercel?: WorkflowVercelNitroRegistry) {
     return await writeWorkflowDevRegistryFiles({
+      agentModules: agentWorkflowModules(configPlugins),
+      transformRegistry: agentWorkflowRegistryTransform(configPlugins),
       databaseImport: postgresDatabaseImport,
-      definitions: workflow ? discoverWorkflowDevDefinitions(rootDir, serverDirs) : [],
+      definitions: workflow ? discoverWorkflowDevDefinitions(rootDir, serverDirs, registersAgentWorkflows(workflow)) : [],
       dev: !startupBuild,
       importBase: internalOptions.importBase,
       projectRoot: rootDir,
@@ -382,6 +415,9 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
 
   return {
     name: "@vite-hub/workflow/vite",
+    api: {
+      deploymentEnv: context => workflowDeploymentEnv(normalizeWorkflowOptions(workflow, { hosting: internalOptions.hosting ?? context.host, inline: allowsInline() })),
+    },
     // Nuxt replays plugins by enforcement order; reserve this before its runtime bootstraps too.
     enforce: "pre",
     config: {
@@ -395,6 +431,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
         const buildConfig = config as typeof config & { __vitehubWorkflowServerDirs?: string[] }
         buildConfig.__vitehubWorkflowServerDirs = serverDirs
         startupBuild = env.command === "build"
+        configPlugins = config.plugins
         // A build reports a provider that it cannot use before it starts. Development keeps the app running.
         if (startupBuild && internalOptions.hosting) resolveWorkflow(workflow)
         devWorkflow = resolveDevWorkflow()
@@ -442,7 +479,8 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
           }
           modules.push(...module.importers)
         }
-        const definitionFile = /\.(?:c|m)?[jt]s$/i.test(file) && /(?:\/workflows\/|\.workflow\.)/i.test(file)
+        // Agent files add Agent Workflows to the registry of OpenWorkflow.
+        const definitionFile = /\.(?:c|m)?[jt]s$/i.test(file) && /(?:\/workflows\/|\.workflow\.|\/agents\/|\.agent\.)/i.test(file)
         if (!definitionFile && !registryDependency) return
         const { changed } = await writeDevRegistry(rootDir, workflowConfig)
         await writeWorkflowTypes(rootDir, discoverWorkflowDevDefinitions(rootDir, serverDirs), internalOptions.importBase)
@@ -470,6 +508,7 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
     },
     async configResolved(config) {
       resolved = config
+      configPlugins = config.plugins
       providerOutput = useProviderOutputCatalog(config)
       // SAFETY: The framework adds optional forwarded server directories to resolved Vite configuration.
       const buildConfig = config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[], __vitehubWorkflowServerDirs?: string[] }
@@ -511,6 +550,8 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
         const vercel = startupBuild && devWorkflow && nitroOwnsVercelServer(config, workflow)
           ? await prepareVercelNitroRegistry(config)
           : undefined
+        vercelNativeEntry = vercel?.native === true
+        addVercelWorkflowWebhookRoute()
         await writeDevRegistry(devRootDir, startupBuild
           ? devWorkflow && (buildNeedsStartupRegistry() || vercel) ? devWorkflow : undefined
           : devWorkflow ?? false, vercel)
@@ -538,10 +579,10 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
         const options = resolveWorkflow(workflow)
         if (!options) return []
         const input = {
-          provider: options.provider,
-          defaultDatabase: options.provider === "openworkflow" && readPostgresDefaultDatabase(databasePlugin) === true,
-          ...(options.provider === "openworkflow" && options.postgres?.url !== undefined ? { postgresUrl: workflowDurabilityUrl(options.postgres.url) } : {}),
-          ...(options.provider === "openworkflow" && options.sqlite?.path !== undefined ? { sqlitePath: options.sqlite.path } : {}),
+          driver: options.driver,
+          defaultDatabase: options.driver === "openworkflow" && readPostgresDefaultDatabase(databasePlugin) === true,
+          ...(options.driver === "openworkflow" && options.postgres?.url !== undefined ? { postgresUrl: workflowDurabilityUrl(options.postgres.url) } : {}),
+          ...(options.driver === "openworkflow" && options.sqlite?.path !== undefined ? { sqlitePath: options.sqlite.path } : {}),
         }
         return [{ export: "workflowDurability", input, module: durabilityModuleFile(import.meta.url), primitive: "workflow" }]
       },
@@ -595,7 +636,14 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
       },
     },
     buildApp: providerOutputEnvironment.buildApp,
-    nitro: providerOutputEnvironment.nitro,
+    nitro: {
+      name: providerOutputEnvironment.nitro.name,
+      setup(nitro) {
+        providerOutputEnvironment.nitro.setup(nitro)
+        nitroOptions = nitro.options
+        addVercelWorkflowWebhookRoute()
+      },
+    },
     async buildStart() {
       // The Database integration can resolve its Definitions after this plugin wrote the startup plugin. Read them again,
       // and write the startup plugin again when the Default Database moved to or from Postgres.
@@ -775,4 +823,3 @@ export function hubWorkflow(options?: WorkflowOptions, internalOptions: Internal
     },
   }
 }
-

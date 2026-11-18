@@ -1,12 +1,18 @@
 import { viteHubSecretMinimumLength } from "@vite-hub/internal/secret"
 import { defineErrors } from "@vite-hub/runtime"
 
+import { invalidRuntimeEnvValue } from "./core/errors.ts"
+import { runtimeEnv } from "./internal/runtime-env.ts"
+import { createSealUses, deleteSealUses, takeSealUse } from "./seal-uses.ts"
 import { SecretEnv } from "./secret.ts"
 import { deriveSecret } from "./server.ts"
 
 import type { Result, ViteHubContext } from "@vite-hub/runtime"
 import type { StandardSchemaV1 } from "./schema.ts"
 import type { SealKey } from "./seal.ts"
+import type { SealUsesDatabase } from "./seal-uses.ts"
+
+export type { SealUsesDatabase } from "./seal-uses.ts"
 
 // Keep published codes stable. Explicit URLs also support runtimes that use anchor links.
 const sealErrors = /*#__PURE__*/ defineErrors({
@@ -21,12 +27,17 @@ const sealErrors = /*#__PURE__*/ defineErrors({
     ENV_SEAL_INVALID: {
       docs: "https://vitehub.dev/docs/env/diagnostics/env_seal_invalid",
       why: "The string is not a sealed value, someone changed it, or another root secret sealed it.",
-      fix: "Treat the string as untrusted and seal a new value. After a rotation of `VITEHUB_SECRET`, values sealed with the old secret do not open.",
+      fix: "Treat the string as untrusted and seal a new value. When you rotate `VITEHUB_SECRET`, put the old secret in `VITEHUB_SECRET_PREVIOUS`, so that values sealed with it still open until they expire.",
     },
     ENV_SEAL_SCHEMA_MISMATCH: {
       docs: "https://vitehub.dev/docs/env/diagnostics/env_seal_schema_mismatch",
       why: "The sealed value opened, but it does not match `schema`.",
       fix: "Read `error.cause` for the schema issues. A value sealed by an older deployment can have an older shape: seal a new value.",
+    },
+    ENV_SEAL_USED_UP: {
+      docs: "https://vitehub.dev/docs/env/diagnostics/env_seal_used_up",
+      why: "The sealed value was read as many times as its `uses` allow, so it is gone.",
+      fix: "Seal a new value. Give `seal()` more `uses` when several people or requests must read it.",
     },
     ENV_SEAL_WRONG_PURPOSE: {
       docs: "https://vitehub.dev/docs/env/diagnostics/env_seal_wrong_purpose",
@@ -38,22 +49,29 @@ const sealErrors = /*#__PURE__*/ defineErrors({
     ENV_SEAL_ARGUMENT_INVALID: {
       docs: "https://vitehub.dev/docs/env/diagnostics/env_seal_argument_invalid",
       why: ({ problem }: { problem: string }) => problem,
-      fix: "Pass a purpose such as \"my-app:upload\", a JSON value, a `ttl` in seconds, and a `secret` of at least 32 characters.",
+      fix: "Pass a purpose such as \"my-app:upload\", a JSON value, a `ttl` in seconds, `uses` as a positive integer with a `db`, and a `secret` of at least 32 characters, or a non-empty list of such secrets.",
     },
   },
 })
 
 /** The codes that `unseal()` returns. */
-export type UnsealErrorCode = "ENV_SEAL_EXPIRED" | "ENV_SEAL_INVALID" | "ENV_SEAL_SCHEMA_MISMATCH" | "ENV_SEAL_WRONG_PURPOSE"
+export type UnsealErrorCode = "ENV_SEAL_EXPIRED" | "ENV_SEAL_INVALID" | "ENV_SEAL_SCHEMA_MISMATCH" | "ENV_SEAL_USED_UP" | "ENV_SEAL_WRONG_PURPOSE"
 
 export interface UnsealOptions {
   /** The request, so that on Cloudflare the root secret comes from its bindings. Without it, the active request's bindings. */
   event?: ViteHubContext
   /**
    * A root secret to use instead of `VITEHUB_SECRET`, of at least 32 characters. Use one for values that you store,
-   * so that a rotation of `VITEHUB_SECRET` does not make them unreadable.
+   * so that a rotation of `VITEHUB_SECRET` does not make them unreadable. To rotate it, pass a list: the new secret
+   * first, then the old ones. `seal()` uses the first, and `unseal()` tries each in order.
    */
-  secret?: string | SecretEnv<string>
+  secret?: string | SecretEnv<string> | readonly (string | SecretEnv<string>)[]
+  /**
+   * The database that counts the uses of a value sealed with `uses`, such as `db` from `vite-hub/database`. `unseal()`
+   * needs it for such a value. SQLite, libSQL, and D1 work. It keeps a random id, the uses left, and the expiry, never
+   * the value.
+   */
+  db?: SealUsesDatabase
 }
 
 export interface UnsealSchemaOptions<T> extends UnsealOptions {
@@ -64,6 +82,11 @@ export interface UnsealSchemaOptions<T> extends UnsealOptions {
 export interface SealOptions extends UnsealOptions {
   /** Seconds until `unseal()` returns `ENV_SEAL_EXPIRED`. Without it, the value does not expire. */
   ttl?: number
+  /**
+   * How many times `unseal()` can read the value. Each read takes one use atomically in `db`, so of two reads of the last
+   * use, one gets the value and the other gets `ENV_SEAL_USED_UP`. Without it, the value opens any number of times.
+   */
+  uses?: number
 }
 
 /** Derives the key of a purpose. The generated `#vitehub/env/server` module passes one that also reads the development secret. */
@@ -76,8 +99,11 @@ export interface Sealing {
 }
 
 const version = 1
+// A value with `uses` adds the 16-byte id of its row in `db` to the header.
+const countedVersion = 2
 // version (1 byte) + purpose fingerprint (4) + expiry in Unix milliseconds, 0 for none (8)
 const headerLength = 13
+const idLength = 16
 const ivLength = 12
 const tagLength = 16
 const encoder = new TextEncoder()
@@ -116,13 +142,34 @@ function checkJsonValue(value: unknown, ancestors = new Set<object>()): void {
   ancestors.delete(value)
 }
 
-function rootSecret(secret: UnsealOptions["secret"]): string | undefined {
-  if (secret === undefined) return undefined
+function rootSecret(secret: string | SecretEnv<string>): string {
   const value = secret instanceof SecretEnv ? secret.unseal() : secret
   if (typeof value !== "string" || value.length < viteHubSecretMinimumLength) {
-    argumentError(`\`secret\` must be a string of at least ${viteHubSecretMinimumLength} characters.`)
+    argumentError(`\`secret\` must be a string of at least ${viteHubSecretMinimumLength} characters, or a non-empty list of them.`)
   }
   return value
+}
+
+/**
+ * The root secrets in order: the one that seals first, then the old ones that `unseal()` also tries. `undefined` is
+ * `VITEHUB_SECRET` (or the development secret). Only `unseal()` passes `previous`, to add `VITEHUB_SECRET_PREVIOUS`.
+ */
+function rootSecrets(options: UnsealOptions, previous: boolean): (string | undefined)[] {
+  const { secret } = options
+  if (secret === undefined) return previous ? [undefined, ...previousSecrets(options.event)] : [undefined]
+  const list = typeof secret === "string" || secret instanceof SecretEnv ? [secret] : secret
+  if (!Array.isArray(list) || !list.length) argumentError("`secret` must be a string, a Secret Env value, or a non-empty list of them.")
+  return list.map(rootSecret)
+}
+
+function previousSecrets(event: ViteHubContext | undefined): string[] {
+  const value = runtimeEnv(event).VITEHUB_SECRET_PREVIOUS
+  if (typeof value !== "string") return []
+  const secrets = value.split(",").map(secret => secret.trim()).filter(Boolean)
+  if (secrets.some(secret => secret.length < viteHubSecretMinimumLength)) {
+    throw invalidRuntimeEnvValue("env", `Each secret in VITEHUB_SECRET_PREVIOUS must be at least ${viteHubSecretMinimumLength} characters. Separate old secrets with a comma.`, "VITEHUB_SECRET_PREVIOUS")
+  }
+  return secrets
 }
 
 function toBase64Url(bytes: Uint8Array): string {
@@ -143,12 +190,22 @@ function fromBase64Url(text: string): Uint8Array<ArrayBuffer> | undefined {
   }
 }
 
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("")
+}
+
+function usesDatabase(db: unknown, problem: string): SealUsesDatabase {
+  if (typeof db !== "object" || db === null || typeof Reflect.get(db, "all") !== "function") argumentError(problem)
+  // SAFETY: the check above found the `all()` method that SealUsesDatabase needs.
+  return db as SealUsesDatabase
+}
+
 async function fingerprint(purpose: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(purpose))).slice(0, 4)
 }
 
-async function purposeKey(derive: SealSecretDerivation, purpose: string, options: UnsealOptions, usage: "decrypt" | "encrypt"): Promise<SealKey> {
-  const hex = await derive(`vitehub:seal:${purpose}`, options.event, rootSecret(options.secret))
+async function purposeKey(derive: SealSecretDerivation, purpose: string, event: ViteHubContext | undefined, root: string | undefined, usage: "decrypt" | "encrypt"): Promise<SealKey> {
+  const hex = await derive(`vitehub:seal:${purpose}`, event, root)
   const raw = Uint8Array.from(hex.match(/../g)!, byte => Number.parseInt(byte, 16))
   return await crypto.subtle.importKey("raw", raw, "AES-GCM", false, [usage])
 }
@@ -162,6 +219,11 @@ export function createSealing(derive: SealSecretDerivation): Sealing {
       if (ttl !== undefined && (typeof ttl !== "number" || !Number.isFinite(ttl) || ttl <= 0)) {
         argumentError("`ttl` must be a positive number of seconds.")
       }
+      const { uses, db } = options
+      if (uses !== undefined && (typeof uses !== "number" || !Number.isSafeInteger(uses) || uses < 1)) {
+        argumentError("`uses` must be a positive integer.")
+      }
+      const usesDb = uses === undefined ? undefined : usesDatabase(db, "`uses` needs a `db`, such as `db` from `vite-hub/database`, that every instance of the app shares.")
       checkJsonValue(value)
       let json: string | undefined
       try {
@@ -171,56 +233,77 @@ export function createSealing(derive: SealSecretDerivation): Sealing {
         argumentError(`\`value\` cannot be serialized as JSON: ${cause instanceof Error ? cause.message : String(cause)}`)
       }
       if (json === undefined) argumentError("`value` must be a JSON value, not undefined or a function.")
+      const [root] = rootSecrets(options, false)
 
-      const header = new Uint8Array(headerLength)
-      header[0] = version
+      const expiresAt = ttl === undefined ? 0 : Date.now() + ttl * 1000
+      const header = new Uint8Array(uses === undefined ? headerLength : headerLength + idLength)
+      header[0] = uses === undefined ? version : countedVersion
       header.set(await fingerprint(purpose), 1)
-      new DataView(header.buffer).setFloat64(5, ttl === undefined ? 0 : Date.now() + ttl * 1000)
+      new DataView(header.buffer).setFloat64(5, expiresAt)
+      if (uses !== undefined && usesDb) {
+        const id = crypto.getRandomValues(new Uint8Array(idLength))
+        header.set(id, headerLength)
+        await createSealUses(usesDb, toHex(id), uses, expiresAt || undefined)
+      }
       const iv = crypto.getRandomValues(new Uint8Array(ivLength))
       const ciphertext = new Uint8Array(await crypto.subtle.encrypt(
         { name: "AES-GCM", iv, additionalData: header },
-        await purposeKey(derive, purpose, options, "encrypt"),
+        await purposeKey(derive, purpose, options.event, root, "encrypt"),
         encoder.encode(json),
       ))
-      const sealed = new Uint8Array(headerLength + ivLength + ciphertext.length)
+      const sealed = new Uint8Array(header.length + ivLength + ciphertext.length)
       sealed.set(header)
-      sealed.set(iv, headerLength)
-      sealed.set(ciphertext, headerLength + ivLength)
+      sealed.set(iv, header.length)
+      sealed.set(ciphertext, header.length + ivLength)
       return toBase64Url(sealed)
     },
 
     async unseal(purpose, sealed, options = {}) {
       checkPurpose(purpose)
       // Derive first, so that a missing root secret throws for every input.
-      const key = await purposeKey(derive, purpose, options, "decrypt")
+      const [current, ...previous] = rootSecrets(options, true)
+      const key = await purposeKey(derive, purpose, options.event, current, "decrypt")
       const bytes = typeof sealed === "string" ? fromBase64Url(sealed) : undefined
-      if (!bytes || bytes.length < headerLength + ivLength + tagLength || bytes[0] !== version) {
+      const counted = bytes?.[0] === countedVersion
+      const length = counted ? headerLength + idLength : headerLength
+      if (!bytes || bytes.length < length + ivLength + tagLength || (bytes[0] !== version && !counted)) {
         return [sealErrors.ENV_SEAL_INVALID(), undefined]
       }
-      const header = bytes.subarray(0, headerLength)
+      const header = bytes.subarray(0, length)
       const expected = await fingerprint(purpose)
       if (expected.some((byte, index) => header[1 + index] !== byte)) {
         return [sealErrors.ENV_SEAL_WRONG_PURPOSE({ purpose }), undefined]
       }
-      let plaintext: ArrayBuffer
-      try {
-        plaintext = await crypto.subtle.decrypt(
-          { name: "AES-GCM", iv: bytes.subarray(headerLength, headerLength + ivLength), additionalData: header },
-          key,
-          bytes.subarray(headerLength + ivLength),
-        )
+      const decrypt = (candidate: SealKey) => crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: bytes.subarray(length, length + ivLength), additionalData: header },
+        candidate,
+        bytes.subarray(length + ivLength),
+      ).catch(() => undefined)
+      // Try the current secret, then each previous secret in order, so that values sealed before a rotation still open.
+      let plaintext = await decrypt(key)
+      for (const root of previous) {
+        if (plaintext) break
+        plaintext = await decrypt(await purposeKey(derive, purpose, options.event, root, "decrypt"))
       }
-      catch {
-        return [sealErrors.ENV_SEAL_INVALID(), undefined]
-      }
+      if (!plaintext) return [sealErrors.ENV_SEAL_INVALID(), undefined]
+      // Require the database only after authenticating the counted header.
+      const db = counted ? usesDatabase(options.db, "This value was sealed with `uses`. Pass the same `db` to `unseal()`, so that it can take a use.") : undefined
       // Check the expiry after decryption, so that a changed expiry reads as ENV_SEAL_INVALID.
       const expiresAt = new DataView(header.buffer, header.byteOffset).getFloat64(5)
-      if (expiresAt !== 0 && Date.now() >= expiresAt) return [sealErrors.ENV_SEAL_EXPIRED({ expiresAt }), undefined]
-      const value: unknown = JSON.parse(new TextDecoder().decode(plaintext))
-      if (!options.schema) return [undefined, value]
-      const result = await options.schema["~standard"].validate(value)
-      if (result.issues) return [sealErrors.ENV_SEAL_SCHEMA_MISMATCH({ cause: result.issues }), undefined]
-      return [undefined, result.value]
+      const id = db && toHex(header.subarray(headerLength))
+      if (expiresAt !== 0 && Date.now() >= expiresAt) {
+        if (db && id) await deleteSealUses(db, id)
+        return [sealErrors.ENV_SEAL_EXPIRED({ expiresAt }), undefined]
+      }
+      let value: unknown = JSON.parse(new TextDecoder().decode(plaintext))
+      if (options.schema) {
+        const result = await options.schema["~standard"].validate(value)
+        if (result.issues) return [sealErrors.ENV_SEAL_SCHEMA_MISMATCH({ cause: result.issues }), undefined]
+        value = result.value
+      }
+      // Take the use last, so that a value that does not open or does not match the schema keeps its uses.
+      if (db && id && !(await takeSealUse(db, id))) return [sealErrors.ENV_SEAL_USED_UP(), undefined]
+      return [undefined, value]
     },
   }
 }
@@ -242,7 +325,8 @@ export function seal(purpose: string, value: unknown, options?: SealOptions): Pr
 /**
  * Reads a value from `seal()`. Returns `[error, undefined]` with `ENV_SEAL_EXPIRED`, `ENV_SEAL_INVALID`,
  * `ENV_SEAL_SCHEMA_MISMATCH`, or `ENV_SEAL_WRONG_PURPOSE`, else `[undefined, value]`. Pass `schema` to check the value
- * and type it. Throws when no root secret is set.
+ * and type it. It tries `VITEHUB_SECRET`, then each old secret in `VITEHUB_SECRET_PREVIOUS` (comma-separated), so
+ * values sealed before a rotation still open. Throws when no root secret is set.
  *
  * @example
  * const [error, upload] = await unseal("my-app:upload", ticket, { schema: v.object({ userId: v.string() }) })

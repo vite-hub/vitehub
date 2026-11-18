@@ -29,6 +29,7 @@ export function isChannelSimulated(kind: string): boolean {
  *
  * `@chat-adapter/web` names itself `web` and prefixes its thread ids with `web:`. Two simulated Channels would then
  * share one adapter name, so each one gets the Channel kind as its name and thread prefix.
+ * Remove when `@chat-adapter/web` takes a name (https://github.com/vercel/chat/issues/1179).
  */
 export async function createSimulatedChatAdapter(kind: string): Promise<Adapter> {
   const [{ createWebAdapter }, { AsyncLocalStorage }] = await Promise.all([import("@chat-adapter/web"), import("node:async_hooks")])
@@ -45,7 +46,8 @@ export async function createSimulatedChatAdapter(kind: string): Promise<Adapter>
   adapter.encodeThreadId = data => `${prefix}${encode(data).slice("web:".length)}`
 
   // The web adapter keeps the request of a reply in an AsyncLocalStorage. A StackBlitz WebContainer loses that store
-  // after the first `await`, so `postMessage()` and `stream()` would not find the request. Take a snapshot of the
+  // after the first `await` (https://github.com/stackblitz/webcontainer-core/issues/1169), so `postMessage()` and
+  // `stream()` would not find the request. Take a snapshot of the
   // request context when the adapter gives the message to Chat. Bind it to that message's adapter, so overlapping
   // requests for the same conversation cannot overwrite each other's context. The Invocation owns its lifetime.
   const initialize = adapter.initialize.bind(adapter)

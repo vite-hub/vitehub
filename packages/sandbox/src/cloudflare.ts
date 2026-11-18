@@ -20,6 +20,13 @@ import { markBuiltInSandboxRuntime } from "./internal/runtime.ts";
 import { killOnAbort } from "./internal/abortable.ts";
 import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
 import { cloudflareSignalNumber, type CloudflareSandboxDurableObject } from "./internal/cloudflare-durable-object.ts";
+import {
+  cloudflareInterceptedHttpsEnv,
+  normalizeCloudflareNetworkPolicy,
+  sandboxNetworkAuthority,
+  type NormalizedSandboxNetworkPolicy,
+  type SandboxNetworkPolicy,
+} from "./internal/network-policy.ts";
 
 export interface CloudflareSandboxOptions {
   cloudflare?: {
@@ -34,6 +41,11 @@ export interface CloudflareSandboxOptions {
   ) => CloudflareSandboxStub;
   hostname?: string;
   namespace: CloudflareDurableObjectNamespace;
+  /**
+   * Outbound network of the Container. Default `"allow-all"`. The policy applies when the Container starts.
+   * A Sandbox that runs with another policy restarts. Not available with a custom `getSandbox`.
+   */
+  networkPolicy?: SandboxNetworkPolicy;
   sandboxId?: string;
 }
 
@@ -106,33 +118,37 @@ const cloudflareExecutionAuthority = {
   processes: "arbitrary",
 } as const satisfies ExecutionAuthority;
 
-// The built-in Durable Object starts every Container with `enableInternet: true`.
-const builtInCloudflareExecutionAuthority = {
-  ...cloudflareExecutionAuthority,
-  network: "unrestricted",
-} as const satisfies ExecutionAuthority;
-
 export function createCloudflareRuntime(options: CloudflareSandboxOptions): SandboxRuntime {
   if (!options?.namespace)
     throw sandboxErrorDiagnostics.SANDBOX_R0020({ message: "[vitehub] The cloudflare Sandbox runtime requires a Durable Objects namespace." });
+  const networkPolicy = normalizeCloudflareNetworkPolicy(options.networkPolicy);
+  if (options.getSandbox && options.networkPolicy !== undefined)
+    throw sandboxErrorDiagnostics.SANDBOX_NETWORK_POLICY_INVALID({ problem: "A custom getSandbox starts the Container, so ViteHub cannot apply networkPolicy." });
+  // The built-in Durable Object starts the Container with this policy. A custom `getSandbox` decides the network itself.
+  const executionAuthority = options.getSandbox
+    ? cloudflareExecutionAuthority
+    : { ...cloudflareExecutionAuthority, network: sandboxNetworkAuthority(networkPolicy) };
+  // Allowed HTTPS hosts reach the command through Cloudflare's interception CA.
+  const commandEnv = typeof networkPolicy === "object" ? cloudflareInterceptedHttpsEnv : {};
   return markBuiltInSandboxRuntime({
     name: "cloudflare",
     async prepare(input) {
-      return remoteSandboxPlan(input, {
-        // A custom `getSandbox` decides the Container network itself.
-        executionAuthority: options.getSandbox ? cloudflareExecutionAuthority : builtInCloudflareExecutionAuthority,
-        runtime: "cloudflare",
-      });
+      return remoteSandboxPlan(input, { executionAuthority, runtime: "cloudflare" });
     },
     async open(input, openOptions) {
-      const env = await resolveRemoteEnvironment(input, {});
+      const env = { ...commandEnv, ...await resolveRemoteEnvironment(input, {}) };
       const id = openOptions?.id ?? options.sandboxId ?? `vitehub-${crypto.randomUUID()}`;
-      const getSandbox = options.getSandbox ?? getCloudflareSandbox;
-      const stub = getSandbox(options.namespace, id, options.cloudflare);
+      const stub = options.getSandbox
+        ? options.getSandbox(options.namespace, id, options.cloudflare)
+        : getCloudflareSandbox(options.namespace, id, options.cloudflare, networkPolicy);
       const runtimeSession = createCloudflareSession(id, stub, env, options.hostname, !options.getSandbox);
       return await openRemoteSandbox(input, runtimeSession, {
         executionAuthority: openOptions.executionAuthority,
         initialize: openOptions?.initialize,
+        // A new Container starts empty. One with the same ID can serve other sessions right now,
+        // so opening must not delete their files. A checkout still needs an empty workspace.
+        preserveHome: true,
+        preserveWorkspace: !input.checkout,
         runtime: "cloudflare",
         signal: openOptions?.signal,
       }, env);
@@ -148,12 +164,13 @@ function getCloudflareSandbox(
   namespace: CloudflareDurableObjectNamespace,
   id: string,
   options: CloudflareSandboxOptions["cloudflare"] = {},
+  networkPolicy: NormalizedSandboxNetworkPolicy = "allow-all",
 ): CloudflareSandboxStub {
   // SAFETY: the namespace binds the generated class, whose RPC methods implement CloudflareSandboxDurableObject.
   const target = namespace.get(namespace.idFromName(options.normalizeId ? id.toLowerCase() : id)) as CloudflareSandboxDurableObject;
   let configured: Promise<void> | undefined;
   const ready = async () => {
-    configured ??= target.configure({ keepAlive: options.keepAlive, sleepAfter: options.sleepAfter })
+    configured ??= target.configure({ keepAlive: options.keepAlive, networkPolicy, sleepAfter: options.sleepAfter })
       .catch((error: unknown) => {
         configured = undefined;
         throw error;
@@ -209,18 +226,29 @@ function createCloudflareSession(
   }, idempotent = false) => {
     const timeout = options.timeout ?? cloudflareExecTimeout;
     const execId = crypto.randomUUID();
-    const result = await abortable(
-      request("exec", { idempotent, timeout }, async () => await stub.exec(options.command, {
-        cwd: options.workingDirectory ?? "/workspace",
-        env: { ...baseEnv, ...options.env },
-        id: execId,
-        timeout,
-      })),
-      options.abortSignal,
-      // Stop only this command. The Sandbox and its other processes keep running.
-      () => request("cancelExec", { idempotent: true, timeout: cloudflareStopTimeout }, async () => await stub.cancelExec(execId)),
-    );
-    return { exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout };
+    const executions: Array<ReturnType<CloudflareSandboxStub["exec"]>> = [];
+    try {
+      const result = await abortable(
+        request("exec", { idempotent, timeout }, async () => {
+          const execution = stub.exec(options.command, {
+            cwd: options.workingDirectory ?? "/workspace",
+            env: { ...baseEnv, ...options.env },
+            id: execId,
+            timeout,
+          });
+          executions.push(execution);
+          return await execution;
+        }),
+        options.abortSignal,
+        // Stop only this command. The Sandbox and its other processes keep running.
+        () => request("cancelExec", { idempotent: true, timeout: cloudflareStopTimeout }, async () => await stub.cancelExec(execId)),
+      );
+      return { exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout };
+    } finally {
+      // Cancellation must acknowledge exit before invocation cleanup or same-ID reuse.
+      // A transport deadline must still bound an unresponsive RPC.
+      if (options.abortSignal?.aborted) await Promise.allSettled(executions);
+    }
   };
   return {
     defaultWorkingDirectory: "/workspace",
@@ -477,18 +505,18 @@ async function abortable<T>(
   return await new Promise<T>((resolve, reject) => {
     const onAbort = () => {
       signal.removeEventListener("abort", onAbort);
-      reject(signal.reason);
-      if (abort) void abort().catch(() => undefined);
+      if (abort) void abort().catch(() => undefined).then(() => reject(signal.reason));
+      else reject(signal.reason);
     };
     signal.addEventListener("abort", onAbort, { once: true });
     void operation.then(
       (value) => {
         signal.removeEventListener("abort", onAbort);
-        resolve(value);
+        if (!signal.aborted) resolve(value);
       },
       (error) => {
         signal.removeEventListener("abort", onAbort);
-        reject(error);
+        if (!signal.aborted) reject(error);
       },
     );
   });

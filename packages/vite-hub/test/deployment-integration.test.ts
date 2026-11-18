@@ -5,7 +5,7 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { createBuilder, resolveConfig } from "vite"
-import { describe, expect, it, onTestFinished } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { getDeploymentHost, VITEHUB_ENV_SERVER, VITEHUB_FEATURES } from "@vite-hub/internal/build/vite"
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
@@ -15,6 +15,29 @@ import { vitehub } from "../src/index.ts"
 
 
 describe("built-in host integration", () => {
+  // The host checks run before the owners read their options. A host without the service, such as Rate Limit on Vercel
+  // or Sandbox on Node, stopped with INTERNAL_R0002 and hid the rename.
+  it.each(["cloudflare", "node", "vercel"] as const)("rejects old provider keys before %s driver inference", async (host) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-old-provider-"))
+    onTestFinished(() => rm(root, { force: true, maxRetries: 5, recursive: true }))
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "old-provider-test", type: "module" }))
+    for (const feature of ["queue", "rateLimit", "sandboxTask"] as const) {
+      const options = { host, env: false, blob: false, workflow: false, queue: false, rateLimit: false }
+      // SAFETY: An app config without types still passes the former key.
+      expect(() => vitehub({ ...options, [feature]: { provider: "vercel" } } as never))
+        .toThrow(expect.objectContaining({ code: "VITE_HUB_RENAMED_PROVIDER_KEY", fix: expect.stringContaining(`${feature}: { driver: "vercel" }`) }))
+      if (host === "node") continue
+      for (const command of ["build", "serve"] as const) {
+        await expect(resolveConfig({
+          configFile: false,
+          root,
+          // SAFETY: An app config without types still passes the former key next to `driver`.
+          plugins: [vitehub({ ...options, [feature]: { provider: "vercel", driver: feature === "rateLimit" && host === "vercel" ? "memory" : host } } as never)],
+        }, command)).resolves.toBeTruthy()
+      }
+    }
+  }, 30_000)
+
   it.each([undefined, "custom-output"])(
     "inspects deployment output from a separate Nitro root with output %s",
     async (outputDir) => {
@@ -65,8 +88,11 @@ describe("built-in host integration", () => {
   })
 
   it.each([undefined, true, false] as const)("checks server/agents against agent %s", async (agent) => {
+    vi.stubEnv("VITEST", undefined)
+    onTestFinished(() => { vi.unstubAllEnvs() })
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-"))
-    onTestFinished(() => rm(root, { force: true, recursive: true }))
+    // Vite rejects at the first failed configResolved hook while the other hooks still write type files, so retry.
+    onTestFinished(() => rm(root, { force: true, maxRetries: 5, recursive: true }))
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "labeller.ts"), "export default {}\n")
     const resolve = () => resolveConfig({
@@ -82,6 +108,30 @@ describe("built-in host integration", () => {
     }
     if (agent === undefined) await expect(resolve()).rejects.toMatchObject({ code: "VITE_HUB_AGENT_OPTION_MISSING", message: expect.stringContaining("server/agents/labeller.ts defines an Agent") })
     else await expect(resolve()).resolves.toBeTruthy()
+  })
+
+  it.each([
+    { vitest: undefined, command: "build", mode: "production" },
+    { vitest: undefined, command: "build", mode: "test" },
+    { vitest: undefined, command: "serve", mode: "test" },
+    { vitest: "true", command: "serve", mode: "test" },
+    { vitest: "true", command: "serve", mode: "integration" },
+  ] as const)("checks missing agent with Vitest=$vitest, command=$command, mode=$mode", async ({ vitest, command, mode }) => {
+    vi.stubEnv("VITEST", vitest)
+    onTestFinished(() => { vi.unstubAllEnvs() })
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-test-"))
+    // Vite rejects at the first failed configResolved hook while the other hooks still write type files, so retry.
+    onTestFinished(() => rm(root, { force: true, maxRetries: 5, recursive: true }))
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "labeller.ts"), "export default {}\n")
+    const config = resolveConfig({
+      configFile: false,
+      mode,
+      root,
+      plugins: [vitehub({ host: "node", blob: false, env: false, queue: false, rateLimit: false, workflow: false })],
+    }, command)
+    if (vitest) await expect(config).resolves.toBeTruthy()
+    else await expect(config).rejects.toMatchObject({ code: "VITE_HUB_AGENT_OPTION_MISSING" })
   })
 
   it("applies deployment-owned Nitro configuration only during build", async () => {
@@ -286,7 +336,7 @@ describe("built-in host integration", () => {
       }, "build")
       expect(config.root).toBe(appRoot)
       expect(config).toMatchObject({
-        [VITEHUB_FEATURES]: { blob: { bucketName: "application-root", driver: "cloudflare-r2" }, queue: { namePrefix: "application-root-", provider: "cloudflare" }, rateLimit: { namespace: "application-root", provider: "cloudflare" }, sandboxTask: { name: "application-root-sandbox", provider: "cloudflare" } },
+        [VITEHUB_FEATURES]: { blob: { bucketName: "application-root", driver: "cloudflare" }, queue: { namePrefix: "application-root-", driver: "cloudflare" }, rateLimit: { namespace: "application-root", driver: "cloudflare" }, sandboxTask: { name: "application-root-sandbox", driver: "cloudflare" } },
         nitro: { cloudflare: { wrangler: {
           name: "application-root",
           r2_buckets: [{ binding: "BLOB", bucket_name: "application-root" }],
@@ -515,6 +565,7 @@ describe("built-in host integration", () => {
         { path: "env.server.direct", names: ["DIRECT_URL"], required: false, secret: false, hasDefault: false },
         { names: ["VITEHUB_SECRET"], required: false, secret: true, hasDefault: false, owners: ["env"] },
       ])
+      expect(JSON.parse(text).envDir).toBe("..")
       expect(text).not.toContain(canary)
       expect(text).not.toContain("github/token")
     }
@@ -550,7 +601,7 @@ describe("built-in host integration", () => {
       const builder = await createBuilder({
         logLevel: "silent",
         root,
-        plugins: [vitehub({ console: true, database: { driver: "d1" }, host: "cloudflare", queue: false, rateLimit: false }), nitro() as never],
+        plugins: [vitehub({ console: true, database: { driver: "cloudflare" }, host: "cloudflare", queue: false, rateLimit: false }), nitro() as never],
       } as Parameters<typeof createBuilder>[0])
       await builder.buildApp()
 
@@ -605,6 +656,55 @@ describe("built-in host integration", () => {
         { names: ["TURSO_AUTH_TOKEN"], required: true, secret: true, hasDefault: false, owners: ["database"] },
         { names: ["VITEHUB_SECRET"], required: false, secret: true, hasDefault: false, owners: ["env"] },
         { names: ["BLOB_STORE_ID", "BLOB_READ_WRITE_TOKEN"], required: true, secret: true, hasDefault: false, owners: ["blob"] },
+      ])
+      expect(text).not.toContain(canary)
+    }
+    finally {
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 120_000)
+
+  it("writes the names that Queue, Realtime, and Workflow read on a Node server, never values", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-primitive-names-node-"))
+    const canary = "canary-value-node-3f7a0c19d25e"
+    const variables = { QUEUE_POSTGRES_URL: `postgres://${canary}@db.example.com/jobs`, REDIS_URL: `redis://${canary}@cache.example.com` }
+    const previous = Object.fromEntries(Object.keys(variables).map(name => [name, process.env[name]]))
+    Object.assign(process.env, variables)
+    try {
+      await mkdir(join(root, "server", "routes"), { recursive: true })
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "index.html"), "<main>ok</main>\n")
+      await writeFile(join(root, "server", "routes", "index.ts"), "export default () => 'ok'\n")
+      const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
+      const builder = await createBuilder({
+        logLevel: "silent",
+        root,
+        plugins: [vitehub({
+          host: "node",
+          blob: false,
+          queue: { driver: "postgres" },
+          rateLimit: false,
+          realtime: { driver: "redis" },
+          workflow: { driver: "openworkflow" },
+        }), nitro() as never],
+      } as Parameters<typeof createBuilder>[0])
+      await builder.buildApp()
+
+      const text = await readFile(join(root, ".output", "deployment.json"), "utf8")
+      const owned = (JSON.parse(text) as { env: Array<{ owners?: string[] }> }).env.filter(entry => entry.owners?.some(owner => ["queue", "realtime", "workflow"].includes(owner)))
+      expect(owned).toEqual([
+        { names: ["REDIS_URL"], required: true, secret: true, hasDefault: false, owners: ["realtime"] },
+        { names: ["REALTIME_NAMESPACE"], required: false, secret: false, hasDefault: true, owners: ["realtime"] },
+        { names: ["OPENWORKFLOW_SQLITE_PATH"], required: false, secret: false, hasDefault: true, owners: ["workflow"] },
+        { names: ["OPENWORKFLOW_POSTGRES_URL", "DATABASE_URL"], required: false, secret: true, hasDefault: true, owners: ["workflow"] },
+        { names: ["OPENWORKFLOW_NAMESPACE_ID"], required: false, secret: false, hasDefault: true, owners: ["workflow"] },
+        { names: ["OPENWORKFLOW_SCHEMA"], required: false, secret: false, hasDefault: true, owners: ["workflow"] },
+        // Realtime and Workflow plugins run with `enforce: "pre"`, so the Queue entry comes last.
+        { names: ["QUEUE_POSTGRES_URL"], required: true, secret: true, hasDefault: false, owners: ["queue"] },
       ])
       expect(text).not.toContain(canary)
     }
@@ -695,7 +795,7 @@ describe("built-in host integration", () => {
           },
         },
         root,
-        plugins: [vitehub({ database: { driver: "d1" }, host: "cloudflare" }), nitro() as never],
+        plugins: [vitehub({ database: { driver: "cloudflare" }, host: "cloudflare" }), nitro() as never],
       } as Parameters<typeof createBuilder>[0])
       await builder.buildApp()
 

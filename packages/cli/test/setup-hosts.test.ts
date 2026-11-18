@@ -60,7 +60,8 @@ const developerInputs: Record<string, readonly string[]> = {
   "blob.driver": ["--option", "blob.driver=s3", "--option", "blob.bucket=app-assets"],
   "console.auth": ["--option", "console.auth=false"],
   "database.connection": ["--option", "database.connection.url=libsql://example.com"],
-  "workspace.store": ["--option", "workspace.store.provider=github", "--option", "workspace.store.repository=owner/repo"],
+  "sandboxTask.driver": ["--option", "sandboxTask.driver=vercel"],
+  "workspace.store": ["--option", "workspace.store.driver=github", "--option", "workspace.store.repository=owner/repo"],
 }
 
 type AddResult = SetupAddPlan & { error?: SetupError, missing?: SetupMissing[], rerun?: string }
@@ -194,11 +195,13 @@ describe.each(forms)("setup commands on $host ($framework)", (form) => {
         results[id] = `skipped: ${status.enabled} by ${status.reason}`
         continue
       }
-      // A real app has the packages of its enabled features, so `remove` keeps only what `add` installed.
-      const on = before.filter(item => item.enabled === "on").map(item => features[item.id])
+      // A real app has the packages of its enabled features, so `remove` keeps only what `add` installed. The fixture
+      // declares no package, so `missingPackages` lists all of them, also the SDKs of the host, such as `@vercel/queue`.
+      const on = before.filter(item => item.enabled === "on")
       const declared = (names: string[]) => Object.fromEntries(names.map(name => [name, "1.0.0"]))
-      const prod = declared(on.flatMap(item => item.packages))
-      const dev = declared(on.flatMap(item => item.devPackages))
+      const devNames = new Set(on.flatMap(item => features[item.id].devPackages))
+      const prod = declared(on.flatMap(item => item.missingPackages).filter(name => !devNames.has(name)))
+      const dev = declared([...devNames])
       await writeFile(join(root, "package.json"), JSON.stringify({ name: "my-app", type: "module", ...(Object.keys(prod).length ? { dependencies: prod } : {}), ...(Object.keys(dev).length ? { devDependencies: dev } : {}) }))
       const original = await snapshot(root)
       const pm = fakePackageManager(root)

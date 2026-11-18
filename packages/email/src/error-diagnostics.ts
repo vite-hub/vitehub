@@ -41,9 +41,27 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ driver }: { driver: string }) => `The ${driver} Email provider rate limited the request.`,
       fix: "Retry later with backoff, for example from a Queue.",
     },
+    EMAIL_TEMPLATE_RENDER_FAILED: {
+      why: ({ template }: { template: string }) => `Email template "${template}" could not render with the \`data\` of this message.`,
+      fix: "Read `error.cause` for the binding that failed. Pass a string, number, or boolean for each `{{ data.* }}` binding, and a string for each `:insert` binding.",
+    },
     EMAIL_TIMEOUT: {
       why: ({ driver }: { driver: string }) => `Email delivery through ${driver} timed out.`,
       fix: "The provider can have accepted the message. Check its delivery logs, or retry with the same `idempotencyKey`.",
+    },
+
+    // Operation errors. The `email.*` operations and `vitehub email preview` throw them with an HTTP status.
+    EMAIL_OUTBOX_DISABLED: {
+      why: "The Email development outbox is disabled.",
+      fix: "Remove `email.outbox: false` to capture messages in `vite dev`.",
+    },
+    EMAIL_OUTBOX_MESSAGE_NOT_FOUND: {
+      why: "Outbox message was not found. The outbox keeps only recent messages and a restart clears it.",
+      fix: "Run `vitehub email outbox list` for the ids that the outbox holds.",
+    },
+    EMAIL_TEMPLATE_NOT_FOUND: {
+      why: ({ available, roots, template }: { available: string, roots: string, template: string }) => `Email template "${template}" was not found in ${roots}. ${available ? `Templates: ${available}.` : "No templates were found."}`,
+      fix: "Pass the path under server/emails without `.md`, for example `welcome` for `server/emails/welcome.md`.",
     },
 
     // Config errors. Email throws them because the code or the deployment must change.
@@ -64,7 +82,7 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Rename or remove one of the two Markdown files under `server/emails`.",
     },
     EMAIL_HOST_UNSUPPORTED: {
-      why: "The \"cloudflare-email\" driver needs a Cloudflare host.",
+      why: "The \"cloudflare\" driver needs a Cloudflare host.",
       fix: "Deploy to Cloudflare, or use the \"resend\" driver.",
     },
     EMAIL_INVALID_OUTBOX: {
@@ -92,8 +110,12 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Read the value with `env.source()`, for example `env({ secret: true, source: env.source('RESEND_API_KEY') })`.",
     },
     EMAIL_UNKNOWN_DRIVER: {
-      why: "The Email `driver` must be \"resend\" or \"cloudflare-email\".",
-      fix: "Set `email: { driver: 'resend' }` or `email: { driver: 'cloudflare-email' }`.",
+      why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
+        ? `\`email.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`
+        : `The Email \`driver\` is ${driver}. It must be "resend", "cloudflare", or "log".`,
+      fix: ({ renamed }: { driver: string, renamed?: string }) => renamed
+        ? `Set \`email: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
+        : "Set `email: { driver: 'resend' }` or `email: { driver: 'cloudflare' }`. Set `email: { driver: 'log' }` to print messages and send nothing.",
     },
 
     // Tool errors.

@@ -1,0 +1,188 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec"
+
+import type { SyncKey } from "./protocol.ts"
+
+/**
+ * The caller of a Sync request. `user` comes from `identify` when the definition has it, else from ViteHub Auth when the
+ * app has it, else it is `null`. `session` is the ViteHub Auth session, or `null`.
+ */
+export interface SyncContext {
+  request: Request
+  user: SyncUser | null
+  session: unknown
+}
+
+export interface SyncUser {
+  id: string
+  email?: string | null
+  name?: string | null
+  [key: string]: unknown
+}
+
+/**
+ * Column values that every visible row has. A single value matches the column. An array matches any of its values, such
+ * as the teams of the caller: `{ teamId: user.teamIds }`.
+ */
+export type SyncWhereValues<TRow> = { [TColumn in keyof TRow]?: TRow[TColumn] | readonly TRow[TColumn][] }
+
+/**
+ * The rows the caller may see. Return column values that every visible row must have, such as `{ ownerId: user.id }`
+ * or `{ teamId: teamIds }`, `{}` for every row, or `false` to refuse the caller. The server filters reads with these
+ * values, writes the single values into inserts, and refuses writes that would leave them.
+ */
+export type SyncWhere<TRow> = (context: SyncContext) => SyncWhereValues<TRow> | false | Promise<SyncWhereValues<TRow> | false>
+
+/** The arguments of a `write` check. `row` is the row after the write, or the deleted row. */
+export type SyncWriteContext<TRow> = SyncContext & { op: "insert" | "update" | "delete", row: TRow }
+
+/** The rows of one Sync definition in an action. Reads see the table before the action's writes. */
+export interface SyncActionRows<TRow> {
+  /** The row with this key, when the caller may see it. */
+  get: (key: SyncKey) => Promise<TRow | undefined>
+  /** Adds a row and returns its key. Pass the key in `value` when the client made it, so the optimistic row keeps it. */
+  insert: (value: Partial<TRow>) => SyncKey
+  update: (key: SyncKey, patch: Partial<TRow>) => void
+  delete: (key: SyncKey) => void
+}
+
+/** The Drizzle row of a Sync name, as server code reads and writes it. */
+type SyncServerRowOf<TName extends string> = TName extends keyof ViteHubSyncMap ? InferSyncRow<ViteHubSyncMap[TName]> : Record<string, unknown>
+
+/**
+ * What an action gets. The writes run with the same rules as writes from the browser (`where`, `write`, `schema`), and
+ * they are applied together, in one atomic batch, after the action returns. Reads with `get()` see the table before the
+ * action's writes.
+ */
+export interface SyncActionContext<TRow> extends SyncContext, SyncActionRows<TRow> {
+  /**
+   * The rows of another Sync definition, such as `sync("comments").insert({ issueId, body })`. Its writes have the
+   * checks of that definition (`where`, `write`, `schema`) for the same caller, and they apply in the same batch as the
+   * other writes of the action, or none of them does.
+   */
+  sync: <TName extends SyncName>(name: TName) => SyncActionRows<SyncServerRowOf<TName>>
+  /**
+   * Refuses the action: no write applies, and the browser gets `SYNC_ACTION_REFUSED` with this message, such as
+   * `if (!card) refuse("The card was deleted.")`.
+   */
+  refuse: (message: string) => never
+}
+
+/**
+ * A named write that runs on the server, such as `complete` or `rate`. Annotate `args`, so the browser call is typed:
+ * `complete: async ({ update }, { id }: { id: string }) => update(id, { done: true })`. `args` come from the browser:
+ * check them before you trust them, such as with `v.parse()`. Call `refuse(message)` to refuse the action: the browser
+ * gets `SYNC_ACTION_REFUSED` with the message. A JSON return value reaches the browser as the result of the call.
+ */
+export type SyncActionFunction<TRow, TArgs> = (context: SyncActionContext<TRow>, args: TArgs) => unknown
+
+/** The actions of a definition, by name. `TArgs` maps each action name to the type of its arguments. */
+export type SyncActions<TRow, TArgs> = { [TName in keyof TArgs]: SyncActionFunction<TRow, TArgs[TName]> }
+
+/** Options of `defineSync()`. `TTable` is a Drizzle SQLite table with one text primary key column. */
+export interface DefineSyncOptions<TTable, TRow = InferSyncTableRow<TTable>, TArgs = Record<string, never>, TSubset extends string = keyof TRow & string> {
+  /** The Drizzle table to sync. */
+  table: TTable
+  /** The rows the caller may see and write. Required, so that no table is public by mistake. */
+  where: SyncWhere<TRow>
+  /**
+   * Who may write. Without this option, a signed-in caller may write every row it can see, and a caller without a user
+   * may not write (`SYNC_FORBIDDEN`). `true` lets every caller write every row it can see, also visitors. `false` makes
+   * the table read-only in the browser; actions still run. A function decides for each write.
+   */
+  write?: boolean | ((context: SyncWriteContext<TRow>) => boolean | Promise<boolean>)
+  /** Checks the whole row on insert and update, on the server. */
+  schema?: StandardSchemaV1
+  /**
+   * The columns that a browser may load a subset by, such as `["issueId"]` for
+   * `useSync("comments", { where: { issueId } })`. A subset on another column is refused with `SYNC_BAD_REQUEST`, unless
+   * `where` sets that column. When a write changes one of these columns, the row leaves the subsets that held it. Add an
+   * index on each of these columns.
+   *
+   * @experimental
+   */
+  subsets?: readonly TSubset[]
+  /**
+   * The user of a request, for apps with their own sign-in. It replaces the ViteHub Auth user: `where`, `write`, and
+   * actions get this user. Return `null` for a visitor. Queued writes belong to the account of the caller, which is
+   * `user.id`, else the scope of `where`. The server refuses writes of another account with `SYNC_ACCOUNT_CHANGED`.
+   *
+   * @experimental
+   */
+  identify?: (context: { request: Request }) => SyncUser | null | Promise<SyncUser | null>
+  /** Named writes with server logic, called from the browser as `todos.actions.<name>(args)`. */
+  actions?: SyncActions<TRow, TArgs>
+  /**
+   * `true` (the default) lets browsers keep a live stream open, so changes show within a second. `false` leaves only
+   * pulls on focus, on reconnect, on a timer and after writes.
+   */
+  live?: boolean
+}
+
+/** A Sync definition, the default export of `server/sync/<name>.ts`. */
+export interface SyncDefinition<TTable = unknown, TRow = InferSyncTableRow<TTable>, TArgs = Record<string, never>, TSubset extends string = keyof TRow & string> {
+  readonly "~sync": true
+  readonly options: DefineSyncOptions<TTable, TRow, TArgs, TSubset>
+  /** Types only: the columns of `subsets`. */
+  readonly "~subsets"?: TSubset
+  /** Types only. */
+  readonly "~row"?: TRow
+  /** Types only: the arguments of each action, by name. */
+  readonly "~actions"?: TArgs
+}
+
+/** The row type of a Drizzle table, from `$inferSelect`. */
+export type InferSyncTableRow<TTable> = TTable extends { $inferSelect: infer TRow } ? TRow : Record<string, unknown>
+
+/** The row type of a Sync definition. */
+export type InferSyncRow<TDefinition> = TDefinition extends { "~row"?: infer TRow } ? Exclude<TRow, undefined> : never
+
+/** The arguments of each action of a Sync definition, by action name. */
+export type InferSyncActions<TDefinition> = TDefinition extends { "~actions"?: infer TArgs } ? Exclude<TArgs, undefined> : never
+
+/** The columns of `subsets` of a Sync definition. */
+export type InferSyncSubsets<TDefinition> = TDefinition extends { "~subsets"?: infer TSubset } ? Exclude<TSubset, undefined> : never
+
+declare global {
+  /**
+   * The Sync definitions of the app, by name. ViteHub writes this map into the generated types as
+   * `"todos": typeof import("../server/sync/todos").default`, so `useSync("todos")` knows the row type. Without the
+   * generated types, every name is accepted with an untyped row.
+   */
+  interface ViteHubSyncMap {}
+}
+
+/** A column value as JSON sends it: a `Date` becomes its ISO text, and a `bigint` its decimal text. */
+export type SyncJsonValue<TValue> = TValue extends Date | bigint ? string : TValue
+
+/** A Drizzle row as the browser gets it and sends it over JSON. */
+export type SyncJsonRow<TRow> = { [TColumn in keyof TRow]: SyncJsonValue<TRow[TColumn]> }
+
+/** The row type for a Sync name, as the browser gets it over JSON. */
+export type SyncRowOf<TName extends string> = TName extends keyof ViteHubSyncMap ? SyncJsonRow<InferSyncRow<ViteHubSyncMap[TName]>> : Record<string, unknown>
+
+/** The arguments of each action for a Sync name, by action name. Without the generated types, no action is known. */
+export type SyncActionsOf<TName extends string> = TName extends keyof ViteHubSyncMap ? InferSyncActions<ViteHubSyncMap[TName]> : Record<string, never>
+
+/**
+ * The `where` of `useSync(name, { where })`: values of the `subsets` columns, as JSON. Without the generated types, any
+ * column is accepted.
+ */
+export type SyncSubsetOf<TName extends string> = TName extends keyof ViteHubSyncMap
+  // `{}` would take any object, so a definition without `subsets` takes only an empty `where`.
+  ? [InferSyncSubsets<ViteHubSyncMap[TName]> & keyof SyncRowOf<TName>] extends [never]
+      ? Record<string, never>
+      : Partial<Pick<SyncRowOf<TName>, InferSyncSubsets<ViteHubSyncMap[TName]> & keyof SyncRowOf<TName>>>
+  : Partial<SyncRowOf<TName>>
+
+/**
+ * Refuses a `where` with a column outside `TAllowed`: its options then need a `where` of type `never`. TypeScript checks
+ * extra properties only on an object literal, so a getter, a ref, or a variable would otherwise pass a column that the
+ * server refuses with `SYNC_BAD_REQUEST`.
+ */
+export type SyncExactWhere<TWhere, TAllowed> = [Exclude<SyncKeysOf<TWhere>, keyof TAllowed>] extends [never] ? unknown : { where: never }
+
+/** The keys of every member of `T`. `keyof` of a union keeps only the keys that all members share. */
+type SyncKeysOf<T> = T extends unknown ? keyof T : never
+
+/** A Sync name of the app, or any string when the map is empty. */
+export type SyncName = keyof ViteHubSyncMap extends never ? string : Extract<keyof ViteHubSyncMap, string>

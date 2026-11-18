@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/codemods",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Codemods that move applications to ViteHub.",
   "keywords": [
     "codemod",
@@ -49,6 +49,7 @@
     "diff": "catalog:runtime",
     "jiti": "catalog:unjs",
     "magic-string": "^0.30.21",
+    "nostics": "catalog:runtime",
     "scule": "^1.3.0",
     "semver": "^7.8.5",
     "tinyglobby": "catalog:workspace",

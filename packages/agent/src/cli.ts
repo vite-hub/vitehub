@@ -7,6 +7,7 @@ import {
   readViteHubDevTargetOption,
   resolveViteHubDevServerUrl,
 } from "@vite-hub/internal/cli"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 
 import { formatAgentError } from "./agent-error.ts"
@@ -594,7 +595,7 @@ export async function runAgentEvalCli(
     parsed = parseEvalArgs(args)
   }
   catch (error) {
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     writeEvalUsage(context)
     return 1
   }
@@ -1222,7 +1223,7 @@ export async function runAgentDevCli(
     parsed = parseDevArgs(args, context.env)
   }
   catch (error) {
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     writeDevUsage(context)
     return 1
   }
@@ -1242,7 +1243,7 @@ export async function runAgentDevCli(
       else parsed.payload = parseDevInput(parsed.input)
     }
     catch (error) {
-      context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+      context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
       return 1
     }
   }

@@ -13,7 +13,7 @@ export const consoleProjectProtocol = 1
 /** What the production build of a project recorded: when it ran, and its Git commit when the build found one. */
 export interface ConsoleProjectBuild {
   time: string
-  commit?: { sha: string, message?: string, author?: string, branch?: string }
+  commit?: { sha: string, message?: string, author?: string, branch?: string, repository?: string }
 }
 
 /** The answer of `project.get`: what the project runs, and what this access may use in it. */
@@ -37,7 +37,7 @@ export interface ConsoleProjectInfo {
  *   `CONSOLE_KEY_UNKNOWN` before the app has the public key of the link.
  * - `protocol`: the project answered with another protocol, or runs a vite-hub without `project.get`.
  * - `unreachable`: the request failed before a response, from the network or a project that is offline.
- * - `missing`: no ViteHub Console answers at the URL.
+ * - `missing`: no ViteHub Console answers at the URL: a 404, or a page that is not JSON without a server error.
  * - `failed`: the project answered with another error, such as a key that is not configured.
  */
 export type ConsoleProjectProbe =
@@ -66,7 +66,20 @@ export function consoleProjectBuildOf(value: unknown): ConsoleProjectBuild | und
     const entry = field(commitValue, key)
     if (entry) commit[key] = entry
   }
+  const repository = field(commitValue, "repository")
+  if (repository && /^[\w.-]+\/[\w.-]+$/.test(repository)) commit.repository = repository
   return { time, commit }
+}
+
+/**
+ * The GitHub page that compares the deployed commit with the default branch of its repository, which shows the
+ * commits that are not live yet. `HEAD` on GitHub names the default branch. A build without a github.com repository or
+ * a commit SHA has none.
+ */
+export function consoleCompareUrl(build: ConsoleProjectBuild | undefined): string | undefined {
+  const commit = build?.commit
+  if (!commit?.repository || !/^[0-9a-f]{7,64}$/i.test(commit.sha)) return undefined
+  return `https://github.com/${commit.repository}/compare/${commit.sha}...HEAD`
 }
 
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((entry): entry is string => String(entry) === entry) : []
@@ -135,7 +148,8 @@ export async function probeConsoleProject(
   }
   // A vite-hub release without `project.get` has the RPC endpoint but not the operation.
   if (response.status === 404 && fields.message === "Console operation not found.") return { kind: "protocol" }
-  if (response.status === 404 || !(outcome.answer.body instanceof Object)) return { kind: "missing" }
+  // A page that is not JSON means the app has no Console route, unless the server failed: a proxy's 502 page is an outage.
+  if (response.status === 404 || (!(outcome.answer.body instanceof Object) && response.status < 500)) return { kind: "missing" }
   return { kind: "failed", status: response.status, ...(fields.code ? { code: fields.code } : {}), ...(fields.message ? { message: fields.message } : {}), ...(fields.fix ? { fix: fields.fix } : {}) }
 }
 

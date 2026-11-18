@@ -193,7 +193,7 @@ describe("Agent Invocation enforcement", () => {
     const run = vi.fn(() => "Must not start")
     const channel = channelAdapter("mailbox", {
       history: {
-        collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }),
+        collection: defineCollection(async () => [{ id: "m1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }),
         key: item => item.id,
       },
       triggers: {
@@ -212,19 +212,18 @@ describe("Agent Invocation enforcement", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
-  it("runs a best-effort Invocation in a Workflow worker without a claim handoff", async () => {
+  it("fails a best-effort Workflow attempt before the Driver when the running write fails", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {})
-    const { store } = failingRunningStore("timeout")
+    const { store } = failingRunningStore("missing")
     const invocations = defineAgentInvocations({ store })
     const run = vi.fn(() => "done")
     const agent = defineAgent({ driver: { run }, invocations, name: "workflow-worker", runtime: false })
     const context = { id: "workflow-worker-run", name: "workflow-worker", payload: { input: { prompt: "hello" } }, provider: "openworkflow" as const }
 
-    await expect(runAgentWorkflowDefinition(agent, context, runAgentInline)).resolves.toBe("done")
-    expect(run).toHaveBeenCalledOnce()
-    await vi.waitFor(async () => {
-      await expect(invocations.getByRunId("workflow-worker-run", "workflow-worker")).resolves.toMatchObject({ startedAt: expect.any(String), status: "completed" })
-    })
+    // A Workflow retry reads a `pending` record as "the Driver never started", so the Driver needs the running state.
+    await expect(runAgentWorkflowDefinition(agent, context, runAgentInline)).rejects.toThrow(/Could not persist/)
+    expect(run).not.toHaveBeenCalled()
+    await expect(invocations.getByRunId("workflow-worker-run", "workflow-worker")).resolves.toMatchObject({ status: "pending" })
   }, 10_000)
 
   it("keeps a Workflow worker strict when it inherits a replay claim", async () => {
@@ -273,7 +272,7 @@ describe("Agent Invocation enforcement", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     try {
       const retry = runAgentWorkflowDefinition(agent, attempt, runAgentInline)
-      const settled = expect(retry).rejects.toThrow("Could not persist the Invocation running state.")
+      const settled = expect(retry).rejects.toMatchObject({ code: "AGENT_INVOCATION_DRIVER_INTERRUPTED", isRetryable: false })
       await vi.advanceTimersByTimeAsync(31_000)
       await settled
     }

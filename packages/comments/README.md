@@ -51,6 +51,13 @@ A single page app whose `index.html` Vite serves or builds gets a short inline c
 
 Custom `identify` names the user of every surface, and `authorize` decides; Comments then reads neither the Auth session nor the Console's access. Without `identify`, when the app has the Console, its Comments section controls access, and opening the Console enables the toolbar on the app's pages. Otherwise Comments reads the Auth session.
 
+`authorize` gets `console: true` when the Console admitted the caller to its Comments section: the comment operations of the Console, the CLI, and ViteHub MCP, and `commentsMcpTools(comments, { console: true })`. With `identify`, these calls have no app user, so `authorize` must allow them itself:
+
+```ts fragment
+// Console callers, and the app's editors on the page.
+authorize: ({ console, user }) => console === true || user?.role === "editor",
+```
+
 By default the overlay comments on the page itself, `{ kind: "page", id: "/pricing" }`. `page` maps a page to a subject of your own. The server decides: the overlay reads the subject from the session route, and a thread that the overlay starts must be on that subject. `authorize` still runs on it. A `page` given to the API, as the `?page=` query of a route such as `GET /threads?page=/pricing` or in the body of `POST /threads`, means that same subject.
 
 ```ts fragment
@@ -109,7 +116,7 @@ On a preview, `forge: { provider: "github" }` posts each thread to the pull requ
 - Without a Realtime authority, such as on Vercel, comments work without presence or cursors.
 - Write routes compare `Origin` with the request origin, and honour `X-Forwarded-Proto` and `X-Forwarded-Host` from a proxy that ends TLS.
 - Page context stores only the URL origin and pathname, validated against the request origin and thread page. Query parameters, URL credentials, and fragments are discarded. Nuxt component files come from its resolved component registry.
-- Guests can comment only when `authorize` allows `user: null`. They name themselves in the browser, and their names and IDs are display data only. Guests cannot delete comments or threads.
+- Guests can comment only when `authorize` allows `user: null`. They name themselves in the browser, and their names and IDs are display data only. Guests cannot delete comments or threads. `defineComments({ rateLimit: { limit: 5, window: "1m" } })` limits the writes of each guest address.
 - The overlay is a custom element with a shadow root, so the page's CSS does not reach it.
 
 ## Public imports
@@ -138,7 +145,7 @@ const handler = createCommentsHandler({ comments, realtime: false });
 const response = await handler.fetch(new Request("https://site.test/api/_vitehub/comments/threads?page=/"));
 ```
 
-`commentsMcpTools(comments)` returns tools with `call(input, { user })`, where your server authenticates `user` or passes `null` for an anonymous caller. With a request `event`, such as the Request or an H3 event, a configured Comments `identify` or session reader takes precedence over `user`. See [Fix comments with an Agent](https://vitehub.dev/docs/comments/configure#fix-comments-with-an-agent).
+`commentsMcpTools(comments)` returns tools with `call(input, { user })`, where your server authenticates `user` or passes `null` for an anonymous caller. With a request `event`, such as the Request or an H3 event, a configured Comments `identify` or session reader takes precedence over `user`. The `page` filter of `comments_list_threads` and of `comments.threads` takes a path such as `/pricing` or a full URL of the page. When `authorize` hides threads from the caller, the list says how many and why, and its structured output has a `hidden` count. See [Fix comments with an Agent](https://vitehub.dev/docs/comments/configure#fix-comments-with-an-agent).
 
 ## Learn more
 

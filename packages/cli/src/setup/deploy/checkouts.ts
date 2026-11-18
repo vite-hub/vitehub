@@ -6,7 +6,7 @@ import { callOperationFromCli } from "@vite-hub/internal/operations"
 import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
-import { SetupFailure, setupExitCodes } from "../envelope.ts"
+import { setupExitCodes, setupFailure, type SetupFailure } from "../envelope.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
 
@@ -102,7 +102,7 @@ async function importCheckoutModule(root: string): Promise<CheckoutModule | unde
 
 function moduleFailure(specifier: string, file: string, error: unknown): SetupFailure {
   const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
-  return new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CHECKOUT_MODULE_FAILED({ file, message, specifier }), setupExitCodes.error)
+  return setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CHECKOUT_MODULE_FAILED({ file, message, specifier }), setupExitCodes.error)
 }
 
 /**
@@ -162,7 +162,7 @@ export async function prepareDeployCheckouts(root: string, context: Pick<ViteHub
 
 function assertNoConflicts(statuses: CheckoutStatus[]): void {
   const conflicts = statuses.flatMap(status => status.local.conflicted.map(path => `${status.dir}/${path}`))
-  if (conflicts.length) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CHECKOUT_CONFLICT({ files: conflicts.join(", ") }), setupExitCodes.error)
+  if (conflicts.length) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CHECKOUT_CONFLICT({ files: conflicts.join(", ") }), setupExitCodes.error)
 }
 
 async function readLock(root: string): Promise<string | undefined> {

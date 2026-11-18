@@ -1,5 +1,5 @@
 import type { AnchorPoint, CommentsClient, ResolvedAnchor, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
-import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, type PropType, reactive, ref, shallowRef, watch } from "vue";
+import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, onUpdated, type PropType, reactive, ref, shallowRef, watch } from "vue";
 import { type CommentCan, draftPositionKey, provideComments, useComments, type CommentDraft, type CommentsState } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { consumedPointerEvents } from "../internal/comment-outside.ts";
@@ -12,6 +12,8 @@ import { CommentPin } from "./comment-pin.ts";
 import type { CommentUpload } from "./comment-panel.ts";
 import { type CommentAttachmentUrl, CommentThread } from "./comment-thread.ts";
 
+// The usual size of a thread's card. A browser without CSS anchor positioning picks the card's side from it: see
+// `data-flip-x` and `data-flip-y` in styles.css. With anchor positioning, the browser picks the side from the real size.
 const popoverWidth = 360;
 const popoverHeight = 420;
 
@@ -25,6 +27,9 @@ function placeDraft(point: AnchorPoint, page: boolean, width: number, viewport: 
   const left = Math.max(inset, Math.min(flipX ? x - inset - width : x + inset, viewport - inset - width));
   return { x, y: point.y, flipX, left: left - x };
 }
+
+/** A pin on an area or an image is round. Elsewhere it is a drop whose small corner points at the spot. */
+const pinShape = (kind: CommentThreadModel["anchor"]["kind"]) => (kind === "area" || kind === "image" ? "round" : "point");
 
 // A pointer that moved more than this between down and up was a scroll or a drag, not a click.
 const clickSlop = 6;
@@ -96,8 +101,8 @@ export const CommentLayer = defineComponent({
     // SAFETY: Vue's runtime constructor cannot express this string literal union.
     placement: { default: "pin", type: String as PropType<CommentPlacement> },
     /**
-     * The size of the thread cards. `"sm"`, the default, is Drop's floating card: 14px text, tight rows, and Edit and
-     * Delete over the name's row. `"md"` is the size of a thread in a panel.
+     * The size of the thread cards and of the box for a new comment. `"sm"`, the default, is Drop's floating card: 14px
+     * text, tight rows, and Edit and Delete over the name's row. `"md"` is the size of a thread in a panel.
      */
     // SAFETY: Vue's runtime constructor cannot express this string literal union.
     size: { default: "sm", type: String as PropType<CommentComposerSize> },
@@ -272,10 +277,73 @@ export const CommentLayer = defineComponent({
     onBeforeUnmount(() => fits?.disconnect());
     // `--vh-comment-x` lets the card move back on screen when the screen is narrower than the card.
     const place = ({ x, y }: { x: number; y: number }) => ({ left: `${x}px`, top: `${y}px`, "--vh-comment-x": `${x}px` });
-    const side = (x: number, y: number) => ({
-      "data-flip-x": x + popoverWidth > window.innerWidth ? "true" : undefined,
-      "data-flip-y": y + popoverHeight > window.innerHeight ? "true" : undefined,
+    // With CSS anchor positioning the browser picks a card's side. `data-flip-x` and `data-flip-y` then say the side
+    // that it picked, so the corner that points at the pin follows. Without it, they guess the side, and CSS follows them.
+    const picked = reactive(new Map<string, { x: boolean; y: boolean }>());
+    const placedItems = new Map<string, HTMLElement>();
+    const observedCards = new Map<string, HTMLElement>();
+    const observeCard = (key: string, card: HTMLElement | null) => {
+      const previous = observedCards.get(key);
+      if (previous === card) return;
+      if (previous) cardSizes?.unobserve(previous);
+      observedCards.delete(key);
+      if (card) {
+        observedCards.set(key, card);
+        cardSizes?.observe(card);
+      }
+    };
+    const readSides = () => {
+      for (const [key, item] of placedItems) {
+        const card = item.querySelector<HTMLElement>(":scope > [data-slot='comment-layer-popover']");
+        const area = card ? getComputedStyle(card).getPropertyValue("position-area") : "";
+        observeCard(key, card && area && area !== "none" ? card : null);
+        if (!card || !area || area === "none") {
+          picked.delete(key);
+          continue;
+        }
+        const spot = item.getBoundingClientRect();
+        const box = card.getBoundingClientRect();
+        // A card that the browser moved inside the screen points from its side of the spot.
+        const next = { x: box.left + box.right < spot.left * 2, y: box.top + box.bottom < spot.top * 2 };
+        const now = picked.get(key);
+        if (now?.x !== next.x || now?.y !== next.y) picked.set(key, next);
+      }
+    };
+    // A card that grows, such as with a reply, can move to another side, and so can a card when the screen gets smaller.
+    const cardSizes = typeof ResizeObserver === "function" ? new ResizeObserver(readSides) : undefined;
+    let sideFrame = 0;
+    const readSidesSoon = () => {
+      if (!sideFrame) sideFrame = requestAnimationFrame(() => {
+        sideFrame = 0;
+        readSides();
+      });
+    };
+    onMounted(() => {
+      readSides();
+      window.addEventListener("resize", readSidesSoon, { passive: true });
+      window.visualViewport?.addEventListener("resize", readSidesSoon, { passive: true });
     });
+    onUpdated(readSides);
+    onBeforeUnmount(() => {
+      cardSizes?.disconnect();
+      cancelAnimationFrame(sideFrame);
+      window.removeEventListener("resize", readSidesSoon);
+      window.visualViewport?.removeEventListener("resize", readSidesSoon);
+    });
+    const placedItem = (key: string) => (element: unknown) => {
+      if (element instanceof HTMLElement) placedItems.set(key, element);
+      else {
+        placedItems.delete(key);
+        observeCard(key, null);
+        picked.delete(key);
+      }
+    };
+    const side = (x: number, y: number, key?: string) => {
+      const seen = key === undefined ? undefined : picked.get(key);
+      const flipX = seen ? seen.x : x + popoverWidth > window.innerWidth;
+      const flipY = seen ? seen.y : y + popoverHeight > window.innerHeight;
+      return { "data-flip-x": flipX ? "true" : undefined, "data-flip-y": flipY ? "true" : undefined };
+    };
 
     // The box of a new comment: beside its pin, or in the margin.
     const composerView = (draft: CommentDraft) =>
@@ -288,6 +356,8 @@ export const CommentLayer = defineComponent({
         modelValue: draft.body,
         onCancel: () => state.cancelDraft(),
         files: draftFiles.value,
+        // The bubble is the field's frame, and it shows the focus itself.
+        frame: "none",
         layout: "row",
         onSubmit: async (submit: CommentComposerSubmit) => {
           if (draft.busy || uploadingDraft.value === draft || state.draft.value !== draft) return;
@@ -313,6 +383,7 @@ export const CommentLayer = defineComponent({
         "onUpdate:mentions": (value: string[]) => (draft.mentions = value),
         "onUpdate:modelValue": (value: string) => (draft.body = value),
         people: user.value ? [user.value] : [],
+        size: props.size,
         user: user.value,
         users: state.users,
       });
@@ -458,18 +529,20 @@ export const CommentLayer = defineComponent({
           h(
             "div",
             {
-              ...side(position.x, position.y),
+              ...side(position.x, position.y, thread.id),
               "data-kind": thread.anchor.kind,
               "data-leaving": leaving ? "true" : undefined,
               "data-slot": "comment-layer-item",
               inert: leaving || undefined,
               key: thread.id,
+              ref: placedItem(thread.id),
               style: place(position),
             },
             [
               h(CommentPin, {
                 active: open,
                 author: thread.author,
+                "data-shape": pinShape(thread.anchor.kind),
                 "data-thread-id": thread.id,
                 excerpt: excerpt(thread.messages[0]?.body ?? ""),
                 n: thread.n,
@@ -509,10 +582,11 @@ export const CommentLayer = defineComponent({
       const openedColumn = opened && pointForThread ? inColumn(opened.id) : undefined;
       const openThread = opened
         ? h("div", {
-            ...(pointForThread ? side(pointForThread.x, pointForThread.y) : {}),
+            ...(pointForThread ? side(pointForThread.x, pointForThread.y, "opened-thread") : {}),
             "data-kind": opened.anchor.kind,
             "data-slot": "comment-layer-item",
             key: "opened-thread",
+            ref: placedItem("opened-thread"),
             style: pointForThread ? place(pointForThread) : undefined,
           }, h("div", {
             ...openedColumn,
@@ -539,7 +613,7 @@ export const CommentLayer = defineComponent({
                 style: place(placement),
               },
               [
-                h(CommentPin, { author: user.value, draft: true }),
+                h(CommentPin, { author: user.value, "data-shape": pinShape(draft.anchor.kind), draft: true }),
                 h(
                   "div",
                   {

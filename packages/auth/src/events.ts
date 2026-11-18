@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm"
 import * as v from "valibot"
 import type { EnvDatabase } from "@vite-hub/env/database"
+
+import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import type { AuthAccessAuthorize } from "./types.ts"
 
 export const authEventTypes = [
@@ -68,6 +70,11 @@ export interface AuthEventsConfiguration {
   store: AuthEventStore
   /** Enable the CLI read endpoint. A session and an explicit true result are required. A Response is sent as the rejection. */
   authorize?: AuthAccessAuthorize
+  /**
+   * Runs for each event after the store records it, for example to send it to another service. With a host `waitUntil()`, it
+   * runs after the response. A failure is logged as `AUTH_EVENT_CALLBACK_FAILED` and never fails the auth request.
+   */
+  onEvent?: (event: AuthEvent) => void | Promise<void>
 }
 
 const text = v.pipe(v.string(), v.minLength(1), v.maxLength(256))
@@ -92,16 +99,14 @@ const listSchema = v.object({
 export function parseAuthEventList(input: unknown): { query: AuthEventListInput, before: [string, string] | undefined } {
   const query = v.parse(listSchema, input)
   const before = query.cursor ? v.parse(cursorSchema, JSON.parse(decodeURIComponent(query.cursor))) : undefined
-  // Internal invariant: the events route turns this into a 400. A catalog code would change the TypeError class.
-  if (query.from && query.to && Date.parse(query.from) >= Date.parse(query.to)) throw new TypeError("Auth event from must be before to.")
+  if (query.from && query.to && Date.parse(query.from) >= Date.parse(query.to)) throw authErrorDiagnostics.AUTH_EVENT_QUERY_INVALID({ problem: "order" })
   return { query, before }
 }
 
 export function parseAuthEventWindow(window: { from: string, to: string }): { from: string, to: string } {
   const from = new Date(v.parse(timestamp, window.from)).toISOString()
   const to = new Date(v.parse(timestamp, window.to)).toISOString()
-  // Internal invariant: the events route turns this into a 400. A catalog code would change the TypeError class.
-  if (from >= to || Date.parse(to) - Date.parse(from) > 366 * 86400_000) throw new TypeError("Auth event windows must be positive and at most 366 days.")
+  if (from >= to || Date.parse(to) - Date.parse(from) > 366 * 86400_000) throw authErrorDiagnostics.AUTH_EVENT_QUERY_INVALID({ problem: "window" })
   return { from, to }
 }
 
@@ -115,8 +120,7 @@ export function createDatabaseAuthEventStore(options: { db: EnvDatabase, retenti
   const { db } = options
   const retention = options.retention === false ? false : { ...defaultAuthEventRetention, ...options.retention }
   if (retention && Object.values(retention).some(value => !Number.isSafeInteger(value) || value < 1)) {
-    // Internal invariant: a published TypeError. A catalog code would change its class.
-    throw new TypeError("Auth event retention limits must be positive integers.")
+    throw authErrorDiagnostics.AUTH_EVENT_RETENTION_INVALID()
   }
   let ready: Promise<void> | undefined
   const initialize = () => ready ??= (async () => {

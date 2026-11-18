@@ -19,6 +19,8 @@ const vercelEnv = { VERCEL_TEAM_ID: "team_1", VERCEL_TOKEN: "vercel-token-1" }
 const netlifyEnv = { NETLIFY_AUTH_TOKEN: "netlify-token-1" }
 const denoEnv = { DENO_DEPLOY_ORG: "acme", DENO_DEPLOY_TOKEN: "deno-token-1" }
 const tokens = ["cf-token-1", "vercel-token-1", "netlify-token-1", "deno-token-1"]
+/** `env` of a build that lists no env names. */
+const noEnv = { checked: [], missing: [], pushed: [], stage: "production" }
 
 function deploy(args: string[], root: string, env: NodeJS.ProcessEnv, options: { fetch?: typeof fetch, runHostCli?: HostCliRun, spawn?: ViteHubCliSpawn } = {}) {
   return runSetup<DeployJson>(["deploy", ...args, "--json"], root, env, options)
@@ -37,10 +39,11 @@ describe("vitehub deploy on Cloudflare", () => {
     expect(result.exitCode, result.stdout + result.stderr).toBe(0)
     const calls = await hosts.calls()
     expect(calls.map(call => [call.name, call.argv, call.stdin])).toEqual([
-      ["wrangler", ["deploy", "--config", "./server/wrangler.json"], ""],
+      ["wrangler", ["deploy", "--config", "./server/wrangler.json", "--keep-vars"], ""],
     ])
     expect(calls.every(call => call.cwd === join(root, ".output"))).toBe(true)
     expect(result.json).toEqual({
+      env: noEnv,
       host: "cloudflare",
       schemaVersion: 1,
       url: "https://my-app.example.workers.dev",
@@ -52,10 +55,11 @@ describe("vitehub deploy on Cloudflare", () => {
   })
 
   it("passes the flags of the build command through and rejects any other command", async () => {
-    const root = await builtProject("cloudflare", buildOutput("cloudflare", "npx wrangler deploy --config ./server/wrangler.json --secrets-file ./'my secrets.env' --containers-rollout=gradual"))
+    const root = await builtProject("cloudflare", buildOutput("cloudflare", "npx wrangler deploy --config './server/my wrangler.json' --containers-rollout=gradual"))
+    await writeFile(join(root, ".output/server/my wrangler.json"), JSON.stringify({ main: "index.mjs", name: "my-app" }))
     const hosts = await fakeHosts(cloudflareEnv)
     expect((await deploy(["--no-build", "--yes"], root, hosts.env)).exitCode).toBe(0)
-    expect((await hosts.calls())[0]!.argv).toEqual(["deploy", "--config", "./server/wrangler.json", "--secrets-file", "./my secrets.env", "--containers-rollout=gradual"])
+    expect((await hosts.calls())[0]!.argv).toEqual(["deploy", "--config", "./server/my wrangler.json", "--containers-rollout=gradual", "--keep-vars"])
 
     const deployCommand = "npx wrangler deploy --config ./server/wrangler.json"
     for (const command of [
@@ -70,6 +74,8 @@ describe("vitehub deploy on Cloudflare", () => {
       `npx wrangler d1 migrations apply DB --remote --config ./other/wrangler.json && ${deployCommand}`,
       `npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json --env production && ${deployCommand}`,
       `${deployCommand} && npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json`,
+      // Deploy writes its own secrets file, so a build command must not name one.
+      `${deployCommand} --secrets-file ./.env`,
     ]) {
       const rejected = await builtProject("cloudflare", buildOutput("cloudflare", command))
       const other = await fakeHosts(cloudflareEnv)
@@ -93,7 +99,7 @@ describe("vitehub deploy on Cloudflare", () => {
     expect(calls.map(call => call.argv)).toEqual([
       ["d1", "migrations", "apply", "DB", "--remote", "--config", "./server/wrangler.json"],
       ["d1", "migrations", "apply", "DB_ANALYTICS", "--remote", "--config", "./server/wrangler.json"],
-      ["deploy", "--config", "./server/wrangler.json"],
+      ["deploy", "--config", "./server/wrangler.json", "--keep-vars"],
     ])
     expect(calls.every(call => call.cwd === join(root, ".output") && call.accountId === "acc-1")).toBe(true)
     expectNoLeak(calls, result.stdout + result.stderr, tokens)
@@ -117,7 +123,7 @@ describe("vitehub deploy on Cloudflare", () => {
     const result = await deploy(["--no-build", "--yes", "--preview"], root, hosts.env)
 
     expect(result.exitCode, result.stderr).toBe(0)
-    expect((await hosts.calls()).map(call => call.argv)).toEqual([["versions", "upload", "--config", "./server/wrangler.json"]])
+    expect((await hosts.calls()).map(call => call.argv)).toEqual([["versions", "upload", "--config", "./server/wrangler.json", "--keep-vars"]])
   })
 
   it("deploys without credentials with --temporary", async () => {
@@ -127,7 +133,7 @@ describe("vitehub deploy on Cloudflare", () => {
 
     expect(result.exitCode, result.stdout + result.stderr).toBe(0)
     const calls = await hosts.calls()
-    expect(calls.map(call => call.argv)).toEqual([["deploy", "--config", "./server/wrangler.json", "--temporary"]])
+    expect(calls.map(call => call.argv)).toEqual([["deploy", "--config", "./server/wrangler.json", "--keep-vars", "--temporary"]])
     expect(await readFile(join(root, ".output/server/wrangler.json"), "utf8")).toBe(buildOutput("cloudflare")[".output/server/wrangler.json"])
     expect(result.json).toMatchObject({ temporary: { claimUrl: "https://dash.cloudflare.com/claim/abc123" } })
     expect(Date.parse(result.json.temporary!.expiresAt!) - Date.now()).toBeGreaterThan(55 * 60_000)
@@ -165,7 +171,7 @@ describe("vitehub deploy on Cloudflare", () => {
     const hosts = await fakeHosts(cloudflareEnv)
     const result = await deploy(["--no-build", "--yes", "--preview"], root, hosts.env)
     expect(result.exitCode, result.stderr).toBe(0)
-    expect((await hosts.calls())[0]!.argv).toEqual(["versions", "upload", "--config", "./server/wrangler.json"])
+    expect((await hosts.calls())[0]!.argv).toEqual(["versions", "upload", "--config", "./server/wrangler.json", "--keep-vars"])
     expect(result.json.url).toBe("https://v1-my-app.example.workers.dev")
   })
 
@@ -181,7 +187,7 @@ describe("vitehub deploy on Cloudflare", () => {
     const clean = await deploy(["--no-build", "--yes"], root, hosts.env)
     expect(clean.exitCode, clean.stderr).toBe(0)
     expect(clean.json.commit).toEqual({ dirty: false, sha })
-    expect((await hosts.calls())[0]!.argv).toEqual(["deploy", "--config", "./server/wrangler.json", "--tag", sha.slice(0, 12), "--message", `vitehub:{"commit":"${sha}","dirty":false}`])
+    expect((await hosts.calls())[0]!.argv).toEqual(["deploy", "--config", "./server/wrangler.json", "--keep-vars", "--tag", sha.slice(0, 12), "--message", `vitehub:{"commit":"${sha}","dirty":false}`])
 
     await writeFile(join(root, "changed.txt"), "x")
     const dirty = await deploy(["--no-build", "--yes"], root, hosts.env)
@@ -232,6 +238,7 @@ describe("vitehub deploy on Vercel", () => {
     ])
     expect(result.json).toEqual({
       deploymentId: "dpl_1",
+      env: noEnv,
       host: "vercel",
       schemaVersion: 1,
       url: "https://my-app.vercel.app",
@@ -307,7 +314,7 @@ describe("vitehub deploy on Netlify", () => {
     expect((await hosts.calls()).map(call => call.argv)).toEqual([
       ["deploy", "--no-build", "--dir", "dist", "--json", "--prod", "--site-name", "my-app"],
     ])
-    expect(result.json).toEqual({ deploymentId: "deploy-1", host: "netlify", schemaVersion: 1, url: "https://my-app.netlify.app" })
+    expect(result.json).toEqual({ deploymentId: "deploy-1", env: noEnv, host: "netlify", schemaVersion: 1, url: "https://my-app.netlify.app" })
     expectNoLeak(await hosts.calls(), result.stdout + result.stderr, tokens)
     expect(await readLink(root)).toMatchObject({ default: "netlify", targets: { netlify: { project: { id: "site-1", name: "my-app" }, verified: false } } })
   })
@@ -352,7 +359,7 @@ describe("vitehub deploy on Deno", () => {
     expect((await hosts.calls()).map(call => [call.argv, call.stdin])).toEqual([
       [["deploy", "create", ".", "--source", "local", "--allow-node-modules", "--org", "acme", "--app", "my-app"], ""],
     ])
-    expect(result.json).toEqual({ host: "deno", schemaVersion: 1, url: "https://my-app.acme.deno.net" })
+    expect(result.json).toEqual({ env: noEnv, host: "deno", schemaVersion: 1, url: "https://my-app.acme.deno.net" })
     expectNoLeak(await hosts.calls(), result.stdout + result.stderr, tokens)
   })
 

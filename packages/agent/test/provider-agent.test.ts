@@ -697,6 +697,17 @@ describe("Provider Agent Driver", () => {
     expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
   })
 
+  // An SSH runner's login shell reads /etc/profile, which sets PATH again on Debian and drops Codex's apply_patch folder.
+  it.each([
+    ["a launch", { launch: () => ({ command: "ssh", args: ["runner"] }) }],
+    ["driver.env PATH", { env: { PATH: "/app/node_modules/.bin:/usr/bin:/bin" } }],
+  ] as const)("runs Codex without a login shell with %s", async (_name, options) => {
+    const threadId = "thread-codex-login-shell"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    await createProviderAgentAdapter({ provider: "codex", ...options }).generate(context(threadId) as never)
+    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs).toContain('-c "allow_login_shell=false"')
+  })
+
   it.each([false, true])("keeps the primary browser environment out of auxiliary providers with launcher %s", async (customLaunch) => {
     const threadId = "thread-browser-auxiliary"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
@@ -712,7 +723,9 @@ describe("Provider Agent Driver", () => {
 
     expect(createProviderRuntime.mock.lastCall?.[0].environment).not.toHaveProperty("AGENT_BROWSER_SESSION")
     expect(createProviderRuntime.mock.lastCall?.[0].environment?.PATH).not.toContain("/managed/bin")
-    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
+    // Only the launch turns off login shells here, not the primary browser PATH.
+    if (customLaunch) expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs).toContain("allow_login_shell=false")
+    else expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
     expect(launch).toHaveBeenCalledTimes(customLaunch ? 1 : 0)
   })
 
@@ -729,7 +742,6 @@ describe("Provider Agent Driver", () => {
     })
     await adapter.generate(runContext as never)
     expect(createProviderRuntime.mock.lastCall?.[0].environment).toHaveProperty("VITEHUB_BROWSER_ACTIVE", "1")
-    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
     expect(launch).toHaveBeenCalledTimes(customLaunch ? 1 : 0)
 
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
@@ -1185,6 +1197,37 @@ describe("Provider Agent Driver", () => {
         rm(heartbeatPath, { force: true }),
         rm(wrapperPidPath, { force: true }),
       ])
+    }
+  })
+
+  it.skipIf(process.platform !== "linux")("stops tool processes that left the provider process group when the pass ends", async () => {
+    const threadId = "thread-pass-setsid-leftover"
+    let leftover: number | undefined
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onSendTurn() {
+        // A tool command that starts a new session, like a hung `pnpm exec` that Codex gave up on.
+        const environment = createProviderRuntime.mock.lastCall?.[0].environment
+        const tool = spawn("sh", ["-c", "setsid sh -c 'echo $$; exec sleep 600 >/dev/null' &"], { env: environment, stdio: ["ignore", "pipe", "ignore"] })
+        let output = ""
+        for await (const chunk of tool.stdout) output += chunk
+        leftover = Number(output.trim())
+      },
+    })
+    // A killed orphan can stay a zombie until its new parent reaps it.
+    const running = (pid: number) => readFile(`/proc/${pid}/stat`, "utf8").then(stat => !/\) Z /.test(stat), () => false)
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+      expect(leftover).toBeGreaterThan(0)
+      await expect.poll(() => running(leftover!)).toBe(false)
+    }
+    finally {
+      if (leftover) {
+        try {
+          process.kill(leftover, "SIGKILL")
+        }
+        catch {}
+      }
     }
   })
 
@@ -6400,7 +6443,7 @@ cli_auth_credentials_store = "keyring"
     })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toMatchObject({ code: "AGENT_R0712" })
+    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toMatchObject({ code: "INTERNAL_INVARIANT_FAILED", message: expect.stringContaining("colocated Skill under .agents/skills/<name>") })
     expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCount)
   })
 

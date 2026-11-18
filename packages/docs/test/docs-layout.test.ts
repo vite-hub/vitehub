@@ -31,7 +31,7 @@ function middleware(client = true, ownsApp = true, startLinks: string[] = []) {
       if (id === "#docs/manifest") return { __esModule: true, default: manifest }
       if (id === "#docs/panels") return { __esModule: true, default: {} }
       if (id === "#docs/navigation") return navigation
-      if (id === "#docs/shell") return { ownsApp }
+      if (id === "#docs/shell") return { ownsApp, articleLayout: ownsApp ? "default" : "docs-article" }
       if (id === "#imports") return {
         defineNuxtRouteMiddleware: (callback: Middleware) => callback,
         isDocsStartLink: (_config: unknown, path: string) => startLinks.includes(path),

@@ -3,11 +3,20 @@ import { describe, expect, it } from "vitest"
 import type { ViteHubHost } from "../src/deployment.ts"
 import { resolveDeploymentPlan } from "../src/deployment.ts"
 import type { FeatureId } from "../src/features.ts"
-import { featureHosts, featureIds, features, featureSupport, impliedFeatures } from "../src/features.ts"
+import { featureHosts, featureIds, featurePackages, features, featureSupport, impliedFeatures } from "../src/features.ts"
 
 const presets: ViteHubHost[] = ["cloudflare", "deno", "netlify", "node", "vercel"]
 
 describe("feature catalog", () => {
+  it.each([
+    ["queue", "postgres", "@vercel/queue"],
+    ["workflow", "openworkflow", "@vercel/functions"],
+  ] as const)("selects Vercel SDKs for %s unless another driver is explicit", (feature, driver, sdk) => {
+    expect(featurePackages(feature, true, "vercel")).toContain(sdk)
+    expect(featurePackages(feature, { driver: "vercel" }, "vercel")).toContain(sdk)
+    expect(featurePackages(feature, { driver }, "vercel")).not.toContain(sdk)
+  })
+
   it("has one definition per feature id, keyed by its id", () => {
     expect(Object.keys(features).sort()).toEqual([...featureIds].sort())
     for (const id of featureIds) expect(features[id].id).toBe(id)
@@ -32,7 +41,7 @@ describe("feature catalog", () => {
           expect(support.level, `${id} on ${preset}`).not.toBe("native")
           continue
         }
-        expect(support, `${id} on ${preset}`).toMatchObject({ adapter: policy.adapter, guarantee: policy.guarantee, level: "native" })
+        expect(support, `${id} on ${preset}`).toMatchObject({ driver: policy.driver, guarantee: policy.guarantee, level: "native" })
       }
     }
   })
@@ -81,12 +90,12 @@ describe("feature catalog", () => {
 
   it("uses process-local Rate Limit memory during Cloudflare development", () => {
     expect(featureSupport("rateLimit", "dev", "cloudflare")).toMatchObject({
-      adapter: "memory",
+      driver: "memory",
       guarantee: "process-local",
       level: "native",
     })
     expect(featureSupport("rateLimit", "cloudflare")).toMatchObject({
-      adapter: "cloudflare",
+      driver: "cloudflare",
       guarantee: "native",
       level: "native",
     })

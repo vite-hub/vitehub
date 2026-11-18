@@ -78,6 +78,8 @@ To use the Console UI, deploy the app and link it as the next section shows.
 
 [console.vitehub.dev](https://console.vitehub.dev) is the Console as its own app, [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console). Sign in with GitHub or a passkey. Each account has a personal team, and you can make more teams and invite people. A team's projects open in any browser where a member signs in. The sidebar lists the team's apps, **Members** to invite people and remove them, and **Settings** for your name, GitHub sign-in, and passkeys. Invitations are links that you send yourself. The Console sends no email.
 
+The Console names each app by the **Name** you give it when you link it. Without one, it uses the name that the app reports, from its `package.json`. Owners and admins rename an app from the menu of its row on Home.
+
 The Console server keeps an Ed25519 key pair for each linked project, with the private key encrypted, and [signs](#sign-console-requests) each call to the project's Console endpoint with it. The signature names the person who calls. The app keeps only the public key, and the browser never sees the private key.
 
 To open a deployed app there:
@@ -148,14 +150,14 @@ pnpm vitehub project info --url https://app.example.com
   "vitehub": "0.1.0",
   "build": {
     "time": "2026-11-14T10:00:00.000Z",
-    "commit": { "sha": "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f", "message": "feat: add the ferry schedule", "author": "Ada Lovelace", "branch": "main" }
+    "commit": { "sha": "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f", "message": "feat: add the ferry schedule", "author": "Ada Lovelace", "branch": "main", "repository": "ferries/timetable" }
   },
   "sections": ["env", "kv"],
   "operations": ["definitions.list", "documents.action", "env.get", "kv.delete", "kv.get", "kv.has", "kv.list", "kv.set", "media.action", "project.get", "sections.list"]
 }
 ```
 
-`protocol` is the version of this answer. A client stops when the protocol is one that it does not know. `vitehub` is the version of the `vite-hub` package that the app runs. `build` is what the production build recorded: when it ran, and its Git commit with the first line of the message, the author name, and the branch. The Console shows it as **Last deploy** on Home and on the app Overview. CI variables come first, such as `GITHUB_SHA`, `VERCEL_GIT_COMMIT_SHA`, `CF_PAGES_COMMIT_SHA`, and `WORKERS_CI_COMMIT_SHA`, and `git` in the project fills the rest. A build without Git records only the time, and `SOURCE_DATE_EPOCH` sets the time of a reproducible build. A development server sends no `build`. Every caller that may read `project.get` sees the commit message and the author name. An operation that reads its section from the input, such as `documents.action`, is in the list, and each call checks its section again.
+`protocol` is the version of this answer. A client stops when the protocol is one that it does not know. `name` is the `name` option of `vitehub`, or the `name` in `package.json` when the option is not set. `vitehub` is the version of the `vite-hub` package that the app runs, such as `0.0.0-preview-4f9c2e1` for a pkg.pr.new build. `build` is what the production build recorded: when it ran, and its Git commit with the first line of the message, the author name, the branch, and the github.com repository. The Console shows it as **Last deploy** on Home and on the app Overview. With a repository, the Overview has a **Compare** link to the GitHub page that compares the live commit with the default branch, so you see the commits that are not deployed yet. CI variables come first, such as `GITHUB_SHA`, `VERCEL_GIT_COMMIT_SHA`, `CF_PAGES_COMMIT_SHA`, and `WORKERS_CI_COMMIT_SHA`, and `git` in the project fills the rest. The [health route](/docs/frameworks-hosts/node-self-hosted#check-health) reads the commit the same way. `VITEHUB_BUILD_COMMIT`, `VITEHUB_BUILD_BRANCH`, and `VITEHUB_BUILD_REPOSITORY` set each value for a build that has neither CI variables nor `.git`, such as a Docker build. A build without Git records only the time, and `SOURCE_DATE_EPOCH` sets the time of a reproducible build. A development server sends no `build`. Every caller that may read `project.get` sees the commit message and the author name. An operation that reads its section from the input, such as `documents.action`, is in the list, and each call checks its section again.
 
 The Console page also gets `navigation`, the answer of `sections.list`, so it opens a project with one call. `vitehub project info` and MCP clients do not get it.
 
@@ -280,7 +282,7 @@ Content preview and impersonation need your app's origin: the page renders the d
 
 A ticket is 32 random bytes. Your app keeps only its SHA-256, with the purpose, the app origin and mount, the person, the target, and the expiry. Redemption takes it out of the store first, so each ticket works once, also when two instances get it at the same time. A ticket works for 60 seconds. A used, expired, or changed ticket gets `401` with `CONSOLE_TICKET_INVALID`. A ticket that another app made, or that reaches a browser signed in to the app as another person, gets `403` with `CONSOLE_TICKET_MISMATCH`.
 
-The store is the verification table of Better Auth, so the app needs [Auth with a Database](/docs/auth/configure#keep-users-in-the-app-database). A development server without one keeps tickets in memory. A production app without one refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`.
+The store is the verification table of Better Auth when the app has [Auth with a Database](/docs/auth/configure#keep-users-in-the-app-database). Without Auth, it is the app's default [KV store](/docs/kv) when its driver takes a key out once: Redis, Upstash, or the `database` driver. Cloudflare KV, Deno KV, and `fs-lite` cannot, because two instances could both read a ticket before either deletes it. A development server without a store keeps tickets in memory. A production app without one refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`.
 
 | Operation | Opens | The app checks at redemption |
 | --- | --- | --- |
@@ -290,14 +292,24 @@ The store is the verification table of Better Auth, so the app needs [Auth with 
 
 ## Give browsers site access
 
-The [tools pill](/docs/comments/configure#turn-comment-mode-on-and-off) on your app's pages, with Comments and the **Console** link, shows to people the app knows. With [Auth](/docs/auth), **Site access** in the Console signs browsers in to the app for you:
+The [tools pill](/docs/comments/configure#turn-comment-mode-on-and-off) on your app's pages, with Comments and the **Console** link, shows to people the app knows. **Site access** in the Console signs browsers in to the app for you, with [Auth](/docs/auth) or [without it](#site-access-without-auth):
 
 - **Open site** opens the app in a new tab, signed in as the app user with the email of your Console account. Site access makes that user when there is none. An app user with that email who never verified it is refused, because anyone can sign up with an email they do not own.
 - **Link a phone** shows a QR code. The phone's camera opens the link, and the phone is signed in as you. The code works for 10 minutes.
-- **`/_vitehub`** on the app does the same from the site itself. Add `/_vitehub` to the app address, such as `https://app.example.com/_vitehub`. The browser goes to the Console, which asks you to sign in when needed, and comes back to the app signed in, with the pill. Add `?page=/guide/day-2` to come back to that page. On a development server, `/_vitehub` opens the page with `?vitehub`, because the pill needs no sign-in there.
 - **Invite someone** makes a link for a guest. You give them a name, which becomes the author of their comments, and pick what they can do, such as **Write comments**. The link works once, in one browser, for 1, 7, or 30 days. It signs the browser in as a new app user with that name. Guests never get the **Console** link, and the Console never lets them in.
+- **`/_vitehub`** on the app does the same from the site itself, and brings you back to the page you are on, with the pill open.
 
-Each link is a [one-time link](#one-time-links) with the `site.link` or `site.invite` operation. The people are Better Auth users, and each browser is a Better Auth session, so your app's session settings decide how long it lasts: Better Auth's default is 7 days, renewed once a day while the browser uses it. What they may do are roles of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin), in the comma-separated `user.role`, so Site access needs `admin()` in the `plugins` of `defineAuth()`:
+Put `/_vitehub` after the app address, before the page path. `https://app.example.com/_vitehub/projects/meetups?task=x` comes back to `/projects/meetups?task=x`, and keeps its hash. A link to `/_vitehub` on a page of the app comes back to that page, from the `Referer` header. Without a page, `/_vitehub` comes back to the app home.
+
+| Who opens it | What happens |
+| --- | --- |
+| You, on a development server | The page opens with `?vitehub`. The pill needs no sign-in there. |
+| You, already signed in to the app through the Console | The page opens with `?vitehub`, without the Console. |
+| Anyone else | The browser goes to the Console, which asks you to sign in when needed, signs the browser in to the app, and opens the page with `?vitehub`. |
+
+`/_vitehub` comes back only to pages of the same app. ViteHub serves its own routes below `/_vitehub`, so these first path segments never come back to a page, and answer 404 when no ViteHub route matched: `.well-known`, `_vitehub`, `agent`, `agents`, `api`, `blob`, `channel-task`, `channels`, `comments`, `connections`, `console`, `content`, `forms`, `health`, `host`, `i`, `mcp`, `mcp-client`, `page`, `ready`, `realtime`, `rpc`, `schedule`, `warm`, and `webhook-queue`. For a page such as `/content/intro`, open the page and follow a link to `/_vitehub` from it.
+
+Each link is a [one-time link](#one-time-links) with the `site.link` or `site.invite` operation. With Auth, the people are Better Auth users, and each browser is a Better Auth session, so your app's session settings decide how long it lasts: Better Auth's default is 7 days, renewed once a day while the browser uses it. What they may do are roles of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin), in the comma-separated `user.role`, so Site access needs `admin()` in the `plugins` of `defineAuth()`:
 
 - A member gets the `console` role, which shows the **Console** link, and the roles of every page tool. With `console.authorize`, the member needs the `site` section, and `grants` in the result picks the [page tool roles](#limit-a-user-to-some-sections).
 - A guest gets the `guest` role and the roles you picked. Comments offers `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`, and [checks them](/docs/comments/configure#roles-from-site-access).
@@ -308,11 +320,20 @@ A guest user has no password and a placeholder email, `guest-<id>@guests.invalid
 
 | Operation | Does |
 | --- | --- |
-| `site.link` | Returns a one-time link that signs the browser in as you, then opens `path`, or the app home. `qr: true` makes it last 10 minutes. With the `state` of `/_vitehub`, the link works only in the browser that opened `/_vitehub`. |
+| `site.link` | Returns a one-time link that signs the browser in as you, then opens `path`, or the app home, with `?vitehub`. `qr: true` makes it last 10 minutes. With the `state` of `/_vitehub`, the link works only in the browser that opened `/_vitehub`. |
 | `site.invite` | Returns a one-time link that signs a guest in with `name` and the roles in `grants`. `expiresInDays` is 1, 7 (the default), or 30. |
 | `site.invites` and `site.revoke-invite` | List the invites that nobody opened yet, and revoke one. |
 | `site.sessions` and `site.revoke-session` | List the browsers of members and guests, and sign one out. |
 | `site.grants` | Lists the roles that Site access gives. |
+
+### Site access without Auth
+
+A docs site or another app without Auth gets Site access too. Opening the link sets the `vitehub_site` cookie instead of a Better Auth session. The cookie holds the person (the id, name, email, and image of your Console account, or the guest's name) and the roles: `console` and the roles allowed by `console.authorize` (every page tool role by default) for a member, `guest` and the picked roles for a guest. The page tools session, the **Console** link, and Comments read it after `identify` and the Auth session.
+
+- The cookie is sealed with AES-GCM under a key that `VITEHUB_SECRET` gives for this purpose alone, so the browser cannot read or change it. It is `HttpOnly`, `SameSite=Lax`, `Secure` on HTTPS, and lasts 7 days. A changed cookie, a cookie of another secret, and an expired cookie count as no cookie.
+- The app trusts the person and the roles in the cookie as much as the Console key: a signed Console call made the ticket.
+- Each cookie names a session in the app's default KV store. **Revoke**, or `site.revoke-session`, deletes it, and the cookie stops working on the next request. `site.sessions` lists the sessions.
+- It needs `VITEHUB_SECRET`, else `site.link` and `site.invite` fail with `500` and `CONSOLE_SITE_SECRET_MISSING`, and a KV store that takes a ticket out once (see [one-time links](#one-time-links)), else they fail with `CONSOLE_TICKET_STORE_MISSING`. A development server keeps sessions in memory.
 
 ### Site access from the terminal
 
@@ -437,7 +458,7 @@ The CLI reads one `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` variable, and `<NAME>` is
 Each signed request has two headers:
 
 - `x-vitehub-signature: key=<NAME>, t=<seconds>, origin=<app origin>, body=<SHA-256>, v1=<signature>`
-- `x-vitehub-caller: <base64url JSON>`, who calls: `{"via":"cli"}`, or `{"via":"console","user":{...},"team":{...}}` from the Console.
+- `x-vitehub-caller: <base64url JSON>`, who calls: `{"via":"cli"}`, or `{"via":"console","user":{...},"team":{...}}` from the Console. The ViteHub MCP of the Console adds `"surface":"mcp"`, `"confirmed":true` after the person agrees to a destructive call, and `"readOnly":true` for `read_operation`. The app ignores fields that it does not know, so a newer Console can still call an older app. An app with a vite-hub from before this rule refuses the MCP fields. The MCP `check_app` tool then checks the link as the Console page does, and the other MCP tools answer `CONSOLE_APP_VITEHUB_OUTDATED`.
 
 The signature is Ed25519 over these lines, joined with a line feed:
 
@@ -520,6 +541,7 @@ Earlier releases let the app sign people in to the Console with `console: { auth
 2. Move a check of the person to [`console.authorize`](#limit-a-user-to-some-sections). It gets the `user` that the Console signed, and the `team` and role of that user. App Auth access routes, such as `/_vitehub/**` or `/**`, no longer cover `POST /_vitehub/rpc` and `GET /_vitehub/rpc?ticket=`: a signed call has no app session, a one-time link has its ticket as proof, and the route checks its own access. A build fails when an app route file, such as `server/routes/_vitehub/rpc.post.ts`, uses the same path.
 3. Remove `consoleMcpOAuth()` from `server/auth.ts`. Keep `mcpOAuth()` when the app serves its [own MCP server](/docs/mcp).
 4. Link the app in [console.vitehub.dev](#in-production), and set the `VITEHUB_CONSOLE_KEY_<NAME>` line that it shows. Invite the people who used the app's Console to your team.
+   If a Cloudflare Access application protected the app's Console, delete it, or add an Access application for `/_vitehub/rpc` with a Bypass policy. Access sends the Console's calls to its sign-in page, and the Console answers `CONSOLE_FORWARD_REDIRECT`.
 5. For the CLI, make a key with `vitehub secret console-key`, and replace `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, and `CF_ACCESS_CLIENT_ID` with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`.
 6. Connect agents to the [ViteHub MCP](/docs/development/mcp) of the Console instead of `/_vitehub/mcp`.
 
@@ -853,7 +875,8 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 | `CONSOLE_TICKET_INVALID` | `401` | Open the page again from the Console. A [one-time link](#one-time-links) works once, within 60 seconds. |
 | `CONSOLE_TICKET_MISMATCH` | `403` | Open the link in the browser where you are signed in to the app with the email of your Console account. |
 | `CONSOLE_TICKET_NO_PERSON` | `403` | Make the link in the Console. A `vitehub` command signs as a key, not as a person. See [Site access from the terminal](#site-access-from-the-terminal). |
-| `CONSOLE_TICKET_STORE_MISSING` | `500` | Add app Auth with a Database, so every instance shares the tickets. |
+| `CONSOLE_TICKET_STORE_MISSING` | `500` | Add app Auth with a Database, or a default KV store on Redis, Upstash, or the `database` driver, so every instance shares the tickets. |
+| `CONSOLE_SITE_SECRET_MISSING` | `500` | Set `VITEHUB_SECRET` on the server, then restart or deploy. [Site access without Auth](#site-access-without-auth) seals its cookie with it. |
 | `CONSOLE_KEY_UNKNOWN` | `401` | Set the `VITEHUB_CONSOLE_KEY_<NAME>` line from the Console setup page or `vitehub secret console-key`, then restart or deploy. |
 | `CONSOLE_KEY_NOT_CONFIGURED` | `500` | Set a `VITEHUB_CONSOLE_KEY_<NAME>` variable, then restart or deploy. |
 | `CONSOLE_KEY_MALFORMED` | `500` | Set the 43 base64url characters of the public key, with no quotes or spaces, then restart or deploy. |
@@ -872,7 +895,7 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 
 A route that fails with its own diagnostic keeps that code, such as `VITE_HUB_R0114`.
 
-See [Agent Invocations](/docs/agents/invocations) for custom stores and the invocation lifecycle. To build your own inspection page, use [UI parts](/docs/ui) such as [Trace](/docs/ui/trace) and [Code block](/docs/ui/code-block).
+See [Agent Invocations](/docs/agents/invocations) for custom stores and the invocation lifecycle. To build your own inspection page, use [AI components](/docs/ui/ai-components) such as [Trace](/docs/ui/trace) and [Code block](/docs/ui/code-block).
 
 ### Image upload boundaries
 

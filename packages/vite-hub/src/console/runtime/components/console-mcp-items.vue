@@ -327,7 +327,7 @@ onBeforeUnmount(() => request?.abort());
 <style>
 /* One row of the item list: the name and one quiet line under it, like the detailed rows of the section sidebar. */
 .vitehub-mcp-item {
-  border-radius: calc(var(--ui-radius) * 1.5);
+  border-radius: calc(var(--radius) * 1.5);
   display: grid;
   gap: 0.125rem;
   min-height: 2.75rem;
@@ -337,7 +337,7 @@ onBeforeUnmount(() => request?.abort());
 }
 
 .vitehub-mcp-item:hover {
-  background: var(--ui-bg-elevated);
+  background: var(--muted);
 }
 
 .vitehub-mcp-item[aria-current="true"] {

@@ -21,8 +21,8 @@ In this tutorial, you create a `notes` table, add a note from one API route, and
 Database is a separate package. Add it, with [Drizzle](https://orm.drizzle.team) to write your tables and Drizzle Kit to make migrations:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/database drizzle-orm
-pnpm add -D drizzle-kit
+pnpm add @vite-hub/database drizzle-orm@1.0.0-rc.5
+pnpm add -D drizzle-kit@1.0.0-rc.5
 ```
 
 Then add `database: true` to the ViteHub options of your app. Keep the other options of your app.
@@ -107,13 +107,13 @@ You do not need a running server for these commands. Make sure both finish witho
 Create `server/api/notes.post.ts`. This file is the route `POST /api/notes`. It checks the title, adds a row, and sends back the new row.
 
 ```ts [server/api/notes.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { useDatabase } from 'vite-hub/database'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ title?: unknown }>(event)
   if (typeof body?.title !== 'string' || !body.title.trim()) {
-    throw createError({ statusCode: 400, message: 'Send a non-empty title.' })
+    throw new HTTPError({ status: 400, message: 'Send a non-empty title.' })
   }
 
   const { db, schema } = useDatabase('default')

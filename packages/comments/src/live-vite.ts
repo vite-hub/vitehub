@@ -7,12 +7,13 @@ import { argumentExpression, objectProperties, scanModule, staticValue, unwrapEx
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { includedNitro } from "@vite-hub/internal/build/included-nitro"
-import { readBuildRevision, readGit } from "@vite-hub/internal/build/revision"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubPageToolsCookie, viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
 import { parseDatabaseLocation } from "@vite-hub/database/config"
+import { readForgeBuild } from "@vite-hub/forge/build/node"
 import { parseJSONC, parseTOML } from "confbox"
 
+import { commentsDeploymentEnv } from "./deployment-env.ts"
 import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
 import { commentsErrorDiagnostics } from "./operations-core/errors.ts"
@@ -20,6 +21,7 @@ import { commentsRealtimeDefinition, commentsRoute, mountedCommentsRoute } from 
 import { commentsTableNames } from "./table-names.ts"
 
 import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { NitroModule, NitroOptions } from "nitro/types"
 import type { Plugin, PluginOption, UserConfig } from "vite"
@@ -47,6 +49,8 @@ export interface CommentsImports {
   connect: string
   /** Exports `blob`, the Blob store that attachments go to when the app has Blob. */
   blob: string
+  /** Exports `checkRateLimit`, which counts guest writes when Rate Limit counts in a shared KV store. */
+  rateLimit: string
 }
 
 /** Options of `comments()`, for apps that use Comments without `vite-hub`. */
@@ -93,12 +97,20 @@ export interface CommentsVitePluginOptions {
   dialect?: "postgresql" | "sqlite"
   /** Store attachments in the app's Blob store. Default `false`: uploads need `defineComments({ storeAttachment })`. */
   blob?: boolean
-  /** `false` leaves the overlay out: no `comments` page tool. The API, the operations, and the Console stay. */
-  overlay?: false
+  /**
+   * `false` leaves the overlay out: no `comments` page tool. The API, the operations, and the Console stay.
+   * `{ presence: false }` keeps the overlay without its faces and cursors, for an app that shows its own presence.
+   */
+  overlay?: false | { presence?: false }
+  /**
+   * ViteHub Rate Limit counts in a KV store that every server process shares: count the guest writes of
+   * `defineComments({ rateLimit })` there too. Default `false`: each process counts in its memory.
+   */
+  rateLimit?: boolean
 }
 
 export interface CommentsRealtimeContributionContext {
-  authority: "cloudflare" | "memory"
+  driver: "cloudflare" | "memory"
   directory: string
   projectRoot: string
   serverDirs?: string[]
@@ -113,6 +125,8 @@ export interface CommentsComponent {
 export type CommentsVitePlugin = Plugin & {
   nitro?: NitroModule
   api: {
+    /** The variables that Comments reads on the deployed host. See `commentsDeploymentEnv()`. */
+    deploymentEnv: DeploymentEnvContribution
     /** Supplies Nuxt's effective component names, and refreshes the generated map after a rescan. */
     setComponents(components: readonly CommentsComponent[]): Promise<void>
     /**
@@ -133,6 +147,7 @@ const defaultImports: CommentsImports = {
   contentClient: "@vite-hub/content/client",
   connect: "@vite-hub/comments/runtime/connect",
   blob: "@vite-hub/blob",
+  rateLimit: "@vite-hub/rate-limit",
 }
 
 /**
@@ -208,31 +223,14 @@ export function commentsOverlayDirectory(): string {
   return builtDirectory("overlay")
 }
 
-/** `owner/name` of a GitHub or Enterprise remote. The forge's API URL selects the server at runtime. */
-export function githubRepository(remote: string | undefined): string | undefined {
-  return remote ? /^(?:(?:https?|ssh|git):\/\/[^/]+\/|(?:[^@/:]+@)?[\w.-]+:)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(remote.trim())?.[1] : undefined
-}
-
-/** The pull request that the CI or host builds, when it names one. */
-function pullRequestOf(env: Record<string, string | undefined>): number | undefined {
-  const value = env.VERCEL_GIT_PULL_REQUEST_ID
-    || (env.PULL_REQUEST === "true" ? env.REVIEW_ID : undefined)
-    || /^refs\/pull\/(\d+)\//.exec(env.GITHUB_REF ?? "")?.[1]
-  const number = Number(value)
-  return Number.isSafeInteger(number) && number > 0 ? number : undefined
-}
+export { githubRepository } from "@vite-hub/forge/build/node"
 
 /**
  * The build of the app, from the CI or host, else from Git: the commit and branch, the GitHub repository, and the pull
- * request when the host names it. Empty outside a Git checkout.
+ * request when the host names it. Empty outside a Git checkout. Forge's `readForgeBuild` reads it.
  */
-export async function readCommentsBuild(root: string, env: Record<string, string | undefined> = process.env): Promise<CommentBuild> {
-  const repository = env.GITHUB_REPOSITORY
-    || (env.VERCEL_GIT_PROVIDER === "github" && env.VERCEL_GIT_REPO_OWNER && env.VERCEL_GIT_REPO_SLUG ? `${env.VERCEL_GIT_REPO_OWNER}/${env.VERCEL_GIT_REPO_SLUG}` : undefined)
-    || githubRepository(env.REPOSITORY_URL)
-    || githubRepository(await readGit(root, ["remote", "get-url", "origin"]))
-  const pullRequest = pullRequestOf(env)
-  return { ...await readBuildRevision(root, env), ...(repository ? { repository } : {}), ...(pullRequest ? { pullRequest } : {}) }
+export function readCommentsBuild(root: string, env: Record<string, string | undefined> = process.env): Promise<CommentBuild> {
+  return readForgeBuild(root, env)
 }
 
 const skippedDirectories = new Set(["node_modules", "dist", "coverage", "public"])
@@ -309,7 +307,7 @@ function sessionLines(options: CommentsVitePluginOptions, imports: CommentsImpor
     : { imports: [], value: "undefined" }
 }
 
-/** The session reader of presence and MCP: the Auth user, else the person signed in with GitHub. */
+/** The session reader of presence and MCP: the Auth user, else `githubLogin`, the person signed in with GitHub. */
 function sessionWithGitHubLines(options: CommentsVitePluginOptions, imports: CommentsImports, repository?: string, base?: string): { imports: string[], value: string, githubLogin?: true } {
   if (options.auth) return sessionLines(options, imports)
   const route = mountedCommentsRoute(base)
@@ -318,7 +316,7 @@ function sessionWithGitHubLines(options: CommentsVitePluginOptions, imports: Com
       `import { createCommentsGitHubLogin } from ${JSON.stringify(imports.runtime)}`,
       `const githubLogin = createCommentsGitHubLogin(${JSON.stringify({ ...(repository ? { repository } : {}), ...(route !== commentsRoute ? { basePath: `${route}/auth` } : {}) })})`,
     ],
-    value: "githubLogin.user",
+    value: "undefined",
     githubLogin: true,
   }
 }
@@ -346,6 +344,7 @@ export function renderCommentsHandler(input: { definition: string, content?: str
     ...(githubLogin ? [`  githubLogin: createCommentsGitHubLogin(${JSON.stringify({ ...(input.build?.repository ? { repository: input.build.repository } : {}), ...(route !== commentsRoute ? { basePath: `${route}/auth` } : {}) })}),`] : []),
     ...(input.content ? ["  content: contentModule.default ? { runtime: contentModule.default, parseField: parseContentField } : undefined,"] : []),
     `  realtime: ${input.realtime},`,
+    ...(input.session.overlay && input.session.overlay.presence === false ? ["  presence: false,"] : []),
     `  build: ${JSON.stringify(input.build ?? {})},`,
     "  components,",
     "})",
@@ -387,6 +386,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
     // With Auth, `@` suggests the users of Auth.
     ...(input.session?.auth ? [`import { commentsAuthUsers } from ${JSON.stringify(input.imports.auth)}`] : []),
     ...(input.session?.blob ? [`import { blob } from ${JSON.stringify(input.imports.blob)}`] : []),
+    ...(input.session?.rateLimit ? [`import { checkRateLimit } from ${JSON.stringify(input.imports.rateLimit)}`] : []),
     ...(postgres ? [`import { commentsPostgresSchema as schema } from ${JSON.stringify(`${input.imports.database}/postgres`)}`] : []),
     `export default defineCommentsPlugin({ ${[
       "comments",
@@ -395,6 +395,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
       ...(session.githubLogin ? ["githubLogin"] : []),
       ...(input.session?.auth ? ["users: commentsAuthUsers"] : []),
       ...(input.session?.blob ? ["attachments: blob"] : []),
+      ...(input.session?.rateLimit ? ["rateLimit: checkRateLimit"] : []),
       ...(postgres ? ["dialect: \"postgresql\"", "tables: { commentCounters: schema.vitehubCommentCounters, commentMessages: schema.vitehubCommentMessages, commentThreads: schema.vitehubCommentThreads, commentForge: schema.vitehubCommentForge }"] : []),
       `development: ${input.development === true}`,
       `overlay: ${overlay}`,
@@ -547,6 +548,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
       },
     } : undefined,
     api: {
+      deploymentEnv: context => enabled() ? commentsDeploymentEnv(options, context) : [],
       async setComponents(components) {
         resolvedComponents = components
         await writeComponents()
@@ -564,7 +566,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
           ...definitionLines(definition, imports.runtime),
           ...session.imports,
           "",
-          `export default commentsRealtime(comments, { session: ${session.value} })`,
+          `export default commentsRealtime(comments, { session: ${session.value}${session.githubLogin ? ", githubLogin" : ""} })`,
           "",
         ].join("\n"))
         return { definitions: [{ handler: file, name: commentsRealtimeDefinition }] }

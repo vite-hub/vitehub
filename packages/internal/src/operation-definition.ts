@@ -190,10 +190,10 @@ function checkDefinition(definition: unknown): void {
 /** The default limit of a call, in bytes. */
 export const defaultRequestBytes: number = 64 * 1_024
 /** The top-level setup commands of the CLI, such as `vitehub status`. They run before the project config loads. */
-export const setupCommandNames: readonly string[] = ["init", "add", "remove", "status", "catalog", "link", "unlink", "deploy", "deployments", "drain"]
+export const setupCommandNames: readonly string[] = ["init", "add", "remove", "status", "catalog", "link", "unlink", "deploy", "deployments", "drain", "login", "logout", "whoami"]
 
 /** CLI namespaces owned by built-in commands. */
-export const reservedOperationNamespaces: readonly string[] = ["inspect", "provision", ...setupCommandNames]
+export const reservedOperationNamespaces: readonly string[] = ["inspect", "provision", "seed", ...setupCommandNames]
 
 /** Input keys that the generated CLI commands read themselves. */
 export const reservedOperationFlags: readonly string[] = ["input", "json", "timeout", "url", "yes"]
