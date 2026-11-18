@@ -62,7 +62,7 @@ const maximumThreadImageBytes = 4 * 1024 * 1024
  */
 async function threadImages(comments: Comments, thread: CommentThread, user: CommentsUser | null): Promise<{ images: ViteHubMcpImage[], notes: string[] }> {
   const runtime = await runtimeOf(comments)
-  invariant(runtime, "comments.get found the thread, so Comments has a runtime")
+  if (!runtime) return { images: [], notes: [`Could not read the attachments: ${commentsErrors.COMMENTS_NOT_INSTALLED().why}`] }
   const images: ViteHubMcpImage[] = []
   const notes: string[] = []
   let bytes = 0
