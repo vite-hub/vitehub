@@ -24,11 +24,11 @@ export default defineNuxtConfig({
 })
 ```
 
-The module installs Nuxt UI, `@vite-hub/ui`, `nuxt-agent-discovery`, and `nuxt-link-checker` for you. Do not add them to `modules`. Content serves the agent files: `/raw/<page>.md`, `llms.txt`, `llms-full.txt`, `sitemap.md`, `sitemap.xml`, and the MCP server. Set `site.url` to the public origin: llms.txt, canonical links, and the raw Markdown links use it.
+The module installs Nuxt UI, `@vite-hub/ui`, `nuxt-agent-discovery`, and `nuxt-link-checker` for you, so a new site does not add them to `modules`. An app that already lists `@nuxt/ui` keeps it before the docs module, as in [Add docs to an existing app](#add-docs-to-an-existing-app). Content serves the agent files: `/raw/<page>.md`, `llms.txt`, `llms-full.txt`, `sitemap.md`, `sitemap.xml`, and the MCP server. Set `site.url` to the public origin: llms.txt, canonical links, and the raw Markdown links use it.
 
 The shell uses Lucide, Simple Icons, and VS Code Icons. Install `@iconify-json/lucide`, `@iconify-json/simple-icons`, and `@iconify-json/vscode-icons` to serve them from your app. Without them, `@nuxt/icon` gets them from the Iconify API.
 
-Apps that use `vite-hub` can import the root and the assistant from `vite-hub/docs` and `vite-hub/docs/assistant`.
+Apps that use `vite-hub` add `vite-hub/docs/nuxt` to `modules` in place of `@vite-hub/docs/nuxt`, and import the root and the assistant from `vite-hub/docs` and `vite-hub/docs/assistant`.
 
 ### Add docs to an existing app
 

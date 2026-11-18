@@ -334,6 +334,13 @@ export async function linkConsoleAccountProject(url: string, label?: string): Pr
   return project
 }
 
+/** Rename an app of the active team. An empty name removes the label, so the Console shows the name that the app reports. */
+export async function renameConsoleAccountProject(id: string, label: string): Promise<ConsoleAccountProject> {
+  const name = label.replace(/\s+/g, " ").trim()
+  const { project } = await json<{ project: ConsoleAccountProject }>(`/api/projects/${encodeURIComponent(id)}`, { body: JSON.stringify({ label: name || null }), method: "PATCH" })
+  return project
+}
+
 export async function unlinkConsoleAccountProject(id: string): Promise<void> {
   const response = await fetch(`/api/projects/${encodeURIComponent(id)}`, { credentials: "same-origin", method: "DELETE" })
   if (!response.ok && response.status !== 404) throw failure({ status: response.status }, `The Console answered ${response.status}.`)

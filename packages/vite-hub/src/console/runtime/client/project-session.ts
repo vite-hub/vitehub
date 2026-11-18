@@ -370,11 +370,21 @@ export function rememberConsoleProjectName(id: string, name: string | undefined)
 }
 
 /**
- * The name that the Console shows for a project: the name that the app reports in `project.get`, else the label of the
- * link, else the host.
+ * The name that the Console shows for a project: the label that the person gave the link, else the name that the app
+ * reports in `project.get`, else the host. The app reports its `package.json` name, such as `acme-docs`, so the label
+ * wins.
  */
 export function consoleProjectDisplayName(project: { id: string, label?: string | null, url: string }): string {
-  return useState().names.value[project.id] || project.label || consoleProjectHost(project)
+  return project.label || useState().names.value[project.id] || consoleProjectHost(project)
+}
+
+/**
+ * The name of the open project. An `account` Console shows the label of the link first, like
+ * `consoleProjectDisplayName()`. Otherwise it is `reported`, the name that the app reports, else the name in `project.get`.
+ */
+export function consoleOpenProjectName(reported?: string): string | undefined {
+  const projects = useState()
+  return (projects.mode === "account" ? projects.current.value?.label : undefined) || reported || projects.info.value?.name
 }
 
 /** Only owners and admins of a team link and unlink its apps. */
@@ -738,6 +748,12 @@ export async function linkAccountProject(url: string, label?: string): Promise<v
   const project = await linkConsoleAccountProject(url.trim(), label?.trim() || undefined)
   rememberAccountProject(useState().account.value?.teamId, project.id)
   reloadConsoleAccount()
+}
+
+/** Rename an app of the active team. An empty label removes it, so the Console shows the name that the app reports. */
+export async function renameAccountProject(id: string, label: string): Promise<void> {
+  const { renameConsoleAccountProject } = await import("./account")
+  await renameConsoleAccountProject(id, label)
 }
 
 /**

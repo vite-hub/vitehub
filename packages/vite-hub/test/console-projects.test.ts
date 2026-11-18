@@ -395,6 +395,34 @@ describe("account Console", () => {
     expect(transport.isRemoteProject()).toBe(true)
   })
 
+  it("names an app by the label of its link before the name that the app reports", async () => {
+    const { module, state } = await account(json(200, { ok: true, value: { protocol: 1, name: "vitehub-docs", operations: [], sections: [] } }))
+    await module.openConsoleProject()
+    expect(state.info.value?.name).toBe("vitehub-docs")
+    expect(module.consoleProjectDisplayName(linked)).toBe("Docs")
+    expect(module.consoleOpenProjectName("vitehub-docs")).toBe("Docs")
+    const { useConsoleApp } = await import("../src/console/runtime/client/app-identity.ts")
+    expect(useConsoleApp().value.name).toBe("Docs")
+    // Without a label, the reported name, then the host.
+    expect(module.consoleProjectDisplayName({ ...linked, label: null })).toBe("vitehub-docs")
+    expect(module.consoleProjectDisplayName({ id: "p-2", label: null, url: "https://other.example.com" })).toBe("other.example.com")
+  })
+
+  it("renames an app", async () => {
+    // An earlier test mocks the account module without this call.
+    vi.doUnmock("../src/console/runtime/client/account.ts")
+    const fetch = vi.fn(json(200, { project: { ...linked, label: "Handbook" } }))
+    const { module } = await account(fetch)
+    await module.renameAccountProject(linked.id, "  Handbook ")
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe("/api/projects/p-1")
+    expect(init.method).toBe("PATCH")
+    expect(JSON.parse(String(init.body))).toEqual({ label: "Handbook" })
+    // An empty name removes the label.
+    await module.renameAccountProject(linked.id, " ")
+    expect(JSON.parse(String((fetch.mock.calls[1] as unknown as [string, RequestInit])[1].body))).toEqual({ label: null })
+  })
+
   it("keeps media links on the app while forwarding data requests", async () => {
     const { module } = await account(json(200, { ok: true, value: { protocol: 1, name: "Docs", operations: [], sections: [] } }))
     await module.openConsoleProject()

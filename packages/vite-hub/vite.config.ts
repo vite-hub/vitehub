@@ -288,6 +288,10 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
+          from: "src/console/runtime/components/console-account-rename.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-account-snippet.vue",
           to: "dist/console/runtime/components",
         },
