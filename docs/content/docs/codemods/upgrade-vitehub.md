@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, and `shell-driver`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, and `shell-driver`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -96,6 +96,26 @@ The codemod reads imports from `vite-hub/queue`, `vite-hub/workflow`, and their 
 - star and namespace re-exports, whose consumers need manual changes,
 - object keys and strings with an old name, for example in a `vi.mock()` factory,
 - Workflow handles that a file exports, because other files call their methods.
+
+## result-tuples
+
+`startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, and `resumeWorkflow()` return `[error, data]` now, as `sendQueue()` does. They threw before. The `start()`, `getRun()`, and `cancel()` methods of a `createWorkflow()` handle changed in the same way. `result-tuples` reads each call as a Result that throws the error, so the code keeps its behavior:
+
+```bash [Terminal]
+npx @vite-hub/codemods result-tuples [dir] [--dry-run]
+```
+
+```diff [server/api/onboard.post.ts]
+ export default defineEventHandler(async (event) => {
+   const body = await readBody<{ email: string }>(event)
+-  const run = await startWorkflow('onboard-user', body)
++  const [runError, run] = await startWorkflow('onboard-user', body)
++  if (runError) throw runError
+   return { id: run.id }
+ })
+```
+
+`return startWorkflow(...)` in an async function and a call in an `if` test move to a `const` before the statement. The codemod reads imports from `vite-hub/workflow` and `@vite-hub/workflow`, and the Nuxt auto-imports in `server/`. The report lists the calls that it cannot change, such as a call in a function that is not `async`, a call without `await`, or a handle that another file creates.
 
 ## one-entry-imports
 

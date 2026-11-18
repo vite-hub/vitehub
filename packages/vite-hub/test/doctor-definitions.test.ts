@@ -166,29 +166,28 @@ describe("vitehub/no-destructure-non-tuples", () => {
   it("reports tuple destructuring of values and Responses", async () => {
     expect(await codes(noDestructureNonTuples, {
       "server/api/a.ts": [
-        'import { startWorkflow, deferWorkflow } from "vite-hub/workflow"',
+        'import { deferWorkflow } from "vite-hub/workflow"',
         'import { runSandboxTask } from "vite-hub/sandbox/task"',
         "export async function run() {",
-        '  const [error, run] = await startWorkflow("onboard", {})',
         '  const [failure, output] = await runSandboxTask("resize", {})',
         '  const [deferred] = await deferWorkflow("onboard", {})',
-        "  return { error, run, failure, output }",
+        "  return { failure, output }",
         "}",
       ].join("\n"),
-    })).toEqual(["VHUB0018", "VHUB0018", "VHUB0018"])
+    })).toEqual(["VHUB0018", "VHUB0018"])
   })
 
-  it("accepts direct results and the tuple form of runAgent", async () => {
+  it("accepts the tuple form of startWorkflow and runAgent", async () => {
     expect(await codes(noDestructureNonTuples, {
       "server/api/a.ts": [
         'import { startWorkflow } from "vite-hub/workflow"',
         'import { runAgent } from "vite-hub/agent"',
         "export async function run(agent, options) {",
-        '  const run = await startWorkflow("onboard", {})',
+        '  const [startError, run] = await startWorkflow("onboard", {})',
         '  const [error, answer] = await runAgent(agent, { prompt: "hi" })',
         '  const [failure, result] = await runAgent(agent, { prompt: "hi" }, { runtimeContext: options.runtimeContext })',
         '  const [unknown, value] = await runAgent(agent, { prompt: "hi" }, options)',
-        "  return { run, error, answer, failure, result, unknown, value }",
+        "  return { startError, run, error, answer, failure, result, unknown, value }",
         "}",
       ].join("\n"),
     })).toEqual([])

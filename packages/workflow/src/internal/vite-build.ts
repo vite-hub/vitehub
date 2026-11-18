@@ -760,8 +760,6 @@ interface GenerateProviderOutputsOptions {
 }
 
 interface WorkspaceDependencyRuntimeImports {
-  sandboxTask?: string
-  sandboxTaskRuntimeState?: string
   shellWorkspace?: string
 }
 
@@ -1143,8 +1141,9 @@ export function createWorkflowRegistryContents(
   const needsAgentRuntime = definitions.some(definition => definition.source === "agent-workflow" || definition.source === "agent-workflow-recovery")
   const needsRegistryEntryCache = needsWorkflowRuntime || needsAgentRuntime
   const installAgentWorkflowRuntime = needsAgentRuntime && importBases.workflow
-  // Import the Workspace runtime only to install a loader. A Workflow-only app does not install `@vite-hub/workspace`.
-  const workspaceDependencyRuntimeImports = importBases.workspaceRuntime && Object.values(importBases.workspaceDependencies ?? {}).some(Boolean)
+  // Import the Workspace runtime only to install the Shell loader, the one loader that the Workspace runtime reads.
+  // A Workflow-only app, or one with only a Sandbox Task, does not install `@vite-hub/workspace`.
+  const workspaceDependencyRuntimeImports = importBases.workspaceRuntime && importBases.workspaceDependencies?.shellWorkspace
     ? importBases.workspaceDependencies
     : undefined
   const agent = importBases.agent
@@ -1187,12 +1186,6 @@ export function createWorkflowRegistryContents(
     ...(workspaceDependencyRuntimeImports
       ? [
           "setWorkspaceDependencyRuntimeLoaders({",
-          ...(workspaceDependencyRuntimeImports.sandboxTask
-            ? [`  sandboxTask: () => import(${JSON.stringify(workspaceDependencyRuntimeImports.sandboxTask)}),`]
-            : []),
-          ...(workspaceDependencyRuntimeImports.sandboxTaskRuntimeState
-            ? [`  sandboxTaskRuntimeState: () => import(${JSON.stringify(workspaceDependencyRuntimeImports.sandboxTaskRuntimeState)}),`]
-            : []),
           ...(workspaceDependencyRuntimeImports.shellWorkspace
             ? [`  shellWorkspace: () => import(${JSON.stringify(workspaceDependencyRuntimeImports.shellWorkspace)}),`]
             : []),
