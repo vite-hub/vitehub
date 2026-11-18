@@ -101,7 +101,6 @@ Set Agent Eval Runner defaults in the Agent options.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: "node",
     agent: {
       eval: {
         cache: true,
@@ -124,7 +123,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       agent: {
         eval: {
           cache: true,
@@ -148,7 +146,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       agent: {
         eval: {
           cache: true,
@@ -176,7 +173,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: "node",
     env: {
       diagnostics: 'summary',
       providers: { credentials: './server/env/credentials.ts' },
@@ -202,7 +198,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: "node",
     env: {
       diagnostics: 'summary',
       providers: { credentials: './server/env/credentials.ts' },
@@ -227,7 +222,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: "node",
     env: {
       diagnostics: 'summary',
       providers: { credentials: './server/env/credentials.ts' },
