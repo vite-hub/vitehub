@@ -143,7 +143,7 @@ describe("Webhooks in a built Nitro 3 app", () => {
         return JSON.parse(result.stdout) as unknown
       }
       const listed = await cli("list")
-      expect(listed).toEqual([{ name: "t3", url: "T3_WEBHOOK_URL", secret: "T3_WEBHOOK_SECRET", signature: "github", debounceMs: 1_000, urlSet: true, secretSet: true, host: `127.0.0.1:${address.port}` }])
+      expect(listed).toEqual([{ name: "t3", url: "T3_WEBHOOK_URL", secret: "T3_WEBHOOK_SECRET", signature: "github", debounceMs: 1_000, events: [], urlSet: true, secretSet: true, host: `127.0.0.1:${address.port}` }])
       expect(JSON.stringify(listed)).not.toMatch(/relay|whsec_|\/hook/)
       expect(await cli("deliveries", "--webhook", "t3", "--state", "sent")).toEqual([expect.objectContaining({ id: ids[0], count: 3 })])
       const tested = await cli("test", "t3", "--body", "{\"ping\":1}") as { id: string }
