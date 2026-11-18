@@ -17,6 +17,16 @@ export interface MotionStateChange {
   value: string | null;
 }
 
+/** The children or the text of an element changed, such as Vue writing the new label of a button. */
+export interface MotionContentChange {
+  /** The nodes that the change added, in order. */
+  added: Node[];
+  /** The nodes that the change removed, in order. */
+  removed: Node[];
+  /** The text before the change, when the change replaced all of it. */
+  oldText: string | undefined;
+}
+
 /** What a press does next. The motion layer calls it until the pointer or the key goes up. */
 export interface MotionPress {
   /** The pointer moved while it was down, such as on a slider thumb. Not called for a key press. */
@@ -47,6 +57,11 @@ export interface MotionEffect {
   state?(element: HTMLElement, change: MotionStateChange): void;
   /** The element was added to the page, such as a tooltip. Also called under reduced motion: keep the meaning. */
   enter?(element: HTMLElement): void;
+  /**
+   * The children or the text of the element changed, such as the label or the icon of a button. Also called under
+   * reduced motion, and for the changes that effects make themselves: tell them apart by `added`.
+   */
+  content?(element: HTMLElement | SVGElement, change: MotionContentChange): void;
 }
 
 const effects = new Map<string, MotionEffect>();

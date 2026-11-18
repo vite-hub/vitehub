@@ -15,6 +15,7 @@ import type { VNode } from "vue";
 import { createViteHubUI } from "../../../src/config.ts";
 import { forceReducedMotion, getMotionSlowFactor, prefersReducedMotion, setMotionSlowFactor } from "../../../src/motion.ts";
 import "./styles.css";
+import { textRows } from "./text.ts";
 
 const today = new URLSearchParams(location.search).get("mode") === "today";
 // The press of `vitehubTheme.button` before the motion layer.
@@ -87,6 +88,7 @@ const app = createApp({
       h("button", { "class": "plain own-press", "data-test": "own-press" }, "own scale transition"),
       h("button", { "class": "plain", "data-test": "not-a-control-parent" }, [h("span", { "data-test": "inner-span" }, "span in a button")]),
     ]),
+    ...textRows(row),
     row("Shadow DOM", [h("motion-shadow-button", { "data-test": "shadow-host" })]),
   ]),
 });

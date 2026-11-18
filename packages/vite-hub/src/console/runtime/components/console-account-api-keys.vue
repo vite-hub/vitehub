@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { CopyButton } from "@vite-hub/ui";
 import { computed, onMounted, ref, shallowRef, watch } from "vue";
 
 import type { ConsoleApiKey } from "../client/account";
@@ -71,9 +72,8 @@ async function create(): Promise<void> {
   createBusy.value = false;
 }
 
-async function copyKey(): Promise<void> {
-  const copied = created.value ? await navigator.clipboard.writeText(created.value).then(() => true, () => false) : false;
-  toast.show({ title: copied ? "API key copied" : "The browser blocked the clipboard. Select the key and copy it." });
+function copyKeyFailed(): void {
+  toast.show({ title: "The browser blocked the clipboard. Select the key and copy it." });
 }
 
 async function revoke(): Promise<void> {
@@ -146,7 +146,7 @@ function detail(key: ConsoleApiKey): string {
       <template #body>
         <div v-if="created" class="flex gap-2">
           <UInput :model-value="created" readonly aria-label="API key" class="min-w-0 flex-1 font-mono" @focus="($event.target as HTMLInputElement).select()" />
-          <UButton icon="i-lucide-copy" color="neutral" variant="outline" label="Copy" @click="copyKey" />
+          <CopyButton :value="created" color="neutral" variant="outline" label="Copy" @error="copyKeyFailed" />
         </div>
         <form v-else id="vitehub-api-key-create" class="grid gap-4" @submit.prevent="create">
           <UFormField label="Name" name="name" required :error="createProblem" :ui="{ error: createProblem ? undefined : 'mt-0' }">
