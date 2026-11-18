@@ -30,8 +30,8 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Pass `{ ttl: seconds }` to expire the value, or no options to keep it. KV has no Cloudflare `expirationTtl`, `expiration`, or `metadata` option.",
     },
     KV_INVALID_TTL: {
-      why: "`ttl` must be a positive number of seconds within the safe integer range.",
-      fix: "Pass the TTL in seconds, for example `kv.set('session', value, { ttl: 60 })`.",
+      why: "`ttl` must be a positive number of seconds within the safe integer range, or a duration such as `\"1h\"`.",
+      fix: "Pass the TTL in seconds or as a duration, for example `kv.set('session', value, { ttl: 60 })` or `kv.set('session', value, { ttl: \"1h\" })`.",
     },
     KV_INVALID_VALUE: {
       why: ({ operation, problem }: { operation: "deleteIfEquals" | "setIfAbsent", problem: "missing" | "unserializable" }) => problem === "missing"

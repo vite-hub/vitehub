@@ -23,9 +23,21 @@ export interface ViteHubMcpInputSchema {
   additionalProperties?: boolean
 }
 
-/** What a tool call returns: text for the Agent, and the same data as JSON. */
+/** An image that the Agent sees, such as a screenshot attached to a comment. */
+export interface ViteHubMcpImage {
+  /** The bytes, Base64-encoded. */
+  data: string
+  /** Such as `image/png`. */
+  mimeType: string
+}
+
+/**
+ * What a tool call returns: text for the Agent, the images that it refers to, and the same data as JSON.
+ * `mcpToolResult()` turns it into the MCP result, with one `image` block for each image after the text.
+ */
 export interface ViteHubMcpToolResult {
   text: string
+  images?: ViteHubMcpImage[]
   structured?: Record<string, unknown>
   isError?: boolean
 }

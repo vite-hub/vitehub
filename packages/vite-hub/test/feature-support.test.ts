@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 
+import { VITEHUB_PREPARE } from "@vite-hub/internal/build/vite"
 import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import { resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import type { FeatureId } from "@vite-hub/internal/features"
@@ -32,11 +33,11 @@ function findPlugin(plugins: PluginOption[], name: string): Plugin {
   return plugin
 }
 
-function runConfigHook(plugin: Plugin): void {
+function runConfigHook(plugin: Plugin, config = {}): void {
   const hook = plugin.config
   const handler = isCallable(hook) ? hook : hook?.handler
   if (!isCallable(handler)) throw new TypeError("Expected a callable config hook.")
-  Reflect.apply(handler, undefined, [{}, { command: "build", mode: "production" }])
+  Reflect.apply(handler, undefined, [config, { command: "build", mode: "production" }])
 }
 
 function build(host: ViteHubHost, options: Record<string, unknown>): void {
@@ -76,6 +77,13 @@ describe("feature catalog host checks", () => {
     }
     expect(featureSupport("blob", "deno").level).toBe("explicit")
     expect(() => build("deno", { blob: true })).toThrow(expect.objectContaining({ code: "INTERNAL_R0002" }))
+  })
+
+  it("allows email: true during Nuxt type preparation on every host", () => {
+    for (const host of hosts) {
+      const plugins = vitehub({ host, email: true })
+      expect(() => runConfigHook(findPlugin(plugins, "vite-hub/deployment-host"), { [VITEHUB_PREPARE]: true }), host).not.toThrow()
+    }
   })
 
   it("agrees with the Deployment Plan about the services that ViteHub selects", () => {

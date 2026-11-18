@@ -306,9 +306,11 @@ describe("kv runtime", () => {
     upstashSetIfAbsent.mockResolvedValueOnce(false)
     expect(expectKVSuccess(await kv.setIfAbsent("uploads/ticket", 1))).toBe(false)
     expect(upstashSetIfAbsent).toHaveBeenLastCalledWith("uploads:ticket", "1", undefined)
+    expectKVSuccess(await kv.setIfAbsent("uploads/ticket", 1, { ttl: "2m" }))
+    expect(upstashSetIfAbsent).toHaveBeenLastCalledWith("uploads:ticket", "1", 120)
 
     expect((await kv.setIfAbsent("uploads/ticket", 1, { ttl: 0 }))[0]).toMatchObject({ code: "KV_INVALID_TTL" })
-    expect(upstashSetIfAbsent).toHaveBeenCalledTimes(2)
+    expect(upstashSetIfAbsent).toHaveBeenCalledTimes(3)
   })
 
   it("returns invalid arguments as KV results", async () => {
@@ -335,7 +337,8 @@ describe("kv runtime", () => {
     const { kv } = await import("../src/runtime/storage.ts")
 
     expectKVSuccess(await kv.set("session", "value", { ttl: 60 }))
-    for (const ttl of [0, -1, Number.NaN]) expect((await kv.set("session", "value", { ttl }))[0]).toMatchObject({ code: "KV_INVALID_TTL" })
+    expectKVSuccess(await kv.set("session", "value", { ttl: "1h" }))
+    for (const ttl of [0, -1, Number.NaN, "0s", "60", "soon"]) expect((await kv.set("session", "value", { ttl: ttl as never }))[0]).toMatchObject({ code: "KV_INVALID_TTL" })
     // SAFETY: A JavaScript caller can pass options that the type rejects.
     const cloudflareOptions = { expirationTtl: 60 } as { ttl?: number }
     expect((await kv.set("session", "value", cloudflareOptions))[0]).toMatchObject({

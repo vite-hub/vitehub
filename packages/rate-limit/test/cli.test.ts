@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createRateLimitCliContributor, runRateLimitCli } from "../src/cli.ts"
+import { checkRateLimit, peekRateLimit } from "../src/index.ts"
+import { setRateLimitRuntimeConfig } from "../src/runtime.ts"
 import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 const rootDir = "/app"
@@ -156,6 +158,18 @@ describe("Rate Limit review regressions", () => {
 })
 
 describe("vitehub rate-limit", () => {
+  it("prints a live counter with whitespace in its window", async () => {
+    setRateLimitRuntimeConfig({ driver: "memory" })
+    const request = new Request("https://example.com/login")
+    const window = " 1 minute"
+    await checkRateLimit(request, "spaced-window", { key: "user", limit: 1, window })
+    const counter = await peekRateLimit("spaced-window", "user")
+    const output = context()
+
+    await expect(runRateLimitCli(["peek", "spaced-window", "user", "--json"], output.context, { fetch: devServer(counter) })).resolves.toBe(0)
+    expect(JSON.parse(output.stdout.output())).toMatchObject({ counters: [{ used: 1, window, windowMs: 60_000 }] })
+  })
+
   it("prints the counter of one key as a table and as JSON", async () => {
     const human = context()
     const fetch = devServer(known)
