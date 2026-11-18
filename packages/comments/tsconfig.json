@@ -23,6 +23,7 @@
     },
     "lib": [
       "ES2023",
+      "ES2025.Intl",
       "DOM",
       "DOM.Iterable"
     ]
