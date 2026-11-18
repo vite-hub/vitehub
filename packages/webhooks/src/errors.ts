@@ -15,7 +15,7 @@ export const webhooksErrors = /*#__PURE__*/ defineErrors({
     },
     WEBHOOKS_DEFINITION_INVALID: {
       why: ({ message }: { message: string }) => message,
-      fix: "Default-export `defineWebhook({ url: \"T3_WEBHOOK_URL\", secret: \"T3_WEBHOOK_SECRET\" })` from each file of `server/webhooks/`. `url` and `secret` are names of server variables, `signature` is `\"github\"` or `\"stripe\"`, and `debounce` is a duration such as `\"30m\"`.",
+      fix: "Default-export `defineWebhook({ url: \"T3_WEBHOOK_URL\", secret: \"T3_WEBHOOK_SECRET\" })` from each file of `server/webhooks/`. `url` and `secret` are names of server variables, `signature` is `\"github\"` or `\"stripe\"`, `debounce` is a duration such as `\"30m\"`, and `events` lists `\"invocation.failed\"`, `\"workflow.failed\"`, or `\"schedule.failed\"`.",
     },
     WEBHOOKS_FILE_INVALID: {
       why: ({ message }: { message: string }) => message,

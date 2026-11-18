@@ -1,6 +1,6 @@
 import { hasDefinitionFiles } from "@vite-hub/internal/definition-catalog"
 import { hostFromNitroPreset, detectHost } from "@vite-hub/internal/deployment"
-import { featureHosts, featureIds, featurePackages, features, featureSupport, impliedFeatures, impliedInline } from "@vite-hub/internal/features"
+import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { join } from "pathe"
 
 import type { ConfigForm, ManualReason } from "@vite-hub/internal/config-edit"
@@ -116,13 +116,11 @@ export function setupStatus(project: SetupProject, env: NodeJS.ProcessEnv, witho
   const keep = featureIds.filter(id => enabled.get(id)!.enabled !== "on" && enabled.get(id)!.reason === "config")
   const maybeOn = featureIds.filter(id => enabled.get(id)!.enabled !== "off")
   const disabled = keep.filter(id => enabled.get(id)!.enabled === "off")
-  const hosts = host.name === "unknown" ? featureHosts.filter(name => name !== "dev") : [host.name]
-  const definite = hosts.map(name => impliedFeatures(on, name, keep))
-  const possible = new Set(hosts.flatMap(name => impliedFeatures(maybeOn, name, disabled)))
-  for (const id of possible) {
+  const definite = impliedFeatures(on, keep)
+  for (const id of impliedFeatures(maybeOn, disabled)) {
     const state = enabled.get(id)!
     if (state.enabled === "off" && state.reason === "default") {
-      enabled.set(id, { enabled: definite.every(ids => ids.includes(id)) ? "on" : "unknown", reason: "implied" })
+      enabled.set(id, { enabled: definite.includes(id) ? "on" : "unknown", reason: "implied" })
     }
   }
 
@@ -145,10 +143,8 @@ export function setupStatus(project: SetupProject, env: NodeJS.ProcessEnv, witho
       const missing = state.enabled === "on"
         ? { dev: definition.devPackages.filter(name => !project.installed(name)), prod: packages.filter(name => !project.installed(name)) }
         : { dev: [], prod: [] }
-      // A feature that only an implication turns on and that runs inline there needs no provider option. Outside
-      // Netlify, Workflow storage options select OpenWorkflow without `workflow.driver`.
-      const providerChosen = state.reason === "implied" && host.name !== "unknown" && impliedInline(id, on, host.name)
-        || id === "workflow" && host.name !== "netlify" && packages.includes("openworkflow")
+      // Outside Netlify, Workflow storage options select OpenWorkflow without `workflow.driver`.
+      const providerChosen = id === "workflow" && host.name !== "netlify" && packages.includes("openworkflow")
       const fix = state.enabled === "on" ? featureFix(project, id, support, host.name, missing, providerChosen) : undefined
       return { id, ...state, missingPackages: [...missing.prod, ...missing.dev], support, ...(fix ? { fix } : {}) }
     }),

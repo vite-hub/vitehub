@@ -934,14 +934,21 @@ function agentDrainMs(agent: ViteHubOptions["agent"]): number {
   return typeof drainMs === "number" && Number.isFinite(drainMs) && drainMs >= 0 ? drainMs : 0
 }
 
-/** A Node server has no host cron. Its Schedules run only in the Process Runtime or when the app wakes them itself. */
+/**
+ * A Node server has no host cron, so its Schedules run in the Process Runtime unless the app sets `runtime` or chooses
+ * another `providerOutput` itself.
+ */
+function scheduleOptionsForHost(host: DeploymentPlan["host"], schedule: true | ScheduleOptions): ScheduleOptions {
+  const options = schedule === true ? {} : schedule
+  if (host !== "node" || options.runtime !== undefined || (options.providerOutput ?? "auto") !== "auto") return options
+  return { ...options, runtime: { driver: "process" } }
+}
+
+/** `nitro` and `standalone` hand the wake to the host cron, which a Node server does not have. */
 function assertNodeScheduleWake(schedule: ViteHubOptions["schedule"]): void {
-  if (!schedule) return
-  if (schedule !== true) {
-    if (schedule.providerOutput === false) return
-    if (schedule.runtime !== undefined && schedule.providerOutput !== "nitro" && schedule.providerOutput !== "standalone") return
-  }
-  throw viteHubErrorDiagnostics.VITE_HUB_R0137({ message: "[vitehub] The \"node\" host has no cron, so this build would never run its Schedules. Set schedule: { runtime: { driver: \"process\" }, providerOutput: \"auto\" } to run them in the server process, or schedule: { providerOutput: false } to wake them yourself." })
+  if (!schedule || schedule === true) return
+  if (schedule.providerOutput !== "nitro" && schedule.providerOutput !== "standalone") return
+  throw viteHubErrorDiagnostics.VITE_HUB_R0137({ message: `[vitehub] schedule.providerOutput "${schedule.providerOutput}" writes host cron output, but the "node" host has no cron, so this build would never run its Schedules. Remove providerOutput to run them in the server process, or set providerOutput: false to wake them yourself.` })
 }
 
 /**
@@ -1503,8 +1510,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const { logs: logsOption, browserErrors, ...observabilityOptions } = observability ?? {}
   const observabilityLogs = logsOption === true ? {} : logsOption || undefined
   const telemetry = Boolean(observabilityOptions.service)
-  const workflowEnabled = options.workflow !== false
-    && Boolean(options.workflow || (options.agent && plan.host !== "netlify"))
+  const workflowEnabled = Boolean(options.workflow)
   // The packages of these features are optional peers. One error lists every package that the app must add, also the
   // SDKs that the host or a provider adds, such as `@vercel/functions` for Workflow on Vercel.
   const enabledFeatures = ([
@@ -1529,7 +1535,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ["realtime", options.realtime],
     ["sandboxTask", sandboxTaskEnabled],
     ["schedule", options.schedule],
-    // Agents run on Workflow outside Netlify unless the app sets `workflow: false`.
     ["workflow", workflowEnabled],
     ["workspace", options.workspace],
   ] as const).filter(([, enabled]) => enabled).map(([feature]) => feature)
@@ -1542,7 +1547,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const blobStoreNames = resolvedConsoleBlob
     ? Object.keys(resolvedConsoleBlob.stores || { default: resolvedConsoleBlob.store })
     : []
-  const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, host: plan.host, sandboxTask: sandboxTaskEnabled })
+  const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, sandboxTask: sandboxTaskEnabled })
   // `.template.md` imports work when the app installed `@vite-hub/markdown-template`.
   const plugins: unknown[] = [doctorPlugin(), viteHubHintsPlugin(), ...markdownTemplateVite ? [markdownTemplateVite.hubMarkdownTemplate()] : []]
   const requestedServices: HostSelectedService[] = []
@@ -1754,7 +1759,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
         // Present only with the Auth plugin. It reads users only for Actors that authenticated() resolved.
         auth: "vite-hub/auth/agent",
       },
-      ...(workflowEnabled ? { workflowModules: { index: "vite-hub/workflow", state: requireOptionalOwner(workflowVite, "workflow").workflowRuntimeModule("state") } } : {}),
+      workflowModules: workflowEnabled ? { index: "vite-hub/workflow", state: requireOptionalOwner(workflowVite, "workflow").workflowRuntimeModule("state") } : false,
       workspaceDependencyRuntimeImports,
     } as AgentPluginOptions))
   }
@@ -1874,10 +1879,11 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(ownerModules.scheduleVite, "schedule").hubSchedule({
       // Vercel cron jobs and Deno.cron call entries outside the Nitro server.
       ...(plan.host === "vercel" || plan.host === "deno" ? { providerOutput: "standalone" as const } : {}),
-      ...(options.schedule === true ? {} : options.schedule),
+      ...scheduleOptionsForHost(plan.host, options.schedule),
       databaseImport: "vite-hub/database",
       importBase: "vite-hub/schedule",
       providerImportAliases,
+      requireKVPluginForProcessStores: true,
     } as ScheduleOptions))
   }
   if (workflowEnabled) {
@@ -1887,9 +1893,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       databaseImport: "vite-hub/database",
       hosting: plan.nitroPreset,
       importBase: "vite-hub/workflow",
-      ...(options.workflow === undefined ? { implicitlyEnabled: true } : {}),
       providerImportAliases,
-      includeUserAppEntry: options.workflow !== undefined && options.workflow !== false,
+      includeUserAppEntry: true,
       workspaceDependencyRuntimeImports,
       // With the Agent, Workspace may be installed only as an Agent dependency, so the Agent hands out its path.
       workspaceRuntimeModule: options.agent ? requireOptionalOwner(ownerModules.agentVite, "agent").agentRuntimeModule("internal/workspace/runtime") : "vite-hub/workspace/runtime",
@@ -1915,6 +1920,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       : false,
     contentImportBase: "vite-hub/content",
     importBase: "vite-hub/source",
+    // A `github()` Source prewarms the pages of each push through the `vitehub-content-prewarm` Queue.
+    queue: Boolean(options.queue) && plan.services.queue.supported && plan.host !== "vercel",
+    queueImport: "vite-hub/queue",
   })
   plugins.push(sourcePlugin)
   // Adds the `vitehub content` commands, the Content operations, and the Content inspector. Inert without server/content.ts.
