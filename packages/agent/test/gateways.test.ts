@@ -229,6 +229,40 @@ describe("gateway Server Env", () => {
   })
 })
 
+describe("gateway Server Env from server files", () => {
+  it("declares the presets that any server file uses, such as a Channel that asks a question", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-gateway-env-"))
+    try {
+      await mkdir(join(root, "server", "channels", "airtable"), { recursive: true })
+      await mkdir(join(root, "server", "utils"), { recursive: true })
+      await writeFile(join(root, "server", "channels", "airtable", "duplicates.ts"), [
+        `import { defineChannel } from "vite-hub/channels"`,
+        `import { defineChoices } from "vite-hub/decisions"`,
+        `import { vercel } from "vite-hub/gateways"`,
+        `export const duplicates = defineChoices({ gateway: vercel(), groups: { duplicate: { label: "Duplicate", multiple: false, options: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }] } } })`,
+        `export default defineChannel({})`,
+      ].join("\n"))
+      await writeFile(join(root, "server", "utils", "jev.ts"), [
+        `import { openrouter } from "@vite-hub/gateways"`,
+        `export const jev = openrouter()`,
+      ].join("\n"))
+      await writeFile(join(root, "server", "utils", "plain.ts"), `export const anthropic = () => ({})\nanthropic()\n`)
+      await writeFile(join(root, "server", "utils", "jev.test.ts"), `import { openai } from "vite-hub/gateways"\nopenai()\n`)
+
+      expect(discoverAgentGatewayEnv({ rootDir: root })).toEqual({
+        openrouter: { apiKey: { names: ["OPENROUTER_API_KEY"], required: false, secret: true } },
+        vercel: {
+          apiKey: { names: ["AI_GATEWAY_API_KEY"], required: false, secret: true },
+          oidcToken: { names: ["VERCEL_OIDC_TOKEN"], required: false, secret: true },
+        },
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+})
+
 describe("AI SDK models through a gateway", () => {
   it("runs an AI SDK model Driver on languageModel() without the Vercel AI Gateway", async () => {
     const model = languageModel(openrouter({ apiKey: "k" }), "google/gemini-3-flash")

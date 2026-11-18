@@ -283,8 +283,8 @@ describe("sendWebhook", () => {
 
   it("lists the webhooks with their variable names, not their values", () => {
     expect(listWebhooks()).toEqual(expect.arrayContaining([
-      { name: "t3", url: "WEBHOOK_TEST_URL", secret: "WEBHOOK_TEST_SECRET", signature: "github", debounceMs: 300, urlSet: true, secretSet: true },
-      expect.objectContaining({ name: "unset", urlSet: false, secretSet: true }),
+      { name: "t3", url: "WEBHOOK_TEST_URL", secret: "WEBHOOK_TEST_SECRET", signature: "github", debounceMs: 300, urlSet: true, secretSet: true, host: new URL(receiverUrl).host },
+      expect.objectContaining({ name: "unset", urlSet: false, secretSet: true, host: null }),
     ]))
     expect(JSON.stringify(listWebhooks())).not.toContain(token)
   })

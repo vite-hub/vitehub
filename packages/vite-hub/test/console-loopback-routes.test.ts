@@ -167,7 +167,7 @@ describe("Console access outside its routes", () => {
 
   it("closes Console Realtime rooms to a remote client", async () => {
     const access = consoleRealtimeAccess("agents")
-    expect(await access.authorize({ event: remote(), kind: "read" })).toBe(false)
+    expect(await access.authorize({ event: remote(), mode: "read" })).toBe(false)
     expect(await access.identify({ event: remote() })).toBeNull()
     expect(await access.user({ event: remote() })).toBeNull()
   })

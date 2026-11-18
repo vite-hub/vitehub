@@ -1,5 +1,6 @@
 import { expect, it } from "vitest"
 
+import { renderMarkdownTemplate } from "../src/index.ts"
 import { inferMarkdownTemplateDataType } from "../src/internal/vite.ts"
 
 it("types every data binding that a template reads", async () => {
@@ -51,12 +52,38 @@ it("makes values of a condition and of its branches optional", async () => {
       "{",
       "  \"plan\"?: {",
       "    \"trial\"?: unknown",
-      "    \"ends\"?: string | number | boolean",
+      "    \"ends\"?: string | number | boolean | null",
       "    \"name\"?: unknown",
+      "  } | null",
+      "}",
+    ].join("\n"),
+  })
+})
+
+it("accepts null for an object that a condition checks before its branch reads it", async () => {
+  // A missing path and `null` render the same: the condition is false and the branch does not read the fields.
+  const template = [
+    "Hi {{ data.recap.label }}",
+    "",
+    "::if{:condition=\"data.recap.topRepository\"}",
+    "Most active in {{ data.recap.topRepository.name }}.",
+    "::",
+  ].join("\n")
+
+  await expect(inferMarkdownTemplateDataType(template)).resolves.toEqual({
+    required: true,
+    type: [
+      "{",
+      "  \"recap\": {",
+      "    \"label\": string | number | boolean",
+      "    \"topRepository\"?: {",
+      "      \"name\"?: string | number | boolean | null",
+      "    } | null",
       "  }",
       "}",
     ].join("\n"),
   })
+  await expect(renderMarkdownTemplate(template, { data: { recap: { label: "May", topRepository: null } } })).resolves.toBe("Hi May")
 })
 
 it("keeps a value required when the template also reads it outside a branch", async () => {

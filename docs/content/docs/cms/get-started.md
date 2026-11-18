@@ -20,8 +20,8 @@ In this tutorial, you add a `posts` collection, write a post with the `vitehub` 
 Install the CMS. The CMS uses the Content, Database, and Workspace packages, so install them too.
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/cms @vite-hub/content @vite-hub/database @vite-hub/workspace drizzle-orm zod
-pnpm add -D drizzle-kit
+pnpm add @vite-hub/cms @vite-hub/content @vite-hub/database @vite-hub/workspace drizzle-orm@1.0.0-rc.5 zod
+pnpm add -D drizzle-kit@1.0.0-rc.5
 ```
 
 Add `console: { auth: false }` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`:
@@ -31,7 +31,7 @@ Add `console: { auth: false }` to the ViteHub options in `nuxt.config.ts` or `vi
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', console: { auth: false } },
+  vitehub: { console: { auth: false } },
 })
 ```
 ::::
@@ -43,7 +43,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', console: { auth: false } }), nitro()],
+  plugins: [vitehub({ console: { auth: false } }), nitro()],
 })
 ```
 ::::
@@ -54,7 +54,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', console: { auth: false } })],
+  plugins: [vitehub({ console: { auth: false } })],
 })
 ```
 ::::

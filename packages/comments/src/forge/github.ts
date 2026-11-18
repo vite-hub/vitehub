@@ -2,12 +2,14 @@ import { forgeEnv, githubAppCredentials, githubInstallationFor, githubInstallati
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import * as v from "valibot"
 
-/** A GitHub request that failed, with the status and GitHub's message. */
-export class GitHubRequestError extends Error {
-  override name = "GitHubRequestError"
-  constructor(readonly status: number, message: string) {
-    super(message)
-  }
+import { commentsErrorDiagnostics } from "../operations-core/errors.ts"
+
+/** The HTTP status of a GitHub failure of the pull request sync, or `undefined` for another error. */
+export function gitHubFailureStatus(error: unknown): number | undefined {
+  if (!(error instanceof Error)) return undefined
+  const code: unknown = Reflect.get(error, "code")
+  const status: unknown = Reflect.get(error, "status")
+  return (code === "COMMENTS_GITHUB_SYNC_FAILED" || code === "COMMENTS_GITHUB_CREDENTIALS_MISSING") && typeof status === "number" ? status : undefined
 }
 
 export interface GitHubComment {
@@ -62,7 +64,7 @@ export function createGitHubClient(options: { apiUrl?: string, fetch?: typeof fe
     if (!response.ok) {
       const data: unknown = await response.json().catch(() => undefined)
       const message = data && typeof data === "object" && "message" in data && typeof data.message === "string" ? data.message : response.statusText
-      throw new GitHubRequestError(response.status, `GitHub ${method} ${path.split("?")[0]} failed with ${response.status}: ${message}`)
+      throw Object.assign(commentsErrorDiagnostics.COMMENTS_GITHUB_SYNC_FAILED({ reason: message, request: `${method} ${path.split("?")[0]}`, status: response.status }), { status: response.status })
     }
     return response.status === 204 ? undefined : await response.json()
   }
@@ -78,7 +80,7 @@ export function createGitHubClient(options: { apiUrl?: string, fetch?: typeof fe
     const errors = data && typeof data === "object" && "errors" in data && Array.isArray(data.errors) ? data.errors : []
     if (!response.ok || errors.length) {
       const message = errors[0] && typeof errors[0] === "object" && "message" in errors[0] ? String(errors[0].message) : response.statusText
-      throw new GitHubRequestError(response.status, `GitHub GraphQL failed: ${message}`)
+      throw Object.assign(commentsErrorDiagnostics.COMMENTS_GITHUB_SYNC_FAILED({ reason: message, request: "GraphQL", status: response.status }), { status: response.status })
     }
   }
 
@@ -99,7 +101,7 @@ export function createGitHubClient(options: { apiUrl?: string, fetch?: typeof fe
       }
       const token = readForgeEnv(forgeEnv.github.token, env)
       if (token) return token
-      throw new GitHubRequestError(401, "Comments needs GitHub credentials to post to pull requests: VITEHUB_GITHUB_APP_ID with VITEHUB_GITHUB_PRIVATE_KEY, or VITEHUB_GITHUB_TOKEN.")
+      throw Object.assign(commentsErrorDiagnostics.COMMENTS_GITHUB_CREDENTIALS_MISSING(), { status: 401 })
     },
     async findPullRequest(repository, branch) {
       const key = `${repository}\0${branch}`
@@ -132,7 +134,7 @@ export function createGitHubClient(options: { apiUrl?: string, fetch?: typeof fe
         await request(token, "DELETE", `/repos/${repository}/issues/comments/${id}`)
       }
       catch (error) {
-        if (!(error instanceof GitHubRequestError && error.status === 404)) throw error
+        if (gitHubFailureStatus(error) !== 404) throw error
       }
     },
     async minimize(token, nodeId, minimized) {

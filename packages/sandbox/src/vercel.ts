@@ -253,7 +253,8 @@ function createVercelSession(
   const startCommand = (options: Parameters<RuntimeSession["run"]>[0]) => {
     options.abortSignal?.throwIfAborted();
     return instance.runCommand({
-      args: ["-lc", options.command],
+      // Not a login shell: a profile, such as Debian's /etc/profile in a custom image, would set PATH again and drop `env.PATH`.
+      args: ["-c", options.command],
       cmd: "sh",
       cwd: options.workingDirectory ?? workspace,
       detached: true,

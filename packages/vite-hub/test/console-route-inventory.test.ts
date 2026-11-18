@@ -109,6 +109,8 @@ const plugins = [
   "app/.vitehub/nitro/console/plugin.mjs",
   "app/.vitehub/nitro/durability/plugin.mjs",
   "app/.vitehub/nitro/error-log.mjs",
+  // `security` headers, on by default in built output.
+  "app/.vitehub/nitro/request-policy.mjs",
   "app/.vitehub/nitro/standard-context.mjs",
   "app/.vitehub/nitro/workflow/dev-plugin.mjs",
 ]
@@ -127,11 +129,6 @@ describe("Nitro routes of a production build with every Console section on", () 
   it("serves the Console routes, /_vitehub/rpc and /_vitehub, and the app features that stay", async () => {
     const inventory = await nitroInventory({ invoke: true, mcpClient: true })
     expect(inventory).toEqual({ handlers: [...consoleRoutes, ...appRoutes].sort(), plugins, publicAssets })
-    // The Console MCP, OAuth discovery, CORS, sign-in, Console Auth, and Env management are gone from apps.
-    const removed = ["/.well-known/oauth", "/_vitehub/mcp", "/_vitehub/sign-in", "/_vitehub/api/auth", "/_vitehub/env/manage", "/_vitehub/auth/manage"]
-    expect(inventory.handlers.filter(line => removed.some(path => line.split(" ")[2]!.startsWith(path)))).toEqual([])
-    expect(inventory.handlers.filter(line => line.startsWith("middleware"))).toEqual([])
-    expect(inventory.plugins.filter(plugin => /console-preflight|mcp-discovery/.test(plugin))).toEqual([])
   }, 120_000)
 
   it.each([

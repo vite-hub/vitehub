@@ -21,8 +21,8 @@ In this tutorial, you connect a Google account and list its Gmail labels from an
 Add Connections and the Database packages that store its data:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/connections @vite-hub/database drizzle-orm
-pnpm add -D drizzle-kit
+pnpm add @vite-hub/connections @vite-hub/database drizzle-orm@1.0.0-rc.5
+pnpm add -D drizzle-kit@1.0.0-rc.5
 ```
 
 Then update the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other options of your app:
@@ -35,7 +35,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     connections: true,
     env: {
       server: {
@@ -59,7 +58,6 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     connections: true,
     env: {
       server: {
@@ -82,7 +80,6 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     connections: true,
     env: {
       server: {

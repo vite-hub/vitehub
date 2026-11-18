@@ -96,7 +96,7 @@ function postgresCurrent(): string[] {
  */
 export function commentsMigrationSql(options: CommentsMigrationOptions & { from: "live" | "outdated", missing?: readonly string[] }): string[] {
   if (options.dialect === "postgresql") {
-    if (options.from === "live") throw new TypeError("[vitehub] The live-site comments model had no Postgres tables, so there is nothing to move.")
+    if (options.from === "live") throw commentsErrorDiagnostics.COMMENTS_MIGRATION_LIVE_POSTGRES()
     return postgresCurrent()
   }
   if (options.from === "live") return liveToCurrent()
@@ -162,7 +162,7 @@ export async function migrateComments(db: object, options: CommentsMigrationOpti
   if (state === "empty" || state === "current") return { from: state, statements: [] }
   const statements = commentsMigrationSql({ ...options, from: state, missing })
   if (postgres) {
-    if (!target.transaction) throw new TypeError("[vitehub] migrateComments() needs a Postgres Drizzle database with transaction().")
+    if (!target.transaction) throw commentsErrorDiagnostics.COMMENTS_MIGRATION_DATABASE_UNSUPPORTED({ dialect: "postgresql" })
     await target.transaction(async (tx) => {
       for (const statement of statements) await tx.execute!(sql.raw(statement))
     })
@@ -175,7 +175,7 @@ export async function migrateComments(db: object, options: CommentsMigrationOpti
     await target.transaction(tx => runSqliteStatements(tx, statements))
   }
   else {
-    throw new TypeError("[vitehub] migrateComments() needs a Drizzle database with batch() or transaction(), so a failure changes nothing.")
+    throw commentsErrorDiagnostics.COMMENTS_MIGRATION_DATABASE_UNSUPPORTED({ dialect: "sqlite" })
   }
   return { from: state, statements, ...(state === "live" ? { backup: liveThreadsBackup } : {}) }
 }
