@@ -112,7 +112,7 @@ it("deletes the messages of one person and keeps the replies of other people", a
   const alone = await store.createThread(thread("Only Ada wrote here"))
   const replied = await store.createThread(thread("Ada asks"))
   await store.addMessage(replied.id, message("Grace answers", grace))
-  const answered = await store.createThread(thread("Grace asks"))
+  const answered = await store.createThread({ ...thread("Grace asks"), author: grace })
   await store.addMessage(answered.id, message("Ada answers"))
   const unrelated = await store.createThread({ ...thread("Grace only"), author: grace })
   await store.setStatus(unrelated.id, "resolved", ada, Date.now())

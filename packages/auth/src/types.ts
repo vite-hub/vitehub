@@ -29,15 +29,8 @@ export type AuthReservedOption =
   | "route"
   | "runtime"
   | "secondaryStorage";
-export type AuthBetterAuthOptions = Omit<BetterAuthOptions, AuthReservedOption | "session" | "user"> & {
+export type AuthBetterAuthOptions = Omit<BetterAuthOptions, AuthReservedOption | "session"> & {
   session?: AuthSessionOptions
-  user?: AuthUserOptions
-}
-
-/** Better Auth `user` options. `deleteAccount` replaces `deleteUser`. */
-export type AuthUserOptions = Omit<NonNullable<BetterAuthOptions["user"]>, "deleteUser"> & {
-  /** Use `deleteAccount`, so that Auth also deletes the rows of the user in ViteHub Server Primitives. */
-  deleteUser?: never
 }
 
 /**

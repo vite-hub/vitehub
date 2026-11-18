@@ -101,7 +101,6 @@ describe("deleteAccount", () => {
   })
 
   it("rejects Better Auth user.deleteUser and invalid options", () => {
-    // @ts-expect-error `deleteAccount` replaces `user.deleteUser`.
     expect(() => defineAuth({ user: { deleteUser: { enabled: true } } })).toThrow(expect.objectContaining({ code: "AUTH_DELETE_USER_UNSUPPORTED" }))
     // @ts-expect-error `deleteAccount` always turns deletion on.
     expect(() => defineAuth({ deleteAccount: { enabled: false } })).toThrow(expect.objectContaining({ code: "AUTH_DELETE_ACCOUNT_INVALID" }))
