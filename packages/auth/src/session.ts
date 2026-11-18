@@ -1,3 +1,5 @@
+import { HTTPError } from "nitro/h3"
+
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { readSetCookies } from "./set-cookie.ts"
@@ -45,6 +47,7 @@ export async function getAuthenticationSession(
     throw authErrorDiagnostics.AUTH_R0011({ message: "Better Auth did not expose api.getSession()." })
   }
 
+  let refusal: HTTPError | undefined
   const value = await readProvider(async () => {
     try {
       return await Reflect.apply(getSession, api, [{ ...input, returnHeaders: true }])
@@ -55,9 +58,13 @@ export async function getAuthenticationSession(
         const headers: unknown = Reflect.get(cause, apiErrorHeaders)
         return { headers: headers instanceof Headers ? headers : undefined, response: null }
       }
+      // A plugin refuses the credentials of the request, such as an invalid key of the API Key plugin. Keep its status.
+      refusal = readClientApiError(cause)
+      if (refusal) return
       throw cause
     }
   })
+  if (refusal) throw refusal
   const read = await readProvider(() => resolveAuthenticationSessionRead(value))
   if (!read) {
     throw authErrorDiagnostics.AUTH_R0012({ message: "Better Auth returned an invalid session response." })
@@ -115,6 +122,29 @@ function isUnauthorizedApiError(error: unknown): error is object {
   }
   catch {
     return false
+  }
+}
+
+/** The `HTTPError` for a Better Auth `APIError` with a 4xx status, with its status, message, code, and cookies. */
+function readClientApiError(error: unknown): HTTPError | undefined {
+  if (typeof error !== "object" || error === null) return
+  try {
+    if (Reflect.get(error, "name") !== "APIError") return
+    const status: unknown = Reflect.get(error, "statusCode")
+    if (typeof status !== "number" || !Number.isInteger(status) || status < 400 || status > 499) return
+    const body: unknown = Reflect.get(error, "body")
+    const code = isRecord(body) && typeof body.code === "string" ? body.code : undefined
+    const message = isRecord(body) && typeof body.message === "string" ? body.message : undefined
+    const headers: unknown = Reflect.get(error, apiErrorHeaders)
+    return new HTTPError({
+      data: code ? { code } : undefined,
+      headers: headers instanceof Headers ? headers : undefined,
+      message,
+      status,
+    })
+  }
+  catch {
+    return undefined
   }
 }
 

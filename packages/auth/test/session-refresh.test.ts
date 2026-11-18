@@ -1,5 +1,6 @@
 import { memoryAdapter } from "better-auth/adapters/memory"
 import { APIError, betterAuth } from "better-auth"
+import { HTTPError } from "h3"
 import { describe, expect, it, vi } from "vitest"
 import { defineAuth } from "../src/index.ts"
 import { createAuth, handleAuthRequest, withAuth } from "../src/internal/server.ts"
@@ -165,8 +166,17 @@ describe("session.onRefresh with a database", () => {
 })
 
 describe("session.onRefresh without a database", () => {
-  it("preserves unrelated Better Auth unauthorized errors", async () => {
+  it("keeps the status and code of unrelated Better Auth unauthorized errors", async () => {
     const cause = APIError.from("UNAUTHORIZED", { code: "CUSTOM_UNAUTHORIZED", message: "Custom unauthorized" })
+    const auth = { api: { getSession: () => Promise.reject(cause) } }
+
+    const error: unknown = await getAuthenticationSession(auth, { headers: new Headers() }).catch((error: unknown) => error)
+    expect(error).toBeInstanceOf(HTTPError)
+    expect(error).toMatchObject({ data: { code: "CUSTOM_UNAUTHORIZED" }, message: "Custom unauthorized", status: 401 })
+  })
+
+  it("wraps Better Auth server errors", async () => {
+    const cause = APIError.from("INTERNAL_SERVER_ERROR", { code: "CUSTOM_FAILURE", message: "Custom failure" })
     const auth = { api: { getSession: () => Promise.reject(cause) } }
 
     await expect(getAuthenticationSession(auth, { headers: new Headers() })).rejects.toMatchObject({
