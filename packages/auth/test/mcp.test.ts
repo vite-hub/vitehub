@@ -1,6 +1,8 @@
 import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto"
 import { DatabaseSync } from "node:sqlite"
 
+import { oauthProvider } from "@better-auth/oauth-provider"
+import { bearer, jwt } from "better-auth/plugins"
 import * as v from "valibot"
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -21,10 +23,11 @@ afterEach(() => {
 })
 
 /** A real Better Auth on SQLite with `mcpOAuth()`, as an app's `server/auth.ts` defines it. */
-async function setup(options: Partial<McpOAuthOptions> = {}, rateLimit = false, policy?: AuthAccessPolicy) {
+async function setup(options: Partial<McpOAuthOptions> = {}, rateLimit = false, policy?: AuthAccessPolicy, trustedProxyHeaders = false) {
   const database = new DatabaseSync(":memory:")
   databases.push(database)
   const definition = defineAuth(() => ({
+    advanced: { trustedProxyHeaders },
     baseURL: app,
     database,
     emailAndPassword: { enabled: true },
@@ -32,6 +35,10 @@ async function setup(options: Partial<McpOAuthOptions> = {}, rateLimit = false, 
     ...(rateLimit ? { rateLimit: { enabled: true } } : {}),
     ...(policy ? { access: { policy } } : {}),
     secret: "test-secret-at-least-32-bytes-long",
+    user: { additionalFields: {
+      internalNote: { type: "string", defaultValue: "private", input: false, returned: false },
+      nickname: { type: "string", defaultValue: "public", input: false },
+    } },
   }))
   // One instance, as a server keeps it: memory rate limits live in the instance.
   const instance = createAuthForRequest(definition, new Request(resource))
@@ -297,7 +304,8 @@ describe("requireCaller", () => {
     const [error, caller] = await requireCaller(apiRequest({ cookie }), auth.definition)
 
     expect(error).toBeUndefined()
-    expect(caller).toMatchObject({ kind: "browser", session: { userId: caller?.user.id }, user: { email: "ada@example.com" } })
+    expect(caller).toMatchObject({ kind: "browser", session: { userId: caller?.user.id }, user: { email: "ada@example.com", nickname: "public" } })
+    expect(caller?.user).not.toHaveProperty("internalNote")
     expect(Object.isFrozen(caller)).toBe(true)
   })
 
@@ -312,8 +320,22 @@ describe("requireCaller", () => {
       client: { id: clientId, name: "Claude Code" },
       kind: "agent",
       scopes: ["openid", "profile", "email", "offline_access"],
-      user: expect.objectContaining({ email: "ada@example.com" }),
+      user: expect.objectContaining({ email: "ada@example.com", nickname: "public" }),
     })
+    expect(caller?.user).not.toHaveProperty("internalNote")
+  })
+
+  it.each([true, false])("uses the forwarded origin only with trustedProxyHeaders=%s", async (trusted) => {
+    const auth = await setup({}, false, undefined, trusted)
+    const { accessToken } = await signInAgent(auth)
+    const request = new Request("http://internal.example.com/api/notes", { headers: {
+      authorization: `Bearer ${accessToken}`,
+      "x-forwarded-host": "app.example.com",
+      "x-forwarded-proto": "https",
+    } })
+    const [error, caller] = await requireCaller(request, auth.definition)
+    expect(error?.code).toBe(trusted ? undefined : "AUTH_MCP_TOKEN_INVALID")
+    expect(caller?.kind).toBe(trusted ? "agent" : undefined)
   })
 
   it("returns AUTH_SIGNED_OUT without a session or a token, and AUTH_MCP_TOKEN_INVALID for a bad token", async () => {
@@ -344,5 +366,30 @@ describe("requireCaller", () => {
     const [error] = await requireCaller(apiRequest({ authorization: "Bearer not-an-mcp-token" }), definition)
 
     expect(error?.code).toBe("AUTH_SIGNED_OUT")
+  })
+
+  it("accepts a session bearer when the OAuth provider is not configured by mcpOAuth()", async () => {
+    const database = new DatabaseSync(":memory:")
+    databases.push(database)
+    const definition = defineAuth(() => ({
+      baseURL: app,
+      database,
+      emailAndPassword: { enabled: true },
+      plugins: [jwt(), oauthProvider({ loginPage: "/login", consentPage: "/consent" }), bearer()],
+      secret: "test-secret-at-least-32-bytes-long",
+    }))
+    const instance = createAuthForRequest(definition, new Request(app))
+    await (await instance.$context).runMigrations()
+    const signup = await instance.handler(new Request(`${app}/api/auth/sign-up/email`, {
+      body: JSON.stringify({ email: "ada@example.com", name: "Ada", password: "test-password-123" }),
+      headers: { "content-type": "application/json", origin: app },
+      method: "POST",
+    }))
+    expect(signup.status).toBe(200)
+    const token = signup.headers.get("set-auth-token")
+    expect(token).toBeTruthy()
+    const [error, caller] = await requireCaller(apiRequest({ authorization: `Bearer ${token}` }), definition)
+    expect(error).toBeUndefined()
+    expect(caller).toMatchObject({ kind: "browser", user: { email: "ada@example.com" } })
   })
 })

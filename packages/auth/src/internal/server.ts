@@ -3,11 +3,13 @@ import type { AuthConsoleHostOptions, AuthConsoleOptions } from "../console-type
 import abilities from "#vitehub/auth/abilities"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 import { betterAuth } from "better-auth"
+import { parseUserOutput } from "better-auth/db"
+import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { HTTPError } from "nitro/h3"
 import { resolveAuthMountPath } from "../application-path.ts"
 import { normalizeAuthBasePath } from "../shared.ts"
 import { authRequestEvent, unwrapAuthRequest } from "../request.ts"
-import { resolveAuthOptions } from "../runtime-options.ts"
+import { resolveAuthOptions, trustsProxyHeaders } from "../runtime-options.ts"
 import { getAuthenticationSession, type AuthenticationSessionSnapshot } from "../session.ts"
 import { prepareSessionCookies, sendSessionCookies } from "../session-cookies.ts"
 import { getAuthRuntimeState } from "../runtime-state.ts"
@@ -57,7 +59,7 @@ import { notMemberError } from "../members.ts"
 import type { AuthMemberErrorCode } from "../members.ts"
 import type { Result } from "@vite-hub/runtime"
 import { signedOutError } from "../caller.ts"
-import { verifyAppAccessToken } from "../mcp-token.ts"
+import { mcpRegistrationPluginId } from "../mcp-config.ts"
 import type { AuthCaller, AuthCallerErrorCode, AuthCallerUser } from "../caller.ts"
 
 export { createBetterAuthOptions, getAuthForDefinition } from "../auth-instance.ts"
@@ -950,16 +952,20 @@ async function readCaller(event: AuthRequestInput, definition: AuthDefinition): 
   const token = /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1]
   if (token) {
     const auth = authForRequest(request, authRequestEvent(event), definition)
+    const { options } = await auth.$context
     // Without `mcpOAuth()`, a bearer token is Better Auth's, such as a session token of `bearer()`.
-    if ((await auth.$context).options.plugins?.some(plugin => plugin.id === "oauth-provider")) {
-      const [error, caller] = await verifyAppAccessToken(token, request, auth)
+    if (options.plugins?.some(plugin => plugin.id === mcpRegistrationPluginId)) {
+      const { verifyAppAccessToken } = await import("../mcp-token.ts")
+      const url = new URL(request.url)
+      const origin = trustsProxyHeaders(options) ? forwardedRequestOrigin(request) : url.origin
+      const [error, caller] = await verifyAppAccessToken(token, origin, url.pathname, auth)
       if (error) return [error, undefined]
       return [undefined, Object.freeze({
         client: { id: caller.clientId, name: caller.clientName },
         kind: "agent",
         scopes: caller.scopes,
         // SAFETY: The token check read this record with `findUserById()`, so it is the Auth user row.
-        user: caller.user as AuthCallerUser,
+        user: parseUserOutput(options, caller.user as AuthCallerUser),
       })]
     }
   }

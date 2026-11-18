@@ -3,6 +3,7 @@ import { APIError, createAuthMiddleware } from "better-auth/api"
 import { jwt } from "better-auth/plugins"
 
 import { isRecord } from "@vite-hub/internal/object"
+import { mcpRegistrationPluginId } from "./mcp-config.ts"
 import { appAuth, baseScopes, pathOf, stateOf } from "./mcp-token.ts"
 
 import type { BetterAuthPlugin } from "better-auth"
@@ -102,7 +103,7 @@ function registrationLimits(options: McpOAuthOptions): BetterAuthPlugin {
         matcher: context => context.path === registerPath,
       }],
     },
-    id: "vitehub-mcp-registration",
+    id: mcpRegistrationPluginId,
     async onRequest(request) {
       if (request.method !== "POST" || !new URL(request.url).pathname.replace(/\/+$/, "").endsWith(registerPath)) return
       if (await exceedsBytes(request, maxBytes)) return { response: metadataError(413, "Client metadata is too large.") }

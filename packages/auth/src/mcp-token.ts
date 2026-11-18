@@ -150,10 +150,9 @@ const bearerToken = (headers: Pick<Headers, "get">): string | undefined => /^Bea
  * Check an MCP access token for any `mcpOAuth()` resource at the origin of the request, for `requireCaller()`, which
  * accepts the token on every route of the app.
  */
-export async function verifyAppAccessToken(token: string, request: Pick<Request, "url">, instance: object): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID">> {
+export async function verifyAppAccessToken(token: string, origin: string, pathname: string, instance: object): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID">> {
   const auth = mcpOAuthAuth(instance)
   const state = await stateOf(auth)
-  const { origin, pathname } = new URL(request.url)
   return await verifyToken(token, auth, state, state.resources.filter(entry => new URL(entry).origin === origin), pathname)
 }
 
