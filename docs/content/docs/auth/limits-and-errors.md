@@ -30,7 +30,7 @@ console.log(error.toJSON())
 | Code | When |
 | --- | --- |
 | `AUTHENTICATION_REQUIRED` | `authenticated()` requires a session and none exists. |
-| `AUTH_PROVIDER_OPERATION_FAILED` | A default Better Auth request, session, or user lookup fails. A `4xx` refusal of the session read is an H3 `HTTPError` instead, see [Read a refusal](#read-a-refusal). `details.operation` is `get-auth-for-request`, `get-session`, or `get-user` (from `agentAuth.user()`). Raw provider details stay in `cause`. |
+| `AUTH_PROVIDER_OPERATION_FAILED` | A default Better Auth request, session, or user lookup fails. A `4xx` refusal of the session read is a refusal instead, see [Read a refusal](#read-a-refusal). `details.operation` is `get-auth-for-request`, `get-session`, or `get-user` (from `agentAuth.user()`). Raw provider details stay in `cause`. |
 | `AUTH_C0039` | The Definition, or the object that its callback returns, sets the removed `runtime` option. Pass one callback that returns all the options, such as `defineAuth(({ env }) => ({ advanced: { cookiePrefix: 'acme', trustedProxyHeaders: true }, secret: env.auth.secret.unseal() }))`. |
 | `AUTH_C0041` | `session.onRefresh` is not a function. |
 | `AUTH_C0042` | `session.onRefresh` is set, but Better Auth has no `database` or `secondaryStorage` adapter. |
@@ -91,7 +91,7 @@ export async function deletePost(id: string): Promise<'deleted' | 'sign-in' | 'f
 
 - An HTML `GET` that `withAuth()` or an access route refuses still gets the `access.signIn` redirect. When `withAuthorization()` or an access route refuses it with `403`, it gets the text `Forbidden.`. `requireAuth()` and `requireAuthorization()` still put the code in `data` of their error.
 - A `Response` that `authorize` returns goes to the client as it is, without a code.
-- When a Better Auth plugin refuses the credentials of the request while Auth reads the session, the session read throws an H3 `HTTPError` with the plugin's status and code. For example, the API Key plugin refuses an unknown key with `401` and a key that is too short with `403`, both with `data.code` `INVALID_API_KEY`. A Better Auth error with a `5xx` status stays `AUTH_PROVIDER_OPERATION_FAILED`.
+- When a Better Auth plugin refuses the credentials of the request while Auth reads the session, the guards answer with the plugin's status, code, and headers instead of `SIGNED_OUT`: `withAuth()` and the other wrappers return that refusal, and `requireAuth()`, `requireAuthorization()`, and `requireAbility()` throw it as an H3 `HTTPError`. For example, the API Key plugin refuses an unknown key with `401` and a key that is too short with `403`, both with `data.code` `INVALID_API_KEY`. A Better Auth error with a `5xx` status stays `AUTH_PROVIDER_OPERATION_FAILED`.
 
 ## SIGNED_OUT
 
