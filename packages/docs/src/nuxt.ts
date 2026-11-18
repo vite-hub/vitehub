@@ -377,8 +377,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         }
       }
     })
-    nuxt.options.alias["#docs/shell"] =addTemplate({ filename: "docs/shell.mjs", write: true, getContents: () => `export const ownsApp = ${ownsApp}\n` }).dst
-    addTemplate({ filename: "docs/shell.d.mts", write: true, getContents: () => "export declare const ownsApp: boolean\n" })
+    // Pages outside the sections are plain articles. In the docs site they use the `default` layout, which an app
+    // page uses too. In an app with its own `app.vue`, they get a layout of their own, so app pages keep theirs.
+    // The declaration names that one layout, so a site's typecheck accepts it as a layout of the app.
+    const articleLayout = ownsApp ? "default" : "docs-article"
+    nuxt.options.alias["#docs/shell"] = addTemplate({ filename: "docs/shell.mjs", write: true, getContents: () => `export const ownsApp = ${ownsApp}\nexport const articleLayout = ${JSON.stringify(articleLayout)}\n` }).dst
+    addTemplate({ filename: "docs/shell.d.mts", write: true, getContents: () => `export declare const ownsApp: boolean\nexport declare const articleLayout: ${JSON.stringify(articleLayout)}\n` })
     // comark-ui's blocks add their styles when they mount. The page links them instead, so the first paint, before the
     // app hydrates, shows no raw blocks, such as an anchor's screen reader text or a tab row as plain text, and nothing
     // moves when it does. They are one static file, because Vite's CSS pipeline does not parse some of their newer
@@ -445,6 +449,10 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     nuxt.hook("build:before", async () => { agentCopies = await writeAgentSources() })
     // The link checker counts a link as built only when it was prerendered or sits in `public/`, and fetches any other
     // from the live site. The Markdown copies are neither, so it is told that every page has one.
+    // A build that prerenders only some routes, such as a bundle analysis, also has indexed pages that are not on the
+    // live site yet, like a new section. The manifest has them, so they are valid too. Only the link checker module
+    // skips them: `checkDocsLinks()` reads the built pages and still checks their fragments.
+    const indexedPagePaths = new Set(docsManifestPages(manifest).filter(page => docsPageIndexed(page)).map(page => docsAppPath(page.path, config.appBase)))
     if (options.linkChecker !== false) {
       const linkChecker = (moduleOptions.linkChecker ??= {})
       linkChecker.excludeLinks = [
@@ -453,6 +461,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         ...docsManifestPages(manifest).map(page => docsAppPath(docsRawPath(page.path), config.appBase)),
         // A page with `seo.index: false` is not prerendered, but the manifest has it, so links to it are valid.
         ...docsManifestPages(manifest).filter(page => !docsPageIndexed(page)).map(page => docsAppPath(page.path, config.appBase)),
+        ...indexedPagePaths,
       ]
     }
 
@@ -741,10 +750,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     addImportsDir([join(runtime, "app/composables"), join(runtime, "app/utils")])
     nuxt.hook("app:templates", (app) => {
       app.layouts.docs ??= { file: join(runtime, "app/layouts/docs.vue"), name: "docs" }
-      // Pages outside the sections are plain articles. In the docs site they use the `default` layout, which an app
-      // page uses too. In an app with its own `app.vue`, they get a layout of their own, so app pages keep theirs.
-      const article = ownsApp ? "default" : "docs-article"
-      app.layouts[article] ??= { file: join(runtime, "app/layouts/default.vue"), name: article }
+      app.layouts[articleLayout] ??= { file: join(runtime, "app/layouts/default.vue"), name: articleLayout }
     })
     // A prerendered page has a payload, and the sidebar links every page, so Nuxt's default of prefetching each link in
     // view downloaded every payload in the sidebar on the first visit, megabytes on a large site. A link prefetches when
@@ -827,7 +833,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           const redirects = docsRedirects(nitro.options.routeRules ?? {})
           const settings = options.linkChecker || {}
           const result = checkDocsLinks({ dir: nitro.options.output.publicDir, siteUrl: config.site.url || "https://docs.local", appBase: config.appBase, ...settings, isRuntimePath: docsRuntimePath(nitro.options, config.appBase, docsMount(manifest)), excludeLinks: [
-            ...moduleOptions.linkChecker?.excludeLinks ?? [],
+            // Indexed pages stay checked here, with their fragments.
+            ...(moduleOptions.linkChecker?.excludeLinks ?? []).filter(link => typeof link !== "string" || !indexedPagePaths.has(link)),
             ...settings.excludeLinks ?? [],
             ...redirects.map(redirect => docsAppPath(redirect.from, config.appBase)),
             // The MCP endpoint is a server route, so the built output has no file for it.
@@ -873,7 +880,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // The `/raw/**` route goes to Nitro directly: nuxt-agent-discovery skips the prerender of raw copies that an app
       // route of Nuxt serves, and the build prerenders them.
       nitro.handlers = [...nitro.handlers ?? [], ...(["get", "head"] as const).map(method => ({ route: "/raw/**", method, handler: resolver.resolve("./runtime/server/raw.js") }))]
-      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile, "#docs/image-sizes": imageSizesFile, "#docs/agent": agentFile }
+      nitro.alias = {
+        ...nitro.alias,
+        "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile, "#docs/image-sizes": imageSizesFile, "#docs/agent": agentFile,
+        // nuxt-og-image replaces `bufferutil`, `utf-8-validate`, and other optional server packages with virtual modules
+        // that import `mocked-exports/proxy`. Nitro resolves that import from the app, and a pnpm app has no such
+        // dependency, so the build failed when a package such as `ws` imported one of them.
+        "mocked-exports/proxy": mockedExportsProxy(),
+      }
       // Pack production files into one module to stay below Cloudflare's module limit. Development imports each file
       // through Vite: Nitro server assets read the folders from disk, and the Cloudflare dev server runs in workerd.
       const stores = [...sourceDirs ? sourceDirs.map((dir, index) => ({ name: `docs-${index}`, dir })) : [{ name: "docs", dir: contentDir }], { name: "docs-agent", dir: agentDir }]
@@ -1008,6 +1022,11 @@ function importsNuxtUi(css: ReadonlyArray<string | { src?: string }>, alias: Rec
 /** A module that this package depends on, by file path, so Nuxt finds it and transpiles its runtime. */
 function dependency(name: string): string {
   return fileURLToPath(import.meta.resolve(name))
+}
+
+/** The ESM proxy of `mocked-exports`, from the copy that nuxt-og-image depends on. */
+function mockedExportsProxy(): string {
+  return createRequire(dependency("nuxt-og-image")).resolve("mocked-exports/proxy-mjs")
 }
 
 /** The file a CSS `@import "<name>"` loads: the package's `style` export. */

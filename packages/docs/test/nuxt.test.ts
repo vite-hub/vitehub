@@ -177,7 +177,8 @@ describe("docs in an existing app", () => {
     const app = appWithDocs({ "docs/guide/index.md": "Guide" }, true)
     const options = await setupDocs({ dir: app.dir }, "/", false, [{ config: { srcDir: app.srcDir } }]) as Awaited<ReturnType<typeof setupDocs>> & { app: { head: Record<string, unknown> } }
     expect(options.app.head).toEqual({})
-    expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = false\n")
+    expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = false\nexport const articleLayout = \"docs-article\"\n")
+    expect(templates.get("docs/shell.d.mts")?.()).toContain("export declare const articleLayout: \"docs-article\"\n")
     // The app config keeps the app's colors and slot classes. The docs layouts scope the theme with <UTheme>.
     expect(options.appConfig).toEqual({ ui: { prose: { codeIcon: expect.any(Object) } } })
     expect(templates.get("docs/theme.mjs")?.()).toContain('"pageHeader":{')
@@ -206,7 +207,8 @@ describe("docs in an existing app", () => {
     expect(options.appConfig).toMatchObject({ ui: { colors: { primary: "neutral", neutral: "neutral" } } })
     expect(templates.get("docs/theme.mjs")?.()).toBe('export default {"ui":{},"props":{}}\n')
     expect(templates.has("docs/theme.css")).toBe(false)
-    expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = true\n")
+    expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = true\nexport const articleLayout = \"default\"\n")
+    expect(templates.get("docs/shell.d.mts")?.()).toContain("export declare const articleLayout: \"default\"\n")
     const layouts: Record<string, { file: string }> = {}
     await callHook("app:templates", { layouts, templates: [] })
     expect(Object.keys(layouts).sort()).toEqual(["default", "docs"])
@@ -376,6 +378,19 @@ describe("docs Nuxt setup", () => {
     const nitro = { options: { routeRules: {}, output: { publicDir } }, hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) } }
     for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
     expect(() => compiled[0]!()).toThrow(/\/mcp, which has no page or file/)
+  })
+
+  it("tells the link checker module that indexed pages exist, but still checks them in the compiled output", async () => {
+    const options = await setupDocs({})
+    // A build that prerenders some routes must not fetch a new page from the live site.
+    expect(Reflect.get(options, "linkChecker")).toMatchObject({ excludeLinks: expect.arrayContaining(["/docs/kv/configure"]) })
+    const publicDir = join(options.buildDir, "public")
+    mkdirSync(publicDir)
+    writeFileSync(join(publicDir, "index.html"), `<a href="/docs/kv/configure">Configure</a>`)
+    const compiled: Array<() => void> = []
+    const nitro = { options: { routeRules: {}, output: { publicDir } }, hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) } }
+    for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
+    expect(() => compiled[0]!()).toThrow(/\/docs\/kv\/configure, which has no page or file/)
   })
 
   it.each(["/", "/portal/"])("combines Docs and app link exclusions in the compiled output under %s", async (appBase) => {

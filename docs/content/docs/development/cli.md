@@ -73,6 +73,7 @@ Available namespaces:
   sandbox     Serve and check an SSH Sandbox runner. Does not load the project config.
   inspect     Inspect discovered Definitions, host resources, and generated Provider Output.
   provision   Idempotently create missing provider resources.
+  seed        Write the seed files of Database, KV, and Blob.
 ```
 
 ## Commands
@@ -148,7 +149,7 @@ Available namespaces:
 | `vitehub database sql` | Available | Database Package | Run SQL from an argument or stdin on the local database, or on the deployed one with `--remote`, and print the rows. |
 | `vitehub database drop` | Available | Database Package | Drop every table of a database and its migrations table, after a confirmation or with `--force`. |
 | `vitehub database reset` | Available | Database Package | Drop every table of a database, then apply its migrations again, after a confirmation or with `--force`. |
-| `vitehub database seed` | Available | Database Package | Run the seed file of each database on the local database, or on the deployed database with `--remote`. |
+| `vitehub seed` | Available | CLI Package | Write the Database seed files and the files in `server/seed/kv/` and `server/seed/blob/`, locally or with `--remote` on the deployed app. |
 | `vitehub database tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
 | `vitehub database rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
 | `vitehub migrate` | Available | Codemods Package | Rewrite an app folder for this ViteHub release with every upgrade codemod of `@vite-hub/codemods` that applies. Usage: `vitehub migrate [dir] [--dry-run]`. `dir` defaults to the current folder, and `--dry-run` prints the diffs. Install `@vite-hub/codemods` as a development dependency first. |
@@ -289,7 +290,7 @@ pnpm vitehub add email --option email.driver=resend --yes --json
 
 The command sets `<feature>: true`, or the object from `--option`. A feature that is already on gives no change, so a second run prints `"status": "unchanged"`. Features that an added feature turns on, such as Workflow for Agent, are listed in `implied`; the config names them when you supply their provider options. When an added feature requires Database, the command explicitly enables it if it was disabled. For example, on Netlify or Deno, `add comments` requires `--option database.connection.url=libsql://your-host` before writing the config.
 
-The host decides what `add` accepts. A feature that the host does not support exits with `3`. A host that needs an explicit provider, such as Email on Vercel, exits with `2` and lists the option in `missing` with its `choices`. When ViteHub can choose the values, `rerun` is a command that succeeds as it is, including any provider prerequisites. Node Schedules require `--option schedule.runtime.driver=process`, or `--option schedule.providerOutput=false` when you will wake them yourself.
+The host decides what `add` accepts. A feature that the host does not support exits with `3`. A host that needs an explicit provider, such as Email on Vercel, exits with `2` and lists the option in `missing` with its `choices`. For Email, the choices are `resend` and `log`. `log` prints each message to the server log and sends nothing, for a build without an Email provider. When ViteHub can choose the values, `rerun` is a command that succeeds as it is, including any provider prerequisites. Node Schedules require `--option schedule.runtime.driver=process`, or `--option schedule.providerOutput=false` when you will wake them yourself.
 
 Some host defaults build and run but keep state in one process. `nextSteps` names them, with the option that selects a durable driver. For example, Workspace on Vercel keeps files in memory until `BLOB_READ_WRITE_TOKEN` is set. A driver option that needs more packages, such as `blob.driver=s3`, adds them to the install.
 
@@ -1333,22 +1334,26 @@ pnpm vitehub database reset --force
 
 See [Run SQL and drop tables](/docs/database/configure#run-sql-and-drop-tables) for what `drop` drops on each driver.
 
-## Seed a Database
+## Seed data
 
-`database seed` runs the seed file of each database, `server/databases/<name>/seed.ts`, with no build. Its default export gets `{ db, schema }`. It writes the local database by default, and refuses a database with pending migrations.
+`vitehub seed` writes the starting data of the app: the seed file of each Database, the KV values in `server/seed/kv/`, and the Blob files in `server/seed/blob/`. It writes local data by default.
 
 ```bash [Terminal]
-pnpm vitehub database seed
-pnpm vitehub database seed --remote --stage staging --database analytics
+pnpm vitehub seed
+pnpm vitehub seed kv blob
+pnpm vitehub seed --remote --stage production
 ```
 
 | Option | Description |
 | --- | --- |
-| `--remote` | Write the remote database. Needed for a database that is not local. |
+| `<primitive>...` | Seed only these: `database`, `kv`, or `blob`. |
+| `--remote` | Write the deployed data. KV and Blob call the deployed app, like `vitehub kv set --url`. |
+| `--url <url>` | The deployed app for `--remote`. Defaults to `vitehub({ publicUrl })`. |
 | `--stage <name>` | Load the Vite env files of this mode. Process variables win. |
 | `--database <name>` | Seed only this database. |
+| `--timeout <ms>` | Request timeout of each call to the app. |
 
-See [Seed data](/docs/database/configure#seed-data) for the seed file.
+Without `--remote`, KV and Blob write the stores of the running dev server, so start `vite dev` first. The Database seed needs no server. See [Seed data](/docs/database/configure#seed-data) for the seed file of a Database, [Seed values](/docs/kv/configure#seed-values) for KV, and [Seed files](/docs/blob/configure#seed-files) for Blob.
 
 ## Browse Database tables
 

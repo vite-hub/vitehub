@@ -16,12 +16,12 @@ The [runtime methods](/docs/comments/server-api#runtime-methods) return `[error,
 - `docs`: a link to the code in [Comments diagnostics](/docs/comments/diagnostics).
 
 ```ts [server/api/threads/[id].get.ts] fragment
-import { createError, defineEventHandler, getRouterParam } from 'h3'
+import { defineEventHandler, getRouterParam, HTTPError } from 'h3'
 import { comments } from '../../comments'
 
 export default defineEventHandler(async (event) => {
   const [error, thread] = await comments.get(getRouterParam(event, 'id')!)
-  if (error?.code === 'COMMENTS_NOT_FOUND') throw createError({ status: 404, message: error.why })
+  if (error?.code === 'COMMENTS_NOT_FOUND') throw new HTTPError({ status: 404, message: error.why })
   if (error) throw error
   return thread
 })
@@ -46,6 +46,7 @@ Build errors throw when Vite reads the config. When the build cannot pick the Da
 | Threads in the Console section | The 500 with the newest activity |
 | Page path | 1,024 characters, starting with `/` |
 | Guest name | 64 characters |
+| Guest writes | None by default. `defineComments({ rateLimit: { limit, window } })` limits each guest address |
 | GitHub sign-in session | 7 days from sign-in |
 | GitHub push access | Checked again every 5 minutes |
 | GitHub App callback URLs | 10, so one App serves 10 sites |

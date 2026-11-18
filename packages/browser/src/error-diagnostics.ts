@@ -26,5 +26,9 @@ export const browserErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ status }: { status: number }) => `Browser content request failed with status ${status}`,
       fix: "Call `runBrowserAction(\"content\", input)` to read the `error.code` and `error.message` of the failed request, then fix the Browser binding or the input that they name.",
     },
+    BROWSER_RENAMED_PROVIDER_KEY: {
+      why: "`createBrowser()` got a `provider` option. ViteHub renamed this option to `driver`, and it does not read `provider`.",
+      fix: "Pass the driver as `createBrowser({ driver: localBrowser() })`, or run `npx @vite-hub/codemods driver-key` to rename it in every file.",
+    },
   },
 })

@@ -288,4 +288,12 @@ describe("workflow config", () => {
       { binding: "WORKFLOW_CUSTOM" },
     )).toThrow(/only supported when one workflow is discovered/)
   })
+
+  it("rejects the former provider key instead of picking the host driver", () => {
+    // SAFETY: An app config without types still passes the former key.
+    expect(() => normalizeWorkflowOptions({ provider: "openworkflow" } as never, { hosting: "vercel" })).toThrow(expect.objectContaining({
+      code: "WORKFLOW_RENAMED_PROVIDER_KEY",
+      fix: expect.stringContaining('`workflow: { driver: "openworkflow" }`'),
+    }))
+  })
 })

@@ -50,6 +50,12 @@ export interface PlaygroundPaneSlotProps {
   setFile: (path: string, contents: string) => void;
 }
 
+/** The payload of `load` and `preset-change`: the open preset's id, or none for a link without one, and the open files. */
+export interface PlaygroundOpenEvent {
+  preset: string | undefined;
+  files: PlaygroundFiles;
+}
+
 /** Renders the files to the HTML of the preview, in the browser. */
 export type PlaygroundRenderer = (files: PlaygroundFiles) => Promise<PlaygroundResult>;
 
@@ -112,7 +118,13 @@ export const PlaygroundRender = defineComponent({
     /** Wraps the rendered HTML in the document of the preview, with its stylesheets and theme. Defaults to a plain page. */
     previewDocument: { default: plainPreviewDocument, type: Function as PropType<(html: string, files: PlaygroundFiles) => string> },
   },
-  setup(props, { expose, slots }) {
+  emits: {
+    /** The files opened from the URL hash, or from the opening preset when the URL has no link. */
+    "load": (_event: PlaygroundOpenEvent) => true,
+    /** Another preset opened: the reader picked it, or a link names it. */
+    "preset-change": (_event: PlaygroundOpenEvent) => true,
+  },
+  setup(props, { emit, expose, slots }) {
     const presetById = (id: string | undefined) => props.presets.find(preset => preset.id === id);
     const opening = () => presetById(props.preset) ?? props.presets[0];
 
@@ -187,8 +199,10 @@ export const PlaygroundRender = defineComponent({
 
     function open(preset: PlaygroundPreset | undefined, nextFiles: PlaygroundFiles) {
       invalidate();
+      const changed = template.value !== preset?.id;
       template.value = preset?.id;
       files.value = nextFiles;
+      if (changed) emit("preset-change", { files: nextFiles, preset: preset?.id });
     }
 
     async function load() {
@@ -201,6 +215,7 @@ export const PlaygroundRender = defineComponent({
       if (state) open(presetById(state.template), state.files);
       else open(opening(), { ...opening()?.files });
       notice.value = code && !state ? invalidLink : undefined;
+      emit("load", { files: files.value, preset: template.value });
       await run();
     }
 
@@ -277,7 +292,7 @@ export const PlaygroundRender = defineComponent({
     return () => h("div", { class: "vh-pg" }, [
       props.presets.length > 1
         ? h("nav", { "aria-label": "Examples", class: "vh-pg-presets" }, groupPresets(props.presets).map(([group, presets]) => h("div", { class: "vh-pg-group" }, [
-            group ? h("p", { class: "vh-pg-group-title" }, group) : undefined,
+            group ? h("p", { class: "vh-pg-group-title" }, slots.group?.({ group, presets }) ?? group) : undefined,
             h("ul", presets.map(preset => h("li", { key: preset.id }, [
               h("button", {
                 "aria-current": template.value === preset.id && !edited.value ? "true" : undefined,

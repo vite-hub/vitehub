@@ -377,7 +377,7 @@ function assertAuthStorageConfig(body: ObjectExpression | undefined, callback: b
   const database = readObjectPropertyValue(body, "database")
   if (hasObjectProperty(body, "database") && !readAuthDatabaseCall(body, authDatabase) && staticString(database) !== "memory") {
     if (!callback || isPlacementLiteral(database, new Set(["dedicated", "name"]))) {
-      throw authErrorDiagnostics.AUTH_C0014({ message: "`defineAuth()` database must be `authDatabase()` from `@vite-hub/auth/database` or `\"memory\"`. `true` and `{ name }` do not create storage. Return another Better Auth adapter from the Definition callback." })
+      throw authErrorDiagnostics.AUTH_C0014({ message: "`defineAuth()` database must be `authDatabase()` from `vite-hub/auth/database` or `\"memory\"`. `true` and `{ name }` do not create storage. Return another Better Auth adapter from the Definition callback." })
     }
   }
   if (hasObjectProperty(body, "secondaryStorage")) {

@@ -52,6 +52,7 @@ import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { cloudflarePkceChallengePlugin } from "./cloudflare-pkce-challenge.ts"
 import { cloudflareShSyntaxPlugin } from "./cloudflare-sh-syntax.ts"
+import { cloudflareRedirectsFileVitePlugin } from "./cloudflare-redirects-vite.ts"
 import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { setupDevPlugin } from "./setup-dev.ts"
@@ -180,9 +181,11 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/schedule": true,
   "@vite-hub/shell": true,
   "@vite-hub/source": true,
+  "@vite-hub/sync": true,
   "@vite-hub/ui": true,
   // Browser-only: generated server code never imports it.
   "@vite-hub/web-container": false,
+  "@vite-hub/webhooks": true,
   "@vite-hub/workflow": true,
   "@vite-hub/workspace": true,
 } satisfies Record<FrameworkDependencyName, boolean>
@@ -531,12 +534,12 @@ export interface ViteHubOptions {
    * `{ auth: false }` takes calls without a signature, for development only.
    */
   console?: boolean | ConsoleOptions
-  /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   /**
    * Writes a bundle report of each production build to `.vitehub/bundle/`: client and server size, the code that loads
    * at startup, and why each package is there. Read it with `vitehub bundle`. Off by default.
    */
   bundle?: boolean
+  /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   database?: boolean | DatabaseOptions
   email?: boolean | EmailOptions
   /**
@@ -546,7 +549,8 @@ export interface ViteHubOptions {
   env?: false | EnvOptions
   /**
    * A health route for load balancers and container health checks, at `/api/_vitehub/health` unless `route` moves it.
-   * It answers `{ ok, commit }`, and with a Database, pings each one and answers 503 when one fails.
+   * It answers `{ ok, version, commit, vitehub }` and checks each Database, KV store, and Blob store of the app in `checks`. It
+   * answers 503 when one fails, and never shows error text.
    */
   health?: boolean | HealthOptions
   /**
@@ -569,7 +573,7 @@ export interface ViteHubOptions {
   observability?: boolean | ObservabilityOptions
   /**
    * Queue Definitions in `server/queues/`. On Node, `true` uses Postgres with a Postgres Default Database, else local
-   * files. An object sets Queue options, such as `cache`, or selects the Node provider with `provider`.
+   * files. An object sets Queue options, such as `cache`, or selects the Node driver with `driver`.
    */
   queue?: boolean | QueueOptions
   /**
@@ -891,6 +895,20 @@ function assertNodeScheduleWake(schedule: ViteHubOptions["schedule"]): void {
 }
 
 /**
+ * Rejects the former `provider` key of the features whose driver `vitehub()` picks from the host. The host checks run
+ * before the owner packages read their options, so without this check a host that has no such service would stop with
+ * a host error, and a host that has one would hide the old key.
+ */
+function assertNoProviderKey(options: ViteHubOptions): void {
+  for (const key of ["queue", "rateLimit", "sandboxTask"] as const) {
+    const feature: unknown = options[key]
+    if (!feature || typeof feature !== "object" || Reflect.get(feature, "driver") !== undefined || !Object.hasOwn(feature, "provider")) continue
+    const provider: unknown = Reflect.get(feature, "provider")
+    throw viteHubErrorDiagnostics.VITE_HUB_RENAMED_PROVIDER_KEY({ key, value: JSON.stringify(provider) ?? String(provider) })
+  }
+}
+
+/**
  * The Rate Limit driver of a build. On Node, Rate Limit counts in KV when the app enables KV, because KV can use Redis
  * or a Postgres Database that every instance shares. When ViteHub selects `kv` itself, a store that cannot share counts
  * falls back to memory with a warning. An explicit `driver: "kv"` on such a store fails the build.
@@ -1119,7 +1137,9 @@ function deploymentPlugins(
                 conditions: [],
                 define: {},
                 extensions: [],
-                hasScheduleIntegration: false,
+                // Nuxt does not run the deployment output plugin's configResolved hook, so read the plugins here.
+                hasScheduleIntegration: (config.plugins as readonly unknown[] | undefined)?.flat(Infinity)
+                  .some(plugin => isRecord(plugin) && plugin.name === "@vite-hub/schedule/vite") ?? false,
                 mainFields: [],
                 preserveSymlinks: false,
               },
@@ -1397,6 +1417,7 @@ function doctorPlugin(): Plugin {
 /** Builds the ViteHub plugin list for one resolved feature configuration. */
 function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires an options object." })
+  assertNoProviderKey(options)
   const host = resolveBuildHost(options.host)
   // Keep `false`: it turns the Console off, and unset keeps the development operation RPC.
   options = withConnectionsDatabase(withDataDir({ ...options, host, console: options.console === false ? false : resolveConsoleOptions(options.console) }))
@@ -1407,7 +1428,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   // the one enabled by Connections) are provisioned and bound like explicit
   // D1 configurations.
   if (plan.host === "cloudflare" && options.database === true) options = { ...options, database: { driver: "cloudflare" } }
-  assertFeatureSupported("schedule", plan.host, options)
   if (options.agent && options.agent !== true && options.agent.runtime === "deno" && plan.host === "deno") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0087({ message: "[vitehub] The \"deno\" host cannot deploy the Agent Deno runtime because its generated server is outside the deployed Nitro entrypoint. Use the host's Nitro runtime or compose an explicit Deno Agent deployment." })
   }
@@ -1469,7 +1489,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const resolvedConsoleBlob = configuredBlob
     ? requireOptionalOwner(blobVite, "blob").resolveBlobViteConfig(configuredBlob, { hosting: plan.nitroPreset }).blob
     : false
-  const consoleBlobStores = resolvedConsoleBlob
+  const blobStoreNames = resolvedConsoleBlob
     ? Object.keys(resolvedConsoleBlob.stores || { default: resolvedConsoleBlob.store })
     : []
   const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, host: plan.host, sandboxTask: sandboxTaskEnabled })
@@ -1543,7 +1563,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(databaseDisabledPlugin(databaseRuntimeImports, options.database === false))
   }
   plugins.push(unavailableServicesPlugin(plan, { browser: Boolean(options.browser), realtime: Boolean(options.realtime) }))
-  if (plan.host === "cloudflare") plugins.push(cloudflareShSyntaxPlugin(), cloudflarePkceChallengePlugin())
+  if (plan.host === "cloudflare") plugins.push(cloudflareShSyntaxPlugin(), cloudflarePkceChallengePlugin(), cloudflareRedirectsFileVitePlugin())
   plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, configuredKV, kvHosting))
 
   // `logs: { source }` reads an existing pipeline, so without `service` it starts no logger.
@@ -1558,7 +1578,14 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (browserErrors) plugins.push(browserErrorsVitePlugin())
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
   if (options.trustProxy || options.sameOriginWrites || options.security) plugins.push(requestPolicyVitePlugin(options))
-  if (options.health) plugins.push(healthVitePlugin(options.health === true ? {} : options.health, { database: Boolean(options.database) }))
+  if (options.health) {
+    const resolvedKV = options.kv && kvVite ? kvVite.resolveKVViteConfig(configuredKV, { hosting: kvHosting }).kv : false
+    plugins.push(healthVitePlugin(options.health === true ? {} : options.health, {
+      database: Boolean(options.database),
+      kv: resolvedKV ? Object.keys(resolvedKV.stores || { default: resolvedKV.store }) : [],
+      blob: blobStoreNames,
+    }))
+  }
   if (envPlugin) plugins.push(envPlugin)
   const redirects = resolveRedirectsPolicy(options.redirects)
   if (redirects) plugins.push(redirectsVitePlugin(redirects))
@@ -1587,7 +1614,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     const consolePlugin = consoleVitePlugin({
       name: options.name,
       contentImportBase: "vite-hub/content",
-      blobStores: consoleBlobStores,
+      blobStores: blobStoreNames,
       console: configuredConsole || undefined,
       rpcOnly: devOperationsOnly,
       runtimeCapabilityImports,
@@ -1741,7 +1768,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       ...(options.rateLimit === true ? {} : options.rateLimit),
       ...buildRateLimitDriver(plan, options),
       kvImport: "vite-hub/kv",
-    } as RateLimitOptions)))
+    } as RateLimitOptions & { kvImport: string })))
   }
   // Comments in `server/comments.ts`, or with the `comments` option: threads in the Database, the overlay on pages in
   // comment mode, and page presence rooms where Realtime has an authority. Inert without either, and absent without its
@@ -1752,12 +1779,15 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     auth: Boolean(options.auth),
     // Attachments go to the app's Blob store.
     blob: blobEnabled,
+    // Guest writes count in Rate Limit when its KV store is shared, as Forms messages do.
+    rateLimit: Boolean(options.rateLimit) && buildRateLimitDriver(plan, options).driver === "kv",
     imports: {
       auth: generatedModules.commentsRuntimeAuth,
       blob: "vite-hub/blob",
       contentClient: "vite-hub/content/client",
       database: "vite-hub/comments/database",
       databases: "@vite-hub/database/runtime/registry",
+      rateLimit: "vite-hub/rate-limit",
       realtime: generatedModules.commentsRealtime,
       runtime: "vite-hub/comments/runtime",
     },
@@ -1793,9 +1823,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   if (options.schedule) {
     plugins.push(requireOptionalOwner(ownerModules.scheduleVite, "schedule").hubSchedule({
-      ...(plan.host === "vercel" ? { providerOutput: "standalone" as const } : {}),
+      // Vercel cron jobs and Deno.cron call entries outside the Nitro server.
+      ...(plan.host === "vercel" || plan.host === "deno" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
-      databaseImport: "@vite-hub/database/runtime/registry",
+      databaseImport: "@vite-hub/database",
       importBase: "vite-hub/schedule",
       providerImportAliases,
     } as ScheduleOptions))
@@ -1859,6 +1890,19 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       rateLimit: "vite-hub/rate-limit",
     },
   }))
+  // Sync in `server/sync/<name>.ts`: one route for each, the change log in the Database, and the user with Auth. Inert
+  // without the folder, and absent without its package.
+  if (ownerModules.syncVite) plugins.push(ownerModules.syncVite.hubSync({
+    database: Boolean(options.database),
+    auth: Boolean(options.auth),
+    imports: {
+      runtime: "vite-hub/sync/runtime",
+      operations: "vite-hub/sync/operations",
+      database: "vite-hub/sync/database",
+      databases: "@vite-hub/database/runtime/registry",
+      auth: "vite-hub/auth/server",
+    },
+  }))
   // Reads the `cms` preset and contributes its Workspace, Database tables, and, when the app has none, the default
   // Database. Inert without the preset.
   if (ownerModules.cmsVite) plugins.push(ownerModules.cmsVite.hubCms({
@@ -1872,7 +1916,21 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }))
   if (commentsPlugin) plugins.push(commentsPlugin)
   else if (options.comments === false) plugins.push(commentsOffPlugin())
-  if (!ownerModules.commentsVite || !ownerModules.contentVite || !ownerModules.cmsVite || !ownerModules.formsVite) plugins.push(optionalOwnerEntriesPlugin({ database: options.database !== false }))
+  // Webhooks in `server/webhooks/<name>.ts`: deliveries in the Default Database, sent through the `vitehub-webhooks`
+  // Queue that the plugin contributes. Inert without the folder, and absent without its package.
+  if (ownerModules.webhooksVite) plugins.push(ownerModules.webhooksVite.hubWebhooks({
+    database: Boolean(options.database),
+    queue: Boolean(options.queue) && plan.services.queue.supported,
+    imports: {
+      runtime: "vite-hub/webhooks/runtime",
+      operations: "vite-hub/webhooks/operations",
+      database: "vite-hub/webhooks/database",
+      databases: "@vite-hub/database/runtime/registry",
+      queue: "vite-hub/queue",
+      types: "vite-hub/webhooks",
+    },
+  }))
+  if (!ownerModules.commentsVite || !ownerModules.contentVite || !ownerModules.cmsVite || !ownerModules.formsVite || !ownerModules.webhooksVite || !ownerModules.syncVite) plugins.push(optionalOwnerEntriesPlugin({ database: options.database !== false }))
   plugins.push(optionalOwnerImportsPlugin())
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())

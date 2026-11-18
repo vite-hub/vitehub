@@ -74,10 +74,14 @@ describe("@vite-hub/ui package contract", () => {
       vue: expect.any(String),
     });
     expect(packageJson.peerDependenciesMeta).toEqual({
+      // The ui-sdk editor parts' drag handle and its placement, which Nuxt UI otherwise brings.
+      "@floating-ui/dom": { optional: true },
       "@iconify-json/lucide": { optional: true },
       "@nuxt/ui": { optional: true },
       // MarkdownEditor's Tiptap, only for apps that import @vite-hub/ui/markdown-editor.
       "@tiptap/core": { optional: true },
+      "@tiptap/extension-drag-handle": { optional: true },
+      "@tiptap/extension-drag-handle-vue-3": { optional: true },
       "@tiptap/extension-image": { optional: true },
       "@tiptap/extension-list": { optional: true },
       "@tiptap/extension-table": { optional: true },
@@ -87,6 +91,7 @@ describe("@vite-hub/ui package contract", () => {
       vite: { optional: true },
     });
     expect(packageJson.dependencies).toEqual({
+      "reka-ui": "catalog:ui",
       "@comark/vue": "0.9.0",
       "comark-chat": "catalog:",
       comark: "catalog:markdown-ui",

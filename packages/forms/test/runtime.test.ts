@@ -6,7 +6,7 @@ import * as v from "valibot"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { defineForm } from "../src/index.ts"
-import { addressKey, createFormsHandler, installedForms, memoryFormRateLimit } from "../src/runtime.ts"
+import { createFormsHandler, installedForms } from "../src/runtime.ts"
 import type { FormsSharedRateLimit } from "../src/runtime.ts"
 import { discoverForms, hubForms, renderFormsHandler, storingForms } from "../src/vite.ts"
 
@@ -37,11 +37,11 @@ describe("renderFormsHandler", () => {
     const forms = [{ name: "contact", file: "/app/server/forms/contact.ts" }]
     const imports = { runtime: "vite-hub/forms/runtime", operations: "vite-hub/forms/operations", database: "vite-hub/forms/database", databases: "@vite-hub/database/runtime/registry", email: "vite-hub/email", auth: "vite-hub/auth/server", standard: "vite-hub/runtime" }
     const bare = renderFormsHandler(forms, { imports })
-    expect(bare).not.toContain("databases")
+    expect(bare).not.toContain("useDatabase")
     expect(bare).not.toContain("email")
     expect(bare).toContain("import form0 from \"/app/server/forms/contact.ts\"")
     const full = renderFormsHandler(forms, { imports, database: true, email: true, auth: true })
-    expect(full).toContain("import { databases } from \"@vite-hub/database/runtime/registry\"")
+    expect(full).toContain("import { useDatabase } from \"@vite-hub/database/runtime/registry\"")
     expect(full).toContain("sendEmail: message => email.send(message),")
     expect(full).toContain("import { useAuth } from \"vite-hub/auth/server\"")
     expect(full).toContain("useAuth(request).api.getSession({ headers: request.headers })")
@@ -89,14 +89,6 @@ describe("hubForms without a Database", () => {
   it("keeps submissions in memory on a development server", async () => {
     const root = await configure(app({ "server/forms/contact.ts": storing }), "serve")
     expect(readFileSync(join(root, ".vitehub/nitro/forms/handler.mjs"), "utf8")).toContain("memory: true,")
-  })
-})
-
-describe("addressKey", () => {
-  it("counts an IPv6 address as its /64 network and keeps IPv4 as it is", () => {
-    expect(addressKey("2001:db8:1:2::1")).toBe(addressKey("2001:0db8:0001:0002:aaaa::5"))
-    expect(addressKey("2001:db8:1:2::1")).not.toBe(addressKey("2001:db8:1:3::1"))
-    expect(addressKey("1.2.3.4")).toBe("1.2.3.4")
   })
 })
 
@@ -178,16 +170,6 @@ describe("createFormsHandler", () => {
     expect((await send("1.1.1.1")).status).toBe(201)
     expect((await send("2.2.2.2")).status).toBe(cloudflare ? 201 : 429)
   })
-})
-
-it("memoryFormRateLimit opens a new window after the old one ends", () => {
-  let now = 0
-  const limit = memoryFormRateLimit(() => now)
-  const policy = { limit: 1, window: "1s" }
-  expect(limit("k", policy).allowed).toBe(true)
-  expect(limit("k", policy)).toEqual({ allowed: false, retryAfter: 1 })
-  now = 1000
-  expect(limit("k", policy).allowed).toBe(true)
 })
 
 it("createFormsHandler rejects a file that does not default-export defineForm()", () => {

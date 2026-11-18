@@ -25,6 +25,14 @@ describe("Browser runtime error fixes", () => {
     }))
   })
 
+  it("names `driver` for the former provider option of createBrowser()", () => {
+    // SAFETY: A caller without types still passes the former option.
+    expect(() => createBrowser({ provider: localBrowser({ executablePath: "/usr/bin/chromium" }) } as never)).toThrow(expect.objectContaining({
+      code: "BROWSER_RENAMED_PROVIDER_KEY",
+      fix: expect.stringContaining("`createBrowser({ driver:"),
+    }))
+  })
+
   it("asks for the Chromium path in localBrowser()", () => {
     expect(() => localBrowser({} as never)).toThrow(expect.objectContaining({
       code: "BROWSER_R0007",
