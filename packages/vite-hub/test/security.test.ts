@@ -129,6 +129,17 @@ describe("generated output", () => {
     expect(addSecurityHeadersToHeadersFile("", [["X-Robots-Tag", "noindex"]], "/")).toBe("/*\n  X-Robots-Tag: noindex\n")
   })
 
+  it("does not re-add a header explicitly removed by a Cloudflare rule", () => {
+    const file = "/legacy/*\r\n\t! x-CoNtEnT-tYpE-OpTiOnS\r\n"
+    expect(addSecurityHeadersToHeadersFile(file, defaults, "/")).toBe([
+      file.trimEnd(),
+      "/*",
+      "  Strict-Transport-Security: max-age=31536000",
+      "  Referrer-Policy: strict-origin-when-cross-origin",
+      "",
+    ].join("\n"))
+  })
+
   it("adds the headers to static files in the Vercel hit phase", () => {
     const config = { routes: [{ src: "/(.*)", headers: { "Referrer-Policy": "no-referrer" }, continue: true }, { handle: "filesystem" }, { src: "/(.*)", dest: "/__server" }] }
     const routes = addSecurityHeadersToVercelConfig(config, defaults).routes!

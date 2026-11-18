@@ -90,15 +90,15 @@ export function resolveSecurityPolicy(options: SecurityOptions = {}): ResolvedSe
   return { headers, devHeaders, ...(maxBodySize === undefined ? {} : { maxBodySize }) }
 }
 
-const headerLine = /^\s+(?:!\s*)?([^\s:]+)\s*:/gm
+const headerLine = /^[ \t]+(?:![ \t]*([^\s:]+)[ \t]*$|([^\s:]+)[ \t]*:)/gm
 
 /**
  * Adds a `<base>*` rule with the headers to a Cloudflare or Netlify `_headers` file. Both hosts add the headers of
- * every rule that matches, and join two values of one header with a comma, so a header that the file already sets for
- * any path is left out.
+ * every rule that matches, and join two values of one header with a comma, so a header that the file already sets or
+ * removes for any path is left out.
  */
 export function addSecurityHeadersToHeadersFile(contents: string, headers: SecurityPolicy["headers"], baseURL: string): string {
-  const present = new Set([...contents.matchAll(headerLine)].map(match => match[1]!.toLowerCase()))
+  const present = new Set([...contents.matchAll(headerLine)].map(match => (match[1] ?? match[2]!).toLowerCase()))
   const missing = headers.filter(([name]) => !present.has(name.toLowerCase()))
   if (missing.length === 0) return contents
   const base = baseURL.endsWith("/") ? baseURL : `${baseURL}/`
