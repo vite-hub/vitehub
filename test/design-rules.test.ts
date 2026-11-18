@@ -65,8 +65,10 @@ const rules: Array<{ rule: string, pattern: RegExp }> = [
  * pill, the page tools, and the comments overlay.
  *
  * It finds motion that moves, resizes, or shakes: `@keyframes` and `animation` that change `transform`, position, or
- * size, transitions on `transform`, `scale`, `translate`, `rotate`, `width`, `height`, or `all`, the Tailwind classes
- * `transition-transform`, `transition-all`, `animate-*`, and hover or press `scale-*`, Vue `<Transition>` classes that
+ * size, transitions on `transform`, `scale`, `translate`, `rotate`, size, position, `margin`, `clip-path`, grid tracks, or
+ * `all` (also when the declaration spans lines, and in style strings and `style.setProperty`), the Tailwind classes
+ * `transition-transform`, `transition-all`, `animate-*`, hover or press `scale-*`, and the plain `transition` class next
+ * to a state class that turns or moves, as in `transition group-open:rotate-90`, Vue `<Transition>` classes that
  * move, WAAPI `.animate()` calls that move, and `requestAnimationFrame` loops that write styles.
  *
  * Color and opacity fades are not motion. A loading spinner that turns forever (`animate-spin`, or `@keyframes` that only
@@ -107,9 +109,11 @@ const motionAllowlist: Record<string, { count: number, wave: Wave }> = {
   // W5: the docs site and @vite-hub/docs.
   "docs/app/assets/main.css": { count: 2, wave: "W5" },
   "docs/app/components/content/HeroFigure.vue": { count: 2, wave: "W5" },
+  "docs/app/components/content/SupportMatrix.vue": { count: 1, wave: "W5" },
   "docs/app/components/landing/AgentStory.vue": { count: 2, wave: "W5" },
   "docs/app/components/landing/Closing.vue": { count: 4, wave: "W5" },
   "docs/app/components/landing/Hero.vue": { count: 2, wave: "W5" },
+  "docs/app/components/landing/InstallCommand.vue": { count: 1, wave: "W5" },
   "docs/app/components/landing/Portability.vue": { count: 4, wave: "W5" },
   "packages/docs/runtime/app/components/DocsAsideLeftBody.vue": { count: 1, wave: "W5" },
   "packages/docs/runtime/app/components/content/PageList.vue": { count: 2, wave: "W5" },
@@ -125,17 +129,17 @@ const motionAllowlist: Record<string, { count: number, wave: Wave }> = {
   "packages/vite-hub/src/console/runtime/components/invocation/invocation.css": { count: 10, wave: "W5" },
   "packages/vite-hub/src/console/standalone-page.ts": { count: 2, wave: "W5" },
   // W5: @vite-hub/ui parts, the page pill and tools, and the comments overlay.
-  "packages/comments/src/overlay/styles.ts": { count: 7, wave: "W5" },
+  "packages/comments/src/overlay/styles.ts": { count: 8, wave: "W5" },
   "packages/internal/src/runtime/page-pill.ts": { count: 12, wave: "W5" },
   "packages/internal/src/runtime/page-tools-loader.ts": { count: 7, wave: "W5" },
   "packages/internal/src/runtime/page-tools-shared.ts": { count: 2, wave: "W5" },
   "packages/internal/src/runtime/page-tools-window.ts": { count: 1, wave: "W5" },
   "packages/ui/comment-marks.css": { count: 7, wave: "W5" },
   "packages/ui/icon-swap.css": { count: 1, wave: "W5" },
-  "packages/ui/styles.css": { count: 25, wave: "W5" },
+  "packages/ui/styles.css": { count: 28, wave: "W5" },
 }
 
-const motionProperty = /^(?:transform|translate|scale|rotate|all|(?:min-|max-)?(?:width|height))$/
+const motionProperty = /^(?:transform|translate|scale|rotate|all|(?:min-|max-)?(?:width|height)|inset|top|right|bottom|left|margin(?:-\w+)?|clip-path|grid-template-(?:rows|columns)|flex-basis)$/
 const motionDeclaration = /(?:^|[\s;{])(?:transform|translate|scale|rotate|(?:min-|max-)?(?:width|height)|inset|top|right|bottom|left|margin(?:-\w+)?|clip-path)\s*:/
 
 function cssWithoutComments(file: string, text: string): string {
@@ -209,6 +213,27 @@ function animationMoves(value: string, keyframes: Map<string, boolean>): boolean
   return known.length ? known.some(name => keyframes.get(name)) : true
 }
 
+/**
+ * Every declaration of `property` (`transition` or `animation`) with its value, in each form the surfaces write it:
+ * - CSS, also in a `<style>` block, an inline `style` string, or a template string. A value can span lines, as in
+ *   `transition:\n  opacity 1s,\n  transform 1s`, and ends at `;`, `{`, `}`, a quote, or a line that starts a new key.
+ * - A quoted value in script or a template binding, as in `{ transition: 'transform 1s' }`. It ends at its quote.
+ * - An assignment in script, as in `el.style.transition = value`. It ends at the end of its line.
+ * - `style.setProperty("transition", "transform 1s")`.
+ */
+function declarations(source: string, property: "transition" | "animation"): Array<{ index: number, text: string, value: string }> {
+  const long = property === "transition" ? "-property" : "-name"
+  const camel = property === "transition" ? "Property" : "Name"
+  const name = `(?<![\\w-])${property}(?:${long}|${camel})?`
+  const forms = [
+    new RegExp(`${name}\\s*:\\s*(?![\\s"'\`])((?:(?!\\n\\s*[\\w-]+\\s*:)[^;{}"'\`])+)`, "g"),
+    new RegExp(`${name}\\s*[:=]\\s*(["'\`])((?:(?!\\1)[^\\\\]|\\\\[\\s\\S])*)\\1`, "g"),
+    new RegExp(`${name}\\s*=\\s*(?![\\s"'\`])([^;{}"'\`\\n]+)`, "g"),
+    new RegExp(`setProperty\\(\\s*["'\`]${property}(?:${long})?["'\`]\\s*,\\s*["'\`]([^"'\`]*)`, "g"),
+  ]
+  return forms.flatMap(form => [...source.matchAll(form)].map(match => ({ index: match.index, text: match[0], value: match.at(-1)! })))
+}
+
 /** True when a function named `name` in `source` asks for the next frame with itself, as a frame loop does. */
 function selfScheduling(source: string, name: string): boolean {
   const declaration = new RegExp(`(?:function\\s+${name}\\s*\\([^)]*\\)\\s*|\\b${name}\\s*=\\s*(?:async\\s*)?(?:\\([^)]*\\)|\\w+)\\s*=>\\s*)\\{`).exec(source)
@@ -224,15 +249,21 @@ function scanMotion(file: string, text: string, keyframes: Map<string, boolean>)
   for (const match of source.matchAll(/@keyframes\s+([\w-]+)\s*\{/g)) {
     if (keyframes.get(match[1]!)) add(match.index, match[0])
   }
-  for (const match of source.matchAll(/\banimation(?:-name|Name)?\s*[:=]\s*["'`]?([^;}"'`\n]+)/g)) {
-    if (animationMoves(match[1]!, keyframes)) add(match.index, match[0])
+  for (const { index, text, value } of declarations(source, "animation")) {
+    if (animationMoves(value, keyframes)) add(index, text)
   }
-  for (const match of source.matchAll(/\btransition(?:-property|Property)?\s*[:=]\s*["'`]?([^;{}"'`\n]+)/g)) {
-    if (transitionMoves(match[1]!)) add(match.index, match[0])
+  for (const { index, text, value } of declarations(source, "transition")) {
+    if (transitionMoves(value)) add(index, text)
   }
   // Tailwind classes, with any variants in front.
   for (const match of source.matchAll(/(?<![\w-])(?:[\w\-[\]&=>.*()@/]+:)*transition-(?:transform|all|\[([^\]\s]+)\])(?![\w-])/g)) {
     if (match[1] === undefined || splitList(match[1].replace(/_/g, " ")).some(property => motionProperty.test(property))) add(match.index, match[0])
+  }
+  // Tailwind's plain `transition` class also animates `transform`, `translate`, `scale`, and `rotate`, so it moves when the
+  // same class list turns or moves the element under a state, as in `transition group-open:rotate-90`.
+  for (const match of source.matchAll(/(["'`])((?:(?!\1)[^\\]|\\[\s\S])*)\1/g)) {
+    const plain = /(?<![\w\-:[])(?:[\w\-[\]&=>.*()@/]+:)*transition(?![\w\-:[])/.exec(match[2]!)
+    if (plain && /(?<![\w-])(?:[\w\-[\]&=>.*()@/]+:)+-?(?:rotate|translate|scale)-/.test(match[2]!)) add(match.index + 1 + plain.index, plain[0])
   }
   for (const match of source.matchAll(/(?<![\w-])(?:[\w\-[\]&=>.*()@/]+:)*animate-(\[[^\]\s]+\]|\([^)\s]+\)|[a-z][\w-]*)/g)) {
     const name = match[1]!
@@ -391,6 +422,51 @@ describe("design rules", () => {
         "requestAnimationFrame(() => input.focus())",
         "// box.style.transition = 'transform 1s'",
       ].join("\n"))).toEqual([2, 3])
+    })
+
+    it("finds declarations that span lines and leaves fades that span lines", () => {
+      expect(lines("example.vue", [
+        "<template>",
+        "  <UIcon class=\"size-3.5 transition group-open:rotate-90\" />",
+        "  <div class=\"transition hover:text-highlighted\" :style=\"{ transition: 'opacity 1s' }\" />",
+        "  <div :class=\"['transition-colors', open && 'rotate-180']\" />",
+        "</template>",
+        "<style scoped>",
+        ".swap-enter-active {",
+        "  transition:",
+        "    opacity 180ms cubic-bezier(0.23, 1, 0.32, 1),",
+        "    transform 180ms cubic-bezier(0.23, 1, 0.32, 1);",
+        "}",
+        ".fade {",
+        "  transition:",
+        "    opacity 180ms ease-out,",
+        "    background-color 180ms ease-out;",
+        "}",
+        ".list { transition-property: opacity,",
+        "  left }",
+        ".pop {",
+        "  animation:",
+        "    rise 200ms ease-out;",
+        "}",
+        "</style>",
+      ].join("\n"))).toEqual([2, 8, 17, 20])
+      expect(lines("example.ts", [
+        "const css = `.a {",
+        "  transition:",
+        "    color 150ms,",
+        "    translate 150ms;",
+        "}`",
+        "Object.assign(panel.style, {",
+        "  transition: `opacity 150ms,",
+        "    scale 150ms`,",
+        "  transitionProperty: fade,",
+        "  color: 'red',",
+        "})",
+        "panel.style.setProperty('transition', 'width 200ms')",
+        "panel.style.setProperty('transition', 'opacity 200ms')",
+        "panel.style.transition = speed",
+        "panel.style.width = '1px'",
+      ].join("\n"))).toEqual([2, 7, 12])
     })
   })
 
