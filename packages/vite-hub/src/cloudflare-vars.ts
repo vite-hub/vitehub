@@ -5,8 +5,7 @@ import { isRecord } from "@vite-hub/internal/object"
 
 interface CloudflareServerEnvVar {
   names: string[]
-  name: string
-  value: string
+  binding?: [name: string, value: string]
 }
 
 /**
@@ -28,13 +27,13 @@ export function cloudflareServerEnvVars(registry: EnvRuntimeRegistry, env: Recor
         return
       }
       const name = names.find(name => Object.hasOwn(env, name) && Boolean(env[name]))
-      if (name) vars.push({ names, name, value: env[name]! })
+      vars.push(name ? { names, binding: [name, env[name]!] } : { names })
       return
     }
     for (const child of Object.values(value)) visit(child)
   }
   visit(registry)
-  return vars.filter(({ name }) => !secretNames.has(name))
+  return vars.map(entry => entry.binding && secretNames.has(entry.binding[0]) ? { names: entry.names } : entry)
 }
 
 /**
@@ -43,7 +42,7 @@ export function cloudflareServerEnvVars(registry: EnvRuntimeRegistry, env: Recor
  * with `cloudflare.deployConfig: false`, and then there is nothing to add to.
  */
 export async function addCloudflareVars(serverDir: string, vars: CloudflareServerEnvVar[]): Promise<void> {
-  if (!vars.length) return
+  if (!vars.some(entry => entry.binding)) return
   const file = resolve(serverDir, "wrangler.json")
   const text = await readFile(file, "utf8").catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return undefined
@@ -54,9 +53,19 @@ export async function addCloudflareVars(serverDir: string, vars: CloudflareServe
   if (!isRecord(wrangler)) return
   const withVars = (target: Record<string, unknown>): Record<string, unknown> => {
     const explicit = isRecord(target.vars) ? target.vars : {}
+    const hasExplicit = (name: string) => Object.hasOwn(explicit, name) && explicit[name] !== undefined && explicit[name] !== ""
     // An explicit fallback must not be shadowed by an automatic canonical name.
-    const additions = vars.filter(({ names }) => !names.some(name => Object.hasOwn(explicit, name) && explicit[name] !== undefined && explicit[name] !== ""))
-    return { ...target, vars: { ...Object.fromEntries(additions.map(({ name, value }) => [name, value])), ...explicit } }
+    const protectedNames = new Set<string>()
+    const candidates: [string, string][] = []
+    for (const { names, binding } of vars) {
+      const explicitIndex = names.findIndex(hasExplicit)
+      if (explicitIndex !== -1) {
+        for (const name of names.slice(0, explicitIndex)) protectedNames.add(name)
+      }
+      else if (binding) candidates.push(binding)
+    }
+    const additions = candidates.filter(([name]) => !protectedNames.has(name))
+    return { ...target, vars: { ...Object.fromEntries(additions), ...explicit } }
   }
   const result = withVars(wrangler)
   if (isRecord(wrangler.env)) {

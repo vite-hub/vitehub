@@ -1021,6 +1021,7 @@ describe("built-in host integration", () => {
               pubsubTopic: env({ optional: true, source: env.source("PUBSUB_TOPIC") }),
               logLevel: env({ default: "info", source: env.source("LOG_LEVEL") }),
               paymentLink: env({ source: env.source("PAYMENT_LINK") }),
+              paymentLinkAlias: env({ source: env.source("VITEHUB_PAYMENT_LINK", { canonical: false }) }),
               executorKeyAlias: env({ source: env.source("EXECUTOR_API_KEY") }),
               canonicalKeyAlias: env({ source: env.source("VITEHUB_EXECUTOR_API_KEY") }),
               publicExecutorLabel: env({ source: env.source("EXECUTOR_API_KEY") }),
