@@ -1409,7 +1409,11 @@ describe("hubBlob", () => {
               return { namespace: "auth-provider-test", path: args.path }
             })
             build.onLoad({ filter: /^#vitehub\/auth\/definition$/, namespace: "auth-provider-test" }, () => ({
-              contents: `import { defineAuth } from ${JSON.stringify(join(workspaceRoot, "packages/auth/src/index.ts"))}; export default defineAuth({ appName: "Blob test" })`,
+              contents: [
+                `import { defineAuth } from ${JSON.stringify(join(workspaceRoot, "packages/auth/src/index.ts"))}`,
+                'export default defineAuth({ appName: "Blob test" })',
+                "export const getAuthApp = () => undefined",
+              ].join("\n"),
               loader: "js",
               resolveDir: workspaceRoot,
             }))
