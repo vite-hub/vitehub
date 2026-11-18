@@ -1,3 +1,6 @@
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import { VITEHUB_PREPARE } from "@vite-hub/internal/build/vite"
@@ -5,6 +8,7 @@ import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import { resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import type { FeatureId } from "@vite-hub/internal/features"
 import { featureIds, featureSupport } from "@vite-hub/internal/features"
+import type { hubSource } from "@vite-hub/source/vite"
 import type { Plugin, PluginOption } from "vite"
 
 import { vitehub } from "../src/index.ts"
@@ -46,6 +50,29 @@ function build(host: ViteHubHost, options: Record<string, unknown>): void {
 }
 
 describe("feature catalog host checks", () => {
+  it.each(["node", "cloudflare", "vercel"] as const)("generates the Content prewarm integration for %s", async (host) => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "content-prewarm-host-"))
+    try {
+      await mkdir(join(projectRoot, "server"))
+      await writeFile(join(projectRoot, "server/content.ts"), 'import { defineContent } from "vite-hub/content"\nimport { github } from "vite-hub/source"\nexport default defineContent({ sources: { docs: github({ repo: "acme/docs" }) } })\n')
+      const source = findPlugin(vitehub({ host, queue: true }), "@vite-hub/source/vite") as ReturnType<typeof hubSource>
+      await source.api.prepareSources({ projectRoot })
+      const webhook = await readFile(join(projectRoot, ".vitehub/content/github-webhook.mjs"), "utf8")
+      const queues = await source.vitehub.queues({ projectRoot, root: projectRoot })
+      if (host === "vercel") {
+        expect(webhook).toContain("export default defineContentGitHubWebhookHandler(content)\n")
+        expect(queues).toEqual([])
+      }
+      else {
+        expect(webhook).toContain('dynamicQueue.send("vitehub-content-prewarm", job)')
+        expect(queues).toMatchObject([{ name: "vitehub-content-prewarm" }])
+      }
+    }
+    finally {
+      await rm(projectRoot, { recursive: true, force: true })
+    }
+  })
+
   it("throws the existing code for every unsupported cell of the catalog", () => {
     for (const id of featureIds) {
       for (const host of hosts) {

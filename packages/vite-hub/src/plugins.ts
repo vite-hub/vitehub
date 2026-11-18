@@ -1915,6 +1915,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       : false,
     contentImportBase: "vite-hub/content",
     importBase: "vite-hub/source",
+    // A `github()` Source prewarms the pages of each push through the `vitehub-content-prewarm` Queue.
+    queue: Boolean(options.queue) && plan.services.queue.supported && plan.host !== "vercel",
+    queueImport: "vite-hub/queue",
   })
   plugins.push(sourcePlugin)
   // Adds the `vitehub content` commands, the Content operations, and the Content inspector. Inert without server/content.ts.
