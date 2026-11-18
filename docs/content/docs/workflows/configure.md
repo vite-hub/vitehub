@@ -12,7 +12,7 @@ A file or folder in `server/workflows/` turns on Workflows, so you do not add a 
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `workflow` | `boolean` or `WorkflowOptions` | off, or on when `agent` is on | `true` or an object turns on Workflow discovery and host output in `vitehub()`. `false` turns it off. |
+| `workflow` | `boolean` or `WorkflowOptions` | off | `true` or an object turns on Workflow discovery and host output. Discovered Agents use the configured driver: OpenWorkflow and Cloudflare Workflows are durable; Vercel runs Agent turns inline. |
 | `driver` | `WorkflowDriver` | inferred | `cloudflare`, `vercel`, or `openworkflow`. |
 | `binding` | `string` | provider default | Binding name in generated output. |
 | `name` | `string` | workflow file name | Provider resource name. |

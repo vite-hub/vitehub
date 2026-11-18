@@ -418,14 +418,14 @@ describe("vitehub add", () => {
     }
   }, 30_000)
 
-  it("lists implied features without writing their keys", async () => {
+  it("adds Agent without Workflow", async () => {
     const root = await copyFixture("node-self-hosted")
 
     const { exitCode, json } = await add(["agent", "--no-install", "--yes"], root)
 
     expect(exitCode).toBe(0)
-    expect(json.implied).toEqual(["workflow"])
-    expect(json.install).toMatchObject({ command: "npm install @vite-hub/agent @vite-hub/workflow", packages: ["@vite-hub/agent", "@vite-hub/workflow"] })
+    expect(json.implied).toEqual([])
+    expect(json.install).toMatchObject({ command: "npm install @vite-hub/agent", packages: ["@vite-hub/agent"] })
     const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
     expect(config.ok && Object.keys(config.site.keys)).toEqual(["host", "kv", "agent"])
   })
