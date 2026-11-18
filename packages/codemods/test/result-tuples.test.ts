@@ -103,7 +103,8 @@ export async function run() {
   const tuple = await startWorkflow('sync')
   const [error, value] = tuple
   const indexed = await startWorkflow('sync')
-  return [mutable.id, legacy.id, error, value, indexed[0]]
+  const first = await startWorkflow('sync'), second = await startWorkflow('sync')
+  return [mutable.id, legacy.id, error, value, indexed[0], first[0], second[1]]
 }
 `)
       await runCodemod("result-tuples", { cwd })
@@ -112,6 +113,7 @@ export async function run() {
       expect(migrated).toContain("const [legacyError, run3] = await startWorkflow('sync')\n  if (legacyError) throw legacyError\n  var legacy = run3")
       expect(migrated).toContain("const tuple = await startWorkflow('sync')\n  const [error, value] = tuple")
       expect(migrated).toContain("const indexed = await startWorkflow('sync')")
+      expect(migrated).toContain("const first = await startWorkflow('sync'), second = await startWorkflow('sync')")
       await expect(resultTuples.detect({ cwd })).resolves.toBeUndefined()
     }
     finally {

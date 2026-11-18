@@ -183,17 +183,17 @@ export function rewriteResultCalls(
     const call = match(node)
     if (!call) return
     const parent = ancestors.at(-1)
-    if (parent?.type === "AwaitExpression" && readsResult(parent, ancestors.at(-2))) return
+    const owner = ancestors.at(-2)
+    const id = parent?.type === "AwaitExpression" && owner?.type === "VariableDeclarator" && owner.init === parent ? owner.id : undefined
+    if (parent?.type === "AwaitExpression" && readsResult(parent, owner)) return
+    if (id?.type === "Identifier" && (resultBindings ??= tupleBindings(program)).has(id)) return
     const awaited = parent?.type === "AwaitExpression" ? parent : parent?.type === "ReturnStatement" && canAwaitBareReturn(ancestors) ? node : undefined
     const statement = awaited ? leadingStatement(awaited, awaited === parent ? ancestors.slice(0, -1) : ancestors) : undefined
     if (!awaited || !statement) {
       unsupported(node)
       return
     }
-    const declarator = statement.type === "VariableDeclaration" && statement.declarations.length === 1 ? statement.declarations[0] : undefined
-    const id = declarator?.init === awaited ? declarator.id : undefined
-    if (id?.type === "Identifier" && (resultBindings ??= tupleBindings(program)).has(id)) return
-    const named = id?.type === "Identifier" && !id.typeAnnotation
+    const named = id?.type === "Identifier" && !id.typeAnnotation && statement.type === "VariableDeclaration" && statement.declarations.length === 1
     const error = freeName(call.errorAfterValue && named ? `${id.name}Error` : call.error)
     const semicolon = style.semicolons || block.code[end(statement) - 1] === ";" ? ";" : ""
     const indent = indentAt(block.code, start(statement))
