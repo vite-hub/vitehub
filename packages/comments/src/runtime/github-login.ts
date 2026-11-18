@@ -37,7 +37,7 @@ export interface CommentsGitHubLogin {
   configured(): boolean
   /** The person signed in with GitHub, with what they may do in the repository. Null without a session. */
   user(event: CommentsRequestEvent): Promise<CommentsUser | null>
-  /** The sign-in, callback, and sign-out routes under `/api/_vitehub/comments/auth/`. */
+  /** The sign-in, callback, and sign-out routes under `/_vitehub/comments/auth/`. */
   handle(request: Request & CommentsRequestEvent, path: string): Promise<Response>
 }
 

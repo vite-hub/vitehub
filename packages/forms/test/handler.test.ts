@@ -17,7 +17,7 @@ const origin = "https://site.test"
 
 function post(body: unknown, init: { headers?: Record<string, string>, type?: string, raw?: string } = {}): Request {
   const type = init.type ?? "application/json"
-  return new Request(`${origin}/api/_vitehub/forms/contact`, {
+  return new Request(`${origin}/_vitehub/forms/contact`, {
     method: "POST",
     headers: { "content-type": type, origin, referer: `${origin}/pricing?plan=pro`, ...init.headers },
     body: init.raw ?? (type === "application/json" ? JSON.stringify(body) : new URLSearchParams(body as Record<string, string>).toString()),
@@ -277,7 +277,7 @@ describe("handleFormRequest", () => {
     const values = { count: "2", size: "2", choice: "1", extra: "", terms: "on" }
     const body = encoding === "multipart" ? new FormData() : new URLSearchParams()
     for (const [key, value] of Object.entries(values)) body.set(key, value)
-    const response = await handleFormRequest("contact", form, new Request(`${origin}/api/_vitehub/forms/contact`, {
+    const response = await handleFormRequest("contact", form, new Request(`${origin}/_vitehub/forms/contact`, {
       method: "POST",
       headers: { origin, referer: `${origin}/pricing?plan=pro`, accept: "text/html" },
       body,
@@ -300,7 +300,7 @@ describe("handleFormRequest", () => {
   it("trusts the origin of a TLS proxy, keeps redirects on the site, and rejects a broken multipart body", async () => {
     const { all } = services()
     // The proxy ends TLS, so the server sees `http:` and the browser sends its `https:` origin.
-    const proxied = new Request("http://site.test/api/_vitehub/forms/contact", {
+    const proxied = new Request("http://site.test/_vitehub/forms/contact", {
       method: "POST",
       headers: { "content-type": "application/json", origin: "https://site.test", "x-forwarded-proto": "https" },
       body: JSON.stringify({ email: "ada@example.com", message: "Hi" }),

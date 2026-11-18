@@ -8,7 +8,7 @@ export interface AgentWebhookWarmupAgent {
   status: "error" | "ready" | "warming"
 }
 
-/** The body of `/api/_vitehub/ready`. */
+/** The body of `/_vitehub/ready`. */
 export interface AgentWebhookReadiness {
   agents: Record<string, AgentWebhookWarmupAgent>
   /** The error of the last failed attempt, while the process is not ready. */

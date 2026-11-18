@@ -1,5 +1,5 @@
 import { viteHubSecretMinimumLength } from "@vite-hub/internal/secret"
-import { defineErrors } from "@vite-hub/runtime"
+import { defineErrors, parseDuration } from "@vite-hub/runtime"
 
 import { invalidRuntimeEnvValue } from "./core/errors.ts"
 import { runtimeEnv } from "./internal/runtime-env.ts"
@@ -7,7 +7,7 @@ import { createSealUses, deleteSealUses, takeSealUse } from "./seal-uses.ts"
 import { SecretEnv } from "./secret.ts"
 import { deriveSecret } from "./server.ts"
 
-import type { Result, ViteHubContext } from "@vite-hub/runtime"
+import type { Duration, Result, ViteHubContext } from "@vite-hub/runtime"
 import type { StandardSchemaV1 } from "./schema.ts"
 import type { SealKey } from "./seal.ts"
 import type { SealUsesDatabase } from "./seal-uses.ts"
@@ -49,7 +49,7 @@ const sealErrors = /*#__PURE__*/ defineErrors({
     ENV_SEAL_ARGUMENT_INVALID: {
       docs: "https://vitehub.dev/docs/env/diagnostics/env_seal_argument_invalid",
       why: ({ problem }: { problem: string }) => problem,
-      fix: "Pass a purpose such as \"my-app:upload\", a JSON value, a `ttl` in seconds, `uses` as a positive integer with a `db`, and a `secret` of at least 32 characters, or a non-empty list of such secrets.",
+      fix: "Pass a purpose such as \"my-app:upload\", a JSON value, a `ttl` in seconds or as a duration such as \"15m\", `uses` as a positive integer with a `db`, and a `secret` of at least 32 characters, or a non-empty list of such secrets.",
     },
   },
 })
@@ -80,8 +80,11 @@ export interface UnsealSchemaOptions<T> extends UnsealOptions {
 }
 
 export interface SealOptions extends UnsealOptions {
-  /** Seconds until `unseal()` returns `ENV_SEAL_EXPIRED`. Without it, the value does not expire. */
-  ttl?: number
+  /**
+   * How long until `unseal()` returns `ENV_SEAL_EXPIRED`: a number of seconds, or a duration such as `"15m"`. Without
+   * it, the value does not expire.
+   */
+  ttl?: number | Duration
   /**
    * How many times `unseal()` can read the value. Each read takes one use atomically in `db`, so of two reads of the last
    * use, one gets the value and the other gets `ENV_SEAL_USED_UP`. Without it, the value opens any number of times.
@@ -215,9 +218,9 @@ export function createSealing(derive: SealSecretDerivation): Sealing {
   return {
     async seal(purpose, value, options = {}) {
       checkPurpose(purpose)
-      const { ttl } = options
+      const ttl = typeof options.ttl === "string" ? parseDuration(options.ttl) / 1000 : options.ttl
       if (ttl !== undefined && (typeof ttl !== "number" || !Number.isFinite(ttl) || ttl <= 0)) {
-        argumentError("`ttl` must be a positive number of seconds.")
+        argumentError("`ttl` must be a positive number of seconds or a duration such as \"15m\".")
       }
       const { uses, db } = options
       if (uses !== undefined && (typeof uses !== "number" || !Number.isSafeInteger(uses) || uses < 1)) {
@@ -316,7 +319,7 @@ const sealing = createSealing((purpose, event, root) => deriveSecret(purpose, { 
  * Throws `ENV_REQUIRED_MISSING` when no root secret is set, and `ENV_SEAL_ARGUMENT_INVALID` for a bad argument.
  *
  * @example
- * const ticket = await seal("my-app:upload", { userId }, { ttl: 900 })
+ * const ticket = await seal("my-app:upload", { userId }, { ttl: "15m" })
  */
 export function seal(purpose: string, value: unknown, options?: SealOptions): Promise<string> {
   return sealing.seal(purpose, value, options)

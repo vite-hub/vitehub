@@ -37,7 +37,7 @@ function processOf(app: { db: SyncServices["db"], services: SyncServices }, defi
   const headers = (caller: { user: string, teams: readonly string[] }) => ({ "x-user": caller.user, "x-teams": caller.teams.join(",") })
   return {
     async pull(name: string, caller: { user: string, teams: readonly string[] }, query: { cursor?: number, scope?: string, version?: string, where?: Record<string, unknown> } = {}) {
-      const url = new URL(`/api/_vitehub/sync/${name}`, origin)
+      const url = new URL(`/_vitehub/sync/${name}`, origin)
       if (query.cursor !== undefined) url.searchParams.set("cursor", String(query.cursor))
       if (query.scope) url.searchParams.set("scope", query.scope)
       if (query.version) url.searchParams.set("version", query.version)
@@ -47,7 +47,7 @@ function processOf(app: { db: SyncServices["db"], services: SyncServices }, defi
       return await response.json() as SyncPullResponse
     },
     async push(name: string, caller: { user: string, teams: readonly string[] }, body: { account: string, mutations: unknown[] }) {
-      const response = await handler.fetch(new Request(new URL(`/api/_vitehub/sync/${name}`, origin), {
+      const response = await handler.fetch(new Request(new URL(`/_vitehub/sync/${name}`, origin), {
         method: "POST",
         headers: { "content-type": "application/json", origin, ...headers(caller) },
         body: JSON.stringify(body),
