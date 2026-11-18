@@ -23,6 +23,7 @@ const serverPrimitiveSections = [
   "content",
   "database",
   "decisions",
+  "device",
   "email",
   "env",
   "forge",
@@ -91,7 +92,8 @@ describe("docs product navigation", () => {
   });
 
   it("orders every Server Primitive section by the product page template", () => {
-    const template = ["Overview", "Get started", "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"];
+    // A primitive that runs only in the browser, such as Device, has a Browser API page in place of the Server API page.
+    const template = ["Overview", "Get started", "Configure", "Server API", "Browser API", "Agent capability", "Hosts", "Limits and errors"];
 
     for (const sectionId of serverPrimitiveSections) {
       const product = section(sectionId);
@@ -102,7 +104,7 @@ describe("docs product navigation", () => {
       expect(pages[0]?.path, sectionId).toBe(`/docs/${sectionId}`);
       expect(titles[0], sectionId).toBe("Overview");
       expect(templateTitles, sectionId).toContain("Get started");
-      expect(templateTitles, sectionId).toContain("Server API");
+      expect(templateTitles.filter(title => title === "Server API" || title === "Browser API"), sectionId).toHaveLength(1);
       // Template pages appear in template order. Product-specific pages such as Env Bridge come after them.
       expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
       expect(titles.slice(templateTitles.length).some(title => template.includes(title)), sectionId).toBe(false);
