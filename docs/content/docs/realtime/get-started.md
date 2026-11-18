@@ -99,7 +99,7 @@ export default defineRealtime({
 })
 ```
 
-- `access: 'public'` lets each person who can open the app read and write each document. Before you deploy, replace it with `auth: true` or `authorize()`. See [Identity and authorization](/docs/realtime/server-api#identity-and-authorization).
+- `access: 'public'` lets each person who can open the app read and write each document. Before you deploy, replace it with `authorize: true` or `authorize()`. See [Identity and authorization](/docs/realtime/server-api#identity-and-authorization).
 - `document: { workspace: 'docs' }` saves each document as a Markdown file in the `docs` Workspace.
 - `history.checkpoint` lets the page call `realtime.history.checkpoint()` to save a version in the Workspace history. `message` is the text of that version.
 
@@ -119,7 +119,7 @@ export default defineWorkspace({
 - `driver: 'memory'` keeps the files in memory, like the rooms.
 - `write: true` lets Realtime write any Markdown file in the Workspace.
 
-With `access: 'public'`, anyone can connect to the room. Replace it with `auth: true` in `server/realtime/docs.ts` to accept only users who have signed in with ViteHub Auth.
+With `access: 'public'`, anyone can connect to the room. Replace it with `authorize: true` in `server/realtime/docs.ts` to accept only users who have signed in with ViteHub Auth.
 
 ::
 

@@ -58,10 +58,11 @@ export interface McpToolDefinition<TInput extends McpToolInput | undefined = Mcp
    */
   _meta?: McpMeta
   /**
-   * Let anyone call the tool without sign-in: on `mcp.route` with `mcp.auth: "optional"`, else on `mcp.publicRoute`.
-   * Without a token, `caller` is `undefined`. Set it only with one of them; else the server fails with `MCP_R0001`.
+   * `"public"` lets anyone call the tool without sign-in: on `mcp.route` with `mcp.auth: "optional"`, else on
+   * `mcp.publicRoute`. Without a token, `caller` is `undefined`. Set it only with one of them; else the server fails
+   * with `MCP_R0001`.
    */
-  public?: boolean
+  access?: "public"
   /**
    * The OAuth scopes that a signed-in caller needs, such as `["lessons:write"]`. `tools/list` shows them in
    * `securitySchemes`. With `auth: true`, a caller without them does not see the tool and a call answers `403` with an
@@ -170,8 +171,8 @@ export interface McpPromptDefinition<TInput extends McpPromptInput | undefined =
    * description, and the server checks the arguments with the schema before the handler runs.
    */
   input?: TInput
-  /** Let anyone get the prompt without sign-in, on `mcp.publicRoute` or with `mcp.auth: "optional"`. Then `caller` is `undefined`. */
-  public?: boolean
+  /** `"public"` lets anyone get the prompt without sign-in, on `mcp.publicRoute` or with `mcp.auth: "optional"`. Then `caller` is `undefined`. */
+  access?: "public"
   /**
    * Makes the messages. A string becomes one user message. An array is the messages. An object with `messages` is the
    * MCP prompt result.
@@ -231,8 +232,8 @@ interface McpResourceFields {
    * such as `{ ui: { csp, prefersBorder } }` of MCP Apps.
    */
   _meta?: McpMeta
-  /** Let anyone read the resource without sign-in, on `mcp.publicRoute` or with `mcp.auth: "optional"`. Then `caller` is `undefined`. */
-  public?: boolean
+  /** `"public"` lets anyone read the resource without sign-in, on `mcp.publicRoute` or with `mcp.auth: "optional"`. Then `caller` is `undefined`. */
+  access?: "public"
   /** Reads the resource. A string is text, and a `Uint8Array` is sent as base64 `blob`. */
   handler: (uri: string, context: McpResourceContext) => McpResourceValue | Promise<McpResourceValue>
 }
@@ -289,12 +290,12 @@ export interface McpOptions {
   /**
    * Require an OAuth access token from `mcpOAuth()` of `vite-hub/auth/mcp`. Defaults to `true`, and then the app needs
    * `auth`. Set `false` to let anyone call every tool, or to check callers in each handler. Set `"optional"` to serve
-   * one route to everyone: anyone may list the tools and call those with `public: true`, and a call to another tool
+   * one route to everyone: anyone may list the tools and call those with `access: "public"`, and a call to another tool
    * without a token returns a tool error with an `mcp/www_authenticate` challenge, so ChatGPT asks the person to sign in.
    */
   auth?: boolean | "optional"
   /**
-   * A second route, such as `/mcp`, that serves only the tools with `public: true`, with no sign-in. MCP clients do not
+   * A second route, such as `/mcp`, that serves only the tools with `access: "public"`, with no sign-in. MCP clients do not
    * sign in on a route that answers without a token, so the tools that need a person stay on `route`. Needs `auth: true`.
    */
   publicRoute?: string

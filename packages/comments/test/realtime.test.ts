@@ -5,7 +5,13 @@ import { commentsRealtime } from "../src/realtime.ts"
 import { commentRoom } from "../src/page.ts"
 
 import { H3Event } from "h3"
-import type { RealtimeAuthorizeContext } from "@vite-hub/realtime"
+import type { RealtimeAuthorizeContext, RealtimeDefinition } from "@vite-hub/realtime"
+
+function authorizer(definition: RealtimeDefinition) {
+  const { authorize } = definition
+  if (typeof authorize !== "function") throw new Error("Expected an authorize() callback.")
+  return authorize
+}
 
 function event(): H3Event {
   return new H3Event(new Request("http://site.test/"))
@@ -16,7 +22,7 @@ describe("commentsRealtime", () => {
     const definition = commentsRealtime(defineComments({ authorize: ({ subject }) => subject?.id === "/public" }))
     const context = { definition: "comments", event: event(), request: new Request("http://site.test/@workspace?workspace=events&page=%2Fpublic") }
     await definition.identify!(context)
-    expect(await definition.authorize!({ ...context, documentId: null, mode: "read", user: null })).toBe(false)
+    expect(await authorizer(definition)({ ...context, documentId: null, mode: "read", user: null })).toBe(false)
   })
 
   it.each([
@@ -32,7 +38,7 @@ describe("commentsRealtime", () => {
     }))
     const context = { definition: "comments", event: event(), request: new Request(`http://site.test${page ? `?page=${encodeURIComponent(page)}` : ""}`) }
     const user = await definition.identify!(context)
-    expect(await definition.authorize!({ ...context, documentId: commentRoom(room), mode: "read", user: user ?? null })).toBe(allowed)
+    expect(await authorizer(definition)({ ...context, documentId: commentRoom(room), mode: "read", user: user ?? null })).toBe(allowed)
   })
 
   it("checks the subject that `page` maps the page to, and keeps the room of the page path", async () => {
@@ -43,7 +49,7 @@ describe("commentsRealtime", () => {
     const join = async (page: string, room: string) => {
       const context = { definition: "comments", event: event(), request: new Request(`http://site.test?page=${encodeURIComponent(page)}`) }
       await definition.identify!(context)
-      return await definition.authorize!({ ...context, documentId: commentRoom(room), mode: "read", user: null })
+      return await authorizer(definition)({ ...context, documentId: commentRoom(room), mode: "read", user: null })
     }
     expect(await join("/d/abc", "/d/abc")).toBe(true)
     expect(await join("/d/xyz", "/d/xyz")).toBe(false)
@@ -54,7 +60,7 @@ describe("commentsRealtime", () => {
     const definition = commentsRealtime(defineComments({ authorize: ({ subject }) => subject?.id === "/public" }))
     const context = { definition: "comments", event: event(), request: new Request("http://site.test?page=%2Fpublic") }
     await definition.identify!(context)
-    expect(await definition.authorize!({ ...context, documentId: commentRoom("/public"), mode: "read", user: null })).toBe(true)
+    expect(await authorizer(definition)({ ...context, documentId: commentRoom("/public"), mode: "read", user: null })).toBe(true)
   })
 
   it.each([{ id: "custom", name: "Custom" }, null])("skips the Auth session when custom identify returns %j", async (person) => {
@@ -64,7 +70,7 @@ describe("commentsRealtime", () => {
     const context = { definition: "comments", event: event(), request: new Request("http://site.test?page=%2F") }
     const user = await definition.identify!(context)
     expect(user).toEqual(person)
-    expect(await definition.authorize!({ ...context, documentId: commentRoom("/"), mode: "read", user: user ?? null })).toBe(true)
+    expect(await authorizer(definition)({ ...context, documentId: commentRoom("/"), mode: "read", user: user ?? null })).toBe(true)
     expect(identify).toHaveBeenCalled()
     expect(session).not.toHaveBeenCalled()
   })
@@ -73,7 +79,7 @@ describe("commentsRealtime", () => {
     const definition = commentsRealtime(defineComments({ identify: () => ({ id: "custom" }) }))
     const context = { definition: "comments", event: event(), request: new Request("http://site.test?page=%2F") }
     const user = await definition.identify!(context)
-    expect(await definition.authorize!({ ...context, documentId: commentRoom("/"), mode: "read", user: user ?? null })).toBe(false)
+    expect(await authorizer(definition)({ ...context, documentId: commentRoom("/"), mode: "read", user: user ?? null })).toBe(false)
   })
 
   it("binds presence to a server-identified guest", async () => {
@@ -85,7 +91,7 @@ describe("commentsRealtime", () => {
     const context = { definition: "comments", event: request, request: new Request("http://site.test?page=%2F") }
     const user = await definition.identify!(context)
     expect(user).toEqual({ id: "external-guest", name: "Invited reviewer" })
-    expect(await definition.authorize!({ ...context, documentId: commentRoom("/"), mode: "read", user: user ?? null })).toBe(true)
+    expect(await authorizer(definition)({ ...context, documentId: commentRoom("/"), mode: "read", user: user ?? null })).toBe(true)
   })
 
   it.each([true, false])("keeps anonymous awareness unbound while enforcing read access (%s)", async (allowed) => {
@@ -95,9 +101,9 @@ describe("commentsRealtime", () => {
     const context = { definition: "comments", event: request, request: request.req }
     const user = await definition.identify!(context)
     expect(user).toBeNull()
-    expect(await definition.authorize!({ ...context, documentId: commentRoom("/"), mode: "read", user: null })).toBe(allowed)
-    expect(await definition.authorize!({ ...context, documentId: null, mode: "read", user: null })).toBe(false)
-    expect(await definition.authorize!({ ...context, documentId: commentRoom("/"), mode: "write", user: null })).toBe(false)
+    expect(await authorizer(definition)({ ...context, documentId: commentRoom("/"), mode: "read", user: null })).toBe(allowed)
+    expect(await authorizer(definition)({ ...context, documentId: null, mode: "read", user: null })).toBe(false)
+    expect(await authorizer(definition)({ ...context, documentId: commentRoom("/"), mode: "write", user: null })).toBe(false)
   })
 
   it("lets Auth users join presence with their policy fields, for reading only", async () => {
@@ -107,8 +113,8 @@ describe("commentsRealtime", () => {
     const context = { definition: "comments", event: request, request: new Request("http://site.test?page=%2F") }
     const user = await definition.identify!(context)
     expect(user).toEqual({ id: "ada", name: "Ada" })
-    expect(await definition.authorize!({ ...context, documentId: commentRoom("/"), mode: "read", user: user ?? null })).toBe(true)
-    expect(await definition.authorize!({ ...context, documentId: commentRoom("/"), mode: "write", user: user ?? null })).toBe(false)
+    expect(await authorizer(definition)({ ...context, documentId: commentRoom("/"), mode: "read", user: user ?? null })).toBe(true)
+    expect(await authorizer(definition)({ ...context, documentId: commentRoom("/"), mode: "write", user: user ?? null })).toBe(false)
   })
 
   it("binds session users with guest-prefixed emails and authorizes with that identity", async () => {
@@ -119,7 +125,7 @@ describe("commentsRealtime", () => {
     const context = { definition: "comments", event: request, request: request.req }
     const user = await definition.identify!(context)
     expect(user).toEqual(person)
-    expect(await definition.authorize!({ ...context, documentId: commentRoom("/"), mode: "read", user: user ?? null })).toBe(true)
+    expect(await authorizer(definition)({ ...context, documentId: commentRoom("/"), mode: "read", user: user ?? null })).toBe(true)
   })
 
   it("decides access with the whole user, so policies can read fields Realtime drops", async () => {
@@ -131,8 +137,8 @@ describe("commentsRealtime", () => {
     const user = await definition.identify!({ definition: "comments", event: request, request: new Request("http://site.test?page=%2F") })
     expect(user).toEqual({ id: "ada", name: "Ada", email: "ada@site.test" })
     const context = (mode: "read" | "write"): RealtimeAuthorizeContext => ({ definition: "comments", documentId: commentRoom("/"), event: request, mode, request: new Request("http://site.test?page=%2F"), user: user! })
-    expect(await definition.authorize!(context("read"))).toBe(true)
-    expect(await definition.authorize!(context("write"))).toBe(false)
+    expect(await authorizer(definition)(context("read"))).toBe(true)
+    expect(await authorizer(definition)(context("write"))).toBe(false)
   })
 
   it("denies the room to users the policy rejects, and to requests it never identified", async () => {
@@ -140,7 +146,7 @@ describe("commentsRealtime", () => {
     const request = event()
     await definition.identify!({ definition: "comments", event: request, request: new Request("http://site.test?page=%2F") })
     const context = (target: H3Event): RealtimeAuthorizeContext => ({ definition: "comments", documentId: null, event: target, mode: "read", request: new Request("http://site.test?page=%2F"), user: null })
-    expect(await definition.authorize!(context(request))).toBe(false)
-    expect(await definition.authorize!(context(event()))).toBe(false)
+    expect(await authorizer(definition)(context(request))).toBe(false)
+    expect(await authorizer(definition)(context(event()))).toBe(false)
   })
 })

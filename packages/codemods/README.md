@@ -28,7 +28,7 @@ The command exits with `0` when every codemod completes, also when they report f
 vitehub migrate [dir] [--dry-run]
 ```
 
-`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, and `shell-driver`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
+`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, and `access-spellings`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
 ## Run one codemod
 
@@ -56,6 +56,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `vitehub-options` | The options that moved in `vitehub()`: `preset` to `host`, `logs` into `observability`, Env declarations into `vitehub({ env })`, and `devtools` and `contentImportBase` removed |
 | `tsconfig-paths` | `#vitehub/*` entries of tsconfig `paths` that point into `.vitehub/` or `.nuxt/`, which ViteHub now types itself |
 | `shell-driver` | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()`. `vitehub migrate` runs it. |
+| `access-spellings` | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: "public"`. `vitehub migrate` runs it. |
 
 ## `runtime-contracts`
 
@@ -324,6 +325,23 @@ The same renames apply to the `@vite-hub/*` paths, to namespace imports, and to 
 
 ```sh
 npx @vite-hub/codemods shell-driver [dir] [--dry-run]
+```
+
+## `access-spellings`
+
+Public access has one spelling, `access: "public"`, and sign-in has one, `authorize`:
+
+| Old | New |
+| --- | --- |
+| `defineRealtime({ auth: true })` | `defineRealtime({ authorize: true })` |
+| `defineRealtime({ auth: false, authorize })` | `defineRealtime({ authorize })` |
+| `public: true` on `defineMcpTool()`, `defineMcpPrompt()`, and `defineMcpResource()` | `access: "public"` |
+| `public: false` on an MCP definition | removed |
+
+The codemod also changes default-export objects in `server/realtime/` and `server/mcp/`, and `defineRealtime()` without an import, as Nuxt auto-imports it. A Realtime definition with both `auth: true` and `authorize()` stays, and the report lists it: `authorize()` now also runs for signed-out callers, with `user: null`, so remove `auth` and return `false` when `user` is `null`.
+
+```sh
+npx @vite-hub/codemods access-spellings [dir] [--dry-run]
 ```
 
 ## Check real apps

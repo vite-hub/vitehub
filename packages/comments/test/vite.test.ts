@@ -17,6 +17,12 @@ import type { NitroConfig } from "nitro/types"
 import type { RealtimeDefinition } from "@vite-hub/realtime"
 import type { createCommentsHandler } from "../src/runtime/handler.ts"
 
+function authorizer(definition: RealtimeDefinition) {
+  const { authorize } = definition
+  if (typeof authorize !== "function") throw new Error("Expected an authorize() callback.")
+  return authorize
+}
+
 const roots: string[] = []
 
 async function project(files: Record<string, string>): Promise<string> {
@@ -295,7 +301,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     const context = { event, definition: "comments", request: new Request("http://site.test?page=%2F") }
     const user = await room.identify!(context)
     expect(user).toEqual({ id: "custom", name: "Custom" })
-    expect(await room.authorize!({ ...context, documentId: commentRoom("/"), mode: "read", user: user ?? null })).toBe(true)
+    expect(await authorizer(room)({ ...context, documentId: commentRoom("/"), mode: "read", user: user ?? null })).toBe(true)
     expect((await import(auth) as { calls: boolean[] }).calls).toEqual([])
   })
 

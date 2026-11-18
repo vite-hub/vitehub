@@ -42,7 +42,7 @@ export interface RealtimeRoomOptions {
   /** Query parameters sent to the definition's authorization on presence and workspace connections. */
   params?: Record<string, string>
   /**
-   * The person this browser shows as. A definition with `identify` or `auth: true` replaces it with the server's
+   * The person this browser shows as. A definition with `identify` or `authorize: true` replaces it with the server's
    * identity, so only public definitions show it as given.
    */
   identity?: { id: string, name?: string, image?: string }

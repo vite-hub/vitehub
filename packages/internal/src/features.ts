@@ -428,7 +428,7 @@ export default defineQueue<{ id: string }>(async ({ payload }) => {
     definition: starter("server/realtime", name => `import { defineRealtime } from "vite-hub/realtime"
 
 export default defineRealtime({
-  auth: true,
+  authorize: true,
   document: { workspace: "${name}" },
 })
 `),

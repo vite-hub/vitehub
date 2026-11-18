@@ -9,6 +9,6 @@ export default defineMcpTool({
   description: "Reads one documentation page as Markdown, with its title, description, and URL.\n\nUse a path from list-pages or from a link, such as /docs/getting-started.",
   input: z.object({ path: z.string().describe("Page path from list-pages, such as /docs/getting-started") }),
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  public: true,
+  access: "public",
   handler: ({ path }) => callDocsTool("get-page", { path }),
 })

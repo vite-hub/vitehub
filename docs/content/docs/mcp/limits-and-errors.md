@@ -18,7 +18,7 @@ The server is ViteHub's own MCP server. It uses no MCP SDK. The [ViteHub MCP](/d
 
 ## Errors
 
-A wrong route, a wrong tool file name, or a `publicRoute` without sign-in fails the build. A tool that sets `public` without a `publicRoute` or `auth: 'optional'` fails the server. A second hooks module also fails the build.
+A wrong route, a wrong tool file name, or a `publicRoute` without sign-in fails the build. A tool that sets `access` without a `publicRoute` or `auth: 'optional'` fails the server. A second hooks module also fails the build.
 
 ### MCP_B0001
 
@@ -34,7 +34,7 @@ A file in `server/mcp/tools/` has a name that MCP does not allow as a tool name.
 
 ### MCP_R0001
 
-A tool sets `public`, but the MCP server has no `mcp.publicRoute` and its `auth` is not `'optional'`. The error names the tools. Set `mcp: { auth: 'optional' }` to serve them without sign-in on the same route, set `mcp: { route: '/mcp/account', publicRoute: '/mcp' }` to serve them on a second route, or remove `public` from the tools.
+A tool sets `access`, but the MCP server has no `mcp.publicRoute` and its `auth` is not `'optional'`. The error names the tools. Set `mcp: { auth: 'optional' }` to serve them without sign-in on the same route, set `mcp: { route: '/mcp/account', publicRoute: '/mcp' }` to serve them on a second route, or remove `access` from the tools.
 
 ### SOURCE_B0010
 

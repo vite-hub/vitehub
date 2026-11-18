@@ -875,7 +875,7 @@ import { defineRealtime } from 'vite-hub/realtime'
 
 // Invalid
 export default defineRealtime({
-  auth: true,
+  authorize: true,
   document: { workspace: 'docs' },
   persistence: { debounce: 5000, maxWait: 1000 },
 })
@@ -886,7 +886,7 @@ import { defineRealtime } from 'vite-hub/realtime'
 
 // Valid
 export default defineRealtime({
-  auth: true,
+  authorize: true,
   document: { workspace: 'docs' },
   persistence: { debounce: 500, maxWait: 5000 },
 })
