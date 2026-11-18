@@ -24,7 +24,8 @@ import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { createNoExternalAddition, getDeploymentHost, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_HOST, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import { listSourceFiles } from "@vite-hub/internal/definition-catalog"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
-import { hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { findProviderHostConflict, hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { formatDiagnostic } from "nostics"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { assertFeatureSupported, assertHostService } from "./internal/feature-support.ts"
@@ -45,7 +46,7 @@ import { healthVitePlugin, type HealthOptions } from "./health-vite.ts"
 import { resolveDeployManifest, writeIndexNowKeyFile, type DeployOptions } from "./deploy-options.ts"
 import { viteHubSeoPlugin, type SeoOptions } from "./seo/vite.ts"
 import { requestPolicyVitePlugin, type SameOriginWritesOptions } from "./request-policy-vite.ts"
-import type { SecurityOptions } from "./security-vite.ts"
+import { resolveSecurityPolicy, type SecurityOptions } from "./security-vite.ts"
 import { redirectsVitePlugin, resolveRedirectsPolicy, type RedirectsOptions } from "./redirects-vite.ts"
 import { staleChunkReloadVitePlugin } from "./stale-chunk-reload.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
@@ -512,10 +513,11 @@ export interface ViteHubOptions {
    */
   sameOriginWrites?: boolean | SameOriginWritesOptions
   /**
-   * Response headers and a request body limit for every route. `{ headers: true }` adds `Strict-Transport-Security`
-   * (built output only), `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, and `Permissions-Policy` to each
-   * response that does not set them itself, and to static files on Cloudflare, Netlify, and Vercel. `{ maxBodySize: "1mb" }`
-   * answers 413 to a larger request body. It adds no Content Security Policy. Default: off.
+   * Response headers and a request body limit for every route. By default, built output sends
+   * `Strict-Transport-Security: max-age=31536000`, `X-Content-Type-Options: nosniff`, and
+   * `Referrer-Policy: strict-origin-when-cross-origin` on each response that does not set them itself, and on static
+   * files on Cloudflare, Netlify, and Vercel. `{ headers: false }` turns them off. `{ maxBodySize: "1mb" }` answers 413
+   * to a larger request body. It adds no Content Security Policy.
    */
   security?: SecurityOptions
   agent?: boolean | AgentOptions
@@ -957,6 +959,7 @@ function deploymentPlugins(
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
   let deployCommandOwned = false
+  let providerConflictWarned = false
   const resolvedBuildConfigs = new WeakMap<object, { current: ResolvedBuildConfig }>()
   let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
   let deploymentRoot: string | undefined
@@ -1138,6 +1141,14 @@ function deploymentPlugins(
           const configuredHosting = process.env.VITEHUB_HOST
           if (configuredHosting && hostFromNitroPreset(configuredHosting) !== plan.host) {
             throw viteHubErrorDiagnostics.VITE_HUB_R0080({ message: "[vitehub] vitehub host " + JSON.stringify(plan.host) + " conflicts with VITEHUB_HOST=" + JSON.stringify(configuredHosting) + "." })
+          }
+          const providerConflict = findProviderHostConflict(plan.host)
+          if (providerConflict) {
+            const diagnostic = viteHubErrorDiagnostics.VITE_HUB_HOST_PROVIDER_CONFLICT({ detected: providerConflict.host, host: plan.host, variable: providerConflict.variable })
+            // A production build for the wrong host deploys output that the provider cannot run.
+            if (building) throw diagnostic
+            if (!providerConflictWarned) console.warn(formatDiagnostic(diagnostic))
+            providerConflictWarned = true
           }
           if (building) {
             if (configuredPreset && normalizeNitroPreset(configuredPreset) !== nitroPreset) {
@@ -1595,7 +1606,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (observabilityLogs) plugins.push(logsVitePlugin(observabilityLogs))
   if (browserErrors) plugins.push(browserErrorsVitePlugin())
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
-  if (options.trustProxy || options.sameOriginWrites || options.security) plugins.push(requestPolicyVitePlugin(options))
+  const security = resolveSecurityPolicy(options.security)
+  if (options.trustProxy || options.sameOriginWrites || security) plugins.push(requestPolicyVitePlugin(options, security))
   if (options.health) {
     const resolvedKV = options.kv && kvVite ? kvVite.resolveKVViteConfig(configuredKV, { hosting: kvHosting }).kv : false
     plugins.push(healthVitePlugin(options.health === true ? {} : options.health, {
@@ -1844,7 +1856,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       // Vercel cron jobs and Deno.cron call entries outside the Nitro server.
       ...(plan.host === "vercel" || plan.host === "deno" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
-      databaseImport: "@vite-hub/database",
+      databaseImport: "vite-hub/database",
       importBase: "vite-hub/schedule",
       providerImportAliases,
     } as ScheduleOptions))
@@ -1887,8 +1899,12 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   })
   plugins.push(sourcePlugin)
   // Adds the `vitehub content` commands, the Content operations, and the Content inspector. Inert without server/content.ts.
-  // The app installs only `vite-hub`, so the KV and snapshot registrations that it adds to server/content.ts import `vite-hub/content`.
-  if (ownerModules.contentVite) plugins.push(ownerModules.contentVite.hubContent({ importBase: "vite-hub/content" }))
+  // The app installs only `vite-hub`, so the KV and snapshot registrations that it adds to server/content.ts import
+  // `vite-hub/content` and `vite-hub/kv`. `kvImport` is an internal Content option.
+  if (ownerModules.contentVite) {
+    const contentOptions = { importBase: "vite-hub/content", kvImport: "vite-hub/kv" }
+    plugins.push(ownerModules.contentVite.hubContent(contentOptions))
+  }
   // Forms in `server/forms/<name>.ts`: one route for each, submissions in the Database, email with Email, the user
   // with Auth, and the message counts in Rate Limit when its KV store is shared. Inert without the folder, and absent
   // without its package.

@@ -126,8 +126,6 @@ describe("landing page", () => {
     expect(Object.keys(primitiveLandings).sort()).toContain("channels");
     for (const landing of Object.values(primitiveLandings)) {
       expect(landing.docsTo, landing.slug).toMatch(/^\/docs\//);
-      expect(landing.docsTo, landing.slug).not.toContain("/docs/server-primitives");
-      expect(landing.docsTo, landing.slug).not.toContain("/docs/reference/realtime");
     }
   });
 

@@ -28,6 +28,7 @@ const setupCodes = [
   "VITE_HUB_B0024",
   "VITE_HUB_C0003",
   "VITE_HUB_C0004",
+  "VITE_HUB_HOST_PROVIDER_CONFLICT",
   "VITE_HUB_MCP_AUTH_MISSING",
   "VITE_HUB_PUBLIC_URL_INVALID",
   "VITE_HUB_R0001",
@@ -66,7 +67,7 @@ const setupCodes = [
 describe("vitehub() setup errors", () => {
   it("give each setup code a fix and its own docs page", () => {
     for (const code of setupCodes) {
-      const error = viteHubErrorDiagnostics[code]({ binding: "CACHE", driver: "fs-lite", existing: "a", host: "cloudflare", message: "m", requested: "b", required: "node", value: "\"x\"" })
+      const error = viteHubErrorDiagnostics[code]({ binding: "CACHE", detected: "vercel", driver: "fs-lite", existing: "a", host: "cloudflare", message: "m", requested: "b", required: "node", value: "\"x\"", variable: "VERCEL" })
       expect(error.fix, code).toMatch(/\S/)
       expect(error.docs, code).toBe(`https://vitehub.dev/docs/development/diagnostics/${code.toLowerCase()}`)
     }

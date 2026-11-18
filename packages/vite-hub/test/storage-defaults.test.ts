@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { Plugin } from "vite"
 import { describe, expect, it, vi } from "vitest"
 import { defaultDatabaseD1Binding, agentJournalStateUrl, withComments, withConnectionsDatabase, withDataDir } from "../src/storage-config.ts"
@@ -12,7 +13,7 @@ import type { ViteHubOptions } from "../src/index.ts"
 import { hostManagedAuthorize, productionConsole } from "./support/console-authorize.ts"
 
 /** The generated Agent Invocations plugin, which installs the default journal with the Console on or off. */
-async function generatedJournalPlugin(options: ViteHubOptions, command: "build" | "serve", files: Record<string, string> = {}): Promise<{ info: string[], plugin: string }> {
+async function generatedJournalPlugin(options: ViteHubOptions, command: "build" | "serve", files: Record<string, string> = {}): Promise<{ durability: unknown, info: string[], plugin: string }> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-storage-journal-"))
   try {
     for (const [file, contents] of Object.entries(files)) {
@@ -27,7 +28,8 @@ async function generatedJournalPlugin(options: ViteHubOptions, command: "build" 
     await Reflect.apply("handler" in config ? config.handler : config, {}, [{ root, [VITEHUB_SERVER_DIRS]: [join(root, "server")] }, { command, mode: command === "build" ? "production" : "development" }])
     const info: string[] = []
     await Reflect.apply("handler" in configResolved ? configResolved.handler : configResolved, {}, [{ root, logger: { info: (message: string) => info.push(message), warn: vi.fn() } }])
-    return { info, plugin: await readFile(join(root, ".vitehub/nitro/agent/invocations.mjs"), "utf8") }
+    const durability = plugin && "vitehub" in plugin ? (plugin.vitehub as DurabilityPluginMetadata).durability?.() : undefined
+    return { durability, info, plugin: await readFile(join(root, ".vitehub/nitro/agent/invocations.mjs"), "utf8") }
   }
   finally {
     await rm(root, { force: true, recursive: true })
@@ -115,8 +117,10 @@ describe("Node storage defaults", () => {
 
   it("passes a file Agent State URL to the default journal on the node host", async () => {
     const state = { driver: "libsql" as const, url: "file:.data/agent-state.db" }
-    const { plugin } = await generatedJournalPlugin({ host: "node", agent: { providers: { state } } }, "build")
+    const { durability, plugin } = await generatedJournalPlugin({ host: "node", agent: { providers: { state } } }, "build")
     expect(plugin).toContain(`stateUrl: "file:.data/agent-state.db"`)
+    // The boot report reads the same State URL, so it names the file that the journal opens.
+    expect(durability).toMatchObject([{ input: { store: "file", stateUrl: "file:.data/agent-state.db" }, primitive: "agent-invocations" }])
     const stateUrl = (url: string, host: ViteHubOptions["host"] = "node") => agentJournalStateUrl({ host, agent: { providers: { state: { url } } } })
     expect(stateUrl("libsql://state.example.com")).toBeUndefined()
     expect(stateUrl("file:.data/agent-state.db", "vercel")).toBeUndefined()
