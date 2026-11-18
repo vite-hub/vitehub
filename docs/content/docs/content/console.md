@@ -149,7 +149,7 @@ The editor picks media from the library:
 - Images pasted or dropped into the body upload at once to the folder you last opened in the library.
 - A Blob reference field, such as `image()` or the [SEO](/docs/content/seo#seo-fields) social image, opens the same dialog and stores `{ pathname, contentType, size }`.
 
-The body stores the Blob pathname, such as `![A field at sunrise](posts/cover.jpg)`, not a URL, so documents keep working when the serve route or host changes. The editor shows it through the served URL. When your site renders the Markdown, turn a `src` without a scheme or leading `/` into the served URL, such as `/api/_vitehub/blob/posts/cover.jpg`, or [`responsiveImage()`](/docs/blob/media#responsive-images) output.
+The body stores the Blob pathname, such as `![A field at sunrise](posts/cover.jpg)`, not a URL, so documents keep working when the serve route or host changes. The editor shows it through the served URL. When your site renders the Markdown, turn a `src` without a scheme or leading `/` into the served URL, such as `/_vitehub/blob/posts/cover.jpg`, or [`responsiveImage()`](/docs/blob/media#responsive-images) output.
 
 ### Who may change media
 

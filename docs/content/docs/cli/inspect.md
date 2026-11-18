@@ -81,7 +81,7 @@ pnpm vitehub inspect routes --json
 ```txt [Output]
 METHOD  PATH                      OWNER           HANDLER
 *       /**                       queue           .vitehub/nitro/queue/middleware.ts  (middleware)
-*       /_vitehub/blob/signed/**  @vite-hub/blob  @vite-hub/blob/dist/runtime/signed.js
+*       /_vitehub/blob-signed/**  @vite-hub/blob  @vite-hub/blob/dist/runtime/signed.js
 ```
 
 ::note

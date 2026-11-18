@@ -11,7 +11,7 @@ export default defineConfig({
       // `server/agents/translator.ts` translates English docs pages. `server/queues/translate.ts` runs it after each change.
       agent: true,
       auth: true,
-      // `serve` exposes stored images at /api/_vitehub/blob, so SEO previews and social cards can show them.
+      // `serve` exposes stored images at /_vitehub/blob, so SEO previews and social cards can show them.
       blob: { driver: "fs", base: ".vitehub/data/blob", serve: { access: "public" } },
       database: true,
       console: { auth: false },

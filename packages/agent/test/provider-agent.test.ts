@@ -86,7 +86,7 @@ import { claudeCodeDriver, codexDriver, defineAgent } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { executeWorkspaceCommand, workspaceCommandTools } from "../src/capabilities/workspace-command.ts"
-import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
+import { agentInvocationInputSupport, sendAgentInvocationInput, sendAgentInvocationInputResult } from "../src/internal/agent-invocation-control.ts"
 import { withAgentInvocationResponseOwner } from "../src/internal/agent-invocation-response-owner.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
 import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
@@ -4608,6 +4608,53 @@ cli_auth_credentials_store = "keyring"
     expect(JSON.stringify(await result)).not.toContain("rejected successor")
     expect(provider.respondToRequest).toHaveBeenCalledWith(threadId, "approval-1", "accept")
     expect(provider.respondToUserInput).toHaveBeenCalledWith(threadId, "input-1", { scope: "workspace" })
+  })
+
+  async function activeCodexTurn(threadId: string) {
+    let finish!: () => void
+    const finishing = new Promise<void>(resolve => { finish = resolve })
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], { beforeEvent: () => finishing })
+    const invocationId = `run-${threadId}`
+    const runContext = context(threadId)
+    runContext.runtime = withAgentInvocationResponseOwner(runContext.runtime, invocationId)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const result = collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(runContext as never))
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
+    return { end: async () => { finish(); return await result }, invocationId, provider }
+  }
+
+  const chatHeader = "[Wed 2026-11-18 12:31:07 +01:00 · msg 1002 · from Gergo (id 29:gergo)]"
+  const chatFollowUp = {
+    id: "1002",
+    parts: [
+      { data: { modelText: chatHeader }, id: "message-header", type: "data-chat-message-header" as const },
+      { id: "text-0", text: "steer with the gergo message", type: "text" as const },
+    ],
+    role: "user" as const,
+  }
+
+  it("steers a group chat message with its sender header into the active turn", async () => {
+    const turn = await activeCodexTurn("thread-chat-header-steering")
+
+    await expect(sendAgentInvocationInput(turn.invocationId, { message: chatFollowUp, messages: [chatFollowUp] }, { mode: "steer" })).resolves.toBe("accepted")
+
+    expect(turn.provider.sendTurn).toHaveBeenLastCalledWith({ input: `${chatHeader}\nsteer with the gergo message`, threadId: "thread-chat-header-steering" })
+    await turn.end()
+  })
+
+  it("does not steer a chat message with an attachment or without text, and says why", async () => {
+    const turn = await activeCodexTurn("thread-chat-steering-reasons")
+    const calls = turn.provider.sendTurn.mock.calls.length
+    const withImage = { ...chatFollowUp, parts: [...chatFollowUp.parts, { data: new Uint8Array([1]), mediaType: "image/png", type: "image" as const }] }
+    const headerOnly = { ...chatFollowUp, parts: [chatFollowUp.parts[0]!] }
+
+    await expect(sendAgentInvocationInputResult(turn.invocationId, { message: withImage, messages: [withImage] }, { mode: "steer" }))
+      .resolves.toEqual({ outcome: "unsupported", reason: "attachments" })
+    await expect(sendAgentInvocationInputResult(turn.invocationId, { message: headerOnly, messages: [headerOnly] }, { mode: "steer" }))
+      .resolves.toEqual({ outcome: "unsupported", reason: "empty" })
+
+    expect(turn.provider.sendTurn).toHaveBeenCalledTimes(calls)
+    await turn.end()
   })
 
   it("advertises steering only after the initial provider turn exists", async () => {

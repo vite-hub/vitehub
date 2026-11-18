@@ -6,7 +6,7 @@ import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import type { Result } from "@vite-hub/runtime"
 import type { RealtimeRoomRequestErrorCode } from "./types.ts"
 
-export const routePrefix = "/api/_vitehub/realtime/"
+export const routePrefix = "/_vitehub/realtime/"
 /** Marks the request that `requestRealtimeRoom()` sends to a Durable Object. The Worker strips it from client requests. */
 export const internalRequestHeader = "x-vitehub-realtime-request"
 export const defaultRequestTimeout = 30_000

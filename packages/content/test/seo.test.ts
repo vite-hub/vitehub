@@ -193,8 +193,8 @@ describe("contentHead()", () => {
     // Without a loaded Blob config, as in the browser, a Blob reference has no URL to guess.
     setServedBlobRoute(undefined)
     expect(ogImage()).toBeUndefined()
-    setServedBlobRoute({ route: "/api/_vitehub/blob", store: "default" })
-    expect(ogImage({ site })).toBe("https://vitehub.dev/api/_vitehub/blob/og/a%20b.png")
+    setServedBlobRoute({ route: "/_vitehub/blob", store: "default" })
+    expect(ogImage({ site })).toBe("https://vitehub.dev/_vitehub/blob/og/a%20b.png")
     setServedBlobRoute({ route: "/assets/", store: "default", publicBaseUrl: "https://cdn.vitehub.dev/" })
     expect(ogImage()).toBe("https://cdn.vitehub.dev/assets/og/a%20b.png")
     // `blob.serve` serves one store; references of the `default` store have no URL when another one is served.
