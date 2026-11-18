@@ -4,6 +4,7 @@ import { type CommentFilterState, type CommentsState, useCommentsContext } from 
 import { rowSlotScope, threadRow } from "../internal/comment-row.ts";
 import { useRelativeTime } from "../internal/relative-time.ts";
 import { AvatarStack, type AvatarStackPerson } from "./avatar-stack.ts";
+import { MotionList } from "./motion-list.ts";
 import type { CommentRowSlots } from "./comment-panel.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
 import { useViteHubUIIcons } from "../config.ts";
@@ -100,9 +101,9 @@ export const CommentList = defineComponent({
                   : "No comments here.",
             )
           : h(
-              "ol",
-              { "data-slot": "comment-list-items" },
-              rows.map((thread) => {
+              MotionList,
+              { "data-slot": "comment-list-items", tag: "ol" },
+              () => rows.map((thread) => {
                 const detached = comments.positions.value.get(thread.id)?.detached === true;
                 return h("li", { key: thread.id }, [
                   h(
