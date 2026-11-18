@@ -164,7 +164,7 @@ ViteHub writes the driver name, plain options, and `env()` declarations into a g
 
 ## Configure another provider
 
-Keep credentials in Server Env or your host's secret store, and pass them as `env()` declarations without defaults. For a provider other than `resend` or `cloudflare`, implement the exported `EmailDriver` interface and pass it to `createEmail()`.
+Keep credentials in Server Env or your host's secret store, and pass them as `env()` declarations without defaults. For a provider other than `resend` or `cloudflare`, implement the exported `EmailDriver` interface and pass it to `createEmail()`. Its `send()` returns `[error, data]`, the same order as `email.send()`: `[undefined, { id, driver, at }]` on success, or `[error, undefined]` with an error that has a `code` such as `PROVIDER` and the `driver` name.
 
 - A driver object starts once per client. Sends at the same time share the pending start. After a failed start, the next send tries again.
 - A driver factory creates and starts a driver for each send.
