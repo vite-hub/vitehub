@@ -8,8 +8,10 @@ import type { ConsoleProjectBuild } from "../client/project-link";
 import { consoleAccountViewsKey } from "../client/account-views";
 import { checkConsoleAccountProject, earlyConsoleSignInState, earlyConsoleTeam } from "../client/account";
 import { useConsoleApp } from "../client/app-identity";
-import { canManageConsoleProjects, consoleProjectDisplayName, openConsoleProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
+import { canManageConsoleProjects, consoleProjectDisplayName, openConsoleProject, rememberConsoleProjectName, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { closeConsoleSidebarDrawer, consoleSidebarDrawer } from "../client/sidebar";
+import { useStoredData } from "@vite-hub/device/vue";
+import { consoleAppCheckKey } from "../client/stored";
 import ConsoleAccountHome from "./console-account-home.vue";
 import ConsoleAccountLink from "./console-account-link.vue";
 import ConsoleAccountMenu from "./console-account-menu.vue";
@@ -119,6 +121,25 @@ function intent(target: LazyPage): void {
   preparePage(target);
 }
 
+// The server calls each app with its token. A linked app answers, and an app without the variable refuses it. The
+// device keeps each answer, so the names of the apps show in the first frame of the next visit.
+for (const app of apps.value) {
+  status[app.id] = "checking";
+  const check = useStoredData(consoleAppCheckKey(app.id), () => checkConsoleAccountProject(app.id));
+  if (check.storedAt.value && check.data.value) {
+    rememberConsoleProjectName(app.id, check.data.value.name);
+    if (check.data.value.build) builds[app.id] = check.data.value.build;
+  }
+  // The read starts over when the page names its account, and only its last call answers here.
+  watch(check.status, (state) => {
+    if (state === "error") status[app.id] = "unreachable";
+    if (state !== "success" || !check.data.value) return;
+    status[app.id] = check.data.value.status;
+    rememberConsoleProjectName(app.id, check.data.value.name);
+    if (check.data.value.build) builds[app.id] = check.data.value.build;
+  }, { immediate: true });
+}
+
 onMounted(() => {
   const idle = window.requestIdleCallback ?? ((callback: () => void) => window.setTimeout(callback, 200));
   idle(() => {
@@ -127,17 +148,6 @@ onMounted(() => {
     preparePage("env");
     preparePage("settings");
   });
-  // The server calls each app with its token. A linked app answers, and an app without the variable refuses it.
-  for (const app of apps.value) {
-    status[app.id] = "checking";
-    void checkConsoleAccountProject(app.id).then(
-      (result) => {
-        status[app.id] = result.status;
-        if (result.build) builds[app.id] = result.build;
-      },
-      () => { status[app.id] = "unreachable"; },
-    );
-  }
 });
 
 async function retry(): Promise<void> {

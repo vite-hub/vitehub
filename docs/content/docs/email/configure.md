@@ -18,7 +18,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     email: {
       driver: 'resend',
       options: { apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }) },
@@ -37,7 +36,6 @@ import { nitro } from 'nitro/vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     email: {
       driver: 'resend',
       options: { apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }) },
@@ -55,7 +53,6 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     email: {
       driver: 'resend',
       options: { apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }) },
@@ -103,7 +100,6 @@ const resend = {
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     // Pick the driver when you build. The API key stays a runtime secret.
     email: process.env.EMAIL_PROVIDER === 'resend' ? resend : { driver: 'log' },
   },
@@ -124,7 +120,7 @@ const resend = {
 }
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', email: process.env.EMAIL_PROVIDER === 'resend' ? resend : { driver: 'log' } }), nitro()],
+  plugins: [vitehub({ email: process.env.EMAIL_PROVIDER === 'resend' ? resend : { driver: 'log' } }), nitro()],
 })
 ```
 :::
@@ -141,7 +137,7 @@ const resend = {
 }
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', email: process.env.EMAIL_PROVIDER === 'resend' ? resend : { driver: 'log' } })],
+  plugins: [vitehub({ email: process.env.EMAIL_PROVIDER === 'resend' ? resend : { driver: 'log' } })],
 })
 ```
 :::

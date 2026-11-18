@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/webhooks",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Send ViteHub events to an outside URL: signed, retried, and debounced on every host.",
   "keywords": [
     "debounce",
@@ -36,6 +36,11 @@
       "import": "./dist/database.js",
       "default": "./dist/database.js"
     },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "default": "./dist/operations.js"
+    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
@@ -55,8 +60,10 @@
     "test": "vp run --cache -t @vite-hub/webhooks#build && vp test"
   },
   "dependencies": {
+    "@standard-schema/spec": "catalog:runtime",
     "@vite-hub/env": "workspace:*",
-    "@vite-hub/runtime": "workspace:*"
+    "@vite-hub/runtime": "workspace:*",
+    "valibot": "catalog:runtime"
   },
   "devDependencies": {
     "@libsql/client": "catalog:database",

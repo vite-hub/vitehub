@@ -6,7 +6,7 @@ navigation.order: 4
 icon: i-lucide-code-2
 ---
 
-Queue runs on Cloudflare, on Vercel, or on `host: 'node'`, where the server processes run jobs from Postgres or from local files. Do [Get started](/docs/queue/get-started) first to set up the host and the `welcome-email` queue used below.
+Queue runs on Cloudflare, on Vercel, or on a Node server, where the server processes run jobs from Postgres or from local files. Do [Get started](/docs/queue/get-started) first to set up the host and the `welcome-email` queue used below.
 
 ## Public imports
 
@@ -100,13 +100,13 @@ Error codes and details are public. Keep credentials, provider responses, and pr
 Call `sendQueue()` in server code, with the payload and the options as separate arguments. This example delays delivery by 60 seconds on any provider.
 
 ```ts [server/api/signup.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { sendQueue } from 'vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email?: unknown }>(event)
   if (typeof body?.email !== 'string' || !body.email.trim()) {
-    throw createError({ statusCode: 400, message: 'Send a non-empty email.' })
+    throw new HTTPError({ status: 400, message: 'Send a non-empty email.' })
   }
 
   const [error, result] = await sendQueue('welcome-email', { email: body.email.trim() }, {
@@ -274,5 +274,5 @@ if (sendError) throw sendError
 `QueueRegistry` is the generated map of queues. `QueuePayload<'welcome-email'>` gets a payload type. A missing name or wrong payload is a type error. Run Vite or Nuxt prepare after you add a queue. For a standalone TypeScript host, extend `QueueRegistry` with `typeof import('./welcome.queue').default`.
 
 ::note
-Earlier versions took an envelope: `sendQueue(name, { payload, ...options })` and `client.send({ payload, ...options })`. Change them to `sendQueue(name, payload, options)` and `client.send(payload, options)`. ViteHub does not detect envelopes, so an old envelope is sent whole as the payload.
+The payload and the options are separate arguments: `sendQueue(name, payload, options)` and `client.send(payload, options)`. An object such as `{ payload, delaySeconds }` in the payload argument is sent whole as the payload.
 ::

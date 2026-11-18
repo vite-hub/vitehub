@@ -182,7 +182,98 @@ pnpm wrangler dev
 
 Agent routes come from Provider Output. Raw Worker fetch handlers are not a public Agent API.
 
-A required secret Server Env declaration with one exact Env Source goes to `secrets.required` in the Wrangler config, and to each named Wrangler environment, since they do not inherit secrets. Wrangler reuses an existing Worker secret and stops the deploy when it is missing. ViteHub records only the name, never the value. Optional secrets, non-secret values, defaults, and fallback source lists stay runtime-only, because Wrangler's list cannot express fallbacks.
+A required secret Server Env declaration that reads exactly one variable name goes to `secrets.required` in the Wrangler config, and to each named Wrangler environment, since they do not inherit secrets. Wrangler reuses an existing Worker secret and stops the deploy when it is missing. ViteHub records only the name, never the value. Optional secrets, non-secret values, defaults, and fallback source lists stay runtime-only, because Wrangler's list cannot express fallbacks.
+
+With the default `VITEHUB_` prefix, a declaration reads two names: `env({ secret: true, source: env.source('EXECUTOR_API_KEY') })` reads `VITEHUB_EXECUTOR_API_KEY`, then `EXECUTOR_API_KEY`. Either one works at runtime, so Wrangler cannot require one of them, and the build leaves it out. To get `secrets.required`, set `env: { prefix: false }`, or use a source equal to the canonical name. See [Variable names](/docs/env/configure#variable-names).
+
+### Worker vars from Server Env
+
+Set `cloudflare: { vars: true }` to write the non-secret Server Env values that are set when you build to `vars` in `.output/server/wrangler.json`:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'cloudflare',
+    cloudflare: { vars: true },
+    env: {
+      server: {
+        executorUrl: env({ source: env.source('EXECUTOR_URL') }),
+        executorApiKey: env({ secret: true, source: env.source('EXECUTOR_API_KEY') }),
+        dryRun: env.boolean({ default: true, source: env.source('LABELLER_DRY_RUN') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'cloudflare',
+      cloudflare: { vars: true },
+      env: {
+        server: {
+          executorUrl: env({ source: env.source('EXECUTOR_URL') }),
+          executorApiKey: env({ secret: true, source: env.source('EXECUTOR_API_KEY') }),
+          dryRun: env.boolean({ default: true, source: env.source('LABELLER_DRY_RUN') }),
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'cloudflare',
+      cloudflare: { vars: true },
+      env: {
+        server: {
+          executorUrl: env({ source: env.source('EXECUTOR_URL') }),
+          executorApiKey: env({ secret: true, source: env.source('EXECUTOR_API_KEY') }),
+          dryRun: env.boolean({ default: true, source: env.source('LABELLER_DRY_RUN') }),
+        },
+      },
+    }),
+  ],
+})
+```
+:::
+::
+
+With `EXECUTOR_URL=https://executor.example.com` and `LABELLER_DRY_RUN=false` in `.env`, the build writes `"vars": { "EXECUTOR_URL": "https://executor.example.com", "LABELLER_DRY_RUN": "false" }`. `EXECUTOR_API_KEY` stays out.
+
+- ViteHub reads the process environment and the `.env` files that Vite loads for the build mode. `.env.development` never applies to `vite build`.
+- Each value keeps the name that holds it, in the order Server Env reads names at runtime. `VITEHUB_EXECUTOR_URL` wins over `EXECUTOR_URL`.
+- A name read by a secret declaration is not copied to `vars`, even if another declaration also reads it. Set secrets with `wrangler secret put` or [upload them with the version](#upload-secrets-with-the-version).
+- A missing or empty value, a default, a literal, and a provider source stay out. The default applies at runtime.
+- A var that your Wrangler config already sets keeps its value. Named Wrangler environments get the same vars, since they do not inherit them.
+
+::warning
+Build where the deployment values are set, such as Workers Builds. A build that reads a `.env` made for local testing sends those values to the Worker.
+::
 
 ### Workers Builds
 

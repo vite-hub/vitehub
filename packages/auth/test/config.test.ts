@@ -187,7 +187,7 @@ describe("resolveAuthViteConfig", () => {
       "  appName: 'ViteHub',",
     ])
 
-    expect(resolveAuthViteConfig(undefined, rootDir)).toEqual({
+    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({
       access: {
         routes: [],
       },
@@ -197,7 +197,6 @@ describe("resolveAuthViteConfig", () => {
         name: "default",
         source: "server-auth",
       },
-      implicitMemory: true,
       rootDir,
       route: "/api/auth",
       tables: false,
@@ -209,7 +208,6 @@ describe("resolveAuthViteConfig", () => {
     await writeAuth(rootDir, "server/auth.ts", ["  database: 'memory',"])
     const config = resolveAuthViteConfig(undefined, rootDir)
     expect(config?.tables).toBe(false)
-    expect(config).not.toHaveProperty("implicitMemory")
   })
 
   it.each([

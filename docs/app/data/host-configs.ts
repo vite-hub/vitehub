@@ -94,6 +94,7 @@ export const hostConfigs: Partial<Record<FeatureId, HostConfigs>> = {
   // starts each Schedule without a run record, so the other hosts do not need `kv`.
   schedule: {
     cloudflare: { options: { schedule: { comment: "Cron Triggers start each schedule", value: "true" } }, remove: ["kv"] },
+    deno: { options: { schedule: { comment: "Deno.cron starts each schedule", value: "true" } }, remove: ["kv"] },
     netlify: { options: { schedule: { comment: "A scheduled function starts each schedule", value: "true" } }, remove: ["kv"] },
     node: { options: { schedule: { comment: "Checks for due schedules every minute", value: "{ runtime: { driver: 'process' } }" } } },
     vercel: { options: { schedule: { comment: "Vercel Cron starts each schedule", value: "true" } }, remove: ["kv"] },

@@ -8,7 +8,6 @@ import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 /** The features that `vitehub()` checks when the app turns them on, with the error for a host that cannot provide them. */
 const featureErrors = {
   browser: () => viteHubErrorDiagnostics.VITE_HUB_R0088({ message: "[vitehub] Browser currently requires the Cloudflare host." }),
-  schedule: () => viteHubErrorDiagnostics.VITE_HUB_R0086({ message: "[vitehub] The \"deno\" host cannot provide Schedule because its generated cron output is not part of the deployed Nitro entrypoint. Disable Schedule or compose an explicit Deno scheduling integration." }),
 } satisfies Partial<Record<FeatureId, () => Error>>
 
 export type CheckedFeature = keyof typeof featureErrors

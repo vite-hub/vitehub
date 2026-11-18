@@ -123,10 +123,10 @@ Use `setIfAbsent()` for single-use tokens, such as upload tickets, invite codes,
 ```ts [server/api/uploads/[ticket].put.ts] fragment
 const [claimError, claimed] = await kv.setIfAbsent(`uploads:${ticket}`, 1, { ttl: 600 })
 if (claimError) throw claimError
-if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket already used' })
+if (!claimed) throw new HTTPError({ status: 409, message: 'Ticket already used' })
 ```
 
-`setIfAbsent()` needs a value: `undefined` fails with `KV_OPERATION_FAILED`, because it cannot mean "remove" as in `set()`. Do not use `kv.get()` then `kv.set()`: two requests can both see a missing key and both write.
+`setIfAbsent()` needs a value: `undefined` returns `KV_INVALID_VALUE`, because it cannot mean "remove" as in `set()`. Do not use `kv.get()` then `kv.set()`: two requests can both see a missing key and both write.
 
 | Driver | `setIfAbsent()` |
 | --- | --- |
@@ -288,9 +288,10 @@ After the app stops taking new work, call `disposeKVStores()` in your shutdown h
 In Nitro, register the hook in a server plugin:
 
 ```ts [server/plugins/kv-cleanup.ts] fragment
+import { definePlugin } from 'nitro'
 import { disposeKVStores } from 'vite-hub/kv'
 
-export default defineNitroPlugin((nitroApp) => {
+export default definePlugin((nitroApp) => {
   nitroApp.hooks.hook('close', disposeKVStores)
 })
 ```

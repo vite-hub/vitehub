@@ -39,7 +39,7 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 | Rate Limit | memory | Cloudflare | — | — | — | Cloudflare | memory, or KV |
 | Realtime | memory | Durable Objects | — | — | — | Host driver | Postgres or Redis |
 | Sandbox | — | CF Sandbox | Vercel Sandbox | Vercel Sandbox | — | Cloudflare / Vercel | Vercel Sandbox |
-| Schedule | Local / process | Cron triggers | Vercel Cron | Scheduled fn | — | Provider Wake | process |
+| Schedule | Local / process | Cron triggers | Vercel Cron | Scheduled fn | Deno.cron | Provider Wake | process |
 | Workflow | OpenWorkflow | CF Workflows | Vercel Workflow | OpenWorkflow | OpenWorkflow | Host provider | OpenWorkflow |
 | Workspace | local / memory | Artifacts / GitHub | memory / Blob / GitHub | GitHub | GitHub | Host store | local / GitHub |
 <!-- support-matrix:server-primitives:end -->
@@ -130,7 +130,7 @@ Agent routes are not in the live smoke on any host.
 - **Cloudflare:** Integrations build the Worker, `wrangler.json`, bindings, callbacks, and runtime modules. Browser and Agent add package-owned output. ViteHub can provision R2 buckets, D1 databases, KV namespaces, and Cloudflare Queues.
 - **Vercel:** Integrations write Vercel Build Output, functions, routes, cron entries, and runtime modules. Agent routes add package-owned output. ViteHub can create a Blob store and set the project environment.
 - **Netlify:** Blob uses `netlify-blobs`. Agent HTTP routes and static Schedules write functions under `.netlify/v1/functions`. There is no Netlify provisioning or live test.
-- **Deno:** Agent chat and webhook routes and KV with `deno-kv` need their documented permissions. A production build stages the Nitro application and package-owned standalone Schedule output under `.output`. Add Schedule with `hubSchedule({ providerOutput: "standalone" })`; `vitehub({ host: "deno", schedule: true })` rejects Schedule because `vitehub()` does not own that output. There is no live Deno test.
+- **Deno:** Agent chat and webhook routes and KV with `deno-kv` need their documented permissions. A production build stages the Nitro application under `.output`. With `schedule: true`, it adds `Deno.cron` output and a `.output/main.ts` entrypoint that loads it before the server. There is no live Deno test.
 - **Nitro and UnJS:** Auth and Agent handlers, the Schedule Nitro bridge, Workspace runtime setup, and Database Nuxt D1 wiring belong to their packages. Nitro is glue, not a storage or execution provider. There is no Nitro provisioning or unified live matrix.
 - **Node and self-hosted:** Server APIs and handlers run when their driver supports Node. Blob `fs`, KV `fs-lite`, Rate Limit `memory`, and Workspace `local` or `memory` are single-process providers. ViteHub does not emit one Node deployment bundle, provision a self-hosted plan, or publish a live suite.
 
