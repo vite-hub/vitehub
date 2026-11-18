@@ -108,7 +108,7 @@ export function supportLevel(support: HostSupport): SupportLevel {
 function catalogCell(feature: FeatureId, host: FeatureHost): SupportMatrixCell {
   const support = featureSupport(feature, host, "node");
   const display = support.level === "unsupported" ? "—" : support.display;
-  const requirements = impliedFeatures([feature], host === "dev" ? "node" : host)
+  const requirements = impliedFeatures([feature])
     .map((id) => ({ id, support: featureSupport(id, host, "node") }))
     .filter((entry) => entry.support.level !== "native");
   if (!requirements.length || support.level === "unsupported") {
