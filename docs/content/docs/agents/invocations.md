@@ -65,13 +65,13 @@ In a route, pass the host [Runtime Context](/docs/reference/runtime-context) as 
 The route reads the signed-in user with a helper of the app:
 
 ```ts [server/utils/auth.ts]
-import { createError } from 'h3'
+import { HTTPError } from 'h3'
 import { auth } from 'vite-hub/auth/server'
 import type { H3Event } from 'h3'
 
 export async function requireAuthenticatedUser(event: H3Event) {
   const session = await auth.api.getSession({ headers: event.req.headers })
-  if (!session) throw createError({ status: 401 })
+  if (!session) throw new HTTPError({ status: 401 })
   return session.user
 }
 ```
@@ -88,7 +88,7 @@ export default defineAgent({
 ```
 
 ```ts [server/api/support.post.ts]
-import { createError, defineEventHandler, readValidatedBody } from 'h3'
+import { defineEventHandler, HTTPError, readValidatedBody } from 'h3'
 import * as v from 'valibot'
 import { runAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime'
@@ -109,7 +109,7 @@ export default defineEventHandler(async (event) => {
       },
     },
   }, { runtimeContext: getRuntimeContext(event) })
-  if (error) throw createError({ statusCode: 500, statusMessage: error.why })
+  if (error) throw new HTTPError({ status: 500, message: error.why })
   return { text: result.text }
 })
 ```
@@ -127,7 +127,7 @@ Without `runtimeContext`, `runAgent()` creates a fresh memo cache and run ID, us
 Use `streamAgent(agent, input, options?)` when a chat UI or internal consumer needs incremental output. It returns `[error, stream]`.
 
 ```ts [server/api/support-stream.post.ts]
-import { createError, defineEventHandler, readValidatedBody } from 'h3'
+import { defineEventHandler, HTTPError, readValidatedBody } from 'h3'
 import * as v from 'valibot'
 import { streamAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime'
@@ -140,7 +140,7 @@ export default defineEventHandler(async (event) => {
     output: 'ui-message-stream',
     runtimeContext: getRuntimeContext(event),
   })
-  if (error) throw createError({ statusCode: 500, statusMessage: error.why })
+  if (error) throw new HTTPError({ status: 500, message: error.why })
   return response
 })
 ```
@@ -167,7 +167,7 @@ A Trigger is a named event that a Capability defines and shapes, such as `chat.m
 
 ```ts [server/api/support-chat.post.ts]
 import { createUIMessageStreamResponse, type UIMessageChunk } from 'ai'
-import { createError, defineEventHandler, readValidatedBody } from 'h3'
+import { defineEventHandler, HTTPError, readValidatedBody } from 'h3'
 import * as v from 'valibot'
 import { streamAgentTrigger } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime'
@@ -198,7 +198,7 @@ export default defineEventHandler(async (event) => {
   )
   if (output instanceof Response) return output
   if (!(output instanceof ReadableStream)) {
-    throw createError({ statusCode: 500, statusMessage: 'Expected an Agent UI message stream.' })
+    throw new HTTPError({ status: 500, message: 'Expected an Agent UI message stream.' })
   }
   return createUIMessageStreamResponse({
     // The selected output mode emits AI SDK UI message chunks.

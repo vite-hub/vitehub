@@ -407,11 +407,11 @@ Every save commits to the `draft` history ref; `publish()` copies selected docum
 // server/api/preview.post.ts
 import { withAuth } from "@vite-hub/auth/server"
 import type { H3Event } from "h3"
-import { createError, defineEventHandler } from "h3"
+import { defineEventHandler, HTTPError } from "h3"
 import content from "../content"
 
 export default defineEventHandler(withAuth(async (event: H3Event, { user }) => {
-  if (!await content.can({ user, collection: "posts", action: "read-draft" })) throw createError({ statusCode: 403 })
+  if (!await content.can({ user, collection: "posts", action: "read-draft" })) throw new HTTPError({ status: 403 })
   return await content.preview.enable(event, { maxAge: 900 }) // content.preview.disable(event) clears it
 }))
 ```
