@@ -7,13 +7,11 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { SecurityPolicy } from "./_internal/runtime/security.ts"
 
-/** The headers that `security: { headers: true }` adds. */
+/** The headers that built output sends by default. */
 export const defaultSecurityHeaders = {
-  "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+  "Strict-Transport-Security": "max-age=31536000",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "strict-origin-when-cross-origin",
-  "X-Frame-Options": "SAMEORIGIN",
-  "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
 } as const
 
 /**
@@ -27,11 +25,12 @@ type ByteUnit = "b" | "kb" | "mb" | "gb" | "B" | "KB" | "MB" | "GB"
 /** `security` options of `vitehub()`. */
 export interface SecurityOptions {
   /**
-   * Add safe response headers to every response that does not set them itself: `Strict-Transport-Security` (built
-   * output only, not `vite dev`), `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`,
-   * `X-Frame-Options: SAMEORIGIN`, and a `Permissions-Policy` that turns off the camera, geolocation, and microphone.
-   * `true` uses this set. An object changes, adds, or removes (`false`) one header. Static files on Cloudflare,
-   * Netlify, and Vercel get the same headers from the host's header config. Default: no headers.
+   * Response headers for every response that does not set them itself. By default, built output sends
+   * `Strict-Transport-Security: max-age=31536000`, `X-Content-Type-Options: nosniff`, and
+   * `Referrer-Policy: strict-origin-when-cross-origin`. An object changes, adds, or removes (`false`) one header, such as
+   * `"X-Frame-Options": "SAMEORIGIN"`. `false` sends no headers. When you set `headers`, `vite dev` also sends them,
+   * without `Strict-Transport-Security`. Static files on Cloudflare, Netlify, and Vercel get the same headers from the
+   * host's header config. Default: the three headers above, in built output only.
    */
   headers?: boolean | SecurityHeaders
   /**
@@ -75,13 +74,20 @@ export function resolveSecurityHeaders(headers: SecurityOptions["headers"]): Sec
   return [...resolved.values()]
 }
 
+/** The resolved `security` options: the headers of built output and of `vite dev`, and the body limit. */
+export interface ResolvedSecurity extends SecurityPolicy {
+  devHeaders: SecurityPolicy["headers"]
+}
+
 /** The resolved policy, or `undefined` when `security` adds nothing. */
-export function resolveSecurityPolicy(options: SecurityOptions | undefined): SecurityPolicy | undefined {
-  if (!options) return
-  const headers = resolveSecurityHeaders(options.headers)
+export function resolveSecurityPolicy(options: SecurityOptions = {}): ResolvedSecurity | undefined {
+  const headers = resolveSecurityHeaders(options.headers ?? true)
+  // The defaults are for built output. `Strict-Transport-Security` never goes to `vite dev`: a browser that gets it on a
+  // local name refuses http there for a year.
+  const devHeaders = options.headers === undefined ? [] : headers.filter(([name]) => name.toLowerCase() !== "strict-transport-security")
   const maxBodySize = options.maxBodySize === undefined ? undefined : parseByteSize(options.maxBodySize)
   if (headers.length === 0 && maxBodySize === undefined) return
-  return { headers, ...(maxBodySize === undefined ? {} : { maxBodySize }) }
+  return { headers, devHeaders, ...(maxBodySize === undefined ? {} : { maxBodySize }) }
 }
 
 const headerLine = /^\s+(?:!\s*)?([^\s:]+)\s*:/gm

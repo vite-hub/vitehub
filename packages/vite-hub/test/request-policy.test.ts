@@ -121,7 +121,7 @@ describe("request policy Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-request-policy-"))
     try {
       const config: { root: string, nitro?: { plugins?: string[] } } = { root, nitro: { plugins: ["async-plugin.mjs"] } }
-      await (requestPolicyVitePlugin({ sameOriginWrites: true }).config as (config: object) => Promise<void>)(config)
+      await (requestPolicyVitePlugin({ sameOriginWrites: true }, undefined).config as (config: object) => Promise<void>)(config)
       const file = join(root, ".vitehub/nitro/request-policy.mjs")
       expect(config.nitro?.plugins).toEqual([file, "async-plugin.mjs"])
       expect(await readFile(file, "utf8")).toContain(`{"trustProxy":false,"sameOriginWrites":{"exclude":[]}}`)

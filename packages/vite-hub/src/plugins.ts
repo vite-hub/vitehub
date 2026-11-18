@@ -45,7 +45,7 @@ import { healthVitePlugin, type HealthOptions } from "./health-vite.ts"
 import { resolveDeployManifest, writeIndexNowKeyFile, type DeployOptions } from "./deploy-options.ts"
 import { viteHubSeoPlugin, type SeoOptions } from "./seo/vite.ts"
 import { requestPolicyVitePlugin, type SameOriginWritesOptions } from "./request-policy-vite.ts"
-import type { SecurityOptions } from "./security-vite.ts"
+import { resolveSecurityPolicy, type SecurityOptions } from "./security-vite.ts"
 import { redirectsVitePlugin, resolveRedirectsPolicy, type RedirectsOptions } from "./redirects-vite.ts"
 import { staleChunkReloadVitePlugin } from "./stale-chunk-reload.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
@@ -512,10 +512,11 @@ export interface ViteHubOptions {
    */
   sameOriginWrites?: boolean | SameOriginWritesOptions
   /**
-   * Response headers and a request body limit for every route. `{ headers: true }` adds `Strict-Transport-Security`
-   * (built output only), `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, and `Permissions-Policy` to each
-   * response that does not set them itself, and to static files on Cloudflare, Netlify, and Vercel. `{ maxBodySize: "1mb" }`
-   * answers 413 to a larger request body. It adds no Content Security Policy. Default: off.
+   * Response headers and a request body limit for every route. By default, built output sends
+   * `Strict-Transport-Security: max-age=31536000`, `X-Content-Type-Options: nosniff`, and
+   * `Referrer-Policy: strict-origin-when-cross-origin` on each response that does not set them itself, and on static
+   * files on Cloudflare, Netlify, and Vercel. `{ headers: false }` turns them off. `{ maxBodySize: "1mb" }` answers 413
+   * to a larger request body. It adds no Content Security Policy.
    */
   security?: SecurityOptions
   agent?: boolean | AgentOptions
@@ -1595,7 +1596,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (observabilityLogs) plugins.push(logsVitePlugin(observabilityLogs))
   if (browserErrors) plugins.push(browserErrorsVitePlugin())
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
-  if (options.trustProxy || options.sameOriginWrites || options.security) plugins.push(requestPolicyVitePlugin(options))
+  const security = resolveSecurityPolicy(options.security)
+  if (options.trustProxy || options.sameOriginWrites || security) plugins.push(requestPolicyVitePlugin(options, security))
   if (options.health) {
     const resolvedKV = options.kv && kvVite ? kvVite.resolveKVViteConfig(configuredKV, { hosting: kvHosting }).kv : false
     plugins.push(healthVitePlugin(options.health === true ? {} : options.health, {
