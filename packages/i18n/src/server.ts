@@ -340,16 +340,18 @@ export function useTranslations(): Translations {
       const record = nextRecord(current, input, { segment, by, at })
       if (record instanceof Error) return [record, undefined]
       let revision: { id: string }
+      let headConflict: unknown
       try {
         revision = await workspace.history.commit({
           ref: draftRef,
           ifHead: head?.id ?? null,
+          onHeadConflict: error => { headConflict = error },
           changes: { put: { [recordPath(entry, record.hash)]: serialiseRecord(record) } },
           message: `Translate ${id} to ${entry}`,
         })
       }
       catch (error) {
-        if (!(error instanceof Error && "code" in error && error.code === "WORKSPACE_CONFLICT")) throw error
+        if (headConflict === undefined || error !== headConflict) throw error
         return [i18nErrorDiagnostics.I18N_SAVE_CONFLICT({ cause: error, id, locale: entry }), undefined]
       }
       return [undefined, { id, revision: revision.id }]

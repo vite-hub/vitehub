@@ -1,6 +1,8 @@
 import { expectTypeOf, it } from "vitest"
-import { createWorkflow } from "../src/runtime/client.ts"
-import type { WorkflowHandle, WorkflowStartOptions } from "../src/types.ts"
+import { cancelWorkflow, createWorkflow, getWorkflowRun, resumeWorkflow, startWorkflow } from "../src/runtime/client.ts"
+
+import type { Result } from "@vite-hub/runtime"
+import type { WorkflowHandle, WorkflowResultErrorCode, WorkflowRun, WorkflowSignalResult, WorkflowStartOptions } from "../src/types.ts"
 
 it("requires input only when the Workflow requires it", () => {
   expectTypeOf<Parameters<WorkflowHandle<{ message: string }>["start"]>>().toEqualTypeOf<[payload: { message: string }, options?: WorkflowStartOptions]>()
@@ -25,4 +27,12 @@ it("requires input only when the Workflow requires it", () => {
   const noInput = createWorkflow<void>("no-input", () => "done")
   void noInput.start()
   void noInput.defer()
+})
+
+it("returns [error, data] from the Workflow calls", () => {
+  expectTypeOf(startWorkflow).returns.resolves.toEqualTypeOf<Result<WorkflowRun<unknown, unknown>, WorkflowResultErrorCode>>()
+  expectTypeOf(getWorkflowRun).returns.resolves.toEqualTypeOf<Result<WorkflowRun<unknown, unknown>, WorkflowResultErrorCode>>()
+  expectTypeOf(cancelWorkflow).returns.resolves.toEqualTypeOf<Result<WorkflowRun<unknown, unknown>, WorkflowResultErrorCode>>()
+  expectTypeOf(resumeWorkflow).returns.resolves.toEqualTypeOf<Result<WorkflowSignalResult, WorkflowResultErrorCode>>()
+  expectTypeOf<ReturnType<WorkflowHandle<{ message: string }, string>["start"]>>().resolves.toEqualTypeOf<Result<WorkflowRun<{ message: string }, string>, WorkflowResultErrorCode>>()
 })

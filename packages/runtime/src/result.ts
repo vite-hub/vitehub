@@ -4,6 +4,12 @@ import type { DiagnosticCallParams, DiagnosticDefinition, DiagnosticJSON, Diagno
 
 import { isRuntimeDiagnostic } from "./diagnostics.ts"
 
+const resultErrorBrand = Symbol.for("vitehub.runtime.resultError")
+
+export function isPreparedResultError(value: unknown): value is ResultError {
+  return isRuntimeDiagnostic(value) && Object.getOwnPropertyDescriptor(value, resultErrorBrand)?.value === true
+}
+
 /**
  * Error of a ViteHub operation. It is a Nostics diagnostic with a typed `code`.
  *
@@ -95,7 +101,7 @@ export function toResultError<TCode extends string, TData>(
     const descriptor = Object.getOwnPropertyDescriptor(error, key)
     return descriptor ? descriptor.configurable === true : Object.isExtensible(error)
   }
-  const result = canReplace("name") && canReplace("toJSON")
+  const result = canReplace("name") && canReplace("toJSON") && (Object.hasOwn(error, resultErrorBrand) || Object.isExtensible(error))
     ? error
     : new Diagnostic<unknown>({
       code: error.code,
@@ -112,6 +118,7 @@ export function toResultError<TCode extends string, TData>(
     if (typeof status === "number") Object.defineProperty(result, "status", { configurable: true, value: status })
   }
   Object.defineProperty(result, "name", { configurable: true, value: result.code, writable: true })
+  Object.defineProperty(result, resultErrorBrand, { value: true })
   Object.defineProperty(result, "toJSON", {
     configurable: true,
     value: () => ({ code: result.code, docs: result.docs, fix: result.fix, name: result.name, why: result.why }),
