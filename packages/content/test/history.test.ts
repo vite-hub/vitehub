@@ -128,8 +128,8 @@ describe("content.history() for github() Sources", () => {
     // All three calls read one cached page of 100 commits.
     expect(commitLists()).toHaveLength(1)
 
-    await expect(content.history("/guide", { cursor: "nope" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
-    await expect(content.history("/guide", { limit: 0 })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(content.history("/guide", { cursor: "nope" })).rejects.toMatchObject({ code: "CONTENT_HISTORY_CURSOR_INVALID" })
+    await expect(content.history("/guide", { limit: 0 })).rejects.toMatchObject({ code: "CONTENT_HISTORY_INPUT_INVALID" })
   })
 
   it("reads past the first page of 100 commits", async () => {

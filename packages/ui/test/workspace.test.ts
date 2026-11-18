@@ -95,9 +95,9 @@ describe("WorkspaceBootStatus", () => {
       ["Start dev server", "pending"],
     ]);
     expect(rows[3]?.ms).toBe(30_000);
-    expect(formatElapsed(1234)).toBe("1.2 s");
-    expect(formatElapsed(30_000)).toBe("30 s");
-    expect(formatElapsed(95_000)).toBe("1 min 35 s");
+    expect(formatElapsed(1234)).toBe("1.2s");
+    expect(formatElapsed(30_000)).toBe("30s");
+    expect(formatElapsed(95_000)).toBe("1m 35s");
   });
 
   it("marks a skipped install and the failed stage", () => {

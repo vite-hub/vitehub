@@ -31,12 +31,13 @@ jobs:
       - contract-tests
       - package-tests
       - package-tests-success
+      - typecheck
       - ui-sdk
       - service-tests
       - prepublish-contracts
       - consumer-contracts
       - consumer-contracts-success
-      - node-22
+      - node-floor
       - docs
       - docs-snippets
       - docs-deploy
@@ -73,7 +74,7 @@ jobs:
             "contracts-examples",
             "consumer-contracts",
             "consumer-contracts-success",
-            "node-22",
+            "node-floor",
             "prepublish-contracts",
             "verify-providers",
           ])
@@ -341,6 +342,45 @@ jobs:
     steps:
       - run: echo 'All package test shards passed'
 
+  # Typechecks ran only in `verify` at release, so type errors reached main. A
+  # job of its own keeps fast checks fast: each package typecheck builds the
+  # package and its dependencies first. A pull request checks the packages
+  # that the package test selection names. The docs site imports most
+  # packages, so its typecheck runs on every pull request.
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The same heap as `vp run typecheck`. vue-tsc checks the docs site in Node.
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select changed packages
+        id: changed
+        if: ${{ env.FULL_SUITE != 'true' }}
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          packages="$(node test/run-package-task.mjs typecheck --affected "$BASE_REF" --list)"
+          echo "Changed packages: ${packages:-none}"
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/setup
+      - if: ${{ env.FULL_SUITE == 'true' }}
+        run: node test/run-package-task.mjs typecheck
+      - name: Typecheck changed packages
+        if: ${{ steps.changed.outputs.packages != '' }}
+        run: node test/run-package-task.mjs typecheck --packages "$PACKAGES"
+        env:
+          PACKAGES: ${{ steps.changed.outputs.packages }}
+      # The docs typecheck needs framework exports regardless of package selection.
+      - run: vp run --cache -t vite-hub#build
+      - name: Typecheck the docs site
+        run: vp run --filter vitehub-docs --ignore-depends-on typecheck
+
   # @vite-hub/ui and @vite-hub/kit build on ui-sdk, pinned and patched in pnpm-workspace.yaml. Package tests run the
   # kit tests when the lockfile changes, but not the two browser checks: the parity harness (ui-sdk against Reka, step
   # by step) and the style check (every part under the kit's style family). They run here on every push, and on a pull
@@ -467,12 +507,12 @@ jobs:
     steps:
       - run: echo 'All consumer contract shards passed'
 
-  # The standalone package floor is Node.js 22.18; Nitro integrations require
-  # 22.22. StackBlitz WebContainers run only Node.js 22. This job covers built-ins with
-  # different behavior on 22: fs glob, node:sqlite, module hooks, Response
-  # brand checks, TextDecoder, and structuredClone.
-  node-22:
-    name: node 22.18
+  # The workspace and every package require Node.js 24.15. Other jobs run the
+  # newest Node.js 24. This job runs the tests for built-ins that change between
+  # releases (fs glob, node:sqlite, module hooks, Response brand checks,
+  # TextDecoder, and structuredClone) on the exact floor.
+  node-floor:
+    name: node 24.15
     if: *full-suite
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -481,25 +521,14 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
-      # Contributor dependencies require a newer runtime than the standalone
-      # package floor. Install them on Node 24, then test on the exact floor.
-      - uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
         with:
-          node-version: "22.18.0"
-          run-install: false
+          node-version: "24.15.0"
 
-      - name: Require Node.js 22.18
-        run: node -e 'if (process.version !== "v22.18.0") throw new Error("Expected Node.js v22.18.0, got " + process.version)'
-      # Node 22.18 bundles Corepack 0.33, which expects pnpm's old JS entrypoint.
-      # Bootstrap the exact Corepack version independently of workspace dependencies.
-      - name: Install Corepack with native pnpm support
-        run: npm install --global corepack@0.34.6 # zizmor: ignore[adhoc-packages]
-      # Cached Vite tasks filter environment overrides. Persist this job's
-      # runtime policy so pack-time pnpm subprocesses can use the package floor.
-      - name: Allow the package runtime floor
-        run: corepack pnpm --runtime-on-fail=ignore config set --location=project runtimeOnFail ignore
-      # Install-time builds ran on Node 24. Build the targets together on 22.18
-      # so each dependency runs once, preserving uncached floor validation.
+      - name: Require Node.js 24.15
+        run: node -e 'if (process.version !== "v24.15.0") throw new Error("Expected Node.js v24.15.0, got " + process.version)'
+      # The restored task cache can hold builds from a newer Node.js 24. Build the
+      # targets together on 24.15 so each dependency runs once, preserving
+      # uncached floor validation.
       - name: Clear install-time build cache
         run: vp cache clean
       - name: Build tested packages
@@ -587,9 +616,10 @@ jobs:
       - contracts-examples
       - contract-tests
       - package-tests-success
+      - typecheck
       - service-tests
       - consumer-contracts-success
-      - node-22
+      - node-floor
       - docs
       - docs-snippets
       - verify-providers
@@ -680,7 +710,7 @@ jobs:
       - contract-tests
       - package-tests-success
       - consumer-contracts-success
-      - node-22
+      - node-floor
       - docs-snippets
       - docs-demo
       - verify-providers
@@ -1011,9 +1041,10 @@ jobs:
       - contracts-examples
       - contract-tests
       - package-tests-success
+      - typecheck
       - service-tests
       - consumer-contracts-success
-      - node-22
+      - node-floor
       - docs-snippets
       - console
       - verify-providers

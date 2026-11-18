@@ -3,6 +3,28 @@
 
 export const chatMessageHeaderPartType = "data-chat-message-header"
 
+/** Reply lines and the user message context. Unlike the header, they also stay on assistant messages. */
+export function isChatReplyPartType(type: string): boolean {
+  return type.startsWith("data-chat-reply-") || type === "data-chat-user-message-context"
+}
+
+/** The chat context that ViteHub adds to a message for the model: its header and its reply context. */
+export function isChatContextPartType(type: string): boolean {
+  return type === chatMessageHeaderPartType || isChatReplyPartType(type)
+}
+
+/**
+ * The text that the model reads for a chat context part: `data.modelText`, or the data as JSON when the
+ * Channel set no model text. Returns `undefined` when the part is not chat context.
+ */
+export function chatContextModelText(part: { data?: unknown, type: string }): string | undefined {
+  if (!isChatContextPartType(part.type)) return undefined
+  const data = part.data
+  return typeof data === "object" && data !== null && "modelText" in data && typeof data.modelText === "string"
+    ? data.modelText
+    : JSON.stringify(data)
+}
+
 const separator = " · "
 const replyLinePrefix = "↪ replying to "
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]

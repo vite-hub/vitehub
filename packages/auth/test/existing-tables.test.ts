@@ -2,6 +2,7 @@ import { execFile } from "node:child_process"
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { promisify } from "node:util"
+import { fileURLToPath } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -12,8 +13,8 @@ import type { AuthSchemaOptions } from "../src/table-specs.ts"
 
 const execFileAsync = promisify(execFile)
 const roots: string[] = []
-const schemaModule = new URL("../src/schema.ts", import.meta.url).pathname
-const drizzleKit = new URL("../node_modules/drizzle-kit/bin.cjs", import.meta.url).pathname
+const schemaModule = fileURLToPath(new URL("../src/schema.ts", import.meta.url))
+const drizzleKit = fileURLToPath(new URL("../node_modules/drizzle-kit/bin.cjs", import.meta.url))
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
@@ -129,6 +130,8 @@ export const budget = sqliteTable("budget", {
 `
 }
 
+// Drizzle Kit names a migration folder `<timestamp>_<name>`, and it and readAuthExistingTables() take the last folder by
+// name as the newest. Two migrations in the same second sort by name, so each name starts with its order.
 async function generate(root: string, schema: string, name: string): Promise<string> {
   await writeFile(join(root, "schema.ts"), schema)
   await execFileAsync(process.execPath, [drizzleKit, "generate", "--config", "drizzle.config.ts", "--name", name], { cwd: root })
@@ -140,7 +143,7 @@ async function handProject() {
   const root = await mkdtemp(join(import.meta.dirname, ".existing-tables-"))
   roots.push(root)
   await writeFile(join(root, "drizzle.config.ts"), `export default { dialect: "sqlite", schema: "./schema.ts", out: "./migrations" }\n`)
-  await generate(root, handSchema, "hand")
+  await generate(root, handSchema, "1_hand")
   return root
 }
 
@@ -151,7 +154,7 @@ describe("authDatabase() on a Database with Better Auth tables", () => {
   // deleted the `member` and `budget` rows of ViteHub Finance.
   it("rebuilds the hand-written tables without the existing tables", async () => {
     const root = await handProject()
-    const sql = await generate(root, authSchema(undefined), "auth")
+    const sql = await generate(root, authSchema(undefined), "2_auth")
     expect(sql).toContain("CREATE TABLE `__new_organization`")
     expect(sql).toContain("DROP TABLE `organization`;")
   }, 120_000)
@@ -160,7 +163,7 @@ describe("authDatabase() on a Database with Better Auth tables", () => {
     const root = await handProject()
     const existing = readAuthExistingTables(join(root, "migrations"), tableNames)
     expect(Object.keys(existing ?? {}).sort()).toEqual(["account", "member", "oauth_client", "organization", "session", "user", "verification"])
-    const sql = await generate(root, authSchema(existing), "auth")
+    const sql = await generate(root, authSchema(existing), "2_auth")
     expect(sql).not.toMatch(/__new_|DROP TABLE|DROP INDEX|DROP COLUMN/)
     const statements = sql.split("--> statement-breakpoint").map(statement => statement.trim().split("\n")[0]).filter(Boolean)
     expect(statements.every(statement => /^(?:CREATE TABLE|ALTER TABLE `\w+` ADD|CREATE (?:UNIQUE )?INDEX)/.test(statement!)), sql).toBe(true)
@@ -171,7 +174,7 @@ describe("authDatabase() on a Database with Better Auth tables", () => {
 
     // The next migration has nothing to do: the tables keep what the new snapshot has.
     const next = readAuthExistingTables(join(root, "migrations"), tableNames)
-    expect(await generate(root, authSchema(next), "again")).toBe("")
+    expect(await generate(root, authSchema(next), "3_again")).toBe("")
   }, 120_000)
 
   it("reads nothing from a folder without a SQLite snapshot", () => {

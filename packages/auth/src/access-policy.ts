@@ -1,4 +1,5 @@
 import { invariant } from "@vite-hub/internal/invariant"
+import { parseDuration } from "@vite-hub/runtime"
 import { createAuthMiddleware } from "better-auth/api"
 import { deleteSessionCookie, parseCookies } from "better-auth/cookies"
 import { decryptOAuthToken } from "better-auth/oauth2"
@@ -10,7 +11,7 @@ import type { AuthAccessPolicy, AuthAccessPolicyContext } from "./types.ts"
 /** The id of the Better Auth plugin that applies `access.policy` and `VITEHUB_MEMBERS`. `verifyMcpRequest()` finds the policy by it. */
 export const accessPolicyPluginId = "vitehub-access-policy"
 
-const defaultRecheck = 300_000
+const defaultRecheck = "5m"
 
 type PolicyUser = AuthAccessPolicyContext["user"]
 
@@ -45,7 +46,7 @@ function withoutSessionCookies(headers: Headers, names: string[]): Headers {
  * deletes the session and its cookies, and the request continues signed out.
  */
 export function createAccessPolicyPlugin({ policy, members }: { policy?: AuthAccessPolicy, members?: MembersGate }): AccessPolicyPlugin {
-  const recheck = policy?.recheck ?? defaultRecheck
+  const recheck = parseDuration(policy?.recheck ?? defaultRecheck, "recheck")
   const allowedUntil = new Map<string, number>()
   // Better Auth passes its context to `init`, and replaces `internalAdapter` on it later, so read it when a check runs
   // (https://github.com/better-auth/better-auth/issues/12711).

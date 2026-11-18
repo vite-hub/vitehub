@@ -132,7 +132,10 @@ describe("Database types in a Nuxt app", () => {
 
     // The app's tsconfig reaches the generated middleware, and `vite-hub/nuxt` adds this declaration on Cloudflare.
     const middleware = join(root, ".vitehub/nitro/database/middleware.ts")
-    await expect(readFile(middleware, "utf8")).resolves.toContain("from 'cloudflare:workers'")
+    const source = await readFile(middleware, "utf8")
+    expect(source).toContain("from 'cloudflare:workers'")
+    // An app that does not list `@vite-hub/database` resolves the runtime too: the import is a path.
+    expect(source).not.toMatch(/from ["']@vite-hub\//)
     const program = createProgram({
       options: {
         module: ModuleKind.ESNext,

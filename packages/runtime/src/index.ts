@@ -34,6 +34,7 @@ export {
   type LeaseSqlParam,
   type LeaseStore,
 } from "./lease.ts"
+export { parseDuration, type Duration, type DurationUnit } from "./duration.ts"
 export { decodeRouteSegment, encodeRouteSegment } from "./route-segment.ts"
 export { hostedConsoleOrigin, hostedConsoleUrl, normalizeConsolePath, normalizeConsoleProjectUrl } from "./hosted-console.ts"
 export { consoleInvocationUrl, resolvePublicUrl, type PublicUrlConfig } from "./public-url.ts"

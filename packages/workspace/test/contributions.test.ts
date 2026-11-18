@@ -181,12 +181,14 @@ describe("discoverViteWorkspaceDefinitions contributions", () => {
 
   it("applies resolved store overrides to contributed definitions", async () => {
     const root = await createRoot()
-    const definitions = discoverViteWorkspaceDefinitions(root, { contributions: [collected("content", "content-owner/workspace")] })
+    const registryFile = join(root, "registry.mjs")
+    const definitions = discoverViteWorkspaceDefinitions(root, { contributions: [collected("content", "content-owner/workspace", "contentWorkspace")] })
     const store = { binding: "CONTENT", namespace: "content", driver: "cloudflare" }
+    await writeFile(registryFile, createWorkspaceRegistryContents(registryFile, definitions, new Map([["content", { store }]])))
 
-    const contents = createWorkspaceRegistryContents(join(root, "registry.mjs"), definitions, new Map([["content", { store }]]))
+    const { default: registry }: { default: Record<string, () => Promise<{ default: { label: string, store: unknown } }>> } = await import(pathToFileURL(registryFile).href)
 
-    expect(contents).toContain("return { default: { ...definition, store: {\"binding\":\"CONTENT\"")
+    await expect(registry.content!()).resolves.toEqual({ default: { label: "package content", store } })
   })
 })
 
@@ -268,11 +270,9 @@ describe("hubWorkspace contributions", () => {
     const userConfig = { nitro: {}, plugins: [[owner as Plugin]], root }
 
     await config(userConfig, { command: "serve", mode: "development" })
-    expect(userConfig.nitro).toMatchObject({ plugins: [".vitehub/nitro/workspace/plugin.ts"] })
+    expect(userConfig.nitro).toMatchObject({ plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")] })
     const registrySource = await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")
-    expect(registrySource).toContain("[\"content\"]: async () => {")
     expect(registrySource).toContain("import(\"content-owner/workspace\")")
-    expect(registrySource).toContain("mod[\"contentWorkspace\"]")
 
     await configResolved({ command: "serve", plugins: [plugin, owner], root })
     await expect(readFile(join(root, ".vitehub", "types", "workspace.d.ts"), "utf8")).resolves.toContain("\"content\": true")
@@ -310,7 +310,9 @@ describe("hubWorkspace contributions", () => {
       viteRoot: root,
     })
 
-    expect(nitro).toMatchObject({ plugins: [".vitehub/nitro/workspace/plugin.ts"] })
-    await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")).resolves.toContain("[\"content\"]: async () => {")
+    expect(nitro).toMatchObject({ plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")] })
+    const { default: registry }: { default: Record<string, () => Promise<{ default: { label: string } }>> } = await import(pathToFileURL(join(root, ".vitehub", "nitro", "workspace", "registry.js")).href)
+    expect(Object.keys(registry)).toEqual(["content"])
+    await expect(registry.content!()).resolves.toEqual({ default: { label: "package content" } })
   })
 })

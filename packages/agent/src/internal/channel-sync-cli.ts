@@ -125,7 +125,7 @@ function sanitizedUrl(url: string): string {
   return String(sanitizedProviderState({ url }).url)
 }
 
-const defaultWebhookRoute = "/api/_vitehub/agents/[agent]/webhooks/[webhook]"
+const defaultWebhookRoute = "/_vitehub/agents/[agent]/webhooks/[webhook]"
 
 function writeChannelSyncUsage(context: ChannelSyncCliContext): void {
   context.stdout.write(

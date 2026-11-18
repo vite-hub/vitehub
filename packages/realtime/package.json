@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/realtime",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Realtime document primitives and Vite integration for ViteHub.",
   "keywords": [
     "collaboration",
@@ -95,16 +95,7 @@
     "test": "vp run --cache -t @vite-hub/realtime#build && vp test"
   },
   "dependencies": {
-    "@tiptap/core": "catalog:realtime",
-    "@tiptap/extension-blockquote": "catalog:realtime",
-    "@tiptap/extension-code": "catalog:realtime",
     "@tiptap/extension-collaboration": "catalog:realtime",
-    "@tiptap/extension-document": "catalog:realtime",
-    "@tiptap/extension-image": "catalog:realtime",
-    "@tiptap/extension-table": "catalog:realtime",
-    "@tiptap/markdown": "catalog:realtime",
-    "@tiptap/pm": "catalog:realtime",
-    "@tiptap/starter-kit": "catalog:realtime",
     "@tiptap/y-tiptap": "catalog:realtime",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
@@ -120,10 +111,18 @@
     "prosemirror-view": "catalog:realtime",
     "y-protocols": "catalog:realtime",
     "y-websocket": "catalog:realtime",
-    "yjs": "catalog:realtime",
     "@vite-hub/runtime": "workspace:*"
   },
   "devDependencies": {
+    "@tiptap/core": "catalog:realtime",
+    "@tiptap/extension-blockquote": "catalog:realtime",
+    "@tiptap/extension-code": "catalog:realtime",
+    "@tiptap/extension-document": "catalog:realtime",
+    "@tiptap/extension-image": "catalog:realtime",
+    "@tiptap/extension-table": "catalog:realtime",
+    "@tiptap/markdown": "catalog:realtime",
+    "@tiptap/pm": "catalog:realtime",
+    "@tiptap/starter-kit": "catalog:realtime",
     "@types/json-schema": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@vite-hub/database": "workspace:*",
@@ -138,14 +137,25 @@
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
     "miniflare": "4.20260730.0",
-    "drizzle-orm": "catalog:database"
+    "drizzle-orm": "catalog:database",
+    "yjs": "catalog:realtime"
   },
   "peerDependencies": {
+    "@tiptap/core": "catalog:realtime",
+    "@tiptap/extension-blockquote": "catalog:realtime",
+    "@tiptap/extension-code": "catalog:realtime",
+    "@tiptap/extension-document": "catalog:realtime",
+    "@tiptap/extension-image": "catalog:realtime",
+    "@tiptap/extension-table": "catalog:realtime",
+    "@tiptap/markdown": "catalog:realtime",
+    "@tiptap/pm": "catalog:realtime",
+    "@tiptap/starter-kit": "catalog:realtime",
     "@types/json-schema": "catalog:ai",
     "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat",
-    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0"
+    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
+    "yjs": "catalog:realtime"
   },
   "peerDependenciesMeta": {
     "vite": {
@@ -156,6 +166,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

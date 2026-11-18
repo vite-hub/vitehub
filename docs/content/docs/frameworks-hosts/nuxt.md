@@ -18,16 +18,14 @@ Use Nuxt 5, which runs Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm 
 pnpm add vite-hub
 ```
 
-Register the module with a [deployment host](/docs/frameworks-hosts#choose-a-host).
-It takes the same options as `vitehub()`.
+Register the module. It takes the same options as `vitehub()`. ViteHub
+detects the [deployment host](/docs/frameworks-hosts#choose-a-host) from the build.
 
 ```ts [nuxt.config.ts]
 import viteHubNuxt from "vite-hub/nuxt"
 
 export default defineNuxtConfig({
-  modules: [
-    [viteHubNuxt, { host: "node" }],
-  ],
+  modules: [viteHubNuxt],
 })
 ```
 
@@ -40,7 +38,7 @@ keeps the options that the other form sets:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: [
-    ["vite-hub/nuxt", { host: "node", kv: true }],
+    ["vite-hub/nuxt", { kv: true }],
   ],
   // KV uses Redis: `kv: true` does not remove these options.
   vitehub: { kv: { driver: "redis" } },

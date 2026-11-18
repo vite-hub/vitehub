@@ -44,6 +44,17 @@ type VercelWorkflowDetails = { name?: string, provider: "vercel" }
 type WorkflowOperationDetails = { operation: WorkflowOperationName, provider: WorkflowProviderName }
 /** `rejected`: the provider answered and refused the call. `unknown`: the call can have reached the provider. */
 export type WorkflowProviderAcknowledgement = "rejected" | "unknown"
+/** What `WORKFLOW_PROVIDER_OPERATION_FAILED` keeps in `error.data` when a Workflow call returns it. */
+export type WorkflowProviderFailure = {
+  /** `rejected`: the provider answered and refused the call. `unknown`: the call can have reached the provider. */
+  acknowledgement?: WorkflowProviderAcknowledgement
+  operation: string
+  provider: string
+  /** The provider error name and the first line of its message, without URLs, file paths, or credentials. */
+  reason?: string
+  /** The HTTP status of the provider, when it sent one. */
+  status?: number
+}
 type WorkflowProviderOperationDetails = WorkflowOperationDetails & {
   acknowledgement?: WorkflowProviderAcknowledgement
   /** The provider error name and the first line of its message, without URLs, file paths, or credentials. */

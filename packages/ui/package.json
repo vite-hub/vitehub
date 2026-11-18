@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/ui",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "AI interface primitives for Vue and Nuxt.",
   "keywords": [
     "ai",
@@ -140,6 +140,7 @@
     "@pierre/trees": "1.0.0",
     "@vitejs/plugin-vue": "^6.0.10",
     "@vite-hub/icons": "workspace:*",
+    "@vite-hub/internal": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vue/server-renderer": "3.5.44",
     "@vue/test-utils": "2.5.1",
@@ -228,6 +229,6 @@
     }
   },
   "engines": {
-    "node": ">=22.22.0"
+    "node": ">=24.15.0"
   }
 }

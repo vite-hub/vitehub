@@ -232,7 +232,7 @@ describe("uploadFiles({ direct: true })", () => {
   it("runs sign, PUT, and complete against a real fs route", async () => {
     const fetch = vi.fn(async (input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
       const request = new Request(input, init)
-      if (new URL(request.url).pathname.startsWith("/_vitehub/blob/signed/")) return handleSignedBlobRequest(request)
+      if (new URL(request.url).pathname.startsWith("/_vitehub/blob-signed/")) return handleSignedBlobRequest(request)
       expect(request.headers.get("authorization")).toBe("Bearer app")
       const [error, result] = await blob.handleUpload(request, { direct: true, ensure: { maxSize: "1KB" } })
       if (error) throw error

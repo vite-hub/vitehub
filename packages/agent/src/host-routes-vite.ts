@@ -1,3 +1,4 @@
+import { ownModule } from '@vite-hub/internal/build/paths'
 import { agentHostWorkspaceRoute } from './server/host-workspace.ts'
 import { agentDiagnostics } from './agent-diagnostics.ts'
 import { createHash } from 'node:crypto'
@@ -51,7 +52,7 @@ export function agentHostRoutes(options: {
         handlers.push({ route, handler, method: 'GET' }, { route, handler, method: 'HEAD' })
         if (kind === 'workspace') {
           const plugin = handler.replace(/\.ts$/, '-plugin.ts')
-          await writeFile(plugin, `import { registerAgentHostWorkspaceInspector } from '@vite-hub/agent/server'\n${moduleImport}\nexport default () => { registerAgentHostWorkspaceInspector(${JSON.stringify(route)}, inspect) }\n`)
+          await writeFile(plugin, `import { registerAgentHostWorkspaceInspector } from ${JSON.stringify(ownModule(import.meta.url, 'server'))}\n${moduleImport}\nexport default () => { registerAgentHostWorkspaceInspector(${JSON.stringify(route)}, inspect) }\n`)
           plugins.push(plugin)
         }
       }

@@ -16,7 +16,7 @@ observability: {
   evlog: {
     env: { service: 'checkout' },
     redact: { paths: ['customer.email'] },
-    exclude: ['/_vitehub/**', '/api/_vitehub/**'],
+    exclude: ['/_vitehub/**', '/_vitehub/**'],
   },
 }
 ```
@@ -32,7 +32,7 @@ An error in the browser does not reach your server logs. Set `browserErrors: tru
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', observability: { browserErrors: true } },
+  vitehub: { observability: { browserErrors: true } },
 })
 ```
 :::
@@ -44,7 +44,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ host: 'node', observability: { browserErrors: true } }),
+    vitehub({ observability: { browserErrors: true } }),
     nitro(),
   ],
 })
@@ -56,19 +56,19 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', observability: { browserErrors: true } })],
+  plugins: [vitehub({ observability: { browserErrors: true } })],
 })
 ```
 :::
 ::
 
-- The page sends each error to `POST /api/_vitehub/browser-errors`. The server adds it to the Evlog event of that request, at error level, with `browserError: { kind, path }`. Your `redact`, sampling, and drains apply to it, as to your server errors.
+- The page sends each error to `POST /_vitehub/browser-errors`. The server adds it to the Evlog event of that request, at error level, with `browserError: { kind, path }`. Your `redact`, sampling, and drains apply to it, as to your server errors.
 - The page reports window `error` and `unhandledrejection` events. In Nuxt, it also reports the errors of the `vue:error` and `app:error` hooks.
 - To report an error that your code catches, such as a failed copy that shows a toast, call the browser's [`reportError(error)`](https://developer.mozilla.org/en-US/docs/Web/API/Window/reportError). It fires the window `error` event without throwing.
 - The page sends the path without the query. The server removes the query from each URL in the message and the stack, and cuts the message to 1,000 characters and the stack to 4,000.
 - The route accepts only requests from pages of the same origin, bodies of 16 KiB or less, and 20 reports a minute from one address in each server process. A page sends at most 10 reports, one for each message.
 
-It is off by default. If your `evlog.exclude` excludes `/api/_vitehub/**`, the reports go to the server console.
+It is off by default. If your `evlog.exclude` excludes `/_vitehub/**`, the reports go to the server console.
 
 ## Read an existing backend
 

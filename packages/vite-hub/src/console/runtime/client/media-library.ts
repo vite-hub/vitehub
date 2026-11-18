@@ -56,7 +56,7 @@ export interface ConsoleMediaAccess {
 
 export interface ConsoleMediaInfo {
   access: ConsoleMediaAccess
-  /** The URL a pathname is appended to, such as `/api/_vitehub/blob/`, or null when the store is not served. */
+  /** The URL a pathname is appended to, such as `/_vitehub/blob/`, or null when the store is not served. */
   served: string | null
   store: string
 }
