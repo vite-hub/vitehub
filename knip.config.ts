@@ -185,6 +185,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   // The OS timer tests check the generated files with the OS tools, when the machine has them.
   schedule: { ignoreBinaries: ["plutil", "systemd-analyze"] },
   ui: {
+    // `MOTION_RECORD=<dir>` in the motion browser tests encodes the ¼× recordings with the host's ffmpeg.
+    ignoreBinaries: ["ffmpeg"],
     ignoreDependencies: [
       // `#app` resolves to the Nuxt nightly package installed under the declared `nuxt` alias.
       "nuxt-nightly",
