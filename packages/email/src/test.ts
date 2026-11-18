@@ -25,14 +25,11 @@ export function createMemoryEmailDriver(): MemoryEmailDriver {
     },
     async send(message) {
       messages.push(structuredClone(message))
-      return {
-        data: {
-          at: new Date(),
-          driver: "memory",
-          id: `memory-${nextId++}`,
-        },
-        error: null,
-      }
+      return [undefined, {
+        at: new Date(),
+        driver: "memory",
+        id: `memory-${nextId++}`,
+      }]
     },
   }
 }

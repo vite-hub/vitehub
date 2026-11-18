@@ -20,7 +20,7 @@ const maxiTabs = [{ ...maxi, clientId: 1 }, { ...maxi, clientId: 2 }]
 function session(github) {
   return {
     user: { id: maxi.id, name: maxi.name, image: maxi.image },
-    ...(github ? { github: { login: "onmax", write: true }, signOut: "/api/_vitehub/comments/auth/sign-out" } : {}),
+    ...(github ? { github: { login: "onmax", write: true }, signOut: "/_vitehub/comments/auth/sign-out" } : {}),
     can: { read: true, comment: true, resolve: true },
     realtime: true,
     content: false,
@@ -49,7 +49,7 @@ test("each person shows once in the pill", { timeout: 120_000 }, async (t) => {
   async function faces({ github, room }) {
     const page = await browser.newPage({ viewport: { width: 1024, height: 720 } })
     try {
-      await page.route("**/api/_vitehub/comments/**", route => route.fulfill({
+      await page.route("**/_vitehub/comments/**", route => route.fulfill({
         json: new URL(route.request().url()).pathname.endsWith("/session") ? { data: session(github), people: [] } : { data: [], people: [] },
       }))
       await page.goto(`http://127.0.0.1:${port}/`)

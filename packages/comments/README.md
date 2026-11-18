@@ -22,7 +22,7 @@ A production build connects to `DATABASE_URL`, `TURSO_DATABASE_URL`, or a Cloudf
 
 ### Sign in with GitHub
 
-Create a GitHub App, install it on the repository, and list `https://<site>/api/_vitehub/comments/auth/callback/github` as its callback URL. Then set `VITEHUB_GITHUB_CLIENT_ID`, `VITEHUB_GITHUB_CLIENT_SECRET`, and `VITEHUB_SECRET` on the server. People who can push to the repository may comment. The session is an encrypted cookie, so the server stores no users.
+Create a GitHub App, install it on the repository, and list `https://<site>/_vitehub/comments/auth/callback/github` as its callback URL. Then set `VITEHUB_GITHUB_CLIENT_ID`, `VITEHUB_GITHUB_CLIENT_SECRET`, and `VITEHUB_SECRET` on the server. People who can push to the repository may comment. The session is an encrypted cookie, so the server stores no users.
 
 ### In a ViteHub app
 
@@ -41,13 +41,13 @@ export const comments = defineComments({
 
 Without the file, `vitehub({ comments: true })` turns Comments on with `defineComments()`, and so does an object such as `{ database: "team" }`. The Console does not turn it on. `comments: false` turns it off. Docs sites of `@vite-hub/docs` on `vite-hub/nuxt` set it by default; `docs: { comments: false }` turns it off.
 
-ViteHub then adds the `vitehub_comment_threads`, `vitehub_comment_messages`, `vitehub_comment_counters`, and `vitehub_comment_forge` tables to the default Database (or the only one, or `defineComments({ database: "name" })`; without a Database Definition, the implicit `default` Database of `@vite-hub/database`), serves `/api/_vitehub/comments/**`, and adds a Comments section to the Console. Apply the tables with `vitehub database generate` and `vitehub database migrate`.
+ViteHub then adds the `vitehub_comment_threads`, `vitehub_comment_messages`, `vitehub_comment_counters`, and `vitehub_comment_forge` tables to the default Database (or the only one, or `defineComments({ database: "name" })`; without a Database Definition, the implicit `default` Database of `@vite-hub/database`), serves `/_vitehub/comments/**`, and adds a Comments section to the Console. Apply the tables with `vitehub database generate` and `vitehub database migrate`.
 
 A ViteHub Database with the tables of the earlier live-site model must move them once in a migration: see [Upgrade to one model](https://vitehub.dev/docs/comments/configure#upgrade-to-one-model). Until then every Comments request fails with `COMMENTS_R0019`, whose `fix` names `commentsMigrationSql({ from: "live" })`. `migrateComments(db)` from `@vite-hub/comments/database` moves them in place and keeps the old tables as a backup.
 
 Comments is a ViteHub page tool. Open any page with `?vitehub`, or `?vitehub=comments`. The server adds the page tools loader to that page. The loader calls `GET /_vitehub/page/session`, which allows Comments when `authorize` allows `read` or offers GitHub sign-in or account switching, and sets the `vitehub-tools` cookie so later pages open in comment mode too. The loader then draws the ViteHub tools pill at the bottom of the page and imports the overlay. The overlay draws its toolbar in its segment of the pill, and its pins, cursors, and cards in `<vitehub-comments>`. The pill's **×** button turns the page tools off, so the toolbar has no close button of its own. A small ViteHub hexagon then stays at the pill's place, on every page, and pressing it turns them on again. The cookie is a hint, never a credential: every Comments route checks `authorize` again. A request without the hint gets the page with a short inline bootstrap that loads the loader in the browser only when the hint is there, so prerendered pages that a host serves as static files work too. Opening the Console calls the same session route, so the Console's people see the toolbar on the app's pages. The session route and the loader do not need the Console.
 
-A single page app whose `index.html` Vite serves or builds gets a short inline check in that file. It imports the loader in the browser when the page has the query or the cookie, so a built `index.html` that a host serves as a static file also gets the tools. When the app has a Vite `base` or a Nuxt `app.baseURL`, such as `/docs/`, every path follows it: `/docs/_vitehub/page/session`, `/docs/_vitehub/page/assets/loader.js`, and `/docs/api/_vitehub/comments/**`. The loader and the overlay find the base from their own URL, including the overlay's Realtime presence and live update connections.
+A single page app whose `index.html` Vite serves or builds gets a short inline check in that file. It imports the loader in the browser when the page has the query or the cookie, so a built `index.html` that a host serves as a static file also gets the tools. When the app has a Vite `base` or a Nuxt `app.baseURL`, such as `/docs/`, every path follows it: `/docs/_vitehub/page/session`, `/docs/_vitehub/page/assets/loader.js`, and `/docs/_vitehub/comments/**`. The loader and the overlay find the base from their own URL, including the overlay's Realtime presence and live update connections.
 
 Custom `identify` names the user of every surface, and `authorize` decides; Comments then reads neither the Auth session nor the Console's access. Without `identify`, when the app has the Console, its Comments section controls access, and opening the Console enables the toolbar on the app's pages. Otherwise Comments reads the Auth session.
 
@@ -129,23 +129,23 @@ On a preview, `forge: { provider: "github" }` posts each thread to the pull requ
 | `@vite-hub/comments/anchor` | DOM anchoring: `createAnchor()`, `placeAnchor()`, `selectorOf()`, `labelOf()`. |
 | `@vite-hub/comments/database` | `commentsSchema`, the Drizzle tables, and `commentsTables`, the statements that create them. |
 | `@vite-hub/comments/realtime` | `commentsRealtime()`, the presence room Realtime Definition. |
-| `@vite-hub/comments/runtime` | `createCommentsHandler()` and `defineCommentsPlugin()` for a manual Nitro setup; `commentsMcpTools()` for an app's own MCP server. |
+| `@vite-hub/comments/runtime` | `createCommentsHandler()` and `defineCommentsPlugin()` for a manual Nitro setup; `commentsMcpTools()` and `mcpToolResult()` for an app's own MCP server. |
 | `@vite-hub/comments/vite` | `comments()`, the plugin for apps without `vite-hub`, and `hubComments()`, the integration that `vitehub()` adds. |
 | `@vite-hub/comments/runtime/connect` | `connectDatabase()` of `@vite-hub/database/connect`, for the files that `comments()` generates. `/node` also opens SQLite files. |
 
 Generated files under `.vitehub/nitro/comments` are inspectable build output, not application imports.
 
-`createCommentsHandler(options)` returns a Fetchable, `{ fetch(request) }`. Mount it as a Nitro or H3 route at `/api/_vitehub/comments/**`, or call `handler.fetch(request)` yourself. Every outcome is a `Response`, also the errors. The handler gives the Request to `identify` as `event`, and reads cookies, the Cloudflare bindings, and `waitUntil` from its Standard Context, `request["~standard"]`. In a ViteHub app, Nitro sets it. For a Request from elsewhere, the handler sets it.
+`createCommentsHandler(options)` returns a Fetchable, `{ fetch(request) }`. Mount it as a Nitro or H3 route at `/_vitehub/comments/**`, or call `handler.fetch(request)` yourself. Every outcome is a `Response`, also the errors. The handler gives the Request to `identify` as `event`, and reads cookies, the Cloudflare bindings, and `waitUntil` from its Standard Context, `request["~standard"]`. In a ViteHub app, Nitro sets it. For a Request from elsewhere, the handler sets it.
 
 ```ts
 import { createCommentsHandler } from "@vite-hub/comments/runtime";
 import { comments } from "./server/comments";
 
 const handler = createCommentsHandler({ comments, realtime: false });
-const response = await handler.fetch(new Request("https://site.test/api/_vitehub/comments/threads?page=/"));
+const response = await handler.fetch(new Request("https://site.test/_vitehub/comments/threads?page=/"));
 ```
 
-`commentsMcpTools(comments)` returns tools with `call(input, { user })`, where your server authenticates `user` or passes `null` for an anonymous caller. With a request `event`, such as the Request or an H3 event, a configured Comments `identify` or session reader takes precedence over `user`. The `page` filter of `comments_list_threads` and of `comments.threads` takes a path such as `/pricing` or a full URL of the page. When `authorize` hides threads from the caller, the list says how many and why, and its structured output has a `hidden` count. See [Fix comments with an Agent](https://vitehub.dev/docs/comments/configure#fix-comments-with-an-agent).
+`commentsMcpTools(comments)` returns tools with `call(input, { user })`, where your server authenticates `user` or passes `null` for an anonymous caller. A call returns `{ text, images, structured, isError }`: `comments_get_thread` puts the image attachments of the thread in `images`, up to 4 MB. `mcpToolResult(result)` turns it into the MCP tool result, with one `image` block for each image. With a request `event`, such as the Request or an H3 event, a configured Comments `identify` or session reader takes precedence over `user`. The `page` filter of `comments_list_threads` and of `comments.threads` takes a path such as `/pricing` or a full URL of the page. When `authorize` hides threads from the caller, the list says how many and why, and its structured output has a `hidden` count. See [Fix comments with an Agent](https://vitehub.dev/docs/comments/configure#fix-comments-with-an-agent).
 
 ## Learn more
 

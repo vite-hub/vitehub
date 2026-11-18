@@ -43,7 +43,7 @@ describe("Collection history Invocation joins", () => {
     })
     const agent = defineAgent({ name: "bot-dev", channels: { productlane: channel }, driver: { run: () => "unused" }, invocations, runtime: false })
     const handler = createChannelWebhookRouteHandler(agent)
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/bot-dev/webhooks/productlane", {
+    const response = await handler(new Request("https://example.com/_vitehub/agents/bot-dev/webhooks/productlane", {
       method: "POST", body: JSON.stringify({ invocations: true }), headers: { "x-test-secret": "secret", "x-vitehub-channel-history": "1" },
     }), "productlane", { agentIdentity: { name: "discovered-file" } })
     expect(response.status).toBe(200)

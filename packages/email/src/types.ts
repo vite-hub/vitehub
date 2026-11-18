@@ -111,9 +111,10 @@ export interface EmailProviderResult {
   provider?: Record<string, unknown>
 }
 
+/** What `EmailDriver.send()` returns: `[error, data]`, the same order as `email.send()`. */
 export type EmailDriverResult =
-  | { data: EmailProviderResult, error: null }
-  | { data: null, error: EmailProviderError }
+  | [error: undefined, data: EmailProviderResult]
+  | [error: EmailProviderError, data: undefined]
 
 export interface EmailDriverContext {
   attempt: number

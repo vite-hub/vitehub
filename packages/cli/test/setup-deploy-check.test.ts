@@ -68,7 +68,7 @@ describe("deploy checks", () => {
   it("passes a path that answers 2xx after a retry, and fails one that never does", async () => {
     let healthCalls = 0
     const site = await localSite((request, response) => {
-      if (request.url === "/api/_vitehub/health") {
+      if (request.url === "/_vitehub/health") {
         healthCalls++
         response.writeHead(healthCalls === 1 ? 503 : 200).end("{}")
         return
@@ -76,9 +76,9 @@ describe("deploy checks", () => {
       if (request.url === "/old") return void response.writeHead(301, { location: "/" }).end()
       response.writeHead(request.url === "/" ? 200 : 404).end("page")
     })
-    const checks = await runDeployChecks(site.origin, ["/api/_vitehub/health", "/old", "/missing"], fetch, [0, 0])
+    const checks = await runDeployChecks(site.origin, ["/_vitehub/health", "/old", "/missing"], fetch, [0, 0])
     expect(checks).toEqual([
-      { ok: true, path: "/api/_vitehub/health", status: 200, url: `${site.origin}/api/_vitehub/health` },
+      { ok: true, path: "/_vitehub/health", status: 200, url: `${site.origin}/_vitehub/health` },
       { ok: true, path: "/old", status: 200, url: `${site.origin}/old` },
       { ok: false, path: "/missing", status: 404, url: `${site.origin}/missing` },
     ])
@@ -154,14 +154,14 @@ describe("vitehub deploy with deploy.check", () => {
       if (request.url === "/indexnow") return void response.writeHead(200).end()
       response.writeHead(200).end("ok")
     })
-    const root = await builtProject("cloudflare", { ...manifest({ check: ["/api/_vitehub/health", "/"], indexNow: { key: "0123456789abcdef0123456789abcdef", url: "https://shop.example.com" } }), ".vitehub/link.json": JSON.stringify(cloudflareLink) })
+    const root = await builtProject("cloudflare", { ...manifest({ check: ["/_vitehub/health", "/"], indexNow: { key: "0123456789abcdef0123456789abcdef", url: "https://shop.example.com" } }), ".vitehub/link.json": JSON.stringify(cloudflareLink) })
     const hosts = await fakeHosts(cloudflareEnv)
     const fetchImpl: typeof fetch = async (input, init) => String(input).startsWith("https://api.indexnow.org") ? await fetch(`${site.origin}/indexnow`, init) : await routedFetch(site.origin, ["https://my-app.example.workers.dev", "https://shop.example.com"])(input, init)
     const result = await runSetup<DeployJson>(["deploy", "--no-build", "--no-provision", "--yes", "--json"], root, hosts.env, { fetch: fetchImpl })
 
     expect(result.exitCode, result.stdout + result.stderr).toBe(0)
     expect(result.json.checks).toEqual([
-      { ok: true, path: "/api/_vitehub/health", status: 200, url: "https://my-app.example.workers.dev/api/_vitehub/health" },
+      { ok: true, path: "/_vitehub/health", status: 200, url: "https://my-app.example.workers.dev/_vitehub/health" },
       { ok: true, path: "/", status: 200, url: "https://my-app.example.workers.dev/" },
     ])
     expect(result.json.indexNow).toEqual({ status: 200, submitted: 1 })
@@ -169,7 +169,7 @@ describe("vitehub deploy with deploy.check", () => {
 
     const text = await runSetup(["deploy", "--no-build", "--no-provision", "--no-index-now", "--yes"], root, hosts.env, { fetch: fetchImpl })
     expect(text.exitCode, text.stderr).toBe(0)
-    expect(text.stdout).toContain("Checked /api/_vitehub/health: 200\nChecked /: 200\n")
+    expect(text.stdout).toContain("Checked /_vitehub/health: 200\nChecked /: 200\n")
     expect(site.requests.filter(request => request.path === "/indexnow")).toHaveLength(1)
    }, 30_000)
 
@@ -177,13 +177,13 @@ describe("vitehub deploy with deploy.check", () => {
     const site = await localSite((request, response) => {
       response.writeHead(request.url === "/" ? 200 : 503).end("down")
     })
-    const root = await builtProject("cloudflare", { ...manifest({ check: ["/", "/api/_vitehub/health"], indexNow: { key: "0123456789abcdef0123456789abcdef", url: "https://shop.example.com" } }), ".vitehub/link.json": JSON.stringify(cloudflareLink) })
+    const root = await builtProject("cloudflare", { ...manifest({ check: ["/", "/_vitehub/health"], indexNow: { key: "0123456789abcdef0123456789abcdef", url: "https://shop.example.com" } }), ".vitehub/link.json": JSON.stringify(cloudflareLink) })
     const hosts = await fakeHosts(cloudflareEnv)
     const result = await runSetup<DeployJson>(["deploy", "--no-build", "--no-provision", "--yes", "--json"], root, hosts.env, { fetch: routedFetch(site.origin, ["https://my-app.example.workers.dev"]) })
 
     expect(result.exitCode).toBe(1)
     expect(result.json.error).toMatchObject({ code: "SETUP_DEPLOY_CHECK_FAILED" })
-    expect(result.json.error?.why).toBe("The app is deployed to https://my-app.example.workers.dev, but a `deploy.check` path did not answer with a 2xx status: /api/_vitehub/health: 503.")
+    expect(result.json.error?.why).toBe("The app is deployed to https://my-app.example.workers.dev, but a `deploy.check` path did not answer with a 2xx status: /_vitehub/health: 503.")
     expect(result.json.error?.fix).toContain("Run `npx wrangler rollback bcf48806-b317-4351-9ee7-36e7d557d4de --name my-app --yes` to put the previous deployment back on production.")
     expect(result.json.rollback).toEqual({
       command: "npx wrangler rollback bcf48806-b317-4351-9ee7-36e7d557d4de --name my-app --yes",

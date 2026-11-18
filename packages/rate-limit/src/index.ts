@@ -31,7 +31,6 @@ export type {
   RateLimitRequestEvent,
   RateLimitResetResult,
   RateLimitRuntimeConfig,
-  RateLimitWindow,
   RequireRateLimitOptions,
   ResolvedRateLimitPolicy,
 } from "./types.ts"

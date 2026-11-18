@@ -1,4 +1,4 @@
-import type { Result } from "@vite-hub/runtime"
+import type { Duration, Result } from "@vite-hub/runtime"
 
 export type WorkflowDriver = "cloudflare" | "openworkflow" | "vercel"
 
@@ -276,6 +276,7 @@ export type WorkflowStartArguments<TPayload> = undefined extends TPayload
  * WorkflowHandle return in the `[error, data]` tuple. Config errors throw instead.
  */
 export type WorkflowResultErrorCode =
+  | "RUNTIME_DURATION_INVALID"
   | "WORKFLOW_CLOUDFLARE_RUN_ID_INVALID"
   | "WORKFLOW_OPERATION_UNSUPPORTED"
   | "WORKFLOW_PROVIDER_OPERATION_FAILED"
@@ -293,8 +294,8 @@ export interface WorkflowHandle<TPayload = unknown, TResult = unknown> {
   start: (...args: WorkflowStartArguments<TPayload>) => Promise<Result<WorkflowRun<TPayload, TResult>, WorkflowResultErrorCode>>
 }
 
-/** Milliseconds, a duration such as `"30 minutes"` or `"3 days"`, or a `Date` that the run must not start before. */
-export type WorkflowStartDelay = number | string | Date
+/** A duration such as `"30m"` or `"3 days"`, or a `Date` that the run must not start before. */
+export type WorkflowStartDelay = Duration | Date
 
 export interface WorkflowStartOptions {
   /** Starts the run later. A `Date` in the past starts it now. */
