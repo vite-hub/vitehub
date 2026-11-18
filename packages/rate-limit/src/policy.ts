@@ -1,32 +1,16 @@
-import type { RateLimitPolicy, RateLimitWindow, ResolvedRateLimitPolicy } from "./types.ts"
+import { parseDuration } from "@vite-hub/runtime"
+
+import type { Duration } from "@vite-hub/runtime"
+import type { RateLimitPolicy, ResolvedRateLimitPolicy } from "./types.ts"
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
 export const rateLimitPolicyKeys: ReadonlySet<string> = new Set(["enforcement", "failure", "limit", "window"])
 
-const unitMilliseconds = {
-  d: 86_400_000,
-  h: 3_600_000,
-  m: 60_000,
-  ms: 1,
-  s: 1_000,
-} as const
-
-function parseRateLimitWindow(value: RateLimitWindow): number {
-  const match = /^(\d+(?:\.\d+)?)(ms|s|m|h|d)$/.exec(value)
-  if (!match) {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0031({ message: "[vitehub] Rate Limit window must use a duration such as \"10s\", \"1m\", \"1h\", or \"1d\"." })
+function parseRateLimitWindow(value: Duration): number {
+  const windowMs = Math.ceil(parseDuration(value, "window"))
+  if (windowMs <= 0 || windowMs > 8.64e15) {
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0032({ message: "[vitehub] Rate Limit window must resolve to milliseconds greater than zero and at most 8640000000000000." })
   }
-
-  // SAFETY: The duration regex limits the unit capture to keys in unitMilliseconds.
-  const unitMs = unitMilliseconds[match[2] as keyof typeof unitMilliseconds]
-  const [integer, fraction = ""] = match[1]!.split(".")
-  // Number can round a fraction above the timestamp limit back down to the limit.
-  const fractionalOverflow = Number(integer) === 8.64e15 / unitMs && /[1-9]/.test(fraction)
-  const windowMs = Math.ceil(Number(match[1]) * unitMs)
-  if (!Number.isFinite(windowMs) || windowMs <= 0 || windowMs > 8.64e15 || fractionalOverflow) {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0032({ message: "[vitehub] Rate Limit window must resolve to finite milliseconds greater than zero and at most 8640000000000000." })
-  }
-
   return windowMs
 }
 
@@ -42,7 +26,7 @@ export function normalizeRateLimitPolicy(policy: RateLimitPolicy): ResolvedRateL
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0034({ message: "[vitehub] Rate Limit limit must be a positive integer." })
   }
   if (typeof duration !== "string") {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0031({ message: "[vitehub] Rate Limit window must use a duration such as \"10s\", \"1m\", \"1h\", or \"1d\"." })
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0031({ message: `[vitehub] Rate Limit window must be a duration string such as "10s", "1m", "1h", or "1d", not ${typeof duration === "number" ? `the number ${duration}` : `a ${typeof duration}`}.` })
   }
   if (enforcement !== undefined && enforcement !== "best-effort" && enforcement !== "strict") {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0035({ message: "[vitehub] Rate Limit enforcement must be \"best-effort\" or \"strict\"." })
@@ -55,8 +39,8 @@ export function normalizeRateLimitPolicy(policy: RateLimitPolicy): ResolvedRateL
     enforcement: enforcement ?? "best-effort",
     failure: failure ?? "deny",
     limit,
-    window: duration as RateLimitWindow,
-    windowMs: parseRateLimitWindow(duration as RateLimitWindow),
+    window: duration,
+    windowMs: parseRateLimitWindow(duration),
   }
 }
 

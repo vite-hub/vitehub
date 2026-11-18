@@ -205,7 +205,7 @@ Inline run inspection uses weak references while execution is active. A reachabl
 
 ## Start a run later
 
-Pass `delay` to start the run later. It accepts milliseconds, a duration such as `"30 minutes"` or `"3 days"`, or a `Date` that the run must not start before. A `Date` in the past starts the run now. A negative or unknown value fails with `WORKFLOW_START_DELAY_INVALID`. Use a `Date` for a month or a calendar time. `delay` works with `{ id }`.
+Pass `delay` to start the run later. It accepts a duration such as `"30m"` or `"3 days"`, or a `Date` that the run must not start before. A `Date` in the past starts the run now. A number, a negative value, or an unknown unit fails with `RUNTIME_DURATION_INVALID`, and an invalid `Date` with `WORKFLOW_START_DELAY_INVALID`. Use a `Date` for a month or a calendar time. `delay` works with `{ id }`.
 
 ```ts fragment
 await startWorkflow("send-reminder", { email }, { delay: "3 days", id: `reminder-${userId}` });

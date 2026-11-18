@@ -11,8 +11,10 @@ it("requires input only when the Workflow requires it", () => {
   void required.defer({ message: "hello" }, { id: "job-1" })
   void required.start({ message: "hello" }, { delay: "1 hour", id: "job-2" })
   void required.start({ message: "hello" }, { delay: new Date("2026-12-01T09:00:00Z") })
-  // @ts-expect-error A delay is a number, a duration string, or a Date.
+  // @ts-expect-error A delay is a duration string or a Date.
   void required.start({ message: "hello" }, { delay: true })
+  // @ts-expect-error A delay is a duration string, not a number.
+  void required.start({ message: "hello" }, { delay: 60_000 })
   // @ts-expect-error Required payload cannot be omitted.
   void required.start()
   // @ts-expect-error Required payload cannot be omitted for deferred runs.

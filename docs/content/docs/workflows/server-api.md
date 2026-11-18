@@ -39,7 +39,7 @@ Pass the run id in the options. Use a stable id when the provider accepts your o
 
 ## Start a run later
 
-Pass `delay` to start the run later. Use milliseconds, a duration such as `'30 minutes'` or `'3 days'`, or a `Date` that the run must not start before. A `Date` in the past starts the run now. Durations use ms, seconds, minutes, hours, days, and weeks. Use a `Date` for a month or a calendar time. A negative or unknown value fails with `WORKFLOW_START_DELAY_INVALID`.
+Pass `delay` to start the run later. Use a duration such as `'30m'` or `'3 days'`, or a `Date` that the run must not start before. A `Date` in the past starts the run now. Durations use `ms`, `s`, `m`, `h`, `d`, and `w`, or their long names. Use a `Date` for a month or a calendar time. A number, a negative value, or an unknown unit fails with `RUNTIME_DURATION_INVALID`, and an invalid `Date` with `WORKFLOW_START_DELAY_INVALID`.
 
 ```ts [server/api/signup.post.ts]
 import { defineEventHandler, readBody } from 'h3'

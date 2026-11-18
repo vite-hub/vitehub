@@ -51,7 +51,7 @@ describe("inline runs", () => {
     const seen = inlineWorkflow()
     const startedAt = Date.now()
 
-    const run = await startWorkflow("remind", { to: "ada" }, { delay: 150 })
+    const run = await startWorkflow("remind", { to: "ada" }, { delay: "150ms" })
 
     expect(run.status).toBe("queued")
     await new Promise(resolve => setTimeout(resolve, 50))
@@ -84,17 +84,29 @@ describe("inline runs", () => {
 
   it.each([
     -1,
+    150,
     Number.NaN,
-    Number.POSITIVE_INFINITY,
     "-1 hour",
     "soon",
     "10",
     "1 month",
-    new Date(Number.NaN),
-  ])("rejects the delay %s with a coded error", async (delay) => {
+  ])("rejects the delay %s with RUNTIME_DURATION_INVALID", async (delay) => {
     const seen = inlineWorkflow()
 
-    await expect(startWorkflow("remind", { to: "ada" }, { delay })).rejects.toMatchObject({ code: "WORKFLOW_START_DELAY_INVALID" })
+    await expect(startWorkflow("remind", { to: "ada" }, { delay: delay as never })).rejects.toMatchObject({ code: "RUNTIME_DURATION_INVALID" })
+    expect(seen).toEqual([])
+  })
+
+  it("shows the string form when the delay is a number", async () => {
+    inlineWorkflow()
+
+    await expect(startWorkflow("remind", { to: "ada" }, { delay: 300_000 as never })).rejects.toMatchObject({ fix: expect.stringContaining("\"5m\"") })
+  })
+
+  it.each([new Date(Number.NaN), "300000000000 weeks"])("rejects the delay %s, which a Date cannot hold, with WORKFLOW_START_DELAY_INVALID", async (delay) => {
+    const seen = inlineWorkflow()
+
+    await expect(startWorkflow("remind", { to: "ada" }, { delay: delay as never })).rejects.toMatchObject({ code: "WORKFLOW_START_DELAY_INVALID" })
     expect(seen).toEqual([])
   })
 })

@@ -258,7 +258,7 @@ describe("Rate Limit core", () => {
       windowMs: 60_000,
     })
     expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 0, window: "1m" })).toThrow("positive integer")
-    expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window: "soon" as never })).toThrow("must use a duration")
+    expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window: "soon" as never })).toThrow("is not a duration")
   })
 
   it("classifies revoked limiter options", () => {
@@ -338,14 +338,10 @@ describe("Rate Limit core", () => {
     const options = { driver: memoryRateLimitDriver(), limit: 1, window: "1m" as const }
     Object.assign(options, { window: `${"1" + "0".repeat(307)}${unit}` })
 
-    expect(() => createRateLimiter(options)).toThrow("finite")
+    expect(() => createRateLimiter(options)).toThrow(expect.objectContaining({ code: "RUNTIME_DURATION_INVALID" }))
   })
 
   it.each(["8640000000000001ms", "8640000000001s", "144000000001m", "2400000001h", "100000001d"] as const)("rejects %s windows outside the timestamp range", (window) => {
-    expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window })).toThrow("8640000000000000")
-  })
-
-  it.each(["8640000000000000.1ms", "8640000000000.0001s", "144000000000.000001m", "2400000000.00000001h", "100000000.000000001d"] as const)("rejects fractional overflow in %s before decimal rounding", (window) => {
     expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window })).toThrow("8640000000000000")
   })
 

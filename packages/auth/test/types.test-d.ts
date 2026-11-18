@@ -313,8 +313,9 @@ describe("types", () => {
     // @ts-expect-error a preset comes from a preset function.
     defineAuth({ preset: { name: "custom" } })
 
-    // @ts-expect-error maxAge is seconds or a duration with a unit.
     stateless({ maxAge: "7 days" })
+    // @ts-expect-error maxAge is seconds or a duration with a unit.
+    stateless({ maxAge: "7" })
   })
 });
 

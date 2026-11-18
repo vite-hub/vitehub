@@ -1,6 +1,6 @@
 import type { HostRequestEvent, ViteHubContext } from "@vite-hub/runtime/internal/h3"
 import type { H3Event } from "h3"
-import type { AccessAuthorize, AnonymousAccessAuthorize, Result } from "@vite-hub/runtime"
+import type { AccessAuthorize, AnonymousAccessAuthorize, Duration, Result } from "@vite-hub/runtime"
 
 import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, MediaRecord, MediaUpdate, MediaVariantEntry } from "./media/types.ts"
 
@@ -64,16 +64,23 @@ export type BlobOperation = "copy" | "delete" | "get" | "head" | "list" | "media
  */
 export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_INVALID_CURSOR" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG"
 
+/**
+ * Options of `blob.sign()`. `expiresIn` is how long the link works: a whole number of seconds, or a duration such as
+ * `"15m"`.
+ */
 export type BlobSignOptions =
-  | { expiresIn: number, method: "GET" }
+  | { expiresIn: number | Duration, method: "GET" }
   | {
     contentType?: string
     createOnly?: boolean
-    expiresIn: number
+    expiresIn: number | Duration
     /** The largest body that the upload accepts, such as `"8MB"`. Only the `fs` and `vercel` drivers bind it. */
     maxSize?: BlobSize
     method: "PUT"
   }
+
+/** What a driver's `sign()` gets: `expiresIn` is always whole seconds. */
+export type BlobDriverSignOptions = BlobSignOptions & { expiresIn: number }
 
 export interface BlobSignedRequest {
   headers: Record<string, string>
@@ -148,7 +155,7 @@ export interface BlobDriverAdapter<TOptions> {
   put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobObject>
   resumeMultipartUpload?(pathname: string, uploadId: string): Promise<BlobDriverMultipartUpload>
   /** `store` names the Blob Store, for a driver that signs links to the app itself. */
-  sign?(pathname: string, options: BlobSignOptions, context: { store: string }): Promise<BlobSignedRequest>
+  sign?(pathname: string, options: BlobDriverSignOptions, context: { store: string }): Promise<BlobSignedRequest>
 }
 
 /**

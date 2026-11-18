@@ -212,7 +212,18 @@ describe("signed Blob requests", () => {
     const driver = { ...createUnsignedDriver(), sign: vi.fn() }
     const storage = createBlobStorage(driver)
 
-    await expect(storage.sign("source.mp3", { expiresIn: 0, method: "GET" })).rejects.toThrow("`expiresIn` must be a positive integer.")
+    await expect(storage.sign("source.mp3", { expiresIn: 0, method: "GET" })).rejects.toThrow("`expiresIn` must be a positive whole number of seconds")
+    await expect(storage.sign("source.mp3", { expiresIn: "1500ms", method: "GET" })).rejects.toMatchObject({ code: "BLOB_R0024" })
+    await expect(storage.sign("source.mp3", { expiresIn: "soon" as never, method: "GET" })).rejects.toMatchObject({ code: "RUNTIME_DURATION_INVALID" })
     expect(driver.sign).not.toHaveBeenCalled()
+  })
+
+  it("gives the driver a duration as whole seconds", async () => {
+    const driver = { ...createUnsignedDriver(), sign: vi.fn(async () => ({ headers: {}, method: "GET" as const, url: "https://example.com/source.mp3" })) }
+    const storage = createBlobStorage(driver)
+
+    await storage.sign("source.mp3", { expiresIn: "15m", method: "GET" })
+
+    expect(driver.sign).toHaveBeenCalledWith("source.mp3", { expiresIn: 900, method: "GET" }, expect.anything())
   })
 })
