@@ -8,7 +8,7 @@ import type { ConsoleProjectBuild } from "../client/project-link";
 import { consoleAccountViewsKey } from "../client/account-views";
 import { checkConsoleAccountProject, earlyConsoleSignInState, earlyConsoleTeam } from "../client/account";
 import { useConsoleApp } from "../client/app-identity";
-import { canManageConsoleProjects, consoleProjectDisplayName, openConsoleProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
+import { canManageConsoleProjects, consoleProjectDisplayName, openConsoleProject, rememberConsoleProjectName, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { closeConsoleSidebarDrawer, consoleSidebarDrawer } from "../client/sidebar";
 import ConsoleAccountHome from "./console-account-home.vue";
 import ConsoleAccountLink from "./console-account-link.vue";
@@ -133,6 +133,7 @@ onMounted(() => {
     void checkConsoleAccountProject(app.id).then(
       (result) => {
         status[app.id] = result.status;
+        rememberConsoleProjectName(app.id, result.name);
         if (result.build) builds[app.id] = result.build;
       },
       () => { status[app.id] = "unreachable"; },

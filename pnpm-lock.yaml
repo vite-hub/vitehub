@@ -2017,24 +2017,6 @@ importers:
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
-      '@tiptap/core':
-        specifier: catalog:realtime
-        version: 3.31.4(@tiptap/pm@3.31.4)
-      '@tiptap/extension-image':
-        specifier: catalog:realtime
-        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))
-      '@tiptap/extension-list':
-        specifier: catalog:realtime
-        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
-      '@tiptap/extension-table':
-        specifier: catalog:realtime
-        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
-      '@tiptap/pm':
-        specifier: catalog:realtime
-        version: 3.31.4
-      '@tiptap/starter-kit':
-        specifier: catalog:realtime
-        version: 3.31.4
       '@valibot/to-json-schema':
         specifier: catalog:runtime
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
@@ -2078,6 +2060,24 @@ importers:
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
+      '@tiptap/core':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/pm@3.31.4)
+      '@tiptap/extension-image':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))
+      '@tiptap/extension-list':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
+      '@tiptap/extension-table':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
+      '@tiptap/pm':
+        specifier: catalog:realtime
+        version: 3.31.4
+      '@tiptap/starter-kit':
+        specifier: catalog:realtime
+        version: 3.31.4
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
@@ -3300,36 +3300,9 @@ importers:
 
   packages/realtime:
     dependencies:
-      '@tiptap/core':
-        specifier: catalog:realtime
-        version: 3.31.4(@tiptap/pm@3.31.4)
-      '@tiptap/extension-blockquote':
-        specifier: catalog:realtime
-        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
-      '@tiptap/extension-code':
-        specifier: catalog:realtime
-        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))
       '@tiptap/extension-collaboration':
         specifier: catalog:realtime
         version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(@tiptap/y-tiptap@3.0.9(prosemirror-model@1.25.12)(prosemirror-state@1.4.4)(prosemirror-view@1.42.6)(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33))(yjs@13.6.33)
-      '@tiptap/extension-document':
-        specifier: catalog:realtime
-        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))
-      '@tiptap/extension-image':
-        specifier: catalog:realtime
-        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))
-      '@tiptap/extension-table':
-        specifier: catalog:realtime
-        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
-      '@tiptap/markdown':
-        specifier: catalog:realtime
-        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
-      '@tiptap/pm':
-        specifier: catalog:realtime
-        version: 3.31.4
-      '@tiptap/starter-kit':
-        specifier: catalog:realtime
-        version: 3.31.4
       '@tiptap/y-tiptap':
         specifier: catalog:realtime
         version: 3.0.9(prosemirror-model@1.25.12)(prosemirror-state@1.4.4)(prosemirror-view@1.42.6)(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33)
@@ -3381,10 +3354,34 @@ importers:
       y-websocket:
         specifier: catalog:realtime
         version: 3.1.0(yjs@13.6.33)
-      yjs:
-        specifier: catalog:realtime
-        version: 13.6.33
     devDependencies:
+      '@tiptap/core':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/pm@3.31.4)
+      '@tiptap/extension-blockquote':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
+      '@tiptap/extension-code':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))
+      '@tiptap/extension-document':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))
+      '@tiptap/extension-image':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))
+      '@tiptap/extension-table':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
+      '@tiptap/markdown':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
+      '@tiptap/pm':
+        specifier: catalog:realtime
+        version: 3.31.4
+      '@tiptap/starter-kit':
+        specifier: catalog:realtime
+        version: 3.31.4
       '@types/json-schema':
         specifier: catalog:ai
         version: 7.0.15
@@ -3427,6 +3424,9 @@ importers:
       vue:
         specifier: 3.5.44
         version: 3.5.44(typescript@6.0.3)
+      yjs:
+        specifier: catalog:realtime
+        version: 13.6.33
 
   packages/runtime:
     dependencies:
@@ -4429,12 +4429,18 @@ importers:
 
   packages/webhooks:
     dependencies:
+      '@standard-schema/spec':
+        specifier: catalog:runtime
+        version: 1.1.0
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      valibot:
+        specifier: catalog:runtime
+        version: 1.5.0(typescript@6.0.3)
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'

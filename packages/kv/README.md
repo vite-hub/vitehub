@@ -126,7 +126,7 @@ Only the drivers in `KVDriversWith<"deleteIfEquals">` (`redis`, `database`, `ups
 
 ## Read-only handles
 
-`kv.store(name, { mode: "read" })` returns a `ReadonlyKVStorage` handle with `get()`, `has()`, `keys()`, and `list()`. Write methods are a type error and absent at runtime. `mode` defaults to `"write"`, and another value throws `KV_INVALID_STORE_MODE`.
+`kv.store(name, { mode: "read" })` returns a `ReadonlyKVStorage` handle with `get()`, `getMany()`, `has()`, `keys()`, and `list()`. Write methods are a type error and absent at runtime. `mode` defaults to `"write"`, and another value throws `KV_INVALID_STORE_MODE`.
 
 ```ts
 import { kv } from "@vite-hub/kv"

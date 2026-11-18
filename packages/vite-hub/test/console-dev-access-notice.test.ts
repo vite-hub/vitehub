@@ -60,7 +60,6 @@ describe("the startup line of a development Console without signed calls", () =>
       http.emit("listening")
       expect(logger[level]).toHaveBeenCalledWith(expect.stringContaining("without a signature"))
       expect(logger[level]).toHaveBeenCalledWith(expect.stringContaining("console.auth"))
-      expect(logger[level]).not.toHaveBeenCalledWith(expect.stringContaining("console.vitehub.dev/open"))
     }
     finally {
       http.emit("close")

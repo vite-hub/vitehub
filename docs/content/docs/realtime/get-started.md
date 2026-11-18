@@ -24,6 +24,8 @@ Add Realtime, Workspace, the TipTap editor for Vue, and Drizzle to your app. Rea
 pnpm add @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3 drizzle-orm@1.0.0-rc.5
 ```
 
+Realtime uses the Tiptap and Yjs of your app, so the editor and your Tiptap components share one copy. pnpm and npm install them with Realtime. When you pin Tiptap, use 3.31.4 or later, the same version for every `@tiptap/*` package.
+
 Then add `realtime` and `workspace` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other options of your app. In Vite, also keep the Vue plugin.
 
 :::tabs{sync="framework"}

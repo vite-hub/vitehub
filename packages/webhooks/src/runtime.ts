@@ -58,6 +58,8 @@ export interface WebhookInfo {
   /** Whether this server has a value for `url` and for `secret`. */
   urlSet: boolean
   secretSet: boolean
+  /** The host of the URL, such as `t3.example.com`, when it is set and valid. Never the path or the query, which can hold a token. */
+  host: string | null
 }
 
 /** What `sendWebhook()` returns. `id` is the delivery: sends that a debounce collapses return the same id. */
@@ -152,8 +154,8 @@ async function wake(installed: InstalledWebhooks, delivery: { id: string, revisi
   }
 }
 
-/** Sends a body to a webhook. `sendWebhook()` of `@vite-hub/webhooks` calls it with a typed name. */
-export async function sendDynamicWebhook(name: string, body: unknown, options: { event: string, key?: string }): Promise<Result<SendWebhookResult, SendWebhookErrorCode>> {
+/** Stores a delivery of `body` and wakes the Queue after `delayMs`. A `null` key never collapses with another send. */
+async function enqueue(name: string, body: unknown, options: { event: string, key: string | null, delayMs: number }): Promise<Result<SendWebhookResult, SendWebhookErrorCode>> {
   const installed = requireInstalled()
   const definition = installed.webhooks.get(name)
   if (!definition) throw webhooksErrors.WEBHOOKS_NOT_FOUND({ name: JSON.stringify(name) })
@@ -173,10 +175,10 @@ export async function sendDynamicWebhook(name: string, body: unknown, options: {
     recorded = await installed.store.record({
       id: createDeliveryId(),
       webhook: name,
-      key: definition.debounceMs > 0 ? options.key ?? name : null,
+      key: options.key,
       event: options.event,
       body: text,
-      dueAt: now + definition.debounceMs,
+      dueAt: now + options.delayMs,
       now,
     })
   }
@@ -184,9 +186,27 @@ export async function sendDynamicWebhook(name: string, body: unknown, options: {
     if (webhooksErrors.WEBHOOKS_STORE_FAILED.is(error) || webhooksErrors.WEBHOOKS_DATABASE_MISSING.is(error)) return [error, undefined]
     throw error
   }
-  const wakeError = await wake(installed, { ...recorded, webhook: name }, definition.debounceMs)
+  const wakeError = await wake(installed, { ...recorded, webhook: name }, options.delayMs)
   if (wakeError) return [wakeError, undefined]
   return [undefined, { id: recorded.id, status: "pending" }]
+}
+
+/** Sends a body to a webhook. `sendWebhook()` of `@vite-hub/webhooks` calls it with a typed name. */
+export async function sendDynamicWebhook(name: string, body: unknown, options: { event: string, key?: string }): Promise<Result<SendWebhookResult, SendWebhookErrorCode>> {
+  const debounceMs = requireInstalled().webhooks.get(name)?.debounceMs ?? 0
+  return enqueue(name, body, { event: options.event, key: debounceMs > 0 ? options.key ?? name : null, delayMs: debounceMs })
+}
+
+/** The event of a test delivery. */
+export const webhookTestEvent = "webhooks.test"
+
+/**
+ * Sends a test delivery to a webhook now, without its debounce and apart from the pending sends, with the event
+ * `webhooks.test`. Use it to check the URL, the secret, and the receiver. The default body is
+ * `{ test: true, webhook: name }`. An unknown name throws.
+ */
+export async function testWebhook(name: string, options: { body?: unknown } = {}): Promise<Result<SendWebhookResult, SendWebhookErrorCode>> {
+  return enqueue(name, options.body === undefined ? { test: true, webhook: name } : options.body, { event: webhookTestEvent, key: null, delayMs: 0 })
 }
 
 function isWake(value: unknown): value is WebhookWake {
@@ -304,15 +324,19 @@ async function attempt<T>(run: (installed: InstalledWebhooks) => Promise<T>): Pr
 export function listWebhooks(): WebhookInfo[] {
   const installed = requireInstalled()
   const env = serverEnv()
-  return [...installed.webhooks].sort(([left], [right]) => left.localeCompare(right)).map(([name, definition]) => ({
-    name,
-    url: definition.url,
-    secret: definition.secret,
-    signature: definition.signature,
-    debounceMs: definition.debounceMs,
-    urlSet: readString(env, definition.url) !== undefined,
-    secretSet: readString(env, definition.secret) !== undefined,
-  }))
+  return [...installed.webhooks].sort(([left], [right]) => left.localeCompare(right)).map(([name, definition]) => {
+    const url = readString(env, definition.url)
+    return {
+      name,
+      url: definition.url,
+      secret: definition.secret,
+      signature: definition.signature,
+      debounceMs: definition.debounceMs,
+      urlSet: url !== undefined,
+      secretSet: readString(env, definition.secret) !== undefined,
+      host: url !== undefined && URL.canParse(url) ? new URL(url).host || null : null,
+    }
+  })
 }
 
 /** Deliveries, newest first. */
