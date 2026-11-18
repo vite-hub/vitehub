@@ -42,7 +42,8 @@ The report lists what it cannot change:
 - Schedule options that are not an object literal. The codemod spreads them into the object.
 - Sandbox Task options that are not an object literal.
 - Workflow handlers with parameters that it cannot rewrite, such as a rest parameter.
-- Workflow handlers that a name references, such as `defineWorkflow("onboard-user", onboard)`. The codemod wraps them: `({ payload, ...context }) => onboard(payload, context)`.
+- Referenced Workflow handlers. The codemod wraps a local handler when it can determine its parameters. It leaves other references and ambiguous `createWorkflow()` handlers for manual review.
+- Workflow option expressions and spreads. Make the options explicit and remove the old `id` option.
 - Dynamic imports of `server/content.ts`.
 - Helper files left in `server/databases/` that the new discovery reads as Databases.
 - Lines in `package.json` and host config files that name the former Database paths.
@@ -103,7 +104,7 @@ The codemod reads imports from `vite-hub/queue`, `vite-hub/workflow`, and their 
 
 ## result-tuples
 
-`startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, and `resumeWorkflow()` return `[error, data]` now, as `sendQueue()` does. They threw before. The `start()`, `getRun()`, and `cancel()` methods of a `createWorkflow()` handle changed in the same way. `result-tuples` reads each call as a Result that throws the error, so the code keeps its behavior:
+`startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, and `runSchedule()` return `[error, data]` now, as `sendQueue()` does. They threw before. The `start()`, `getRun()`, and `cancel()` methods of a `createWorkflow()` handle changed in the same way. `result-tuples` reads each call as a Result that throws the error, so the code keeps its behavior:
 
 ```bash [Terminal]
 npx @vite-hub/codemods result-tuples [dir] [--dry-run]
@@ -119,7 +120,7 @@ npx @vite-hub/codemods result-tuples [dir] [--dry-run]
  })
 ```
 
-`return startWorkflow(...)` in an async function and a call in an `if` test move to a `const` before the statement. The codemod reads imports from `vite-hub/workflow` and `@vite-hub/workflow`, and the Nuxt auto-imports in `server/`. The report lists the calls that it cannot change, such as a call in a function that is not `async`, a call without `await`, or a handle that another file creates.
+`return startWorkflow(...)` in an async function and a call in an `if` test move to a `const` before the statement. The codemod reads imports from `vite-hub/workflow`, `vite-hub/schedule`, and their `@vite-hub/*` forms. In Nuxt's `server/` directory, it also reads Workflow auto-imports. It only rewrites `runSchedule()` with a Schedule import, so it leaves app auto-imports with the same name alone. The report lists the calls that it cannot change, such as a call in a function that is not `async`, a call without `await`, or a handle that another file creates.
 
 ## one-entry-imports
 

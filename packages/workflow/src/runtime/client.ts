@@ -19,6 +19,7 @@ import type { ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDefinition
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 const resultErrorCodes: ReadonlySet<string> = new Set<WorkflowResultErrorCode>([
+  "RUNTIME_DURATION_INVALID",
   "WORKFLOW_CLOUDFLARE_RUN_ID_INVALID",
   "WORKFLOW_OPERATION_UNSUPPORTED",
   "WORKFLOW_PROVIDER_OPERATION_FAILED",
@@ -221,12 +222,16 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
  * A provider failure, an unsupported option, or an invalid `delay` is `error`. Config errors, for example an unknown
  * Workflow name, throw.
  */
-export async function startWorkflow<TName extends WorkflowName>(
-  name: TName,
-  ...[payload, options = {}]: WorkflowStartArguments<NoInfer<WorkflowPayload<TName>>>
-): Promise<Result<WorkflowRun<WorkflowPayload<TName>, unknown>, WorkflowResultErrorCode>> {
+export function startWorkflow<TArgs extends WorkflowStartCall>(
+  ...args: TArgs
+): Promise<Result<WorkflowRun<WorkflowPayload<TArgs[0]>, unknown>, WorkflowResultErrorCode>>
+export async function startWorkflow(name: string, payload?: unknown, options: WorkflowStartOptions = {}): Promise<Result<WorkflowRun, WorkflowResultErrorCode>> {
   return await toWorkflowResult(() => startWorkflowRun(name, payload, options))
 }
+
+type WorkflowStartCall = {
+  [TName in WorkflowName]: [name: TName, ...WorkflowStartArguments<WorkflowPayload<TName>>]
+}[WorkflowName]
 
 async function startWorkflowRun<TPayload>(
   name: string,
@@ -328,9 +333,6 @@ function deferWorkflowStart(name: string, start: () => Promise<unknown>): void {
  * Starts a run after the response, through `waitUntil`. It returns nothing: a failure goes to the log.
  * Call `startWorkflow()` when the caller needs the run ID or the start error.
  */
-export function deferWorkflow<TName extends WorkflowName>(
-  name: TName,
-  ...[payload, options = {}]: WorkflowStartArguments<NoInfer<WorkflowPayload<TName>>>
-): void {
+export function deferWorkflow(...[name, payload, options = {}]: WorkflowStartCall): void {
   deferWorkflowStart(name, () => startWorkflowRun(name, payload, options, true))
 }

@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { NonRetryableError as ViteHubNonRetryableError } from "../src/errors.ts"
 import { writeProviderEntries } from "../src/internal/vite-build.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
-import type { WorkflowDefinitionRegistry, WorkflowProviderStep } from "../src/types.ts"
+import type { WorkflowDefinitionRegistry, WorkflowProviderStep, WorkflowStepOptions } from "../src/types.ts"
 
 let rootDir: string
 let generatedCode: string
@@ -77,7 +77,7 @@ it("loads without cloudflare:workflows, as the Node.js prerender build of a Nuxt
 })
 
 const boundaries = ["root", "root step", "explicit step"] as const
-const stepOptions = { retries: { limit: 2, delay: "1 second" } }
+const stepOptions = { retries: { limit: 2, delay: "1 second" } } satisfies WorkflowStepOptions
 
 function createRegistry(boundary: typeof boundaries[number], original: unknown): WorkflowDefinitionRegistry {
   return {
@@ -141,7 +141,8 @@ describe("generated Cloudflare Workflow errors", () => {
     }
     else {
       expect(caught).toHaveBeenCalledExactlyOnceWith(converted)
-      if (boundary === "explicit step") expect(step.do).toHaveBeenCalledWith("validate", stepOptions, expect.any(Function))
+      // ViteHub fills in the default backoff, so Cloudflare uses the ViteHub policy and not its own defaults.
+      if (boundary === "explicit step") expect(step.do).toHaveBeenCalledWith("validate", { retries: { ...stepOptions.retries, backoff: "exponential" } }, expect.any(Function))
     }
   })
 

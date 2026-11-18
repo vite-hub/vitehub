@@ -1,4 +1,4 @@
-import type { Result } from "@vite-hub/runtime"
+import type { Duration, Result } from "@vite-hub/runtime"
 
 export type WorkflowDriver = "cloudflare" | "openworkflow" | "vercel"
 
@@ -137,15 +137,34 @@ export interface WorkflowRunStep {
   status: WorkflowRunStatus
 }
 
-export interface WorkflowStepOptions {
-  retries?: {
-    backoff?: string
-    delay?: string
-    limit?: number
-  }
+/** How the wait between retries grows: `exponential` doubles it after each retry, `constant` keeps it. */
+export type WorkflowStepBackoff = "constant" | "exponential"
+
+/** When a step runs again after it throws. The defaults are `{ limit: 3, delay: '10 seconds', backoff: 'exponential' }`. */
+export interface WorkflowStepRetries {
+  backoff?: WorkflowStepBackoff
+  /** How long to wait before the first retry. */
+  delay?: WorkflowDuration
+  /** How many times to run the step again after the first attempt fails. `0` runs it once. */
+  limit?: number
 }
 
-export type WorkflowStepFunction<TInput = unknown, TResult = unknown> = (input: TInput) => TResult | Promise<TResult>
+/**
+ * The options of one step. A step file exports them as `retries` and `timeout`. `timeout` is the time limit of one
+ * attempt: when it passes, the step's `signal` aborts and the attempt fails with `WORKFLOW_STEP_TIMEOUT`.
+ */
+export interface WorkflowStepOptions {
+  retries?: WorkflowStepRetries
+  timeout?: WorkflowDuration
+}
+
+/** The second argument of a step function. */
+export interface WorkflowStepContext {
+  /** Aborts when the `timeout` of the step passes. Pass it to `fetch()` and other calls that take a signal. */
+  signal: AbortSignal
+}
+
+export type WorkflowStepFunction<TInput = unknown, TResult = unknown> = (input: TInput, context: WorkflowStepContext) => TResult | Promise<TResult>
 
 export interface WorkflowProviderStep {
   do?: <TResult>(
@@ -194,19 +213,18 @@ export type WorkflowStep<TStep> = TStep extends (...args: infer TArguments) => i
   ? (...input: TArguments extends [] ? [] : TArguments extends [unknown, ...unknown[]] ? [input: TArguments[0]] : [input?: TArguments[0]]) => Promise<Awaited<TResult>>
   : never
 
-type WorkflowStepsOf<TName extends keyof WorkflowStepRegistry> = {
-  readonly [TStep in keyof WorkflowStepRegistry[TName]]: WorkflowStep<WorkflowStepRegistry[TName][TStep]>
-}
+type StepsInFolder<TFolder> = TFolder extends unknown ? keyof TFolder : never
+type StepInFolder<TFolder, TStep> = TFolder extends unknown ? TStep extends keyof TFolder ? WorkflowStep<TFolder[TStep]> : never : never
+type WorkflowStepFolders = WorkflowStepRegistry[keyof WorkflowStepRegistry]
 
 /**
  * The step functions of the folder Workflows. A definition does not name its Workflow, so `steps` has the steps of
- * every folder Workflow: a step name that no folder has is a type error. At runtime, a Workflow gets only its own steps.
+ * every folder Workflow: a step name that no folder has is a type error. A shared step name accepts only inputs
+ * valid for all its implementations and returns any of their results. At runtime, a Workflow gets only its own steps.
  */
-export type WorkflowSteps = [keyof WorkflowStepRegistry] extends [never]
-  ? { readonly [TStep in never]: never }
-  : { [TName in keyof WorkflowStepRegistry]: (steps: WorkflowStepsOf<TName>) => void }[keyof WorkflowStepRegistry] extends (steps: infer TSteps) => void
-    ? TSteps
-    : never
+export type WorkflowSteps = {
+  readonly [TStep in StepsInFolder<WorkflowStepFolders>]: StepInFolder<WorkflowStepFolders, TStep>
+}
 
 /** Run data that a provider gives to ViteHub before ViteHub adds the step runner. */
 export interface WorkflowProviderContext<TPayload = unknown> {
@@ -279,6 +297,7 @@ export type WorkflowStartArguments<TPayload> = undefined extends TPayload
  * WorkflowHandle return in the `[error, data]` tuple. Config errors throw instead.
  */
 export type WorkflowResultErrorCode =
+  | "RUNTIME_DURATION_INVALID"
   | "WORKFLOW_CLOUDFLARE_RUN_ID_INVALID"
   | "WORKFLOW_OPERATION_UNSUPPORTED"
   | "WORKFLOW_PROVIDER_OPERATION_FAILED"
@@ -296,8 +315,8 @@ export interface WorkflowHandle<TPayload = unknown, TResult = unknown> {
   start: (...args: WorkflowStartArguments<TPayload>) => Promise<Result<WorkflowRun<TPayload, TResult>, WorkflowResultErrorCode>>
 }
 
-/** Milliseconds, a duration such as `"30 minutes"` or `"3 days"`, or a `Date` that the run must not start before. */
-export type WorkflowStartDelay = number | string | Date
+/** A duration such as `"30m"` or `"3 days"`, or a `Date` that the run must not start before. */
+export type WorkflowStartDelay = Duration | Date
 
 export interface WorkflowStartOptions {
   /** Starts the run later. A `Date` in the past starts it now. */

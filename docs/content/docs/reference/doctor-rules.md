@@ -161,6 +161,7 @@ The rule checks these calls:
 - `email.send()` from `vite-hub/email`
 - `sendQueue()`, `dynamicQueue.send()`, and `send()` and `sendBatch()` of a client from `useQueue()`
 - `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, and `resumeWorkflow()` from `vite-hub/workflow`
+- `runSchedule()` from `vite-hub/schedule`
 - `send()` of a Channel from `useChannel()` or `createChannel()`
 - `callMcpTool()` from `vite-hub/agent/mcp`
 - `enqueueChannelTask()` and `cancelChannelTask()` from `vite-hub/agent/server`
@@ -711,7 +712,6 @@ Code destructures `[error, value]` from an API that returns no tuple:
 
 - `useQueue()` returns the client and throws on failure.
 - `deferWorkflow()` returns `void` and logs start failures.
-- `runSchedule()` returns a Schedule Run record. A failed handler resolves with `status: "failed"`.
 - `runSandboxTask()` and `runBrowser()` return a Web `Response`, which is not iterable.
 
 ```ts [server/api/welcome.post.ts] fragment
@@ -724,7 +724,7 @@ const [error, queue] = await useQueue('welcome-email')
 const queue = await useQueue('welcome-email')
 ```
 
-The rule skips the calls that return `[error, value]`, such as `startWorkflow()`, `runAgent()`, and `streamAgent()`.
+The rule skips the calls that return `[error, value]`, such as `startWorkflow()`, `runSchedule()`, `runAgent()`, and `streamAgent()`.
 
 ## VHUB0019
 

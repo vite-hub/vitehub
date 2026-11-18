@@ -31,7 +31,7 @@ describe("managed Rate Limit guard", () => {
 
     await expect(requireRateLimit(event, "", { limit: 1, window: "1m" })).rejects.toThrow("non-empty stable ID")
     await expect(requireRateLimit(event, "uploads", { limit: 0, window: "1m" })).rejects.toThrow("positive integer")
-    await expect(requireRateLimit(event, "uploads", { limit: 1, window: "soon" as never })).rejects.toThrow("must use a duration")
+    await expect(requireRateLimit(event, "uploads", { limit: 1, window: "soon" as never })).rejects.toThrow("is not a duration")
     await expect(requireRateLimit(event, "uploads", { limit: 1, window: "1m", extra: true } as never)).rejects.toThrow("does not support")
     await expect(requireRateLimit(event, "uploads", { key: "", limit: 1, window: "1m" })).rejects.toThrow("non-empty string")
   })
@@ -217,6 +217,16 @@ describe("managed Rate Limit guard", () => {
     expect(limited.headers?.get("Retry-After")).toBe("30")
     await expect(checkRateLimit(request, "request-checks", { limit: 1, window: "1m" }))
       .resolves.toMatchObject([{ code: "RATE_LIMIT_R0013" }, undefined])
+  })
+
+  it("shares a budget across equivalent decimal windows", async () => {
+    const request = new Request("https://example.com/upload")
+    vi.spyOn(Date, "now").mockReturnValue(30_000)
+
+    await expect(checkRateLimit(request, "decimal-window", { key: "user", limit: 1, window: "2.007 seconds" }))
+      .resolves.toMatchObject([undefined, { allowed: true }])
+    await expect(checkRateLimit(request, "decimal-window", { key: "user", limit: 1, window: "2007ms" }))
+      .resolves.toMatchObject([undefined, { allowed: false }])
   })
 
   it("reads the Cloudflare address header and the active bindings for a Web Request", async () => {

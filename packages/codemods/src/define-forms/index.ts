@@ -141,11 +141,13 @@ async function detectFormerForm(cwd: string): Promise<string | undefined> {
   for (const file of sources) {
     if (!/defineSchedule|defineSandboxTask|defineWorkflow|createWorkflow/.test(file.code) && !contentFiles.has(file.path)) continue
     const counts: Counts = { schedules: 0, sandboxTasks: 0, contentFiles: 0, contentImports: 0, workflows: 0 }
-    rewriteCode(file, contentFiles, counts, [])
+    const followUps: FollowUp[] = []
+    rewriteCode(file, contentFiles, counts, followUps)
     if (counts.schedules) return `${file.path} calls defineSchedule(cron, handler)`
     if (counts.sandboxTasks) return `${file.path} passes \`run\` to defineSandboxTask()`
     if (counts.contentFiles) return `${file.path} exports \`content\` by name`
     if (counts.workflows) return `${file.path} calls defineWorkflow(name, handler) or passes a (payload, context) Workflow handler`
+    if (followUps.some(({ message }) => /Workflow handler|Workflow options|`(?:define|create)Workflow\(/.test(message))) return `${file.path} has Workflow definitions to review`
   }
   return undefined
 }

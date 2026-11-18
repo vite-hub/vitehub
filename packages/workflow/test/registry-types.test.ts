@@ -70,9 +70,15 @@ describe("generated Workflow types", () => {
       await writeFile(join(root, "package.json"), JSON.stringify({ type: "module" }))
       const onboard = join(root, "server/workflows/onboard-user/index.ts")
       const cleanup = join(root, "server/workflows/cleanup.ts")
+      const named = join(root, "server/workflows/named.ts")
+      const phone = join(root, "server/workflows/phone.ts")
       const step = join(root, "server/workflows/digest/1.collect.ts")
       const onboardSteps = ["01.create-user.ts", "02.send-welcome.ts"].map(file => resolve(import.meta.dirname, "fixtures/onboard-user", file))
       await mkdir(join(root, "server/workflows/onboard-user"), { recursive: true })
+      const alphaSend = join(root, "server/workflows/onboard-user/03.send.ts")
+      const betaSend = join(root, "server/workflows/digest/02.send.ts")
+      await writeFile(alphaSend, "export default (input: string) => input.length\n")
+      await writeFile(betaSend, "export default (input: string) => input.toUpperCase()\n")
       await writeFile(onboard, [
         `import { defineWorkflow } from "${importBase}"`,
         "export default defineWorkflow<{ email: string }>({",
@@ -83,18 +89,25 @@ describe("generated Workflow types", () => {
         "    await steps.createUser({ name: id })",
         "    // @ts-expect-error No folder Workflow has a `chargeCard` step file.",
         "    await steps.chargeCard(payload)",
+        '    const sent: string | number = await steps.send("hello")',
+        "    // @ts-expect-error Another folder's step can return a string.",
+        "    sent.toFixed()",
         "    return await steps.sendWelcome(user)",
         "  },",
         "})",
       ].join("\n"))
       await writeFile(cleanup, `import { defineWorkflow } from "${importBase}"\nexport default defineWorkflow({ handler: async () => "done" })\n`)
+      await writeFile(named, `import { createWorkflow } from "${importBase}"\nexport const workflow = createWorkflow("named", async () => "done")\n`)
+      await writeFile(phone, `import { defineWorkflow } from "${importBase}"\nexport default defineWorkflow<{ phone: string }>({ handler: ({ payload }) => payload.phone })\n`)
       await writeFile(step, "export default (input: unknown) => input\n")
       const declaration = join(root, ".vitehub/workflow.d.ts")
       await mkdir(join(root, ".vitehub"), { recursive: true })
       await writeFile(declaration, createWorkflowTypes(declaration, [
         { handler: cleanup, name: "cleanup" },
-        { handler: join(root, "server/workflows/digest"), name: "digest", steps: [step] },
-        { handler: onboard, name: "onboard-user", steps: onboardSteps },
+        { handler: join(root, "server/workflows/digest"), name: "digest", steps: [step, betaSend] },
+        { handler: onboard, name: "onboard-user", steps: [...onboardSteps, alphaSend] },
+        { handler: named, name: "named" },
+        { handler: phone, name: "phone" },
       ], importBase))
       const entry = join(root, "server/start.ts")
       await writeFile(entry, [
@@ -102,7 +115,21 @@ describe("generated Workflow types", () => {
         'await startWorkflow("onboard-user", { email: "ada@example.com" })',
         'deferWorkflow("onboard-user", { email: "ada@example.com" }, { delay: "1 hour" })',
         'await startWorkflow("cleanup")',
+        'await startWorkflow("named", { any: "input" })',
         'await startWorkflow("digest", { any: "input" })',
+        'declare const optionalName: "onboard-user" | "cleanup"',
+        'declare const differentName: "onboard-user" | "phone"',
+        "// @ts-expect-error The runtime name may require a payload.",
+        "await startWorkflow(optionalName)",
+        "// @ts-expect-error The runtime name may require a payload.",
+        "deferWorkflow(optionalName)",
+        "// @ts-expect-error The runtime name may require a phone instead.",
+        'await startWorkflow(differentName, { email: "ada@example.com" })',
+        "// @ts-expect-error The runtime name may require a phone instead.",
+        'deferWorkflow(differentName, { email: "ada@example.com" })',
+        'declare const correlated: ["onboard-user", { email: string }] | ["phone", { phone: string }]',
+        "await startWorkflow(...correlated)",
+        "deferWorkflow(...correlated)",
         "// @ts-expect-error The payload of onboard-user has `email`.",
         'await startWorkflow("onboard-user", { name: "Ada" })',
         "// @ts-expect-error onboard-user requires a payload.",
@@ -138,8 +165,8 @@ describe("generated Workflow types", () => {
       "import \"vite-hub/workflow\"",
       "declare module \"vite-hub/workflow\" {",
       "  interface WorkflowRegistry {",
-      "    \"onboard-user\": typeof import(\"../server/workflows/onboard-user/index.ts\").default",
-      "    \"cleanup\": typeof import(\"../server/workflows/cleanup.ts\").default",
+      "    \"onboard-user\": typeof import(\"../server/workflows/onboard-user/index.ts\") extends { default: infer TDefault } ? TDefault : unknown",
+      "    \"cleanup\": typeof import(\"../server/workflows/cleanup.ts\") extends { default: infer TDefault } ? TDefault : unknown",
       "    \"digest\": import(\"vite-hub/workflow\").WorkflowDefinition<unknown>",
       "  }",
       "  interface WorkflowStepRegistry {",

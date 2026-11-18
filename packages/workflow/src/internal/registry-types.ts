@@ -24,9 +24,10 @@ export function createWorkflowTypes(file: string, definitions: DiscoveredWorkflo
   const registryEntries = definitions.flatMap((definition) => {
     // A folder of step files without `index.ts` passes each step result to the next step, so its payload is unknown.
     if (!sourceFilePattern.test(definition.handler)) return [`    ${JSON.stringify(definition.name)}: import(${JSON.stringify(importBase)}).WorkflowDefinition<unknown>`]
+    const moduleType = `typeof import(${JSON.stringify(importSpecifier(file, definition.handler))})`
     return [
       ...(javaScriptFilePattern.test(definition.handler) ? [`    ${ignoreJavaScriptTypes}`] : []),
-      `    ${JSON.stringify(definition.name)}: typeof import(${JSON.stringify(importSpecifier(file, definition.handler))}).default`,
+      `    ${JSON.stringify(definition.name)}: ${moduleType} extends { default: infer TDefault } ? TDefault : unknown`,
     ]
   })
   const stepEntries = definitions.filter(definition => definition.steps?.length).flatMap((definition) => {

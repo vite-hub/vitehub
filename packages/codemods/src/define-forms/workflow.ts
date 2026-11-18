@@ -1,9 +1,10 @@
 import { end, start, walk } from "@vite-hub/internal/ast"
 
+import { bindingResolver } from "../shared/binding-resolver.ts"
 import { defineFunctionNames, followUpAt } from "./shared.ts"
 
 import type MagicString from "magic-string"
-import type { ArrowFunctionExpression, CallExpression, FunctionExpression } from "@babel/types"
+import type { ArrowFunctionExpression, CallExpression, FunctionDeclaration, FunctionExpression, Identifier } from "@babel/types"
 import type { Node } from "@vite-hub/internal/ast"
 import type { FollowUp } from "../types.ts"
 import type { ParsedFile, SourceFile } from "./shared.ts"
@@ -19,11 +20,23 @@ function isFunction(node: Node | undefined | null): node is FunctionNode {
 /** The fields of the one object that a Workflow handler receives. */
 const contextFields: ReadonlySet<string> = new Set(["id", "name", "payload", "provider", "sleep", "step", "steps"])
 
-/** True when the handler already takes the one object, such as `({ payload, sleep })`, so a second run changes nothing. */
-function isContextPattern(handler: FunctionNode): boolean {
-  const [param, ...others] = handler.params
-  if (others.length || param?.type !== "ObjectPattern") return false
-  return param.properties.every(property => property.type === "RestElement" || (property.key.type === "Identifier" && contextFields.has(property.key.name)))
+function propertyName(property: Node & { key: Node, computed?: boolean }): string | undefined {
+  if (property.key.type === "StringLiteral") return property.key.value
+  if (!property.computed && property.key.type === "Identifier") return property.key.name
+  return undefined
+}
+
+function contextName(code: string): string {
+  let name = "workflowContext"
+  while (code.includes(name)) name += "_"
+  return name
+}
+
+function payloadAnnotation(param: FunctionNode["params"][number] | undefined) {
+  const binding = param?.type === "AssignmentPattern" ? param.left : param
+  return binding && "typeAnnotation" in binding && binding.typeAnnotation?.type === "TSTypeAnnotation"
+    ? binding.typeAnnotation.typeAnnotation
+    : undefined
 }
 
 /** The old handler takes `(payload, context)`. The new handler takes one object. */
@@ -45,12 +58,18 @@ function rewriteHandlerParams(code: string, handler: FunctionNode): HandlerRewri
   if (!payloadParam) return { text: text(handler) }
   if (others.length || payloadParam.type === "RestElement" || contextParam?.type === "RestElement" || contextParam?.type === "AssignmentPattern") return undefined
 
-  let payloadType: string | undefined
+  const annotation = payloadAnnotation(payloadParam)
+  const payloadType = annotation && text(annotation)
   const withoutType = (node: Node & { typeAnnotation?: Node | null }) => {
     const annotation = node.typeAnnotation
     if (!annotation || annotation.type !== "TSTypeAnnotation") return text(node)
-    payloadType ??= text(annotation.typeAnnotation)
     return code.slice(start(node), start(annotation)).trimEnd().replace(/\?$/, "")
+  }
+
+  if (contextParam?.type === "Identifier" || contextParam?.type === "ObjectPattern" &&
+    (contextParam.typeAnnotation || contextParam.properties.some(property => property.type === "RestElement" || property.computed || propertyName(property) === "payload"))) {
+    const context = contextName(code)
+    return { text: `${context} => (${text(handler)})(${context}.payload, ${context})`, payloadType }
   }
 
   const fields: string[] = []
@@ -70,14 +89,8 @@ function rewriteHandlerParams(code: string, handler: FunctionNode): HandlerRewri
     return undefined
   }
 
-  if (contextParam?.type === "Identifier") {
-    fields.push(`...${contextParam.name}`)
-  }
-  else if (contextParam?.type === "ObjectPattern") {
-    const properties = contextParam.properties
-    // The context had `payload` too. Two `payload` bindings would clash.
-    if (properties.some(property => property.type === "ObjectProperty" && property.key.type === "Identifier" && property.key.name === "payload")) return undefined
-    fields.push(...properties.map(text))
+  if (contextParam?.type === "ObjectPattern") {
+    fields.push(...contextParam.properties.map(text))
   }
   else if (contextParam) {
     return undefined
@@ -100,17 +113,24 @@ function typeArguments(code: string, call: CallExpression): { node: Node, params
 }
 
 /** Rewrites one handler, or wraps a handler that a name references, such as `onboard`. */
-function rewriteHandler(file: SourceFile, handler: Node, followUps: FollowUp[]): HandlerRewrite | undefined {
+function rewriteHandler(file: SourceFile, handler: Node, followUps: FollowUp[], local?: FunctionNode | FunctionDeclaration): HandlerRewrite | undefined {
   const text = file.code.slice(start(handler), end(handler))
   if (isFunction(handler)) {
     const rewritten = rewriteHandlerParams(file.code, handler)
     if (!rewritten) followUps.push(followUpAt(file.path, handler, "The codemod could not rewrite the parameters of this Workflow handler. A handler now takes one object: `async ({ payload, steps, sleep }) => { ... }`. Rewrite it by hand."))
     return rewritten
   }
-  // A name or a member, such as `onboard` or `handlers.onboard`, can be called as it is. Other expressions need parentheses.
-  const callee = handler.type === "Identifier" || handler.type === "MemberExpression" ? text : `(${text})`
-  followUps.push(followUpAt(file.path, handler, `This Workflow handler is not written in the call, so the codemod wrapped it: \`({ payload, ...context }) => ${callee}(payload, context)\`. You can change \`${text}\` to take one object, \`({ payload, steps, sleep })\`, and pass it directly.`))
-  return { text: `({ payload, ...context }) => ${callee}(payload, context)` }
+  if (!local || local.generator || local.params.length > 2 || local.params.some(param => param.type === "RestElement" || param.type === "Identifier" && param.name === "this")) {
+    followUps.push(followUpAt(file.path, handler, "The codemod could not determine this Workflow handler's parameters. Change it to take one context object and pass it as `defineWorkflow({ handler })`."))
+    return undefined
+  }
+  const context = contextName(file.code)
+  const args = [`${context}.payload`, context].slice(0, local.params.length)
+  followUps.push(followUpAt(file.path, handler, `The codemod wrapped \`${text}\` to keep its positional Workflow handler arguments. You can change it to take one context object and pass it directly.`))
+  return {
+    text: args.length ? `${context} => ${text}(${args.join(", ")})` : `() => ${text}()`,
+    payloadType: payloadAnnotation(local.params[0]) ? `Parameters<typeof ${text}>[0]` : undefined,
+  }
 }
 
 /**
@@ -123,6 +143,12 @@ export function rewriteWorkflows(file: SourceFile, parsed: ParsedFile, output: M
   if (!file.code.includes("defineWorkflow") && !file.code.includes("createWorkflow")) return 0
   const defineNames = defineFunctionNames(parsed.program, "defineWorkflow", workflowModules)
   const createNames = defineFunctionNames(parsed.program, "createWorkflow", workflowModules)
+  const resolveBinding = bindingResolver(parsed.program)
+  const handlers = new Map<Identifier, FunctionNode | FunctionDeclaration>()
+  walk(parsed.program, (node) => {
+    if (node.type === "FunctionDeclaration" && node.id) handlers.set(node.id, node)
+    if (node.type === "VariableDeclarator" && node.id.type === "Identifier" && isFunction(node.init)) handlers.set(node.id, node.init)
+  })
   const text = (node: Node) => file.code.slice(start(node), end(node))
   let count = 0
 
@@ -147,19 +173,18 @@ export function rewriteWorkflows(file: SourceFile, parsed: ParsedFile, output: M
         followUps.push(followUpAt(file.path, node, "`defineWorkflow(name, handler, options)` was removed. Rewrite this call as `defineWorkflow({ handler, ...options })` by hand."))
         return
       }
-      const rewritten = oldest ? { text: text(handler) } : rewriteHandler(file, handler, followUps)
+      const optionKeys = options?.type === "ObjectExpression" ? options.properties.map(property => property.type === "SpreadElement" ? undefined : propertyName(property)) : []
+      if (options && (options.type !== "ObjectExpression" || optionKeys.some(key => key !== "id" && key !== "native" && key !== "rootStep"))) {
+        followUps.push(followUpAt(file.path, options, "Make the Workflow options explicit before migrating this definition. Only `native` and `rootStep` are accepted; remove the former `id` option."))
+        return
+      }
+      const binding = handler.type === "Identifier" ? resolveBinding(handler) : undefined
+      const rewritten = oldest ? { text: text(handler) } : rewriteHandler(file, handler, followUps, binding && handlers.get(binding))
       if (!rewritten) return
 
       const fields = [rewritten.text === "handler" ? "handler" : `handler: ${rewritten.text}`]
       if (options?.type === "ObjectExpression") {
-        for (const property of options.properties) {
-          // `id` did nothing, so `defineWorkflow()` does not accept it now.
-          if (property.type === "ObjectProperty" && property.key.type === "Identifier" && property.key.name === "id") continue
-          fields.push(text(property))
-        }
-      }
-      else if (options) {
-        fields.push(`...${text(options)}`)
+        fields.push(...options.properties.filter((_, index) => optionKeys[index] !== "id").map(text))
       }
       output.overwrite(start(args[0]!), end(args.at(-1)!), `{ ${fields.join(", ")} }`)
 
@@ -180,14 +205,18 @@ export function rewriteWorkflows(file: SourceFile, parsed: ParsedFile, output: M
     if (!createNames.has(node.callee.name)) return
     // `createWorkflow(name, handler, options)`, `createWorkflow(name, { handler })`, and `createWorkflow({ name, handler })`.
     const [first, second] = node.arguments
-    const handler = isFunction(second)
-      ? second
-      : [second, first].map((arg) => {
-          if (arg?.type !== "ObjectExpression") return undefined
-          const property = arg.properties.find(entry => entry.type === "ObjectProperty" && entry.key.type === "Identifier" && entry.key.name === "handler")
-          return property?.type === "ObjectProperty" && isFunction(property.value) ? property.value : undefined
-        }).find(Boolean)
-    if (!handler || !handler.params.length || isContextPattern(handler)) return
+    if (!second && first?.type !== "ObjectExpression") return
+    const options = first?.type === "ObjectExpression" ? first : second?.type === "ObjectExpression" ? second : undefined
+    const property = options?.properties.find(entry => entry.type !== "SpreadElement" && propertyName(entry) === "handler")
+    const handler = options ? property?.type === "ObjectProperty" ? property.value : property : second
+    if (isFunction(handler) && !handler.params.length) return
+    const annotation = isFunction(handler) ? payloadAnnotation(handler.params[0]) : undefined
+    if (isFunction(handler) && handler.params.length === 1 && annotation?.type === "TSTypeReference" && annotation.typeName.type === "Identifier" && annotation.typeName.name === "WorkflowExecutionContext") return
+    const legacy = isFunction(handler) && (handler.params.length > 1 || annotation?.type === "TSTypeLiteral" && annotation.members.some(member => member.type === "TSPropertySignature" && !member.optional && !contextFields.has(propertyName(member) ?? "")))
+    if (!legacy) {
+      followUps.push(followUpAt(file.path, handler ?? node, "Check this `createWorkflow()` handler. If it still takes a positional payload or context, change it to take one context object, such as `({ payload, sleep }) => { ... }`."))
+      return
+    }
     const rewritten = rewriteHandlerParams(file.code, handler)
     if (!rewritten) {
       followUps.push(followUpAt(file.path, handler, "The codemod could not rewrite the parameters of this Workflow handler. A handler now takes one object: `async ({ payload, sleep }) => { ... }`. Rewrite it by hand."))

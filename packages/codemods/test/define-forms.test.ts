@@ -171,8 +171,19 @@ describe("define-forms edge cases", () => {
     })
 
     it("moves the options into the object and drops the unused `id` option", async () => {
-      const { after } = await run(`${header}export default defineWorkflow('onboard-user', async (input, context) => input, { id: 'x', native: durable, rootStep: false })\n`)
-      expect(after).toBe(`${header}export default defineWorkflow({ handler: async ({ payload: input, ...context }) => input, native: durable, rootStep: false })\n`)
+      const { after } = await run(`${header}export default defineWorkflow('onboard-user', async input => input, { 'id': 'x', native: durable, rootStep: false })\n`)
+      expect(after).toBe(`${header}export default defineWorkflow({ handler: async ({ payload: input }) => input, native: durable, rootStep: false })\n`)
+    })
+
+    it.each(["context", "{ ...context }"])("passes the full context to a handler with %s", async (binding) => {
+      const { after } = await run(`${header}export default defineWorkflow('onboard-user', (input, ${binding}) => context.payload.email)\n`)
+      expect(after).toContain(`workflowContext => ((input, ${binding}) => context.payload.email)(workflowContext.payload, workflowContext)`)
+    })
+
+    it.each(["options", "{ ...options, rootStep: false }"])("reports dynamic options %s and leaves the call alone", async (options) => {
+      const { after, followUps } = await run(`${header}const options = { id: 'old' }\nexport default defineWorkflow('onboard-user', () => {}, ${options})\n`)
+      expect(after).toBeUndefined()
+      expect(followUps).toEqual([expect.objectContaining({ message: expect.stringContaining("remove the former `id`") })])
     })
 
     it("keeps a payload default and the old payload type argument", async () => {
@@ -186,9 +197,9 @@ describe("define-forms edge cases", () => {
     })
 
     it("wraps a handler that a name references and reports it", async () => {
-      const { after, followUps } = await run(`${header}async function onboard(payload, context) { return payload }\nexport default defineWorkflow('onboard-user', onboard)\n`)
-      expect(after).toContain("defineWorkflow({ handler: ({ payload, ...context }) => onboard(payload, context) })")
-      expect(followUps).toEqual([expect.objectContaining({ message: expect.stringContaining("wrapped it") })])
+      const { after, followUps } = await run(`${header}async function onboard(payload: { email: string }) { return payload.email }\nexport default defineWorkflow('onboard-user', onboard)\n`)
+      expect(after).toContain("defineWorkflow<Parameters<typeof onboard>[0]>({ handler: workflowContext => onboard(workflowContext.payload) })")
+      expect(followUps).toEqual([expect.objectContaining({ message: expect.stringContaining("wrapped `onboard`") })])
     })
 
     it("rewrites createWorkflow handlers and keeps the name", async () => {
@@ -197,9 +208,22 @@ describe("define-forms edge cases", () => {
     })
 
     it("does not change the current forms, so a second run does nothing", async () => {
-      const code = `${header}export default defineWorkflow<{ email: string }>({ handler: async ({ payload, steps }) => steps.createUser(payload) })\nexport const welcome = createWorkflow('welcome', async ({ payload, sleep }) => sleep('1 day'))\n`
+      const code = `${header}import type { WorkflowExecutionContext } from 'vite-hub/workflow'\nexport default defineWorkflow<{ email: string }>({ handler: async ({ payload, steps }) => steps.createUser(payload) })\nexport const welcome = createWorkflow('welcome', async ({ sleep }: WorkflowExecutionContext) => sleep('1 day'))\n`
       expect((await run(code)).after).toBeUndefined()
       expect((await detectCodemods(root)).filter(entry => entry.codemod.name === "define-forms")).toEqual([])
+    })
+
+    it.each([
+      "createWorkflow('welcome', ({ id }: { id: string }) => id.toUpperCase())",
+      "createWorkflow('welcome', context => context.name)",
+      "createWorkflow('welcome', handler)",
+      "createWorkflow({ name: 'welcome', handler })",
+      "createWorkflow({ name: 'welcome', handler({ id }) { return id } })",
+    ])("reports ambiguous createWorkflow forms without rewriting %s", async (call) => {
+      const { after, followUps } = await run(`${header}export const welcome = ${call}\n`)
+      expect(after).toBeUndefined()
+      expect(followUps).toEqual([expect.objectContaining({ message: expect.stringContaining("Check this `createWorkflow()` handler") })])
+      expect((await detectCodemods(root)).find(entry => entry.codemod.name === "define-forms")?.detection.reason).toContain("Workflow definitions to review")
     })
 
     it("detects the former form for the migration wizard", async () => {

@@ -6,7 +6,7 @@
 
 `@vite-hub/codemods` moves an application to ViteHub. Each codemod edits the source files that it can change safely and ends with a report: the files it changed and a numbered list of manual follow-ups, with `file:line` where it applies.
 
-The package requires Node.js 22.18 or newer. Read the [Codemods docs](https://vitehub.dev/docs/codemods) for a tutorial and what each codemod changes.
+The package requires Node.js 24.15 or newer. Read the [Codemods docs](https://vitehub.dev/docs/codemods) for a tutorial and what each codemod changes.
 
 ## Migrate an app
 
@@ -46,7 +46,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `t3-env` | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env through `vite-hub/nuxt` |
 | `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
 | `queue-workflow-verbs` | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
-| `result-tuples` | `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, and the Workflow handle methods to `[error, data]` reads. `vitehub migrate` runs it. |
+| `result-tuples` | `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, the Workflow handle methods, and `runSchedule()` to `[error, data]` reads. `vitehub migrate` runs it. |
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
 | `runtime-contracts` | `vite-hub/runtime/h3` and `vite-hub/runtime/node` imports, Evlog names from `vite-hub/logs`, and `checkRateLimit()` calls to the new contracts |
 | `root-accessors` | `db`, `schema`, `useDatabase`, `email`, `runSchedule`, and the Env accessors to the root of their primitive |
@@ -134,7 +134,7 @@ ViteHub keeps one define form for each primitive. `define-forms` rewrites the fo
 
 The codemod updates the import paths of moved files, also through the `~~`, `@@`, and `#server` aliases, and path strings such as `out: "./server/databases/migrations"` in `drizzle.config.ts`. It works in Nuxt layers too.
 
-The report lists what it cannot change: Schedule options that are not an object literal, which it spreads into the object, Sandbox Task options that are not an object literal, Workflow handlers with parameters it cannot rewrite, such as a rest parameter, Workflow handlers that a name references, which it wraps, dynamic imports of `server/content.ts`, helper files left in `server/databases/` that the new discovery reads as Databases, and lines in `package.json` and host config files that name the former Database paths.
+The report lists what needs review: Schedule options that are not an object literal, which it spreads into the object; Sandbox Task options that are not an object literal; Workflow option expressions, spreads, and ambiguous handlers; dynamic imports of `server/content.ts`; and references to former Database paths. It also reports referenced local Workflow handlers that it wraps to keep the positional arguments.
 
 ```sh
 npx @vite-hub/codemods define-forms [dir] [--dry-run]

@@ -1,6 +1,6 @@
 import { expectTypeOf, it } from "vitest"
 import { defineWorkflow } from "../src/definition.ts"
-import type { WorkflowProviderContext, WorkflowStep } from "../src/types.ts"
+import type { WorkflowProviderContext, WorkflowStep, WorkflowStepContext } from "../src/types.ts"
 
 // `registry-types.test.ts` checks typed folder steps in a program of its own, with the `.vitehub/workflow.d.ts` that
 // ViteHub writes. An augmentation here would reach every handler of this package.
@@ -50,4 +50,8 @@ it("rejects a name and unknown options", () => {
   defineWorkflow({ handler: async () => undefined, name: "onboard-user" })
   // @ts-expect-error `defineWorkflow()` takes one object.
   defineWorkflow("onboard-user", async () => undefined)
+})
+
+it("calls a step that reads the step context with its input only", () => {
+  expectTypeOf<WorkflowStep<(input: { repo: string }, context: WorkflowStepContext) => string>>().parameters.toEqualTypeOf<[input: { repo: string }]>()
 })

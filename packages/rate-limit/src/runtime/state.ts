@@ -3,7 +3,7 @@ import { memoryRateLimitDriver } from "../drivers/memory.ts"
 import { rateLimitErrorDiagnostics } from "../error-diagnostics.ts"
 import { createRateLimiter } from "../limiter.ts"
 import { resolveKVRateLimitDriver } from "../internal/kv-provider.ts"
-import { normalizeRateLimitPolicy } from "../policy.ts"
+import { rateLimitPolicyKey } from "../policy.ts"
 
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
@@ -79,15 +79,11 @@ export async function resolveRateLimitDriver(): Promise<RateLimitRuntimeConfig["
   return await pending
 }
 
-function policyKey(policy: RateLimitPolicy): string {
-  return JSON.stringify([policy.enforcement, policy.failure, policy.limit, normalizeRateLimitPolicy(policy).windowMs])
-}
-
 /** The Rate Limiter of one name and policy in this process. `kv` limiters share their counters through KV. */
 export function getRuntimeRateLimiter(driver: "kv" | "memory", name: string, policy: RateLimitPolicy): RateLimiter {
   const all = limiters()
   let policies = all.get(name)
-  const key = policyKey(policy)
+  const key = rateLimitPolicyKey(policy)
   const existing = policies?.get(key)
   if (existing) return existing
 
