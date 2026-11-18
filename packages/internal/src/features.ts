@@ -481,7 +481,7 @@ export default defineSchedule({
       deno: native("deno", "Deno.cron", "`Deno.cron` output that the generated `.output/main.ts` loads before the Nitro server."),
       dev: native("local", "Local / process", "Local development runner and the explicit process runtime.", "single-host"),
       netlify: native("netlify", "Scheduled fn", "One generated Netlify scheduled function per static Schedule."),
-      node: native("process", "process", "Process runtime in the server process. A build needs `schedule: { runtime: { driver: \"process\" } }`, or `providerOutput: false` to wake Schedules yourself. With a Postgres or remote libSQL Default Database, servers claim each occurrence in `vitehub_leases`, so one server runs it. Without one, run one server.", "single-host"),
+      node: native("process", "process", "Process runtime in the server process. A build needs `schedule: { runtime: { driver: \"process\" } }`, or `providerOutput: false` to wake Schedules yourself. With a Postgres or remote libSQL Default Database, servers claim occurrences in `vitehub_leases`. A run can repeat if its lease expires. Without a shared lease store, run one server.", "single-host"),
       vercel: native("vercel", "Vercel Cron", "Vercel Cron Jobs provider output."),
     },
     id: "schedule",
