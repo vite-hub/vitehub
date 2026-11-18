@@ -33,7 +33,7 @@ export default defineNuxtConfig({
   vitehub: {
     host: 'node',
     kv: true,
-    schedule: { runtime: { driver: 'process' } },
+    schedule: true,
   },
 })
 ```
@@ -50,7 +50,7 @@ export default defineConfig({
     vitehub({
       host: 'node',
       kv: true,
-      schedule: { runtime: { driver: 'process' } },
+      schedule: true,
     }), nitro(),
   ],
 })
@@ -67,7 +67,7 @@ export default defineConfig({
     vitehub({
       host: 'node',
       kv: true,
-      schedule: { runtime: { driver: 'process' } },
+      schedule: true,
     }),
   ],
 })
@@ -75,7 +75,7 @@ export default defineConfig({
 ::::
 :::
 
-- `schedule` turns on Schedule. A Node server has no cron of its own, so the `process` runtime checks for due schedules once a minute while the server runs.
+- `schedule` turns on Schedule. A Node server has no cron of its own, so ViteHub runs the schedules in the server process. It checks for due schedules once a minute while the server runs.
 - `kv` gives Schedule a place to save each run. You read those runs in the last step.
 
 ::
@@ -165,10 +165,10 @@ To see the same runs in a page, with a button to run the schedule, open the app 
 
 ## What happens when you deploy
 
-You keep the schedule file. You change the `schedule` option for the host:
+You keep the schedule file and `schedule: true`. Only the host changes:
 
-- **Node or Docker**: keep `runtime: { driver: 'process' }`. The server process starts the schedule at 08:00 UTC. With more than one server process, add a Postgres or remote libSQL Database, and one process runs each occurrence. Without a Database, keep one process running. A stopped process runs nothing.
-- **Cloudflare, Vercel, or Netlify**: set the host of the host and `schedule: true`. The build then writes the cron settings of the host, and the host starts the schedule. Do not keep `runtime`. On Cloudflare and Netlify, keeping `runtime` makes the server process own the schedules and suppresses provider cron output. Vercel defaults to standalone cron output even when `runtime` is set.
+- **Node or Docker**: the server process starts the schedule at 08:00 UTC. With more than one server process, add a Postgres or remote libSQL Database, and one process runs each occurrence. Without a Database, keep one process running. A stopped process runs nothing.
+- **Cloudflare, Vercel, or Netlify**: the build writes the cron settings of the host, and the host starts the schedule.
 
 For example, on Vercel:
 

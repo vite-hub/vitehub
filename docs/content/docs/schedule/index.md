@@ -35,7 +35,7 @@ export default defineNuxtConfig({
     // Keeps Schedule Run history across restarts
     kv: true,
     // Checks for due schedules every minute
-    schedule: { runtime: { driver: 'process' } },
+    schedule: true,
   },
 })
 ```
@@ -53,7 +53,7 @@ export default defineConfig({
       // Keeps Schedule Run history across restarts
       kv: true,
       // Checks for due schedules every minute
-      schedule: { runtime: { driver: 'process' } },
+      schedule: true,
     }),
     nitro(),
   ],
@@ -72,7 +72,7 @@ export default defineConfig({
       // Keeps Schedule Run history across restarts
       kv: true,
       // Checks for due schedules every minute
-      schedule: { runtime: { driver: 'process' } },
+      schedule: true,
     }),
   ],
 })

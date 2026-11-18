@@ -89,13 +89,13 @@ export const hostConfigs: Partial<Record<FeatureId, HostConfigs>> = {
     cloudflare: { options: { sandboxTask: { comment: "Each run starts a Cloudflare Sandbox", value: "true" } } },
     vercel: { options: { sandboxTask: { comment: "Each run starts a Vercel Sandbox", value: "true" } } },
   },
-  // schedule/hosts.md, "Provider output": Node has no host cron, so a build needs `runtime: { driver: 'process' }`.
+  // schedule/hosts.md, "Provider output": Node has no host cron, so `schedule: true` runs the Process Runtime.
   // schedule/configure.md, "Storage": only the Process Runtime keeps its run history in KV. A host cron
   // starts each Schedule without a run record, so the other hosts do not need `kv`.
   schedule: {
     cloudflare: { options: { schedule: { comment: "Cron Triggers start each schedule", value: "true" } }, remove: ["kv"] },
     netlify: { options: { schedule: { comment: "A scheduled function starts each schedule", value: "true" } }, remove: ["kv"] },
-    node: { options: { schedule: { comment: "Checks for due schedules every minute", value: "{ runtime: { driver: 'process' } }" } } },
+    node: { options: { schedule: { comment: "Checks for due schedules every minute", value: "true" } } },
     vercel: { options: { schedule: { comment: "Vercel Cron starts each schedule", value: "true" } }, remove: ["kv"] },
   },
 };

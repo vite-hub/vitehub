@@ -79,7 +79,7 @@ export default defineConfig({
 | `cron` | `Record<string, string>` | Each Schedule's own cron | Cron per Schedule name for this build's host. See [Run a Schedule on another cron on one host](#run-a-schedule-on-another-cron-on-one-host). |
 | `providerOutput` | `ScheduleOptions['providerOutput']` | `auto` | Controls generated provider cron output for the build's host. Values: `auto`, `standalone`, `nitro`, `false`. |
 | `projectRoot` | `string` | ViteHub project root | Resolves discovered schedule files and generated registry output from a custom project root. |
-| `runtime` | `ScheduleProcessRuntimeOptions` | No runtime driver | Explicitly installs the generated Nitro Process Runtime. Accepts `driver: 'process'`, plus optional `prefix` (default `vitehub:schedule`), `intervalMs` (default `60_000`), `concurrency` (default `1`), `catchUpMs` (default one hour), and `leaseTtlMs` (default `60_000`). |
+| `runtime` | `ScheduleProcessRuntimeOptions` | `{ driver: 'process' }` on the `node` host when `providerOutput` is `auto`. None on other hosts. | Installs the generated Nitro Process Runtime. Set it on Node to change its options. Accepts `driver: 'process'`, plus optional `prefix` (default `vitehub:schedule`), `intervalMs` (default `60_000`), `concurrency` (default `1`), `catchUpMs` (default one hour), and `leaseTtlMs` (default `60_000`). |
 
 Use `createScheduleNitroConfig()` when your Nitro integration merges config and needs Schedule's provider output in Nitro form.
 

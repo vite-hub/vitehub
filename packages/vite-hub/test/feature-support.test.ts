@@ -61,9 +61,7 @@ describe("feature catalog host checks", () => {
     for (const id of Object.keys(checks) as FeatureId[]) {
       for (const host of hosts) {
         if (featureSupport(id, host).level !== "native") continue
-        // A Node build checks Schedule wake-up separately, with VITE_HUB_R0137.
-        const value = id === "schedule" && host === "node" ? { providerOutput: "auto", runtime: { driver: "process" } } : true
-        expect(() => build(host, { [id]: value }), `${id} on ${host}`).not.toThrow()
+        expect(() => build(host, { [id]: true }), `${id} on ${host}`).not.toThrow()
       }
     }
   })

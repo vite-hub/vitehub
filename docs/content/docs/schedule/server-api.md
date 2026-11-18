@@ -72,7 +72,7 @@ Each function returns `[error, data]` and does not throw. A one-time Schedule le
 
 ### How started Schedules run
 
-When a Definition has no `cron`, the build adds one more Schedule, `vitehub/started-schedules`, with the cron `* * * * *`. The host wakes it like any Static Schedule: a Cron Trigger on Cloudflare, the Process Runtime on Node. Each wake reads the started Schedules from KV and runs the due ones. So started Schedules need `kv`, and on Node they need `schedule: { runtime: { driver: 'process' } }`.
+When a Definition has no `cron`, the build adds one more Schedule, `vitehub/started-schedules`, with the cron `* * * * *`. The host wakes it like any Static Schedule: a Cron Trigger on Cloudflare, the Process Runtime on Node. Each wake reads the started Schedules from KV and runs the due ones. So started Schedules need `kv`.
 
 - The store is KV, one key for each Schedule under `vitehub:schedule/started-schedules/`, or under the `runtime.prefix` that you set. It survives restarts and deploys.
 - With the Process Runtime, the first wake after a restart runs the cron minutes that no process checked, within `catchUpMs` (one hour by default). A one-time Schedule whose `at` passed while the process was down runs at the first wake.

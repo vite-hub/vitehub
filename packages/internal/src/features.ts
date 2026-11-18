@@ -481,7 +481,7 @@ export default defineSchedule({
       deno: unsupported("`vitehub({ host: \"deno\", schedule: true })` is not supported because the generated cron output is not part of the deployed Nitro entrypoint. Compose `hubSchedule({ providerOutput: \"standalone\" })` for Deno.cron wake output."),
       dev: native("local", "Local / process", "Local development runner and the explicit process runtime.", "single-host"),
       netlify: native("netlify", "Scheduled fn", "One generated Netlify scheduled function per static Schedule."),
-      node: native("process", "process", "Process runtime for one long-lived process or replica. A build needs `schedule: { runtime: { driver: \"process\" } }`, or `providerOutput: false` to wake Schedules yourself.", "single-host"),
+      node: native("process", "process", "Process runtime for one long-lived process or replica. `schedule: true` uses it. Set `providerOutput: false` to wake Schedules yourself.", "single-host"),
       vercel: native("vercel", "Vercel Cron", "Vercel Cron Jobs provider output."),
     },
     id: "schedule",
