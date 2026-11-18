@@ -132,9 +132,9 @@ ViteHub keeps one define form for each primitive. `define-forms` rewrites the fo
 
 The codemod updates the import paths of moved files, also through the `~~`, `@@`, and `#server` aliases, and path strings such as `out: "./server/databases/migrations"` in `drizzle.config.ts`. It works in Nuxt layers too.
 
-When a Queue handler reads only `job.payload`, `job.id`, `job.attempts`, or `job.metadata`, the codemod also destructures them: `({ payload }) => payload.email`.
+The codemod leaves Queue handlers unchanged. They still receive the same job object, so destructuring it (for example, `({ payload }) => payload.email`) is optional. A one-argument call whose argument could be a definition object is left alone unless the codemod can identify a handler.
 
-The report lists what it cannot change: Queue handlers that use the job in another way, which still work, Schedule options that are not an object literal, which it spreads into the object, Sandbox Task options that are not an object literal, dynamic imports of `server/content.ts`, helper files left in `server/databases/` that the new discovery reads as Databases, and lines in `package.json` and host config files that name the former Database paths.
+The report lists what it cannot change: Queue calls with spread arguments or options the codemod cannot safely flatten, Schedule options that are not an object literal (which it spreads into the object), Sandbox Task options that are not an object literal, dynamic imports of `server/content.ts`, helper files left in `server/databases/` that the new discovery reads as Databases, and lines in `package.json` and host config files that name the former Database paths.
 
 ```sh
 npx @vite-hub/codemods define-forms [dir] [--dry-run]

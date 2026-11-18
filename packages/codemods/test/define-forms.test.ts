@@ -67,36 +67,62 @@ describe("define-forms edge cases", () => {
   })
 
   it.each([
-    ["destructures a job that the handler reads by field",
+    ["preserves a handler that reads the job by field",
       "export default defineQueue<{ email: string }>(async (job) => {\n  console.log(job.id, job.payload.email, job.attempts)\n}, { concurrency: 4 })\n",
-      "export default defineQueue<{ email: string }>({ handler: async ({ payload, id, attempts }) => {\n  console.log(id, payload.email, attempts)\n}, concurrency: 4 })\n"],
-    ["adds parentheses to a bare arrow parameter",
-      "export default defineQueue(job => send(job.payload))\n",
-      "export default defineQueue({ handler: ({ payload }) => send(payload) })\n"],
+      "export default defineQueue<{ email: string }>({ handler: async (job) => {\n  console.log(job.id, job.payload.email, job.attempts)\n}, concurrency: 4 })\n"],
+    ["preserves a bare arrow parameter even with comments",
+      "export default defineQueue(async /* ( */ job => send(job.payload))\n",
+      "export default defineQueue({ handler: async /* ( */ job => send(job.payload) })\n"],
     ["keeps a type annotation",
       "export default defineQueue(function (job: QueueJob<string>) { return job.payload })\n",
-      "export default defineQueue({ handler: function ({ payload }: QueueJob<string>) { return payload } })\n"],
-    ["keeps a destructured handler and spreads options that are not a literal",
-      "import { defineQueue } from '@vite-hub/queue'\nexport default defineQueue(async ({ payload }) => payload, options)\n",
-      "import { defineQueue } from '@vite-hub/queue'\nexport default defineQueue({ handler: async ({ payload }) => payload, ...options })\n"],
+      "export default defineQueue({ handler: function (job: QueueJob<string>) { return job.payload } })\n"],
+    ["preserves grouped handlers and flattens grouped literal options",
+      "export default defineQueue((job => job.payload), (({ concurrency: 4, })),)\n",
+      "export default defineQueue({ handler: (job => job.payload), concurrency: 4, })\n"],
+    ["composes nested Queue rewrites",
+      "export default defineQueue(() => defineQueue(() => null))\n",
+      "export default defineQueue({ handler: () => defineQueue({ handler: () => null }) })\n"],
+    ["preserves arguments access and strict mode",
+      "export default defineQueue(function (job) { 'use strict'; arguments[0].attempts++; return job.attempts })\n",
+      "export default defineQueue({ handler: function (job) { 'use strict'; arguments[0].attempts++; return job.attempts } })\n"],
     ["uses the shorthand for a handler named handler",
       "export default defineQueue(handler, { cache: false })\n",
       "export default defineQueue({ handler, cache: false })\n"],
+    ["preserves comments around empty options",
+      "export default defineQueue(handler, (/* ( */ {}),)\n",
+      "export default defineQueue({ handler, /* ( */ })\n"],
   ])("rewrites defineQueue: %s", async (_, before, expected) => {
     const { after, run } = await migrate({ "server/queues/a.ts": before })
     expect(after["server/queues/a.ts"]).toBe(expected)
     expect(run.result.followUps).toEqual([])
+    expect(await detectCodemods(root)).toEqual([expect.objectContaining({ codemod: expect.objectContaining({ name: "define-forms" }) })])
   })
 
   it.each([
-    ["passes the whole job on", "export default defineQueue(async (job) => { await log(job) })\n"],
-    ["writes a job field", "export default defineQueue(async (job) => { job.payload = 1 })\n"],
-    ["has a name that destructuring would shadow", "const payload = 1\nexport default defineQueue(async (job) => job.payload + payload)\n"],
-    ["reads a field that is not a job field", "export default defineQueue(async (job) => job.retry)\n"],
-  ])("moves defineQueue to the object form and reports a handler that %s", async (_, before) => {
+    ["a shared options object", "const defaults = { concurrency: 2, handler: fallback }\nexport default defineQueue(sendReport, (defaults))\n"],
+    ["an options spread", "export default defineQueue(sendReport, { ...defaults })\n"],
+    ["an explicit handler in the options", "export default defineQueue(sendReport, { concurrency: 2, handler: fallback })\n"],
+  ])("reports %s without changing the Queue call", async (_, before) => {
     const { after, run } = await migrate({ "server/queues/a.ts": before })
-    expect(after["server/queues/a.ts"]).toContain("defineQueue({ handler: async (job) =>")
-    expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/queues/a.ts", message: expect.stringContaining("still works") })])
+    expect(after).toEqual({})
+    expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/queues/a.ts", message: expect.stringContaining("keep the original handler") })])
+  })
+
+  it("rewrites only the legacy calls to the imported Queue helper", async () => {
+    const before = [
+      "import { defineQueue as queue } from 'vite-hub/queue'",
+      "const definition = { handler: () => 1 }",
+      "const handler = () => 2",
+      "queue(definition)",
+      "queue(buildDefinition())",
+      "queue({ handler } satisfies QueueDefinition)",
+      "function other(queue: Function) { queue(() => 3) }",
+      "queue(handler)",
+      "",
+    ].join("\n")
+    const { after, run } = await migrate({ "server/queues/a.ts": before })
+    expect(after["server/queues/a.ts"]).toBe(before.replace("queue(handler)", "queue({ handler })"))
+    expect(run.result.followUps).toEqual([])
   })
 
   it("leaves the object form and defineQueue of another module alone", async () => {

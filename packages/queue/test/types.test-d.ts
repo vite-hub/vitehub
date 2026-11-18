@@ -40,6 +40,11 @@ it("rejects the removed handler argument", () => {
   defineQueue(async () => {})
 })
 
+it("rejects an extra options argument", () => {
+  // @ts-expect-error Options belong in the definition object.
+  defineQueue({ handler: async () => {} }, { concurrency: 2 })
+})
+
 it("types Queue error codes", () => {
   expectTypeOf<QueueErrorCode>().toEqualTypeOf<
     | "QUEUE_PROVIDER_FAILED"

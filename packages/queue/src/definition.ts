@@ -9,6 +9,7 @@ const queueDefinitionKeys: ReadonlySet<string> = new Set(["cache", "callbackOpti
  * Defines a Queue from one object: `defineQueue({ handler, concurrency })`. The handler receives one object,
  * `{ payload, id, attempts, metadata }`. The payload type of `handler` types `sendQueue()` for this Queue.
  */
+export function defineQueue<TPayload = unknown, TResult = unknown>(definition: QueueDefinition<TPayload, TResult>): QueueDefinition<TPayload, TResult>
 export function defineQueue<TPayload = unknown, TResult = unknown>(definition: QueueDefinition<TPayload, TResult>, ...removed: unknown[]): QueueDefinition<TPayload, TResult> {
   if (typeof definition === "function" || removed.length) {
     throw queueErrorDiagnostics.QUEUE_INVALID_DEFINITION({ reason: "`defineQueue(handler, options)` was removed." })

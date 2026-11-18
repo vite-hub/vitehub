@@ -36,11 +36,11 @@ npx @vite-hub/codemods define-forms [dir] [--dry-run]
 
 The codemod updates the import paths of moved files, also through the `~~`, `@@`, and `#server` aliases, and path strings such as `out: "./server/databases/migrations"` in `drizzle.config.ts`. It works in Nuxt layers too.
 
-When a Queue handler reads only `job.payload`, `job.id`, `job.attempts`, or `job.metadata`, the codemod also destructures them: `({ payload }) => payload.email`.
+The codemod leaves Queue handlers unchanged. They still receive the same job object, so destructuring it (for example, `({ payload }) => payload.email`) is optional. A one-argument call whose argument could be a definition object is left alone unless the codemod can identify a handler.
 
 The report lists what it cannot change:
 
-- Queue handlers that use the job in another way. They still work, because the handler receives one object.
+- Queue calls with spread arguments or options the codemod cannot safely flatten, such as shared options objects.
 - Schedule options that are not an object literal. The codemod spreads them into the object.
 - Sandbox Task options that are not an object literal.
 - Dynamic imports of `server/content.ts`.

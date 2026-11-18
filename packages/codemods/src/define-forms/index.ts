@@ -23,6 +23,7 @@ async function databaseFiles(cwd: string): Promise<string[]> {
 
 interface Counts {
   queues: number
+  queueFollowUps: number
   schedules: number
   sandboxTasks: number
   contentFiles: number
@@ -31,13 +32,29 @@ interface Counts {
 
 /** Rewrites the define calls and Content exports of one file. */
 function rewriteCode(file: SourceFile, contentFiles: ReadonlySet<string>, counts: Counts, followUps: FollowUp[], migratedContentFiles?: Set<string>): string {
-  const parsed = parseSource(file)
+  let parsed = parseSource(file)
   if (!("program" in parsed)) {
     if (/defineQueue|defineSchedule|defineSandboxTask|defineContent/.test(file.code)) followUps.push(parsed)
     return file.code
   }
+  const queues = new MagicString(file.code)
+  const beforeQueueFollowUps = followUps.length
+  const changedQueues = rewriteQueues(file, parsed, queues, followUps)
+  counts.queueFollowUps += followUps.length - beforeQueueFollowUps
+  if (changedQueues) {
+    const migrated = { ...file, code: queues.toString() }
+    const reparsed = parseSource(migrated)
+    if ("program" in reparsed) {
+      file = migrated
+      parsed = reparsed
+      counts.queues += changedQueues
+    }
+    else {
+      counts.queueFollowUps++
+      followUps.push({ file: file.path, message: "The Queue rewrite could not be parsed. Move the legacy Queue arguments into one object by hand." })
+    }
+  }
   const output = new MagicString(file.code)
-  counts.queues += rewriteQueues(file, parsed, output, followUps)
   counts.schedules += rewriteSchedules(file, parsed, output, followUps)
   counts.sandboxTasks += rewriteSandboxTasks(file, parsed, output, followUps)
   if (contentFiles.has(file.path)) {
@@ -53,7 +70,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const sources = await readSourceFiles(cwd)
   const followUps: FollowUp[] = []
   const notes: string[] = []
-  const counts: Counts = { queues: 0, schedules: 0, sandboxTasks: 0, contentFiles: 0, contentImports: 0 }
+  const counts: Counts = { queues: 0, queueFollowUps: 0, schedules: 0, sandboxTasks: 0, contentFiles: 0, contentImports: 0 }
   const contentFiles = new Set(sources.filter(file => contentFilePattern.test(file.path)).map(file => file.path))
 
   // The define forms first, then the Database moves on the result, so a moved file keeps both changes.
@@ -140,9 +157,10 @@ async function detectFormerForm(cwd: string): Promise<string | undefined> {
   const contentFiles = new Set(sources.filter(file => contentFilePattern.test(file.path)).map(file => file.path))
   for (const file of sources) {
     if (!/defineQueue|defineSchedule|defineSandboxTask/.test(file.code) && !contentFiles.has(file.path)) continue
-    const counts: Counts = { queues: 0, schedules: 0, sandboxTasks: 0, contentFiles: 0, contentImports: 0 }
+    const counts: Counts = { queues: 0, queueFollowUps: 0, schedules: 0, sandboxTasks: 0, contentFiles: 0, contentImports: 0 }
     rewriteCode(file, contentFiles, counts, [])
     if (counts.queues) return `${file.path} calls defineQueue(handler)`
+    if (counts.queueFollowUps) return `${file.path} has a Queue call that may need manual migration`
     if (counts.schedules) return `${file.path} calls defineSchedule(cron, handler)`
     if (counts.sandboxTasks) return `${file.path} passes \`run\` to defineSandboxTask()`
     if (counts.contentFiles) return `${file.path} exports \`content\` by name`

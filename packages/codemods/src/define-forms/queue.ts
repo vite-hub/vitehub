@@ -1,99 +1,94 @@
-import { end, start, walk } from "@vite-hub/internal/ast"
+import { end, keyName, start, walk } from "@vite-hub/internal/ast"
 
-import { defineFunctionNames, followUpAt } from "./shared.ts"
+import { bindingResolver } from "../shared/binding-resolver.ts"
+import { followUpAt, importedName } from "./shared.ts"
 
 import type MagicString from "magic-string"
-import type { ArrowFunctionExpression, FunctionExpression } from "@babel/types"
+import type { Identifier } from "@babel/types"
 import type { Node } from "@vite-hub/internal/ast"
 import type { FollowUp } from "../types.ts"
 import type { ParsedFile, SourceFile } from "./shared.ts"
 
-const queueModules: ReadonlySet<string> = new Set(["vite-hub/queue", "@vite-hub/queue"])
-/** The fields of the job that a Queue handler receives, in the order the codemod destructures them. */
-const jobFields = ["payload", "id", "attempts", "metadata"]
+const queueModules = new Set(["vite-hub/queue", "@vite-hub/queue"])
+const queueOptions = new Set(["cache", "callbackOptions", "concurrency", "onDispatchError", "onError"])
 
-/** True when `node` names a property or a key, so renaming a variable does not change it. */
-function isPropertyName(node: Node, parent: Node | undefined): boolean {
-  if (!parent) return false
-  if ((parent.type === "MemberExpression" || parent.type === "OptionalMemberExpression") && parent.property === node) return !parent.computed
-  if ((parent.type === "ObjectProperty" || parent.type === "ObjectMethod" || parent.type === "ClassProperty" || parent.type === "ClassMethod" || parent.type === "TSPropertySignature") && parent.key === node) {
-    return !parent.computed && !(parent.type === "ObjectProperty" && parent.shorthand)
+function unwrap(node: Node): Node {
+  while (node.type === "TSAsExpression" || node.type === "TSSatisfiesExpression" || node.type === "TSTypeAssertion" || node.type === "TSNonNullExpression" || node.type === "TSInstantiationExpression") {
+    node = node.expression
   }
-  return false
+  return node
 }
 
-/**
- * Rewrites `(job) => job.payload` to `({ payload }) => payload`. Returns the new handler text, or `undefined` when the
- * handler uses the job in another way, such as `send(job)`, or when a destructured name would shadow another name.
- */
-function destructureJob(code: string, handler: ArrowFunctionExpression | FunctionExpression): string | undefined {
-  const [param, ...others] = handler.params
-  if (param?.type !== "Identifier" || others.length) return undefined
-  const name = param.name
-  const reads: { start: number, end: number, field: string }[] = []
-  let safe = true
-  walk(handler.body, (node, ancestors) => {
-    if (!safe || node.type !== "Identifier") return
-    const parent = ancestors.at(-1)
-    if (isPropertyName(node, parent)) return
-    if (node.name === name) {
-      const member = parent?.type === "MemberExpression" && parent.object === node && !parent.computed && parent.property.type === "Identifier" ? parent : undefined
-      const field = member?.property.type === "Identifier" ? member.property.name : undefined
-      const written = ancestors.at(-2)
-      const assigned = (written?.type === "AssignmentExpression" && written.left === member)
-        || written?.type === "UpdateExpression"
-        || (written?.type === "UnaryExpression" && written.operator === "delete")
-      if (!member || !field || !jobFields.includes(field) || assigned) safe = false
-      else reads.push({ start: start(member), end: end(member), field })
-    }
-    else if (jobFields.includes(node.name)) {
-      safe = false
-    }
-  })
-  if (!safe || !reads.length) return undefined
-
-  const base = start(handler)
-  const fields = jobFields.filter(field => reads.some(read => read.field === field))
-  const paren = code.slice(base, start(param)).includes("(")
-  const pattern = paren ? `{ ${fields.join(", ")} }` : `({ ${fields.join(", ")} })`
-  const edits = [{ start: start(param), end: start(param) + name.length, text: pattern }, ...reads.map(read => ({ ...read, text: read.field }))]
-    .sort((left, right) => right.start - left.start)
-  let text = code.slice(base, end(handler))
-  for (const edit of edits) text = text.slice(0, edit.start - base) + edit.text + text.slice(edit.end - base)
-  return text
+function isFunction(node: Node): boolean {
+  const value = unwrap(node)
+  return value.type === "ArrowFunctionExpression" || value.type === "FunctionExpression"
 }
 
-/**
- * Rewrites `defineQueue(handler, options)` to `defineQueue({ handler, ...options })`. When the handler reads only
- * `job.payload`, `job.id`, `job.attempts`, or `job.metadata`, the codemod destructures them. Other handlers still work,
- * because the handler receives the same object, and the codemod reports them.
- */
+function argumentStart(node: Node): number {
+  return typeof node.extra?.parenStart === "number" ? node.extra.parenStart : start(node)
+}
+
+function withoutDelimiters(code: string): string {
+  return code.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*|[ \t]*[(){},][ \t]*/g, match => match.startsWith("/") ? match : "")
+}
+
+/** Moves confirmed legacy calls without rewriting or re-evaluating their handlers. */
 export function rewriteQueues(file: SourceFile, parsed: ParsedFile, output: MagicString, followUps: FollowUp[]): number {
   if (!file.code.includes("defineQueue")) return 0
-  const names = defineFunctionNames(parsed.program, "defineQueue", queueModules)
-  const text = (node: Node) => file.code.slice(start(node), end(node))
-  let count = 0
-  walk(parsed.program, (node) => {
-    if (node.type !== "CallExpression" || node.callee.type !== "Identifier" || !names.has(node.callee.name)) return
-    const [handler, options, ...rest] = node.arguments
-    if (!handler || handler.type === "ObjectExpression") return
-    if (handler.type === "SpreadElement" || options?.type === "SpreadElement" || rest.length) {
-      followUps.push(followUpAt(file.path, node, "`defineQueue(handler, options)` was removed. Rewrite this call as `defineQueue({ handler, ...options })` by hand."))
-      return
-    }
-    let handlerText = text(handler)
-    if (handler.type === "ArrowFunctionExpression" || handler.type === "FunctionExpression") {
-      const param = handler.params[0]
-      const destructured = destructureJob(file.code, handler)
-      if (destructured) handlerText = destructured
-      else if (param?.type === "Identifier") {
-        followUps.push(followUpAt(file.path, handler, `This Queue handler uses \`${param.name}\` in a way that the codemod does not rewrite. It still works: the handler receives one object. To match the docs, destructure it, for example \`async ({ payload }) => { ... }\`.`))
+  const resolve = bindingResolver(parsed.program)
+  const imports = new Set<Identifier>()
+  const handlers = new Set<Identifier>()
+  walk(parsed.program, (node, ancestors) => {
+    if (node.type === "ImportDeclaration" && node.importKind !== "type" && queueModules.has(node.source.value)) {
+      for (const specifier of node.specifiers) {
+        if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && importedName(specifier) === "defineQueue") imports.add(specifier.local)
       }
     }
-    const fields = [handlerText === "handler" ? "handler" : `handler: ${handlerText}`]
-    if (options?.type === "ObjectExpression") fields.push(...options.properties.map(text))
-    else if (options) fields.push(`...${text(options)}`)
-    output.overwrite(start(handler), end(options ?? handler), `{ ${fields.join(", ")} }`)
+    if (node.type === "VariableDeclarator" && node.id.type === "Identifier" && node.init && isFunction(node.init)) {
+      const declaration = ancestors.at(-1)
+      if (declaration?.type === "VariableDeclaration" && declaration.kind === "const") handlers.add(node.id)
+    }
+  })
+
+  let count = 0
+  walk(parsed.program, (node) => {
+    if (node.type !== "CallExpression" || node.callee.type !== "Identifier") return
+    const binding = resolve(node.callee)
+    if (binding ? !imports.has(binding) : node.callee.name !== "defineQueue") return
+    const [handler, options, ...rest] = node.arguments
+    if (!handler) return
+    const report = (message: string) => followUps.push(followUpAt(file.path, node, message))
+    if (handler.type === "SpreadElement" || options?.type === "SpreadElement" || rest.length) {
+      report("Check this Queue call's arguments. If it passes a positional handler, move it and any options into one object with a `handler` property.")
+      return
+    }
+    const value = unwrap(handler)
+    if (value.type === "ObjectExpression") return
+    if (!options && !isFunction(value)) {
+      if (value.type !== "Identifier") return
+      const handlerBinding = resolve(value)
+      if (!handlerBinding || !handlers.has(handlerBinding)) return
+    }
+
+    const close = end(node) - 1
+    if (options) {
+      if (options.type !== "ObjectExpression" || options.properties.some((property) => {
+        if (property.type !== "ObjectProperty" || property.computed) return true
+        const name = keyName(property.key)
+        return name === undefined || !queueOptions.has(name)
+      })) {
+        report("Move this Queue's options into the definition by hand. Copy only supported Queue options and keep the original handler and argument evaluation order.")
+        return
+      }
+      const opening = argumentStart(options)
+      const first = start(options) + 1
+      const last = end(options) - 1
+      output.overwrite(opening, first, withoutDelimiters(file.code.slice(opening, first)))
+      output.overwrite(last, close, withoutDelimiters(file.code.slice(last, close)))
+    }
+    const shorthand = handler.type === "Identifier" && handler.name === "handler" && start(handler) === argumentStart(handler)
+    output.appendLeft(argumentStart(handler), shorthand ? "{ " : "{ handler: ")
+    output.appendLeft(close, " }")
     count++
   })
   return count
