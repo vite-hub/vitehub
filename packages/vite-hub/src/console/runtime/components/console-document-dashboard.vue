@@ -21,6 +21,7 @@ import { publishConsoleDocumentChanges } from "../client/publish";
 import { useConsoleToast } from "../client/toast";
 import { resolveConsoleRouteName } from "../console-route";
 import { consoleSectionPageRouteName, consoleSectionRouteName } from "../sections";
+import ConsoleContentHeads from "./console-content-heads.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePresenceAvatars from "./console-presence-avatars.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
@@ -372,39 +373,43 @@ async function publishAll(): Promise<void> {
           </ConsoleSection>
         </div>
 
-        <ConsoleSection v-if="!failed" title="Recent activity">
-          <div v-if="firstLoad" class="grid gap-3">
-            <USkeleton v-for="index in 5" :key="index" class="h-9" />
-          </div>
-          <UEmpty v-else-if="!overview?.activity.length" icon="i-lucide-history" title="No activity yet" description="Saves and publishes show here." />
-          <ol v-else class="grid">
-            <li v-for="entry in activity" :key="entry.id" class="grid min-h-9 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 py-1">
-              <p class="min-w-0 truncate text-[13px] text-muted" :title="entry.documents.length === 1 ? collectionLabel(entry.documents[0]!.collection) : entry.documents.map(document => document.title).join(', ')">
-                <span :class="entry.author ? 'font-medium text-highlighted' : ''">{{ entry.author ?? "Someone" }}</span>
-                {{ activityVerb(entry) }}
-                <template v-if="entry.documents.length === 1">
-                  <RouterLink
-                    v-if="entry.action !== 'remove'"
-                    :to="documentRoute(entry.documents[0]!.collection, entry.documents[0]!.id)"
-                    class="text-highlighted underline decoration-(--ui-border-accented) underline-offset-2 hover:decoration-(--muted-foreground)"
-                  >{{ entry.documents[0]!.title }}</RouterLink>
-                  <span v-else class="text-highlighted">{{ entry.documents[0]!.title }}</span>
-                </template>
-                <span v-else class="text-highlighted">{{ entry.documents.length }} documents</span>
-              </p>
-              <span class="text-xs whitespace-nowrap text-dimmed tabular-nums"><ConsoleRelativeTime :value="entry.createdAt" /></span>
-            </li>
-          </ol>
-          <UButton
-            v-if="(overview?.activity.length ?? 0) > activityLimit"
-            variant="ghost"
-            size="xs"
-            class="w-fit"
-            :label="showAllActivity ? 'Show less' : `Show all ${overview?.activity.length}`"
-            :aria-expanded="showAllActivity"
-            @click="showAllActivity = !showAllActivity"
-          />
-        </ConsoleSection>
+        <div class="grid grid-cols-1 gap-8">
+          <ConsoleSection v-if="!failed" title="Recent activity">
+            <div v-if="firstLoad" class="grid gap-3">
+              <USkeleton v-for="index in 5" :key="index" class="h-9" />
+            </div>
+            <UEmpty v-else-if="!overview?.activity.length" icon="i-lucide-history" title="No activity yet" description="Saves and publishes show here." />
+            <ol v-else class="grid">
+              <li v-for="entry in activity" :key="entry.id" class="grid min-h-9 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 py-1">
+                <p class="min-w-0 truncate text-[13px] text-muted" :title="entry.documents.length === 1 ? collectionLabel(entry.documents[0]!.collection) : entry.documents.map(document => document.title).join(', ')">
+                  <span :class="entry.author ? 'font-medium text-highlighted' : ''">{{ entry.author ?? "Someone" }}</span>
+                  {{ activityVerb(entry) }}
+                  <template v-if="entry.documents.length === 1">
+                    <RouterLink
+                      v-if="entry.action !== 'remove'"
+                      :to="documentRoute(entry.documents[0]!.collection, entry.documents[0]!.id)"
+                      class="text-highlighted underline decoration-(--ui-border-accented) underline-offset-2 hover:decoration-(--muted-foreground)"
+                    >{{ entry.documents[0]!.title }}</RouterLink>
+                    <span v-else class="text-highlighted">{{ entry.documents[0]!.title }}</span>
+                  </template>
+                  <span v-else class="text-highlighted">{{ entry.documents.length }} documents</span>
+                </p>
+                <span class="text-xs whitespace-nowrap text-dimmed tabular-nums"><ConsoleRelativeTime :value="entry.createdAt" /></span>
+              </li>
+            </ol>
+            <UButton
+              v-if="(overview?.activity.length ?? 0) > activityLimit"
+              variant="ghost"
+              size="xs"
+              class="w-fit"
+              :label="showAllActivity ? 'Show less' : `Show all ${overview?.activity.length}`"
+              :aria-expanded="showAllActivity"
+              @click="showAllActivity = !showAllActivity"
+            />
+          </ConsoleSection>
+          <!-- Below the activity, so the list does not move when the Sources arrive: most apps have none. -->
+          <ConsoleContentHeads v-if="section === 'content'" />
+        </div>
       </div>
     </div>
   </div>
