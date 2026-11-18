@@ -168,20 +168,22 @@ describe("SQLite invocation journal", () => {
     expect((await store.list({ search: "null-search" })).invocations.map(record => record.id)).toEqual(["null-search"])
   })
 
-  it("uses WAL with synchronous NORMAL for local database files", async () => {
+  it("uses WAL with synchronous NORMAL and a WAL size limit for local database files", async () => {
     const recording = recordingClient(client)
     const store = createLibsqlAgentInvocationStore({ client: recording.client, maxAge: false, maxRecords: false })
     await store.create(invocation("run"))
     expect((await client.execute("PRAGMA journal_mode")).rows[0]?.journal_mode).toBe("wal")
     const sql = recording.statements.map(statementSql)
     expect(sql).toContain("PRAGMA journal_mode = WAL")
-    expect(sql.findIndex(statement => statement.startsWith("PRAGMA synchronous = NORMAL;\nCREATE TABLE")))
+    expect(sql.findIndex(statement => statement.startsWith("PRAGMA synchronous = NORMAL;\nPRAGMA journal_size_limit = 67108864;\nCREATE TABLE")))
       .toBeGreaterThan(sql.indexOf("PRAGMA journal_mode = WAL"))
-    // synchronous is per connection, so every write sets it on the connection it borrows.
+    // Both pragmas are per connection, so every write sets them on the connection it borrows.
     recording.statements.length = 0
     await store.update("run", { observation: step(1), timestamp: at(1) })
-    expect(recording.statements.map(statementSql)[0]).toBe("PRAGMA synchronous = NORMAL")
+    expect(recording.statements.map(statementSql)[0]).toBe("PRAGMA synchronous = NORMAL;\nPRAGMA journal_size_limit = 67108864;")
     expect((await client.execute("PRAGMA synchronous")).rows[0]?.synchronous).toBe(1)
+    // Without a limit SQLite keeps a WAL file at the size of its largest burst after every checkpoint.
+    expect((await client.execute("PRAGMA journal_size_limit")).rows[0]?.journal_size_limit).toBe(67108864)
   })
 
   it.each([false, true])("uses NORMAL on each borrowed schema connection (legacy: %s)", async (legacy) => {

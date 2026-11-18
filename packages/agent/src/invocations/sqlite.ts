@@ -47,6 +47,11 @@ const defaultMaxAgeMs = 30 * 24 * 60 * 60 * 1000
 const defaultMaxRecords = 10_000
 /** Pages that one incremental vacuum returns to the file system. */
 const incrementalVacuumPages = 1000
+/**
+ * Bytes a WAL file keeps after a checkpoint resets it. SQLite reuses the WAL file without shrinking it, so one long
+ * reader during a write burst would otherwise leave a WAL as large as that burst on disk for the life of the database.
+ */
+const walSizeLimitBytes = 64 * 1024 * 1024
 const backfillPageSize = 100
 const observationInsertChunkSize = 200
 const searchVersion = 3
@@ -305,10 +310,11 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
   /** The database file. Set by initialize() when maxSize is set. */
   let storePath: string | undefined
   let synchronousNormal = false
-  // synchronous is a per-connection setting, and libSQL opens pooled connections on demand.
-  // Each write sets it on the idle connection that the write borrows next.
+  // synchronous and journal_size_limit are per-connection settings, and libSQL opens pooled connections on demand.
+  // Each write sets them on the idle connection that the write borrows next.
+  const writePragmas = `PRAGMA synchronous = NORMAL;\nPRAGMA journal_size_limit = ${walSizeLimitBytes};`
   const prepareWrite = async () => {
-    if (synchronousNormal) await client.execute("PRAGMA synchronous = NORMAL")
+    if (synchronousNormal) await client.executeMultiple(writePragmas)
   }
   let searchBackfill: Promise<void> | undefined
   let summaryBackfill: Promise<void> | undefined
@@ -538,7 +544,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       const executeSchema = async (sql: string) => {
         if (synchronousNormal) {
           // executeMultiple keeps the connection-local pragma and DDL on one borrowed connection, outside a transaction.
-          await client.executeMultiple(`PRAGMA synchronous = NORMAL;\n${sql}`)
+          await client.executeMultiple(`${writePragmas}\n${sql}`)
         }
         else {
           await client.execute(sql)
