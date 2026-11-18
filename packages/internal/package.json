@@ -48,6 +48,11 @@
       "import": "./dist/env.js",
       "default": "./dist/env.js"
     },
+    "./hints": {
+      "types": "./dist/hints.d.ts",
+      "import": "./dist/hints.js",
+      "default": "./dist/hints.js"
+    },
     "./ast": {
       "types": "./dist/ast.d.ts",
       "import": "./dist/ast.js",
@@ -77,6 +82,11 @@
       "types": "./dist/deployment.d.ts",
       "import": "./dist/deployment.js",
       "default": "./dist/deployment.js"
+    },
+    "./forge": {
+      "types": "./dist/forge.d.ts",
+      "import": "./dist/forge.js",
+      "default": "./dist/forge.js"
     },
     "./features": {
       "types": "./dist/features.d.ts",
@@ -158,6 +168,16 @@
       "import": "./dist/provision-state.js",
       "default": "./dist/provision-state.js"
     },
+    "./process-sweep": {
+      "types": "./dist/process-sweep.d.ts",
+      "import": "./dist/process-sweep.js",
+      "default": "./dist/process-sweep.js"
+    },
+    "./systemd": {
+      "types": "./dist/systemd.d.ts",
+      "import": "./dist/systemd.js",
+      "default": "./dist/systemd.js"
+    },
     "./standard-schema": {
       "types": "./dist/standard-schema.d.ts",
       "import": "./dist/standard-schema.js",
@@ -208,6 +228,11 @@
       "import": "./dist/inspect.js",
       "default": "./dist/inspect.js"
     },
+    "./invariant": {
+      "types": "./dist/invariant.d.ts",
+      "import": "./dist/invariant.js",
+      "default": "./dist/invariant.js"
+    },
     "./runtime/random": {
       "types": "./dist/runtime/random.d.ts",
       "import": "./dist/runtime/random.js",
@@ -248,6 +273,11 @@
       "import": "./dist/runtime/page-tools-shared.js",
       "default": "./dist/runtime/page-tools-shared.js"
     },
+    "./runtime/client-rate-limit": {
+      "types": "./dist/runtime/client-rate-limit.d.ts",
+      "import": "./dist/runtime/client-rate-limit.js",
+      "default": "./dist/runtime/client-rate-limit.js"
+    },
     "./runtime/request-origin": {
       "types": "./dist/runtime/request-origin.d.ts",
       "import": "./dist/runtime/request-origin.js",
@@ -257,6 +287,16 @@
       "types": "./dist/secret.d.ts",
       "import": "./dist/secret.js",
       "default": "./dist/secret.js"
+    },
+    "./runtime/user-agent": {
+      "types": "./dist/runtime/user-agent.d.ts",
+      "import": "./dist/runtime/user-agent.js",
+      "default": "./dist/runtime/user-agent.js"
+    },
+    "./sitemap": {
+      "types": "./dist/sitemap.d.ts",
+      "import": "./dist/sitemap.js",
+      "default": "./dist/sitemap.js"
     },
     "./runtime/time-zone": {
       "types": "./dist/runtime/time-zone.d.ts",

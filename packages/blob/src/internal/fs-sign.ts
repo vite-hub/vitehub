@@ -111,7 +111,7 @@ export async function signFsRequest(store: string, pathname: string, options: Bl
   }
 }
 
-function reject(status: 403 | 405 | 413, diagnostic: ReturnType<typeof blobErrorDiagnostics.BLOB_R0041>, headers?: Record<string, string>): Response {
+function reject(status: 403 | 405 | 413, diagnostic: ReturnType<typeof blobErrorDiagnostics["BLOB_R0041" | "BLOB_R0042" | "BLOB_R0043"]>, headers?: Record<string, string>): Response {
   return Response.json({ code: diagnostic.code, error: diagnostic.message, fix: diagnostic.fix }, { headers, status })
 }
 

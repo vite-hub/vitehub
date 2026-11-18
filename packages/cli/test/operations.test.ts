@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as v from "valibot"
@@ -248,7 +248,7 @@ describe("generated operation commands", () => {
     expect(operationRpcRequest(fetch.mock.calls[0]![1]!.body).input).toEqual({})
   })
 
-  it.each(["inspect", "provision"])("diagnoses a generated command in the reserved %s namespace", async namespace => {
+  it.each(["inspect", "provision", "seed"])("diagnoses a generated command in the reserved %s namespace", async namespace => {
     const operation = defineOperation({ ...list, name: "reports.custom", cli: { namespace } })
     await expect(run([namespace, "custom"], { operations: [operation] })).rejects.toMatchObject({ code: "INTERNAL_R0020", message: expect.stringContaining("reserved") })
   })
@@ -427,6 +427,15 @@ describe("generated operation commands", () => {
     expect(result.stderr).toContain("CLI_R0005: No dev server is running for /app.")
     expect(result.stderr).toContain("Fix: Start `vite dev`")
     expect(result.fetch).not.toHaveBeenCalled()
+  })
+
+  it("names the Nuxt project root, not its app/ Vite root, when no dev server is known", async () => {
+    const root = await project()
+    await mkdir(join(root, "app"))
+    await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({})\n")
+    const result = await run(["reports", "list", "acme"], { env: {}, root: join(root, "app") })
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain(`CLI_R0005: No dev server is running for ${root}.`)
   })
 
   it("calls the dev server that wrote .vitehub/dev-server.json for this project", async () => {

@@ -3,8 +3,11 @@ import { createHash, randomBytes } from "node:crypto"
 import { chmod, mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve, win32 } from "node:path"
 
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { readViteHubSecret } from "@vite-hub/internal/secret"
+import { loadAllEnv } from "@vite-hub/internal/vite-stage"
+import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import {
   createNoExternalAddition,
   createViteHubEnvImportAliases,
@@ -48,6 +51,7 @@ import type {
   EnvRuntimeRegistryValue,
 } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
+import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Plugin, UserConfig } from "vite"
 import { envErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -59,11 +63,13 @@ export const ENV_SERVER_ID: typeof VITEHUB_ENV_SERVER_ID = VITEHUB_ENV_SERVER_ID
 
 const ENV_DESCRIPTION_ID = "#vitehub/env/description"
 const RESOLVED_DESCRIPTION_ID = `\0${ENV_DESCRIPTION_ID}`
-const RESOLVED_PUBLIC_ID = `\0${ENV_PUBLIC_ID}`
+// No "#" here: Vite dev serves this browser module at `/@id/<id>`, where "#" would start the URL fragment. Not reported
+// to Vite yet (repro: https://github.com/onmax/repros/tree/repro/vite-virtual-id-hash/vite-virtual-id-hash).
+const RESOLVED_PUBLIC_ID = "\0virtual:vitehub/env/public"
 const RESOLVED_SERVER_ID = `\0${ENV_SERVER_ID}`
 // Rolldown and Vite skip the resolveId and load hooks for every other id.
 const ID_PATTERN = /^#vitehub\/env\/(?:description|public|server)$/
-const RESOLVED_ID_PATTERN = /^\0#vitehub\/env\/(?:description|public|server)$/
+const RESOLVED_ID_PATTERN = /^\0(?:#vitehub\/env\/(?:description|server)|virtual:vitehub\/env\/public)$/
 const defaultRuntimeImports = {
   secret: "@vite-hub/env",
   server: "@vite-hub/env/internal/server",
@@ -75,6 +81,8 @@ export { env }
 
 export interface EnvVitePluginAPI {
   createServerEnvRegistry: (declarations: EnvRuntimeConfigOptions | undefined) => EnvRuntimeRegistry
+  /** `VITEHUB_SECRET`, which `deriveSecret()` and `seal()` read at runtime. Optional here: features that need it say so. */
+  deploymentEnv: DeploymentEnvContribution
   getPublicEnv: () => Record<string, unknown>
   getServerEnvRegistry: () => EnvRuntimeRegistry
   onServerEnvRegistry: (handler: (registry: EnvRuntimeRegistry, config: UserConfig) => void) => void
@@ -110,9 +118,12 @@ function resolveDeclarations(options: EnvDeclarations, config: object): EnvDecla
 
 export type EnvVitePlugin = Plugin & {
   api: EnvVitePluginAPI
-  /** Contributes `vitehub env inspect` and `vitehub env check`. */
-  vitehub: { cli: () => ViteHubCliContributor }
+  /** Contributes `vitehub env inspect`, `vitehub env check`, and the `env.inspect` operation. */
+  vitehub: { cli: () => ViteHubCliContributor, operations: readonly OperationContributionEntry[] }
 }
+
+// Generated code imports the operations module by path, so it needs no package export.
+const operationsModule = ownModule(import.meta.url, "operations")
 
 interface ResolvedEnvState {
   diagnosticsText: string | undefined
@@ -204,7 +215,7 @@ export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
       }
     }
 
-    const loadedEnv = loadEnv(mode, projectRoot, "")
+    const loadedEnv = loadAllEnv(loadEnv, mode, projectRoot)
     const context = createSourceContext({
       env: { ...loadedEnv, ...process.env },
       mode: "build",
@@ -249,6 +260,7 @@ export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
     name: ENV_VITE_PLUGIN_NAME,
     api: {
       createServerEnvRegistry,
+      deploymentEnv: () => [{ names: ["VITEHUB_SECRET"], required: false, secret: true, hasDefault: false, owners: ["env"] }],
       getPublicEnv,
       getServerEnvRegistry,
       onServerEnvRegistry: handler => serverRegistryHandlers.add(handler),
@@ -258,6 +270,8 @@ export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
     },
     vitehub: {
       cli: () => createEnvCliContributor({ resolveProjectRoot }),
+      // The Console, `vitehub env status`, and agents run these on the signed RPC endpoint of the app.
+      operations: [{ export: "envOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).envOperations, module: operationsModule }],
     },
     // The Env root imports the generated modules, so the server bundles the package instead of loading it from Node.
     configEnvironment(name, config) {
@@ -270,7 +284,7 @@ export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
       let developmentSecretEnvKey: string | undefined
       if (env.command === "serve") {
         const projectRoot = resolveProjectRoot(config.root || process.cwd())
-        const resolvedSecret = await resolveDevelopmentSecret(projectRoot, loadEnv(env.mode, projectRoot, ""))
+        const resolvedSecret = await resolveDevelopmentSecret(projectRoot, loadAllEnv(loadEnv, env.mode, projectRoot))
         developmentSecret = resolvedSecret.secret
         developmentSecretGenerated = resolvedSecret.generated
         developmentSecretEnvKey = resolvedSecret.envKey
@@ -842,11 +856,13 @@ function createViteTypes(
 function createServerEnvInspectionTypes(indent: number): string[] {
   const prefix = " ".repeat(indent)
   return [
-    `${prefix}export interface ServerEnvDescriptionEntry { path?: string; canonicalName?: string; source: "env" | "literal" | "provider"; provider?: string; secret: boolean; required: boolean; hasDefault: boolean; type?: string }`,
+    `${prefix}export interface ServerEnvDescriptionEntry { path?: string; names?: readonly string[]; source: "env" | "literal" | "provider"; provider?: string; secret: boolean; required: boolean; hasDefault: boolean; type?: string }`,
     `${prefix}export interface ServerEnvDescription { entries: readonly ServerEnvDescriptionEntry[] }`,
     `${prefix}export function describeServerEnv(): ServerEnvDescription`,
     `${prefix}export interface ServerEnvInspectionEntry {`,
     `${prefix}  masked: boolean`,
+    `${prefix}  names?: readonly string[]`,
+    `${prefix}  name?: string`,
     `${prefix}  path?: string`,
     `${prefix}  provider?: string`,
     `${prefix}  required: boolean`,

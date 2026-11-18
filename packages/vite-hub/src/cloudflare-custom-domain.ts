@@ -15,7 +15,7 @@ export function readProjectWranglerConfig(rootDir: string): Record<string, unkno
     if (configPath) {
       const text = readFileSync(configPath, "utf8")
       const extension = extname(configPath)
-      const config: unknown = extension === ".toml" ? parseTOML(text) : extension === ".jsonc" ? parseJSONC(text) : JSON.parse(text)
+      const config: unknown = extension === ".toml" ? parseTOML(text) : parseJSONC(text)
       return isRecord(config) ? config : undefined
     }
     const parent = dirname(directory)

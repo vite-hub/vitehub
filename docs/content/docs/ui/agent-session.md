@@ -16,8 +16,8 @@ icon: i-ph-layout-light
 Import the components and package styles as described in [Installation](/docs/ui/installation):
 
 ```ts
-import { AgentSession, AgentSessionDetailsRow, AgentSessionDetailsSection, AgentSessionTimeline } from "@vite-hub/ui";
-import "@vite-hub/ui/styles.css";
+import { AgentSession, AgentSessionDetailsRow, AgentSessionDetailsSection, AgentSessionTimeline } from "vite-hub/ui";
+import "vite-hub/ui/styles.css";
 ```
 
 The same components are available at `vite-hub/ui`.
@@ -50,7 +50,7 @@ Use `v-model:surface`, `v-model:panel-open`, and `v-model:maximized` to connect 
 
 ## Accessibility
 
-Header controls have accessible names and pressed states. Surface tabs expose their selected state. The panel width can be changed with the keyboard on its separator. Escape closes the details popover and returns focus to its toggle. Long user turns and work groups expose expanded states on their buttons.
+Header controls have accessible names and pressed states. Surface tabs expose their selected state. The panel width can be changed with the keyboard on its separator. On a narrow column the details card is a native popover over the body's top end corner: Escape or a click outside closes it. Long user turns and work groups expose expanded states on their buttons.
 
 ## API Reference
 

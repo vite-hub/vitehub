@@ -43,9 +43,10 @@ const oauthDefinitionSchema = v.looseObject({
   provider: v.pipe(
     v.looseObject({
       id: v.string(),
-      authorizationEndpoint: v.string(),
-      tokenEndpoint: v.string(),
-      clientId: connectionValue,
+      authorizationEndpoint: v.optional(v.string()),
+      tokenEndpoint: v.optional(v.string()),
+      clientId: v.optional(connectionValue),
+      clientName: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(160))),
       clientSecret: v.optional(connectionValue),
       account: v.optional(v.function()),
       apis: v.optional(apiCatalogsSchema),
@@ -53,6 +54,8 @@ const oauthDefinitionSchema = v.looseObject({
       requests: requestsSchema,
     }),
     v.check(provider => !Object.hasOwn(provider, "kind")),
+    // Without `mcp`, ViteHub has no metadata to find the endpoints or to register a client.
+    v.check(provider => provider.mcp !== undefined || (provider.authorizationEndpoint !== undefined && provider.tokenEndpoint !== undefined && provider.clientId !== undefined && provider.clientName === undefined)),
   ),
   scopes: v.array(v.string()),
   ...rulesSchema,

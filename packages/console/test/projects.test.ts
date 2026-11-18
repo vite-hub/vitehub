@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { readConsolePublicKeys, signConsoleRequest, verifyConsoleSignature } from "@vite-hub/internal/console-signature"
 
-import { createConsoleProjectStore } from "../src/projects.ts"
+import { createConsoleProjectStore, scopeConsoleProjectStore } from "../src/projects.ts"
 import { renameProject } from "../server/utils/console.ts"
 
 import type { ConsoleTeamCaller } from "../server/utils/console.ts"
@@ -89,9 +89,12 @@ describe("project store", () => {
     await expect(store.get(project!.id)).resolves.toMatchObject({ label: "Calories", publicKey: project!.publicKey })
     await expect(store.rename(project!.id, " ")).resolves.toMatchObject({ label: null })
     await expect(store.rename(project!.id, null)).resolves.toMatchObject({ label: null })
+    const scoped = scopeConsoleProjectStore(store, [project!.id])
+    await expect(scoped.rename(project!.id, "Scoped")).resolves.toMatchObject({ label: "Scoped" })
+    await expect(scopeConsoleProjectStore(store, []).rename(project!.id, "Hidden")).resolves.toBeUndefined()
     // Another team cannot rename it.
     await expect(createConsoleProjectStore(db, secret, "team-2").rename(project!.id, "Mine")).resolves.toBeUndefined()
-    await expect(store.get(project!.id)).resolves.toMatchObject({ label: null })
+    await expect(store.get(project!.id)).resolves.toMatchObject({ label: "Scoped" })
   })
 })
 

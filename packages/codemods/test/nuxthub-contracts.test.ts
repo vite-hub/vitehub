@@ -82,7 +82,7 @@ it.each([false, true])("matches feature bindings independently of Wrangler order
   const messages = run.result.followUps.filter(followUp => followUp.file === "wrangler.jsonc").map(followUp => followUp.message).join("\n")
   expect(messages).not.toMatch(/SESSIONS|ARCHIVE|other-cache/)
   expect(messages.split("\n")).toHaveLength(3)
-  const migrated = new Function("defineNuxtConfig", config!.replace("export default", "return"))((value: unknown) => value) as { vitehub: { blob: { driver: "cloudflare-r2", binding: string, bucketName: string, jurisdiction: "eu" } } }
+  const migrated = new Function("defineNuxtConfig", config!.replace("export default", "return"))((value: unknown) => value) as { vitehub: { blob: { driver: "cloudflare", binding: string, bucketName: string, jurisdiction: "eu" } } }
   expect(blobBindings(migrated.vitehub.blob)).toEqual([{ binding: blob, bucket_name: "uploads", jurisdiction: "eu" }])
 })
 

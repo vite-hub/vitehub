@@ -29,7 +29,8 @@ it.each([false, true])("counts deleted files alongside other changes (mixed: %s)
     global: { stubs: { AgentInvocation: true, UIcon: true } },
   })
   try {
-    await wrapper.get('[data-slot="agent-session-details-toggle"]').trigger("click")
+    // happy-dom does not implement the native popover invoker action.
+    await wrapper.get('[data-slot="agent-session-details"]').trigger("beforetoggle", { newState: "open" })
     const row = wrapper.findAll('[data-slot="agent-session-details-row"]').find(row => row.text().includes("Changed files"))
     expect(row?.find(".vh-agent-session__row-value").text()).toBe(mixed ? "2" : "1")
   }

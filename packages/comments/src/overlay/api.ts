@@ -14,6 +14,8 @@ export interface CommentsSession {
   /** Signs out of the GitHub sign-in of Comments. */
   signOut?: string
   realtime: boolean
+  /** `false` when the app shows its own presence, so the overlay shows no faces and no cursors. */
+  presence?: false
   content: boolean
   /** The subject of the page, which `page` of `defineComments()` decides on the server. */
   subject?: CommentSubject

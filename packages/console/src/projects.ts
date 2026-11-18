@@ -4,6 +4,7 @@ import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqli
 import { createConsoleKeyPair } from "@vite-hub/internal/console-signature"
 import { authSqliteSchema } from "vite-hub/auth/schema"
 
+import { consoleApiKeys, consoleDeviceCodes } from "./api-keys.ts"
 import { openProjectKey, sealProjectKey } from "./token-box.ts"
 
 import type { ConsoleSigningKey } from "@vite-hub/internal/console-signature"
@@ -31,8 +32,8 @@ export const consoleProjects = sqliteTable("console_projects", {
   uniqueIndex("console_projects_team_url_uidx").on(table.teamId, table.url),
 ])
 
-/** The tables of the Console, for `defineDatabase({ schema })`. */
-export const consoleSchema = { consoleProjects }
+/** The tables of the Console, for `defineDatabase({ schema })`. `deviceCode` is the key that Better Auth looks up. */
+export const consoleSchema = { consoleProjects, consoleApiKeys, deviceCode: consoleDeviceCodes }
 
 /** A Drizzle SQLite Database: libSQL, D1, or the Database of a ViteHub app. */
 export type ConsoleDatabase = SQLiteAsyncDatabase<"async", unknown, AnyRelations>
@@ -63,6 +64,11 @@ function toProject(row: typeof consoleProjects.$inferSelect): ConsoleProject {
   return { id: row.id, teamId: row.teamId, url: row.url, label: row.label, publicKey: row.publicKey, keyVariable: `VITEHUB_CONSOLE_KEY_${projectKeyName(row.id)}`, createdBy: row.createdBy, createdAt: row.createdAt }
 }
 
+/** The linked projects of a team, the oldest first. Listing needs no secret: it never opens a private key. */
+export async function listConsoleProjects(db: ConsoleDatabase, teamId: string): Promise<ConsoleProject[]> {
+  return (await db.select().from(consoleProjects).where(eq(consoleProjects.teamId, teamId)).orderBy(asc(consoleProjects.createdAt), asc(consoleProjects.id))).map(toProject)
+}
+
 /** The linked projects of one team. Each method sees only the projects of that team. */
 export interface ConsoleProjectStore {
   list(): Promise<ConsoleProject[]>
@@ -76,14 +82,29 @@ export interface ConsoleProjectStore {
   remove(id: string): Promise<boolean>
 }
 
+/**
+ * The store of an API key that names projects: it lists and opens only those, and it links no new project. `null` is a
+ * key for every project of the team, which gets the store as it is.
+ */
+export function scopeConsoleProjectStore(store: ConsoleProjectStore, projectIds: readonly string[] | null): ConsoleProjectStore {
+  if (!projectIds) return store
+  const allowed = new Set(projectIds)
+  return {
+    list: async () => (await store.list()).filter(project => allowed.has(project.id)),
+    get: async id => allowed.has(id) ? store.get(id) : undefined,
+    create: async () => undefined,
+    rename: async (id, label) => allowed.has(id) ? store.rename(id, label) : undefined,
+    target: async id => allowed.has(id) ? store.target(id) : undefined,
+    remove: async id => allowed.has(id) && store.remove(id),
+  }
+}
+
 export function createConsoleProjectStore(database: ConsoleDatabase | (() => ConsoleDatabase), secret: string, teamId: string): ConsoleProjectStore {
   const db = typeof database === "function" ? database : () => database
   const inTeam = eq(consoleProjects.teamId, teamId)
   const row = async (id: string) => (await db().select().from(consoleProjects).where(and(inTeam, eq(consoleProjects.id, id))).limit(1))[0]
   return {
-    async list() {
-      return (await db().select().from(consoleProjects).where(inTeam).orderBy(asc(consoleProjects.createdAt), asc(consoleProjects.id))).map(toProject)
-    },
+    list: () => listConsoleProjects(db(), teamId),
     async get(id) {
       const found = await row(id)
       return found ? toProject(found) : undefined

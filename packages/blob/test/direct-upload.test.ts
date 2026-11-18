@@ -137,7 +137,9 @@ describe("direct uploads on the fs driver", () => {
   it("accepts only its own ticket for an object that was stored", async () => {
     const signed = await sign(blob, { contentType: "text/plain", name: "a.txt", size: 1 })
     await expect(complete(blob, signed.ticket)).rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining("is not in the store") })
-    await expect(complete(blob, `${signed.ticket.slice(0, -1)}0`)).rejects.toMatchObject({ statusCode: 403 })
+    // Change the last hex digit of the signature. Setting it to a fixed digit is no change when the digit is already that.
+    const tampered = `${signed.ticket.slice(0, -1)}${signed.ticket.endsWith("0") ? "1" : "0"}`
+    await expect(complete(blob, tampered)).rejects.toMatchObject({ statusCode: 403 })
     await expect(complete(blob, signed.ticket, {}, `${origin}/api/other`)).rejects.toMatchObject({ statusCode: 403 })
   })
 
@@ -178,7 +180,7 @@ describe("direct uploads on Vercel Blob", () => {
   const token = "vercel_blob_rw_store123_secretpart"
 
   function vercelStorage() {
-    return createBlobStorage(createBundledVercelBlobDriver({ access: "private", driver: "vercel-blob", token }), "default")
+    return createBlobStorage(createBundledVercelBlobDriver({ access: "private", driver: "vercel", token }), "default")
   }
 
   it("signs a client token that binds the pathname, the type, and the size", async () => {
@@ -220,7 +222,7 @@ describe("direct uploads on Vercel Blob", () => {
     const [getError] = await vercelStorage().sign("a.txt", { expiresIn: 60, method: "GET" })
     expect(getError).toMatchObject({ cause: { code: "BLOB_R0025" } })
     vi.stubEnv("BLOB_READ_WRITE_TOKEN", "")
-    const oidc = createBlobStorage(createBundledVercelBlobDriver({ access: "private", driver: "vercel-blob" }), "default")
+    const oidc = createBlobStorage(createBundledVercelBlobDriver({ access: "private", driver: "vercel" }), "default")
     const [putError] = await oidc.sign("a.txt", { expiresIn: 60, method: "PUT" })
     expect(putError).toMatchObject({ cause: { code: "BLOB_R0025" } })
   })

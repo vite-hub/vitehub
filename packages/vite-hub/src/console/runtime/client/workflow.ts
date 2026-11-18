@@ -42,7 +42,7 @@ export function parseConsoleWorkflowPayload(raw: string): unknown {
     return JSON.parse(raw)
   }
   catch {
-    throw new Error("The payload is not valid JSON.")
+    throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_JSON_INVALID({ subject: "The payload" })
   }
 }
 

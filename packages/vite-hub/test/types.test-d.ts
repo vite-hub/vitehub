@@ -120,6 +120,7 @@ describe("vite-hub public types", () => {
 
     const { db, schema } = useDatabase("typed")
     const meals = defineCollection({
+      route: false,
       source: table({
         db,
         orderBy: {
@@ -160,6 +161,7 @@ describe("vite-hub public types", () => {
     expectTypeOf<CollectionItem<typeof privateMeals>>().toEqualTypeOf<{ id: string }>()
 
     const filteredMeals = defineCollection({
+      route: false,
       source: table({
         db,
         orderBy: {
@@ -178,6 +180,7 @@ describe("vite-hub public types", () => {
     expectTypeOf<CollectionQuery<typeof filteredMeals>>().toEqualTypeOf<MealFilters>()
 
     const searchedMeals = defineCollection({
+      route: false,
       source: table({
         db,
         orderBy: {
@@ -196,6 +199,7 @@ describe("vite-hub public types", () => {
     expectTypeOf<CollectionQuery<typeof searchedMeals>>().toEqualTypeOf<{ q: string }>()
 
     const reservedFilteredMeals = defineCollection({
+      route: false,
       source: table({
         db,
         orderBy: {
@@ -210,6 +214,7 @@ describe("vite-hub public types", () => {
     expectTypeOf<CollectionQuery<typeof reservedFilteredMeals>>().toEqualTypeOf<{ day?: string }>()
 
     const limitFilteredMeals = defineCollection({
+      route: false,
       source: table({
         db,
         orderBy: {
@@ -224,6 +229,7 @@ describe("vite-hub public types", () => {
     expectTypeOf<CollectionQuery<typeof limitFilteredMeals>>().toEqualTypeOf<never>()
 
     const readonlyFilteredMeals = defineCollection({
+      route: false,
       source: table({
         db,
         orderBy: {
@@ -238,6 +244,7 @@ describe("vite-hub public types", () => {
     expectTypeOf<CollectionQuery<typeof readonlyFilteredMeals>>().toEqualTypeOf<ReadonlyMealFilters>()
 
     const duplicateFilteredMeals = defineCollection({
+      route: false,
       source: table({
         db,
         orderBy: {
@@ -252,6 +259,7 @@ describe("vite-hub public types", () => {
     expectTypeOf<CollectionQuery<typeof duplicateFilteredMeals>>().toEqualTypeOf<DuplicateMealFilters>()
 
     const readonlyOnlyFilteredMeals = defineCollection({
+      route: false,
       source: table({
         db,
         orderBy: {
@@ -266,6 +274,7 @@ describe("vite-hub public types", () => {
     expectTypeOf<CollectionQuery<typeof readonlyOnlyFilteredMeals>>().toEqualTypeOf<never>()
 
     const tupleFilteredMeals = defineCollection({
+      route: false,
       source: table({
         db,
         orderBy: {
@@ -280,6 +289,7 @@ describe("vite-hub public types", () => {
     expectTypeOf<CollectionQuery<typeof tupleFilteredMeals>>().toEqualTypeOf<never>()
 
     const fixedTupleFilteredMeals = defineCollection({
+      route: false,
       source: table({
         db,
         orderBy: {

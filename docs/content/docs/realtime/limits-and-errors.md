@@ -36,7 +36,7 @@ Room errors happen after the WebSocket opens, so the server closes the connectio
 | `REALTIME_DOCUMENT_CONFLICT` | Thrown by a document adapter. The room re-seeds and clients reset. |
 | `REALTIME_MISSING_ACCESS`, `REALTIME_INVALID_ACCESS`, `REALTIME_CHECKPOINT_UNSUPPORTED` | Thrown by `defineRealtime()` and when the server loads the definition |
 | `REALTIME_INVALID_PERSISTENCE`, `REALTIME_INVALID_USER`, `REALTIME_MISSING_DIGEST` | Thrown on the server when a room opens or saves |
-| `REALTIME_AUTHORITY_CONFLICT`, `REALTIME_MISSING_AUTHORITY` | Thrown when Vite reads the config |
+| `REALTIME_DRIVER_CONFLICT`, `REALTIME_MISSING_DRIVER` | Thrown when Vite reads the config |
 
 ## Limits
 
@@ -160,7 +160,7 @@ The identity's user has no `id`, or the `id` is not a string of at most 256 char
 
 ### REALTIME_MISSING_BUS_CONNECTION
 
-`authority: "redis"` needs `REDIS_URL`. `authority: "postgres"` needs a Default Database with `dialect: "postgresql"`, or `REALTIME_POSTGRES_URL`. Realtime does not read `DATABASE_URL` itself. Add the connection, or use `authority: "auto"`, which keeps rooms in one process without one.
+`driver: "redis"` needs `REDIS_URL`. `driver: "postgres"` needs a Default Database with `dialect: "postgresql"`, or `REALTIME_POSTGRES_URL`. Realtime does not read `DATABASE_URL` itself. Add the connection, or use `driver: "auto"`, which keeps rooms in one process without one.
 
 ### REALTIME_ROOM_LOCK_TIMEOUT
 
@@ -172,10 +172,10 @@ A save needs file digests from the Workspace Store, or a checkpoint found no sto
 
 ## Build errors
 
-### REALTIME_AUTHORITY_CONFLICT
+### REALTIME_DRIVER_CONFLICT
 
-`authority: "cloudflare"` needs a Cloudflare host. `authority: "memory"`, `"postgres"`, and `"redis"` need the `node` host.
+`driver: "cloudflare"` needs a Cloudflare host. `driver: "memory"`, `"postgres"`, and `"redis"` need the `node` host.
 
-### REALTIME_MISSING_AUTHORITY
+### REALTIME_MISSING_DRIVER
 
-A production build with `authority: "auto"` found neither a Cloudflare nor a Node host. Use the Cloudflare host for Durable Objects, or the Node host to share rooms through Postgres or Redis.
+A production build with `driver: "auto"` found neither a Cloudflare nor a Node host. Use the Cloudflare host for Durable Objects, or the Node host to share rooms through Postgres or Redis.

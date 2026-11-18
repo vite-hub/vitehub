@@ -10,13 +10,13 @@ describe("Cloudflare workflow errors", () => {
     // SAFETY: The VM fixture intentionally creates the cross-realm error that a worker can receive.
     const original = runInNewContext("Object.assign(new Error('invalid input'), { isRetryable: false })") as Error & { isRetryable: false }
     const converted = new Error("non-retryable: invalid input")
-    const createNonRetryableError = vi.fn((_error: Error & { isRetryable: false }) => converted)
+    const createNonRetryableError = vi.fn((_error: Error) => converted)
     const step = {
       do: vi.fn(async (_name: string, _options: unknown, run: () => unknown) => await run()),
     } as WorkflowProviderStep
 
     await expect(runCloudflareWorkflow({
-      config: { provider: "cloudflare" },
+      config: { driver: "cloudflare" },
       createNonRetryableError,
       env: {},
       event: { id: "run-foreign" },

@@ -12,6 +12,8 @@ import { consolePageToolScript, writeConsoleNitroPlugin } from "../src/console/p
 import { installConsoleAccess } from "../src/console/runtime/server/access-policy.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { isAuthAdmin } from "../src/console/runtime/server/page-auth.ts"
+import { readConsoleProject } from "../src/console/runtime/server/project.ts"
+import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { generatedModules } from "../src/internal/generated-modules.ts"
@@ -21,8 +23,8 @@ import type { ConsoleAuthorize, ConsoleAuthorizeContext } from "../src/console/a
 import type { ConsolePageUser } from "../src/console/runtime/server/page-tool.ts"
 
 const people: Record<string, ConsolePageUser> = {
-  admin: { user: { id: "u1", role: "admin" }, console: true },
-  member: { user: { id: "u2", role: "user" }, console: false },
+  admin: { user: { id: "u1", role: "admin" }, console: true, signOut: "/api/auth/sign-out" },
+  member: { user: { id: "u2", role: "user" }, console: false, signOut: "/api/auth/sign-out" },
 }
 
 /** Installs the Console page tool with an Auth reader that takes the person from a `person` cookie. */
@@ -202,8 +204,17 @@ describe("a Console app without Comments", () => {
       expect(withAuth).toContain(`export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: "/portal/", script: ${JSON.stringify(consolePageToolScript)}, user: async request => (await import(${JSON.stringify(generatedModules.consolePageAuth)})).consolePageAuthUser(request) }) }`)
       await write([], { base: "/" })
       const withoutAuth = await readFile(file, "utf8")
-      expect(withoutAuth).toContain(`installConsolePageTool(nitroApp, { base: "/", script: ${JSON.stringify(consolePageToolScript)} })`)
+      // Without Auth, the Console page tool reads the Site access cookie.
+      expect(withoutAuth).toContain(`installConsolePageTool(nitroApp, { base: "/", script: ${JSON.stringify(consolePageToolScript)}, site: async request => (await import(${JSON.stringify(generatedModules.consoleSiteSession)})).readConsoleSiteVisitor(request) })`)
       expect(withoutAuth).not.toContain(generatedModules.consolePageAuth)
+      expect(withoutAuth).toContain(`installConsoleSections(${JSON.stringify(root)}, ["site"])`)
+      const registration = /installConsoleSections\([^,]+, (\[[^\n]*?\])/.exec(withoutAuth)
+      expect(registration).not.toBeNull()
+      installConsoleSections(root, JSON.parse(registration![1]!))
+      const project = await readConsoleProject({ mode: "token", sections: "all" })
+      expect(project.operations).toEqual(expect.arrayContaining(["site.link", "site.sessions", "site.revoke-session"]))
+      await writeConsoleNitroPlugin({ file, projectRoot: root, sections: ["kv"], catalog: { agents: [], content: {} }, blobStores: [], access: { mode: "token", hiddenSections: ["site"] }, pageTool: { base: "/" } })
+      expect(await readFile(file, "utf8")).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
       await write([])
       const off = await readFile(file, "utf8")
       expect(off).toContain("export default function viteHubConsolePlugin() {}")

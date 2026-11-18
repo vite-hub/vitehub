@@ -561,7 +561,7 @@ async function executeOpenAPIOperation<
 function connectionRequestBody(body: RequestInit["body"]): string | undefined {
   if (body === undefined || body === null) return undefined
   if (v.is(v.string(), body)) return body
-  throw new TypeError("[vitehub] OpenAPI requests through a Connection require a string body. Serialize the request hook body before dispatch.")
+  throw agentDiagnostics.AGENT_OPENAPI_CONNECTION_BODY_INVALID()
 }
 
 function openAPIRequestOptions<

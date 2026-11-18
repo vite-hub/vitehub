@@ -1,14 +1,7 @@
-import { resolve } from "node:path"
-
 import { defaultAgentInvocationsDatabase } from "@vite-hub/agent/internal/default-invocations-core"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 
-import {
-  createConsoleInvocationsIdentity,
-  installConsoleInvocationFallback,
-  resolveConsoleInvocations,
-  resolveConsoleInvocationsIdentity,
-} from "../../internal.ts"
+import { consoleState, resolveConsoleInvocations } from "../../internal.ts"
 import { resolveDefaultAgentInvocations } from "@vite-hub/agent/invocations/app"
 
 import type { Value } from "@libsql/client"
@@ -86,7 +79,7 @@ export function getConsoleUsageIndex(invocations: AgentInvocations): ConsoleUsag
 export function getConsoleInvocations(): AgentInvocations {
   const invocations = resolveConsoleInvocations()
   if (!invocations) {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0063({ message: "[vitehub] The Agent invocation console has not been installed for this runtime." })
+    throw viteHubErrorDiagnostics.VITE_HUB_R0063({ message: "[vitehub] This app has no Agent Invocation journal for the Console to read. The Console is off, or the app has no Agent Definition." })
   }
   return invocations
 }
@@ -97,19 +90,17 @@ const emptyJournals = new WeakSet<AgentInvocations>()
 /**
  * Registers the journal that the Console reads: `configuredInvocations`, else the app-wide Agent journal.
  * The Console does not create a durable journal. With `agent.invocations: false`, it reads an empty memory journal.
+ * One server bundle serves one project, so the Console keeps one journal in its state, like its sections.
  */
 export function installConsoleInvocations(projectRoot: string, configuredInvocations?: AgentInvocations): AgentInvocations {
-  const resolvedRoot = resolve(projectRoot)
-  const identity = createConsoleInvocationsIdentity(resolvedRoot)
-  const installed = resolveConsoleInvocations()
-  const sameRoot = installed !== undefined && resolveConsoleInvocationsIdentity() === identity
+  const state = consoleState()
+  const installed = state.invocations
   const target = configuredInvocations ?? resolveDefaultAgentInvocations()
-  if (sameRoot && (target ? installed === target : emptyJournals.has(installed))) return installed
+  if (installed && (target ? installed === target : emptyJournals.has(installed))) return installed
   let invocations = target
   if (!invocations) {
     invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     emptyJournals.add(invocations)
   }
-  installConsoleInvocationFallback(invocations, resolvedRoot, globalThis, identity)
-  return invocations
+  return state.invocations = invocations
 }

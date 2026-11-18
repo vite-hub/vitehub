@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/database",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Vite-first Drizzle database primitives for ViteHub.",
   "keywords": [
     "cloudflare",
@@ -87,6 +87,11 @@
       "import": "./dist/runtime/libsql-drizzle.js",
       "default": "./dist/runtime/libsql-drizzle.js"
     },
+    "./runtime/postgres-connection": {
+      "types": "./dist/runtime/postgres-connection.d.ts",
+      "import": "./dist/runtime/postgres-connection.js",
+      "default": "./dist/runtime/postgres-connection.js"
+    },
     "./runtime/registry": {
       "types": "./dist/runtime/registry.d.ts",
       "import": "./dist/runtime/registry.js",
@@ -154,8 +159,8 @@
   },
   "peerDependencies": {
     "@electric-sql/pglite": "catalog:database",
-    "drizzle-kit": ">=1.0.0-rc.5 <2.0.0",
-    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0",
+    "drizzle-kit": "1.0.0-rc.5 || ^1.0.0",
+    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
     "pg": "catalog:database",
     "postgres": "catalog:database",
     "vite": "catalog:vite-compat"

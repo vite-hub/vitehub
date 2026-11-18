@@ -11,6 +11,7 @@ import { runViteHubCli } from "../src/index.ts"
 
 import type { ViteHubCliSpawn } from "@vite-hub/internal/cli"
 import type { HostCliRun } from "@vite-hub/internal/host-credentials"
+import type { ProvisionStep } from "@vite-hub/internal/provision"
 
 const directories: string[] = []
 const packageResolvers: ReturnType<typeof registerHooks>[] = []
@@ -108,6 +109,8 @@ export const noHostCli: HostCliRun = async () => ({ exitCode: 1, stdout: "" })
 
 interface SetupRunOptions {
   fetch?: typeof fetch
+  /** The Provision Steps that deploy finds in the project config. Defaults to none. */
+  provisionSteps?: () => readonly ProvisionStep[]
   runHostCli?: HostCliRun
   spawn?: ViteHubCliSpawn
 }
@@ -128,6 +131,7 @@ export async function runSetup<T = Record<string, unknown>>(args: string[], cwd:
       throw new Error(`unexpected request to ${String(input)}`)
     }),
     loadConfig,
+    loadProvision: async () => ({ rootDir: cwd, steps: options.provisionSteps?.() ?? [] }),
     runHostCli: options.runHostCli ?? noHostCli,
     spawn: options.spawn ?? noSpawn,
     stderr: { write: (chunk: string | Uint8Array) => { stderr += String(chunk) } },

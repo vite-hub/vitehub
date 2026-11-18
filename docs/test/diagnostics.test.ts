@@ -26,7 +26,7 @@ describe("diagnostic catalogs", () => {
   })
 
   it("reads `why` and `fix`, with each template expression as a placeholder", () => {
-    expect(code("QUEUE_DISABLED")).toMatchObject({ pkg: "queue", why: "Queue is disabled in this runtime.", fix: "In `vitehub()`, set `queue.provider` to the provider of the host, or remove `provider`. With `@vite-hub/queue` alone, do not pass `false` to `hubQueue()`, and set a `provider` that matches the host." })
+    expect(code("QUEUE_DISABLED")).toMatchObject({ pkg: "queue", why: "Queue is disabled in this runtime.", fix: "In `vitehub()`, set `queue.driver` to the driver of the host, or remove `driver`. With `@vite-hub/queue` alone, do not pass `false` to `hubQueue()`, and set a `driver` that matches the host." })
     // A function `why` shows the most detailed text that it can return.
     expect(code("QUEUE_BINDING_NOT_FOUND").why).toBe("The Cloudflare queue binding \"<binding>\" is not in the Worker env.")
     expect(code("QUEUE_PROVIDER_FAILED").group).toBe("Runtime errors")
@@ -64,7 +64,8 @@ describe("diagnostic catalogs", () => {
 
   it("names the `vitehub()` option in each fix that names an owner plugin", () => {
     // These fixes are about an owner plugin that the app adds itself, so `vitehub()` has no part in them.
-    const ownerPluginOnly = new Set(["AUTH_B0001", "QUEUE_PLUGIN_INCOMPATIBLE"])
+    // `vitehub()` always passes a Rate Limit provider, so only `hubRateLimit()` alone raises RATE_LIMIT_B0002 and B0003.
+    const ownerPluginOnly = new Set(["AUTH_B0001", "QUEUE_PLUGIN_INCOMPATIBLE", "RATE_LIMIT_B0002", "RATE_LIMIT_B0003"])
     const missing = codes
       .filter(candidate => /\bhub[A-Z]\w*\(/.test(candidate.fix ?? "") && !candidate.fix!.includes("vitehub(") && !ownerPluginOnly.has(candidate.code))
       .map(candidate => `${candidate.code}: ${candidate.fix}`)

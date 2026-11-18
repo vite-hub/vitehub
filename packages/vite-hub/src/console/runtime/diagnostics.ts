@@ -30,8 +30,10 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_SIGNATURE_MISSING"
   | "CONSOLE_SIGNATURE_ORIGIN"
   | "CONSOLE_SIGNATURE_STALE"
+  | "CONSOLE_SITE_SECRET_MISSING"
   | "CONSOLE_TICKET_INVALID"
   | "CONSOLE_TICKET_MISMATCH"
+  | "CONSOLE_TICKET_NO_PERSON"
   | "CONSOLE_TICKET_STORE_MISSING"
   | "CONSOLE_UNAVAILABLE"
 
@@ -143,6 +145,12 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       `${consoleGuide}#sign-console-requests`,
       "docs",
     ),
+    CONSOLE_SITE_SECRET_MISSING: code(
+      "Site access without Auth seals the browser's cookie with VITEHUB_SECRET, and the app has none.",
+      "Set VITEHUB_SECRET on the server. Generate one with `openssl rand -base64 32`, then restart or deploy.",
+      `${consoleGuide}#give-browsers-site-access`,
+      "docs",
+    ),
     CONSOLE_TICKET_INVALID: code(
       "This one-time link expired, was used, or was changed.",
       "Open the page again from the ViteHub Console. Each link works once, within 60 seconds.",
@@ -155,9 +163,15 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       `${consoleGuide}#one-time-links`,
       "docs",
     ),
+    CONSOLE_TICKET_NO_PERSON: code(
+      "A one-time link opens the app as the person who asks for it, and this call names no person. A `vitehub` command signs its calls with a key, not as a person.",
+      "Make the link in the ViteHub Console, where you are signed in. On a development server, which the Console cannot reach, invite the browser as a guest: `vitehub site invite <name> --grants <role>`.",
+      `${consoleGuide}#site-access-from-the-terminal`,
+      "docs",
+    ),
     CONSOLE_TICKET_STORE_MISSING: code(
       "One-time links need a store that every instance of the app shares, and the app has none.",
-      "Add app Auth with a Database, such as `defineAuth({ database: authDatabase() })`, then run `vitehub database migrate`. Its verification table keeps each link until it is used.",
+      "Add app Auth with a Database, such as `defineAuth({ database: authDatabase() })`, then run `vitehub database migrate`. Its verification table keeps each link until it is used. Without Auth, use a default KV store on Redis, Upstash, or the `database` driver.",
       `${consoleGuide}#one-time-links`,
       "docs",
     ),

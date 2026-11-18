@@ -20,7 +20,7 @@ icon: i-lucide-sliders-horizontal
 | `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Access policy that every Content reader and surfaces check with `content.can()`. See [Access](#access). |
 | `route` | `boolean` | The `/api/content/**` route. `true` (default) serves it. `false` serves no `/api/content/**`. |
 | `access` | `'public'` | Serves `/api/content/**` and every other reader to everyone without asking `authorize` for `read`. `authorize` still decides writes and publishing. See [Public access](#public-access). |
-| `live` | `'auto' \| false` | Live co-editing of Markdown. `auto` (default) turns it on when Realtime is on and the host has a room authority. See [Live editing](/docs/content/editing-together#live-editing). |
+| `live` | `'auto' \| false` | Live co-editing of Markdown. `auto` (default) turns it on when Realtime is on and the host has a room driver. See [Live editing](/docs/content/editing-together#live-editing). |
 | `seo` | `{ site?, sitemap?, robots? }` | `/sitemap.xml` and `/robots.txt` from collections and Sources with a `url`. See [Sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt). |
 | `plugins` | Comark Content plugins | Used by each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` as needed. A Comark parse plugin here throws `CONTENT_R0006`. |
 | `markdown` | Comark parser options | Used by each instance. Put Comark parse plugins, such as `comark-knap`, in `markdown.plugins`. |
@@ -105,6 +105,7 @@ export default defineContent({
 | `search` | `string[]` | Fields that `list({ search })` matches. Defaults to all string fields plus the body. |
 | `components` | `Record<string, DocumentComponent>` | Comark components that bodies can use, keyed by tag, such as `alert` for `::alert`. The Console editor offers them in its `/` menu. Each takes `kind` (`block` or `inline`, default `block`), `label`, `description`, and `props` as `{ type: 'string' \| 'number' \| 'boolean' \| 'json' \| 'image' \| 'file', default? }`. An `image` or `file` prop opens the Media picker of `image()` and `file()` fields, limited to `store` when set. It stores the file as a string: its served URL, or its Blob pathname if the store is not served. Content stores the Markdown as written and does not check component use. |
 | `url` | `string \| ({ id, data }) => string \| null` | Each document's public URL, such as `'/blog/:id'`. Reads return it as `document.url`. Sitemaps and canonical links use it, and [`content.resolve(path)`](#find-the-document-of-a-page) maps a page back to its document. See [Document URLs](/docs/content/seo#document-urls). |
+| `markdown` | `(page) => string \| { markdown, footer } \| null` | The [Markdown copy](/docs/content/seo#markdown-for-agents) of each page for agents, when the page needs more than its body. Needs `url`. |
 | `editing` | `{ lease?: boolean }` | `lease: false` lets several sessions edit a document at once. By default, one session at a time holds the edit lease. See [Editing together](/docs/content/editing-together#opt-out-per-collection). |
 
 A document id is the file path below the collection folder, without extension: `posts/hello.md` is `hello`, `posts/2026/launch.md` is `2026/launch`. The Markdown after the frontmatter is the `body`.

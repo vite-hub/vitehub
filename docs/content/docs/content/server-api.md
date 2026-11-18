@@ -244,7 +244,7 @@ export async function compareRefs() {
 }
 ```
 
-A collection is also a read-only [Collection](/docs/source/server-api) over its published documents. Pass it to `defineCollectionHandler()`, or export it from `server/collections/`, to serve published lists with field filters.
+A collection is also a read-only [Collection](/docs/source/server-api) over its published documents. It has no access rule, so add one before you serve it: `defineCollectionHandler({ ...posts, access: 'public' })` serves published lists with field filters to anyone. Export the same object from `server/collections/` to get the generated route. Without `access` or `authorize`, the handler throws `SOURCE_COLLECTION_ACCESS_REQUIRED`.
 
 ### Save and remove
 
@@ -359,14 +359,14 @@ export async function recentPublishes() {
 ### Access
 
 ```ts [server/api/posts/publish.post.ts]
-import { createError, defineEventHandler } from 'h3'
+import { defineEventHandler, HTTPError } from 'h3'
 import { withAuth } from 'vite-hub/auth/server'
 import content from '../../content'
 
 export default defineEventHandler(
   withAuth(async (event, { user }) => {
     if (!await content.can({ user, collection: 'posts', action: 'publish' }))
-      throw createError({ statusCode: 403 })
+      throw new HTTPError({ status: 403 })
     return await content.publish({ collection: 'posts' })
   }),
 )

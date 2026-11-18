@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/forge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "One Forge identity for ViteHub apps: GitHub App installation tokens and GitHub, GitLab and Forgejo providers from one set of env names.",
   "keywords": [
     "forge",
@@ -32,6 +32,16 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./build": {
+      "types": "./dist/build.d.ts",
+      "import": "./dist/build.js",
+      "default": "./dist/build.js"
+    },
+    "./build/node": {
+      "types": "./dist/build/node.d.ts",
+      "import": "./dist/build/node.js",
+      "default": "./dist/build/node.js"
     },
     "./package.json": "./package.json"
   },

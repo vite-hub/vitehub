@@ -48,16 +48,25 @@ function decodeKey(value: string): Uint8Array {
   }
 }
 
-function readEncryptionKey(): Uint8Array {
-  const processEnv = v.safeParse(v.object({ process: v.optional(v.object({ env: v.optional(v.object({ VITEHUB_CONNECTIONS_KEY: v.optional(v.string()) })) })) }), globalThis)
-  const cloudflareValue = getActiveCloudflareEnv()?.VITEHUB_CONNECTIONS_KEY
-  const parsedCloudflareValue = v.safeParse(v.string(), cloudflareValue)
-  const value = (processEnv.success ? processEnv.output.process?.env?.VITEHUB_CONNECTIONS_KEY : undefined) ?? (parsedCloudflareValue.success ? parsedCloudflareValue.output : undefined)
-  const key = value ? decodeKey(value.trim()) : undefined
-  if (key?.byteLength !== 32) {
+function readVariable(name: "VITEHUB_CONNECTIONS_KEY" | "VITEHUB_CONNECTIONS_KEYS"): string | undefined {
+  const processEnv = v.safeParse(v.object({ process: v.optional(v.object({ env: v.optional(v.record(v.string(), v.optional(v.string()))) })) }), globalThis)
+  const cloudflareValue = v.safeParse(v.string(), getActiveCloudflareEnv()?.[name])
+  return (processEnv.success ? processEnv.output.process?.env?.[name] : undefined) ?? (cloudflareValue.success ? cloudflareValue.output : undefined)
+}
+
+/**
+ * The keyring: `VITEHUB_CONNECTIONS_KEYS`, a comma list with the current key first, then `VITEHUB_CONNECTIONS_KEY`
+ * when the list does not already have it. New writes use the first key. The others only decrypt older values.
+ */
+function readEncryptionKeys(): Uint8Array[] {
+  const values = [...(readVariable("VITEHUB_CONNECTIONS_KEYS")?.split(",") ?? []), readVariable("VITEHUB_CONNECTIONS_KEY") ?? ""]
+    .map(value => value.trim())
+    .filter(Boolean)
+  const keys = [...new Set(values)].map(decodeKey)
+  if (!keys.length || keys.some(key => key.byteLength !== 32)) {
     throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONFIGURED({ missing: "key" })
   }
-  return key
+  return keys
 }
 
 async function defaultStore(): Promise<ConnectionStore> {
@@ -65,7 +74,7 @@ async function defaultStore(): Promise<ConnectionStore> {
     throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONFIGURED({ missing: "database" })
   }
   const { createDatabaseConnectionStore } = await import("../store.ts")
-  return createDatabaseConnectionStore({ activityRetention, db: await database(), encryptionKey: readEncryptionKey() })
+  return createDatabaseConnectionStore({ activityRetention, db: await database(), encryptionKeys: readEncryptionKeys() })
 }
 
 /** The active Connections runtime. */

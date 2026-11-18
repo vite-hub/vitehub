@@ -96,6 +96,33 @@ it("lets setIfAbsent claim an expired key and expire its own claim", async () =>
   }
 })
 
+it("lets exactly one of many concurrent calls claim an expired key", async () => {
+  const storage = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
+  await storage.setItem("lock", "old", { ttl: 1 })
+  vi.setSystemTime(Date.now() + 1_000)
+
+  const results = await Promise.all(Array.from({ length: 10 }, (_, index) => storage.setIfAbsentItem!("lock", `owner-${index}`, 30)))
+  expect(results.filter(Boolean)).toHaveLength(1)
+  expect(await storage.getItem("lock")).toBe(`owner-${results.indexOf(true)}`)
+  await storage.dispose()
+})
+
+it("removes the expiry files with the key and with clear()", async () => {
+  const storage = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
+  await storage.setItem("a", 1, { ttl: 60 })
+  await storage.removeItem("a")
+  await storage.setItem("a", 2)
+  expect(await storage.getItem("a")).toBe(2)
+
+  await storage.setItem("b", 1, { ttl: 60 })
+  await storage.clear()
+  expect((await readdir(base)).filter(name => name.startsWith("key-"))).toEqual([])
+  await storage.setItem("b", 2)
+  vi.setSystemTime(Date.now() + 3_600_000)
+  expect(await storage.getItem("b")).toBe(2)
+  await storage.dispose()
+})
+
 it("keeps files without an expiry, as older versions wrote them", async () => {
   // The old layout stored `legacy` as a plain file. The first open migrates it.
   await writeFile(join(base, "legacy"), "\"old\"")
@@ -121,7 +148,7 @@ it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, "60"])("rejects ttl %s like t
 })
 
 it("expires keys in the Cloudflare KV fallback of vite dev", async () => {
-  const driver = createCloudflareKVLocalDriver({ binding: "KV", driver: "cloudflare-kv-binding", localBase: base })
+  const driver = createCloudflareKVLocalDriver({ binding: "KV", driver: "cloudflare", localBase: base })
   try {
     await driver.setItem?.("ttl", "\"a\"", { ttl: 60 })
     await driver.setItem?.("relative", "\"b\"", { expirationTtl: 120 })

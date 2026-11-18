@@ -98,13 +98,13 @@ This handler only writes to the log. A real handler must be safe to run twice, b
 Create `server/api/welcome.post.ts`. It answers `POST /api/welcome`:
 
 ```ts [server/api/welcome.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { sendQueue } from 'vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email?: unknown }>(event)
   if (typeof body?.email !== 'string' || !body.email.trim()) {
-    throw createError({ statusCode: 400, message: 'Send a non-empty email.' })
+    throw new HTTPError({ status: 400, message: 'Send a non-empty email.' })
   }
 
   const [error, result] = await sendQueue('welcome-email', { email: body.email.trim() })
@@ -176,8 +176,8 @@ Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in your terminal. The tok
 See what ViteHub will create, then create it:
 
 ```bash [commands/provision]
-pnpm vitehub provision run --provider cloudflare --dry-run
-pnpm vitehub provision run --provider cloudflare
+pnpm vitehub provision run --host cloudflare --dry-run
+pnpm vitehub provision run --host cloudflare
 ```
 
 Build again, so the output has the IDs of the new resources. Then deploy the Vite app with Nitro:
@@ -261,11 +261,11 @@ Cloudflare and Vercel do not let a producer read the queue, so there is no comma
 
 ::card-group
 :::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/queue/configure#queue-definition-options"}
-Set how many times a job runs again, and every other queue option.
+Set how many jobs run at the same time, and every other queue option.
 :::
 
 :::card{title="Server API" icon="i-lucide-code" to="/docs/queue/server-api"}
-Send jobs with a delay, an ID, or an idempotency key.
+Send jobs with a delay or an idempotency key.
 :::
 
 :::card{title="Hosts" icon="i-lucide-cloud-cog" to="/docs/queue/hosts"}

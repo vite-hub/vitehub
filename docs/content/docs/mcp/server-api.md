@@ -29,7 +29,9 @@ export default defineMcpTool({
 | `title` | A short name for people, such as "List drops". |
 | `input` | The arguments: a Standard Schema that also gives its JSON Schema, such as a Zod 4 object or a Valibot schema in `toStandardJsonSchema()`. `tools/list` shows its JSON Schema. |
 | `annotations` | The MCP tool annotations that clients read before a call: `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint`. |
-| `public` | Set `true` to include the tool on `mcp.publicRoute`. Without `mcp.publicRoute`, the server fails with `MCP_R0001`. See [Public tools](/docs/mcp/configure#serve-public-tools-without-sign-in). |
+| `_meta` | Metadata that `tools/list` shows for the client, not the model, such as `{ ui: { resourceUri } }`. See [Show a UI in the chat](#show-a-ui-in-the-chat). |
+| `public` | Set `true` to let anyone call the tool without sign-in, with `mcp.auth: 'optional'` or on `mcp.publicRoute`. Without one of them, the server fails with `MCP_R0001`. See [Public tools](/docs/mcp/configure#let-anyone-call-some-tools). |
+| `scopes` | The OAuth scopes that a signed-in caller needs, such as `['lessons:write']`. With `auth: true`, a caller without them does not see the tool, and a call gets `403` with an `insufficient_scope` challenge. With `auth: 'optional'`, a call gets a tool error with that challenge. |
 | `handler` | Runs the call. |
 
 The server checks the arguments with `input` before the handler runs. Invalid arguments are a tool error for protocol `2025-11-25`, or JSON-RPC `-32602` for `2025-06-18`.
@@ -46,7 +48,7 @@ The return value becomes the tool result:
 | Return | Result |
 | --- | --- |
 | A string | One text block. |
-| `{ content: [...] }` | The MCP content blocks as they are, such as an image. |
+| `{ content: [...] }` | The MCP content blocks as they are, such as an image, with `structuredContent`, `isError`, and `_meta` when you set them. |
 | Another value | JSON text. An object is also the `structuredContent`. |
 
 ## Report an error
@@ -74,7 +76,7 @@ export default defineMcpPrompt({
 | `description` | What the prompt does. Clients show it. |
 | `title` | A short name for people. |
 | `input` | The arguments: an object Standard Schema with string fields. `prompts/list` shows each field as an argument, with its description, and marks the fields that are not optional as required. |
-| `public` | Set `true` to include the prompt on `mcp.publicRoute`. |
+| `public` | Set `true` to let anyone get the prompt without sign-in. |
 | `handler` | Makes the messages. It gets the checked input and `{ event, caller }`, as a tool handler does. |
 
 A string becomes one user message. Return an array of `{ role, content }` messages for more messages, or `{ description, messages }` for the full result. Invalid arguments get JSON-RPC `-32602`, and so does a thrown error with a 4xx `status`.
@@ -119,7 +121,8 @@ export default defineMcpResource({
 | `list` | With `uriTemplate`, the resources that `resources/list` shows: `uri`, and optional `name`, `title`, `description`, `mimeType`, and `size`. |
 | `title`, `description` | What the resource is. |
 | `mimeType` | The MIME type of the contents, such as `text/markdown`. |
-| `public` | Set `true` to include the resource on `mcp.publicRoute`. |
+| `_meta` | Metadata of the resource in `resources/list`, and of the contents that a string or `Uint8Array` handler returns. |
+| `public` | Set `true` to let anyone read the resource without sign-in. An MCP App sets it on its `ui://` resource when its tool is public. |
 | `handler` | Reads the resource. It gets the URI and `{ event, caller, variables }`. |
 
 | Return | Result |
@@ -132,6 +135,43 @@ export default defineMcpResource({
 A thrown error with a 4xx `status` gets JSON-RPC `-32602` with its message. Other errors are logged, and the client reads only `<name> failed on the server.`
 
 The server advertises the `prompts` and `resources` capabilities only when the app has prompts or resources.
+
+## Show a UI in the chat
+
+An MCP App is a tool whose result the client shows as an HTML page in the chat, such as a player or a chart. ChatGPT and Claude show them. The HTML is a resource with a `ui://` URI and the MIME type `text/html;profile=mcp-app`, and the tool names that resource in `_meta.ui.resourceUri`:
+
+```ts [server/mcp/resources/player.ts]
+import { defineMcpResource } from 'vite-hub/mcp'
+
+export default defineMcpResource({
+  uri: 'ui://lessons/player.html',
+  title: 'Lesson player',
+  mimeType: 'text/html;profile=mcp-app',
+  _meta: { ui: { csp: { connectDomains: ['https://lessons.example.com'], resourceDomains: ['https://lessons.example.com'] }, prefersBorder: false } },
+  handler: () => '<!doctype html><div id="player"></div><script type="module" src="https://lessons.example.com/player.js"></script>',
+})
+```
+
+```ts [server/mcp/tools/show_lesson.ts]
+import { defineMcpTool } from 'vite-hub/mcp'
+import { z } from 'zod'
+
+export default defineMcpTool({
+  description: 'Play a lesson in the chat.',
+  input: z.object({ lessonId: z.string() }),
+  _meta: { 'ui': { resourceUri: 'ui://lessons/player.html' }, 'openai/outputTemplate': 'ui://lessons/player.html' },
+  handler: ({ lessonId }) => ({
+    content: [{ type: 'text', text: `Playing lesson ${lessonId}.` }],
+    structuredContent: { lessonId },
+  }),
+})
+```
+
+- `_meta.ui.resourceUri` tells the client which resource to show for the result. `openai/outputTemplate` is the older ChatGPT name for the same thing.
+- `_meta.ui.csp` lists the origins that the page may fetch from (`connectDomains`) and load scripts, styles, and images from (`resourceDomains`). The client blocks other origins.
+- The page reads `structuredContent` of the result. The model reads `content` and `structuredContent`. Put data that only the page needs in the `_meta` of the result.
+
+The server sends every `_meta` as it is. To compute the `_meta` of the contents for each request, return `{ contents: [{ uri, mimeType, text, _meta }] }` from the resource handler. See the [MCP Apps specification](https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/draft/apps.mdx) for the `ui` fields and the [OpenAI Apps SDK reference](https://developers.openai.com/apps-sdk/reference) for the `openai/` keys.
 
 ## Resolve the caller and log tool calls
 
@@ -158,12 +198,34 @@ export default defineMcpHooks({
 
 | Function | Use |
 | --- | --- |
+| `verifyToken` | Accepts a bearer token that is not an access token of `mcpOAuth()`, such as an API key. It gets `{ event, token }` and returns the caller, with `user`, `scopes`, `clientId`, and `clientName`, or `undefined` to answer `401`. See [Accept API keys](#accept-api-keys). |
 | `resolveCaller` | Maps the caller to the app's own identity. It gets `{ event, caller }`, where `caller` is the signed-in caller of `mcpOAuth()`, else `undefined`. Its return value is `caller` in every tool, prompt, and resource handler. |
 | `onToolCall` | Runs after each tool call with `name`, `input`, `caller`, `event`, `durationMs`, `result`, and `error`. |
 
 `resolveCaller` runs once per request, when the first handler runs, so `initialize` and `tools/list` read no app data. A thrown error with a 4xx `status` refuses the call with its message. ViteHub writes `.vitehub/types/mcp.d.ts`, so `caller` in the handlers has the type that `resolveCaller` returns.
 
 `onToolCall` runs for each call whose arguments passed `input`, before the server sends the answer. `durationMs` is the time of the handler. `result` is what the Agent reads, with `isError: true` for a failed call. `error` is what the handler or `resolveCaller` threw, and is absent when nothing threw. An error that `onToolCall` throws is logged, and the result does not change.
+
+## Accept API keys
+
+Scripts that cannot do OAuth send another bearer token, such as an API key. `verifyToken` checks it and returns the caller, so `resolveCaller` and the handlers get it the same way as the caller of an access token:
+
+```ts [server/mcp.ts]
+import { defineMcpHooks } from 'vite-hub/mcp'
+
+const apiKeys = new Map([['fin_3kq9Xb7Lm2', { userId: 'user-1', name: 'Budget script' }]])
+
+export default defineMcpHooks({
+  verifyToken({ token }) {
+    const key = apiKeys.get(token)
+    return key && { user: { id: key.userId }, scopes: [], clientId: undefined, clientName: key.name }
+  },
+})
+```
+
+With the API key plugin of Better Auth, call `useAuth(event).api.verifyApiKey({ body: { key: token } })` there instead of the map.
+
+The server calls `verifyToken` only when `auth` is on and the bearer token is not a valid access token of `mcpOAuth()`. A request without a token never reaches it. When it returns `undefined`, the request gets `401` with `error="invalid_token"`. An error that it throws fails the request.
 
 ## Public imports
 

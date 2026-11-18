@@ -1,3 +1,4 @@
+import { browserErrorDiagnostics } from "./error-diagnostics.ts"
 import { runtimeBinding } from "./internal/runtime-binding.ts"
 import { withBrowserTimeout } from "./internal/timeout.ts"
 import runtimeConfig from "#vitehub/browser/runtime"
@@ -56,7 +57,7 @@ function actionTimeoutMs(input: Record<string, unknown>): number {
 
 async function resolveBinding(): Promise<BrowserRunBinding> {
   const bindingOption = runtimeConfig.binding
-  if (!isBrowserAvailable() || runtimeConfig.provider !== "cloudflare" || !bindingOption) throw browserUnavailableError()
+  if (!isBrowserAvailable() || runtimeConfig.driver !== "cloudflare" || !bindingOption) throw browserUnavailableError()
   const binding = await runtimeBinding(bindingOption)
   if (!binding || typeof (binding as BrowserRunBinding).quickAction !== "function") {
     throw browserProviderError("cloudflare", `resolve Browser Run binding ${JSON.stringify(bindingOption)}`)
@@ -149,7 +150,7 @@ export async function runBrowserContent(
   const response = await runBrowserAction("content", input)
   if (!response.ok) {
     void response.body?.cancel().catch(() => {})
-    throw new Error(`Browser content request failed with status ${response.status}`)
+    throw browserErrorDiagnostics.BROWSER_CONTENT_FAILED({ status: response.status })
   }
   try {
     return await readQuickActionText(response, "content", normalizeInput(input))

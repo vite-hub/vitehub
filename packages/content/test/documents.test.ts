@@ -487,7 +487,9 @@ describe("document collections", { timeout: 30_000 }, () => {
     await posts.save("react", { data: { title: "React", date: "2026-01-03", tags: ["react"] } })
     await content.publish({ collection: "posts", ids: ["vue"] })
     await posts.save("draft-only", { data: { title: "Draft", date: "2026-01-04", tags: ["vue"] } })
-    const app = new H3().get("/posts", defineCollectionHandler(posts))
+    // A Content collection does not choose its route access. The caller must.
+    expect(() => defineCollectionHandler(posts)).toThrow(expect.objectContaining({ code: "SOURCE_COLLECTION_ACCESS_REQUIRED" }))
+    const app = new H3().get("/posts", defineCollectionHandler({ ...posts, access: "public" }))
     const response = await app.request("/posts?tags=vue")
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
@@ -673,7 +675,7 @@ describe("document collections", { timeout: 30_000 }, () => {
   })
 
   it("fails clearly without retained history", async () => {
-    registerWorkspace("memory-content", { store: { provider: "memory" } })
+    registerWorkspace("memory-content", { store: { driver: "memory" } })
     const content = defineContent({ workspace: "memory-content", collections: { posts: documents({ path: "posts/*.md", fields }) } })
     cleanup.push(() => content.dispose())
     await expect(content.collection("posts").save("hello", hello)).rejects.toMatchObject({ code: "CONTENT_R0007" })

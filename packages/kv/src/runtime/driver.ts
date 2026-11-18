@@ -40,7 +40,7 @@ const atomicDriverMethods = {
 
 // The type requires exactly the operations that `KVDriverAtomicOperations` lists for each driver.
 const driverAtomicOperations: { [Driver in KVDriver]: Record<KVDriverAtomicOperations[Driver], true> } = {
-  "cloudflare-kv-binding": {},
+  "cloudflare": {},
   "database": { deleteIfEquals: true, getAndDelete: true, increment: true, setIfAbsent: true },
   "deno-kv": { setIfAbsent: true },
   "fs-lite": { setIfAbsent: true },
@@ -50,7 +50,7 @@ const driverAtomicOperations: { [Driver in KVDriver]: Record<KVDriverAtomicOpera
 
 /** Other optional unstorage methods that a driver has. */
 const otherOptionalDriverMethods: Partial<Record<KVDriver, readonly string[]>> = {
-  "cloudflare-kv-binding": ["validateBatch"],
+  "cloudflare": ["validateBatch"],
   "fs-lite": ["getItemRaw", "getMeta", "setItemRaw"],
 }
 
@@ -80,7 +80,7 @@ async function createDatabaseDriver(store: Extract<ResolvedKVStoreConfig, { driv
 
 async function createRuntimeDriver(store: ResolvedKVStoreConfig, loadDatabases: KVDatabasesLoader | undefined): Promise<KVRuntimeDriver> {
   switch (store.driver) {
-    case "cloudflare-kv-binding": {
+    case "cloudflare": {
       const { localBase } = store
       if (localBase) {
         const { default: factory } = await import("./cloudflare-kv-local.ts")

@@ -4,7 +4,7 @@ import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveVercelQueueRegion } from "../internal/vercel-region.ts"
 
 import type { Result } from "@vite-hub/runtime"
-import type { QueueSendResult, VercelQueueBatchSendResult, VercelQueueClient, VercelQueueProviderOptions, VercelQueueSDK } from "../types.ts"
+import type { QueueSendResult, VercelQueueBatchSendResult, VercelQueueClient, VercelQueueDriverOptions, VercelQueueSDK } from "../types.ts"
 
 function invalidVercelSendResponse(cause: unknown): Result<never, "QUEUE_PROVIDER_INVALID_RESPONSE"> {
   return [queueErrorDiagnostics.QUEUE_PROVIDER_INVALID_RESPONSE({ cause }), undefined]
@@ -63,11 +63,10 @@ function isVercelQueueSDK(value: unknown): value is VercelQueueSDK {
   return hasCallableMethod("send") && hasCallableMethod("handleCallback")
 }
 
-class VercelQueueBatchFailedError extends Error {
-  constructor(readonly results: readonly VercelQueueBatchSendResult[]) {
-    super(`@vercel/queue did not accept ${results.filter(result => result.status === "failed").length} of ${results.length} batch messages.`)
-    this.name = "VercelQueueBatchFailedError"
-  }
+/** The cause of `QUEUE_PROVIDER_FAILED` when Vercel rejects jobs of a batch. `results` has each job's result in input order. */
+function batchRejected(results: readonly VercelQueueBatchSendResult[]) {
+  const failed = results.filter(result => result.status === "failed").length
+  return Object.assign(queueErrorDiagnostics.QUEUE_VERCEL_BATCH_REJECTED({ failed, total: results.length }), { results })
 }
 
 function parseVercelBatchResults(value: unknown, length: number): Result<QueueSendResult[], "QUEUE_PROVIDER_INVALID_RESPONSE"> {
@@ -144,7 +143,7 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
   throw queueErrorDiagnostics.QUEUE_VERCEL_SDK_INVALID()
 }
 
-export async function createVercelQueueClient(provider: VercelQueueProviderOptions): Promise<VercelQueueClient> {
+export async function createVercelQueueClient(provider: VercelQueueDriverOptions): Promise<VercelQueueClient> {
   const topic = provider.topic
   if (!topic) {
     throw queueErrorDiagnostics.QUEUE_MISSING_TOPIC()
@@ -182,9 +181,9 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
         retentionSeconds: item.retentionSeconds ?? options?.retentionSeconds,
       }))
       const [error, response] = await queueProviderResult("vercel", "send-batch", async () => {
-        if (typeof client.sendBatch !== "function") throw new TypeError("The Vercel queue client has no `sendBatch()`. Install `@vercel/queue` 0.10 or later.")
+        if (typeof client.sendBatch !== "function") throw queueErrorDiagnostics.QUEUE_VERCEL_SEND_BATCH_UNAVAILABLE()
         const results = await client.sendBatch!(topic, messages)
-        if (Array.isArray(results) && results.some(result => result?.status === "failed")) throw new VercelQueueBatchFailedError(results)
+        if (Array.isArray(results) && results.some(result => result?.status === "failed")) throw batchRejected(results)
         return results
       })
       if (error) return [error, undefined]

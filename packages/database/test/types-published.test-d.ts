@@ -1,4 +1,4 @@
-import { chunkParameters, db, defineDatabase, schema, useDatabase } from "@vite-hub/database"
+import { chunkParameters, db, defineDatabase, schema, useDatabase, withIdempotency } from "@vite-hub/database"
 import { agentDb, databases } from "@vite-hub/database/runtime/registry"
 import { hubDatabase } from "@vite-hub/database/nuxt"
 import { defineRelations, defineRelationsPart } from "drizzle-orm"
@@ -7,7 +7,8 @@ import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import { describe, expectTypeOf, it } from "vitest"
 
-import type { DatabaseDefinition, DatabaseNuxtIntegrationOptions, PostgresDatabaseDefinition, RuntimePostgresDatabase } from "@vite-hub/database"
+import type { DatabaseDefinition, DatabaseNuxtIntegrationOptions, PostgresDatabaseDefinition, RuntimePostgresDatabase, WithIdempotencyErrorCode } from "@vite-hub/database"
+import type { Result } from "@vite-hub/runtime"
 
 const analyticsSchema = {
   events: sqliteTable("events", { name: text("name").notNull() }),
@@ -60,6 +61,7 @@ describe("published package types", () => {
     expectTypeOf(agentDb.query).toBeFunction()
     expectTypeOf(chunkParameters(["a"], { per: analyticsSchema.events, reserved: 1 })).toEqualTypeOf<string[][]>()
     expectTypeOf(agentDb.database("analytics").exec).toBeFunction()
+    expectTypeOf(withIdempotency("stripe:evt_1", async () => ({ order: 42 }), { ttl: 3600 })).toEqualTypeOf<Promise<Result<{ order: number }, WithIdempotencyErrorCode>>>()
     expectTypeOf(useDatabase("analytics").schema.events).toEqualTypeOf(analyticsSchema.events)
     // @ts-expect-error The default database is not configured by this generated registry.
     useDatabase("default")
@@ -138,7 +140,7 @@ describe("published package types", () => {
 
   it("resolves the Nuxt bridge subpath", () => {
     const options = {
-      driver: "d1",
+      driver: "cloudflare",
       databaseName: "content-db",
       databaseId: "content-id",
     } satisfies DatabaseNuxtIntegrationOptions

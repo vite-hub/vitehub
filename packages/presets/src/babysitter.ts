@@ -117,8 +117,9 @@ export interface BabysitterOptions {
    */
   noFindingsReviews: string[];
   /**
-   * Logins whose comments and reviews never need an assessment, such as deployment preview bots.
-   * Their items do not block a direct merge or wake a waiting PR. Defaults to none.
+   * Logins whose comments and reviews never need an assessment. Their items do not block a direct
+   * merge or wake a waiting PR. Defaults to the deployment preview bots `pkg-pr-new[bot]`,
+   * `vercel[bot]`, `cloudflare-workers-and-pages[bot]` and `netlify[bot]`. A list replaces them.
    */
   ignoreFeedbackAuthors: string[];
   /**
@@ -357,7 +358,7 @@ const babysitterIntake = channelAdapter("babysitter-github", {
         // A missing secret fails closed: unsigned deliveries must never reach the inbox.
         secretToken: async (context) => {
           const secret = plainSecret(await channelEnvValue("github", "webhookSecret", context));
-          if (!secret) throw new Error("[vitehub] The Babysitter webhook needs VITEHUB_GITHUB_WEBHOOK_SECRET.");
+          if (!secret) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_ENV_MISSING({ variables: ["VITEHUB_GITHUB_WEBHOOK_SECRET"] });
           return secret;
         },
       }],
@@ -399,17 +400,17 @@ export type BabysitterAgent = ConfiguredAgentDefinition<BabysitterOptions, Babys
 
 function lifecycleLabels(labels: unknown): GitHubPullRequestFilterRules {
   if (!isRuntimeRecord(labels)) {
-    throw new TypeError("[vitehub] Babysitter lifecycle labels must be an object.");
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "lifecycle.labels", expected: "an object" });
   }
   const require = labels.require;
   const deny = labels.deny;
   if ((require !== undefined && !Array.isArray(require)) || (deny !== undefined && !Array.isArray(deny))) {
-    throw new TypeError("[vitehub] Babysitter lifecycle labels must contain arrays of non-empty strings.");
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "lifecycle.labels", expected: "an object of arrays of non-empty strings" });
   }
   const requiredLabels = require ?? [];
   const deniedLabels = deny ?? [];
   if (requiredLabels.some(label => !hasRuntimeType(label, "string") || !label.trim()) || deniedLabels.some(label => !hasRuntimeType(label, "string") || !label.trim())) {
-    throw new TypeError("[vitehub] Babysitter lifecycle labels must contain non-empty strings.");
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "lifecycle.labels", expected: "an object of arrays of non-empty strings" });
   }
   const rules: GitHubPullRequestFilterRules = {};
   if (requiredLabels.length) rules.allow = [...requiredLabels];
@@ -422,6 +423,9 @@ function validAuthorAssociationRules(rules: unknown): boolean {
   if (!isRuntimeRecord(rules) || Array.isArray(rules)) return false;
   return [rules.allow, rules.deny].every(list => list === undefined || (Array.isArray(list) && list.every(value => (githubAuthorAssociations as readonly unknown[]).includes(value))));
 }
+
+/** Deployment preview bots. They post status panels that they edit in place, never review findings. */
+const previewBots = ["pkg-pr-new[bot]", "vercel[bot]", "cloudflare-workers-and-pages[bot]", "netlify[bot]"];
 
 /** Authors that a filter without `author` or `authorAssociation` rules selects: people with write access. */
 const defaultAuthorAssociations = ["OWNER", "MEMBER", "COLLABORATOR"];
@@ -441,12 +445,12 @@ export function resolveBabysitterLifecycleFilter(
     ? configured
     : { ...configured, authorAssociation: { allow: [...defaultAuthorAssociations] } };
   if (lifecycle !== undefined && !isRuntimeRecord(lifecycle)) {
-    throw new TypeError("[vitehub] Babysitter lifecycle must be an object.");
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "lifecycle", expected: "an object" });
   }
   const labels = lifecycle?.labels;
   if (labels === undefined) return filter.labels ? filter : { ...filter, labels: { deny: [defaultSkipLabel] } };
   if (filter.labels) {
-    throw new TypeError("[vitehub] Configure Babysitter lifecycle labels or filter.labels, not both.");
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_LIFECYCLE_LABELS_CONFLICT();
   }
   const rules = lifecycleLabels(labels);
   return Object.keys(rules).length ? { ...filter, labels: rules } : filter;
@@ -459,7 +463,7 @@ export const babysitter: BabysitterAgent = defineAgent({
     merge: "direct" as BabysitterMerge,
     reviewChecks: [] as string[],
     noFindingsReviews: [] as string[],
-    ignoreFeedbackAuthors: [] as string[],
+    ignoreFeedbackAuthors: previewBots,
     noProgressBudget: 3 as number | false,
     reviewPushBudget: 3 as number | false,
     minorReviewRounds: false as number | false,
@@ -487,22 +491,22 @@ export const babysitter: BabysitterAgent = defineAgent({
   },
   configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, minorReviewRounds, reviewConvergencePushes, ignoreAssessedBotThreads, dailyPassBudget, dailyPushBudget, priorityLabels, mainRepairBranchPrefix, mainRepair, providerRetries, deferWhilePending, install, concurrency, admission, placement, ciRecovery, warmWorkspaces, repairStackChildren, status, modelConcurrency, providerCooldownMs }) => {
     if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
-      throw new TypeError("[vitehub] Babysitter concurrency must be a positive integer.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "concurrency", expected: "a positive integer" });
     }
     if (driver !== "codex" && driver !== "claude-code") {
-      throw new TypeError('[vitehub] Babysitter driver must be "codex" or "claude-code".');
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "driver", expected: '"codex" or "claude-code"' });
     }
     if (noFindingsReviews.some((prefix) => prefix.length === 0)) {
-      throw new TypeError("[vitehub] Babysitter noFindingsReviews cannot contain an empty prefix.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_NO_FINDINGS_PREFIX_EMPTY();
     }
     if (!Array.isArray(ignoreFeedbackAuthors) || ignoreFeedbackAuthors.some(author => !hasRuntimeType(author, "string") || !author.trim())) {
-      throw new TypeError("[vitehub] Babysitter ignoreFeedbackAuthors must list GitHub logins.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_IGNORE_AUTHORS_INVALID();
     }
     if (noProgressBudget !== false && (!Number.isSafeInteger(noProgressBudget) || noProgressBudget < 1)) {
-      throw new TypeError("[vitehub] Babysitter noProgressBudget must be a positive integer or false.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "noProgressBudget", expected: "a positive integer or false" });
     }
     if (reviewPushBudget !== false && (!Number.isSafeInteger(reviewPushBudget) || reviewPushBudget < 1)) {
-      throw new TypeError("[vitehub] Babysitter reviewPushBudget must be a positive integer or false.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "reviewPushBudget", expected: "a positive integer or false" });
     }
     if (minorReviewRounds !== false && (!Number.isSafeInteger(minorReviewRounds) || minorReviewRounds < 1)) {
       throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "minorReviewRounds", expected: "a positive integer or false" });
@@ -517,7 +521,7 @@ export const babysitter: BabysitterAgent = defineAgent({
       throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "ignoreAssessedBotThreads", expected: "a boolean" });
     }
     if (dailyPassBudget !== false && (!Number.isSafeInteger(dailyPassBudget) || dailyPassBudget < 1)) {
-      throw new TypeError("[vitehub] Babysitter dailyPassBudget must be a positive integer or false.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "dailyPassBudget", expected: "a positive integer or false" });
     }
     if (dailyPushBudget !== false && (!Number.isSafeInteger(dailyPushBudget) || dailyPushBudget < 1)) {
       throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "dailyPushBudget", expected: "a positive integer or false" });
@@ -535,13 +539,13 @@ export const babysitter: BabysitterAgent = defineAgent({
       throw presetsErrorDiagnostics.PRESETS_BABYSITTER_MAIN_REPAIR_NEEDS_PREFIX();
     }
     if (!hasRuntimeType(deferWhilePending, "boolean")) {
-      throw new TypeError("[vitehub] Babysitter deferWhilePending must be a boolean.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "deferWhilePending", expected: "a boolean" });
     }
     if (!validInstall(install)) {
-      throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache, concurrency, required, refreshes }.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "install", expected: "a boolean or { command, args, cache, concurrency, required, refreshes }" });
     }
     if (!hasRuntimeType(ciRecovery, "boolean")) {
-      throw new TypeError("[vitehub] Babysitter ciRecovery must be a boolean.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "ciRecovery", expected: "a boolean" });
     }
     if (!validWarmWorkspaces(warmWorkspaces)) {
       throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "warmWorkspaces", expected: "a boolean or { resumeThreads, budgetGb, idleDays, minFreePercent, sweepMinutes } with non-negative numbers" });
@@ -553,22 +557,22 @@ export const babysitter: BabysitterAgent = defineAgent({
       throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "repairStackChildren", expected: "a boolean" });
     }
     if (modelConcurrency !== undefined && (!Number.isSafeInteger(modelConcurrency) || modelConcurrency < 1)) {
-      throw new TypeError("[vitehub] Babysitter modelConcurrency must be a positive integer.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "modelConcurrency", expected: "a positive integer" });
     }
     if (!Number.isSafeInteger(providerRetries) || providerRetries < 0) {
       throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "providerRetries", expected: "a non-negative integer" });
     }
     if (!Number.isSafeInteger(providerCooldownMs) || providerCooldownMs < 1000 || providerCooldownMs > 60 * 60_000) {
-      throw new TypeError("[vitehub] Babysitter providerCooldownMs must be an integer from 1000 to 3600000.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "providerCooldownMs", expected: "an integer from 1000 to 3600000" });
     }
     if (placement !== undefined && (!isRuntimeRecord(placement) || typeof placement.place !== "function" || (placement.remoteActive !== undefined && typeof placement.remoteActive !== "function"))) {
-      throw new TypeError("[vitehub] Babysitter placement must be { place, remoteActive? } functions.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "placement", expected: "{ place, remoteActive? } functions" });
     }
     if (placement?.admitted !== undefined && typeof placement.admitted !== "function") {
       throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "placement.admitted", expected: "a function that returns the admitted slot count" });
     }
     if (!validBabysitterAdmission(admission)) {
-      throw new TypeError("[vitehub] Babysitter admission must be { inputTokens: { hourly, daily }, minFreeTmpMb, paused, check } with non-negative integer token limits.");
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "admission", expected: "{ inputTokens: { hourly, daily }, minFreeTmpMb, paused, check } with non-negative integer token limits" });
     }
     if (!validAuthorAssociationRules(filter.authorAssociation)) {
       throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "filter.authorAssociation", expected: `{ allow, deny } lists of ${githubAuthorAssociations.join(", ")}` });

@@ -1,3 +1,5 @@
+import { invariant } from "@vite-hub/internal/invariant"
+import { stopMarkedProcesses } from "@vite-hub/internal/process-sweep"
 import { isChatGPTGateway } from "@vite-hub/gateways/internal"
 import { chatgptCodexLaunchArgs, chatgptProviderError, chatgptTokenEnvironment, inspectChatGPTGateway } from "./internal/chatgpt-gateway.ts"
 import { withProviderStatusError } from "./internal/provider-status-error.ts"
@@ -365,9 +367,14 @@ function providerEnvironment(env: Record<string, string | undefined> | undefined
   return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
 }
 
+// Every process of a host pass starts with this variable. Commands that leave the provider's
+// process group still have it, so the pass stops them when it ends.
+const providerPassEnvironmentKey = "VITEHUB_PROVIDER_PASS"
+
 // Credential-bearing Node and native processes must not accept startup loaders from driver.env.
 const chatgptLaunchEnvironmentKeys = new Set<string>([
   ...providerHostEnvironmentKeys,
+  providerPassEnvironmentKey,
   "CODEX_HOME",
   chatgptTokenEnvironment,
   "T3_MCP_BEARER_TOKEN",
@@ -1738,7 +1745,7 @@ async function startToolServer(
   http.listen(0, "127.0.0.1")
   await once(http, "listening")
   const address = http.address()
-  if (!address || typeof address === "string") throw agentDiagnostics.AGENT_R0699({ message: "[vitehub] Provider Agent Driver failed to start its Capability tool server." })
+  invariant(address && typeof address !== "string", "a server that listens on 127.0.0.1 port 0 reports an AddressInfo after it emits listening")
   return {
     async close() {
       http.closeAllConnections()
@@ -2088,7 +2095,7 @@ async function prepareWorkspace(
   const gitInitCode = gitInit.exitCode ?? (gitInit as { code?: number }).code
   if (gitInitCode !== 0) {
     await session.close({ abortSignal: context.input.abortSignal }).catch(() => undefined)
-    throw new Error("Unable to initialize workspace Git repository")
+    throw agentDiagnostics.AGENT_WORKSPACE_GIT_INIT_FAILED()
   }
   return {
     ...(checkoutPullRequest && pullRequest?.mount ? { projectRoot: join(root, pullRequest.mount) } : {}),
@@ -2099,10 +2106,11 @@ async function prepareWorkspace(
   }
 }
 
-async function closeWorkspace(context: AgentAdapterRunContext, session: WorkspaceSession | undefined, error: unknown, abortSignal: AbortSignal) {
+/** Closes the Workspace session. It commits the changes only when the invocation completed without `failed`. */
+async function closeWorkspace(context: AgentAdapterRunContext, session: WorkspaceSession | undefined, failed: boolean, abortSignal: AbortSignal) {
   if (!session) return
   try {
-    if (error || !context.workspaceDefinition || context.workspaceMode !== "write") return
+    if (failed || !context.workspaceDefinition || context.workspaceMode !== "write") return
     if (workspaceAutoCommitDisabled(context.workspaceDefinition, context.workspaceAutoCommit)) return
     const diff = await session.diff({ abortSignal })
     const definition = workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit)
@@ -2857,6 +2865,8 @@ async function* runProvider<
   let root: string
   let launchRoot: string | undefined
   let temporaryRoot: { root: string, path: string } | undefined
+  // A Sandbox stops its own processes when it closes.
+  const providerPass = options.sandbox ? undefined : crypto.randomUUID()
   let releaseCwdLock: (() => void) | undefined
   // driver.cwd is owned by the application. Title and progress summary runs keep a disposable root.
   let ownsRoot = true
@@ -2981,7 +2991,8 @@ async function* runProvider<
     removeTemporaryRoot(),
     launchRoot ? rm(launchRoot, { force: true, recursive: true }) : undefined,
   ]).then(() => undefined)
-  const cleanupRoot = () => rootCleanup ??= closeProviderSandbox().then(removeRoots, async (error: unknown) => {
+  const stopPassProcesses = () => providerPass ? stopMarkedProcesses(providerPassEnvironmentKey, providerPass) : Promise.resolve()
+  const cleanupRoot = () => rootCleanup ??= closeProviderSandbox().then(stopPassProcesses).then(removeRoots, async (error: unknown) => {
     await removeRoots().catch(() => undefined)
     throw error
   })
@@ -3103,7 +3114,7 @@ async function* runProvider<
         const requested = execOptions?.cwd || "/workspace"
         const suffix = requested.replace(/^\/workspace(?:\/|$)/, "")
         const cwd = resolve(root, suffix)
-        if (cwd !== root && !cwd.startsWith(`${root}/`)) throw new Error("[vitehub] Workspace command cwd must stay inside the provider checkout.")
+        if (cwd !== root && !cwd.startsWith(`${root}/`)) throw agentDiagnostics.AGENT_WORKSPACE_COMMAND_CWD_OUTSIDE()
         const { abortSignal, ...hostOptions } = execOptions || {}
         const environment = workspaceCommandEnvironment(execOptions?.env)
         const execution = localWorkspaceHost({ path: [browserRuntimeEnvironment(context.context)?.PATH, ...toolchainPath].filter((entry): entry is string => Boolean(entry)) }).exec(command, args, {
@@ -3231,7 +3242,7 @@ async function* runProvider<
     const capabilityEnvironment = auxiliary ? undefined : browserRuntimeEnvironment(context.context)
     if (options.sandbox) assertProviderSandboxInvocation(options.sandbox, context, Boolean(capabilityEnvironment?.PATH))
     if (options.launch !== undefined && capabilityEnvironment?.PATH) {
-      throw new Error("[vitehub] Managed browser() cannot be used with driver.launch because the launcher may run on another filesystem. Use browser({ runtime: \"external\" }) with a browser runtime prepared by the launcher.")
+      throw agentDiagnostics.AGENT_BROWSER_MANAGED_WITH_LAUNCH({ explicit: false })
     }
     providerRuntimeEnvironment = providerEnvironment({
       ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
@@ -3240,6 +3251,7 @@ async function* runProvider<
       ...providerEnvironmentOverrides,
       ...capabilityEnvironment,
       VITEHUB_BROWSER_ACTIVE: capabilityEnvironment?.VITEHUB_BROWSER_ACTIVE || "0",
+      ...(providerPass ? { [providerPassEnvironmentKey]: providerPass } : {}),
       ...(capabilityEnvironment?.LD_LIBRARY_PATH
         ? { LD_LIBRARY_PATH: [capabilityEnvironment.LD_LIBRARY_PATH, providerEnvironmentOverrides?.LD_LIBRARY_PATH].filter(Boolean).join(delimiter) }
         : {}),
@@ -3306,7 +3318,7 @@ async function* runProvider<
       effectiveSignal?.throwIfAborted()
       providerLaunchDiagnosticSecrets = providerLaunchSecretValues(launch)
       onProviderExit = launch.onExit
-      if (!launchRoot) throw agentDiagnostics.AGENT_R0717({ message: "[vitehub] Provider launcher root was not prepared." })
+      invariant(launchRoot, "the Provider Agent Driver creates launchRoot whenever driver.launch is set")
       const materializedLauncher = await waitForProviderOperation(
         materializeProviderLauncher(launchRoot, launch, providerLaunchSecretEnvironmentKeys, providerLaunchDiagnosticSecrets, providerCwd),
         effectiveSignal,
@@ -3328,7 +3340,7 @@ async function* runProvider<
           workspaceSession.exec("git", ["rev-parse", "--verify", "HEAD"], { abortSignal: effectiveSignal }),
           effectiveSignal,
         )
-        if (head.exitCode !== 0 || head.stdout.trim() !== expected) throw new Error("Host-prepared provider checkout HEAD changed during launch.")
+        if (head.exitCode !== 0 || head.stdout.trim() !== expected) throw agentDiagnostics.AGENT_PROVIDER_CHECKOUT_HEAD_CHANGED()
         pullRequestRoot = true
       }
     }
@@ -3473,7 +3485,7 @@ async function* runProvider<
       await workspaceSession.exec("git", ["-c", "user.name=ViteHub", "-c", "user.email=vitehub@localhost", "commit", "--allow-empty", "-qm", "vitehub provider baseline"], { abortSignal: effectiveSignal })
     }
     if (options.sandbox) {
-      if (!launchRoot) throw agentDiagnostics.AGENT_R0717({ message: "[vitehub] Provider launcher root was not prepared." })
+      invariant(launchRoot, "the Provider Agent Driver creates launchRoot whenever the Agent has a sandbox")
       const configuredCommand = options.providerSettings?.binaryPath
       if (configuredCommand !== undefined && typeof configuredCommand !== "string") {
         throw agentDiagnostics.AGENT_R0716({ message: "[vitehub] driver.providerSettings.binaryPath must be a string." })
@@ -3548,8 +3560,11 @@ async function* runProvider<
           `-c '${(`mcp_servers.t3-code.tools={${Object.keys(context.tools ?? {}).map(name => `${JSON.stringify(name)}={approval_mode="approve"}`).join(",")}}`).replaceAll("'", "'\\''")}'`,
         ]
         : []),
-      // Login profiles reset PATH and hide the invocation's managed browser CLI.
-      ...(options.provider === "codex" && capabilityEnvironment?.PATH ? ['-c "allow_login_shell=false"'] : []),
+      // A login shell reads /etc/profile, which sets PATH again on Debian. It drops the PATH that the run sets (managed
+      // browser CLI, toolchain, driver.env) and, on a launched runner such as SSH, the folder of Codex's apply_patch.
+      ...(options.provider === "codex" && (options.launch !== undefined || capabilityEnvironment?.PATH || toolchainPath.length || providerEnvironmentOverrides?.PATH)
+        ? ['-c "allow_login_shell=false"']
+        : []),
       ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
     ].filter(Boolean).join(" ") || undefined
     if (options.provider === "claude-code"
@@ -3910,7 +3925,7 @@ async function* runProvider<
         await closeWorkspace(
           context,
           workspaceSession,
-          caught ?? cleanupErrors[0] ?? (completed ? undefined : agentDiagnostics.AGENT_R0724({ message: "[vitehub] Provider Agent Driver invocation did not complete." })),
+          Boolean(caught ?? cleanupErrors[0] ?? !completed),
           signal,
         )
       }
@@ -4209,7 +4224,7 @@ export function createProviderAgentAdapter<
     stream: async function* (context) {
       for await (const event of streamAgentOutputToEvents(launch(context))) {
         yield event
-        if (event.type === "error" && event.recoverable !== true) throw new Error(event.error)
+        if (event.type === "error" && event.recoverable !== true) throw agentDiagnostics.AGENT_R0726({ message: event.error })
       }
     },
   }

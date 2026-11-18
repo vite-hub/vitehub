@@ -22,6 +22,7 @@ export class CollectionCursorError extends Diagnostic {
     super({
       cause: options?.cause,
       code: reason === "stale" ? "SOURCE_R0027" : "SOURCE_R0023",
+      fix: (reason === "stale" ? sourceErrorDiagnostics.SOURCE_R0027 : sourceErrorDiagnostics.SOURCE_R0023)({ message: "" }).fix,
       docs: `https://vitehub.dev/docs/source/diagnostics/${reason === "stale" ? "source_r0027" : "source_r0023"}`,
       why: message ?? (reason === "stale"
         ? "[vitehub] Collection cursor is stale. Its data or query changed; reload from the first page."
@@ -103,15 +104,14 @@ async function decodeCursor<TCursorInput extends CollectionCursorValue, TCursorO
     throw new CollectionCursorError(undefined, { cause })
   }
   if (!isCursorValue(decoded)) throw new CollectionCursorError()
+  let cursor: TCursorOutput
   try {
-    const cursor = await parseCollectionSchema(schema, decoded)
-    if (!isCursorValue(cursor)) {
-      throw sourceErrorDiagnostics.SOURCE_R0007({ message: "Collection cursor schema returned an invalid value." })
-    }
-    return cursor
+    cursor = await parseCollectionSchema(schema, decoded)
   } catch (cause) {
     throw new CollectionCursorError(undefined, { cause })
   }
+  if (!isCursorValue(cursor)) throw new CollectionCursorError()
+  return cursor
 }
 
 /** Bind cursor transport and validation to the Collection's schema once. */

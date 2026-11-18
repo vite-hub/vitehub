@@ -41,7 +41,7 @@ import type {
   ResolvedAgentRuntimeContext,
 } from "../types.ts"
 
-import type { WorkflowProvider, WorkflowProviderContext } from "@vite-hub/workflow"
+import type { WorkflowDuration, WorkflowExecutionContext, WorkflowDriver, WorkflowProviderContext } from "@vite-hub/workflow"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 export { workspaceAgentWithSourceRoot }
 
@@ -73,21 +73,15 @@ export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   runtimeConfig?: AgentRuntimeConfig
 }
 
-function workflowRecoveryDelay(attempt: number): { duration: string; milliseconds: number } {
-  if (attempt < 60) return { duration: "1 second", milliseconds: 1_000 }
-  if (attempt < 120) return { duration: "1 minute", milliseconds: 60_000 }
-  return { duration: "30 minutes", milliseconds: 1_800_000 }
-}
-
-async function sleepForWorkflowRecovery(context: WorkflowProviderContext, attempt: number): Promise<void> {
-  const delay = workflowRecoveryDelay(attempt)
-  if (context.step?.sleep) return await context.step.sleep(`agent-invocation-recovery-${attempt + 1}`, delay.duration)
-  await new Promise<void>((resolve) => setTimeout(resolve, delay.milliseconds))
+function workflowRecoveryDelay(attempt: number): WorkflowDuration {
+  if (attempt < 60) return "1 second"
+  if (attempt < 120) return "1 minute"
+  return "30 minutes"
 }
 
 async function reconcileAgentWorkflowInvocation<TRuntimeConfig extends AgentRuntimeConfig>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-  context: WorkflowProviderContext,
+  context: Pick<WorkflowExecutionContext, "sleep">,
   runtimeContext: AgentRuntimeContext<TRuntimeConfig>,
   recovery: NonNullable<AgentWorkflowInvocationPayload["invocationRecovery"]>,
 ): Promise<void> {
@@ -109,13 +103,13 @@ async function reconcileAgentWorkflowInvocation<TRuntimeConfig extends AgentRunt
     try {
       const run = await getWorkflowRun(recovery.workflowName, recovery.runId)
       if (run.status === "cancelled" || run.status === "completed" || run.status === "failed") {
-        await journal.finish(run.status, run.status === "failed" ? run.metadata : undefined)
+        await journal.finish(run.status, run.status === "failed" ? run.error : undefined)
         await Promise.all(agentInvocationRecoveryTasks(runtimeContext))
         const record = await invocations.getByRunId(recovery.sourceRunId, recovery.agentName)
         if (record?.status === run.status) return
       }
     } catch {}
-    if (attempt < 165) await sleepForWorkflowRecovery(context, attempt)
+    if (attempt < 165) await context.sleep(workflowRecoveryDelay(attempt))
   }
 }
 
@@ -125,7 +119,7 @@ export type AgentWorkflowRunner<TRuntimeConfig extends AgentRuntimeConfig = Agen
   input: AgentRunInput<CALL_OPTIONS>,
 ) => Promise<Response | AgentRunResult | unknown>
 
-function agentRuntimeFromWorkflowProvider(provider: WorkflowProvider): AgentRuntimeName {
+function agentRuntimeFromWorkflowProvider(provider: WorkflowDriver): AgentRuntimeName {
   if (provider === "cloudflare") return "cloudflare-agents"
   if (provider === "vercel") return "vercel"
   return "unknown"
@@ -310,7 +304,7 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
 
 export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-  context: WorkflowProviderContext<AgentWorkflowInvocationPayload<CALL_OPTIONS> | undefined>,
+  context: WorkflowProviderContext<AgentWorkflowInvocationPayload<CALL_OPTIONS> | undefined> & Partial<Pick<WorkflowExecutionContext, "sleep">>,
   runAgentInline: AgentWorkflowRunner<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<Response | AgentRunResult | unknown> {
   const payload = context.payload || {}
@@ -366,7 +360,8 @@ export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRun
   })
 
   if (payload.invocationRecovery) {
-    await reconcileAgentWorkflowInvocation(agent, context, runtimeContext, payload.invocationRecovery)
+    // SAFETY: ViteHub gives every Workflow handler `context.sleep()`. Only test contexts that never recover leave it out.
+    await reconcileAgentWorkflowInvocation(agent, context as Pick<WorkflowExecutionContext, "sleep">, runtimeContext, payload.invocationRecovery)
     return
   }
 

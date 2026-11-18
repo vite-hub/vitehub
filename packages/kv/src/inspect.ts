@@ -9,7 +9,7 @@ import type { KVOptions, ResolvedCloudflareKVStoreConfig, ResolvedKVModuleOption
 function describeDevelopment(store: ResolvedKVStoreConfig): string {
   switch (store.driver) {
     case "upstash": return "Remote. `vite dev` uses the real Upstash database, so writes change real data."
-    case "cloudflare-kv-binding": return store.localBase
+    case "cloudflare": return store.localBase
       ? `Local. \`vite dev\` uses the \`${store.binding}\` binding of the dev runtime, or \`fs-lite\` in \`${store.localBase}\` when the runtime has no binding.`
       : `Remote. \`vite dev\` uses the real Cloudflare KV namespace through the \`${store.binding}\` binding, so writes change real data.`
     case "deno-kv": return "Local. Deno KV."
@@ -41,7 +41,7 @@ function cloudflareStores(options: KVOptions | undefined, env: Record<string, st
   const kv = resolveKVViteConfig(options, { env }).kv
   if (!kv) return stores
   for (const [name, store] of Object.entries(kv.stores || { default: kv.store })) {
-    if (store.driver === "cloudflare-kv-binding") stores.set(name, store)
+    if (store.driver === "cloudflare") stores.set(name, store)
   }
   return stores
 }
