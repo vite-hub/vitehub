@@ -170,7 +170,8 @@ teams({
 - The message must pass admission: groups still need a mention, and `messages.filter` and `access()` apply.
 - Only human authors in the same thread can steer, even when `lockScope` covers several threads.
 - The Invocation keeps the first invoker's identity and authority. The steering message is input only, and its header names its author.
-- If the Driver (the part that runs the Agent) cannot steer live, the message runs as its own Invocation afterwards, as for one invoker.
+- The Driver (the part that runs the Agent) adds the message to the active run as text: the header line, then the message. A message with an image or a file cannot steer, because Drivers steer with text only.
+- If the message cannot steer, it runs as its own Invocation afterwards, as for one invoker. Its Channel delivery record shows one `steer.deferred` event with the active run's `runId` and a `reason`, such as `attachments` (the message has an image or a file) or `not-invoker` (only the invoker can steer).
 - This applies to inline steering. With durable Workflow delivery, another invoker's message still queues separately.
 
 ## Act on the Channel message in hooks

@@ -111,13 +111,15 @@ describe("steerFromParticipants", () => {
 
   it("starts a separate run for another participant when the option is off", async () => {
     mockTelegramApi()
+    const info = vi.spyOn(console, "info")
     const agent = steerAgent(false)
 
     const first = mention(agent.handler, -401, maxi, 8_401, "Check the import")
     await agent.started.promise
     const second = mention(agent.handler, -401, ana, 8_402, "Use the March file")
-    // The second participant waits for the active run instead of steering it.
-    await new Promise(resolve => setTimeout(resolve, 50))
+    // The second participant waits for the active run instead of steering it. The route polls
+    // the active run every 50 ms while it waits.
+    await new Promise(resolve => setTimeout(resolve, 200))
     expect(agent.sendInput).not.toHaveBeenCalled()
     agent.released.resolve()
     await Promise.all([first, second])
@@ -126,5 +128,9 @@ describe("steerFromParticipants", () => {
     expect(agent.run).toHaveBeenCalledTimes(2)
     expect(agent.invokers[0]).toContain(String(maxi.id))
     expect(agent.invokers[1]).toContain(String(ana.id))
+    // One deferral event for the whole wait, not one for each poll.
+    const deferred = info.mock.calls.flatMap(([line]) => typeof line === "string" && line.includes("\"steer.deferred\"") ? [JSON.parse(line)] : [])
+    expect(deferred).toEqual([expect.objectContaining({ reason: "not-invoker", runId: expect.any(String), scope: "vitehub.channel.delivery", sourceId: "8402" })])
+    info.mockRestore()
   })
 })
