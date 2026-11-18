@@ -49,7 +49,7 @@ async function deleteAuthRows(context: AuthContext, user: DeleteUser, userApiKey
       const value: unknown = userField === "id" ? user.id : (await storedUser)?.[userField]
       if (value == null) continue
       if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean" && !(value instanceof Date)) {
-        throw new TypeError(`Cannot match ${model}.${field} to user.${userField}`)
+        throw authErrorDiagnostics.AUTH_DELETE_ACCOUNT_REFERENCE_UNSUPPORTED({ model, field, userField })
       }
       const where = [{ field, value }]
       if (reference.onDelete === "set null") await context.adapter.updateMany({ model, where, update: { [field]: null } })

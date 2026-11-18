@@ -21,6 +21,10 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "`defineAuth()` deleteAccount must be `true` or an object of Better Auth `user.deleteUser` options without `enabled`.",
       fix: "Pass `deleteAccount: true` or an options object. If specifying `userApiKeyConfigIds`, pass an array of nonempty configuration IDs.",
     },
+    AUTH_DELETE_ACCOUNT_REFERENCE_UNSUPPORTED: {
+      why: ({ model, field, userField }: { model: string, field: string, userField: string }) => `Auth cannot match ${model}.${field} to user.${userField}: the stored user field is not a string, number, boolean, or date.`,
+      fix: "Point the Better Auth plugin field at `user.id` or another user field stored as a string, number, boolean, or date.",
+    },
     AUTH_DELETE_ACCOUNT_SESSION: {
       why: "`defineAuth()` deleteAccount cannot revoke sessions that Auth accepts from cookies alone.",
       fix: "Use stored Auth without `stateless()` or `session.cookieCache.enabled` to enable account deletion.",
