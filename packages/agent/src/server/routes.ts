@@ -4880,6 +4880,22 @@ function chatReplyLine(replyTo: ChatSdkMessage, timeZone: string, keptIds: Set<s
 }
 
 /**
+ * Steering input reaches a run that has not seen this message's history window, so its reply
+ * line quotes the message it answers instead of pointing to it as shown above.
+ */
+function chatSteeringUiMessage(uiMessage: UIMessageLike, message: ChatSdkMessage, options: AgentChatOptions | undefined): UIMessageLike {
+  if (!message.replyTo || !Array.isArray(uiMessage.parts)) return uiMessage
+  const keptIds = new Set(uiMessage.parts.map(chatPartId).filter((id) => typeof id === "string"))
+  const replyLine = chatReplyLine(message.replyTo, chatHeaderTimeZone(options), keptIds, new Set())
+  return {
+    ...uiMessage,
+    parts: uiMessage.parts.map(part => chatPartType(part) === "data-chat-reply-context"
+      ? { ...part, data: { ...("data" in part && isRecord(part.data) ? part.data : {}), modelText: replyLine } }
+      : part),
+  }
+}
+
+/**
  * Give the model one readable header per user message and limit history attachments.
  * Current and queued messages keep every attachment. History keeps only the newest
  * `triggerHistory.maxImages` images sent within `triggerHistory.maxAgeMs`.
@@ -6418,7 +6434,7 @@ async function handleChatSdkMessage(
         const steersActiveTurn = sameInlineInvoker(active.invoker, invoker) ||
           (options?.steerFromParticipants === true && active.threadId === thread.id && message.author.isBot !== true)
         if (active.runId && steersActiveTurn) {
-          const [steerMessage] = uiMessagesToAgentMessages([currentMessage])
+          const [steerMessage] = uiMessagesToAgentMessages([chatSteeringUiMessage(currentMessage, message, options)])
           const activeRunId = active.runId
           // Once submitted, only the Driver can determine whether input was accepted.
           let timeoutEvidence: Promise<void> | undefined
@@ -6479,6 +6495,7 @@ async function handleChatSdkMessage(
                 // Retain the claim on this turn so late duplicate continuations
                 // observe the same result even after the successor has finished.
                 fallback = (async () => {
+                  await recordSteerDeferral(activeRunId, deferralReason ?? result)
                   try {
                     await waitForInlineChatTurn(active, maximumInvocationDeadline)
                   } catch (error) {
