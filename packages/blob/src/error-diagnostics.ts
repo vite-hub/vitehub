@@ -16,7 +16,7 @@ export const blobErrors = /*#__PURE__*/ defineErrors({
   codes: {
     BLOB_CONFLICT: {
       why: ({ detail, operation, store }: BlobErrorParams) => detail ?? `The Blob ${operation} operation conflicts with existing objects in the "${store}" store.`,
-      fix: "Use a free pathname or an empty folder. `blob.copy()` and `media.move()` replace an object with `{ overwrite: true }`, and `media.removeFolder()` removes the objects of a folder with `{ force: true }`.",
+      fix: "Use a free pathname or an empty folder. `blob.copy()` and `media.move()` replace an object with `{ overwrite: true }`, and `media.removeFolder()` removes the objects of a folder with `{ force: true }`. For a `put()` with `ifMatch` or `overwrite: false`, another writer changed the object: read it again, merge, and retry with its new `httpEtag`.",
     },
     BLOB_INVALID_CURSOR: {
       why: "The Blob list cursor is not valid. It is not a cursor that a `list()` result of this store returned.",
@@ -82,6 +82,10 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
         ? "Blob changed repeatedly while preparing its response."
         : `Blob changed while reading its filesystem ${step}.`,
       fix: "Retry the call when the other writes to the same pathname end. Another request or process wrote the object while ViteHub read it.",
+    },
+    BLOB_PUT_CONDITION_UNSUPPORTED: {
+      why: ({ driver }: { driver: string }) => `Blob driver "${driver}" cannot check a \`put()\` condition in the provider, so it cannot write only if the object is unchanged or new.`,
+      fix: "Use a store that checks `ifMatch` and `overwrite: false`: `cloudflare` with its R2 binding, `vercel`, `netlify-blobs`, `s3` on AWS, or `fs`. Or write without a condition.",
     },
     BLOB_RESERVED_PATH: {
       why: ({ operation, pathname }: { operation: string, pathname: string }) => `The ${operation} operation cannot change ${pathname}. ViteHub owns the paths under \`_vitehub/\`.`,

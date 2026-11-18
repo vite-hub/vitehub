@@ -105,7 +105,9 @@ describe("vitehub migrate", () => {
       "",
       "export default defineEventHandler(async () => {",
       "  await email.send({ to: useServerEnv().ADMIN_EMAIL, subject: 'Sync', text: 'Started' })",
-      "  return await startWorkflow('sync', { full: true })",
+      "  const [error, run] = await startWorkflow('sync', { full: true })",
+      "  if (error) throw error",
+      "  return run",
       "})",
       "",
     ].join("\n"))
@@ -113,7 +115,7 @@ describe("vitehub migrate", () => {
     expect(await readFile(join(root, "server/utils/shell.ts"), "utf8")).toBe("import { createShellRuntime } from 'vite-hub/shell'\nimport { createJustBashDriver } from 'vite-hub/shell/providers/just-bash'\nexport const shell = (fs) => createShellRuntime({ driver: createJustBashDriver({ fs }) })\n")
     expect(await readFile(join(root, "tsconfig.json"), "utf8")).toBe("{\n  \"extends\": \"./.nuxt/tsconfig.json\",\n  \"compilerOptions\": {\n  }\n}\n")
     expect(await readFile(join(root, ".env.example"), "utf8")).toBe(files[".env.example"])
-    for (const name of ["vitehub-options", "root-accessors", "queue-workflow-verbs", "renamed-apis", "tsconfig-paths", "shell-driver"]) expect(result.stdout).toContain(`\n${name} (`)
+    for (const name of ["vitehub-options", "root-accessors", "queue-workflow-verbs", "result-tuples", "renamed-apis", "tsconfig-paths", "shell-driver"]) expect(result.stdout).toContain(`\n${name} (`)
     expect(result.stdout).toContain("Keep `NUXT_APP_SECRET` when another module, such as nuxt-og-image, reads it.")
     expect(result.stdout).toContain("Rule VHUB0003 lists Result calls whose error the code drops, such as `await email.send(...)`")
 

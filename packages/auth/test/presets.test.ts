@@ -17,6 +17,7 @@ describe("stateless()", () => {
     expect(stateless({ maxAge: "12h" })).toEqual({ name: "stateless", maxAge: 43_200 })
     expect(stateless({ maxAge: 3600 })).toEqual({ name: "stateless", maxAge: 3600 })
     expect(stateless({ maxAge: "7 days" })).toEqual({ name: "stateless", maxAge: 604_800 })
+    expect(stateless({ maxAge: "2.175m" })).toEqual({ name: "stateless", maxAge: 131 })
   })
 
   it.each([0, -1, 1.5, "0s"])("rejects maxAge %j with AUTH_C0049", (maxAge) => {

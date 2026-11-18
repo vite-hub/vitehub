@@ -87,6 +87,7 @@ receipt.merchant // string
 
 - `schema` is a [Standard Schema](https://standardschema.dev) that converts to JSON Schema, such as Zod 4 or ArkType. For Valibot, wrap the schema with `toStandardJsonSchema()` from `@valibot/to-json-schema`.
 - The result is `[error, data]`. `error` is set when the request fails or when the answer does not match the schema.
+- Leave out `schema` to get the answer as text.
 - Use an Agent when the model must call tools, keep a conversation, or run for a long time.
 
 ::

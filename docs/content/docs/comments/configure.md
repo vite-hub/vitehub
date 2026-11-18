@@ -28,7 +28,6 @@ In a ViteHub app, `server/comments.ts` turns Comments on. `vitehub({ comments: t
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     console: true,
     comments: { database: 'team' },
   },
@@ -45,7 +44,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       console: true,
       comments: { database: 'team' },
     }),
@@ -63,7 +61,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       console: true,
       comments: { database: 'team' },
     }),

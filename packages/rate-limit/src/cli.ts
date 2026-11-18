@@ -5,6 +5,7 @@ import { redactInspectionText } from "@vite-hub/internal/inspect"
 import { callOperationFromCli, table } from "@vite-hub/internal/operations"
 
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
+import { parseRateLimitWindow } from "./policy.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliFailure, ViteHubCliStreams } from "@vite-hub/internal/cli"
 import type { RateLimitPeekInspection, RateLimitResetInspection } from "./counters.ts"
@@ -133,7 +134,16 @@ function formatReset(result: RateLimitResetInspection): string {
   return `Reset Rate Limit ${result.name} for key ${result.key}.\nProvider: ${result.provider}\n${scopeNotice(result.scope)}\n`
 }
 
-const windowSchema = v.custom<Duration>(value => v.is(v.pipe(v.string(), v.regex(/^\d+(?:\.\d+)?\s*[a-z]+$/i)), value))
+const windowSchema = v.custom<Duration>((value) => {
+  if (typeof value !== "string") return false
+  try {
+    parseRateLimitWindow(value as Duration)
+    return true
+  }
+  catch {
+    return false
+  }
+})
 const finiteNumber = v.pipe(v.number(), v.finite())
 const targetFields = { key: v.string(), name: v.string(), provider: v.picklist(["memory", "kv", "cloudflare"]) }
 const scopeSchema = v.picklist(["global", "location", "process"])

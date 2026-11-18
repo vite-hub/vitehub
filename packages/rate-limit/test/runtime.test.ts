@@ -219,6 +219,16 @@ describe("managed Rate Limit guard", () => {
       .resolves.toMatchObject([{ code: "RATE_LIMIT_R0013" }, undefined])
   })
 
+  it("shares a budget across equivalent decimal windows", async () => {
+    const request = new Request("https://example.com/upload")
+    vi.spyOn(Date, "now").mockReturnValue(30_000)
+
+    await expect(checkRateLimit(request, "decimal-window", { key: "user", limit: 1, window: "2.007 seconds" }))
+      .resolves.toMatchObject([undefined, { allowed: true }])
+    await expect(checkRateLimit(request, "decimal-window", { key: "user", limit: 1, window: "2007ms" }))
+      .resolves.toMatchObject([undefined, { allowed: false }])
+  })
+
   it("reads the Cloudflare address header and the active bindings for a Web Request", async () => {
     setRateLimitRuntimeConfig({ driver: "cloudflare" })
     const limit = vi.fn(async () => ({ success: true }))

@@ -62,20 +62,32 @@ function describe(value: unknown): string {
   return typeof value === "function" || typeof value === "symbol" ? `a ${typeof value}` : String(value)
 }
 
+function toMilliseconds(amount: string, size: number, round?: "ceil"): number {
+  const [whole, fraction = ""] = amount.split(".")
+  const scaled = BigInt(`${whole}${fraction}`) * BigInt(size)
+  if (fraction.length === 0) return Number(scaled)
+  if (round === "ceil") {
+    const divisor = 10n ** BigInt(fraction.length)
+    return Number((scaled + divisor - 1n) / divisor)
+  }
+  return Number(`${scaled}e-${fraction.length}`)
+}
+
 /**
  * Reads a {@link Duration} such as `"30s"`, `"5m"`, or `"1 day"` and returns its milliseconds. A number, a negative
  * value, an unknown unit, or a value too large for a number throws `RUNTIME_DURATION_INVALID`. Pass `option`, such as
- * `"debounce"`, so the error names the option.
+ * `"debounce"`, so the error names the option. Pass `"ceil"` to round up to whole milliseconds before converting
+ * to a number.
  *
  * ```ts
  * parseDuration("90s") // 90000
  * parseDuration("1 day") // 86400000
  * ```
  */
-export function parseDuration(value: Duration, option?: string): number {
+export function parseDuration(value: Duration, option?: string, round?: "ceil"): number {
   const [, amount, unit] = (typeof value === "string" ? pattern.exec(value.trim()) : null) ?? []
   const size = unit === undefined ? undefined : units[unit.toLowerCase()]
-  const milliseconds = size === undefined ? Number.NaN : Number(amount) * size
+  const milliseconds = amount === undefined || size === undefined ? Number.NaN : toMilliseconds(amount, size, round)
   if (Number.isFinite(milliseconds)) return milliseconds
   const received: unknown = value
   const suggestion = typeof received === "number" && Number.isFinite(received) && received >= 0 ? suggest(received) : undefined

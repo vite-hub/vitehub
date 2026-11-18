@@ -61,7 +61,7 @@ icon: i-lucide-waypoints
   :::
 
   :::product-feature-item{title="Typed data from one call" icon="i-lucide-braces" to="/docs/gateways/server-api#get-typed-data-from-a-model"}
-  `ask(prompt, { model, schema })` returns data that your schema checked, without an Agent.
+  `ask(prompt, { model, schema })` returns data that your schema checked, without an Agent. Without `schema`, it returns text.
   :::
 
   :::product-feature-item{title="Ask typed questions" icon="i-lucide-list-checks" to="/docs/gateways/server-api#ask-questions"}
@@ -82,7 +82,7 @@ icon: i-lucide-waypoints
 ::
 
 ::agent-only
-Use AI Gateways when server code sends model requests or asks typed questions. For one model call that returns data in a fixed shape, use `ask(prompt, { model, schema })` with `languageModel()`, not an Agent. Import presets from `vite-hub/gateways` and `languageModel()` from `vite-hub/gateways/ai-sdk`. Install `@vite-hub/gateways`, plus `advocaat` for `ask()` and the AI SDK provider package for `languageModel()`.
+Use AI Gateways when server code sends model requests or asks typed questions. For one model call that returns data in a fixed shape, use `ask(prompt, { model, schema })` with `languageModel()`, not an Agent. For one call that returns text, use `ask(prompt, { model })`, not `generateText()`. Import presets from `vite-hub/gateways` and `languageModel()` from `vite-hub/gateways/ai-sdk`. Install `@vite-hub/gateways`, plus `advocaat` for `ask()` and the AI SDK provider package for `languageModel()`.
 
 Pick a preset whose type serves the use: a Codex or Claude Code URL for a Driver, an OpenAI-compatible URL for `languageModel()`, and `ask: true` for `ask()`. Never import a gateway in browser code. Keys are read on the server for each request.
 

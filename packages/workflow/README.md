@@ -176,15 +176,18 @@ installWorkflowRuntime();
 
 export default defineEventHandler(async (event) => {
   const payload = await readBody<{ email: string }>(event);
-  const started = await startWorkflow("onboard-user", payload);
+  const [startError, started] = await startWorkflow("onboard-user", payload);
+  if (startError) throw startError;
 
-  return await getWorkflowRun("onboard-user", started.id);
+  const [error, run] = await getWorkflowRun("onboard-user", started.id);
+  if (error) throw error;
+  return run;
 });
 ```
 
-`startWorkflow()` returns a normalized acknowledgement with an id, provider, and status. When you pass `{ id }`, that id is the run id on Cloudflare, OpenWorkflow, and inline runs, and a second start with the same id returns the first run. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, and results when the provider supplies them. A failed run has `error`: `{ message, name?, code? }`, safe to send as JSON, on every provider. `metadata` keeps provider data and no longer holds the error. Every provider reports the same statuses: a sleeping or waiting run reports `running`, a Cloudflare `terminated` run reports `cancelled`, and a run id that does not exist reports `unknown`.
+`startWorkflow()` returns `[error, run]`: a normalized acknowledgement with an id, provider, and status. `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, and the `start`, `getRun`, and `cancel` methods of a handle also return `[error, data]`. A provider failure, an unsupported option, or an invalid `delay` is `error`; its `code` is a `WorkflowResultErrorCode`. A config error, such as an unknown Workflow name, throws. When you pass `{ id }`, that id is the run id on Cloudflare, OpenWorkflow, and inline runs, and a second start with the same id returns the first run. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, and results when the provider supplies them. A failed run has `error`: `{ message, name?, code? }`, safe to send as JSON, on every provider. `metadata` keeps provider data and no longer holds the error. Every provider reports the same statuses: a sleeping or waiting run reports `running`, a Cloudflare `terminated` run reports `cancelled`, and a run id that does not exist reports `unknown`.
 
-To set your own id, pass `{ id }`. On Cloudflare, start with a letter, a digit, or `_`, then use only letters, digits, `-`, and `_`, up to 100 characters. Invalid start ids fail with `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID`. Inspection queries the binding because existing instance ids can follow different rules.
+To set your own id, pass `{ id }`. On Cloudflare, start with a letter, a digit, or `_`, then use only letters, digits, `-`, and `_`, up to 100 characters. `startWorkflow()` returns the error `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID` for another id. Inspection queries the binding because existing instance ids can follow different rules.
 
 The other runtime helpers are:
 
@@ -205,10 +208,10 @@ Inline run inspection uses weak references while execution is active. A reachabl
 
 ## Start a run later
 
-Pass `delay` to start the run later. It accepts a duration such as `"30m"` or `"3 days"`, or a `Date` that the run must not start before. A `Date` in the past starts the run now. A number, a negative value, or an unknown unit fails with `RUNTIME_DURATION_INVALID`, and an invalid `Date` with `WORKFLOW_START_DELAY_INVALID`. Use a `Date` for a month or a calendar time. `delay` works with `{ id }`.
+Pass `delay` to start the run later. It accepts a duration such as `"30m"` or `"3 days"`, or a `Date` that the run must not start before. A `Date` in the past starts the run now. `startWorkflow()` returns `RUNTIME_DURATION_INVALID` for an invalid duration, including a bare number, and `WORKFLOW_START_DELAY_INVALID` for an invalid or out-of-range start time. Use a `Date` for a month or a calendar time. `delay` works with `{ id }`.
 
 ```ts fragment
-await startWorkflow("send-reminder", { email }, { delay: "3 days", id: `reminder-${userId}` });
+const [error, run] = await startWorkflow("send-reminder", { email }, { delay: "3 days", id: `reminder-${userId}` });
 ```
 
 | Provider | How the delay works | Status during the delay |
@@ -216,7 +219,7 @@ await startWorkflow("send-reminder", { email }, { delay: "3 days", id: `reminder
 | OpenWorkflow | The run stays pending in storage until its start time (`availableAt`). | `queued` |
 | Cloudflare | The run sleeps with `step.sleepUntil()` before the handler. A waiting instance does not count toward the concurrency limit. | `running` |
 | Vercel `native` entry of a folder Workflow | The generated entry calls Workflow DevKit `sleep()` before the first step. | `running` |
-| Vercel `native` entry that you wrote | Not supported. `startWorkflow()` fails with `WORKFLOW_OPERATION_UNSUPPORTED`. | |
+| Vercel `native` entry that you wrote | Not supported. `startWorkflow()` returns the error `WORKFLOW_OPERATION_UNSUPPORTED`. | |
 | Inline runs (`vite dev`, normal Vercel handlers) | A timer in the process. It is not durable: a restart loses the run. | `queued` |
 
 For a recurring run, call `startWorkflow()` from a [Schedule](https://vitehub.dev/docs/schedule) handler.

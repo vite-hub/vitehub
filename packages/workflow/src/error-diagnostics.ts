@@ -1,5 +1,7 @@
 import { defineDiagnostics } from "nostics"
 
+import type { WorkflowProviderFailure } from "./errors.ts"
+
 const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
@@ -13,6 +15,19 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ name }: { name: string }) => `[vitehub] The Agent Workflow ${JSON.stringify(name)} is not a discovered Agent, so OpenWorkflow workers cannot run its turns.`,
       fix: "Move the Agent to server/agents/, so that the build adds its Workflow to the registry that every OpenWorkflow worker loads. To run it without a Workflow, call runAgent().",
     },
+    // Runtime errors. `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, and `resumeWorkflow()` return them as `[error, undefined]`, with `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID`, `WORKFLOW_OPERATION_UNSUPPORTED`, `WORKFLOW_START_DELAY_INVALID`, and `WORKFLOW_R0014`.
+    WORKFLOW_PROVIDER_OPERATION_FAILED: {
+      why: ({ operation, provider, reason }: WorkflowProviderFailure): string => `The ${provider} Workflow provider failed during ${operation}.${reason ? ` ${reason}` : ""}`,
+      fix: ({ acknowledgement }: WorkflowProviderFailure): string => acknowledgement === "unknown"
+        ? "The call may have reached the provider. If the original start supplied a run `id`, check that ID with `getWorkflowRun()` and reuse the same ID if you retry. If you do not know the original ID, verify whether the run started before trying again. Read `error.cause` for the provider error."
+        : "Read `error.cause` for the provider error. Retry when the provider is available again.",
+      data: ({ acknowledgement, operation, provider, reason, status }: WorkflowProviderFailure): WorkflowProviderFailure => ({ acknowledgement, operation, provider, reason, status }),
+    },
+    WORKFLOW_RUN_ID_UNSUPPORTED: {
+      why: "A native Vercel Workflow assigns its own run ID, so `startWorkflow()` cannot use the `id` option.",
+      fix: "Remove `id` from the options of `startWorkflow()`. Store the `id` of the run that it returns.",
+    },
+
     // Operation errors. The `workflow.*` operations of the CLI, the Console, and Agents throw them with an HTTP status.
     WORKFLOW_DEFINITION_NOT_FOUND: {
       why: ({ available, workflow }: { available?: string, workflow?: string }) => workflow === undefined ? "Workflow definition was not found." : `Unknown Workflow: ${workflow}.${available ?? ""}`,
@@ -31,6 +46,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
         ? `workflow ${operation} is not supported by the ${provider} provider for this run.`
         : `workflow ${operation} is not supported by the ${provider} provider. ${note}`,
       fix: "Use an operation that the provider supports, or run the app with a Workflow provider that supports it. The message says what the provider cannot do.",
+      data: ({ operation, provider }: { note?: string, operation: string, provider: string }): { operation: string, provider: string } => ({ operation, provider }),
     },
     WORKFLOW_REGISTRY_MISSING: {
       why: ({ workflow }: { workflow: string }) => `Unknown Workflow: ${workflow}. The runtime has no Workflow registry.`,

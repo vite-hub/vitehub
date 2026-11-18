@@ -6,8 +6,8 @@ import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
 export const rateLimitPolicyKeys: ReadonlySet<string> = new Set(["enforcement", "failure", "limit", "window"])
 
-function parseRateLimitWindow(value: Duration): number {
-  const windowMs = Math.ceil(parseDuration(value, "window"))
+export function parseRateLimitWindow(value: Duration): number {
+  const windowMs = parseDuration(value, "window", "ceil")
   if (windowMs <= 0 || windowMs > 8.64e15) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0032({ message: "[vitehub] Rate Limit window must resolve to milliseconds greater than zero and at most 8640000000000000." })
   }
@@ -42,6 +42,11 @@ export function normalizeRateLimitPolicy(policy: RateLimitPolicy): ResolvedRateL
     window: duration,
     windowMs: parseRateLimitWindow(duration),
   }
+}
+
+export function rateLimitPolicyKey(policy: RateLimitPolicy): string {
+  const { enforcement, failure, limit, windowMs } = normalizeRateLimitPolicy(policy)
+  return JSON.stringify([enforcement, failure, limit, windowMs])
 }
 
 export function declaredRateLimitPolicy(policy: ResolvedRateLimitPolicy): RateLimitPolicy {

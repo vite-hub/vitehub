@@ -39,7 +39,7 @@ Check the import on the package page, the Vite plugin registration, and the gene
 
 ## Write a time as a duration
 
-Every option that takes a length of time reads the same duration string: a number, an optional space, and a unit.
+The options below read the same duration string: a number, an optional space, and a unit.
 
 ```ts [server/api/session.post.ts] fragment
 await kv.set('session', session, { ttl: '1h' })
@@ -56,5 +56,6 @@ await startWorkflow('reminder', payload, { delay: '3 days' })
 | `w` | `week`, `weeks` |
 
 - A lifetime, such as KV and `seal()` `ttl`, Blob `sign({ expiresIn })`, and Auth `stateless({ maxAge })`, also takes a number. The number is seconds, so `{ ttl: 60 }` is one minute.
-- Every other time, such as Workflow `delay`, Webhooks `debounce`, Rate Limit `window`, and Auth `recheck`, takes only a string. A number fails with [`RUNTIME_DURATION_INVALID`](/docs/development/diagnostics/runtime_duration_invalid), and its fix shows the string to write.
+- Workflow `delay`, Webhooks `debounce`, and Auth `recheck` do not take a bare number. A number fails with [`RUNTIME_DURATION_INVALID`](/docs/development/diagnostics/runtime_duration_invalid), and its fix shows the string to write. Workflow `delay` also takes a `Date`.
+- Rate Limit `window` requires a duration string. A non-string fails with `RATE_LIMIT_R0031` at runtime or `RATE_LIMIT_R0001` during discovery.
 - `parseDuration()` and the `Duration` type from `vite-hub/runtime` read the same strings, for your own options. `parseDuration('5m')` returns `300000` milliseconds.

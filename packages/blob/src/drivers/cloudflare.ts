@@ -109,6 +109,7 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
     head: pathname => activeDriver().head(pathname),
     list: options => activeDriver().list(options),
     put: (pathname, body, options) => activeDriver().put(pathname, body, options),
+    putIf: (pathname, body, options, condition) => activeDriver().putIf!(pathname, body, options, condition),
     sign: (pathname, signOptions) => signRequest(options, pathname, signOptions),
   }
 }

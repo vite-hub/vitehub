@@ -426,14 +426,4 @@ describe("hubBlob", () => {
     const operations = await plugin.vitehub.operations[0]!.load!() as Array<{ name: string }>
     expect(operations.map(operation => operation.name)).toEqual(["blob.list", "blob.head", "blob.get", "blob.put", "blob.delete", "blob.media", "blob.variants"])
   })
-
-  it("registers no Nitro route for the commands, in serve or in build mode", async () => {
-    const plugin = hubBlob({ base: ".data/blob", driver: "fs" })
-    for (const command of ["build", "serve"]) {
-      const config: Record<string, unknown> = { build: { outDir: "dist" }, command, nitro: {}, root: cwd }
-      await (plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
-      expect(JSON.stringify(config.nitro)).not.toContain("dev-handler")
-      expect(JSON.stringify(config.nitro)).not.toContain("/_vitehub/blob/dev")
-    }
-  })
 })

@@ -341,7 +341,7 @@ describe("Rate Limit core", () => {
     expect(() => createRateLimiter(options)).toThrow(expect.objectContaining({ code: "RUNTIME_DURATION_INVALID" }))
   })
 
-  it.each(["8640000000000001ms", "8640000000001s", "144000000001m", "2400000001h", "100000001d"] as const)("rejects %s windows outside the timestamp range", (window) => {
+  it.each(["8640000000000000.1ms", "8640000000000001ms", "8640000000001s", "144000000001m", "2400000001h", "100000000.000000001d", "100000001d"] as const)("rejects %s windows outside the timestamp range", (window) => {
     expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window })).toThrow("8640000000000000")
   })
 

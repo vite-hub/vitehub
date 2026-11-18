@@ -222,8 +222,8 @@ describe("signed Blob requests", () => {
     const driver = { ...createUnsignedDriver(), sign: vi.fn(async () => ({ headers: {}, method: "GET" as const, url: "https://example.com/source.mp3" })) }
     const storage = createBlobStorage(driver)
 
-    await storage.sign("source.mp3", { expiresIn: "15m", method: "GET" })
+    await storage.sign("source.mp3", { expiresIn: "4.15m", method: "GET" })
 
-    expect(driver.sign).toHaveBeenCalledWith("source.mp3", { expiresIn: 900, method: "GET" }, expect.anything())
+    expect(driver.sign).toHaveBeenCalledWith("source.mp3", { expiresIn: 249, method: "GET" }, expect.anything())
   })
 })
