@@ -3,10 +3,9 @@ import { readFile } from "node:fs/promises"
 import { describe, expect, it, vi } from "vitest"
 
 import { injectPageToolsLoader } from "@vite-hub/internal/runtime/page-tools"
+import { viteHubPageToolsLoader as loader } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { loadConsolePageTools } from "../src/console/runtime/client/page-tools.ts"
-
-const loader = "/_vitehub/page/assets/loader.js?v=21"
 
 describe("page tools of the account Console page", () => {
   it("gets no loader from the server, so the page tools do not load next to the Console's boot", async () => {

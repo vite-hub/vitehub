@@ -7,16 +7,14 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { assertFeaturePackages, forgetPackageChecks, isPackageInstalled, missingFeaturePackagesError, startPackageChecks, type FeatureHostPackages } from "../src/internal/optional-owners.ts"
+import { assertFeaturePackages, isPackageInstalled, missingFeaturePackagesError, type FeatureHostPackages } from "../src/internal/optional-owners.ts"
 
 vi.mock("../src/internal/optional-owners.ts", async importOriginal => {
   const original = await importOriginal<typeof import("../src/internal/optional-owners.ts")>()
   return {
     ...original,
     assertFeaturePackages: vi.fn(original.assertFeaturePackages),
-    forgetPackageChecks: vi.fn(original.forgetPackageChecks),
     isPackageInstalled: vi.fn(original.isPackageInstalled),
-    startPackageChecks: vi.fn(original.startPackageChecks),
   }
 })
 
@@ -276,6 +274,26 @@ function dependencyPlugin(options: Parameters<typeof vitehub>[0] = { host: "node
   const plugin = vitehub(options).find(candidate => (candidate as Plugin).name === "vite-hub/dependencies") as ProviderImportPlugin | undefined
   if (!plugin) throw new TypeError("Expected the framework dependency resolver.")
   return plugin
+}
+
+const missingPackage = "@vite-hub/test-missing-package"
+
+/** The specifiers that Node resolves while `run` runs. */
+function packageLookups(run: () => void): string[] {
+  const lookups: string[] = []
+  const hooks = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      lookups.push(specifier)
+      return nextResolve(specifier, context)
+    },
+  })
+  try {
+    run()
+  }
+  finally {
+    hooks.deregister()
+  }
+  return lookups
 }
 
 async function providerOutputAliases(plugin: ProviderImportPlugin): Promise<Record<string, string>> {
@@ -1449,16 +1467,20 @@ describe("vitehub", () => {
     expect(lookups).toEqual([])
   })
 
-  it("starts new package checks each time Vite loads the app config", () => {
-    vi.mocked(startPackageChecks).mockClear()
+  it("checks the packages again each time Vite loads the app config", () => {
     vitehub({ host: "node" })
-    expect(startPackageChecks).toHaveBeenCalledOnce()
+    isPackageInstalled(missingPackage)
+    expect(packageLookups(() => isPackageInstalled(missingPackage))).toEqual([])
+    vitehub({ host: "node" })
+    expect(packageLookups(() => isPackageInstalled(missingPackage))).toContain(`${missingPackage}/package.json`)
   })
 
-  it("forgets the package checks when Vite closes the plugins", () => {
-    vi.mocked(forgetPackageChecks).mockClear()
-    callHook(dependencyPlugin().closeBundle, [])
-    expect(forgetPackageChecks).toHaveBeenCalledOnce()
+  it("checks the packages again after Vite closes the plugins", () => {
+    const plugin = dependencyPlugin()
+    isPackageInstalled(missingPackage)
+    expect(packageLookups(() => isPackageInstalled(missingPackage))).toEqual([])
+    callHook(plugin.closeBundle, [])
+    expect(packageLookups(() => isPackageInstalled(missingPackage))).toContain(`${missingPackage}/package.json`)
   })
 
   it("passes the unused Upstash and Redis fallbacks only to provider bundlers", () => {
