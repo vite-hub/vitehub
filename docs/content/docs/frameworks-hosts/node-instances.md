@@ -20,7 +20,7 @@ Limit, and Realtime find it and use its connection, so you set one URL.
 pnpm add postgres
 ```
 
-```ts [server/databases/config.ts]
+```ts [server/databases/default.ts]
 import { pgTable, serial, text } from 'drizzle-orm/pg-core'
 import { defineDatabase } from 'vite-hub/database'
 
@@ -37,12 +37,14 @@ export default defineDatabase({
 ```
 
 The server reads `DATABASE_URL` when it starts. The build does not need it.
-Generate the first migration with `vitehub db generate`.
+Generate the first migration with `pnpm exec vitehub database generate` and
+keep the generated files in `server/databases/default/migrations/`.
 
 ## Configure the app
 
-Turn on the primitives that you use. The `node` preset picks a shared store for
-each of them when the server starts.
+Turn on the primitives you use. A build in the Dockerfile below defaults to
+the `node` host. With this config, KV selects Postgres at build time. Realtime
+selects its store at startup.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -50,7 +52,6 @@ each of them when the server starts.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
     database: true,
     kv: true,
     cache: { driver: 'kv' },
@@ -73,7 +74,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
       database: true,
       kv: true,
       cache: { driver: 'kv' },
@@ -97,7 +97,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
       database: true,
       kv: true,
       cache: { driver: 'kv' },
@@ -119,24 +118,21 @@ export default defineConfig({
 | --- | --- | --- |
 | Database | Postgres, from `connection.url` | `DATABASE_URL`, or the variable that your Definition reads |
 | Migrations | Applied when each server starts, under a Postgres advisory lock | None |
-| KV and cache | Redis with `REDIS_URL`, else the `vitehub_kv` table | `REDIS_URL` |
+| KV and cache | The `vitehub_kv` table, or Redis when you configure `kv: { driver: 'redis' }` | `REDIS_URL` for the Redis driver |
 | Rate Limit | One atomic KV increment per request, so it follows KV | None |
 | Queue | The `vitehub_queue_jobs` table. Every instance claims jobs with `FOR UPDATE SKIP LOCKED` | `QUEUE_POSTGRES_URL` overrides the Database |
-| Schedule | One lease per occurrence in the `vitehub_leases` table, so one instance runs it | None |
-| Workflow | OpenWorkflow in the `openworkflow` schema. Each server starts one worker | `OPENWORKFLOW_POSTGRES_URL` comes before the Database |
+| Schedule | A lease in the `vitehub_leases` table lets one instance run an occurrence at a time. Keep handlers idempotent in case a lease expires. | None |
+| Workflow | OpenWorkflow in the `openworkflow` schema. Each server with discovered Workflows or Agents starts a worker | `OPENWORKFLOW_POSTGRES_URL` comes before the Database |
 | Realtime | Each instance keeps its rooms in memory and shares them through Redis pub/sub with `REDIS_URL`, else Postgres `LISTEN`/`NOTIFY` | `REDIS_URL`, `REALTIME_POSTGRES_URL` |
 | Blob | Not shared by default. Use `driver: 's3'` or another [S3-compatible driver](/docs/blob/hosts#s3-compatible-object-storage) | The driver's credentials |
 
 Queue, Realtime, and Workflow do not read `DATABASE_URL` themselves. They use
 the connection of the Default Database, whatever variable its Definition reads.
 
-Give every instance the same environment. An instance without `REDIS_URL`
-keeps KV and Realtime in Postgres while the others use Redis, so the data
-splits. Each server prints the store it picked when it starts:
-
-```txt
-[vitehub] KV store "default" uses Redis, because REDIS_URL is set. Every server process needs the same REDIS_URL.
-```
+Give every instance the same store configuration and environment. If only
+some instances receive `REDIS_URL`, Realtime can split between Redis and
+Postgres. Check each server's durability report at startup to confirm the
+drivers match.
 
 The primitive pages have the details:
 [KV](/docs/kv/configure#node-picks-a-shared-store),
@@ -154,7 +150,7 @@ server output, so the image needs no migrations folder.
 Instances that start together take turns. Each one takes
 `pg_advisory_xact_lock(hashtext('vitehub:migrations'))` before it reads the
 migrations table. The first one applies the migrations. An instance that finds
-the lock taken logs that it waits, then finds nothing pending and starts. `vitehub db migrate` takes the
+the lock taken logs that it waits, then finds nothing pending and starts. `vitehub database migrate` takes the
 same lock. `drizzle-kit migrate` does not, so do not run it while instances
 start.
 
@@ -178,9 +174,9 @@ first uses them, not with Drizzle migrations:
 | `vitehub_queue_jobs` | Queue |
 | `vitehub_realtime_rooms`, `vitehub_realtime_messages` | Realtime on Postgres |
 | The `openworkflow` schema | Workflow |
-| `drizzle.__drizzle_migrations` | Migrations on start and `vitehub db migrate` |
+| `drizzle.__drizzle_migrations` | Migrations on start and `vitehub database migrate` |
 
-`vitehub db generate` compares your schema with the last migration, so it does
+`vitehub database generate` compares your schema with the last migration, so it does
 not touch these tables. `drizzle-kit push` compares your schema with the
 database, so it offers to drop the `vitehub_*` tables and the `openworkflow`
 schema. If you use `push`, filter them out in your Drizzle config. The schema
@@ -205,34 +201,33 @@ Each instance opens its own connections:
 
 | Client | Connections per instance | Used by |
 | --- | --- | --- |
-| The Database pool | Up to 10, the postgres.js default | Your queries, KV, leases, Queue claims and jobs, Realtime saves and room opens, migrations on start |
+| The Database pool | Up to 10, the postgres.js default | Your queries, KV, leases, Queue claims and jobs, Realtime data, migrations on start |
 | One `LISTEN` connection on the Database client | 1 | Queue wake-ups and Realtime messages share it |
+| The Realtime room lock pool, when using Postgres | Up to 3 | Locks held while rooms open and save |
 | The OpenWorkflow pool | Up to 10 | Workflow runs |
 | At start | Up to 2 more, for a short time | The OpenWorkflow schema setup |
 
-So each instance can use about 21 connections. `REALTIME_POSTGRES_URL` adds a
-pool of 6 and one `LISTEN` connection, and `QUEUE_POSTGRES_URL` adds a pool of
-10 and one `LISTEN` connection. Postgres allows 100 connections by default,
-which is enough for about four instances. For more instances, set
-`max_connections` to about 25 per instance, plus your other clients. ViteHub does not let you change the pool sizes yet. Do not add `max`
-to the URL: postgres.js reads it as text and opens only one connection.
+Budget for up to 24 connections per instance with all stores on the Default
+Database, plus the temporary setup connections. `REALTIME_POSTGRES_URL` adds a
+pool of 6 and a dedicated `LISTEN` connection, and `QUEUE_POSTGRES_URL` adds a
+pool of 10 and a dedicated `LISTEN` connection. Leave room for other clients
+and for Postgres's reserved connections. Do not add `max` to the URL to size
+the postgres.js pool: postgres.js reads it as text and opens only one connection.
 
 A pooler in transaction mode, such as PgBouncer, does not keep a `LISTEN`
 connection. Use Redis for Realtime behind it. The OpenWorkflow schema setup
-needs two connections at once. When it gets no second connection in 10
-seconds, for example behind a pooler with one server connection, the server
-does not start the worker and reports `WORKFLOW_R0037`. Raise the pool size,
-or set up the schema once through a direct connection and then set
-`workflow: { postgres: { runMigrations: false } }`.
+needs two connections at once. If the second connection is unavailable, the
+server reports the setup failure and retries before starting the worker. Raise
+the pool size, or set up the schema once through a direct connection and then
+set `workflow: { postgres: { runMigrations: false } }`.
 
 ## Redis is optional
 
-Postgres alone holds every shared store. Add Redis to move KV, the Nitro cache,
-Rate Limit counters, and Realtime messages out of the Database. Queue, Schedule
-leases, Workflow, and migrations stay in Postgres.
-
-Set `REDIS_URL` on every instance. The server reads it when it starts, so one
-build runs with or without Redis.
+Postgres alone can serve every shared store in this example. Setting `REDIS_URL`
+on every instance moves Realtime to Redis without rebuilding. It does not move
+KV, the Nitro cache, or Rate Limit counters. To move those too, set the `redis`
+KV driver and rebuild. Queue, Schedule leases, Workflow, and migrations stay
+in Postgres.
 
 KV keys use the prefix `vitehub:kv:<store>`, which has no app name. Two
 ViteHub apps on one Redis database share `vitehub:kv:default`, and with it the
@@ -245,7 +240,6 @@ the URL, such as `redis://redis:6379/1`, or set its own `base`:
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    preset: 'node',
     kv: { driver: 'redis', base: 'shop:kv' },
   },
 })
@@ -261,7 +255,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
       kv: { driver: 'redis', base: 'shop:kv' },
     }),
     nitro(),
@@ -278,7 +271,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
       kv: { driver: 'redis', base: 'shop:kv' },
     }),
   ],
@@ -287,8 +279,8 @@ export default defineConfig({
 :::
 ::
 
-An explicit `driver: 'redis'` turns off the Postgres fallback, so every
-instance then needs `REDIS_URL`, and `vite dev` uses that Redis too.
+An explicit `driver: 'redis'` requires `REDIS_URL` on every production instance.
+It also uses Redis in development, so give development its own Redis URL.
 
 Realtime keeps apps apart by itself. Its namespace is `realtime.namespace`,
 else the `name` of `vitehub()`, else the `name` in your `package.json`. Two
@@ -328,7 +320,7 @@ x-app: &app
   restart: unless-stopped
   environment:
     DATABASE_URL: postgres://app:app@postgres:5432/app
-    # Optional. To keep every store in Postgres, remove this line,
+    # Optional with kv: true. To run without Redis, remove this line,
     # the redis service, and redis under depends_on.
     REDIS_URL: redis://redis:6379
     VITEHUB_INSTANCES: "3"
@@ -427,14 +419,14 @@ address. For Auth, set
   leases and Schedule claims on it are not safe. Use Postgres or remote libSQL.
 - Blob `fs` and every folder under `dataDir` are on one host. That includes KV
   `fs-lite`, Agent State, the Agent Invocation journal, and Workspace files.
-- Without a Postgres Default Database or `REDIS_URL`, KV uses `fs-lite`, Rate
-  Limit and Realtime count and relay in memory, Queue keeps job files on one
-  host, each instance runs every Schedule occurrence, and Workflow keeps runs
-  in a SQLite file and logs that at boot. A `DATABASE_URL` alone does not
-  change this.
+- Without a Postgres Default Database or other shared stores, KV uses `fs-lite`
+  and Rate Limit counters that use KV are local too. Realtime rooms stay in
+  memory, Queue keeps job files on one host, each instance runs every Schedule
+  occurrence, and Workflow keeps runs in a SQLite file. A `DATABASE_URL` alone
+  does not change this.
 - Queue `concurrency` counts the jobs of one process.
-- `vite dev` stays local on purpose. KV, Queue, Realtime, and Workflow keep
-  their state on your computer, and nothing migrates on start.
+- With the default config above, `vite dev` keeps KV, Queue, Realtime, and
+  Workflow state on your computer and does not migrate the Database on start.
 
 ## Check durability
 
@@ -451,12 +443,12 @@ When it is greater than 1 and a primitive keeps its state on one host or in one
 process, the server stops at boot with `RUNTIME_R0017`. The error names each
 primitive and how to share it. So a store that would split fails the deploy,
 and does not lose jobs later. You can also set `node: { instances: 3 }` in the
-config. `VITEHUB_INSTANCES` wins over it. `vitehub durability list` prints the
-same report for a running server.
+config. `VITEHUB_INSTANCES` wins over it. See [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted)
+for how to read the report from the CLI.
 
 ## Next steps
 
 - Read [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) for the
-  `node` preset on one instance.
+  `node` host on one instance.
 - Read [Production deployment](/docs/frameworks-hosts/production) before you
   serve traffic.
