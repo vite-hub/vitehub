@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { camelize, capitalize } from "vue"
+import { pageBlocks } from "#docs/components"
 import { docsAppPath, docsRawPath, normalizeDocsPath } from "#docs/navigation"
 import { articleLayout } from "#docs/shell"
 
-import type { DocsPageResponse } from "@vite-hub/docs"
+import type { Node as ComarkNode } from "comark"
+import type { DocsDocument, DocsPageResponse } from "@vite-hub/docs"
 
 const route = useRoute()
 const manifest = useDocsManifest()
@@ -26,6 +29,31 @@ if (import.meta.client && route.meta.layout !== layout) {
 }
 // A page outside the docs base has no section. It reads as a plain article under the site header.
 const isStandalone = !response.section && !isRoot && !isStartLink && page.layout !== "home"
+
+// A home page draws the app's `components/content/` blocks at full width. The Markdown between two of them, such as a
+// heading and a list, goes in one column with the prose styles of a docs page.
+const componentKey = (tag: string) => capitalize(camelize(tag))
+function homeDocument(document: DocsDocument): DocsDocument {
+  const blocks = new Set(pageBlocks.map(componentKey))
+  const nodes: ComarkNode[] = []
+  let prose: ComarkNode[] = []
+  const flush = () => {
+    if (prose.length) nodes.push(["div", { class: "docs-content vh-docs-home-prose" }, ...prose])
+    prose = []
+  }
+  for (const node of document.nodes) {
+    // The parser draws some blocks as HTML. An app component with the block's name still draws it.
+    const tag = typeof node === "string" || node[0] === null ? undefined : node[0] === "comark-html" && typeof node[1].block === "string" ? node[1].block : node[0]
+    if (tag && blocks.has(componentKey(tag))) {
+      flush()
+      nodes.push(node)
+    }
+    else prose.push(node)
+  }
+  flush()
+  return { ...document, nodes }
+}
+const home = page.layout === "home" ? homeDocument(response.document) : undefined
 
 // Agents can fetch the Markdown twin of the page instead of the HTML.
 useHead({ link: [{ rel: "alternate", type: "text/markdown", href: `${site.url}${docsAppPath(docsRawPath(page.path), appBase)}` }] })
@@ -62,8 +90,8 @@ useDocsSeo({
     </UPageBody>
   </div>
 
-  <div v-else-if="page.layout === 'home'" :data-path="page.path">
-    <DocsMarkdown :document="response.document" />
+  <div v-else-if="home" :data-path="page.path">
+    <DocsMarkdown :document="home" />
     <DocsPageCredits v-if="response.credits" :credits="response.credits" class="mx-auto w-full max-w-(--vh-content-width) px-4 sm:px-6" />
   </div>
 

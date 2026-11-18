@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -82,7 +82,7 @@ describe("vitehub inspect", () => {
 
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain("inspect")
-    expect(result.stdout).toContain("Inspect discovered Definitions, host resources, and generated Provider Output.")
+    expect(result.stdout).toContain("Inspect discovered Definitions, host resources, server routes, and generated Provider Output.")
   })
 
   it("prints every contributed Definition kind in human output", async () => {
@@ -332,5 +332,117 @@ describe("vitehub inspect resources", () => {
       stdout,
     })).resolves.toBe(0)
     expect(stdout.output()).toBe("No Definition maps to a host resource.\n")
+  })
+})
+
+describe("vitehub inspect routes", () => {
+  // A real Vite config: Vite runs each plugin's config hook, and the CLI reads the merged Nitro handlers.
+  async function createRoutesProject() {
+    const tempDir = await createTempDir()
+    const rootDir = join(tempDir, "app")
+    const agentDir = join(tempDir, "packages/agent")
+    await mkdir(rootDir, { recursive: true })
+    await mkdir(agentDir, { recursive: true })
+    await writeFile(join(agentDir, "package.json"), JSON.stringify({ name: "@vite-hub/agent" }))
+    await symlink(resolve(import.meta.dirname, "../node_modules"), join(rootDir, "node_modules"), "dir")
+    await writeFile(join(rootDir, "vite.config.mjs"), `
+export default {
+  plugins: [
+    {
+      name: "blob",
+      config: () => ({ nitro: { handlers: [
+        { handler: ${JSON.stringify(join(rootDir, ".vitehub/nitro/blob/serve.mjs"))}, method: "get", route: "/_blob/**" },
+        { handler: ${JSON.stringify(join(rootDir, ".vitehub/auth/access-middleware.mjs"))}, middleware: true, route: "/**" },
+      ] } }),
+    },
+    {
+      name: "agent",
+      config: () => ({ nitro: { handlers: [
+        { handler: ${JSON.stringify(join(agentDir, "dist/health.mjs"))}, method: ["get", "head"], route: "/_agent/health" },
+        { handler: "server/handlers/status.ts", route: "/status" },
+      ] } }),
+    },
+  ],
+}
+`)
+    return rootDir
+  }
+
+  async function runRoutes(rootDir: string, args: string[]) {
+    const stdout = stream()
+    const stderr = stream()
+    const exitCode = await runViteHubCli({ args: ["inspect", "routes", ...args], cwd: rootDir, stderr, stdout })
+    return { exitCode, stderr: stderr.output(), stdout: stdout.output() }
+  }
+
+  it("lists the routes of the build with method, path, owner, and handler", async () => {
+    const rootDir = await createRoutesProject()
+    const result = await runRoutes(rootDir, [])
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(result.stdout).toBe([
+      "METHOD    PATH            OWNER            HANDLER",
+      "*         /**             auth             .vitehub/auth/access-middleware.mjs  (middleware)",
+      "GET       /_blob/**       blob             .vitehub/nitro/blob/serve.mjs",
+      "GET,HEAD  /_agent/health  @vite-hub/agent  @vite-hub/agent/dist/health.mjs",
+      "*         /status         app              server/handlers/status.ts",
+      "",
+    ].join("\n"))
+  })
+
+  it("prints the routes as JSON", async () => {
+    const rootDir = await createRoutesProject()
+    const result = await runRoutes(rootDir, ["--json"])
+
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(result.stdout)).toEqual({
+      routes: [
+        { handler: ".vitehub/auth/access-middleware.mjs", method: "*", middleware: true, owner: "auth", route: "/**" },
+        { handler: ".vitehub/nitro/blob/serve.mjs", method: "GET", owner: "blob", route: "/_blob/**" },
+        { handler: "@vite-hub/agent/dist/health.mjs", method: "GET,HEAD", owner: "@vite-hub/agent", route: "/_agent/health" },
+        { handler: "server/handlers/status.ts", method: "*", owner: "app", route: "/status" },
+      ],
+    })
+  })
+
+  it("resolves Nitro aliases, roots, and templates while preserving virtual handlers", async () => {
+    const rootDir = await createRoutesProject()
+    const configPath = join(rootDir, "vite.config.mjs")
+    await writeFile(configPath, `export default { nitro: {
+      rootDir: ${JSON.stringify(join(rootDir, "backend"))},
+      alias: { "#health": ${JSON.stringify(join(rootDir, "../packages/agent/dist/health.mjs"))} },
+      handlers: [
+        { handler: "#health", route: "/health" },
+        { handler: "handlers/status.ts", route: "/status" },
+        { handler: "{{ rootDir }}/handlers/template.ts", route: "/template" },
+        { handler: "#virtual-handler", route: "/virtual" },
+        { handler: "\\u0000virtual-handler", route: "/null-virtual" },
+      ],
+    } }`)
+    const result = await runRoutes(rootDir, ["--json"])
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(result.stdout).routes).toEqual([
+      { handler: "@vite-hub/agent/dist/health.mjs", owner: "@vite-hub/agent", method: "*", route: "/health" },
+      { handler: "backend/handlers/status.ts", owner: "app", method: "*", route: "/status" },
+      { handler: "backend/handlers/template.ts", owner: "app", method: "*", route: "/template" },
+      { handler: "#virtual-handler", owner: "app", method: "*", route: "/virtual" },
+      { handler: "\u0000virtual-handler", owner: "app", method: "*", route: "/null-virtual" },
+    ])
+  })
+
+  it("says so when no plugin adds a route", async () => {
+    const rootDir = await createTempDir()
+    const stdout = stream()
+    const exitCode = await runViteHubCli({
+      args: ["inspect", "routes"],
+      cwd: rootDir,
+      loadConfig: async () => ({ plugins: [], root: rootDir }),
+      loadNuxtViteConfig: async () => undefined,
+      stderr: stream(),
+      stdout,
+    })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).toBe("No plugin adds a server route.\n")
   })
 })

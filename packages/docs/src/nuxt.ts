@@ -744,9 +744,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     nuxt.options.alias["#docs/components"] = addTemplate({
       filename: "docs/components.mjs",
       write: true,
-      getContents: () => `export default {\n${contentComponents.map(component => `  ${JSON.stringify(component.kebabName)}: () => import(${JSON.stringify(component.filePath)}),`).join("\n")}\n}\n`,
+      getContents: () => [
+        `export default {\n${contentComponents.map(component => `  ${JSON.stringify(component.kebabName)}: () => import(${JSON.stringify(component.filePath)}),`).join("\n")}\n}`,
+        // The app's own blocks, not the package's. A `home` page draws them at full width.
+        `export const pageBlocks = ${JSON.stringify(contentComponents.filter(component => !component.filePath.startsWith(`${contentDirs[0]}/`)).map(component => component.kebabName))}`,
+        "",
+      ].join("\n"),
     }).dst
-    addTemplate({ filename: "docs/components.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const components: Record<string, (() => Promise<{ default: Component }>) | undefined>\nexport default components\n` })
+    addTemplate({ filename: "docs/components.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const components: Record<string, (() => Promise<{ default: Component }>) | undefined>\nexport default components\nexport declare const pageBlocks: string[]\n` })
     addImportsDir([join(runtime, "app/composables"), join(runtime, "app/utils")])
     nuxt.hook("app:templates", (app) => {
       app.layouts.docs ??= { file: join(runtime, "app/layouts/docs.vue"), name: "docs" }
