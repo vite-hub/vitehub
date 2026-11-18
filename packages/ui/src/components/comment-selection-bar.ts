@@ -1,6 +1,34 @@
-import { defineComponent, h, type PropType } from "vue";
+import { type Component, defineComponent, h, onErrorCaptured, onMounted, type PropType, ref, type VNode } from "vue";
 import { useViteHubUIIcons } from "../config.ts";
 import { useTooltipComponent, useUIComponent } from "../internal/nuxt-ui.ts";
+
+// Nuxt UI's tooltip, registered by name, throws when no `UApp` gives it a provider. Then the button shows alone, with
+// its `title`. Only an error while the tooltip mounts falls back; a later one, such as from a click, goes on up.
+const TooltipOrTitle = defineComponent({
+  name: "CommentSelectionBarTooltip",
+  props: {
+    // SAFETY: Vue's runtime constructors cannot express a component type.
+    tooltip: { required: true, type: [Object, Function] as PropType<Component> },
+    side: { required: true, type: String as PropType<CommentSelectionBarSide> },
+    content: { required: true, type: Function as PropType<() => Array<string | VNode>> },
+    trigger: { required: true, type: Function as PropType<(title?: string) => VNode> },
+    title: { required: true, type: String },
+  },
+  setup(props) {
+    const failed = ref(false);
+    let mounted = false;
+    onMounted(() => (mounted = true));
+    onErrorCaptured(() => {
+      if (mounted || failed.value) return;
+      failed.value = true;
+      return false;
+    });
+    return () =>
+      failed.value
+        ? props.trigger(props.title)
+        : h(props.tooltip, { content: { side: props.side, sideOffset: 8 } }, { content: props.content, default: () => props.trigger() });
+  },
+});
 
 /** The side of the selected text that the bar sits on. */
 export type CommentSelectionBarSide = "top" | "bottom";
@@ -57,14 +85,18 @@ export const CommentSelectionBar = defineComponent({
           onMousedown: (event: MouseEvent) => event.preventDefault(),
           role: "group",
         },
-        actions().map((action) =>
-          UTooltip
-            ? h(UTooltip, { content: { side: props.side, sideOffset: 8 }, key: action.name }, {
-                content: () => [action.hint, h("kbd", { "data-slot": "comment-selection-bar-kbd" }, action.key)],
-                default: () => button(action),
-              })
-            : button(action, `${action.hint} (${action.key})`),
-        ),
+        actions().map((action) => {
+          const title = `${action.hint} (${action.key})`;
+          if (!UTooltip) return button(action, title);
+          return h(TooltipOrTitle, {
+            content: () => [action.hint, h("kbd", { "data-slot": "comment-selection-bar-kbd" }, action.key)],
+            key: action.name,
+            side: props.side,
+            title,
+            tooltip: UTooltip,
+            trigger: (fallback?: string) => button(action, fallback),
+          });
+        }),
       );
   },
 });

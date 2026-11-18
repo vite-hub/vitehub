@@ -2,6 +2,7 @@
 
 import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
+import { TooltipProvider, TooltipRoot, TooltipTrigger } from "reka-ui";
 import { defineComponent, h } from "vue";
 import { CommentSelectionBar } from "../src/index.ts";
 
@@ -47,5 +48,29 @@ describe("CommentSelectionBar", () => {
     expect(bar.findAll("[data-tip]").map((tip) => tip.text())).toEqual(["Comment on the selected textC", "Suggest new wordsE"]);
     expect(bar.findAll("[data-slot='comment-selection-bar-kbd']").map((key) => key.text())).toEqual(["C", "E"]);
     expect(bar.find("[data-action='comment']").attributes("title")).toBeUndefined();
+  });
+
+  // Nuxt UI's tooltip is reka-ui's TooltipRoot, which throws without the TooltipProvider that UApp gives.
+  const RekaTooltip = defineComponent({
+    setup: (_props, { slots }) => () => h(TooltipRoot, null, () => h(TooltipTrigger, { asChild: true }, () => slots.default?.())),
+  });
+
+  it("shows both actions with their titles when a registered tooltip has no provider", async () => {
+    const bar = mount(CommentSelectionBar, { global: { components: { UIcon, UTooltip: RekaTooltip } }, props: { suggest: true } });
+    await bar.vm.$nextTick();
+    expect(bar.findAll("[data-slot='comment-selection-bar-action']").map((action) => [action.text(), action.attributes("title")])).toEqual([
+      ["Comment", "Comment on the selected text (C)"],
+      ["Suggest", "Suggest new words (E)"],
+    ]);
+    await bar.find("[data-action='suggest']").trigger("click");
+    expect(bar.emitted("suggest")).toHaveLength(1);
+  });
+
+  it("uses the registered tooltip inside its provider", async () => {
+    const bar = mount(() => h(TooltipProvider, null, () => h(CommentSelectionBar)), { global: { components: { UIcon, UTooltip: RekaTooltip } } });
+    await bar.vm.$nextTick();
+    const action = bar.find("[data-action='comment']");
+    expect(action.attributes("title")).toBeUndefined();
+    expect(action.attributes("data-state")).toBe("closed");
   });
 });

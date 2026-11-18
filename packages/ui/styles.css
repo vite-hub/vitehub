@@ -2132,22 +2132,24 @@
     top: -0.4rem;
   }
 
-  /* The bar over selected text: a flat surface in the ink color, so it is dark on a light page and light on a dark one. */
+  /* The bar over selected text: a flat surface in the ink color, so it is dark on a light page and light on a dark one.
+     It floats over any page, such as in the ViteHub pill's shadow root, so its sizes are in px and do not follow the
+     page's root font size: the page places it by its fixed 38px height. */
   [data-slot="comment-selection-bar"] {
     --vh-selection-bar-text: color-mix(in oklab, var(--vh-inverted) 82%, var(--vh-highlighted));
     align-items: center;
     animation: vh-comment-selection-bar-in 140ms cubic-bezier(0.23, 1, 0.32, 1);
     background: var(--vh-highlighted);
     border: 1px solid color-mix(in oklab, var(--vh-inverted) 12%, transparent);
-    border-radius: 0.75rem;
+    border-radius: 12px;
     box-shadow: 0 8px 24px color-mix(in oklab, black 25%, transparent);
     display: flex;
-    font-size: 0.75rem;
+    font-size: 12px;
     font-weight: 500;
     -webkit-font-smoothing: antialiased;
-    gap: 0.25rem;
+    gap: 4px;
     line-height: 1;
-    padding: 0.25rem;
+    padding: 4px;
     transform-origin: 50% 100%;
     width: max-content;
   }
@@ -2160,14 +2162,14 @@
     align-items: center;
     background: none;
     border: 0;
-    border-radius: 0.5rem;
+    border-radius: 8px;
     color: var(--vh-selection-bar-text);
     cursor: pointer;
     display: inline-flex;
     font: inherit;
-    gap: 0.375rem;
-    height: 1.75rem;
-    padding: 0 0.625rem;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px;
     position: relative;
     touch-action: manipulation;
     transition-duration: 150ms;
@@ -2179,14 +2181,14 @@
   /* 28px to sit in the bar, with a 44px hit area for fingers. The 4px gap keeps the hit areas of two buttons apart. */
   [data-slot="comment-selection-bar-action"]::before {
     content: "";
-    inset: -0.5rem -0.125rem;
+    inset: -8px -2px;
     position: absolute;
   }
 
   [data-slot="comment-selection-bar-action"] > :first-child {
     flex: none;
-    height: 0.875rem;
-    width: 0.875rem;
+    height: 14px;
+    width: 14px;
   }
 
   /* Only a real pointer hovers, so a tap does not leave the button lit. */
@@ -2203,7 +2205,7 @@
 
   [data-slot="comment-selection-bar-kbd"] {
     font: inherit;
-    margin-inline-start: 0.375rem;
+    margin-inline-start: 6px;
     opacity: 0.6;
   }
 

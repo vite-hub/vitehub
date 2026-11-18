@@ -614,6 +614,33 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     }
   })
 
+  await t.test("the Comment bar keeps its size and stays on screen when the page's root text is larger", async () => {
+    const large = await browser.newPage({ viewport: { width: 1024, height: 720 } })
+    try {
+      await large.goto(`http://127.0.0.1:${port}/`)
+      await large.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
+      // Text near the top left corner, so the bar has to go under it and stay inside the left edge.
+      await large.evaluate(() => {
+        document.documentElement.style.fontSize = "24px"
+        const first = document.querySelector("#first")
+        Object.assign(first.style, { position: "fixed", left: "0", top: "20px", margin: "0" })
+        const range = document.createRange()
+        range.selectNodeContents(first.querySelector("strong"))
+        getSelection().removeAllRanges()
+        getSelection().addRange(range)
+      })
+      const bar = large.locator("vitehub-comments [data-slot='comment-selection-bar']")
+      await bar.waitFor({ timeout: 5000 })
+      await large.waitForTimeout(200)
+      const box = await bar.boundingBox()
+      assert.equal(Math.round(box.height), 38)
+      assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= 1024 && box.y + box.height <= 720, `bar at ${JSON.stringify(box)}`)
+    }
+    finally {
+      await large.close()
+    }
+  })
+
   await t.test("with comments hidden, a new comment shows for a moment, then pops out, and the others stay hidden", async () => {
     await page.mouse.click(900, 650)
     await page.keyboard.press("Escape")
