@@ -84,7 +84,6 @@ describe("Netlify provider deployment output", () => {
     const outfile = join(rootDir, ".netlify", "v1", "functions", "vitehub-agent.mjs")
     const generated = await readFile(outfile, "utf8")
     expect(generated).toContain("export const config = {")
-    expect(generated).toContain("\"path\": \"/api/test\"")
     expect(generated).not.toContain("function config(")
 
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as {

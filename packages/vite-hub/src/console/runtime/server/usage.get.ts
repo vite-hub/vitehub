@@ -102,6 +102,6 @@ const usageHandler = async (event: ConsoleRequestEvent): Promise<Record<string, 
 /** The usage summary, for the `usage.get` operation. */
 export const readConsoleUsage: ConsoleAccessRoute<typeof usageHandler> = withConsoleAccess(usageHandler, { section: "usage" });
 
-/** `GET <base>/api/_vitehub/console/usage` */
+/** `GET <base>/_vitehub/console/usage` */
 const consoleUsageRoute: ConsoleRoute = consoleRoute(readConsoleUsage);
 export default consoleUsageRoute;

@@ -21,7 +21,7 @@ export interface SentRequest {
  */
 export async function serveComments(options: DefineCommentsOptions = {}, handler: Partial<Omit<CommentsHandlerOptions, "comments">> = {}) {
   const comments = await createComments(options)
-  const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, ...handler }))
+  const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, ...handler }))
   const requests: SentRequest[] = []
   const fetch = vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
     const url = new URL(String(input), location.href)

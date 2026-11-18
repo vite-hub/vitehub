@@ -34,6 +34,7 @@ solves one deployment or provider task.
 - [Use Upstash Redis for KV](/docs/guides/upstash-redis).
 - [Store files in Cloudflare R2](/docs/guides/cloudflare-r2).
 - [Use Vercel Blob](/docs/guides/vercel-blob).
+- [Cache server results with tags](/docs/guides/cache-server-results).
 
 ## Run server work
 

@@ -60,4 +60,5 @@ Does the job go to a URL outside your app? Then use Webhooks. Does your own code
 - [Get started](/docs/webhooks/get-started): send a signed webhook from a ViteHub app.
 - [Comments to a T3 Code thread](/docs/webhooks/t3-code-thread): start a T3 Code thread 30 minutes after the last comment.
 - [Send events](/docs/webhooks/send-events): Forms, Blob, Content, and Auth events.
+- [Failure alerts](/docs/webhooks/failure-alerts): a message in Slack when an Agent Invocation, a Workflow run, or a Schedule run fails.
 - [Server API](/docs/webhooks/server-api): `defineWebhook()`, `sendWebhook()`, the headers, and the delivery functions.

@@ -14,7 +14,7 @@ export default defineConfig(({ command }) => ({
             evlog: {
               env: { service: "logs-playground" },
               redact: { paths: ["customer.email"] },
-              exclude: ["/_vitehub/**", "/api/_vitehub/**"],
+              exclude: ["/_vitehub/**", "/_vitehub/**"],
             },
           }
         : false,

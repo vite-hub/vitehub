@@ -6,7 +6,7 @@ An AI gateway is one object that knows where AI requests go and how to sign them
 - **AI SDK models.** `languageModel(gateway, modelId)` from `@vite-hub/gateways/ai-sdk` returns an [AI SDK](https://ai-sdk.dev) model that sends its requests through the gateway.
 - **`gateway.ask()`.** It answers typed [TypeSafe Jev](https://typesafe.ai) questions, such as "which category fits this transaction". Only gateways that can reach Jev have `ask()`.
 
-`ask(prompt, { model, schema })` sends one model request and returns typed data that a schema checked.
+`ask(prompt, { model, schema })` sends one model request and returns typed data that a schema checked. Without `schema`, it returns the answer text.
 
 The package has no Agent, Vite, or Nitro code. It works in a plain Node script, a Worker, or another framework, and its only dependency is `nostics`. ViteHub applications import it as `vite-hub/gateways`. User docs: [AI Gateways](https://vitehub.dev/docs/gateways).
 
@@ -60,7 +60,7 @@ if (error) throw error
 receipt.merchant // string
 ```
 
-`schema` is a [Standard Schema](https://standardschema.dev) that converts to JSON Schema: Zod 4, ArkType, or Valibot wrapped with `toStandardJsonSchema()` from `@valibot/to-json-schema`. Options: `instructions` (system instructions), `signal`, and `onUsage`. `error` is `GATEWAYS_ASK_MODEL_FAILED` when the request fails and `GATEWAYS_ASK_OUTPUT_INVALID` when the answer does not match the schema. Setup errors, such as a missing key or a schema without JSON Schema, throw. Use an Agent when the model must call tools or keep a conversation.
+`schema` is a [Standard Schema](https://standardschema.dev) that converts to JSON Schema: Zod 4, ArkType, or Valibot wrapped with `toStandardJsonSchema()` from `@valibot/to-json-schema`. Leave out `schema` to get the answer as a string: `const [error, summary] = await ask(log, { model })`. Options: `instructions` (system instructions), `signal`, and `onUsage`. `error` is `GATEWAYS_ASK_MODEL_FAILED` when the request fails and `GATEWAYS_ASK_OUTPUT_INVALID` when the answer does not match the schema or has no text. Setup errors, such as a missing key or a schema without JSON Schema, throw. Use an Agent when the model must call tools or keep a conversation.
 
 ## Ask your first question
 
@@ -224,7 +224,7 @@ export const codexThroughCloudflare = defineAiGateway({
 
 ## Use with ViteHub Agents
 
-In a ViteHub application, set a gateway as `driver.gateway` to route an Agent's model requests, pass `languageModel(gateway, modelId)` from `vite-hub/gateways/ai-sdk` as an AI SDK Driver `model`, or pass a gateway with `ask()` to an ask Driver. ViteHub then declares the preset's variables in Server Env. See [Use with Agents](https://vitehub.dev/docs/gateways/agents) in the ViteHub docs.
+In a ViteHub application, set a gateway as `driver.gateway` to route an Agent's model requests, pass `languageModel(gateway, modelId)` from `vite-hub/gateways/ai-sdk` as an AI SDK Driver `model`, or pass a gateway with `ask()` to an ask Driver. ViteHub declares the variables of each preset that a server file imports in Server Env. See [Use with Agents](https://vitehub.dev/docs/gateways/agents) in the ViteHub docs.
 
 `@vite-hub/gateways/internal` is for ViteHub packages: model API route resolution and `ask()` with trace observers.
 

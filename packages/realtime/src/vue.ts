@@ -215,7 +215,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
 
   function serverURL() {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-    return `${protocol}//${window.location.host}${resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}`)}`
+    return `${protocol}//${window.location.host}${resolveRealtimeApplicationPath(`/_vitehub/realtime/${encodeURIComponent(definition)}`)}`
   }
 
   if (typeof window !== "undefined") {
@@ -333,7 +333,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
         if (action !== "refresh" && !stillCurrent()) return disconnected()
         let response: Response
         try {
-          response = await fetch(resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}/${room}?${query}`), {
+          response = await fetch(resolveRealtimeApplicationPath(`/_vitehub/realtime/${encodeURIComponent(definition)}/${room}?${query}`), {
             body: action === "refresh" ? undefined : Uint8Array.from(Y.encodeStateAsUpdate(current!)).buffer,
             method: "POST",
             signal: controller.signal,

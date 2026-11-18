@@ -7,7 +7,7 @@ navigation.group: Chat bots
 icon: i-simple-icons-telegram
 ---
 
-Create a bot with BotFather, add `telegram()` from `vite-hub/agent/channels` to the `channels` of a `defineAgent()` file, and set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET_TOKEN` on the server. ViteHub serves the webhook at `/api/_vitehub/agents/<agent>/webhooks/telegram`. Run `vitehub channels sync` once to point Telegram at it. The Agent then answers direct messages, and group messages that mention the bot.
+Create a bot with BotFather, add `telegram()` from `vite-hub/agent/channels` to the `channels` of a `defineAgent()` file, and set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET_TOKEN` on the server. ViteHub serves the webhook at `/_vitehub/agents/<agent>/webhooks/telegram`. Run `vitehub channels sync` once to point Telegram at it. The Agent then answers direct messages, and group messages that mention the bot.
 
 ## What a ViteHub Telegram bot is
 
@@ -42,9 +42,7 @@ Start with the app from [Installation](/docs/getting-started/installation). `vit
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     agent: true,
-    workflow: false,
   },
 })
 ```
@@ -59,9 +57,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       agent: true,
-      workflow: false,
     }),
     nitro(),
   ],
@@ -77,9 +73,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       agent: true,
-      workflow: false,
     }),
   ],
 })
@@ -87,7 +81,7 @@ export default defineConfig({
 :::
 ::
 
-`workflow: false` runs each reply inline in the server process. If a reply must survive a restart, see [Workflow](/docs/workflows).
+The Agent runs each reply inline in the server process. If a reply must survive a restart, see [Workflow](/docs/workflows).
 
 ### Define the Agent
 
@@ -156,9 +150,7 @@ Vite blocks unknown host names, so add the tunnel domain to `server.allowedHosts
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     agent: true,
-    workflow: false,
   },
   vite: {
     server: { allowedHosts: ['.trycloudflare.com'] },
@@ -177,9 +169,7 @@ export default defineConfig({
   server: { allowedHosts: ['.trycloudflare.com'] },
   plugins: [
     vitehub({
-      host: 'node',
       agent: true,
-      workflow: false,
     }),
     nitro(),
   ],
@@ -196,9 +186,7 @@ export default defineConfig({
   server: { allowedHosts: ['.trycloudflare.com'] },
   plugins: [
     vitehub({
-      host: 'node',
       agent: true,
-      workflow: false,
     }),
   ],
 })
@@ -209,7 +197,7 @@ export default defineConfig({
 Check the webhook route. A `HEAD` request returns `204` and names the provider:
 
 ```bash [Terminal]
-curl -I https://your-tunnel.trycloudflare.com/api/_vitehub/agents/assistant/webhooks/telegram
+curl -I https://your-tunnel.trycloudflare.com/_vitehub/agents/assistant/webhooks/telegram
 # HTTP/2 204
 # x-vitehub-channel-provider: telegram
 ```

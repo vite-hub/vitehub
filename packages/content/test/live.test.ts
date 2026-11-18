@@ -165,7 +165,11 @@ describe("contentDocument", { timeout: 30_000 }, () => {
     const { content, posts } = await setup()
     await content.sessions.acquire("posts", "hello", { session: "tab-cleo-0001", user: { id: "cleo", name: "Cleo" } })
     await expect(contentDocument(posts, { sessions: content.sessions }).hold!(context("hello"), { users: [ana] }))
-      .rejects.toThrow("Cleo is editing this document alone.")
+      .rejects.toThrow(expect.objectContaining({
+        code: "CONTENT_LIVE_DOCUMENT_HELD",
+        fix: expect.stringContaining("edit lease"),
+        message: expect.stringContaining("Cleo is editing this document alone."),
+      }))
   })
 
   it("holds nothing without the sessions table", async () => {
@@ -202,6 +206,15 @@ describe("contentRealtime", { timeout: 30_000 }, () => {
     await expect(definition.authorize!(authorizeContext("authors/ada", "read", ana))).resolves.toBe(false)
     // The Workspace event channel carries no document; identified people may listen.
     await expect(definition.authorize!(authorizeContext(null, "read", ana))).resolves.toBe(true)
+  })
+
+  it("denies when the extra access check returns undefined", async () => {
+    const { content } = await setup()
+    // SAFETY: A JavaScript caller can return undefined, which the type does not allow.
+    const silent = vi.fn(() => undefined) as unknown as (context: RealtimeAuthorizeContext) => boolean
+    const definition = contentRealtime(content, { authorize: silent })
+    await expect(definition.authorize!(authorizeContext("posts/hello", "write", ana))).resolves.toBe(false)
+    await expect(definition.authorize!(authorizeContext(null, "read", ana))).resolves.toBe(false)
   })
 
   it("gives content.can() the user that options.user returns", async () => {

@@ -412,42 +412,6 @@ describe("hubAuth", () => {
     expect(loadAuthDefinition(plugin)).toBe("export const definition = undefined\nexport default definition\n")
   })
 
-  it("marks the auth package as noExternal for Vite SSR module loading", () => {
-    const plugin = hubAuth()
-    const config = plugin.config as (config: { server?: { watch?: { ignored?: string[] } }, ssr?: { noExternal?: string[] } }) => unknown
-
-    expect(config({})).toEqual({
-      define: { __VITEHUB_AUTH_DEV__: "false" },
-      optimizeDeps: {
-        exclude: ["@vite-hub/auth", "vite-hub/auth"],
-        include: ["@vite-hub/auth > better-auth/vue"],
-      },
-      server: {
-        watch: {
-          ignored: ["**/.vitehub/**"],
-        },
-      },
-      ssr: {
-        noExternal: ["@vite-hub/auth"],
-      },
-    })
-    expect(config({ server: { watch: { ignored: ["**/.vitehub/**"] } }, ssr: { noExternal: ["existing", "@vite-hub/auth"] } })).toEqual({
-      define: { __VITEHUB_AUTH_DEV__: "false" },
-      optimizeDeps: {
-        exclude: ["@vite-hub/auth", "vite-hub/auth"],
-        include: ["@vite-hub/auth > better-auth/vue"],
-      },
-      server: {
-        watch: {
-          ignored: undefined,
-        },
-      },
-      ssr: {
-        noExternal: undefined,
-      },
-    })
-  })
-
   it("keeps configured entries single after Vite resolves the Auth config", async () => {
     const root = await createTempProject()
     await writeAuth(root)

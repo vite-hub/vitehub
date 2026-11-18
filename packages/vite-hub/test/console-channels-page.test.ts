@@ -107,7 +107,7 @@ afterEach(() => {
 describe("Channels page", () => {
   it.each(["", "/portal"])("marks a simulated Channel and opens the Agent's chat page under mount '%s'", async mount => {
     page().history.replaceState({}, "", `${mount}/_vitehub/channels`)
-    const route = "/api/_vitehub/agents/support/webhooks/slack"
+    const route = "/_vitehub/agents/support/webhooks/slack"
     const channels = [
       { agent: "support", channel: "slack", conversations: true, provider: "slack", retention, simulated: true, simulator: route },
       { agent: "support", channel: "telegram", conversations: true, provider: "telegram", retention, simulated: false },
@@ -142,7 +142,7 @@ describe("Channels page", () => {
   })
 
   it("shows the simulated chat page edge to edge and keeps it while a thread is open", async () => {
-    const route = "/api/_vitehub/agents/support/webhooks/slack"
+    const route = "/_vitehub/agents/support/webhooks/slack"
     const channels = [{ agent: "support", channel: "slack", conversations: true, provider: "slack", retention, simulated: true, simulator: route }]
     const threads = vi.fn(async () => ({ threads: [{ invocationCount: 1, participants: ["learner"], thread: "slack:learner:1" }] }))
     mocks.request.mockImplementation(async (path: string) => path === "/api/c/channels" ? { channels } : path === "/api/c/channels/threads" ? await threads() : answers[path])

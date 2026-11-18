@@ -368,9 +368,9 @@ describe("the Comments overlay on a page", () => {
       expect(overlay.isConnected).toBe(true)
       expect(shadow.querySelector('textarea[aria-label="Reply"]')).toBe(input)
       expect(input.value).toBe("Unsent reply")
-      const lists = server.requests.filter(request => request.path.startsWith("/api/_vitehub/comments/threads?")).length
+      const lists = server.requests.filter(request => request.path.startsWith("/_vitehub/comments/threads?")).length
       await vi.advanceTimersByTimeAsync(30_000)
-      await vi.waitFor(() => expect(server.requests.filter(request => request.path.startsWith("/api/_vitehub/comments/threads?")).length).toBe(lists + 1))
+      await vi.waitFor(() => expect(server.requests.filter(request => request.path.startsWith("/_vitehub/comments/threads?")).length).toBe(lists + 1))
     }
     finally {
       next.replaceWith(before)

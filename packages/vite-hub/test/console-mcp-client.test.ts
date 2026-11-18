@@ -273,8 +273,8 @@ async function connectAs(person: string, options: { prompt?: "login", user?: str
   return completed.value
 }
 
-function install(kv = false, host: "node" | "cloudflare" = "node"): void {
-  installConsoleSections("mcp-client-test", resolveConsoleSectionIds({ console: { auth: false, mcpClient: true }, kv, host }))
+function install(kv = false): void {
+  installConsoleSections("mcp-client-test", resolveConsoleSectionIds({ console: { auth: false, mcpClient: true }, kv }))
   installConsoleOperations([{ operations: consoleMcpClientOperations, plugin: "vite-hub" }])
 }
 
@@ -283,7 +283,7 @@ describe("MCP client section", () => {
     expect(isConsoleMcpClientEnabled({ auth: false, mcpClient: true })).toBe(true)
     expect(isConsoleMcpClientEnabled({ auth: "app" })).toBe(false)
     expect(resolveConsoleSectionIds({ console: { auth: false, mcpClient: true } })).toEqual(["mcp-client"])
-    expect(resolveConsoleSectionIds({ agent: true, console: { auth: false, mcpClient: true }, workflow: false })).toEqual(["agents", "skills", "usage", "channels", "mcp-client"])
+    expect(resolveConsoleSectionIds({ agent: true, console: { auth: false, mcpClient: true } })).toEqual(["agents", "skills", "usage", "channels", "mcp-client"])
     expect(resolveConsoleSectionIds({ console: { auth: false } })).toEqual([])
   })
 
@@ -419,15 +419,15 @@ describe("MCP client section", () => {
     install()
     const nativeFetch = globalThis.fetch
     const redirected: Request[] = []
+    const fetched: string[] = []
     const endpoint = `https://oauth.example/${stage === "discovery" ? ".well-known/oauth-authorization-server" : "token"}`
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const request = new Request(input instanceof Request ? input.clone() : input, init)
+      fetched.push(request.url)
       if (request.url.startsWith("https://oauth.example/")) {
         redirected.push(request)
         return new Response(null, { headers: { location: "http://external.example/oauth" }, status: 307 })
       }
-      // No test request may reach the external plaintext endpoint, even if discovery retries.
-      expect(request.url).not.toBe("http://external.example/oauth")
       const response = await nativeFetch(input, init)
       if (stage === "discovery" && new URL(request.url).pathname.startsWith("/.well-known/oauth-protected-resource")) {
         return overrideMetadata(response, { authorization_servers: ["https://oauth.example"] })
@@ -444,6 +444,8 @@ describe("MCP client section", () => {
     }
     expect(redirected.some(request => request.url === endpoint)).toBe(true)
     expect(redirected.every(request => request.redirect === "manual")).toBe(true)
+    // No request reaches the external plaintext endpoint, even if discovery retries.
+    expect(fetched).not.toContain("http://external.example/oauth")
   })
 
   it("follows relative redirects while preserving an MCP POST body and bearer token", async () => {
@@ -474,14 +476,14 @@ describe("MCP client section", () => {
     install()
     const nativeFetch = globalThis.fetch
     const redirected: Request[] = []
+    const fetched: string[] = []
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const request = new Request(input instanceof Request ? input.clone() : input, init)
+      fetched.push(request.url)
       if (request.url === "https://oauth.example/revoke") {
         redirected.push(request)
         return new Response(null, { headers: { location: target }, status: 307 })
       }
-      // The invalid target must never be passed to fetch.
-      expect(request.url).not.toBe(target)
       const response = await nativeFetch(input, init)
       if (request.url === `${origin}/.well-known/oauth-authorization-server`) {
         return overrideMetadata(response, { revocation_endpoint: "https://oauth.example/revoke" })
@@ -492,6 +494,8 @@ describe("MCP client section", () => {
     const disconnected = await rpc<{ revoked: boolean }>("mcp-client.disconnect", { id: connected.id })
     expect(disconnected.value.revoked).toBe(false)
     expect(redirected.map(request => request.redirect)).toEqual(["manual", "manual"])
+    // The invalid target is never passed to fetch.
+    expect(fetched).not.toContain(target)
   })
 
   it("bounds session deletion redirect loops", async () => {
@@ -620,7 +624,7 @@ describe("MCP client section", () => {
   })
 
   it.each(["node", "cloudflare"] as const)("requires KV before accessing sealed MCP records on %s", async (preset) => {
-    install(false, preset)
+    install()
     const key = Buffer.alloc(32, 7).toString("base64")
     if (preset === "node") process.env.VITEHUB_CONSOLE_MCP_KEY = key
     const reads = vi.spyOn(kv, "keys")

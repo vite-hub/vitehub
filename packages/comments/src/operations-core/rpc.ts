@@ -1,6 +1,8 @@
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 import { callOperationRpc, operationRpcPath, type OperationRpcOutcome } from "@vite-hub/internal/operation-rpc"
 
+import { commentsAnswerError, commentsUnansweredError } from "../client-diagnostics.ts"
+
 import type {
   CommentCreateInput,
   CommentDeleteInput,
@@ -20,23 +22,6 @@ export interface RpcTransportOptions {
   base?: string
   /** Replaces `fetch`, for tests. */
   fetch?: typeof fetch
-}
-
-/** A failed operation, with the fields that every ViteHub surface reports. */
-export class CommentsRpcError extends Error {
-  readonly code: string
-  readonly fix?: string
-  readonly status: number
-  readonly details?: Record<string, unknown>
-
-  constructor(failure: { code: string, details?: Record<string, unknown>, fix?: string, message: string, status: number }) {
-    super(failure.message)
-    this.name = "CommentsRpcError"
-    this.code = failure.code
-    this.status = failure.status
-    if (failure.fix) this.fix = failure.fix
-    if (failure.details) this.details = failure.details
-  }
 }
 
 /**
@@ -63,19 +48,23 @@ export function createRpcTransport(options: RpcTransportOptions = {}): CommentsT
       })
     }
     catch (cause) {
-      throw new CommentsRpcError({ code: "COMMENTS_R0013", fix: "Check the connection and try again.", message: `The request failed: ${cause instanceof Error ? cause.message : String(cause)}`, status: 0 })
+      throw commentsUnansweredError(0, cause)
     }
     // SAFETY: The operation of the same name answers with the type of the transport method that called it.
     if (outcome.ok) return outcome.value as T
-    if (outcome.error) throw new CommentsRpcError(outcome.error)
+    if (outcome.error) {
+      const { message, ...failure } = outcome.error
+      throw commentsAnswerError({ ...failure, why: message })
+    }
     // Host middleware, such as the Console sign-in check, answers with the diagnostic body and no birpc reply.
     const { body, response } = outcome.answer
-    throw new CommentsRpcError({
-      code: isRecord(body) && typeof body.code === "string" ? body.code : "COMMENTS_R0013",
-      message: isRecord(body) && typeof body.message === "string" ? body.message : `The server answered with HTTP ${response.status}.`,
-      status: isRecord(body) && typeof body.status === "number" ? body.status : response.status,
-      ...(isRecord(body) && typeof body.fix === "string" ? { fix: body.fix } : {}),
-      ...(isRecord(body) && isRecord(body.details) ? { details: body.details } : {}),
+    if (!isRecord(body) || typeof body.code !== "string" || typeof body.message !== "string") throw commentsUnansweredError(response.status)
+    throw commentsAnswerError({
+      code: body.code,
+      status: typeof body.status === "number" ? body.status : response.status,
+      why: body.message,
+      ...(typeof body.fix === "string" ? { fix: body.fix } : {}),
+      ...(isRecord(body.details) ? { details: body.details } : {}),
     })
   }
   return {

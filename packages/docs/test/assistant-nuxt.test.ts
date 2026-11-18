@@ -31,7 +31,11 @@ describe("setupDocsAssistant", () => {
   })
 
   it("fails the build when ViteHub Agents are missing", async () => {
-    await expect(fakeNuxt({ modules: [] })()).rejects.toThrow(/docs.assistant needs ViteHub Agents.*vitehub: \{ agent: true, connections: true \}/)
+    await expect(fakeNuxt({ modules: [] })()).rejects.toMatchObject({
+      code: "DOCS_ASSISTANT_AGENTS_MISSING",
+      message: expect.stringContaining("docs.assistant needs ViteHub Agents"),
+      fix: expect.stringContaining("vitehub: { agent: true, connections: true }"),
+    })
     await expect(fakeNuxt({ modules: [["vite-hub/nuxt", { agent: false }]] })()).rejects.toThrow("docs.assistant needs ViteHub Agents")
   })
 

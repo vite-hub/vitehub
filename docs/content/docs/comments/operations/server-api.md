@@ -46,7 +46,7 @@ import { createRpcTransport } from 'vite-hub/comments/rpc'
 const client = createCommentsClient({ transport: createRpcTransport({ base: '/portal' }) })
 ```
 
-`createRpcTransport({ base?, fetch? })` implements `CommentsTransport` over `POST /_vitehub/rpc`, one birpc call for each request. It has no `subscribe`, so the client refreshes on window focus. A failure throws `CommentsRpcError` with `code`, `message`, `fix`, and `status`.
+`createRpcTransport({ base?, fetch? })` implements `CommentsTransport` over `POST /_vitehub/rpc`, one birpc call for each request. It has no `subscribe`, so the client refreshes on window focus. A failure throws a diagnostic with `code`, `message`, `fix`, and `status`.
 
 > [!WARNING]
 > `createRpcTransport()` is for development only. A browser cannot sign Console calls, so it works only on a development server with `console: { auth: false }` or without the `console` option. In production, the app takes only [signed calls](/docs/development/console#sign-console-requests) on `/_vitehub/rpc`.

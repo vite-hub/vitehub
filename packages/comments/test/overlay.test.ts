@@ -65,13 +65,13 @@ describe("the Comments overlay on the comment parts", () => {
       await vi.waitFor(() => expect(root.querySelector('[data-slot="comment-panel-item"]')).not.toBeNull())
       root.querySelector<HTMLButtonElement>('[data-slot="comment-panel-item"]')!.click()
     }
-    await vi.waitFor(() => expect(root.querySelector('a[href="/api/_vitehub/comments/attachments/files/guide.pdf"]')).not.toBeNull())
+    await vi.waitFor(() => expect(root.querySelector('a[href="/_vitehub/comments/attachments/files/guide.pdf"]')).not.toBeNull())
   })
 
   it("loads the toolbar for a page allowed by a subject-aware policy", async () => {
     const { bar, requests } = await site(ada, { authorize: ({ subject }) => subject?.id === "/pricing" })
     expect(bar.hidden).toBe(false)
-    expect(requests.some(request => request.path === "/api/_vitehub/comments/session?page=%2Fpricing")).toBe(true)
+    expect(requests.some(request => request.path === "/_vitehub/comments/session?page=%2Fpricing")).toBe(true)
   })
 
   it.each(["layer", "panel"])("uses thread permissions in the %s even when page permissions differ", async (surface) => {
@@ -277,7 +277,7 @@ describe("the Comments overlay on the comment parts", () => {
     it("refuses it on the server without `delete`", async () => {
       const { comments, fetch } = await serveComments({ identify: () => grace, authorize: ({ action }) => action !== "delete" })
       const [, thread] = await comments.create({ page: "/pricing", anchor, body: "Ada's comment", author: ada })
-      const response = await fetch(`/api/_vitehub/comments/threads/${thread!.id}/comments/${thread!.messages[0]!.id}`, { method: "DELETE" })
+      const response = await fetch(`/_vitehub/comments/threads/${thread!.id}/comments/${thread!.messages[0]!.id}`, { method: "DELETE" })
       expect(response.status).toBe(403)
       expect((await comments.get(thread!.id))[1]!.messages).toHaveLength(1)
     })
@@ -360,6 +360,18 @@ describe("the Comments overlay on the comment parts", () => {
     await vi.waitFor(() => expect(location.pathname + location.search + location.hash).toBe("/pricing?plan=pro#faq"))
     // The thread opens, not comment mode.
     expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(false)
+  })
+
+  it("clears a thread link opened by a query-only navigation", async () => {
+    const server = await serveComments({ identify: () => ada })
+    const [, thread] = await server.comments.create({ page: "/pricing", anchor, body: "Linked on this page", author: ada })
+    const { shadow } = await startOverlay(pageTools())
+    await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-pin"]')).not.toBeNull())
+
+    history.pushState(null, "", `/pricing?plan=pro&comment=${thread!.n}#faq`)
+
+    await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-thread"]')?.textContent).toContain("Linked on this page"))
+    await vi.waitFor(() => expect(location.search + location.hash).toBe("?plan=pro#faq"))
   })
 
   it("uploads files through comments.upload and sends their keys", async () => {

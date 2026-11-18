@@ -312,9 +312,9 @@ describe("Vercel Blob workspace store", () => {
       expect.objectContaining({ path: "dir/legacy.md", metadata: { root: "legacy" } }),
     ]))
     const attributePrefixes = blobMock.list.mock.calls.map(([options]) => options.prefix).filter(prefix => prefix?.includes("file-attributes"))
-    expect(attributePrefixes).toEqual([
-      "_vitehub/workspaces/docs/.vitehub/file-attributes/dir/",
+    expect(attributePrefixes.toSorted()).toEqual([
       ".vitehub/workspaces/docs/.vitehub/file-attributes/dir/",
+      "_vitehub/workspaces/docs/.vitehub/file-attributes/dir/",
     ])
   })
 

@@ -27,6 +27,7 @@ import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts
 import { isAuxiliaryAgentAdapterContext } from "./internal/channels.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
 import { openModelSteering, type ModelSteering } from "./internal/model-steering.ts"
+import { chatContextModelText, isChatReplyPartType } from "./internal/chat-message-header.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
 import { withAgentToolJsonSchemas } from "./tool-schema.ts"
 import {
@@ -174,16 +175,8 @@ function toUserModelMessageContent(parts: MessagePart[]): UserContent | undefine
   return content.length ? content : undefined
 }
 
-function isChatModelTextPart(part: Extract<MessagePart, { type: "data" | `data-${string}` }>): boolean {
-  return part.type === "data-chat-message-header" || part.type.startsWith("data-chat-reply-") || part.type === "data-chat-user-message-context"
-}
-
-/** Chat context parts may carry the exact text for the model in `data.modelText`. */
 function dataPartModelText(part: Extract<MessagePart, { type: "data" | `data-${string}` }>): string {
-  const data = part.data
-  return isChatModelTextPart(part) && typeof data === "object" && data !== null && "modelText" in data && typeof data.modelText === "string"
-    ? data.modelText
-    : JSON.stringify(data)
+  return chatContextModelText(part) ?? JSON.stringify(part.data)
 }
 
 function toTextModelMessageContent(parts: MessagePart[]): string {
@@ -240,7 +233,7 @@ function toAssistantModelMessagePart(part: MessagePart): AssistantContentPart | 
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     return { text: part.text, type: "text" as const }
   }
-  if (isDataMessagePart(part) && (part.type.startsWith("data-chat-reply-") || part.type === "data-chat-user-message-context")) {
+  if (isDataMessagePart(part) && isChatReplyPartType(part.type)) {
     const text = dataPartModelText(part)
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     return text ? { text, type: "text" as const } : undefined

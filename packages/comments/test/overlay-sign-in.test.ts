@@ -11,7 +11,7 @@ vi.mock("@vite-hub/realtime/client", () => ({ connectRealtimeRoom: vi.fn() }))
 const denied: CommentsSession = {
   user: null,
   can: { read: false, comment: false, resolve: false },
-  signIn: { provider: "github", url: "/api/_vitehub/comments/auth/github" },
+  signIn: { provider: "github", url: "/_vitehub/comments/auth/github" },
   realtime: false,
   content: false,
 }
@@ -65,7 +65,7 @@ it("offers account switching while keeping the denied segment hidden", async () 
   const overlay = await open("", {
     ...denied,
     github: { login: "ada", repository: "vite-hub/vitehub", write: false },
-    signOut: "/api/_vitehub/comments/auth/sign-out",
+    signOut: "/_vitehub/comments/auth/sign-out",
   })
   expect(overlay.shadowRoot?.textContent).toContain("@ada cannot push to vite-hub/vitehub")
   expect(overlay.shadowRoot?.querySelector("button")?.textContent).toBe("Use another account")
@@ -79,7 +79,7 @@ it("renders GitHub sign-out in the pill segment with no separate exit", async ()
     user: { id: "ada", name: "Ada" },
     can: { read: true, comment: true, resolve: false },
     github: { login: "ada", repository: "vite-hub/vitehub", write: true },
-    signOut: "/api/_vitehub/comments/auth/sign-out",
+    signOut: "/_vitehub/comments/auth/sign-out",
   })
   const bar = document.querySelector<HTMLElement>("vitehub-tool")!
   expect(bar.hidden).toBe(false)

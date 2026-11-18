@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/codemods",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Codemods that move applications to ViteHub.",
   "keywords": [
     "codemod",
@@ -69,6 +69,6 @@
     "zod": "catalog:runtime"
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

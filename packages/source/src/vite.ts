@@ -11,11 +11,13 @@ import {
 } from "@vite-hub/internal/build/vite"
 import { exportNames } from "@vite-hub/internal/build/scan-module"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
+import type { ContributionContext } from "@vite-hub/internal/contributions"
 import { reportViteHubHint, startViteHubHints } from "@vite-hub/internal/hints"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import { installContentTypesWriter } from "./internal/content-types-writer.ts"
+import { renderContentTypesPlugin } from "./internal/content-types-plugin.injected.ts"
 import { inspectCollectionDefinitions } from "./inspect.ts"
 import { BUNDLED_GLOB_ID_PATTERN, findGlobCalls, loadBundledGlob, rewriteGlobCalls } from "./internal/bundle-glob.ts"
 import { collectCollectionFiles, discoverCollections, inspectCollectionSource } from "./internal/collection-discovery.ts"
@@ -40,6 +42,9 @@ const contentMcpEntry = ".vitehub/content/mcp.mjs"
 const contentLlmsEntry = ".vitehub/content/llms.mjs"
 const contentSqliteEntry = ".vitehub/content/sqlite.mjs"
 const contentGitHubWebhookEntry = ".vitehub/content/github-webhook.mjs"
+const contentPrewarmQueueEntry = ".vitehub/content/prewarm-queue.mjs"
+// `contentPrewarmQueueName` of `@vite-hub/content`. The Source plugin does not import Content.
+const contentPrewarmQueue = "vitehub-content-prewarm"
 const contentPreviewRoutesEntry = ".vitehub/content/preview-routes.mjs"
 const contentTypesPluginEntry = ".vitehub/content/types.mjs"
 // The Content types plugin writes this file in development. `.vitehub/types.d.ts` references every file in `.vitehub/types`.
@@ -86,6 +91,13 @@ export interface SourceGenerationOptions {
   importBase?: string
   projectRoot: string
   serverDirs?: string[]
+  /**
+   * The app has ViteHub Queue: the GitHub push webhook of Content sends the pages that a push changed to the
+   * `vitehub-content-prewarm` Queue. Without it, the webhook prewarms them itself.
+   */
+  queue?: boolean
+  /** The import of `defineQueue` and `dynamicQueue`, such as `vite-hub/queue`. */
+  queueImport?: string
 }
 
 export interface SourceVitePluginOptions {
@@ -95,6 +107,10 @@ export interface SourceVitePluginOptions {
   appSeo?: { sitemap?: boolean, robots?: boolean }
   contentImportBase?: string
   importBase?: string
+  /** The app has ViteHub Queue, so Content prewarms the pages of a GitHub push through it. */
+  queue?: boolean
+  /** The import of `defineQueue` and `dynamicQueue`. Defaults to `@vite-hub/queue`. */
+  queueImport?: string
 }
 
 /** The discovered `server/content.ts` file. Its default export is the Content runtime. */
@@ -629,11 +645,12 @@ async function writeContentArtifact(
   const llms = resolve(options.projectRoot, contentLlmsEntry)
   const sqlite = resolve(options.projectRoot, contentSqliteEntry)
   const githubWebhook = resolve(options.projectRoot, contentGitHubWebhookEntry)
+  const prewarmQueue = resolve(options.projectRoot, contentPrewarmQueueEntry)
   const previewRoutes = resolve(options.projectRoot, contentPreviewRoutesEntry)
   const typesPlugin = resolve(options.projectRoot, contentTypesPluginEntry)
   const types = resolve(options.projectRoot, contentTypesEntry)
   if (!file) {
-    await Promise.all([output, preview, sitemap, robots, markdown, rss, mcp, llms, sqlite, githubWebhook, previewRoutes, typesPlugin, types].map(path => rm(path, { force: true })))
+    await Promise.all([output, preview, sitemap, robots, markdown, rss, mcp, llms, sqlite, githubWebhook, prewarmQueue, previewRoutes, typesPlugin, types].map(path => rm(path, { force: true })))
     return []
   }
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
@@ -680,34 +697,36 @@ async function writeContentArtifact(
   }
   else await rm(sqlite, { force: true })
   // A Nitro plugin: writes the types of `content.get()`, `content.list()`, and `content.query()` in development.
-  await writeFileIfChanged(typesPlugin, [
-    `import { defineContentTypesPlugin } from ${importBase}`,
-    'import { useRuntimeConfig } from "nitro/runtime-config"',
-    "",
-    "// A production build drops this branch, so the server does not load Content at startup.",
-    "const write = async (declarations) => {",
-    '  const response = await fetch(useRuntimeConfig().vitehubContentTypesWriter, { method: "POST", body: declarations })',
-    '  if (!response.ok) throw new Error(`Content types writer returned ${response.status}`)',
-    "}",
-    `export default import.meta.dev ? defineContentTypesPlugin(async () => (await import(${contentModule})).default, write, { moduleName: ${importBase} }) : () => {}`,
-    "",
-  ].join("\n"))
+  await writeFileIfChanged(typesPlugin, renderContentTypesPlugin(importBase, contentModule))
   handlers.push({ handler: typesPlugin, plugin: true })
   // Until the first development server writes the types, an empty file keeps the reference in `.vitehub/types.d.ts`.
   if (!await readFile(types, "utf8").then(() => true, () => false)) await writeFileIfChanged(types, "export {}\n")
   if (features.route) handlers.push({ handler: output, route: "/api/content/**" })
   // `github()` Sources serve a head commit. A signed GitHub push moves it through this route.
   if (features.github) {
-    await writeFileIfChanged(githubWebhook, [
-      `import { defineContentGitHubWebhookHandler } from ${importBase}`,
-      `import content from ${contentModule}`,
-      "",
-      "export default defineContentGitHubWebhookHandler(content)",
-      "",
-    ].join("\n"))
+    // With Queue, each page that a push changed is one job of the prewarm Queue, which `vitehub.queues` contributes.
+    const queueImport = JSON.stringify(options.queueImport ?? "@vite-hub/queue")
+    await writeFileIfChanged(githubWebhook, options.queue
+      ? [
+          `import { defineContentGitHubWebhookHandler } from ${importBase}`,
+          `import { dynamicQueue } from ${queueImport}`,
+          `import content from ${contentModule}`,
+          "",
+          `export default defineContentGitHubWebhookHandler(content, { prewarm: job => dynamicQueue.send(${JSON.stringify(contentPrewarmQueue)}, job) })`,
+          "",
+        ].join("\n")
+      : [
+          `import { defineContentGitHubWebhookHandler } from ${importBase}`,
+          `import content from ${contentModule}`,
+          "",
+          "export default defineContentGitHubWebhookHandler(content)",
+          "",
+        ].join("\n"))
     handlers.push({ handler: githubWebhook, method: "post", route: "/_vitehub/content/github" })
   }
   else await rm(githubWebhook, { force: true })
+  // `vitehub.queues` writes the Queue module. It goes when the app has no Queue or no `github()` Source.
+  if (!features.github || !options.queue) await rm(prewarmQueue, { force: true })
   // `previews: true` serves refs of a `github()` Source at `/tree`, `/blob`, and `/pr` URLs. A Nitro plugin, not a route:
   // the page runs with its production path through every route of the app. It loads server/content.ts on the first
   // preview URL only. In a preview request, the app base in the runtime config starts with the prefix, so Nuxt links
@@ -847,10 +866,12 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       listener: GeneratedSourceHandlersListener,
       options?: GeneratedSourceHandlersListenerOptions,
     ) => () => void
-    prepareSources: (options: Omit<SourceGenerationOptions, "appSeo" | "auth" | "contentImportBase" | "importBase">) => Promise<GeneratedSourceHandler[]>
+    prepareSources: (options: Omit<SourceGenerationOptions, "appSeo" | "auth" | "contentImportBase" | "importBase" | "queue" | "queueImport">) => Promise<GeneratedSourceHandler[]>
   }
   nitro: { name: string, setup(nitro: SourceNitroHost): Promise<void> }
-  vitehub: ViteHubInspectionPluginMetadata
+  vitehub: ViteHubInspectionPluginMetadata & {
+    queues: (context: ContributionContext) => Promise<Array<{ name: string, definition: { module: string }, reason: string }>>
+  }
 } {
   const refreshAuthByRoot = new Map<string, () => unknown>()
   let nitroHost: SourceNitroHost | undefined
@@ -884,7 +905,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     projectRoot?: string
   }>()
   const prepareSources = (
-    input: Omit<SourceGenerationOptions, "appSeo" | "auth" | "contentImportBase" | "importBase">,
+    input: Omit<SourceGenerationOptions, "appSeo" | "auth" | "contentImportBase" | "importBase" | "queue" | "queueImport">,
   ) => {
     const root = resolve(input.projectRoot)
     const previousPreparation = sourcePreparationByRoot.get(root) ?? Promise.resolve()
@@ -898,6 +919,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         ...options.appSeo ? { appSeo: options.appSeo } : {},
         importBase: options.importBase,
         contentImportBase: options.contentImportBase,
+        ...options.queue ? { queue: true, ...options.queueImport ? { queueImport: options.queueImport } : {} } : {},
       }).then(({ content, handlers }) => {
         if (content) contentDefinitionByRoot.set(root, content)
         else contentDefinitionByRoot.delete(root)
@@ -1010,6 +1032,23 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       },
     },
     vitehub: {
+      // With Queue, a `github()` Source of `server/content.ts` prewarms the pages of each push through this Queue.
+      async queues(context) {
+        if (!options.queue) return []
+        const projectRoot = resolve(context.projectRoot)
+        const file = await findContentEntry({ projectRoot, ...context.serverDirs ? { serverDirs: [...context.serverDirs] } : {} })
+        if (!file || !(await inspectContentEntry(file, options.contentImportBase)).github) return []
+        const module = resolve(projectRoot, contentPrewarmQueueEntry)
+        await writeFileIfChanged(module, [
+          `import { defineQueue } from ${JSON.stringify(options.queueImport ?? "@vite-hub/queue")}`,
+          `import { prewarmContentPage } from ${JSON.stringify(options.contentImportBase ?? "@vite-hub/content")}`,
+          `import content from ${JSON.stringify(toRuntimeModuleSpecifier(file))}`,
+          "",
+          "export default defineQueue(job => prewarmContentPage(content, job.payload))",
+          "",
+        ].join("\n"))
+        return [{ name: contentPrewarmQueue, definition: { module }, reason: "Prewarms the pages that a GitHub push changed, for the `github()` Sources of `server/content.ts`." }]
+      },
       inspect: () => ({
         definitions: [{
           kind: "collection",
