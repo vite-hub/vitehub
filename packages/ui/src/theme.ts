@@ -275,7 +275,8 @@ export const vitehubTheme = {
     },
   },
   // Tabs are an underline under the active label, as on vitehub.dev and in Vercel's dashboard, not a segmented pill.
-  // The label keeps its weight, so switching moves nothing.
+  // The label keeps its weight, so switching moves nothing. The indicator gets no CSS transition: the select effect of
+  // the motion layer moves it with a spring.
   tabs: {
     defaultVariants: {
       color: "neutral",
@@ -285,7 +286,7 @@ export const vitehubTheme = {
     slots: {
       list: "gap-1",
       trigger: "data-[state=inactive]:text-muted data-[state=active]:text-highlighted hover:data-[state=inactive]:not-disabled:text-highlighted",
-      indicator: "bg-(--ui-text-highlighted)",
+      indicator: "bg-(--ui-text-highlighted) transition-none",
     },
     variants: {
       size: {
