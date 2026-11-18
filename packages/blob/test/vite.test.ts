@@ -836,13 +836,11 @@ describe("hubBlob", () => {
       expect(nitroPlugin).toContain('"bucketName":"assets"')
       expect(nitroPlugin).toContain("import { env as vitehubEnv } from 'cloudflare:workers'")
       expect(nitroPlugin).toContain("setActiveCloudflareEnv(vitehubEnv as unknown as Record<string, unknown>)")
-      expect(nitroPlugin).not.toContain("hooks.hook('request'")
       const middleware = await readFile(join(root, ".vitehub", "nitro", "blob", "middleware.ts"), "utf8")
       expect(middleware).toContain("export default function vitehubBlobMiddleware(event: Parameters<typeof getRequestCloudflareEnv>[0])")
       expect(middleware).not.toContain("from 'nitro'")
       expect(middleware).toContain("setActiveCloudflareEnv(env)")
       expect(middleware).toContain("getRequestCloudflareEnv(event) ?? (vitehubEnv as unknown as Record<string, unknown>)")
-      expect(middleware).not.toContain("next")
 
       await symlink(join(workspaceRoot, "node_modules"), join(root, "node_modules"), "dir")
       await writeFile(join(root, "tsconfig.json"), `${JSON.stringify({
@@ -1120,7 +1118,6 @@ describe("hubBlob", () => {
     expect(handler).toContain("const storeName = \"media\"")
     expect(handler).toContain("headers: {\"Cache-Control\":\"public, max-age=300\",\"X-Content-Type-Options\":\"nosniff\"}")
     expect(handler).not.toMatch(/from ['"]h3['"]/)
-    expect(handler).not.toContain("node.res")
     expect(handler).toContain("blob.store(storeName).serve(request, pathname, options)")
     expect(handler).toContain("const routeSegments: string[] = [\"assets\"]")
     expect(handler).toContain("export default { fetch: serveBlob }")

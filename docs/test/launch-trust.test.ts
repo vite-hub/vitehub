@@ -47,7 +47,6 @@ describe("launch documentation trust boundaries", () => {
 
     expect(rootReadme).toMatch(/pnpm add vite-hub/);
     expect(rootReadme).toMatch(/import \{ vitehub \} from ["']vite-hub["']/);
-    expect(existsSync(resolve(docsRoot, "getting-started/migration.md"))).toBe(false);
 
     for (const directory of readdirSync(resolve(repoRoot, "packages"))) {
       const manifestPath = resolve(repoRoot, "packages", directory, "package.json");

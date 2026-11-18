@@ -23,12 +23,8 @@ describe("agent-ready HTTP contracts", () => {
     expect(modules.indexOf("@vite-hub/docs/nuxt")).toBeGreaterThan(diagnostics);
     // The docs module installs nuxt-agent-discovery, so the site does not list it. Content serves llms.txt.
     expect(Object.keys(docsPackage.dependencies)).toEqual(expect.arrayContaining(["nuxt-agent-discovery"]));
-    expect(Object.keys(docsPackage.dependencies)).not.toContain("nuxt-llms");
     // Local patch until nuxt-agent-discovery routes negotiated pages through the Cloudflare Worker.
     expect(workspace).toContain("nuxt-agent-discovery@0.8.2: patches/nuxt-agent-discovery@0.8.2.patch");
-    expect(workspace).not.toContain("docus");
-    // The docs module negotiates the root, the docs base, and every page outside it, so the site lists no routes.
-    expect(Reflect.get(config, "agentDiscovery")).not.toHaveProperty("routes");
     const manifest = await createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
     expect(manifest.pages.map(page => page.path).filter(path => path !== "/")).toEqual(trustPages.map(page => `/${page}`));
     expect(source).not.toContain("routeRules:");

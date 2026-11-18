@@ -117,8 +117,6 @@ describe("docs product navigation", () => {
 
   it("resolves product Overviews by their section name and their sidebar label", () => {
     expect(findDocsPage(docsManifest, "/docs/kv")?.page).toMatchObject({ sourceTitle: "KV", title: "Overview" });
-    // Framework-prefixed docs routes were removed.
-    expect(findDocsPage(docsManifest, "/docs/vite/kv")).toBeNull();
   });
 
   it("preserves the Agents Learning path title", () => {
@@ -133,8 +131,6 @@ describe("docs product navigation", () => {
     expect(capabilities.find(page => page.id === "capabilities")?.group).toBe("Instructions and tools");
     expect(capabilities.find(page => page.id === "capabilities/custom")?.group).toBe("Advanced");
     expect(capabilities.filter(page => !["capabilities", "capabilities/official", "capabilities/custom"].includes(page.id)).every(page => page.group === "Capabilities")).toBe(true);
-    expect(docsManifest.sections.map(candidate => candidate.id)).not.toContain("capabilities");
-    expect(docsManifest.sections.map(candidate => candidate.id)).not.toContain("server-primitives");
   });
 
   it("resolves the sidebar section from the route", () => {

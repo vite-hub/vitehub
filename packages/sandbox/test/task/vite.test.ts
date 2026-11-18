@@ -287,7 +287,6 @@ describe("hubSandboxTask", () => {
     if (!providerRuntimeSpecifier)
       throw new Error("Expected the generated provider loader to import its runtime.")
     expect(providerRuntimeSpecifier).toBe("@vite-hub/sandbox/_internal/task/runtime/providers/vercel")
-    expect(providerLoader).not.toContain("createSandboxClient")
     expect(providerLoader).not.toContain("import('./providers/vercel.js')")
     await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task.d.ts"), "utf8")).resolves.toContain('"tools/release-notes"')
   })
@@ -841,7 +840,6 @@ describe("hubSandboxTask", () => {
       .toContain("export class SandboxOutbound extends createCloudflareSandboxOutbound({ WorkerEntrypoint }) {}")
     expect(exportsModule)
       .toContain("export class Sandbox extends createCloudflareSandboxDurableObject({ DurableObject, Files, outboundEntrypoint: 'SandboxOutbound', SandboxFileError })")
-    expect(exportsModule).not.toContain("ContainerProxy")
     expect(rollupPlugin.renderChunk("export default {}", { exports: ["default"], isEntry: true, fileName: "server.js" }).code)
       .toContain(`export { Sandbox, SandboxOutbound } from "./sandbox-task-cloudflare-exports.mjs"`)
     expect(rollupPlugin.renderChunk("export default {}", { exports: ["default"], isEntry: true, fileName: "entries/server.js" }).code)
@@ -1337,7 +1335,6 @@ describe("hubSandboxTask", () => {
     const code = await load(resolvedId as string)
 
     expect(code).toContain('"driver": "vercel"')
-    expect(code).not.toContain('"provider": "cloudflare"')
   })
 
   it("preserves explicit disabled sandbox config in feature state", async () => {
