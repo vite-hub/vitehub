@@ -190,7 +190,7 @@ describe("local queue delivery", () => {
       await new Promise(resolve => setTimeout(resolve, 20))
       active--
     }
-    const engine = engineFor({ one: { handler }, three: { handler, options: { concurrency: 3 } } })
+    const engine = engineFor({ one: { handler }, three: { handler, concurrency: 3 } })
 
     await engine.enqueue("one", [1, 2, 3, 4].map(n => ({ id: `job-${n}`, payload: n })))
     await vi.waitFor(async () => expect((await engine.status()).queues).toEqual({}))

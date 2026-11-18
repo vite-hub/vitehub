@@ -26,6 +26,7 @@ npx @vite-hub/codemods define-forms [dir] [--dry-run]
 
 | Former form | New form |
 | --- | --- |
+| `defineQueue(handler, { concurrency: 5 })` | `defineQueue({ handler, concurrency: 5 })` |
 | `defineSchedule("0 9 * * *", handler, { manual: true })` | `defineSchedule({ cron: "0 9 * * *", manual: true, handler })` |
 | `defineSandboxTask({ run })` | `defineSandboxTask({ handler })` |
 | `export const content = defineContent({ ... })` in `server/content.ts` | `export default defineContent({ ... })`, and `import content from` in the files that import it |
@@ -35,15 +36,18 @@ npx @vite-hub/codemods define-forms [dir] [--dry-run]
 
 The codemod updates the import paths of moved files, also through the `~~`, `@@`, and `#server` aliases, and path strings such as `out: "./server/databases/migrations"` in `drizzle.config.ts`. It works in Nuxt layers too.
 
+When a Queue handler reads only `job.payload`, `job.id`, `job.attempts`, or `job.metadata`, the codemod also destructures them: `({ payload }) => payload.email`.
+
 The report lists what it cannot change:
 
+- Queue handlers that use the job in another way. They still work, because the handler receives one object.
 - Schedule options that are not an object literal. The codemod spreads them into the object.
 - Sandbox Task options that are not an object literal.
 - Dynamic imports of `server/content.ts`.
 - Helper files left in `server/databases/` that the new discovery reads as Databases.
 - Lines in `package.json` and host config files that name the former Database paths.
 
-The former forms fail with `SCHEDULE_C0007`, `SANDBOX_TASK_C0014`, `SOURCE_B0009`, and [`DATABASE_LEGACY_CONFIG_FILE`](/docs/database/limits-and-errors#database_legacy_config_file). See [file conventions](/docs/reference/file-conventions).
+The former forms fail with `QUEUE_INVALID_DEFINITION`, `SCHEDULE_C0007`, `SANDBOX_TASK_C0014`, `SOURCE_B0009`, and [`DATABASE_LEGACY_CONFIG_FILE`](/docs/database/limits-and-errors#database_legacy_config_file). See [file conventions](/docs/reference/file-conventions).
 
 ## vitehub-options
 

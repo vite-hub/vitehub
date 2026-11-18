@@ -79,8 +79,10 @@ A Channel with `webhook()` or `stripe()` receives webhooks at `/api/_vitehub/cha
 import type { StripeEvent } from 'vite-hub/channels'
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<StripeEvent>(async ({ payload }) => {
-  console.log('fulfil', payload.data.object.id)
+export default defineQueue<StripeEvent>({
+  handler: async ({ payload }) => {
+    console.log('fulfil', payload.data.object.id)
+  },
 })
 ```
 

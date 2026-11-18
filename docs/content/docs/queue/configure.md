@@ -159,8 +159,10 @@ Create a Queue Definition (the file that handles one queue's jobs) in `server/qu
 ```ts [server/queues/welcome-email.ts] fragment
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ email: string }>(async (job) => {
-  await sendWelcomeEmail(job.payload.email)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload }) => {
+    await sendWelcomeEmail(payload.email)
+  },
 })
 ```
 
@@ -168,14 +170,15 @@ The file path gives the queue name. Runtime helpers call this file `welcome-emai
 
 ## Queue Definition options
 
-Pass options as the second argument to `defineQueue()`.
+Put the options next to `handler` in the object that you pass to `defineQueue()`.
 
 ```ts [server/queues/report.ts] fragment
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ reportId: string }>(async (job) => {
-  await buildReport(job.payload.reportId)
-}, {
+export default defineQueue<{ reportId: string }>({
+  handler: async ({ payload }) => {
+    await buildReport(payload.reportId)
+  },
   concurrency: 5,
 })
 ```

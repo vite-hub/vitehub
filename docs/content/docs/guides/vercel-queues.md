@@ -70,8 +70,10 @@ The `vercel` host picks the Vercel Queue Provider. `vitehub()` includes the Nitr
 import { defineQueue } from 'vite-hub/queue'
 
 // The file name is the queue name: welcome-email
-export default defineQueue<{ email: string }>(async ({ payload, id, attempts }) => {
-  console.log(`Welcome job ${id} for ${payload.email}, attempt ${attempts}`)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload, id, attempts }) => {
+    console.log(`Welcome job ${id} for ${payload.email}, attempt ${attempts}`)
+  },
 })
 ```
 
@@ -172,12 +174,13 @@ When the handler throws, Vercel retries the job. ViteHub acknowledges Queue erro
 import { defineQueue } from 'vite-hub/queue'
 import { getViteHubErrorShape, ViteHubError } from 'vite-hub/runtime'
 
-export default defineQueue<{ email: string }>(async ({ payload }) => {
-  if (!payload.email.includes('@')) {
-    throw new ViteHubError('WELCOME_INVALID_EMAIL', 'The welcome job has no valid email.')
-  }
-  // Send the email here
-}, {
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload }) => {
+    if (!payload.email.includes('@')) {
+      throw new ViteHubError('WELCOME_INVALID_EMAIL', 'The welcome job has no valid email.')
+    }
+    // Send the email here
+  },
   callbackOptions: {
     retry: error => getViteHubErrorShape(error)?.code === 'WELCOME_INVALID_EMAIL'
       ? { acknowledge: true }

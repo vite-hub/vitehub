@@ -33,9 +33,11 @@ export default defineChannel({
 import type { StripeEvent } from 'vite-hub/channels'
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<StripeEvent>(async ({ payload }) => {
-  // Fulfil the order of payload.data.object
-  console.log('fulfil', payload.data.object.id)
+export default defineQueue<StripeEvent>({
+  handler: async ({ payload }) => {
+    // Fulfil the order of payload.data.object
+    console.log('fulfil', payload.data.object.id)
+  },
 })
 ```
 

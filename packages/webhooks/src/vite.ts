@@ -121,7 +121,7 @@ export function renderWebhooksQueue(imports: WebhooksImports): string {
     "import \"./registry.mjs\"",
     "",
     "// A slow receiver must not hold back the deliveries of other webhooks.",
-    "export default defineQueue(job => deliverWebhookWake(job.payload), { concurrency: 4 })",
+    "export default defineQueue({ handler: ({ payload }) => deliverWebhookWake(payload), concurrency: 4 })",
     "",
   ].join("\n")
 }

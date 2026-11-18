@@ -4,7 +4,7 @@ import type { Plugin } from "vite"
 import { deferQueue, dynamicQueue, sendQueue, useQueue } from "../src/runtime/client.ts"
 import { defineQueue } from "../src/definition.ts"
 import type { Result } from "@vite-hub/runtime"
-import type { CloudflareQueueClient, CloudflareQueueErrorCode, LocalQueueDriverOptions, QueueErrorCode, QueueSendResult, ResolvedLocalQueueOptions, VercelQueueClient, VercelQueueErrorCode } from "../src/index.ts"
+import type { CloudflareQueueClient, CloudflareQueueErrorCode, LocalQueueDriverOptions, QueueErrorCode, QueueJob, QueueSendResult, ResolvedLocalQueueOptions, VercelQueueClient, VercelQueueErrorCode } from "../src/index.ts"
 import { hubQueue } from "../src/vite.ts"
 
 it("keeps development disclosure out of public local provider options", () => {
@@ -21,13 +21,23 @@ it("returns a vite plugin", () => {
 })
 
 it("infers queue payload types", () => {
-  const queue = defineQueue<{ email: string }>(async (job) => job.payload.email)
+  const queue = defineQueue<{ email: string }>({ handler: async ({ payload }) => payload.email })
   expectTypeOf(queue.handler).parameters.toEqualTypeOf<[{
     attempts: number
     id: string
     metadata?: unknown
     payload: { email: string }
   }]>()
+})
+
+it("infers the payload from an annotated handler", () => {
+  const queue = defineQueue({ handler: async ({ payload }: QueueJob<{ email: string }>) => payload.email })
+  expectTypeOf(queue.handler).parameter(0).toEqualTypeOf<QueueJob<{ email: string }>>()
+})
+
+it("rejects the removed handler argument", () => {
+  // @ts-expect-error Pass one object with `handler`.
+  defineQueue(async () => {})
 })
 
 it("types Queue error codes", () => {
@@ -70,8 +80,8 @@ it("narrows Queue results by the error element", async () => {
   }
 })
 
-const welcome = defineQueue<{ email: string }>(job => job.payload.email)
-const audit = defineQueue<{ payload: string, region: string, id: string }>(job => job.payload.id)
+const welcome = defineQueue<{ email: string }>({ handler: ({ payload }) => payload.email })
+const audit = defineQueue<{ payload: string, region: string, id: string }>({ handler: ({ payload }) => payload.id })
 
 declare module "../src/types.ts" {
   interface QueueRegistry {

@@ -613,8 +613,10 @@ Move helpers out, for example to `server/utils/`, and default-export each Defini
 // Valid
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ email: string }>(async ({ payload }) => {
-  console.log(`Welcome ${payload.email}`)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload }) => {
+    console.log(`Welcome ${payload.email}`)
+  },
 })
 ```
 
@@ -677,8 +679,10 @@ The rule accepts a `payload` field with no option keys, because that is app data
 ```ts [server/queues/warmup.ts]
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue(async () => {
-  console.log('Warming the cache')
+export default defineQueue({
+  handler: async () => {
+    console.log('Warming the cache')
+  },
 })
 ```
 

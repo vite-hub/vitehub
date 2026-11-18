@@ -29,7 +29,7 @@ The command finds every module in the app that a codemod supports and runs those
 
 | Codemod | Moves |
 | --- | --- |
-| [`define-forms`](/docs/codemods/upgrade-vitehub#define-forms) | The former define forms of Schedule, Sandbox Task, Content, and Database to the one form of each |
+| [`define-forms`](/docs/codemods/upgrade-vitehub#define-forms) | The former define forms of Queue, Schedule, Sandbox Task, Content, and Database to the one form of each |
 | [`vitehub-options`](/docs/codemods/upgrade-vitehub#vitehub-options) | The options that moved in `vitehub()`: `preset` to `host`, `logs` into `observability`, Env declarations into `vitehub({ env })`, and `devtools` and `contentImportBase` removed |
 | [`queue-workflow-verbs`](/docs/codemods/upgrade-vitehub#queue-workflow-verbs) | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
 | [`one-entry-imports`](/docs/codemods/upgrade-vitehub#one-entry-imports) | Imports of subpaths that moved into one entry per concept, and `vite-hub/task` to `nitro/task` |

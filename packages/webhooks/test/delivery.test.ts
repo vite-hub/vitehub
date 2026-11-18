@@ -78,7 +78,7 @@ beforeAll(async () => {
   await client.executeMultiple(`${webhooksTables.join(";\n")};`)
   base = await mkdtemp(join(tmpdir(), "vitehub-webhooks-"))
   // The local Queue provider, as `vite dev` and a Node server run it. Retries come after 50 ms, not 1, 2, and 4 seconds.
-  const queueDefinition = { handler: (job: { payload: unknown }) => deliverWebhookWake(job.payload), options: { concurrency: 4 } }
+  const queueDefinition = { handler: ({ payload }: { payload: unknown }) => deliverWebhookWake(payload), concurrency: 4 }
   engine = createLocalQueueEngine({
     base,
     load: async name => name === webhooksQueueName ? queueDefinition : undefined,
