@@ -81,6 +81,16 @@ describe("model Driver steering", () => {
     })
     const copyMessages: PrepareStepFunction<ToolSet> = ({ messages }) => ({ messages: structuredClone(messages) })
     const prepareStep = steering.prepareStep(copyMessages)
+    // ToolSet, not the literal tool names, so the agent takes the steering prepareStep of a ToolSet.
+    const tools: ToolSet = {
+      lookup: tool({
+        execute: async () => {
+          submitted ??= sendAgentInvocationInput("copied-steering", { prompt: "Check the token first." }, { mode: "steer" })
+          return "Looked up"
+        },
+        inputSchema: jsonSchema<Record<string, never>>({ properties: {}, type: "object" }),
+      }),
+    }
     try {
       await new ToolLoopAgent({
         model,
@@ -90,15 +100,7 @@ describe("model Driver steering", () => {
           messages: resetMessages ? options.messages.filter(message => message.role !== "user" || message.content !== "Check the token first.") : options.messages,
         }),
         stopWhen: isStepCount(4),
-        tools: {
-          lookup: tool({
-            execute: async () => {
-              submitted ??= sendAgentInvocationInput("copied-steering", { prompt: "Check the token first." }, { mode: "steer" })
-              return "Looked up"
-            },
-            inputSchema: jsonSchema<Record<string, never>>({ properties: {}, type: "object" }),
-          }),
-        },
+        tools,
       }).generate({ prompt: "Hi" })
       await expect(submitted).resolves.toBe("accepted")
       expect(model.doGenerateCalls.map(call => userTexts(call.prompt))).toEqual([

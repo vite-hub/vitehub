@@ -66,7 +66,7 @@ vi.mock("node:module", async (importOriginal) => {
     }),
   }
 })
-const { default: setup, DocsCommentsSetupError } = await import("../src/nuxt.ts")
+const { default: setup } = await import("../src/nuxt.ts")
 const { extendPages } = await import("@nuxt/kit")
 // SAFETY: the @nuxt/kit mock above keeps the module definition's moduleDependencies on the setup function.
 const moduleDependencies = (setup as unknown as { moduleDependencies: (nuxt: unknown) => Promise<Record<string, unknown>> }).moduleDependencies
@@ -875,7 +875,7 @@ describe("docs search checks", () => {
 
   it.each(["error", true] as const)("stops the build on a page that fails a check when seoAudit is %s", async (seoAudit) => {
     await expect(prerender({ seoAudit }, routes)).rejects.toMatchObject({
-      name: "DocsSeoError",
+      code: "DOCS_SEO_FAILED",
       problems: ["/guides is in the sitemap, but it redirects. List the page that it redirects to instead."],
     })
   })
@@ -949,7 +949,7 @@ describe("docs Comments", () => {
 
   it("has no Comments without vite-hub/nuxt, and fails the build when docs asks for them", async () => {
     expect(await moduleDependencies(app(["@vite-hub/docs/nuxt"]))).not.toHaveProperty("vite-hub/nuxt")
-    await expect(moduleDependencies(app(["@vite-hub/docs/nuxt"], { comments: true }))).rejects.toThrow(DocsCommentsSetupError)
+    await expect(moduleDependencies(app(["@vite-hub/docs/nuxt"], { comments: true }))).rejects.toMatchObject({ code: "DOCS_COMMENTS_VITEHUB_MISSING", fix: expect.stringContaining("docs: { comments: false }") })
   })
 
   it("requires an installed module even when the vitehub config key exists", async () => {
@@ -968,11 +968,11 @@ describe("docs Comments", () => {
     expect(await moduleDependencies(nuxt)).not.toHaveProperty("vite-hub/nuxt")
     expect(await moduleDependencies(app([["vite-hub/nuxt", { comments: false, database: false }]], { comments: true }, false))).not.toHaveProperty("vite-hub/nuxt")
     nuxt.options.modules = [["vite-hub/nuxt", { comments: true }]]
-    await expect(moduleDependencies(nuxt)).rejects.toThrow(/pnpm add @vite-hub\/comments/)
+    await expect(moduleDependencies(nuxt)).rejects.toMatchObject({ code: "DOCS_COMMENTS_PACKAGE_MISSING", fix: expect.stringContaining("pnpm add @vite-hub/comments") })
   })
 
   it("names the package or the opt-out when Comments cannot run", async () => {
-    await expect(moduleDependencies(app(["vite-hub/nuxt"], undefined, false))).rejects.toThrow(/pnpm add @vite-hub\/comments.*docs: \{ comments: false \}/)
-    await expect(moduleDependencies(app([["vite-hub/nuxt", { database: false }]]))).rejects.toThrow(/Remove database: false, or set docs: \{ comments: false \}/)
+    await expect(moduleDependencies(app(["vite-hub/nuxt"], undefined, false))).rejects.toMatchObject({ fix: expect.stringMatching(/pnpm add @vite-hub\/comments.*docs: \{ comments: false \}/) })
+    await expect(moduleDependencies(app([["vite-hub/nuxt", { database: false }]]))).rejects.toMatchObject({ fix: expect.stringMatching(/Remove `database: false`.*docs: \{ comments: false \}/) })
   })
 })
