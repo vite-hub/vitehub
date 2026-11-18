@@ -13,12 +13,17 @@ import type { Node } from "@vite-hub/internal/ast"
 import type { ResultCall, ResultCallContext } from "../shared/result-calls.ts"
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 
-/** Functions that return `[error, data]` now and threw before, with the name of their value. */
+const workflowModules = new Set(["vite-hub/workflow", "@vite-hub/workflow"])
+// `root-accessors` moves the `/runtime` imports to the root in the same `vitehub migrate` run.
+const scheduleModules = new Set(["vite-hub/schedule", "@vite-hub/schedule", "vite-hub/schedule/runtime", "@vite-hub/schedule/runtime"])
+
+/** Functions that return `[error, data]` now and threw before, with the modules that export them and the name of their value. */
 const resultFunctions = new Map([
-  ["startWorkflow", "run"],
-  ["getWorkflowRun", "run"],
-  ["cancelWorkflow", "run"],
-  ["resumeWorkflow", "signal"],
+  ["startWorkflow", { modules: workflowModules, value: "run" }],
+  ["getWorkflowRun", { modules: workflowModules, value: "run" }],
+  ["cancelWorkflow", { modules: workflowModules, value: "run" }],
+  ["resumeWorkflow", { modules: workflowModules, value: "signal" }],
+  ["runSchedule", { modules: scheduleModules, value: "run" }],
 ])
 /** Methods of a `createWorkflow()` handle that return `[error, data]` now. */
 const handleMethods = new Map([
@@ -26,7 +31,6 @@ const handleMethods = new Map([
   ["getRun", "run"],
   ["cancel", "run"],
 ])
-const modules = new Set(["vite-hub/workflow", "@vite-hub/workflow"])
 const needles = [...resultFunctions.keys(), "createWorkflow"]
 /** Old names that `queue-workflow-verbs` renames to `startWorkflow` and `resumeWorkflow`. */
 const renamedVerbs = ["runWorkflow", "resumeWorkflowSignal"]
@@ -39,15 +43,17 @@ function importedName(specifier: ImportDeclaration["specifiers"][number]): strin
   return specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value
 }
 
-/** Local bindings of the Workflow imports in this block, by their exported name. */
-function workflowImports(program: File): Map<Identifier, string> {
+/** Local bindings of the imports that this codemod reads in this block, by their exported name. */
+function resultImports(program: File): Map<Identifier, string> {
   const bindings = new Map<Identifier, string>()
   for (const statement of program.program.body) {
-    if (statement.type !== "ImportDeclaration" || !modules.has(statement.source.value) || statement.importKind === "type") continue
+    if (statement.type !== "ImportDeclaration" || statement.importKind === "type") continue
+    const source = statement.source.value
     for (const specifier of statement.specifiers) {
       if (specifier.type !== "ImportSpecifier" || specifier.importKind === "type") continue
       const name = importedName(specifier)
-      if (name && (resultFunctions.has(name) || name === "createWorkflow")) bindings.set(specifier.local, name)
+      if (!name) continue
+      if (resultFunctions.get(name)?.modules.has(source) || (name === "createWorkflow" && workflowModules.has(source))) bindings.set(specifier.local, name)
     }
   }
   return bindings
@@ -61,13 +67,13 @@ function calleeText(call: CallExpression, code: string): string {
 interface BlockContext extends ResultCallContext {
   file: string
   followUps: FollowUp[]
-  /** Nuxt auto-imports the Workflow helpers in server code, so a name that the file does not declare counts there. */
+  /** Nuxt auto-imports the Workflow and Schedule helpers in server code, so a name that the file does not declare counts there. */
   autoImports: boolean
 }
 
 function migrateBlock(context: BlockContext): number {
   const { autoImports, block, file, followUps, program } = context
-  const imports = workflowImports(program)
+  const imports = resultImports(program)
   if (!imports.size && !autoImports) return 0
   const resolveBinding = bindingResolver(program)
   const exportedName = (node: Node): string | undefined => {
@@ -84,7 +90,7 @@ function migrateBlock(context: BlockContext): number {
   const match = (call: CallExpression): ResultCall | undefined => {
     const callee = call.callee
     const name = exportedName(callee)
-    const value = name ? resultFunctions.get(name) : undefined
+    const value = name ? resultFunctions.get(name)?.value : undefined
     if (value) return { error: "error", errorAfterValue: true, value }
     if (callee.type !== "MemberExpression" || callee.computed || callee.property.type !== "Identifier" || callee.object.type !== "Identifier") return undefined
     const binding = resolveBinding(callee.object)
@@ -96,7 +102,7 @@ function migrateBlock(context: BlockContext): number {
     followUps.push({
       file,
       line: block.lineOffset + line(call),
-      message: `\`${callee}()\` returns \`[error, data]\` now. It no longer throws when the Workflow provider fails, an option is not supported, or the input is not valid. Read the error first: \`const [error, data] = await ${callee}(...)\`, then \`if (error) throw error\`.`,
+      message: `\`${callee}()\` returns \`[error, data]\` now. It no longer throws on a runtime failure, such as a provider or store failure or an input that is not valid. Read the error first: \`const [error, data] = await ${callee}(...)\`, then \`if (error) throw error\`.`,
     })
   })
 }
@@ -104,7 +110,7 @@ function migrateBlock(context: BlockContext): number {
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const { edits, followUps, rewritten } = await plan(cwd)
   return {
-    summary: rewritten ? `read ${rewritten} Workflow call(s) as \`[error, data]\` in ${edits.length} file(s)` : "found no Workflow call to read as a Result",
+    summary: rewritten ? `read ${rewritten} Workflow or Schedule call(s) as \`[error, data]\` in ${edits.length} file(s)` : "found no Workflow or Schedule call to read as a Result",
     edits,
     followUps,
     notes: rewritten ? ["Each rewritten call throws its error, as the call did before. Return the error to the client, or handle it, where that is better."] : [],
@@ -129,7 +135,7 @@ async function plan(cwd: string): Promise<{ edits: FileEdit[], followUps: Follow
         program = parseProgram(block.code, { jsx: block.jsx, typescript: block.typescript })
       }
       catch (error) {
-        followUps.push({ file, message: `The codemod could not parse this file (${error instanceof Error ? error.message : String(error)}). Read the Workflow results by hand.` })
+        followUps.push({ file, message: `The codemod could not parse this file (${error instanceof Error ? error.message : String(error)}). Read the Workflow and Schedule results by hand.` })
         continue
       }
       rewritten += migrateBlock({ autoImports, block, file, followUps, output, program, style: detectStyle(block.code, program) })
@@ -142,19 +148,19 @@ async function plan(cwd: string): Promise<{ edits: FileEdit[], followUps: Follow
 
 export const resultTuples: Codemod = {
   name: "result-tuples",
-  description: "Read startWorkflow(), getWorkflowRun(), cancelWorkflow(), resumeWorkflow(), and the Workflow handle methods as `[error, data]` Results",
+  description: "Read startWorkflow(), getWorkflowRun(), cancelWorkflow(), resumeWorkflow(), the Workflow handle methods, and runSchedule() as `[error, data]` Results",
   usage: "[dir]",
   // A call that the code already reads as a Result needs no change, so the codemod applies only when it has an edit.
   // `vitehub migrate` detects every codemod before the first one runs, so an old verb that `queue-workflow-verbs`
   // renames to a Workflow call in the same run counts too.
   async detect({ cwd }) {
     const { edits } = await plan(cwd)
-    if (edits.length) return { reason: `${edits[0]!.path} reads a Workflow call that returns \`[error, data]\` now` }
+    if (edits.length) return { reason: `${edits[0]!.path} reads a Workflow or Schedule call that returns \`[error, data]\` now` }
     const files = (await glob(sourcePatterns, { cwd, ignore: ignoredPatterns, dot: false })).sort()
     for (const file of files) {
       const source = await readFile(join(cwd, file), "utf8")
       const verb = renamedVerbs.find(name => new RegExp(`\\b${name}\\b`).test(source))
-      if (verb && [...modules].some(module => source.includes(`'${module}'`) || source.includes(`"${module}"`))) return { reason: `${file} calls ${verb}(), which is ${verb === "runWorkflow" ? "startWorkflow" : "resumeWorkflow"}() now` }
+      if (verb && [...workflowModules].some(module => source.includes(`'${module}'`) || source.includes(`"${module}"`))) return { reason: `${file} calls ${verb}(), which is ${verb === "runWorkflow" ? "startWorkflow" : "resumeWorkflow"}() now` }
     }
     return undefined
   },

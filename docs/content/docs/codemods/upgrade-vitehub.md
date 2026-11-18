@@ -99,7 +99,7 @@ The codemod reads imports from `vite-hub/queue`, `vite-hub/workflow`, and their 
 
 ## result-tuples
 
-`startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, and `resumeWorkflow()` return `[error, data]` now, as `sendQueue()` does. They threw before. The `start()`, `getRun()`, and `cancel()` methods of a `createWorkflow()` handle changed in the same way. `result-tuples` reads each call as a Result that throws the error, so the code keeps its behavior:
+`startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, and `runSchedule()` return `[error, data]` now, as `sendQueue()` does. They threw before. The `start()`, `getRun()`, and `cancel()` methods of a `createWorkflow()` handle changed in the same way. `result-tuples` reads each call as a Result that throws the error, so the code keeps its behavior:
 
 ```bash [Terminal]
 npx @vite-hub/codemods result-tuples [dir] [--dry-run]
@@ -115,7 +115,7 @@ npx @vite-hub/codemods result-tuples [dir] [--dry-run]
  })
 ```
 
-`return startWorkflow(...)` in an async function and a call in an `if` test move to a `const` before the statement. The codemod reads imports from `vite-hub/workflow` and `@vite-hub/workflow`, and the Nuxt auto-imports in `server/`. The report lists the calls that it cannot change, such as a call in a function that is not `async`, a call without `await`, or a handle that another file creates.
+`return startWorkflow(...)` in an async function and a call in an `if` test move to a `const` before the statement. The codemod reads imports from `vite-hub/workflow`, `vite-hub/schedule`, and their `@vite-hub/*` forms, and the Nuxt auto-imports in `server/`. The report lists the calls that it cannot change, such as a call in a function that is not `async`, a call without `await`, or a handle that another file creates.
 
 ## one-entry-imports
 

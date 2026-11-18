@@ -12,7 +12,7 @@ import { resultTuples } from "../src/result-tuples/index.ts"
 const fixture = fileURLToPath(new URL("./fixtures/result-tuples/", import.meta.url))
 
 describe("result-tuples", () => {
-  it("reads the Workflow calls as Results and reports the calls it cannot change", async () => {
+  it("reads the Workflow and Schedule calls as Results and reports the calls it cannot change", async () => {
     const input = join(fixture, "input")
     const run = await runCodemod("result-tuples", { cwd: input, dryRun: true })
     for (const edit of run.result.edits) {
@@ -35,7 +35,7 @@ describe("result-tuples", () => {
     const cwd = await mkdtemp(join(tmpdir(), "vitehub-result-tuples-"))
     try {
       await cp(join(fixture, "input"), cwd, { recursive: true })
-      await expect(resultTuples.detect({ cwd })).resolves.toMatchObject({ reason: expect.stringContaining("reads a Workflow call") })
+      await expect(resultTuples.detect({ cwd })).resolves.toMatchObject({ reason: expect.stringContaining("reads a Workflow or Schedule call") })
       await runCodemod("result-tuples", { cwd })
       await expect(resultTuples.detect({ cwd })).resolves.toBeUndefined()
       const again = await runCodemod("result-tuples", { cwd, dryRun: true })
