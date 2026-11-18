@@ -157,7 +157,7 @@ The pages then have no page tools script, unless Comments is on. The Console has
 
 ## Site access from the terminal
 
-Each operation is also a [`vitehub` command](/docs/development/cli#run-any-operation). Without `--url`, it calls your development server. With `--url https://app.example.com` and a [Console key](/docs/console/signed-requests), it calls the deployed app.
+Each operation is also a [`vitehub` command](/docs/cli/operations#run-any-operation). Without `--url`, it calls your development server. With `--url https://app.example.com` and a [Console key](/docs/console/signed-requests), it calls the deployed app.
 
 ```bash [Terminal]
 pnpm vitehub site sessions

@@ -48,7 +48,7 @@ The commands appear when the app has a Content file. Without `--url`, they call 
 
 Omit the id for a [singleton](/docs/content/configure#singletons-and-data-files): `vitehub content edit settings` edits `settings.json`.
 
-Every command takes `--json`, `--url <url>`, and `--timeout <ms>`. Without `--url`, it finds this project's dev server through `.vitehub/dev-server.json` or `VITEHUB_DEV_SERVER_URL` (see [Run any operation](/docs/development/cli#run-any-operation)). Errors go to stderr. With `--json`, they go to stdout as `{ "error": { "code", "message", "details"? } }`. Failed commands exit with status 1.
+Every command takes `--json`, `--url <url>`, and `--timeout <ms>`. Without `--url`, it finds this project's dev server through `.vitehub/dev-server.json` or `VITEHUB_DEV_SERVER_URL` (see [Run any operation](/docs/cli/operations#run-any-operation)). Errors go to stderr. With `--json`, they go to stdout as `{ "error": { "code", "message", "details"? } }`. Failed commands exit with status 1.
 
 ## List and show
 

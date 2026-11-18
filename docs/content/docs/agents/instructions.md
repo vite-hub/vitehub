@@ -272,7 +272,7 @@ text to the prompt.
 
 Read [Agent Drivers](/docs/agents/agent-drivers) for each Driver. Run
 `vitehub agent info --agent <name>` to see the resolved instructions and
-coverage warnings. See the [CLI development loop](/docs/development/cli).
+coverage warnings. See the [CLI development loop](/docs/cli).
 
 ## Next steps
 

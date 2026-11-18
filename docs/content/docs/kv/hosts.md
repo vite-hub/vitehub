@@ -27,7 +27,7 @@ pnpm vitehub kv delete settings
 - Each write prints what it changed. There is no `clear` command.
 - `kv set` and `kv delete` refuse `vitehub:` keys (`KV_RESERVED_KEY`), where ViteHub keeps its state. Reads work.
 
-Read [CLI](/docs/development/cli#read-and-write-kv-keys) for every command and option.
+Read [CLI](/docs/cli/storage#read-and-write-kv-keys) for every command and option.
 
 - `bigint` values, also nested, show as decimal strings. Values that cannot be serialized return `KV_VALUE_UNSUPPORTED`.
 - Cloudflare writes report the TTL after rounding.

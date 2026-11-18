@@ -100,7 +100,7 @@ The plan shows the current and desired URL, and each repository's hook ID, event
 
 The plan never shows tokens or secrets. It lists `webhookSecret` as unverifiable, because Forges do not return it. `--force` resends the secret to existing hooks. Sync never deletes hooks and leaves hooks with other URLs alone. It fails if a repository has duplicate hooks at the desired URL, so remove them first.
 
-Without `sync.repositories`, the plan shows the Channel with no change and an unverifiable entry that names the option. You can still add webhooks by hand. See [Channel Env and sync](/docs/agents/channels#channel-env) and [CLI channel synchronization](/docs/development/cli#synchronize-channel-webhooks) for deploy checks and origin confirmation.
+Without `sync.repositories`, the plan shows the Channel with no change and an unverifiable entry that names the option. You can still add webhooks by hand. See [Channel Env and sync](/docs/agents/channels#channel-env) and [CLI channel synchronization](/docs/cli/channels#synchronize-channel-webhooks) for deploy checks and origin confirmation.
 
 For Forgejo, sync sets JSON payloads and handles its grouped event subscriptions. If GitLab auto-disabled a hook, re-enable it with a successful test request in GitLab before sync. Different deployed webhook URLs can manage hooks on the same repositories.
 

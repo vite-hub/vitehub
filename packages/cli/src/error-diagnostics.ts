@@ -7,7 +7,7 @@ const dynamicError = {
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 // Retired codes. Do not reuse them: CLI_R0006, SETUP_CONSOLE_INVALID, SETUP_DEPLOY_SECRET_UNSUPPORTED, and SETUP_DEPLOY_SECRET_UNVERIFIED.
 export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: "https://vitehub.dev/docs/development/diagnostics",
+  docsBase: "https://vitehub.dev/docs/cli/diagnostics",
   codes: {
     CLI_CONSOLE_LOGIN_FAILED: {
       fix: "Run `vitehub login` again, and approve the code in the browser within 15 minutes. Pass --console <url> for a self-hosted Console.",

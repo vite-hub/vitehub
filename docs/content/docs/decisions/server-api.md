@@ -129,4 +129,4 @@ pnpm vitehub decisions run server/utils/forecast-choices.ts "nord parts except v
 pnpm vitehub decisions run server/utils/forecast-choices.ts "nord parts" --inspect
 ```
 
-`run` prints the selection as JSON. Read [Run a Decision](/docs/development/cli#run-a-decision) for `--export` and `--context`.
+`run` prints the selection as JSON. Read [Run a Decision](/docs/cli/decisions#run-a-decision) for `--export` and `--context`.

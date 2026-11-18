@@ -96,5 +96,5 @@ Streams send it as `{ type: "usage", usageRecord }`. At the end, read it from `e
 ## Related
 
 - [Agent Evals](/docs/agents/evals)
-- [CLI inspection](/docs/development/cli)
+- [CLI inspection](/docs/cli)
 - [Errors and diagnostics](/docs/reference/errors-diagnostics)

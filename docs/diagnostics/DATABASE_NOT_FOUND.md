@@ -42,6 +42,6 @@ Run `vitehub inspect definitions --kind database`. It lists the discovered datab
 - [Define a database](/docs/database/configure#define-a-database)
 - [Use Named Databases](/docs/database/server-api#use-named-databases)
 - [Database Capability options](/docs/database/agent-capability#options)
-- [Export a Database](/docs/development/cli#export-a-database)
+- [Export a Database](/docs/cli/database#export-a-database)
 - [`DATABASE_DISABLED`](/docs/database/diagnostics/database_disabled)
 - [`DATABASE_NAME_MISMATCH`](/docs/database/diagnostics/database_name_mismatch)

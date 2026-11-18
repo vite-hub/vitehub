@@ -31,7 +31,7 @@ import { viteHubCachePlugin } from "../src/cache/vite.ts";
 import { viteHubDurabilityPlugin } from "../src/durability/vite.ts";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
-const cliReference = join(repoRoot, "docs/content/docs/development/cli.md");
+const cliReference = join(repoRoot, "docs/content/docs/cli/reference.md");
 const evalFixtureRoot = join(repoRoot, "packages/agent/test/fixtures");
 
 function stream() {

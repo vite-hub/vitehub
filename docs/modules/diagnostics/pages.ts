@@ -8,7 +8,7 @@ export const diagnosticSections: Record<string, string> = {
   "browser": "browser",
   "bundle": "development",
   "channels": "channels",
-  "cli": "development",
+  "cli": "cli",
   "cms": "cms",
   "codemods": "codemods",
   "comments": "comments",

@@ -167,7 +167,7 @@ After the provider ends, the host can call `checkout.push(cwd)`. It refreshes so
 | Caller-specific file scope | Access plus a trusted Agent Invoker |
 | Provider working directory | A write-mode Workspace |
 
-Check the resolved Workspace, Sources, and access policy with the [CLI](/docs/development/cli) before production.
+Check the resolved Workspace, Sources, and access policy with the [CLI](/docs/cli) before production.
 
 ## Next steps
 

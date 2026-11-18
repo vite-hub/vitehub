@@ -56,7 +56,7 @@ pnpm vitehub schedule runs daily-report --limit 5 --json
 pnpm vitehub schedule attempts <runId>
 ```
 
-The commands use the same run store and registry as the server. Read [CLI](/docs/development/cli#run-and-inspect-schedules) for every command and option.
+The commands use the same run store and registry as the server. Read [CLI](/docs/cli/jobs#run-and-inspect-schedules) for every command and option.
 
 The Console Schedules page lists the schedules, with cron and time zone under the process driver. `manual: true` schedules show a run action when Console invocation is on. Each Schedule that code started has its own row with its id, time or cron, and payload. `vitehub schedule list`, `start`, and `cancel` read and change the same Schedules.
 

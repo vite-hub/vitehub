@@ -142,4 +142,4 @@ more days, and the next call tries the API again.
 
 ## Inspect the cache
 
-`vitehub cache list`, `get`, and `delete` read and clear the entries on the dev server or on a deployed app. See [Read and invalidate the cache](/docs/development/cli#read-and-invalidate-the-cache).
+`vitehub cache list`, `get`, and `delete` read and clear the entries on the dev server or on a deployed app. See [Read and invalidate the cache](/docs/cli/storage#read-and-invalidate-the-cache).
