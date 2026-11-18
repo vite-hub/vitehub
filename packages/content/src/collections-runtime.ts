@@ -25,7 +25,7 @@ import {
 } from "./documents.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { contentKV } from "./kv.ts"
-import { ContentScheduleCancelled, contentScheduleKey, createContentSchedules } from "./schedules.ts"
+import { contentScheduleCancelled, contentScheduleKey, createContentSchedules } from "./schedules.ts"
 import { isContentSeoField } from "./seo.ts"
 import { contentLive, contentLiveRoom, contentLiveSession } from "./live.ts"
 import { mergeContentDocument } from "./merge.ts"
@@ -316,7 +316,7 @@ export interface ContentStatusOptions {
 
 /** One document `publish({ expect })` must find on the draft before it publishes it. */
 export interface ContentPublishExpectation {
-  /** Collection name. An unknown name throws `CONTENT_R0008`. */
+  /** Collection name. An unknown name throws `CONTENT_COLLECTION_UNKNOWN`. */
   collection: string
   /** Document id. Omit it for a singleton defined with `singleton()`. */
   id?: string
@@ -517,7 +517,7 @@ export interface ContentCollection<TFields extends ContentFields = ContentFields
 
 /**
  * One editable document at a fixed path, defined with `singleton()`, such as site settings. Every method works without
- * an id. Generic code may pass the document `id` like it does for a collection; any other id throws `CONTENT_R0008`.
+ * an id. Generic code may pass the document `id` like it does for a collection; any other id throws `CONTENT_SINGLETON_ID_MISMATCH`.
  * `list()` and the read-only Collection contract return at most this one document.
  */
 export interface ContentSingleton<TFields extends ContentFields = ContentFields>
@@ -723,7 +723,7 @@ function conflictRef(error: unknown): unknown {
 function assertRef(ref: unknown, fallback: ContentRef): ContentRef {
   if (ref === undefined) return fallback
   if (String(ref) !== ref || !contentRefs.has(ref)) {
-    throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content ref must be "draft" or "published", received ${JSON.stringify(ref)}.` })
+    throw contentErrorDiagnostics.CONTENT_REF_INVALID({ ref })
   }
   // SAFETY: Membership in contentRefs proves the literal.
   return ref as ContentRef
@@ -789,7 +789,7 @@ function pullRequestTitle(message: string): string {
 
 function writeMetadata(metadata: Record<string, unknown> | undefined, content: Record<string, unknown>): Record<string, unknown> {
   if (metadata !== undefined && (metadata === null || Object(metadata) !== metadata || Array.isArray(metadata))) {
-    throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content revision metadata must be an object." })
+    throw contentErrorDiagnostics.CONTENT_REVISION_METADATA_INVALID()
   }
   return { ...metadata, content }
 }
@@ -1432,16 +1432,16 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
 
     /**
      * The locale a read or write takes: the source locale when omitted, and undefined in a collection without locales.
-     * An unknown locale throws `CONTENT_R0008`.
+     * An unknown locale throws `CONTENT_LOCALE_UNKNOWN`.
      */
     function localeOf(locale: unknown): string | undefined {
       if (!locales) {
         if (locale === undefined) return
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content collection ${JSON.stringify(name)} has no locales, so it takes no locale. Received ${JSON.stringify(locale)}.` })
+        throw contentErrorDiagnostics.CONTENT_LOCALE_UNKNOWN({ collection: name, locale, locales: undefined })
       }
       if (locale === undefined) return sourceLocale
       if (String(locale) !== locale || !locales.includes(locale)) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content collection ${JSON.stringify(name)} has the locales ${JSON.stringify(locales)}, received ${JSON.stringify(locale)}.` })
+        throw contentErrorDiagnostics.CONTENT_LOCALE_UNKNOWN({ collection: name, locale, locales })
       }
       return locale
     }
@@ -1464,18 +1464,18 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     function pathFor(id: unknown, requested?: unknown): string {
       if (single) {
         if (id !== single.id) {
-          throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content singleton ${JSON.stringify(name)} has the id ${JSON.stringify(single.id)} (${single.path}). Omit the id, or pass ${JSON.stringify(single.id)}; received ${JSON.stringify(id)}.` })
+          throw contentErrorDiagnostics.CONTENT_SINGLETON_ID_MISMATCH({ name, id: single.id, path: single.path, received: id })
         }
         return single.path
       }
       if (String(id) !== id || !id || id.startsWith("/") || id.endsWith("/") || id.includes("\\")
         || id.split("/").some(segment => !segment || segment === "." || segment === "..")) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content document id must be a relative path such as "hello" or "2026/hello", received ${JSON.stringify(id)}.` })
+        throw contentErrorDiagnostics.CONTENT_DOCUMENT_ID_INVALID({ id })
       }
       const own = compiledFor(localeOf(requested))
       const path = `${own.base}${id}${own.extension}`
       if (!own.match(path)) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content document ${JSON.stringify(id)} is outside collection ${JSON.stringify(name)} (${definition.path}).` })
+        throw contentErrorDiagnostics.CONTENT_DOCUMENT_OUTSIDE_COLLECTION({ id, collection: name, path: definition.path })
       }
       return path
     }
@@ -1657,7 +1657,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
 
     async function openFor(method: string, options: ContentReadOptions): Promise<OpenedRevision | undefined> {
       if (options.revision !== undefined && options.ref !== undefined) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content ${method}() takes ref or revision, not both.` })
+        throw contentErrorDiagnostics.CONTENT_READ_REF_CONFLICT({ method })
       }
       return options.revision !== undefined
         ? await openRevision(String(options.revision))
@@ -1734,16 +1734,16 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       locale: string | undefined,
     ): Promise<IndexedDocument | undefined> {
       if (writeOptions.ifDigest !== undefined && writeOptions.ifDigest !== null && String(writeOptions.ifDigest) !== writeOptions.ifDigest) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content ifDigest must be a digest string or null." })
+        throw contentErrorDiagnostics.CONTENT_DIGEST_INVALID({ option: "ifDigest" })
       }
       if (writeOptions.ifPublishedDigest !== undefined && writeOptions.ifPublishedDigest !== null && String(writeOptions.ifPublishedDigest) !== writeOptions.ifPublishedDigest) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content ifPublishedDigest must be a digest string or null." })
+        throw contentErrorDiagnostics.CONTENT_DIGEST_INVALID({ option: "ifPublishedDigest" })
       }
       if (writeOptions.session !== undefined && (String(writeOptions.session) !== writeOptions.session || !writeOptions.session)) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content write session must be the content.sessions token of the caller." })
+        throw contentErrorDiagnostics.CONTENT_WRITE_SESSION_INVALID()
       }
       if (writeOptions.lease !== undefined && writeOptions.lease !== "override") {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content write lease must be 'override' or omitted." })
+        throw contentErrorDiagnostics.CONTENT_WRITE_LEASE_INVALID()
       }
       const documents = [{ collection: name, id, ...localeKey(locale) }]
       const metadata = writeMetadata(writeOptions.metadata, { action, documents })
@@ -1867,10 +1867,10 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       }
       const { sourceDigest } = writeOptions
       if (sourceDigest !== undefined && (locale === undefined || locale === sourceLocale)) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content sourceDigest is for a translation. Save it with the locale of the translation, one of ${JSON.stringify(locales?.slice(1) ?? [])}.` })
+        throw contentErrorDiagnostics.CONTENT_SOURCE_DIGEST_INVALID({ problem: `[vitehub] Content sourceDigest is for a translation. Save it with the locale of the translation, one of ${JSON.stringify(locales?.slice(1) ?? [])}.` })
       }
       if (sourceDigest !== undefined && (String(sourceDigest) !== sourceDigest || !lineageDigestPattern.test(sourceDigest))) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content sourceDigest must be the source.digest of the get() you translated, "sha256-" and 64 hex characters. Received ${JSON.stringify(sourceDigest)}.` })
+        throw contentErrorDiagnostics.CONTENT_SOURCE_DIGEST_INVALID({ problem: `[vitehub] Content sourceDigest must be the source.digest of the get() you translated, "sha256-" and 64 hex characters. Received ${JSON.stringify(sourceDigest)}.` })
       }
       if (locales) {
         // derivedFrom is reserved in a collection with locales: Content writes it, never the fields.
@@ -2139,7 +2139,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   function requireCollection(name: unknown): CollectionRuntime {
     const collection = String(name) === name ? collections.get(name) : undefined
     if (!collection) {
-      throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Unknown Content collection ${JSON.stringify(name)}. Define it in defineContent({ collections }).` })
+      throw contentErrorDiagnostics.CONTENT_COLLECTION_UNKNOWN({ name })
     }
     return collection
   }
@@ -2339,7 +2339,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           return { revision, documents }
         }
         if (!retained.openPullRequest) {
-          throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] publish: 'pr' needs a Workspace Store with pull requests, but Workspace ${JSON.stringify(workspaceName)} has none. Use the GitHub store.` })
+          throw contentErrorDiagnostics.CONTENT_PUBLISH_PR_UNSUPPORTED({ workspace: workspaceName })
         }
         // A document that an open pull request already publishes is not published a second time.
         const pending = await pendingPublishes()
@@ -2408,7 +2408,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           // may occur while the provider constructs the transaction.
           draftExpectation = undefined
         }
-        if (beforeCommit && !await beforeCommit()) throw new ContentScheduleCancelled()
+        if (beforeCommit && !await beforeCommit()) throw contentScheduleCancelled()
         return await land(draftExpectation)
       }
       catch (error) {
@@ -2417,7 +2417,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           const actualDraft = actualHead ? await openRevision(actualHead) : undefined
           const moved = expectations.some(({ path, digest }) => (actualDraft?.files.get(path) ?? null) !== (digest ?? null))
           if (!moved) {
-            if (beforeCommit && !await beforeCommit()) throw new ContentScheduleCancelled()
+            if (beforeCommit && !await beforeCommit()) throw contentScheduleCancelled()
             return await land(undefined)
           }
           throw contentConflict("[vitehub] The draft Content changed before publish().", {
@@ -2438,7 +2438,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   const routeIndexes = new BoundedCache<Promise<ReadonlyMap<string, ContentResolved>>>(8)
 
   async function resolve(path: string, resolveOptions: ContentResolveOptions = {}): Promise<ContentResolved | null> {
-    if (String(path) !== path) throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content resolve() requires an app path such as \"/blog/hello\"." })
+    if (String(path) !== path) throw contentErrorDiagnostics.CONTENT_RESOLVE_PATH_INVALID()
     const target = normalizeRoute(path)
     const state = await refState(assertRef(resolveOptions.ref, defaultRef()))
     if (!state.opened) return null
@@ -2463,11 +2463,11 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     const ref = assertRef(revisionOptions.ref, "draft")
     const limit = revisionOptions.limit ?? 20
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
-      throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content revisions() limit must be an integer from 1 to 100." })
+      throw contentErrorDiagnostics.CONTENT_REVISIONS_LIMIT_INVALID({ option: "limit" })
     }
     const scanLimit = revisionOptions.scanLimit ?? maxRevisionScan
     if (!Number.isSafeInteger(scanLimit) || scanLimit < 1 || scanLimit > maxRevisionScan) {
-      throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content revisions() scanLimit must be an integer from 1 to 1,000." })
+      throw contentErrorDiagnostics.CONTENT_REVISIONS_LIMIT_INVALID({ option: "scanLimit" })
     }
     const retained = await history()
     const found: WorkspaceRevision[] = []
@@ -2498,7 +2498,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       // A pull request merged by squash or rebase leaves a commit without Content metadata, so read the history of the file itself.
       const limit = revisionOptions.limit ?? 20
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content revisions() limit must be an integer from 1 to 100." })
+        throw contentErrorDiagnostics.CONTENT_REVISIONS_LIMIT_INVALID({ option: "limit" })
       }
       const page = await retained.list({ ref: "published", path: runtime.pathFor(touched, locale), limit, cursor: revisionOptions.cursor })
       return { revisions: page.revisions, ...(page.cursor ? { cursor: page.cursor } : {}), scanned: page.revisions.length }

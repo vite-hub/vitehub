@@ -1,17 +1,11 @@
-import { randomUUID } from "node:crypto"
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import pg from "pg"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { scheduleLeaseStoreFromDatabase } from "../src/runtime/process.ts"
 import { createScheduleNitroConfig, hubSchedule } from "../src/vite.ts"
 
-// Start Postgres 17, for example with `docker run -d -e POSTGRES_PASSWORD=pg -p 5432:5432 postgres:17`, and set
-// VITEHUB_TEST_POSTGRES_URL to run the node-postgres test on a real server.
-const postgresUrl = process.env.VITEHUB_TEST_POSTGRES_URL
 const roots: string[] = []
 
 afterEach(async () => {
@@ -40,8 +34,8 @@ describe("Process Runtime leases in the generated Nitro plugin", () => {
   it("claims occurrences in the Default Database when the app has the Database plugin", async () => {
     const generated = await generatedPlugin([[{ name: "@vite-hub/database/vite" }]])
 
-    expect(generated).toContain("import { databases } from \"@vite-hub/database/runtime/registry\"")
-    expect(generated).toContain("const leases = scheduleLeaseStoreFromDatabase(databases.default.db)")
+    expect(generated).toContain("import { useLeases } from \"@vite-hub/database\"")
+    expect(generated).toContain("leases = useLeases()")
     expect(generated).toContain("...(leases ? { leases } : {}),")
     expect(generated).toContain("\"leaseTtlMs\": 30000")
     expect(generated).toMatch(/const processRuntimeOptions = \{[^}]*"prefix": "app:schedule"/s)
@@ -50,8 +44,8 @@ describe("Process Runtime leases in the generated Nitro plugin", () => {
   it("keeps leases in memory without the Database plugin", async () => {
     const generated = await generatedPlugin([])
 
-    expect(generated).not.toContain("databases")
-    expect(generated).not.toContain("leases")
+    expect(generated).not.toContain("useLeases")
+    expect(generated).not.toContain("{ leases }")
   })
 
   it("warns in a build without a Database that each server runs every occurrence", async () => {
@@ -62,89 +56,8 @@ describe("Process Runtime leases in the generated Nitro plugin", () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("claims each Schedule occurrence in memory"))
 
     warn.mockClear()
-    await createScheduleNitroConfig({ command: "build", leaseDatabaseImport: "@vite-hub/database/runtime/registry", projectRoot: root, providerOutput: false, root, runtime: { driver: "process" } } as Parameters<typeof createScheduleNitroConfig>[0])
+    await createScheduleNitroConfig({ command: "build", leaseDatabaseImport: "@vite-hub/database", projectRoot: root, providerOutput: false, root, runtime: { driver: "process" } } as Parameters<typeof createScheduleNitroConfig>[0])
     await createScheduleNitroConfig({ command: "serve", projectRoot: root, providerOutput: false, root, runtime: { driver: "process" } })
     expect(warn).not.toHaveBeenCalled()
-  })
-})
-
-describe("scheduleLeaseStoreFromDatabase", () => {
-  it("runs the lease SQL through postgres.js with numbered parameters", async () => {
-    const unsafe = vi.fn(async (sql: string) => sql.startsWith("insert") ? [{ expires_at: Date.now() + 1000, id: "" }] : [])
-    const leases = scheduleLeaseStoreFromDatabase({ $client: { unsafe } })
-
-    await leases?.acquire("schedule/srun_static_daily_2026-11-09T08:00:00.000Z", { ttl: 1 })
-
-    expect(leases).toBeDefined()
-    expect(unsafe).toHaveBeenCalledWith(expect.stringContaining("values ($1, $2, $3,"), expect.arrayContaining(["schedule/srun_static_daily_2026-11-09T08:00:00.000Z"]))
-  })
-
-  it("runs the lease SQL through libSQL", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    const execute = vi.fn(async () => ({ rows: [] }))
-    const leases = scheduleLeaseStoreFromDatabase({ $client: { execute, protocol: "ws" } })
-    expect(warn).not.toHaveBeenCalled()
-
-    await leases?.get("schedule/srun_static_daily_2026-11-09T08:00:00.000Z")
-
-    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ args: ["schedule/srun_static_daily_2026-11-09T08:00:00.000Z"] }))
-  })
-
-  it("runs the lease SQL through a node-postgres Pool", async () => {
-    const query = vi.fn(async () => ({ rows: [] }))
-    const leases = scheduleLeaseStoreFromDatabase({ $client: { connect: vi.fn(), query } })
-
-    await leases?.get("schedule/srun_static_daily_2026-11-09T08:00:00.000Z")
-
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("where \"key\" = $1"), ["schedule/srun_static_daily_2026-11-09T08:00:00.000Z"])
-  })
-
-  it.skipIf(!postgresUrl)("gives one of two node-postgres Pools the lease on a real Postgres server", async () => {
-    // Other test files run against the same database and can drop their lease table while this test holds a lease.
-    const schema = `schedule_leases_${randomUUID().replaceAll("-", "")}`
-    const config = { connectionString: postgresUrl, max: 2, options: `-c search_path=${schema}` }
-    const pools = [new pg.Pool(config), new pg.Pool(config)]
-    try {
-      await pools[0]!.query(`create schema ${schema}`)
-      const [first, second] = pools.map(pool => scheduleLeaseStoreFromDatabase({ $client: pool })!)
-      const key = `schedule/srun_static_daily_${Date.now()}`
-      const results = await Promise.all([first!.acquire(key, { ttl: 30 }), second!.acquire(key, { ttl: 30 })])
-      const held = results.map(([error, lease]) => {
-        expect(error).toBeUndefined()
-        return lease
-      }).filter(lease => lease !== null)
-
-      expect(held).toHaveLength(1)
-      expect(await second!.get(key)).toEqual([undefined, expect.objectContaining({ id: held[0]!.id, key })])
-      expect(await held[0]!.renew()).toEqual([undefined, true])
-      expect(await held[0]!.release()).toEqual([undefined, true])
-      expect(await first!.get(key)).toEqual([undefined, null])
-    }
-    finally {
-      try {
-        await pools[0]!.query(`drop schema if exists ${schema} cascade`)
-      }
-      finally {
-        await Promise.all(pools.map(pool => pool.end()))
-      }
-    }
-  })
-
-  it("warns that a local libSQL file is safe for one process only", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-
-    expect(scheduleLeaseStoreFromDatabase({ $client: { execute: vi.fn(), protocol: "file" } })).toBeDefined()
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("local libSQL file"))
-  })
-
-  it("returns undefined for a Database without a postgres.js, node-postgres, or libSQL client", () => {
-    const missing = new Proxy({}, {
-      get() {
-        throw new Error("Database is disabled.")
-      },
-    })
-
-    expect(scheduleLeaseStoreFromDatabase({ $client: { prepare() {} } })).toBeUndefined()
-    expect(scheduleLeaseStoreFromDatabase(missing)).toBeUndefined()
   })
 })

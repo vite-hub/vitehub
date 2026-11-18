@@ -25,6 +25,8 @@ import { chatgptLanguageModel } from "./internal/chatgpt-model.ts"
 import type { ChatGPTGateway } from "@vite-hub/gateways"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { isAuxiliaryAgentAdapterContext } from "./internal/channels.ts"
+import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
+import { openModelSteering, type ModelSteering } from "./internal/model-steering.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
 import { withAgentToolJsonSchemas } from "./tool-schema.ts"
 import {
@@ -1328,10 +1330,19 @@ function outputMaxAttempts(output: AgentAdapterRunContext["output"]): number {
   return maxAttempts
 }
 
+function openAgentSteering(context: AgentAdapterRunContext): ModelSteering | undefined {
+  const invocationId = ownedAgentInvocationControlId(context.runtime)
+  if (!invocationId || isAuxiliaryAgentAdapterContext(context)) return
+  const steering = openModelSteering(invocationId)
+  context.input.abortSignal?.addEventListener("abort", steering.close, { once: true })
+  return steering
+}
+
 async function createAgent(
   options: AiSdkAdapterOptions,
   context: AgentAdapterRunContext,
   fallbackCapture?: ReturnType<typeof createWorkspaceFallbackEvidenceCapture>,
+  steering?: ModelSteering,
 ) {
   const aiSdk = await loadAiSdk()
   const { ToolLoopAgent, isStepCount, jsonSchema } = aiSdk
@@ -1361,7 +1372,7 @@ async function createAgent(
     : model
   const wrapLanguageModel = context.executionBudgetActive ? aiSdk.wrapLanguageModel : undefined
   if (context.executionBudgetActive && typeof wrapLanguageModel !== "function") {
-    throw new Error("[vitehub] Execution budgets require AI SDK wrapLanguageModel support.")
+    throw agentDiagnostics.AGENT_EXECUTION_BUDGET_AI_SDK_UNSUPPORTED()
   }
   const instructions = await composeInstructions(
     joinInstructions(
@@ -1574,6 +1585,7 @@ async function createAgent(
       model: instrumentedModel as never,
       ...(nativeOutput ? { output: nativeOutput } : {}),
       experimental_repairToolCall: undefined,
+      ...(steering ? { prepareStep: steering.prepareStep(commonSettings.prepareStep) } : {}),
       // SAFETY: Repair selection above normalizes every supported repair callback to the AI SDK contract.
       repairToolCall: repairToolCall as never,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
@@ -1602,7 +1614,11 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const fallbackCapture = fallback.enabled || Boolean(context.output)
         ? createWorkspaceFallbackEvidenceCapture(fallback.enabled ? fallback.maxToolResults : 8)
         : undefined
-      const { agent, model, repairOutput, toolRepairUsageCaptures, tools } = await createAgent(options, context, fallbackCapture)
+      const steering = openAgentSteering(context)
+      const { agent, model, repairOutput, toolRepairUsageCaptures, tools } = await createAgent(options, context, fallbackCapture, steering).catch((error: unknown) => {
+        steering?.close()
+        throw error
+      })
       if (context.workspace && tools && "materialize_sources" in tools) {
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter)
@@ -1702,6 +1718,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         generated = repairedOutput ?? await normalizeNativeAgentOutputError(context.output, error)
         repaired = Boolean(repairedOutput)
       }
+      finally {
+        steering?.close()
+      }
       if (!repaired && fallback.enabled && (generated.finishReason === "tool-calls" || !generated.text.trim() && hasToolResults(generated))) {
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         const synthesized = await synthesizeWorkspaceFallback(model as never, context, generated, fallback.maxToolResults, fallbackUsageCapture)
@@ -1775,20 +1794,31 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const fallbackCapture = fallback.enabled
         ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)
         : undefined
-      const { agent, model } = await createAgent(options, context, fallbackCapture)
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+      const callInput = await getCallInput(context, execution?.attachments) as Record<string, unknown>
+      const steering = openAgentSteering(context)
+      const { agent, model } = await createAgent(options, context, fallbackCapture, steering).catch((error: unknown) => {
+        steering?.close()
+        throw error
+      })
       const captureStep = async (event: unknown) => {
         await usageCapture.onStepEnd(event)
         fallbackCapture?.collect(event)
       }
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      const callInput = await getCallInput(context, execution?.attachments) as Record<string, unknown>
-      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      const result = withResolvedModelMetadata(withCapturedUsage(await agent.stream({
+      const streamed = await agent.stream({
         ...callInput,
         onEnd: usageCapture.onEnd,
         onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
         onStepEnd: captureStep,
-      } as never) as StreamTextResult<ToolSet, never, never>, usageCapture), model) as StreamTextResult<ToolSet, never, never>
+      } as never).then(undefined, (error: unknown) => {
+        steering?.close()
+        throw error
+      }) as StreamTextResult<ToolSet, never, never>
+      // The model loop is over once the stream settles its finish reason, with or without an error.
+      if (steering) void Promise.resolve(streamed.finishReason).then(steering.close, steering.close)
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+      const result = withResolvedModelMetadata(withCapturedUsage(streamed, usageCapture), model) as StreamTextResult<ToolSet, never, never>
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence)
     },

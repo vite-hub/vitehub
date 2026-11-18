@@ -38,11 +38,11 @@ describe("documents({ path: [...] })", () => {
   })
 
   it("rejects an empty list, a repeated glob, a path without a wildcard, and mixed extensions", () => {
-    expect(errorOf(() => documents({ path: [], fields })).code).toBe("CONTENT_R0006")
+    expect(errorOf(() => documents({ path: [], fields })).code).toBe("CONTENT_DOCUMENTS_PATH_INVALID")
     expect(errorOf(() => documents({ path: ["posts/*.md", "posts/*.md"], fields })).message).toContain("list a glob twice")
     expect(errorOf(() => documents({ path: ["posts/*.md", "about.md"], fields })).message).toContain("has no wildcard")
     const mixed = errorOf(() => documents({ path: ["posts/*.md", "data/*.json"], fields }))
-    expect(mixed.code).toBe("CONTENT_R0006")
+    expect(mixed.code).toBe("CONTENT_DOCUMENTS_PATH_INVALID")
     expect(mixed.message).toContain("must share one extension")
   })
 })
@@ -64,8 +64,8 @@ describe("collections with several globs", () => {
     expect((await pages.list()).items.map(item => item.id).sort()).toEqual(["news/launch", "posts/2026/hello"])
     expect(await pages.get("news/launch")).toMatchObject({ data: { title: "Launch" } })
     // A path outside every glob is not a document of the collection.
-    await expect(pages.save("press/note", { data: { title: "No" }, body: "" })).rejects.toMatchObject({ code: "CONTENT_R0008", message: expect.stringContaining("outside collection") })
-    await expect(pages.save("news/deep/note", { data: { title: "No" }, body: "" })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(pages.save("press/note", { data: { title: "No" }, body: "" })).rejects.toMatchObject({ code: "CONTENT_DOCUMENT_OUTSIDE_COLLECTION", message: expect.stringContaining("outside collection") })
+    await expect(pages.save("news/deep/note", { data: { title: "No" }, body: "" })).rejects.toMatchObject({ code: "CONTENT_DOCUMENT_OUTSIDE_COLLECTION" })
   })
 
   it("uses the whole path as the id when the globs share no folder", async () => {
@@ -370,6 +370,6 @@ describe("content.resolve()", () => {
   it("requires a string path", async () => {
     const { content } = await setup()
     // @ts-expect-error -- resolve takes a string.
-    await expect(content.resolve(1)).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(content.resolve(1)).rejects.toMatchObject({ code: "CONTENT_RESOLVE_PATH_INVALID" })
   })
 })

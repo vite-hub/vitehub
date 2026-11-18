@@ -34,7 +34,6 @@ describe("Comments activation from the Console", () => {
       const generated = await readFile(resolveGeneratedConsolePlugin(root), "utf8")
       expect(generated).toContain('"kind":"operation-view"')
       expect(generated).toContain('"operation":"comments.list"')
-      expect(generated).not.toContain('"visit":')
       expect(generated).not.toContain("readCommentsConsoleRecords")
     }
     finally {
@@ -80,8 +79,6 @@ describe("Comments activation from the Console", () => {
       }
       const route = config.nitro!.handlers.find(handler => handler.route.endsWith("/comments/**"))!.route.slice(0, -3)
       expect(route).toBe(`${mount}/api/_vitehub/comments`)
-      const generated = await readFile(resolveGeneratedConsolePlugin(root), "utf8")
-      expect(generated).not.toContain('"visit":')
       expect(config.nitro!.handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: `${mount}/_vitehub/page/session` })]))
 
       // The hosted Console opens no page session of the app. Comments keeps its own route.

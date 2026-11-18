@@ -1,0 +1,7 @@
+{
+  "rawErrors": {
+    "packages/forms/src/client.ts": 1
+  },
+  "codesWithoutFix": [],
+  "invariants": {}
+}

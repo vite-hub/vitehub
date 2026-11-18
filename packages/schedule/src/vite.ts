@@ -110,14 +110,14 @@ export interface ScheduleNitroConfigOptions extends ScheduleOptions {
 interface InternalScheduleNitroConfigOptions extends ScheduleNitroConfigOptions {
   /** Contributions that the Vite plugin already collected, so factories run once per config pass. */
   contributions?: readonly CollectedScheduleContribution[]
-  /** The module that exports the app's `databases`, when the app has the Database plugin. The Process Runtime claims occurrences there. */
+  /** The module that exports `useLeases()`, when the app has the Database plugin. The Process Runtime claims occurrences there. */
   leaseDatabaseImport?: string
   /** Set in Vite's `config` hook, where plugins added later can still contribute the Schedule that `cron` names. */
   preliminary?: boolean
 }
 
 interface InternalScheduleVitePluginOptions extends ScheduleOptions {
-  /** The module that exports the app's `databases`. Defaults to `@vite-hub/database/runtime/registry`. */
+  /** The module that exports `useLeases()`. Defaults to `@vite-hub/database`. */
   databaseImport?: string
   importBase?: string
   providerImportAliases?: Record<string, string>
@@ -383,8 +383,8 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
           `import { normalizeScheduleRuntimeError } from ${JSON.stringify(options.runtimeImport ?? scheduleStaticRuntimeModule)}`,
           `import { createKVScheduleRunStore } from ${JSON.stringify(scheduleRuntimeModule)}`,
           `import { scheduleKVStorage } from ${JSON.stringify(scheduleKVRuntimeModule)}`,
-          `import { installProcessScheduleRuntime, onShutdown${leaseDatabaseImport ? ", scheduleLeaseStoreFromDatabase" : ""} } from ${JSON.stringify(scheduleProcessRuntimeModule)}`,
-          ...(leaseDatabaseImport ? [`import { databases } from ${JSON.stringify(leaseDatabaseImport)}`] : []),
+          `import { installProcessScheduleRuntime, onShutdown } from ${JSON.stringify(scheduleProcessRuntimeModule)}`,
+          ...(leaseDatabaseImport ? [`import { useLeases } from ${JSON.stringify(leaseDatabaseImport)}`] : []),
           `import staticScheduleRegistry from ${JSON.stringify(moduleImportSpecifier(options.pluginFile, options.staticRegistryFile))}`,
         ]
       : []),
@@ -448,8 +448,13 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
           ...(leaseDatabaseImport
             ? [
                 // Every server of the app claims each occurrence in the Default Database, so one server runs it.
-                "  const leases = scheduleLeaseStoreFromDatabase(databases.default.db)",
-                "  if (!leases) console.warn('[vitehub:schedule] The Default Database has no postgres.js, node-postgres, or libSQL client, so each server process runs every Schedule. Use a Postgres or remote libSQL Default Database to run more than one server.')",
+                "  let leases",
+                "  try {",
+                "    leases = useLeases()",
+                "  }",
+                "  catch {",
+                "    console.warn('[vitehub:schedule] Schedule leases need the default or only Database, and the app has several without a `default`, or none. Each server process runs every Schedule. Name one Database `default` to run more than one server.')",
+                "  }",
               ]
             : []),
           "  const runtimeInstallation = installProcessScheduleRuntime({",
@@ -511,7 +516,7 @@ function renderNitroScheduleModule(options: RenderNitroScheduleModuleOptions): s
     netlifyFunctionNames = netlifyScheduleFunctionNames(netlify.schedules)
   }
   catch (error) {
-    if (!(error instanceof Error) || !("code" in error) || error.code !== "SCHEDULE_R0006") throw error
+    if (!scheduleErrorDiagnostics.SCHEDULE_R0006.is(error)) throw error
     // The names are known now, but only Nitro's resolved Netlify preset may reject them.
     netlifyNameError = { ...error, code: error.code, message: error.message, name: error.name }
   }
@@ -803,7 +808,7 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
   let leaseDatabase = false
   const leaseDatabaseImport = (plugins: readonly unknown[] | undefined) => {
     leaseDatabase = hasVitePlugin(plugins, databaseVitePluginName)
-    return leaseDatabase ? { leaseDatabaseImport: internalOptions.databaseImport ?? "@vite-hub/database/runtime/registry" } : {}
+    return leaseDatabase ? { leaseDatabaseImport: internalOptions.databaseImport ?? "@vite-hub/database" } : {}
   }
 
   async function collectPluginScheduleContributions(plugins: readonly unknown[] | undefined, roots: ReturnType<typeof resolveSchedulePluginRoots>) {

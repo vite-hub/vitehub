@@ -49,6 +49,13 @@ describe("ViteHub UI Nuxt module", () => {
         ),
       ).toBe(true);
 
+      // Nitro's server build cannot bundle the raw `onig.wasm` that Shiki's `unwasm` condition gives `shiki/wasm`.
+      expect(nuxt.options.vite.resolve?.alias).toEqual(
+        expect.arrayContaining([
+          { find: "shiki/wasm", replacement: expect.stringMatching(/\/@shikijs\/engine-oniguruma\/dist\/wasm-inlined\.mjs$/) },
+        ]),
+      );
+
       const components: Array<{ export?: string; filePath?: string; pascalName?: string }> = [];
       await nuxt.callHook("components:extend", components as never);
       expect(components).toEqual(

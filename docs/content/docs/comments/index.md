@@ -12,17 +12,6 @@ icon: i-lucide-message-square-text
 ::
 
 ::code-tree
-```ts [vite.config.ts]
-import vue from '@vitejs/plugin-vue'
-import comments from '@vite-hub/comments/vite'
-import { defineConfig } from 'vite'
-
-// One plugin turns Comments on. No Database, no login of your own.
-export default defineConfig({
-  plugins: [vue(), comments()],
-})
-```
-
 ```bash [.env]
 # Sign in with GitHub: people who can push to the repository may comment
 VITEHUB_GITHUB_CLIENT_ID=Iv23li...
@@ -31,9 +20,10 @@ VITEHUB_SECRET=...
 ```
 
 ```ts [server/comments.ts]
-import { defineComments } from '@vite-hub/comments'
+import { defineComments } from 'vite-hub/comments'
 
-// Optional: change who may comment, and post threads to pull requests.
+// This file turns Comments on. Threads go to the app's Database.
+// Change who may comment, and post threads to pull requests.
 export const comments = defineComments({
   authorize: ({ user, action }) => action === 'read' || user?.github?.write === true,
   forge: { provider: 'github' },
@@ -63,7 +53,7 @@ Start with one plugin and add more later.
 | [Comments alone](/docs/comments/get-started) | `comments()` in `vite.config.ts` | Pins, threads, replies, and resolve on every page. Threads in your database, Turso, Cloudflare D1, or a SQLite file, in tables Comments creates. Guests on the dev server. |
 | [With GitHub sign-in](/docs/comments/configure#sign-in-with-github) | A GitHub App and three server variables | People who can push to the repository sign in and comment. Pull request comments show their GitHub account. |
 | [In a ViteHub app](/docs/comments/with-vite-hub) | `vitehub()` with a Database, and `server/comments.ts` | Any ViteHub Database on every host. Live cursors, Content edits in place, the Console section, MCP tools for Agents, and your own sign-in. |
-| [On a docs site](/docs/docs-site/configure#comments) | `vite-hub/nuxt` beside `@vite-hub/docs/nuxt` | On by default on every docs page, with threads in the Console. `docs: { comments: false }` turns it off. |
+| [On a docs site](/docs/docs-site/configure#comments) | `vite-hub/nuxt` beside `vite-hub/docs/nuxt` | On by default on every docs page, with threads in the Console. `docs: { comments: false }` turns it off. |
 
 ::product-features
   :::product-feature-item{title="One plugin turns it on" icon="i-lucide-file-code-2" to="/docs/comments/get-started#turn-on-comments"}
@@ -106,3 +96,31 @@ Start with one plugin and add more later.
 ## Comments through Operations
 
 The same `server/comments.ts` also runs the [comment operations](/docs/comments/operations/get-started): numbered threads on your own subjects, for the CLI, MCP, the Console, and your UI. Export the definition as `comments` or as the default export. Both use the same tables.
+
+## Use without ViteHub
+
+`@vite-hub/comments` also works in a Vite app without `vite-hub`. Install it, add the `comments()` plugin, and import from `@vite-hub/comments`:
+
+```bash pm [commands/install-alone]
+pnpm add @vite-hub/comments drizzle-orm@1.0.0-rc.5 valibot
+```
+
+```ts [vite.config.ts]
+import vue from '@vitejs/plugin-vue'
+import comments from '@vite-hub/comments/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [vue(), comments()],
+})
+```
+
+```ts [alone/server/comments.ts]
+import { defineComments } from '@vite-hub/comments'
+
+export const comments = defineComments({
+  authorize: ({ user, action }) => action === 'read' || user?.github?.write === true,
+})
+```
+
+Do not add `comments()` next to `vitehub()`. [Get started](/docs/comments/get-started) walks through this setup.

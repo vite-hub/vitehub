@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto"
 import { acquireGitHubPublishReservation } from "./publish-reservation.ts"
-import { forgeBlob } from "@vite-hub/forge"
 import type { Commit, Page, TreeEntry } from "@vite-hub/forge"
 import { lookup } from "mrmime"
 
@@ -27,6 +26,7 @@ import {
   githubRequest,
   githubRequestStatus,
   joinGitPath,
+  loadForge,
   preloadGitHubFiles,
   readCurrentHead,
   readGitHubBranchState,
@@ -39,6 +39,7 @@ import {
 
 import type {
   GitHubWorkspaceRefs,
+  WorkspaceAuthor,
   WorkspaceMergeCommit,
   WorkspaceMergeConflict,
   WorkspaceMergeOptions,
@@ -190,6 +191,18 @@ function readCommitMessage(message: string | undefined): { message?: string, met
   if (!metadata) return { message }
   const text = message.slice(0, match.index).trimEnd()
   return { ...(text ? { message: text } : {}), metadata }
+}
+
+/**
+ * The Git author of a history commit: `metadata.author` with a `name` and an `email`, as Content and the
+ * `workspace.commit` operation record the signed-in user. Without both, the account of the token is the author.
+ */
+function commitAuthor(metadata: Record<string, unknown> | undefined): WorkspaceAuthor | undefined {
+  const author = metadata?.author
+  if (!author || typeof author !== "object") return undefined
+  const name = Reflect.get(author, "name")
+  const email = Reflect.get(author, "email")
+  return typeof name === "string" && name.trim() && typeof email === "string" && email.trim() ? { name, email } : undefined
 }
 
 function messageWithMetadata(message: string, metadata: Record<string, unknown> | undefined): string {
@@ -697,6 +710,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
       deletePaths: deletes,
       files: updates,
       message: messageWithMetadata(commitOptions.message || "Update Workspace", commitOptions.metadata),
+      author: commitAuthor(commitOptions.metadata),
       parentSha: state.refSha,
       remoteModes: new Map([...state.files.values()].map(entry => [entry.path, entry.mode])),
       repository: client(),
@@ -899,7 +913,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
         const workspacePath = options.root ? (path.startsWith(`${options.root}/`) ? path.slice(options.root.length + 1) : undefined) : path
         if (workspacePath !== undefined && visibleWorkspacePath(workspacePath)) conflicts.push({ path: workspacePath, ours: o?.sha ?? null, theirs: t?.sha ?? null, base: b?.sha ?? null })
       }
-      const resolution = await mergeOptions.onConflict!(conflicts, { read: async sha => await forgeBlob(provider, repo, sha) })
+      const resolution = await mergeOptions.onConflict!(conflicts, { read: async sha => await (await loadForge()).forgeBlob(provider, repo, sha) })
       metadata = { ...mergeOptions.metadata, ...resolution.metadata }
       for (const [path, text] of Object.entries(resolution.files ?? {})) {
         if (!conflicts.some(conflict => conflict.path === path)) throw workspaceError(`[vitehub] A merge resolved ${path}, which is not one of its conflicting files.`)

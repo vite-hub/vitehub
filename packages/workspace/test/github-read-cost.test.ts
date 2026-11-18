@@ -21,7 +21,7 @@ afterEach(() => {
 })
 
 function history() {
-  return createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "", refs: { published: "main", draft: "draft" } }, "docs").history!
+  return createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: "", refs: { published: "main", draft: "draft" } }, "docs").history!
 }
 
 /** Requests by shape, such as `GET /commits` or `GET /git/trees/:sha`. */

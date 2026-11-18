@@ -124,7 +124,8 @@ export function createAdminsPlugin(admins: readonly AdminAccount[], plugins: rea
       }],
     },
     init: (context: AuthContext) => {
-      // Better Auth replaces `internalAdapter` after the plugins' `init`, so read it when a hook runs.
+      // Better Auth replaces `internalAdapter` after the plugins' `init`, so read it when a hook runs
+      // (https://github.com/better-auth/better-auth/issues/12711).
       return {
         options: {
           databaseHooks: {

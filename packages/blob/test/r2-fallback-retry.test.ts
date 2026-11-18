@@ -19,7 +19,7 @@ afterEach(() => {
 })
 
 it("loads the R2 HTTP driver again on the next call after a failed load", async () => {
-  const store = { binding: "BLOB", driver: "cloudflare-r2" } as const
+  const store = { binding: "BLOB", driver: "cloudflare" } as const
   setBlobRuntimeConfig({ store, stores: { default: store } })
 
   const [failure] = await blob.get("note.txt")

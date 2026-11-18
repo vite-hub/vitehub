@@ -146,7 +146,7 @@ export function setupStatus(project: SetupProject, env: NodeJS.ProcessEnv): Setu
         ? { dev: definition.devPackages.filter(name => !project.installed(name)), prod: packages.filter(name => !project.installed(name)) }
         : { dev: [], prod: [] }
       // A feature that only an implication turns on and that runs inline there needs no provider option. Outside
-      // Netlify, Workflow storage options select OpenWorkflow without `workflow.provider`.
+      // Netlify, Workflow storage options select OpenWorkflow without `workflow.driver`.
       const providerChosen = state.reason === "implied" && host.name !== "unknown" && impliedInline(id, on, host.name)
         || id === "workflow" && host.name !== "netlify" && packages.includes("openworkflow")
       const fix = state.enabled === "on" ? featureFix(project, id, support, host.name, missing, providerChosen) : undefined

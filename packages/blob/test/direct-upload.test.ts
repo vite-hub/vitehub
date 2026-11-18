@@ -180,7 +180,7 @@ describe("direct uploads on Vercel Blob", () => {
   const token = "vercel_blob_rw_store123_secretpart"
 
   function vercelStorage() {
-    return createBlobStorage(createBundledVercelBlobDriver({ access: "private", driver: "vercel-blob", token }), "default")
+    return createBlobStorage(createBundledVercelBlobDriver({ access: "private", driver: "vercel", token }), "default")
   }
 
   it("signs a client token that binds the pathname, the type, and the size", async () => {
@@ -222,7 +222,7 @@ describe("direct uploads on Vercel Blob", () => {
     const [getError] = await vercelStorage().sign("a.txt", { expiresIn: 60, method: "GET" })
     expect(getError).toMatchObject({ cause: { code: "BLOB_R0025" } })
     vi.stubEnv("BLOB_READ_WRITE_TOKEN", "")
-    const oidc = createBlobStorage(createBundledVercelBlobDriver({ access: "private", driver: "vercel-blob" }), "default")
+    const oidc = createBlobStorage(createBundledVercelBlobDriver({ access: "private", driver: "vercel" }), "default")
     const [putError] = await oidc.sign("a.txt", { expiresIn: 60, method: "PUT" })
     expect(putError).toMatchObject({ cause: { code: "BLOB_R0025" } })
   })

@@ -76,6 +76,7 @@ export interface FormsImports {
   email?: string
   auth?: string
   standard?: string
+  rateLimit?: string
 }
 
 export interface HubFormsOptions {
@@ -89,6 +90,8 @@ export interface HubFormsOptions {
   email?: boolean
   /** The app has ViteHub Auth: pass the signed-in user to `authorize`. */
   auth?: boolean
+  /** ViteHub Rate Limit counts in a KV store that every server process shares: count form messages there too. */
+  rateLimit?: boolean
 }
 
 const defaultImports: FormsImports = {
@@ -99,6 +102,7 @@ const defaultImports: FormsImports = {
   email: "@vite-hub/email",
   auth: "@vite-hub/auth/server",
   standard: "@vite-hub/runtime",
+  rateLimit: "@vite-hub/rate-limit",
 }
 
 /** The generated `{ fetch }` route of every form. */
@@ -107,14 +111,15 @@ export function renderFormsHandler(forms: readonly DiscoveredForm[], options: Hu
   const lines = [
     `import { createFormsHandler } from ${JSON.stringify(imports.runtime)}`,
     ...imports.standard ? [`import { getStandardContext } from ${JSON.stringify(imports.standard)}`] : [],
-    ...options.database && imports.databases ? [`import { databases } from ${JSON.stringify(imports.databases)}`] : [],
+    ...options.database && imports.databases ? [`import { useDatabase } from ${JSON.stringify(imports.databases)}`] : [],
     ...options.email && imports.email ? [`import { email } from ${JSON.stringify(imports.email)}`] : [],
     ...options.auth && imports.auth ? [`import { useAuth } from ${JSON.stringify(imports.auth)}`] : [],
+    ...options.rateLimit && imports.rateLimit ? [`import { checkRateLimit } from ${JSON.stringify(imports.rateLimit)}`] : [],
     ...forms.map((form, index) => `import form${index} from ${JSON.stringify(form.file)}`),
     "",
     "export default createFormsHandler({",
     `  forms: { ${forms.map((form, index) => `${JSON.stringify(form.name)}: form${index}`).join(", ")} },`,
-    ...options.database && imports.databases ? ["  databases,"] : [],
+    ...options.database && imports.databases ? ["  useDatabase,"] : [],
     ...options.memory ? ["  memory: true,"] : [],
     ...options.email && imports.email ? ["  sendEmail: message => email.send(message),"] : [],
     ...options.auth && imports.auth
@@ -127,6 +132,7 @@ export function renderFormsHandler(forms: readonly DiscoveredForm[], options: Hu
         ]
       : [],
     ...imports.standard ? ["  context: (request) => getStandardContext(request),"] : [],
+    ...options.rateLimit && imports.rateLimit ? ["  rateLimit: checkRateLimit,"] : [],
     "})",
     "",
   ]

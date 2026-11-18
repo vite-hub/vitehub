@@ -65,7 +65,7 @@ export function memoryRateLimitDriver(options: MemoryRateLimitDriverOptions = {}
         entry = { count: 0, resetAt }
       }
       if (entry.count >= input.limit) {
-        return [null, {
+        return [undefined, {
           allowed: false,
           remaining: 0,
           resetAt: entry.resetAt,
@@ -76,7 +76,7 @@ export function memoryRateLimitDriver(options: MemoryRateLimitDriverOptions = {}
       entry.count += 1
       entries.set(key, entry)
       nextExpiry = Math.min(nextExpiry, entry.resetAt)
-      return [null, {
+      return [undefined, {
         allowed: true,
         remaining: input.limit - entry.count,
         resetAt: entry.resetAt,
@@ -88,13 +88,13 @@ export function memoryRateLimitDriver(options: MemoryRateLimitDriverOptions = {}
       prune(timestamp)
       const key = JSON.stringify([input.name ?? "default", input.key])
       const entry = entries.get(key)
-      return [null, { resetAt: entry && entry.resetAt > timestamp ? entry.resetAt : undefined, used: entry && entry.resetAt > timestamp ? entry.count : 0 }]
+      return [undefined, { resetAt: entry && entry.resetAt > timestamp ? entry.resetAt : undefined, used: entry && entry.resetAt > timestamp ? entry.count : 0 }]
     },
     name: "memory",
     reset(input) {
       const key = JSON.stringify([input.name ?? "default", input.key])
       entries.delete(key)
-      return [null]
+      return [undefined, undefined]
     },
     size() {
       return entries.size

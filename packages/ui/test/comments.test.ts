@@ -18,6 +18,7 @@ import {
   CommentThread,
   CommentToolbar,
   PromptInput,
+  commentLeaveMs,
   createCommentVisibility,
   useComments,
   type CommentsState,
@@ -434,6 +435,47 @@ describe("pins and threads", () => {
     const pins = wrapper.findAll("[data-slot=comment-pin]");
     expect(pins.map((pin) => pin.attributes("aria-label"))).toEqual(["Comment 1 by Ana Ruiz: Comment 1"]);
     expect(wrapper.get("[data-slot=comment-layer-item]").attributes("style")).toContain("left: 200px");
+  });
+
+  it("unobserves closed preview and thread cards while the layer stays mounted", async () => {
+    const observed = new Set<Element>();
+    vi.stubGlobal("ResizeObserver", class {
+      observe(element: Element) { observed.add(element); }
+      unobserve(element: Element) { observed.delete(element); }
+      disconnect() { observed.clear(); }
+    });
+    const computedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element) => {
+      const style = computedStyle(element);
+      if (element.matches("[data-slot=comment-layer-popover]")) {
+        const getPropertyValue = style.getPropertyValue.bind(style);
+        vi.spyOn(style, "getPropertyValue").mockImplementation(name => name === "position-area" ? "bottom right" : getPropertyValue(name));
+      }
+      return style;
+    });
+    try {
+      const { wrapper } = await layer([thread(1)]);
+      const pin = wrapper.get("[data-slot=comment-pin]");
+      for (let cycle = 0; cycle < 3; cycle++) {
+        // Closing the thread restores focus to its pin. A focused pin keeps its preview open on pointerleave.
+        (pin.element as HTMLElement).blur();
+        await pin.trigger("pointerenter");
+        const preview = wrapper.get("[data-slot=comment-layer-popover][data-preview=true]").element;
+        expect(observed.has(preview)).toBe(true);
+        await pin.trigger("pointerleave");
+        expect(observed.has(preview)).toBe(false);
+        await pin.trigger("click");
+        const card = wrapper.get("[data-slot=comment-layer-popover]:not([data-preview])").element;
+        expect(observed.has(card)).toBe(true);
+        await wrapper.get("[aria-label=Close]").trigger("click");
+        await flushPromises();
+        expect(observed.has(card)).toBe(false);
+      }
+      expect([...observed].filter(element => !element.isConnected)).toEqual([]);
+      wrapper.unmount();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("previews a thread on hover and opens it on click", async () => {
@@ -1708,7 +1750,7 @@ describe("visibility", () => {
     await vi.waitFor(() => expect(client.status).toBe("ready"));
     await flushPromises();
     // After the load, so only the flash and the pop-out wait on the clock.
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     return { client, state, wrapper };
   }
   // The open thread is an item of its own, with no pin.
@@ -1739,10 +1781,68 @@ describe("visibility", () => {
     await flushPromises();
     expect(pins(wrapper)).toEqual([{ label: expect.stringContaining(`Comment ${sent.n}`), leaving: true }]);
     expect(wrapper.get("[data-leaving=true]").attributes()).toHaveProperty("inert");
-    vi.advanceTimersByTime(180);
+    vi.advanceTimersByTime(commentLeaveMs);
     await flushPromises();
     expect(pins(wrapper)).toEqual([]);
     expect(state.visibility.value).toBe("hidden");
+  });
+
+  it("stops the 2.5 seconds while the reader points at or focuses the pin, as a toast does", async () => {
+    const { client, wrapper } = await hiddenLayer([]);
+    await drop(wrapper);
+    await textarea(wrapper).setValue("New one");
+    await textarea(wrapper).trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    const sent = client.threads[0]!;
+    const shown = [{ label: expect.stringContaining(`Comment ${sent.n}`), leaving: false }];
+
+    vi.advanceTimersByTime(2000);
+    await wrapper.get("[data-slot=comment-pin]").trigger("pointerenter");
+    vi.advanceTimersByTime(5000);
+    await flushPromises();
+    expect(pins(wrapper)).toEqual(shown);
+
+    // The rest of the time runs after the reader leaves.
+    await wrapper.get("[data-slot=comment-pin]").trigger("pointerleave");
+    vi.advanceTimersByTime(499);
+    await flushPromises();
+    expect(pins(wrapper)).toEqual(shown);
+    await wrapper.get("[data-slot=comment-pin]").trigger("focus");
+    vi.advanceTimersByTime(5000);
+    await flushPromises();
+    expect(pins(wrapper)).toEqual(shown);
+    await wrapper.get("[data-slot=comment-pin]").trigger("blur");
+    vi.advanceTimersByTime(1);
+    await flushPromises();
+    expect(pins(wrapper)).toEqual([{ label: expect.stringContaining(`Comment ${sent.n}`), leaving: true }]);
+  });
+
+  it("keeps the time stopped while the pin still has the pointer or the focus", async () => {
+    const { client, wrapper } = await hiddenLayer([]);
+    await drop(wrapper);
+    await textarea(wrapper).setValue("New one");
+    await textarea(wrapper).trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    const shown = [{ label: expect.stringContaining(`Comment ${client.threads[0]!.n}`), leaving: false }];
+    const pin = () => wrapper.get("[data-slot=comment-pin]");
+
+    await pin().trigger("pointerenter");
+    await pin().trigger("focus");
+    await pin().trigger("pointerleave");
+    vi.advanceTimersByTime(5000);
+    await flushPromises();
+    expect(pins(wrapper)).toEqual(shown);
+
+    await pin().trigger("pointerenter");
+    await pin().trigger("blur");
+    vi.advanceTimersByTime(5000);
+    await flushPromises();
+    expect(pins(wrapper)).toEqual(shown);
+
+    await pin().trigger("pointerleave");
+    vi.advanceTimersByTime(2500);
+    await flushPromises();
+    expect(pins(wrapper).map(entry => entry.leaving)).toEqual([true]);
   });
 
   it("shows only the open thread, such as one opened from the list, and pops it out when it closes", async () => {
@@ -1755,7 +1855,7 @@ describe("visibility", () => {
     state.close();
     await flushPromises();
     expect(pins(wrapper)).toEqual([{ label: expect.stringContaining("Comment 2"), leaving: true }]);
-    vi.advanceTimersByTime(180);
+    vi.advanceTimersByTime(commentLeaveMs);
     await flushPromises();
     expect(pins(wrapper)).toEqual([]);
     expect(state.visibility.value).toBe("hidden");
@@ -1780,7 +1880,7 @@ describe("visibility", () => {
   });
 
   it("gives the same list from the plain helper, for marks drawn elsewhere", () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     const visibility = createCommentVisibility({ visibility: "hidden" });
     const changes = vi.fn();
     visibility.subscribe(changes);
@@ -1796,9 +1896,22 @@ describe("visibility", () => {
     vi.advanceTimersByTime(500);
     expect(visibility.only).toEqual(["open"]);
     expect(visibility.leaving).toEqual(["sent"]);
-    vi.advanceTimersByTime(180);
+    vi.advanceTimersByTime(commentLeaveMs);
     expect(visibility.leaving).toEqual([]);
     expect(changes).toHaveBeenCalled();
+
+    // A thread the reader is on keeps showing, and gets its full time again when sent again.
+    visibility.flash("held");
+    vi.advanceTimersByTime(1000);
+    visibility.hover("held");
+    vi.advanceTimersByTime(10_000);
+    expect(visibility.only).toEqual(["open", "held"]);
+    visibility.flash("held");
+    visibility.hover(null);
+    vi.advanceTimersByTime(2499);
+    expect(visibility.only).toEqual(["open", "held"]);
+    vi.advanceTimersByTime(1);
+    expect(visibility.only).toEqual(["open"]);
 
     visibility.set("all");
     expect(visibility.only).toEqual([]);

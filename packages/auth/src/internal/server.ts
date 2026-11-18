@@ -12,6 +12,7 @@ import { getAuthenticationSession, type AuthenticationSessionSnapshot } from "..
 import { prepareSessionCookies, sendSessionCookies } from "../session-cookies.ts"
 import { getAuthRuntimeState } from "../runtime-state.ts"
 import { withSessionMarker } from "../session-marker.ts"
+import { readSetCookies } from "../set-cookie.ts"
 import { eventClientAddress, setRequestClientAddress, withClientAddress } from "../client-address.ts"
 import { createAuthAccessRouteMatcher } from "../runtime/server.ts"
 import { checkAbility } from "../ability-check.ts"
@@ -51,6 +52,10 @@ import type {
   ViteHubAuth,
 } from "../types.ts"
 import { authErrorDiagnostics } from "../error-diagnostics.ts"
+import { findAccessPolicyPlugin } from "../access-policy.ts"
+import { notMemberError } from "../members.ts"
+import type { AuthMemberErrorCode } from "../members.ts"
+import type { Result } from "@vite-hub/runtime"
 
 export { createBetterAuthOptions, getAuthForDefinition } from "../auth-instance.ts"
 export { resetAuth } from "../runtime-state.ts"
@@ -283,6 +288,23 @@ export function getAuth(): RegisteredAuth {
 }
 
 /**
+ * Checks `VITEHUB_MEMBERS` for a user, with the rules of sign-in, for code that has a user id but no session, such as
+ * an upload ticket or a signed link. Returns `[undefined, undefined]` when the list lets the user in, or when
+ * `VITEHUB_MEMBERS` is not set. Returns `AUTH_NOT_MEMBER` for a refused or unknown user, and `AUTH_GITHUB_UNAVAILABLE`
+ * when GitHub cannot confirm an organization membership. Pass the request event so that Auth reads the variable from
+ * the request's Cloudflare bindings.
+ */
+export async function checkAuthMember(userId: string, event?: AuthRequestInput): Promise<Result<void, AuthMemberErrorCode>> {
+  const auth = event ? useAuth(event) : getAuth()
+  const context = await auth.$context
+  const members = findAccessPolicyPlugin(context.options.plugins)?.members
+  if (!members) return [undefined, undefined]
+  const user = await context.internalAdapter.findUserById(userId)
+  if (!user) return [notMemberError(), undefined]
+  return await members.check(context, user)
+}
+
+/**
  * Return the Better Auth instance of the app's Auth Definition for a request event or a Web `Request`.
  * The generated types give it the endpoints and fields of the Definition's plugins, so `useAuth(event).api.banUser`
  * type-checks when `server/auth.ts` uses `admin()`.
@@ -306,6 +328,38 @@ export async function assertAuthOrigin(
 
 export function handleAuth(input: AuthRequestInput): Promise<Response> {
   return handleAuthRequest(resolveDefaultDefinition(), input)
+}
+
+/** The options of `signOut()`. */
+export interface AuthSignOutOptions {
+  /** The app path to open after the sign-out, such as `/login`. Without it, `signOut()` answers `204`. */
+  redirectTo?: string
+}
+
+/**
+ * Signs out the session of a request event or a Web `Request` from server code, such as a GET `/logout` route.
+ * Better Auth deletes the session, and the response clears its cookies. Returns a `303` redirect to `redirectTo`, or
+ * `204` without it. Provider logout uses a `303` to the provider first, with `redirectTo` as its callback.
+ * A request without a session gets the same answer. Throws `AUTH_SIGN_OUT_REDIRECT_INVALID` when
+ * `redirectTo` is not a path of the app.
+ */
+export async function signOut(input: AuthRequestInput, options: AuthSignOutOptions = {}): Promise<Response> {
+  const { redirectTo } = options
+  // URL parsing removes tabs and line breaks, which can turn an app path into an external URL.
+  // eslint-disable-next-line no-control-regex
+  if (redirectTo !== undefined && (!redirectTo.startsWith("/") || /^\/[/\\]/.test(redirectTo) || /[\u0000-\u001F\u007F]/.test(redirectTo))) {
+    throw authErrorDiagnostics.AUTH_SIGN_OUT_REDIRECT_INVALID({ redirectTo })
+  }
+  const request = unwrapAuthRequest(input)
+  const result = await useAuth(input).api.signOut({ asResponse: true, headers: request.headers, body: { callbackURL: redirectTo } })
+  // Better Auth answers 400 when the request has no session. It clears the cookies then too.
+  if (!result.ok && result.status !== 400) return result
+  const headers = new Headers({ "cache-control": "no-store" })
+  for (const cookie of readSetCookies(result.headers)) headers.append("set-cookie", cookie)
+  const location = result.ok ? result.headers.get("location") ?? redirectTo : redirectTo
+  if (location === undefined) return new Response(null, { headers, status: 204 })
+  headers.set("location", location)
+  return new Response(null, { headers, status: 303 })
 }
 
 function wantsHtml(request: Pick<Request, "headers" | "method">): boolean {

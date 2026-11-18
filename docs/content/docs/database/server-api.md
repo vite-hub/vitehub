@@ -16,6 +16,8 @@ icon: i-lucide-code-2
 | `chunkParameters` from `vite-hub/database` | Split values so each statement stays under the D1 parameter limit. |
 | `getPostgresConnectionUrl` from `vite-hub/database` | Read the connection URL of a Postgres Database, for a package that opens its own Postgres client, such as OpenWorkflow. |
 | `ensureMigrations` from `vite-hub/database` | Apply the pending migrations once in this process, from a task, a test, or a plugin. |
+| `withIdempotency` from `vite-hub/database` | Run work once for a key, such as a webhook delivery id, and give repeats the first result. |
+| `useLeases` from `vite-hub/database` | Let one server at a time hold a key, such as a sync or a leader job, and renew it while the work runs. |
 | `hubDatabase` from `@vite-hub/database/vite` | Add database discovery, the generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve config values and discovery config. |
 | `@vite-hub/database/cli` | The `vitehub database` CLI commands. |
@@ -99,6 +101,26 @@ export default defineEventHandler(() => {
 })
 ```
 
+### Run queries in one batch
+
+On SQLite Databases (D1, D1 over HTTP, and libSQL), `db.batch()` runs a list of queries in one transaction and one call. A literal list types each result. A list that the handler builds works too:
+
+```ts [server/api/notes/import.post.ts]
+import type { BatchItem } from 'drizzle-orm/batch'
+import { defineEventHandler, readBody } from 'h3'
+import { useDatabase } from 'vite-hub/database'
+
+export default defineEventHandler(async (event) => {
+  const { db, schema } = useDatabase('default')
+  const { titles } = await readBody<{ titles: string[] }>(event) ?? { titles: [] }
+  const writes: BatchItem<'sqlite'>[] = []
+  for (const title of titles) writes.push(db.insert(schema.notes).values({ title }))
+  await db.batch(writes)
+})
+```
+
+An empty list runs nothing and resolves `[]`. D1 rejects an empty batch, so ViteHub does not send it.
+
 ### Pass the D1 binding to other code
 
 Some code takes a Cloudflare D1 binding instead of a Drizzle client, such as the [D1 Agent Invocation store](/docs/agents/invocation-storage#store-invocations-in-cloudflare-d1). `useDatabaseBinding(name)` returns the D1 binding of a database, or the D1 session of the request when `cloudflare.readReplication` is on. Call it for each operation, inside the request or the task that uses it, because the binding belongs to the running Worker. It is the same value as `db.$client`, so its calls do not appear in the [request database stats](#see-database-work-on-each-request).
@@ -139,6 +161,75 @@ export async function deleteFiles(ownerId: string, ids: string[]) {
 The helper trusts your counts. It does not read row contents or SQL defaults. An SQL expression can bind several parameters in one column: a one-column row with `` sql`${first} || ${second}` `` binds two, so use `{ per: 2 }`, not the table. Pick a `per` that covers the most a whole row can bind, SQL defaults included.
 
 Each array has at most `(limit - reserved) / per` values. When one value does not fit, it throws `DATABASE_CHUNK_VALUE_TOO_LARGE`, and `DATABASE_CHUNK_INVALID_COUNT` when a count is not a whole number in range. Chunks are separate statements, so wrap them in `db.batch()` or a transaction when they must apply together.
+
+## Run work once for a key
+
+Webhook senders, queues, and browsers retry. `withIdempotency(key, fn)` runs `fn` once for each key, on every instance of the app. A repeat gets the stored result and does not run `fn`:
+
+```ts [server/api/webhooks/payments.post.ts]
+import { defineEventHandler, HTTPError, readBody } from 'h3'
+import { withIdempotency } from 'vite-hub/database'
+
+export default defineEventHandler(async (event) => {
+  // A Standard Webhooks sender retries a delivery with the same `webhook-id`.
+  const delivery = event.req.headers.get('webhook-id')
+  if (!delivery) throw new HTTPError({ status: 400, statusText: 'The webhook-id header is missing.' })
+  const payment = await readBody<{ orderId: string }>(event)
+
+  const [error, receipt] = await withIdempotency(`payments:${delivery}`, async () => {
+    const response = await fetch('https://mail.example.com/send', {
+      method: 'POST',
+      body: JSON.stringify({ template: 'receipt', orderId: payment?.orderId }),
+    })
+    if (!response.ok) throw new Error(`The receipt mail failed with HTTP ${response.status}.`)
+    return { mailed: payment?.orderId }
+  })
+  if (error) throw new HTTPError({ status: 409, statusText: error.why })
+  return receipt
+})
+```
+
+| Case | Result |
+| --- | --- |
+| First call for the key | Runs `fn`, stores its result, and returns `[undefined, result]`. |
+| Repeat after the first call finished | Returns `[undefined, result]` with the stored result. `fn` does not run. |
+| Repeat while the first call runs | Returns [`DATABASE_IDEMPOTENCY_IN_PROGRESS`](/docs/database/diagnostics/database_idempotency_in_progress). Answer 409 so the client retries, or return from a Queue handler. |
+| `fn` throws | Rethrows the error and frees the key, so a retry runs `fn` again. |
+
+| Option | Default | Use |
+| --- | --- | --- |
+| `ttl` | `86400` | Seconds that the stored result answers repeats. After that, the key is new again. |
+| `timeout` | `300` | Seconds that a running call holds the key. When a call crashes, the next call after `timeout` runs `fn` again. |
+| `database` | the default or only Database | The Database that stores the keys. |
+
+The keys live in the table `vitehub_idempotency_keys`, which the first call creates, on SQLite, D1, libSQL, and Postgres. Read it with `vitehub database sql "SELECT * FROM vitehub_idempotency_keys"`. The result must be JSON: a repeat gets `JSON.parse(JSON.stringify(result))`, so a `Date` comes back as a string. Pick a `timeout` longer than `fn` can run. A call that runs past it no longer holds the key, and a repeat runs `fn` a second time.
+
+`fn` and the stored result are separate writes. When the process stops after `fn` and before the result is stored, the key frees itself after `timeout` and a retry runs `fn` again. Make the work safe to repeat when that matters, for example with the idempotency key of your payment or mail provider.
+
+## Hold a lease
+
+`useLeases()` lets one server at a time hold a key. A lease ends at `release()` or when its `ttl` passes, and the holder can `renew()` it while the work runs:
+
+```ts [server/api/sync/stripe.post.ts]
+import { defineEventHandler, HTTPError } from 'h3'
+import { useLeases } from 'vite-hub/database'
+
+export default defineEventHandler(async () => {
+  const [error, lease] = await useLeases().acquire('sync:stripe-payouts', { ttl: 60 })
+  if (error) throw new HTTPError({ status: 503, statusText: error.why })
+  if (!lease) return { skipped: true }
+  try {
+    const response = await fetch('https://api.stripe.com/v1/payouts?limit=100')
+    const { data }: { data: { id: string }[] } = await response.json()
+    return { synced: data.length }
+  }
+  finally {
+    await lease.release()
+  }
+})
+```
+
+The leases live in the table `vitehub_leases` of the default or only Database, which the first call creates, on SQLite, D1, libSQL, and Postgres. Pass `{ database }` to use another Database. The [locks and leases guide](/docs/guides/run-one-at-a-time) shows `renew()`, `get()`, and when to use `kv.lock()` instead.
 
 ## Apply migrations from server code
 

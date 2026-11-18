@@ -156,7 +156,7 @@ it("loads Definitions with deferred Nitro hooks before serving and enforces thei
       'import { defineWorkspace } from "@vite-hub/workspace"',
       'import { useNitroApp } from "nitro/app"',
       'const options = {',
-      '  store: { provider: "memory" },',
+      '  store: { driver: "memory" },',
       '  hooks: { "write:error": ({ error }) => {',
       '    if (error instanceof Error) useNitroApp().captureError?.(error, { tags: ["workspace"] })',
       '  } },',
@@ -170,7 +170,7 @@ it("loads Definitions with deferred Nitro hooks before serving and enforces thei
         host: "node",
         database: { connection: { url: "libsql://shared.example?authToken=secret" } },
         kv: false,
-        workspace: { assets: false, store: { provider: "github", repository: "acme/workspaces" } },
+        workspace: { assets: false, store: { driver: "github", repository: "acme/workspaces" } },
       })],
       root: projectRoot,
     });

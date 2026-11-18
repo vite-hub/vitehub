@@ -12,7 +12,7 @@ import { basename, dirname, resolve } from 'pathe'
 
 import { discoverSandboxTaskDefinitions } from '../discovery'
 import { createSandboxTaskFeaturePlan, resolveSandboxTaskFeatureConfig, sandboxTaskRuntimeSpecifier, sandboxTaskRuntimeStateSpecifier } from '../feature'
-import { getSandboxTaskFeatureProvider } from '../module-types'
+import { getSandboxTaskFeatureDriver } from '../module-types'
 import {
   activateSandboxTaskRuntimeFile,
   markSandboxTaskRuntimeGeneration,
@@ -61,12 +61,18 @@ function normalizeSandboxTaskOptions(options: SandboxTaskOptions): AgentSandboxT
     return false
   if (!isPlainObject(options))
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0042({ message: '[vitehub] `sandboxTask` must be a plain object.' })
+  // Without `driver`, the Sandbox Task picks the host's driver, so the former `provider` key would be ignored silently.
+  if (options.driver === undefined && Object.hasOwn(options, 'provider')) {
+    // SAFETY: An app config without types still passes the former `provider` key.
+    const provider = (options as { provider?: unknown }).provider
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_RENAMED_PROVIDER_KEY({ value: JSON.stringify(provider) ?? String(provider) })
+  }
   return { ...options } as AgentSandboxTaskConfig
 }
 
 function createSandboxTaskRuntimeConfig(config: AgentSandboxTaskConfig | false, hosting?: string): SandboxTaskRuntimeConfig {
-  const provider = getSandboxTaskFeatureProvider(config)
-  const sandbox = provider?.provider === 'vercel'
+  const provider = getSandboxTaskFeatureDriver(config)
+  const sandbox = provider?.driver === 'vercel'
     ? {
         ...config,
         token: provider.token ?? '',
@@ -110,7 +116,7 @@ async function resolveSandboxTaskViteContext(
       ? resolveSandboxTaskFeatureConfig(options, hosting)
       : { ...options }
   const runtimeSandboxTaskConfig = config !== false
-    && (hasDefinitions || getSandboxTaskFeatureProvider(config)?.provider)
+    && (hasDefinitions || getSandboxTaskFeatureDriver(config)?.driver)
     ? config
     : false
   const rootDir = resolve(process.cwd(), typeof userConfig.root === 'string' ? userConfig.root : '.')
@@ -493,7 +499,7 @@ export async function prepareSandboxTaskRuntime(options: {
       definitions,
       files: [],
       hosting: context.hosting,
-      provider: getSandboxTaskFeatureProvider(context.config)?.provider,
+      provider: getSandboxTaskFeatureDriver(context.config)?.driver,
       rootDir,
       stateModule,
       watchFiles: plan.watchFiles || [],
@@ -522,7 +528,7 @@ export async function prepareSandboxTaskRuntime(options: {
       ...(plan.artifacts || []).map(artifact => resolve(ensureGeneratedDir(rootDir, 'sandbox-task'), artifact.filename)),
     ],
     hosting: context.hosting,
-    provider: getSandboxTaskFeatureProvider(context.config)?.provider,
+    provider: getSandboxTaskFeatureDriver(context.config)?.driver,
     rootDir,
     stateModule,
     watchFiles: plan.watchFiles || [],

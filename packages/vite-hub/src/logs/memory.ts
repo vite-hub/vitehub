@@ -1,7 +1,7 @@
 import type { DrainContext } from "evlog";
 import * as v from "valibot";
+import { logCursorExpiredError, logEntrySchema, parseLogQuery } from "./source.ts";
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts";
-import { LogCursorExpiredError, logEntrySchema, parseLogQuery } from "./source.ts";
 import type { LogEntry, LogSource } from "./source.ts";
 
 export interface LogBuffer {
@@ -56,7 +56,7 @@ export function createLogBuffer(
       const cursorIndex = query.cursor
         ? entries.findIndex((entry) => entry.id === query.cursor)
         : entries.length;
-      if (cursorIndex === -1) throw new LogCursorExpiredError();
+      if (cursorIndex === -1) throw logCursorExpiredError();
       const text = query.text?.toLowerCase();
       const filtered = entries
         .slice(0, cursorIndex)

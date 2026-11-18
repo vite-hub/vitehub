@@ -93,12 +93,12 @@ The Process Runtime loads the discovered registry and runs each Static Schedule 
 - `runtime` and `providerOutput` are separate. Setting one does not set the other.
 
 ::warning
-Do not use this driver on request-scoped or serverless hosts that may stop between requests. It scans inside the Node.js process and does not create cron, systemd, or another operating-system schedule.
+Do not use this driver on request-scoped or serverless hosts that may stop between requests. It scans inside the Node.js process and does not create cron, systemd, or another operating-system schedule. To let the operating system start a command on the cron, see [OS timers](/docs/schedule/os-timers).
 ::
 
 ### Run on more than one server
 
-Every server checks every Schedule. While the holder keeps its lease, one server runs each occurrence. Before it runs an occurrence, a server takes a lease on `<prefix>/schedule/<run id>` in the `vitehub_leases` table of the Default Database. The prefix is `runtime.prefix`, which defaults to `vitehub:schedule`. Use a different prefix for each app that shares a Database, and the same prefix on every server of one app. The other servers skip the occurrence and try again at their next scan. This works on Postgres, with postgres.js or node-postgres, and on remote libSQL, such as Turso. A local libSQL file is safe for one server process only: `@libsql/client` can lose writes when several processes write to one file, so the server prints a warning at start.
+Every server checks every Schedule. While the holder keeps its lease, one server runs each occurrence. Before it runs an occurrence, a server takes a lease on `<prefix>/schedule/<run id>` in the `vitehub_leases` table of the Default Database. The prefix is `runtime.prefix`, which defaults to `vitehub:schedule`. Use a different prefix for each app that shares a Database, and the same prefix on every server of one app. The other servers skip the occurrence and try again at their next scan. These are the leases of [`useLeases()`](/docs/database/server-api#hold-a-lease). This works on Postgres, with postgres.js or node-postgres, remote libSQL such as Turso, and D1. A local libSQL file is safe for one server process only: `@libsql/client` can lose writes when several processes write to one file, so the server prints a warning at the first lease.
 
 | Case | What happens |
 | --- | --- |

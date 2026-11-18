@@ -26,6 +26,7 @@ export const apiUrl = z.url().refine(value => value.startsWith("https://"), "Use
 export const retries = z.coerce.number().int().min(1).max(5)
 export const tags = z.string().transform(value => value.split(",").map(tag => tag.trim()))
 export const token = z.string().min(20)
+export const settings = z.object({ labels: z.array(z.string()), threshold: z.number() })
 export const withoutMetadata = {
   "~standard": {
     version: 1 as const,
@@ -47,7 +48,9 @@ else {
   const serverEnv = useServerEnv()
   console.log(JSON.stringify({
     apiUrl: serverEnv.apiUrl,
+    ports: serverEnv.ports,
     retries: serverEnv.retries,
+    settings: serverEnv.settings,
     tags: serverEnv.tags,
     token: String(serverEnv.token),
     tokenLength: serverEnv.token.unseal().length,
@@ -61,6 +64,10 @@ const consumer = `import { useServerEnv } from "#vitehub/env/server"
 const serverEnv = useServerEnv()
 export const retries: number = serverEnv.retries
 export const tags: string[] = serverEnv.tags
+export const ports: number[] = serverEnv.ports
+export const threshold: number = serverEnv.settings.threshold
+// @ts-expect-error env.json() with a schema has the schema output type.
+export const wrongSettings: string = serverEnv.settings
 export const token: string = serverEnv.token.unseal()
 export const withoutMetadata: unknown = serverEnv.withoutMetadata
 // @ts-expect-error A schema without type metadata has an unknown output.
@@ -105,6 +112,8 @@ async function runServer(directory: string, values: Record<string, string>, mode
 
 const validValues = {
   VITEHUB_API_URL: "https://api.example.com",
+  VITEHUB_PORTS: "80, 443",
+  VITEHUB_SETTINGS: "{\"labels\":[\"a\"],\"threshold\":0.5}",
   VITEHUB_RETRIES: "3",
   VITEHUB_TAGS: "alpha, beta",
   VITEHUB_TOKEN: syntheticToken,
@@ -121,7 +130,9 @@ beforeAll(async () => {
   await writeFile(join(root, "facade-consumer.ts"), consumer.replace("#vitehub/env/server", "vite-hub/env"), "utf8")
   await buildServer(root, {
     apiUrl: env({ schema: env.schemaFrom("./env.schema.ts", "apiUrl") }),
+    ports: env.list(env.number()),
     retries: env({ default: "2", schema: env.schemaFrom("./env.schema.ts", "retries") }),
+    settings: env.json(env.schemaFrom("./env.schema.ts", "settings")),
     tags: env({ schema: env.schemaFrom("./env.schema.ts", "tags") }),
     token: env({ secret: true, schema: env.schemaFrom("./env.schema.ts", "token") }),
     withoutMetadata: env({ default: "metadata-free", schema: env.schemaFrom("./env.schema.ts", "withoutMetadata") }),
@@ -138,7 +149,9 @@ describe("env.schemaFrom()", () => {
     expect(result.code).toBe(0)
     expect(JSON.parse(result.output)).toEqual({
       apiUrl: "https://api.example.com",
+      ports: [80, 443],
       retries: 3,
+      settings: { labels: ["a"], threshold: 0.5 },
       tags: ["alpha", "beta"],
       token: "<redacted>",
       tokenLength: syntheticToken.length,
@@ -169,6 +182,10 @@ describe("env.schemaFrom()", () => {
 
     const integer = await runServer(root, { ...validValues, VITEHUB_RETRIES: "1.5" })
     expect(integer.code).toBe(1)
+
+    const json = await runServer(root, { ...validValues, VITEHUB_SETTINGS: "{\"labels\":\"a\",\"threshold\":1}" })
+    expect(json.code).toBe(1)
+    expect(json.output).toContain("env.server.settings")
   })
 
   it("hides schema messages and values of a secret", async () => {
@@ -185,7 +202,9 @@ describe("env.schemaFrom()", () => {
     expect(result.code).toBe(0)
     expect(JSON.parse(result.output)).toEqual([
       ["env.server.apiUrl", "invalid"],
+      ["env.server.ports", "available"],
       ["env.server.retries", "available"],
+      ["env.server.settings", "available"],
       ["env.server.tags", "available"],
       ["env.server.token", "invalid"],
       ["env.server.withoutMetadata", "defaulted"],

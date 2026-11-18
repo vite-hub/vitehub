@@ -12,8 +12,8 @@ Import `useForge()` from `vite-hub/forge`. It re-exports `@vite-hub/forge`.
 | --- | --- |
 | `useForge({ forge, baseUrl, env, fetch, userAgent, conditionalRequests })` | The Forge of this deployment. `forge` defaults to `"github"`. `env` defaults to the active Cloudflare bindings, then `process.env`. Throws `FORGE_MISSING_ENV` or `FORGE_INVALID_ENV` when the env cannot work. |
 | `forge.kind`, `forge.auth`, `forge.baseUrl` | The Forge, `"app"` or `"token"`, and the API base. |
-| `forge.token({ repository, refresh, signal })` | `[error, { token, expiresAt }]`. With a GitHub App, an installation token for the owner of `repository` (see [Installations](/docs/forge/configure#installations)), or for `VITEHUB_GITHUB_INSTALLATION_ID` without `repository`. |
-| `forge.provider({ repository, refresh, signal })` | `[error, provider]`, a `forges` provider that sends `token()`. A GitHub provider has `graphql()`. |
+| `forge.token({ repository, installation, refresh, minLifetime, signal })` | `[error, { token, expiresAt }]`. With a GitHub App, an installation token for `installation`, such as `installation.id` of a webhook delivery, else for the owner of `repository` (see [Installations](/docs/forge/configure#installations)), or for `VITEHUB_GITHUB_INSTALLATION_ID` without `repository`. |
+| `forge.provider({ repository, installation, refresh, minLifetime, signal })` | `[error, provider]`, a `forges` provider that sends `token()`. A GitHub provider has `graphql()`. |
 | `forge.app({ signal })` | `[error, { id, slug, login }]` of the GitHub App. Throws `FORGE_NOT_APP` with a token. |
 
 `baseUrl` is the API base for GitHub Enterprise Server, or the instance root for GitLab and Forgejo. A cancelled call rejects with the abort reason.
@@ -23,12 +23,12 @@ Import `useForge()` from `vite-hub/forge`. It re-exports `@vite-hub/forge`.
 `provider()` returns a [`forges`](https://forges.link) client that sends the installation token of the repository:
 
 ```ts [server/api/issues.post.ts]
-import { createError, defineEventHandler } from 'h3'
+import { defineEventHandler, HTTPError } from 'h3'
 import { useForge } from 'vite-hub/forge'
 
 export default defineEventHandler(async () => {
   const [error, github] = await useForge().provider({ repository: 'acme/web' })
-  if (error) throw createError({ status: 502, message: error.why })
+  if (error) throw new HTTPError({ status: 502, message: error.why })
 
   const { data } = await github.request<{ html_url: string }>('POST', '/repos/acme/web/issues', {
     body: { title: 'Nightly build failed' },
@@ -55,7 +55,7 @@ export async function githubEnv(repository: string) {
 }
 ```
 
-`expiresAt` is the expiry of an installation token. It is `undefined` for `VITEHUB_GITHUB_TOKEN`. Pass `refresh: true` to mint a new token before the cached one expires.
+`expiresAt` is the expiry of an installation token. It is `undefined` for `VITEHUB_GITHUB_TOKEN`. Pass `refresh: true` to mint a new token before the cached one expires. Pass `minLifetime` in milliseconds when the token must stay valid for a long job, such as a `git` clone that keeps it for 55 minutes. The default is one minute.
 
 ## Know who the App is
 

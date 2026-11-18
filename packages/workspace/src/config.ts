@@ -49,6 +49,6 @@ export function normalizeWorkspaceOptions(
   return {
     assets: resolvedOptions.assets,
     root: resolve(rootDir, root),
-    store: normalizeWorkspaceStoreOptions(resolvedOptions.store, input) || { provider: "local" },
+    store: normalizeWorkspaceStoreOptions(resolvedOptions.store, input) || { driver: "local" },
   }
 }

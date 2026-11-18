@@ -15,17 +15,17 @@ type BlobProvider = "cloudflare" | "vercel"
 
 const driverModules = {
   azure: "drivers/azure",
-  "cloudflare-r2": "drivers/cloudflare",
+  cloudflare: "drivers/cloudflare",
   fs: "drivers/fs",
   gcs: "drivers/gcs",
   minio: "drivers/minio",
   "netlify-blobs": "drivers/netlify-blobs",
   s3: "drivers/s3",
-  "vercel-blob": "drivers/vercel-bundled",
+  vercel: "drivers/vercel-bundled",
 } satisfies Record<NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], string>
 
 function getDriverModule(driver: NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], provider?: BlobProvider, nativeCloudflareR2 = false) {
-  if (driver === "cloudflare-r2" && provider === "cloudflare" && nativeCloudflareR2) return "drivers/cloudflare-native"
+  if (driver === "cloudflare" && provider === "cloudflare" && nativeCloudflareR2) return "drivers/cloudflare-native"
   return driverModules[driver]
 }
 
@@ -33,7 +33,7 @@ function getRuntimeBlobStoreResolver(driver: string | undefined) {
   switch (driver) {
     case "minio":
       return "resolveRuntimeMinioBlobStore"
-    case "vercel-blob":
+    case "vercel":
       return "resolveRuntimeVercelBlobStore"
     default:
       return undefined
@@ -41,7 +41,7 @@ function getRuntimeBlobStoreResolver(driver: string | undefined) {
 }
 
 function isCloudflareR2StoreWithBucket(store: ResolvedBlobModuleOptions["store"]): store is ResolvedCloudflareR2BlobStoreConfig & { bucketName: string } {
-  return store.driver === "cloudflare-r2" && Boolean(store.bucketName)
+  return store.driver === "cloudflare" && Boolean(store.bucketName)
 }
 
 // A type alias, not an interface, so it fits the provider output's index-signature entry type.
@@ -83,10 +83,10 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
   // A store with `secretEnv` has env variable names in place of its credentials. They are read when the driver starts.
   const secrets = stores.some(store => store.secretEnv)
   const nativeCloudflareR2 = stores
-    .filter(store => store.driver === "cloudflare-r2")
+    .filter(store => store.driver === "cloudflare")
     .every(store => isCloudflareR2StoreWithBucket(store) && !store.remote)
   // Only `vite dev` sets `localFallback`: the R2 store then uses this `fs` store when the dev runner has no R2 binding.
-  const localFallback = stores.some(store => store.driver === "cloudflare-r2" && store.localFallback)
+  const localFallback = stores.some(store => store.driver === "cloudflare" && store.localFallback)
   const selectedDriverModules = [...new Set([
     ...stores.map(store => getDriverModule(store.driver, provider, nativeCloudflareR2)),
     ...(localFallback ? [driverModules.fs] : []),
@@ -122,7 +122,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
     const runtimeStoreResolver = getRuntimeBlobStoreResolver(driver)
     const store = secrets ? "resolveRuntimeBlobSecrets(store, blobRuntimeEnv())" : "store"
     const storeExpression = runtimeStoreResolver ? `${runtimeStoreResolver}(${store}, process.env)` : store
-    if (driver === "cloudflare-r2" && localFallback) {
+    if (driver === "cloudflare" && localFallback) {
       return `    case ${JSON.stringify(driver)}: return store.localFallback && !getOptionalBucket(store) ? ${driverImports[driverModules.fs]}(store.localFallback) : ${driverImport}(${storeExpression})`
     }
     return `    case ${JSON.stringify(driver)}: return ${driverImport}(${storeExpression})`

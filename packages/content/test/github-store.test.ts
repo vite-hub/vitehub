@@ -14,7 +14,7 @@ import { registerWorkspace } from "@vite-hub/workspace/test"
 import { createFakeGitHub, textSha } from "../../workspace/test/fake-github.ts"
 import { contentSessionsSchema } from "../src/database.ts"
 import { documents } from "../src/collections.ts"
-import { defineContent } from "../src/index.ts"
+import { defineContent, defineContentHandler } from "../src/index.ts"
 import { defineContentPreset } from "../src/presets.ts"
 import { createContentConsoleActions } from "../src/runtime/console.ts"
 
@@ -67,7 +67,7 @@ async function setup(options: { authorize?: () => boolean, database?: boolean, f
   const workspace = `github-${process.pid}-${++workspaces}`
   registerWorkspace(workspace, {
     store: {
-      provider: "github",
+      driver: "github",
       repository: "onmax/repo",
       ...("token" in options ? (options.token === undefined ? {} : { token: options.token }) : { token: "token" }),
       branch: "main",
@@ -93,6 +93,19 @@ describe("Content on the GitHub store", () => {
     const named = { code: "WORKSPACE_R0072", message: expect.stringContaining("VITEHUB_GITHUB_TOKEN") }
     await expect(content.resolve("/posts/a", { ref: "draft" })).rejects.toMatchObject(named)
     await expect(posts.get("a")).rejects.toMatchObject(named)
+  })
+
+  it("answers /api/content with the code and fix of the missing token", async () => {
+    const { content } = await setup({ token: undefined })
+    const response = await defineContentHandler(content).fetch(new Request(`https://example.com/api/content/get/posts/a`))
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({
+      error: "internal_error",
+      code: "WORKSPACE_R0072",
+      message: expect.stringContaining("VITEHUB_GITHUB_TOKEN"),
+      fix: expect.stringContaining("VITEHUB_GITHUB_TOKEN"),
+      docs: expect.stringMatching(/workspace_r0072$/),
+    })
   })
 
   it("reads published documents from the main branch", async () => {
@@ -909,7 +922,7 @@ describe("Content on the GitHub store", () => {
     const intro = await posts.save("docs/pages/intro", { data: { title: "Intro" }, body: "Hi\n" })
     expect(intro.path).toBe("docs/pages/intro.md")
     expect((await posts.save("packages/ui/docs/readme", { data: { title: "UI" }, body: "" })).path).toBe("packages/ui/docs/readme.md")
-    await expect(posts.save("docs/other/new", { data: { title: "No" }, body: "" })).rejects.toMatchObject({ code: "CONTENT_R0008", message: expect.stringContaining("outside collection") })
+    await expect(posts.save("docs/other/new", { data: { title: "No" }, body: "" })).rejects.toMatchObject({ code: "CONTENT_DOCUMENT_OUTSIDE_COLLECTION", message: expect.stringContaining("outside collection") })
     await expect(content.resolve("/intro")).resolves.toBeNull()
     await expect(content.resolve("/intro", { ref: "draft" })).resolves.toEqual({ collection: "posts", id: "docs/pages/intro" })
 
@@ -962,7 +975,7 @@ describe("Content reads on the GitHub store", () => {
     // A new runtime holds nothing in memory, like a server instance that just started.
     const workspace = `github-${process.pid}-${++workspaces}`
     registerWorkspace(workspace, {
-      store: { provider: "github", repository: "onmax/repo", token: "token", branch: "main", root: "", refs: { published: "main", draft: "vitehub/content" } },
+      store: { driver: "github", repository: "onmax/repo", token: "token", branch: "main", root: "", refs: { published: "main", draft: "vitehub/content" } },
       rules: { "**": { write: false } },
     })
     const fresh = defineContent({ extends: [pullRequests, { workspace }] as const, collections: { posts: documents({ path: ["content/posts/**/*.md"], fields: { title: z.string() } }) }, logger: false, authorize: () => true })

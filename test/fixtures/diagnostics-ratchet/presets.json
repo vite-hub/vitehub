@@ -1,0 +1,28 @@
+{
+  "rawErrors": {
+    "packages/presets/src/babysitter/pr-workspaces.ts": 1,
+    "packages/presets/src/github/auto-merge.ts": 5,
+    "packages/presets/src/github/checkout.ts": 3,
+    "packages/presets/src/github/pull-requests.ts": 1,
+    "packages/presets/src/github/repair.ts": 6,
+    "packages/presets/src/github/required-checks.ts": 4
+  },
+  "codesWithoutFix": [],
+  "invariants": {
+    "packages/presets/src/babysitter/admission.ts": 2,
+    "packages/presets/src/babysitter/inbox/budgets.ts": 1,
+    "packages/presets/src/babysitter/inbox/claim-state.ts": 1,
+    "packages/presets/src/babysitter/inbox/storage.ts": 2,
+    "packages/presets/src/babysitter/inbox/store.ts": 16,
+    "packages/presets/src/babysitter/pr-workspaces.ts": 1,
+    "packages/presets/src/babysitter/server.ts": 7,
+    "packages/presets/src/babysitter/status-recovery.ts": 2,
+    "packages/presets/src/babysitter/wait.ts": 1,
+    "packages/presets/src/github/auto-merge.ts": 5,
+    "packages/presets/src/github/checkout.ts": 3,
+    "packages/presets/src/github/host.ts": 1,
+    "packages/presets/src/github/install.ts": 2,
+    "packages/presets/src/github/pull-requests.ts": 1,
+    "packages/presets/src/github/repair.ts": 6
+  }
+}

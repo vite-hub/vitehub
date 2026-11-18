@@ -34,6 +34,7 @@ solves one deployment or provider task.
 - [Use Upstash Redis for KV](/docs/guides/upstash-redis).
 - [Store files in Cloudflare R2](/docs/guides/cloudflare-r2).
 - [Use Vercel Blob](/docs/guides/vercel-blob).
+- [Cache server results with tags](/docs/guides/cache-server-results).
 
 ## Run server work
 
@@ -41,6 +42,7 @@ solves one deployment or provider task.
 - [Run browser operations on Cloudflare](/docs/guides/cloudflare-browser).
 - [Compare AI sandbox providers](/docs/guides/sandbox-providers).
 - [Choose Queue, Workflow, or Schedule](/docs/guides/background-jobs).
+- [Run work one at a time with locks and leases](/docs/guides/run-one-at-a-time).
 - [Use Vercel Queues](/docs/guides/vercel-queues).
 - [Use Cloudflare Queues](/docs/guides/cloudflare-queues).
 - [Use Vercel Cron Jobs](/docs/guides/vercel-cron-jobs).

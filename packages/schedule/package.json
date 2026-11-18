@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/schedule",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Schedule primitives and definition discovery for ViteHub.",
   "keywords": [
     "cloudflare",
@@ -40,6 +40,11 @@
       "types": "./dist/durability.d.ts",
       "import": "./dist/durability.js",
       "default": "./dist/durability.js"
+    },
+    "./os": {
+      "types": "./dist/os.d.ts",
+      "import": "./dist/os.js",
+      "default": "./dist/os.js"
     },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
@@ -84,10 +89,8 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
-    "@types/pg": "catalog:database",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
-    "pg": "catalog:database",
     "postgres": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",

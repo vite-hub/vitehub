@@ -75,7 +75,7 @@ To use a signed-in user's ChatGPT Plus or Pro plan, define a [ChatGPT Connection
 The built-in Drivers reuse T3 Code's Codex and Claude Code runtime. ViteHub owns Agents, Capabilities, Workspaces, Invocations, and lifecycle events. Install only the provider packages you use:
 
 ```sh
-pnpm add @openai/codex@0.149.1
+pnpm add @openai/codex@0.169.0
 pnpm add @anthropic-ai/claude-agent-sdk@0.3.321
 ```
 
@@ -219,6 +219,8 @@ export default defineAgent({
 ```
 
 ViteHub resolves `env` once, then calls `launch` with the environment, `command` (the executable to start), `providerCommand` (the original provider executable), the temporary working directory, and an abort signal. Build wrapper arguments from `command` and pick a provider runner from `providerCommand`. They are equal during Invocations. The wrapper gets its own arguments, then the provider arguments. ViteHub writes an owner-only temporary launcher outside the Workspace and removes it when the provider stops.
+
+With `launch`, a set `PATH` in `env`, a `toolchain`, or the managed browser, Codex runs its shell commands without a login shell (`allow_login_shell=false`). A login profile, such as Debian's `/etc/profile`, sets `PATH` again and hides commands such as `apply_patch`.
 
 Launch wrappers need a POSIX host. They change only process startup. Your app owns authorization, remote isolation, and wrapper credentials. Agent inspection shows whether `env` and `launch` are static or dynamic, without resolving them.
 

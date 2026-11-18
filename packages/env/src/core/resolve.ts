@@ -356,14 +356,14 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
     }
     const schema = runtimeValueSchema(value)
     if (!schema) {
-      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses a custom schema object. Server Env runs in the server build, so export the schema from a module and use env.schemaFrom(), or use env(), env.boolean(), env.number(), or env.enum().`)
+      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses a custom schema object. Server Env runs in the server build, so export the schema from a module and use env.schemaFrom(), or use env(), env.boolean(), env.number(), env.enum(), env.list(), or env.json().`)
     }
     if (schemaContainsEnum(schema) && value.secret) {
       throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} cannot be a secret enum: generated types, the Console, and errors show its allowed values. Use env({ secret: true }) and check the value in server code.`)
     }
     const type = envValueTypeName(schema)
     if (value.type && value.type !== type) {
-      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses type ${JSON.stringify(value.type)}, but its parser produces ${type}. Use env.boolean(), env.number(), or env.enum() to parse other types.`)
+      throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses type ${JSON.stringify(value.type)}, but its parser produces ${type}. Use env.boolean(), env.number(), env.enum(), env.list(), or env.json() to parse other types.`)
     }
     return [key, {
       default: typeof value.default === "undefined"
@@ -396,13 +396,15 @@ function setOwnValue(record: Record<string, unknown>, key: string, value: unknow
 }
 
 // Defaults use the parsed type. Only host and provider values are parsed from strings.
+// A list default is an array. A JSON default is the value or its JSON text; it stays as written, because the
+// runtime parses it again and reads a string as JSON text.
 function parseRuntimeDefault(schema: EnvValueSchema, value: unknown, path: string): unknown {
-  const typed = schema.kind === "boolean" || schema.kind === "number" ? typeof value === schema.kind : true
-  const result = typed ? parseEnvValue(schema, value) : { message: `Expected a ${schema.kind} default.`, success: false as const }
+  const typed = schema.kind === "boolean" || schema.kind === "number" ? typeof value === schema.kind : schema.kind === "list" ? Array.isArray(value) : true
+  const result = typed ? parseEnvValue(schema, value) : { message: `Expected a ${schema.kind === "list" ? "array" : schema.kind} default.`, success: false as const }
   if (!result.success) {
     throw envErrorDiagnostics.ENV_R0023({ message: `[vitehub] Invalid default for ${path}: ${result.message}` })
   }
-  return result.data
+  return schema.kind === "json" ? value : result.data
 }
 
 /** The default prefix of canonical variable names. */

@@ -18,7 +18,7 @@ describe("vitehub status", () => {
     '{ postgres: { schema: "custom" } }',
     '{ sqlite: { path: "   " } }',
     '{ postgres: { url: "" } }',
-    '{ provider: "openworkflow" }',
+    '{ driver: "openworkflow" }',
     '{ sqlite: { path: ".data/workflows.db" } }',
     '{ postgres: { url: "postgres://localhost/workflows" } }',
   ])("needs only the Workflow package for Workflow storage options (%s)", async (options) => {
@@ -59,7 +59,7 @@ describe("vitehub status", () => {
       packageManager: "pnpm",
       schemaVersion: 1,
     })
-    expect(feature(json, "kv")).toMatchObject({ enabled: "on", reason: "config", support: { adapter: "cloudflare-kv-binding", level: "native" } })
+    expect(feature(json, "kv")).toMatchObject({ enabled: "on", reason: "config", support: { driver: "cloudflare", level: "native" } })
   })
 
   it.each([
