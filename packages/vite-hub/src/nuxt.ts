@@ -669,9 +669,9 @@ function flattenPlugins(options: readonly unknown[]): Plugin[] {
 }
 
 function filterPluginOptions(
-  options: readonly unknown[],
+  options: readonly PluginOption[],
   keep: (plugin: Plugin) => boolean,
-): unknown[] {
+): PluginOption[] {
   return options.flatMap((option) => {
     if (Array.isArray(option)) {
       const nested = filterPluginOptions(option, keep)
@@ -742,7 +742,7 @@ function installVitePluginNitroModules(config: Record<string, unknown>, plugins:
   }
 }
 
-function withoutDeploymentOutput(options: readonly unknown[]): unknown[] {
+function withoutDeploymentOutput(options: readonly PluginOption[]): PluginOption[] {
   return options.flatMap((option) => {
     if (Array.isArray(option)) return [withoutDeploymentOutput(option)]
     if (option && typeof option === "object" && "name" in option && option.name === "vite-hub/deployment-output") {
@@ -810,7 +810,7 @@ async function applyNitroConfig(
   // Filter command-only plugins from both lists without re-evaluating Vite's functional `apply` selection.
   const applies = (plugin: Plugin) => typeof plugin.apply !== "string" || plugin.apply === environment.command
   plugins = plugins.filter(applies)
-  config.plugins = filterPluginOptions(config.plugins ?? [], applies) as PluginOption[]
+  config.plugins = filterPluginOptions(config.plugins ?? [], applies)
   const restoreReplayOwnership = () => {
     config[VITEHUB_GENERATED_ROOT] = generatedRoot
     config[VITEHUB_NITRO_CONFIG_CONTEXT] = true
@@ -1416,12 +1416,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   viteConfig[VITEHUB_APP_BASE_URL] = nuxt.options.app?.baseURL || "/"
   const viteServerDirs = resolveNuxtServerDirs(nuxt.options)
   if (viteServerDirs) viteConfig[VITEHUB_SERVER_DIRS] = viteServerDirs
-  const installedVitePlugins: unknown = [
+  nuxt.options.vite.plugins = [
     ...plugins.map(plugin => existingPluginsByName.get(plugin.name) || plugin),
     ...filterPluginOptions(existing, plugin => !plugins.some(candidate => candidate.name === plugin.name)),
   ]
-  // SAFETY: Both arrays contain Vite plugins normalized or preserved by this integration.
-  nuxt.options.vite.plugins = installedVitePlugins as PluginOption[]
   const configuredEnvProjectRootOption = options.env && typeof options.env === "object"
     ? options.env.projectRoot
     : undefined

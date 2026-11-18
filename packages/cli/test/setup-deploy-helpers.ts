@@ -73,7 +73,7 @@ export function buildOutput(host: "cloudflare" | "vercel" | "netlify" | "deno", 
     case "vercel": return {
       ...manifest(".vercel/output"),
       ".vercel/output/config.json": JSON.stringify({ version: 3 }),
-      ".vercel/output/functions/__server.func/.vc-config.json": JSON.stringify({ handler: "index.mjs", runtime: "nodejs22.x" }),
+      ".vercel/output/functions/__server.func/.vc-config.json": JSON.stringify({ handler: "index.mjs", runtime: "nodejs24.x" }),
     }
     case "netlify": return { ...manifest(".netlify"), "dist/index.html": "<h1>app</h1>\n" }
     case "deno": return { ...manifest(".output"), ".output/deploy.mjs": denoRunner }

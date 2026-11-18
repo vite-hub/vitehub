@@ -615,20 +615,20 @@ import { blob } from 'vite-hub/blob'
 
 const [sourceError, source] = await blob.sign('users/user/jobs/job/source.mp3', {
   method: 'GET',
-  expiresIn: 6 * 60 * 60,
+  expiresIn: '6h',
 })
 if (sourceError) throw sourceError
 
 const [uploadError, upload] = await blob.sign('users/user/jobs/job/source.mp3', {
   method: 'PUT',
-  expiresIn: 15 * 60,
+  expiresIn: '15m',
   contentType: 'audio/mpeg',
   createOnly: true,
 })
 if (uploadError) throw uploadError
 ```
 
-Send `upload.headers` unchanged with the `PUT` body. `contentType` locks the MIME type into the signed request. `createOnly` makes the provider reject the upload when the file already exists. Drivers that cannot enforce it throw, so they never allow an overwrite silently. `maxSize`, such as `'8MB'`, limits the size of the body. Only the `fs` and `vercel` drivers bind it, and the other drivers fail the request.
+`expiresIn` is a duration such as `'15m'`, or a whole number of seconds. Send `upload.headers` unchanged with the `PUT` body. `contentType` locks the MIME type into the signed request. `createOnly` makes the provider reject the upload when the file already exists. Drivers that cannot enforce it throw, so they never allow an overwrite silently. `maxSize`, such as `'8MB'`, limits the size of the body. Only the `fs` and `vercel` drivers bind it, and the other drivers fail the request.
 
 The `fs` driver, the `cloudflare` driver, the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the others that use files-sdk), and the `vercel` driver sign requests. The `vercel` driver signs a `PUT` only. It returns a request to the Vercel Blob API with a client token, as `@vercel/blob/client` uploads a file. The token binds the pathname, `contentType`, `maxSize`, `createOnly`, and the expiry, and it needs `BLOB_READ_WRITE_TOKEN`. A files-sdk driver signs a `GET` only when its provider gives a URL that expires after exactly `expiresIn` seconds. It signs a `PUT` only when its provider gives a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign, `blob.sign()` returns `BLOB_OPERATION_FAILED`, and `cause` says why. It never returns a permanent public link instead.
 
@@ -636,7 +636,7 @@ Cloudflare R2 signs with its S3-compatible HTTP credentials, even when reads and
 
 ### Signed links of `fs` stores
 
-A file on disk has no URL of its own, so an `fs` store signs a link to the app: `/_vitehub/blob/signed/<store>/<pathname>`. ViteHub adds this route only when a store uses the `fs` driver, also for the local store of `vite dev`. The route checks the link. Then a `GET` reads the file through `blob.serve()`, with the same headers as the serve route, and a `PUT` writes it with `blob.put()`. Set `urlBaseUrl` on the store, such as `https://app.example`, to get an absolute URL. Without it, the URL starts with `/_vitehub/blob/signed/` on the current origin. When the app has a base URL, such as Nitro `baseURL: '/app'`, the route is under it, so add it to `urlBaseUrl`: `https://app.example/app`.
+A file on disk has no URL of its own, so an `fs` store signs a link to the app: `/_vitehub/blob-signed/<store>/<pathname>`. ViteHub adds this route only when a store uses the `fs` driver, also for the local store of `vite dev`. The route checks the link. Then a `GET` reads the file through `blob.serve()`, with the same headers as the serve route, and a `PUT` writes it with `blob.put()`. Set `urlBaseUrl` on the store, such as `https://app.example`, to get an absolute URL. Without it, the URL starts with `/_vitehub/blob-signed/` on the current origin. When the app has a base URL, such as Nitro `baseURL: '/app'`, the route is under it, so add it to `urlBaseUrl`: `https://app.example/app`.
 
 The link is signed with HMAC-SHA256. The key comes from `VITEHUB_SECRET`, or `NUXT_APP_SECRET`, through `deriveSecret('vitehub:blob:sign')`. The signature covers the method, the store, the pathname, the expiry, and the `contentType` and `maxSize` of a `PUT`. The route rejects a request that does not match its link:
 

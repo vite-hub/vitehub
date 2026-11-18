@@ -63,7 +63,7 @@ A record looks like this:
   "crops": { "mobile": { "aspect": "4:5" } },
   "createdAt": "2026-10-14T15:38:53.716Z",
   "updatedAt": "2026-10-14T15:38:53.716Z",
-  "url": "/api/_vitehub/blob/posts/cover.jpg"
+  "url": "/_vitehub/blob/posts/cover.jpg"
 }
 ```
 
@@ -131,9 +131,9 @@ An `image()` field or other stored pathname still points at the old path after a
 The serve route reads variant parameters from the query string. Without them, it serves the original.
 
 ```text
-/api/_vitehub/blob/posts/cover.jpg?w=640
-/api/_vitehub/blob/posts/cover.jpg?w=256&h=256
-/api/_vitehub/blob/posts/cover.jpg?w=640&crop=mobile&fmt=avif&q=60
+/_vitehub/blob/posts/cover.jpg?w=640
+/_vitehub/blob/posts/cover.jpg?w=256&h=256
+/_vitehub/blob/posts/cover.jpg?w=640&crop=mobile&fmt=avif&q=60
 ```
 
 | Parameter | Values | Default |
@@ -420,7 +420,7 @@ export default defineNuxtConfig({
 </template>
 ```
 
-The `src` is the Blob pathname, or the `url` of a media record. The example requests `/api/_vitehub/blob/photos/cat.jpg?w=640&h=384&fit=cover&fmt=avif`.
+The `src` is the Blob pathname, or the `url` of a media record. The example requests `/_vitehub/blob/photos/cat.jpg?w=640&h=384&fit=cover&fmt=avif`.
 
 | Modifier | Parameter |
 | --- | --- |

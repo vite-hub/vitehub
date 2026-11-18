@@ -123,8 +123,8 @@ describe("image variants", () => {
   })
 
   it("builds canonical variant URLs that keep other parameters", () => {
-    expect(imageVariantUrl("/api/_vitehub/blob/a%20b.jpg?v=2&w=1#top", { crop: "mobile", format: "webp", quality: 70, width: 640 }))
-      .toBe("/api/_vitehub/blob/a%20b.jpg?v=2&w=640&fmt=webp&q=70&crop=mobile#top")
+    expect(imageVariantUrl("/_vitehub/blob/a%20b.jpg?v=2&w=1#top", { crop: "mobile", format: "webp", quality: 70, width: 640 }))
+      .toBe("/_vitehub/blob/a%20b.jpg?v=2&w=640&fmt=webp&q=70&crop=mobile#top")
   })
 
   it("snaps sizes up to the allowed list and caps at the largest", () => {

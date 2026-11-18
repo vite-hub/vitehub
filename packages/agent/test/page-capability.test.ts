@@ -20,7 +20,7 @@ const noRules = { deny: [], requireApproval: [] }
 function tools(options: { header?: string, context?: Record<string, unknown>, realtime?: unknown, user?: string, options?: Parameters<typeof page>[0] } = {}): Record<string, AgentToolDefinition> | undefined {
   const capability = page(options.options)
   if (!(capability.tools instanceof Function)) throw new Error("page() must resolve its tools for each run")
-  const request = new Request("https://app.example.com/api/_vitehub/agents/settings/chat", { headers: options.header ? { "x-vitehub-page": options.header } : {} })
+  const request = new Request("https://app.example.com/_vitehub/agents/settings/chat", { headers: options.header ? { "x-vitehub-page": options.header } : {} })
   // SAFETY: The page tools read only the fields this context sets.
   return capability.tools({
     capabilities: { realtime: options.realtime },

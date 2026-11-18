@@ -629,7 +629,7 @@ describe("channelAdapter() webhook registrations without verification", () => {
     const agent = defineAgent({ channels: { intake: channel as never }, driver: { run: () => "ok" } })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    return await handler(new Request("https://example.com/api/_vitehub/channels/intake", {
+    return await handler(new Request("https://example.com/_vitehub/channels/intake", {
       body: "{}",
       headers: { "content-type": "application/json" },
       method: "POST",

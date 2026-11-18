@@ -95,8 +95,8 @@ async function playgroundRequest(endpoint: string, input?: unknown, status = 200
 it("lists simulated and real Channels, and serves the chat page of a simulated one", async () => {
   const listed = await callConsoleFixture("http://localhost:5173", { operation: "channels.list" }) as { value: { channels: Array<{ channel: string, retention: { warning?: string }, simulated: boolean, simulator?: string }> } }
   expect(listed.value.channels.map(entry => [entry.channel, entry.simulated, entry.simulator])).toEqual([
-    ["slack", true, "/api/_vitehub/agents/release-engineer/webhooks/slack"],
-    ["discord", true, "/api/_vitehub/agents/release-engineer/webhooks/discord"],
+    ["slack", true, "/_vitehub/agents/release-engineer/webhooks/slack"],
+    ["discord", true, "/_vitehub/agents/release-engineer/webhooks/discord"],
     ["telegram", false, undefined],
   ])
   // A simulated Channel has no provider history, so it has no warning about the provider window.
@@ -111,9 +111,9 @@ it("lists simulated and real Channels, and serves the chat page of a simulated o
   let html = ""
   const response = { end: (body: string) => { html = body }, setHeader: vi.fn() }
   // SAFETY: The middleware writes only the headers and the body of this response.
-  handler!({ method: "GET", url: "/api/_vitehub/agents/release-engineer/webhooks/slack" }, response as unknown as ServerResponse, () => {})
+  handler!({ method: "GET", url: "/_vitehub/agents/release-engineer/webhooks/slack" }, response as unknown as ServerResponse, () => {})
   expect(html).toContain("<span class=\"sim-label\">Unofficial <span class=\"sim-optional\">simulator </span>· not affiliated with Slack</span>")
-  expect(html).toContain("<a href=\"/api/_vitehub/agents/release-engineer/webhooks/discord\">Discord</a>")
+  expect(html).toContain("<a href=\"/_vitehub/agents/release-engineer/webhooks/discord\">Discord</a>")
 })
 
 it("paginates Blob fixtures when the Console omits a limit", async () => {
