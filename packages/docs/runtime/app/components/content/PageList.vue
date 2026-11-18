@@ -186,7 +186,7 @@ const groups = computed(() => {
 .vh-page-list-arrow {
   flex: none;
   color: var(--ui-text-dimmed);
-  transition: transform 150ms ease, color 150ms ease;
+  transition: color 150ms ease;
 }
 
 @media (hover: hover) {
@@ -197,10 +197,6 @@ const groups = computed(() => {
   .vh-page-list-link:hover .vh-page-list-icon,
   .vh-page-list-link:hover .vh-page-list-arrow {
     color: var(--ui-text-highlighted);
-  }
-
-  .vh-page-list-link:hover .vh-page-list-arrow {
-    transform: translateX(2px);
   }
 }
 </style>

@@ -7,15 +7,17 @@ import type { Spring } from "../spring.ts";
  * Show or hide content (docs/design/motion.md): the chevron of a disclosure turns with a spring, and the content opens at
  * once, because the person reads it.
  *
- * A disclosure is a `<details>` with its `<summary>`, or a control with `aria-expanded`. Its stylesheet turns the
- * chevron for each state, such as `group-open:rotate-90` or `[aria-expanded=true] svg { transform: rotate(90deg) }`,
- * with no transition. The effect reads the angle of each icon in the trigger when the person presses it, and when the
- * state changes it turns each icon whose angle changed from the old angle to the new one. A change that no press started,
- * such as one from code, happens at once.
+ * A disclosure is a `<details>` with its `<summary>`, or a control with `aria-expanded`, such as an accordion item or a
+ * folded group of a sidebar. Its stylesheet turns the chevron for each state, such as `group-open:rotate-90` or
+ * `[aria-expanded=true] svg { transform: rotate(90deg) }`, with no transition. The effect reads the angle of each icon
+ * in the trigger when the person presses it, and when the state changes it turns each icon whose angle changed from the
+ * old angle to the new one. A change that no press started, such as one from code or on the first load, happens at once.
  */
 
 const triggerSelector = "summary, [aria-expanded]";
-const iconSelector = "svg, img, .iconify, [data-slot=icon], [data-slot$=Icon]";
+// The icons of the trigger that may turn. Only an icon whose angle differs between the two states moves, so an icon in a
+// wrapper turns once: the stylesheet turns either the wrapper or the icon. `data-motion-chevron` marks another element.
+const iconSelector = "[data-motion-chevron], svg, img, .iconify, [data-slot=icon], [data-slot$=Icon]";
 
 interface Turn {
   spring: Spring;
@@ -61,8 +63,9 @@ function angles(icon: Element): { visual: number; transform: number } {
 }
 
 /**
- * True when the icon still turns with a CSS transition of its own, such as Tailwind's `transition-transform`. The effect
- * leaves it alone, as the press leaves a control that transitions `scale`.
+ * True when the icon still turns with a CSS transition of its own, such as Tailwind's `transition-transform` or Nuxt
+ * UI's accordion chevron. The transition would smear each frame of the spring, so the effect leaves it alone, as the
+ * press leaves a control that transitions `scale`.
  */
 function transitionsRotate(icon: Element): boolean {
   const style = getComputedStyle(icon);
@@ -75,18 +78,23 @@ function iconsOf(trigger: Element): Array<HTMLElement | SVGElement> {
   return [...trigger.querySelectorAll<HTMLElement | SVGElement>(iconSelector)];
 }
 
+function rotateFor(turn: Turn): string {
+  return `${(turn.spring.value * quarter - turn.transform).toFixed(2)}deg`;
+}
+
 function turn(icon: HTMLElement | SVGElement, from: number): void {
   let state = turns.get(icon);
   if (state?.spring.active) from = state.spring.value * quarter;
+  // The angle of the new state, without what the effect wrote.
   writeMotionStyle(icon, { rotate: null });
   const rest = angles(icon);
-  if (Math.abs(rest.visual - from) < 0.5) return;
+  if (Math.abs(rest.visual - from) < 0.5 && !state?.spring.active) return;
   if (!state) {
     const current: Turn = {
       transform: rest.transform,
       spring: createSpring(from / quarter, (value, velocity) => {
         const settled = velocity === 0 && value === current.spring.target;
-        writeMotionStyle(icon, { rotate: settled ? null : `${value * quarter - current.transform}deg` });
+        writeMotionStyle(icon, { rotate: settled ? null : rotateFor(current) });
       }, springs.snappy),
     };
     state = current;
@@ -97,12 +105,14 @@ function turn(icon: HTMLElement | SVGElement, from: number): void {
   if (!state.spring.active) state.spring.set(from / quarter);
   state.spring.to(rest.visual / quarter);
   // The first frame of the spring comes with the next paint. Until then the icon keeps its old angle.
-  if (state.spring.active) writeMotionStyle(icon, { rotate: `${state.spring.value * quarter - state.transform}deg` });
+  if (state.spring.active) writeMotionStyle(icon, { rotate: rotateFor(state) });
 }
 
 export const disclosure: MotionEffect = {
   name: "disclosure",
   selector: `details, ${triggerSelector}`,
+  // The press comes before the change, so it reads where each icon is in the state that the person leaves. A press in
+  // the content of an open `<details>` finds the `<details>`, not a trigger, and reads nothing.
   press(element) {
     if (!element.matches(triggerSelector)) return;
     for (const icon of iconsOf(element)) {

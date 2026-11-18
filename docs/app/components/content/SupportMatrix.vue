@@ -209,7 +209,7 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
         <summary
           class="inline-flex cursor-pointer list-none items-center gap-1.5 hover:text-highlighted [&::-webkit-details-marker]:hidden"
         >
-          <UIcon name="i-lucide-chevron-right" class="size-3.5 transition group-open:rotate-90" />
+          <UIcon name="i-lucide-chevron-right" class="size-3.5 group-open:rotate-90" />
           What the statuses mean
         </summary>
         <dl
@@ -265,7 +265,7 @@ onBeforeUnmount(() => clearTimeout(proofRefreshTimer));
               <component
                 :is="host.to ? NuxtLink : 'span'"
                 :to="host.to"
-                class="relative flex flex-col items-center justify-end gap-2 pb-2 font-mono text-[11px] text-muted transition hover:text-highlighted lg:text-xs"
+                class="relative flex flex-col items-center justify-end gap-2 pb-2 font-mono text-[11px] text-muted transition-colors hover:text-highlighted lg:text-xs"
                 :class="{
                   'text-highlighted': index === hoveredColumn || index === highlighted,
                 }"

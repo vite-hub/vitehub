@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join, relative } from "node:path"
 import { createSourceFile, getLeadingCommentRanges, getTrailingCommentRanges, ScriptTarget } from "typescript"
 import { describe, expect, it } from "vitest"
@@ -89,9 +89,23 @@ const motionExempt = [
   // The motion layer itself.
   "packages/ui/src/motion/",
   "packages/ui/src/motion.ts",
-  // The scenes of the docs hero figures draw their own story in a stage with `data-motion="none"`, as a canvas does.
-  "docs/app/utils/hero-figure/",
-  "docs/app/assets/hero-figure.css",
+]
+
+/**
+ * Own-motion figures: surfaces that draw their own picture, as a canvas or a chart does, and are not controls. Each sets
+ * `data-motion="none"` on its root (docs/design/motion.md), so the motion layer skips it, and the rule skips its files.
+ * A control, a label, a list, or a disclosure next to a figure still gets its motion from the layer. Keep this list as
+ * short as the truth allows, and give each entry its reason.
+ */
+const ownMotionFigures: Array<{ path: string, reason: string }> = [
+  {
+    path: "docs/app/utils/hero-figure/",
+    reason: "The hero figure of a primitive page plays a timeline of the primitive's story (code runs, rows appear, jobs retry) in a `role=\"img\"` stage with `data-motion=\"none\"`. Nothing in it is a control. Its caption and its pause button are outside the stage and use the layer.",
+  },
+  {
+    path: "docs/app/assets/hero-figure.css",
+    reason: "The styles of the same hero figure scenes.",
+  },
 ]
 
 type Wave = "W2" | "W3" | "W4" | "W5"
@@ -101,16 +115,6 @@ type Wave = "W2" | "W3" | "W4" | "W5"
  * helper. A new spot in a listed file fails, and a removed spot fails until its count goes down. W5 empties this list.
  */
 const motionAllowlist: Record<string, { count: number, wave: Wave }> = {
-  // W5: the docs site and @vite-hub/docs.
-  "docs/app/assets/main.css": { count: 2, wave: "W5" },
-  "docs/app/components/content/HeroFigure.vue": { count: 2, wave: "W5" },
-  "docs/app/components/content/SupportMatrix.vue": { count: 1, wave: "W5" },
-  "docs/app/components/landing/AgentStory.vue": { count: 2, wave: "W5" },
-  "docs/app/components/landing/Closing.vue": { count: 4, wave: "W5" },
-  "docs/app/components/landing/Hero.vue": { count: 2, wave: "W5" },
-  "docs/app/components/landing/Portability.vue": { count: 4, wave: "W5" },
-  "packages/docs/runtime/app/components/DocsAsideLeftBody.vue": { count: 1, wave: "W5" },
-  "packages/docs/runtime/app/components/content/PageList.vue": { count: 2, wave: "W5" },
   // W5: @vite-hub/ui parts, the page pill and tools, and the comments overlay.
   "packages/comments/src/overlay/styles.ts": { count: 8, wave: "W5" },
   "packages/internal/src/runtime/page-pill.ts": { count: 12, wave: "W5" },
@@ -280,7 +284,7 @@ function scanMotionSurfaces(): Finding[] {
     const root = join(repoRoot, surface)
     for (const file of surface.endsWith(".css") ? [root] : walkFiles(root, { ignoreDirs }).filter(file => sourceFile.test(file))) {
       const path = relative(repoRoot, file)
-      if (!path.endsWith(".test.ts") && !motionExempt.some(prefix => path.startsWith(prefix))) files.add(path)
+      if (!path.endsWith(".test.ts") && ![...motionExempt, ...ownMotionFigures.map(figure => figure.path)].some(prefix => path.startsWith(prefix))) files.add(path)
     }
   }
   const texts: Array<[string, string]> = [...files].sort().map(path => [path, readFileSync(join(repoRoot, path), "utf8")])
@@ -354,6 +358,11 @@ describe("design rules", () => {
     it("has no hand-written motion outside the motion layer and the allowlist", () => {
       const found = [...byFile].filter(([file]) => !motionAllowlist[file]).flatMap(([, list]) => list).map(finding => `${finding.file}:${finding.line} ${finding.text}`)
       expect(found, `${found.length} × hand-written motion. Use the motion layer of @vite-hub/ui/motion or a motion helper. See docs/design/motion.md.\n${found.join("\n")}`).toEqual([])
+    })
+
+    it("lists only own-motion figures that exist, each with its reason", () => {
+      const wrong = ownMotionFigures.filter(figure => !existsSync(join(repoRoot, figure.path)) || !figure.reason.trim()).map(figure => figure.path)
+      expect(wrong, `Remove or explain these own-motion figures:\n${wrong.join("\n")}`).toEqual([])
     })
 
     it("keeps each allowlisted file at its count", () => {

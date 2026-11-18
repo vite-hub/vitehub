@@ -9,7 +9,7 @@ export const motionStateAttributes = [
   "data-state",
   "data-checked",
   "data-open",
-  // The native state of a `<details>` disclosure.
+  // A native `<details>` opens and closes with its `open` attribute.
   "open",
 ] as const;
 

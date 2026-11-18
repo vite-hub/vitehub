@@ -234,6 +234,19 @@ describe("icon swap", () => {
     await context.close()
   })
 
+  test("a press of an icon-only CopyButton squashes its SwapIcon by 15% and keeps the button still", async () => {
+    const { context, page } = await open()
+    const box = await page.locator("[data-test=copy]").boundingBox()
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    // The spring settles at a 15% squash of the icon.
+    await page.waitForFunction(() => document.querySelector("[data-test=copy] > [data-slot=swap-icon]")?.style.scale === "0.85", undefined, { timeout: 15_000 })
+    const own = await page.locator("[data-test=copy]").evaluate(element => getComputedStyle(element).scale)
+    await page.mouse.up()
+    assert.equal(own, "none")
+    await context.close()
+  })
+
   test("the spinner of a loading UButton draws in where the old icon blurs out", async () => {
     const { context, page } = await open()
     const trace = await sample(page, "[data-test=publish]", (element) => {

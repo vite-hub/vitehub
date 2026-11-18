@@ -1,7 +1,7 @@
 // The disclosure and panel page of the motion layer of `@vite-hub/ui/motion`: a `<details>` chevron, an `aria-expanded`
-// chevron, a panel that opens beside the page, as the Console has them, and the Open and Resolved filters of CommentPanel. `test/browser/motion-disclosure.browser.mjs`
-// drives it. `?mode=today` turns the layer off and gives the page the CSS transitions of the Console before the layer,
-// to record both.
+// chevron, a panel that opens beside the page, as the Console has them, the Open and Resolved filters of CommentPanel,
+// and the disclosures of the docs site. `test/browser/motion-disclosure.browser.mjs` drives it. `?mode=today` turns the
+// layer off and gives the page the CSS transitions of the Console and the docs before the layer, to record both.
 import "@fontsource-variable/geist";
 
 import { forceReducedMotion, installMotion, setMotionSlowFactor } from "../../../src/motion.ts";
@@ -17,6 +17,13 @@ expand.addEventListener("click", () => {
   const open = expand.getAttribute("aria-expanded") !== "true";
   expand.setAttribute("aria-expanded", String(open));
   body.hidden = !open;
+});
+
+const expanded = document.querySelector<HTMLButtonElement>("#expanded")!;
+expanded.addEventListener("click", () => {
+  const open = expanded.getAttribute("aria-expanded") !== "true";
+  expanded.setAttribute("aria-expanded", String(open));
+  document.querySelector<HTMLElement>("#expanded-panel")!.hidden = !open;
 });
 
 const panel = document.querySelector<HTMLElement>("#panel")!;
@@ -37,4 +44,6 @@ Object.assign(window, {
   togglePanel,
   setSlow: (factor: number) => setMotionSlowFactor(factor),
   setReduced: (value: boolean | undefined) => forceReducedMotion(value),
+  forceReducedMotion,
+  setMotionSlowFactor,
 });

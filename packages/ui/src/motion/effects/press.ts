@@ -15,8 +15,9 @@ const roles = ["button", "link", "tab", "radio", "menuitem", "menuitemradio", "m
  */
 export const pressSelector = `:is(button, a[href], summary, input:is([type=button], [type=submit], [type=reset], [type=checkbox], [type=radio]), ${roles.map(role => `[role=${role}]`).join(", ")}):not(:disabled, [aria-disabled="true"], [role=switch])`;
 
-// An icon: an SVG, an image, or an Iconify CSS icon such as Nuxt UI's `UIcon`. A switch thumb is not one.
-const iconSelector = "svg, img, .iconify, [data-slot=icon], [data-slot$=Icon]";
+// An icon: an SVG, an image, an Iconify CSS icon such as Nuxt UI's `UIcon`, or the `SwapIcon` of a button whose icon
+// changes. A switch thumb is not one.
+const iconSelector = "svg, img, .iconify, [data-slot=icon], [data-slot$=Icon], [data-slot=swap-icon]";
 
 const pressed = new WeakMap<Element, { spring: Spring; amount: number }>();
 
