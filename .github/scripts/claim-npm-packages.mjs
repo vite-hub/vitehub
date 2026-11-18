@@ -6,14 +6,14 @@
 //
 // 1. publishes a placeholder `0.0.0-claim` under the `claim` dist-tag, so the name exists, and
 // 2. links every publishable package that the release job cannot publish to `.github/workflows/release.yml` in the
-//    `npm-release` environment of vite-hub/vitehub, and revokes its other links. A second run picks up what the first
-//    left.
+//    `npm-release` environment of vite-hub/vitehub, replacing only links for that repository and workflow. A second
+//    run picks up what the first left.
 //
 // npm asks for two-factor authentication on a publish and on trusted publisher changes. The script prints the sign-in
 // link and waits. Choose "skip for the next 5 minutes" on the npm page so the rest of the run does not ask again.
 //
 // npm lets a trusted publisher configuration expire, and the CLI does not show it: the website says "Expired" and the
-// release job fails with ENEEDAUTH. `--replace` revokes and adds again the configuration of every package whose version
+// release job fails with ENEEDAUTH. `--replace` also refreshes otherwise matching release links when the package version
 // in packages/ is not on npm yet.
 //
 // Run: node .github/scripts/claim-npm-packages.mjs [--dry-run] [--replace] [<package name>...]
@@ -110,14 +110,13 @@ function ownedPackages(packages) {
   return names
 }
 
-/** The trusted publisher configurations of a package, in the shape that `npm trust list --json` prints. */
-async function trustConfigs(name) {
+/** The GitHub trusted publisher configurations for this repository's release workflow. */
+async function releaseTrustConfigs(name) {
   const body = await trustApi("GET", name)
-  return (Array.isArray(body) ? body : body ? [body] : []).map(config => ({
+  return (Array.isArray(body) ? body : body ? [body] : []).filter(config =>
+    config.type === "github" && config.claims?.repository === trust.repository && config.claims?.workflow_ref?.file === trust.file,
+  ).map(config => ({
     id: config.id,
-    type: config.type,
-    file: config.claims?.workflow_ref?.file,
-    repository: config.claims?.repository,
     environment: config.claims?.environment,
     permissions: config.permissions,
   }))
@@ -128,13 +127,12 @@ async function trustConfigs(name) {
  * accepts it. `createPackage` is the publish permission; a configuration with only `createStagedPackage` cannot publish.
  */
 function publishesFromRelease(config) {
-  return config.type === "github" && config.file === trust.file && config.repository === trust.repository
-    && (config.environment == null || config.environment === trust.environment)
+  return (config.environment == null || config.environment === trust.environment)
     && (config.permissions ?? []).includes("createPackage")
 }
 
 function describeConfig(config) {
-  return `${config.file} in ${config.environment ?? "any environment"} (${(config.permissions ?? []).join(", ") || "no permissions"})`
+  return `${trust.file} in ${config.environment ?? "any environment"} (${(config.permissions ?? []).join(", ") || "no permissions"})`
 }
 
 function npm(npmArgs, options = {}) {
@@ -221,13 +219,12 @@ for (const pkg of packages) {
 if (missing.length) console.log(`npm does not have: ${missing.map(pkg => pkg.name).join(", ")}${dryRun ? " (dry run)" : ""}`)
 for (const pkg of missing) publishPlaceholder(pkg)
 
-// A package needs a link when none of its configurations accepts the release job. Its other configurations, such as one
-// for an environment that no workflow uses, cannot publish, so the script revokes them first.
+// Replace only this repository's release workflow links; other publishers can coexist with the release link.
 const untrusted = []
 if (dryRun) untrusted.push(...missing.map(pkg => ({ pkg, stale: [] })))
 else {
   for (const pkg of packages) {
-    const configs = await trustConfigs(pkg.name)
+    const configs = await releaseTrustConfigs(pkg.name)
     // npm lets a configuration expire, and `npm trust list` does not say so. With --replace, every package that has not
     // published its version yet gets a fresh configuration.
     if (!configs.some(publishesFromRelease) || (replace && !await versionOnNpm(pkg.name, pkg.version))) {
@@ -237,7 +234,7 @@ else {
   }
 }
 for (const { pkg, stale } of untrusted) {
-  console.log(`${pkg.name}: ${stale.length ? `has ${stale.map(describeConfig).join(", ")}` : "no trusted publisher"}`)
+  console.log(`${pkg.name}: ${stale.length ? `has ${stale.map(describeConfig).join(", ")}` : "no link for the release workflow"}`)
 }
 for (const [index, { pkg, stale }] of untrusted.entries()) {
   // npm asks for at most one trusted publisher change every 2 seconds.
