@@ -5,7 +5,7 @@ import { blobErrorDiagnostics, blobErrors } from "../error-diagnostics.ts"
 import { bareETag } from "../internal/etag.ts"
 import isBlob from "../internal/is-blob.ts"
 
-import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedBlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobDriverSignOptions, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, ResolvedBlobStoreConfig } from "../types.ts"
 import type { Adapter, FileInfo, Files, ListOptions, ListResult, UploadCondition } from "files-sdk"
 
 type FilesCtor = typeof import("files-sdk").Files
@@ -113,7 +113,7 @@ function unsupportedSign(driver: string, reason: string) {
 
 // files-sdk reports per instance whether `url()` and `signedUploadUrl()` mint expiring links,
 // so one implementation serves every files-sdk driver without a permanent-link fallback.
-async function signRequest(client: FilesInstance, driver: string, pathname: string, signOptions: BlobSignOptions): Promise<BlobSignedRequest> {
+async function signRequest(client: FilesInstance, driver: string, pathname: string, signOptions: BlobDriverSignOptions): Promise<BlobSignedRequest> {
   const { signedUpload, signedUrl } = client.capabilities
   if (signOptions.method === "GET") {
     if (!signedUrl.supported || signedUrl.expiry !== "exact") throw unsupportedSign(driver, "the provider has no expiring read URL")

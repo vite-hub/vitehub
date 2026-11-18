@@ -113,7 +113,7 @@ function startWorker(app: CloudflareAgentApp): Miniflare {
 }
 
 async function chat(worker: Miniflare): Promise<Response> {
-  return await worker.dispatchFetch("http://localhost/api/_vitehub/agents/hello/chat", {
+  return await worker.dispatchFetch("http://localhost/_vitehub/agents/hello/chat", {
     body: JSON.stringify({ id: "startup", messages: [{ id: "user-1", parts: [{ text: "ping", type: "text" }], role: "user" }] }),
     headers: { "content-type": "application/json" },
     method: "POST",

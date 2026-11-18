@@ -150,6 +150,7 @@ describe("kv.lock()", () => {
   it("rejects an invalid ttl or wait before it touches the store", async () => {
     expect((await kv.lock("job", { ttl: 0 }).run(() => 1))[0]).toMatchObject({ code: "KV_INVALID_TTL" })
     expect((await kv.lock("job", { ttl: Number.NaN }).acquire())[0]).toMatchObject({ code: "KV_INVALID_TTL" })
+    expect((await kv.lock("job", { ttl: "soon" as never }).acquire())[0]).toMatchObject({ code: "KV_INVALID_TTL" })
     expect((await kv.lock("job", { ttl: 30, wait: -1 }).run(() => 1))[0]).toMatchObject({ code: "KV_INVALID_WAIT" })
   })
 })

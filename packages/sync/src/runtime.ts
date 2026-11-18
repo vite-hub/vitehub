@@ -50,8 +50,8 @@ function selectDatabase(db: unknown): SyncDatabase {
 }
 
 /**
- * The `{ fetch }` route of every Sync definition at `<base>api/_vitehub/sync/<name>`, and of their live stream at
- * `<base>api/_vitehub/sync`. The generated Nitro handler of a ViteHub app calls it with the definitions of `server/sync/`
+ * The `{ fetch }` route of every Sync definition at `<base>_vitehub/sync/<name>`, and of their live stream at
+ * `<base>_vitehub/sync`. The generated Nitro handler of a ViteHub app calls it with the definitions of `server/sync/`
  * when the server starts.
  */
 export function createSyncHandler(options: SyncRuntimeOptions): { fetch: (request: Request) => Promise<Response> } {

@@ -67,17 +67,17 @@ it.each([false, true].flatMap(dev => [undefined, false, true].map(noExternals =>
       {
         handler: join(buildDir, "vitehub/agent/ready-route.ts"),
         lazy: true,
-        route: "/api/_vitehub/ready",
+        route: "/_vitehub/ready",
       },
       {
         handler: join(buildDir, "vitehub/agent/chat-webhook-route.ts"),
         lazy: true,
-        route: "/api/_vitehub/agents/:agent/chat",
+        route: "/_vitehub/agents/:agent/chat",
       },
       {
         handler: join(buildDir, "vitehub/agent/chat-webhook-route.ts"),
         lazy: true,
-        route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
+        route: "/_vitehub/agents/:agent/webhooks/:webhook",
       },
       {
         handler: join(buildDir, "vitehub/agent/declared-webhook-route.ts"),

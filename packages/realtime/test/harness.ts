@@ -119,7 +119,7 @@ export function createTestServer(definition: RealtimeDefinition, options: { dura
   const channels = new Map<string, Set<{ send(data: Uint8Array): void }>>()
 
   function request(path: string, init: RequestInit & { query?: Record<string, string> } = {}) {
-    const url = new URL(`https://example.com/api/_vitehub/realtime/docs/${path}`)
+    const url = new URL(`https://example.com/_vitehub/realtime/docs/${path}`)
     for (const [key, value] of Object.entries(init.query ?? {})) url.searchParams.set(key, value)
     const value = new Request(url, init) as Request & { runtime?: unknown }
     if (options.durable) value.runtime = { cloudflare: { env: {}, context: { storage: { sql: options.durable.carrier } } } }

@@ -266,6 +266,7 @@ function nextValue(id: FeatureId, status: SetupStatus, project: SetupProject, op
 export interface SetupAddPlanned {
   plan: SetupAddPlan
   configFile?: { path: string, before: string, after: string }
+  restartRequired: boolean
   files: { path: string, content: string }[]
   install: { prod: string[], dev: string[] }
 }
@@ -400,15 +401,19 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
 
   const edits: ConfigEdit[] = []
   let expression = false
+  const site = project.config?.ok ? project.config.site : undefined
   const addedFeatures = [...args.features, ...requires]
   for (const id of new Set([...addedFeatures, ...inputFeatures.filter(id => args.options[id])])) {
     const next = nextValue(id, status, project, args.options[id])
     expression ||= next === "expression"
+    // The starter Definition turns the feature on, so `<feature>: true` would only repeat it.
+    if (next !== "expression" && next?.value === true && site && !site.spread && !site.keys[id] && args.name !== undefined && args.features.includes(id) && features[id].definition && features[id].enabledByDiscovery) continue
     if (next !== undefined) edits.push({ key: id, op: "set", value: next === "expression" ? mergeValue(true, args.options[id])! : next.value })
   }
 
   const changes: SetupChange[] = []
   const files: SetupAddPlanned["files"] = []
+  let addsDiscovery = false
   let configFile: SetupAddPlanned["configFile"]
   const serverDir = relative(project.root, project.serverDirs?.[0] ?? join(project.root, "server"))
   const nuxtRoot = project.config?.ok ? project.config.site.nuxt?.keys.rootDir : undefined
@@ -437,6 +442,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       if (conflict) throw setupFailure(cliErrorDiagnostics.SETUP_FILE_EXISTS({ definition: features[id].title, file: conflict, starter: path }), setupExitCodes.conflict)
       files.push({ content, path })
       changes.push({ after: content, diff: setupDiff(path, "", content), kind: "create", path })
+      const previous = status.features.find(item => item.id === id)
+      if (features[id].enabledByDiscovery && site && !site.spread && !site.keys[id] && (previous?.enabled !== "on" || previous.reason === "implied")) addsDiscovery = true
     }
   }
 
@@ -467,7 +474,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   install.dev = installSpecifiers(install.dev)
   const command = installCommand(project.packageManager, install.prod, install.dev)
 
-  const nextSteps: string[] = []
+  const restartRequired = addsDiscovery && !configFile
+  const nextSteps: string[] = restartRequired ? ["Restart the dev server to load the new feature configuration."] : []
   if (command && !args.install) nextSteps.push(`Install the packages: ${command}`)
   for (const id of implied) {
     const support = featureSupport(id, host)
@@ -497,7 +505,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     root: project.root,
     status: changes.length || (command && args.install) ? "planned" : "unchanged",
   }
-  return { files, install, plan, ...(configFile ? { configFile } : {}) }
+  return { files, install, plan, restartRequired, ...(configFile ? { configFile } : {}) }
 }
 
 /** Applies a `vitehub add` plan: installs the packages, writes the starter Definitions, and writes the config last. */

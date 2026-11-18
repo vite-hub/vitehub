@@ -2,7 +2,7 @@ import { BlobError, BlobNotFoundError, BlobPreconditionFailedError, completeMult
 
 import { isPlainObject } from "@vite-hub/internal/object"
 
-import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobDriverPutCondition, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedVercelBlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobDriverPutCondition, BlobDriverSignOptions, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, ResolvedVercelBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import isBlob from "../internal/is-blob.ts"
 import { blobSizeToBytes } from "../internal/size.ts"
@@ -114,7 +114,7 @@ async function vercelClientToken(readWriteToken: string, payload: Record<string,
  * Signs a `PUT` the way `@vercel/blob/client` uploads a file: a client token from the read-write token, which Vercel
  * checks for the pathname, the content type, the size, and the expiry. The browser sends it to the Vercel Blob API.
  */
-async function signVercelUpload(options: ResolvedVercelBlobStoreConfig, pathname: string, signOptions: BlobSignOptions): Promise<BlobSignedRequest> {
+async function signVercelUpload(options: ResolvedVercelBlobStoreConfig, pathname: string, signOptions: BlobDriverSignOptions): Promise<BlobSignedRequest> {
   if (signOptions.method === "GET") {
     throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"vercel\" cannot sign a GET request. Serve the object through `blob.serve()`." })
   }

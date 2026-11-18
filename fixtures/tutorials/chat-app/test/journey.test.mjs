@@ -70,7 +70,7 @@ test("sign in, stream, reload, restart, continue, stop, and delete offline", { t
   try {
     await start();
     assert.equal((await request("/api/chats")).status, 401);
-    assert.equal((await request("/api/_vitehub/agents/offline/chat", "POST", {})).status, 404);
+    assert.equal((await request("/_vitehub/agents/offline/chat", "POST", {})).status, 404);
     assert.equal((await fetch(`${origin}/api/session`, {
       method: "POST", headers: { origin: "https://wrong.example", "content-type": "application/json" },
       body: JSON.stringify({ password }),

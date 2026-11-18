@@ -73,13 +73,13 @@ export function createEmail(options: EmailDefinition): EmailClient {
         if (invalid) return [sendError(invalid, driverName), undefined]
         await driver.initialize?.()
         const preparedMessage = applyUnsubscribe(message, driver.name)
-        const result = await driver.send(preparedMessage, { attempt: 1, driver: driver.name, meta: {}, signal: undefined })
-        if (result.error) return [sendError(result.error, driverName), undefined]
-        if (typeof result.data.id !== "string" || result.data.id.trim().length === 0) {
+        const [failure, sent] = await driver.send(preparedMessage, { attempt: 1, driver: driver.name, meta: {}, signal: undefined })
+        if (failure) return [sendError(failure, driverName), undefined]
+        if (typeof sent.id !== "string" || sent.id.trim().length === 0) {
           const cause = new Error(`The ${driverName} Email driver returned an invalid message id.`)
           return [emailErrorDiagnostics.EMAIL_PROVIDER_FAILED({ cause, driver: driverName }), undefined]
         }
-        return [undefined, { driver: driverName, id: result.data.id }]
+        return [undefined, { driver: driverName, id: sent.id }]
       }
       catch (error) {
         return [sendError(error, driverName), undefined]

@@ -81,8 +81,9 @@ export default defineConfig({
 ::
 
 Set `RESEND_API_KEY` in the server environment. Keep `driver: 'resend'` when
-you move to `node`, `netlify`, or another host. On Cloudflare, `email: true`
-picks Cloudflare Email instead.
+you move to `node`, `netlify`, `cloudflare`, or another host. The same config
+works on every host. On Cloudflare, `email: true` picks Cloudflare Email
+instead.
 
 ## Send a deployment check
 
