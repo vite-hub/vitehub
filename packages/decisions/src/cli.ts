@@ -3,6 +3,7 @@ import { relative, resolve } from "node:path"
 import { parseArgs } from "node:util"
 
 import { withStdoutOnStderr } from "@vite-hub/internal/cli"
+import { loadAllEnv } from "@vite-hub/internal/vite-stage"
 
 import { decisionsDiagnostics } from "./diagnostics.ts"
 import type { ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliStreams } from "@vite-hub/internal/cli"
@@ -60,7 +61,7 @@ async function loadModule(file: string, rootDir: string): Promise<Record<string,
 async function loadProjectEnv(context: CliContext): Promise<void> {
   const { loadEnv } = await import("vite")
   const mode = context.env.NODE_ENV === "production" ? "production" : "development"
-  for (const [key, value] of Object.entries(loadEnv(mode, context.rootDir, ""))) {
+  for (const [key, value] of Object.entries(loadAllEnv(loadEnv, mode, context.rootDir))) {
     if (process.env[key] === undefined) process.env[key] = value
   }
 }
@@ -169,10 +170,7 @@ async function runOne(args: string[], context: CliContext): Promise<number> {
 
 /** The fix of a usage error of these commands, or `undefined` for another error. */
 function cliFix(error: unknown): string | undefined {
-  if (!(error instanceof Error)) return undefined
-  const code: unknown = Reflect.get(error, "code")
-  const fix: unknown = Reflect.get(error, "fix")
-  return typeof code === "string" && code.startsWith("DECISIONS_CLI_") && typeof fix === "string" ? fix : undefined
+  return decisionsDiagnostics.is(error) && error.code.startsWith("DECISIONS_CLI_") ? error.fix : undefined
 }
 
 function guard(usage: string, run: (args: string[], context: CliContext) => Promise<number>) {

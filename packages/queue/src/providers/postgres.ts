@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto"
 import { hostname } from "node:os"
 
+import { invariant } from "@vite-hub/internal/invariant"
 import postgres from "postgres"
+import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 
 import { createQueueMessageId, normalizeQueueEnqueueInput } from "../enqueue.ts"
 import { queueProviderResult, queueUnsupportedOptionsError } from "../errors.ts"
@@ -124,8 +126,7 @@ function toJobSummary(row: JobRow): LocalQueueJob {
 
 export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): PostgresQueueEngine {
   const table = options.table ?? postgresQueueTable
-  // Internal invariant: only the Queue runtime and its tests choose this private SQL table name.
-  if (!identifier.test(table)) throw new TypeError(`The Queue table name "${table}" must be a lowercase SQL identifier.`)
+  invariant(identifier.test(table), "the Queue table name is a lowercase SQL identifier, because only the Queue runtime and its tests choose it")
   const rules: LocalQueueDeliveryRules = localQueueDeliveryRules.postgres
   const retryDelayMs = options.retryDelayMs ?? rules.retryDelayMs
   const lockSeconds = options.lockSeconds ?? postgresQueueLockSeconds
@@ -327,7 +328,9 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
     try {
       const definition = await options.load(row.queue)
       if (!definition) throw options.missing(row.queue)
-      checkQueueHandlerResponse(await definition.handler({ attempts: row.attempts, id: row.message_id, payload: row.no_payload ? undefined : row.payload }))
+      await runInRunScopes(async () => {
+        checkQueueHandlerResponse(await definition.handler({ attempts: row.attempts, id: row.message_id, payload: row.no_payload ? undefined : row.payload }))
+      })
     }
     catch (error) {
       failure = { error }

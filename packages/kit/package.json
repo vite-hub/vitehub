@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/kit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The headless Vue parts that ui-sdk does not have, a Nuxt module that auto-imports them, and a plain CSS style family. Import every other part from @ui-sdk/vue.",
   "keywords": [
     "a11y",
@@ -28,6 +28,7 @@
   "type": "module",
   "sideEffects": [
     "./dist/styles/default.css",
+    "./dist/styles/tailwind.css",
     "./dist/styles/default.scoped.css",
     "./dist/styles/tokens.css"
   ],
@@ -44,6 +45,7 @@
     },
     "./package.json": "./package.json",
     "./styles/default.css": "./dist/styles/default.css",
+    "./styles/tailwind.css": "./dist/styles/tailwind.css",
     "./styles/default.scoped.css": "./dist/styles/default.scoped.css",
     "./styles/tokens.css": "./dist/styles/tokens.css"
   },

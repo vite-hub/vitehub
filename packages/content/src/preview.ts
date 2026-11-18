@@ -349,7 +349,7 @@ function refTokenMessage(expires: number, scope: string): Uint8Array<ArrayBuffer
  */
 export async function signContentRefToken(source: string, ref: string, maxAge: number = defaultMaxAge): Promise<ContentPreviewToken> {
   if (!Number.isSafeInteger(maxAge) || maxAge < minimumMaxAge || maxAge > maximumMaxAge) {
-    throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.sources.sign() maxAge must be whole seconds from ${minimumMaxAge} to ${maximumMaxAge}.` })
+    throw contentErrorDiagnostics.CONTENT_PREVIEW_MAX_AGE_INVALID({ option: "content.sources.sign() maxAge", min: minimumMaxAge, max: maximumMaxAge })
   }
   const key = await signingKey()
   if (!key) throw contentErrorDiagnostics.CONTENT_R0010({ message: missingKeyMessage })
@@ -360,20 +360,35 @@ export async function signContentRefToken(source: string, ref: string, maxAge: n
 }
 
 /**
+ * The `Set-Cookie` that keeps a signed link working for the requests that the page itself sends below `path`, such as
+ * the data requests of a Nuxt page. It holds the same token and expires with it. Undefined for another token shape.
+ */
+export function contentRefTokenCookie(token: string, path: string, secure: boolean): string | undefined {
+  const match = refTokenPattern.exec(token)
+  if (!match) return
+  const maxAge = Number(match[1]) - Math.floor(Date.now() / 1000)
+  if (maxAge <= 0) return
+  return `${contentRefTokenParameter}=${token}; Path=${path}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`
+}
+
+/**
  * How a request may read a ref of a `github()` Source without the public rule: `console` with a valid preview cookie
- * from `content.preview.enable()`, `token` with a valid `?vitehub-content-token` for this Source and ref. Undefined
- * otherwise, and when the signing key is missing or invalid.
+ * from `content.preview.enable()`, `token` with a valid `?vitehub-content-token`, or a `vitehub-content-token` cookie
+ * from `contentRefTokenCookie()`, for this Source and ref. Undefined otherwise, and when the signing key is missing or
+ * invalid.
  */
 export async function contentRefGrant(request: Request, source: string, ref: string): Promise<"console" | "token" | undefined> {
-  const cookies = cookieValues(request.headers.get("cookie") ?? undefined, contentPreviewCookieName)
-  let token: string | null = null
+  const header = request.headers.get("cookie") ?? undefined
+  const cookies = cookieValues(header, contentPreviewCookieName)
+  const tokens = cookieValues(header, contentRefTokenParameter)
   try {
-    token = new URL(request.url).searchParams.get(contentRefTokenParameter)
+    const token = new URL(request.url).searchParams.get(contentRefTokenParameter)
+    if (token) tokens.unshift(token)
   }
   catch {
     // A request without an absolute URL carries no link token.
   }
-  if (!cookies.length && !token) return
+  if (!cookies.length && !tokens.length) return
   let key: HmacKey | undefined
   try {
     key = await signingKey()
@@ -385,14 +400,16 @@ export async function contentRefGrant(request: Request, source: string, ref: str
   for (const value of cookies) {
     if (await verifyToken(key, value) !== undefined) return "console"
   }
-  const match = token ? refTokenPattern.exec(token) : null
-  if (!match) return
-  const expires = Number(match[1])
-  const signature = fromBase64url(match[3]!)
-  if (signature.byteLength !== 32) return
-  if (!await globalThis.crypto.subtle.verify("HMAC", key, signature, refTokenMessage(expires, match[2]!))) return
-  const scope = decodeScope(match[2]!)
-  return scope?.collection === source && scope.id === ref && unexpired(expires) ? "token" : undefined
+  for (const token of tokens) {
+    const match = refTokenPattern.exec(token)
+    if (!match) continue
+    const expires = Number(match[1])
+    const signature = fromBase64url(match[3]!)
+    if (signature.byteLength !== 32) continue
+    if (!await globalThis.crypto.subtle.verify("HMAC", key, signature, refTokenMessage(expires, match[2]!))) continue
+    const scope = decodeScope(match[2]!)
+    if (scope?.collection === source && scope.id === ref && unexpired(expires)) return "token"
+  }
 }
 
 function cookie(value: string, maxAge: number, secure: boolean): string {
@@ -401,12 +418,12 @@ function cookie(value: string, maxAge: number, secure: boolean): string {
 
 function assertEvent(event: unknown, method: string): asserts event is ContentPreviewEvent {
   if (!isObject(event)) {
-    throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.preview.${method}() requires an H3 event or a Request.` })
+    throw contentErrorDiagnostics.CONTENT_PREVIEW_EVENT_INVALID({ method })
   }
 }
 
 interface Scope<T> { getStore(): T | undefined; run<R>(value: T, callback: () => R): R | Promise<R> }
-/** An async request scope. Disabled, it holds nothing. Enabled, it throws `CONTENT_R0008` without AsyncLocalStorage. */
+/** An async request scope. Disabled, it holds nothing. Enabled, it throws `CONTENT_PREVIEW_ASYNC_CONTEXT_MISSING` without AsyncLocalStorage. */
 export function createRequestScope<T>(enabled: boolean): Scope<T> {
   return createScope(enabled)
 }
@@ -423,7 +440,7 @@ function createScope<T>(enabled: boolean): Scope<T> {
   // concurrent requests. There is no safe synchronous fallback for that contract.
   // Fail while the Content runtime is created so unsupported hosts are detected at
   // startup/build time, instead of turning the first preview request into a 500.
-  throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content preview needs an async request context (AsyncLocalStorage). On Cloudflare Workers, enable the nodejs_als compatibility flag." })
+  throw contentErrorDiagnostics.CONTENT_PREVIEW_ASYNC_CONTEXT_MISSING()
 }
 
 /** Create the preview grant and request scope for one Content runtime. */
@@ -448,7 +465,7 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
     requireEnabled(method)
     const maxAge = signOptions.maxAge ?? defaultMaxAge
     if (!Number.isSafeInteger(maxAge) || maxAge < minimumMaxAge || maxAge > maximumMaxAge) {
-      throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.preview.${method}({ maxAge }) must be whole seconds from ${minimumMaxAge} to ${maximumMaxAge}.` })
+      throw contentErrorDiagnostics.CONTENT_PREVIEW_MAX_AGE_INVALID({ option: `content.preview.${method}({ maxAge })`, min: minimumMaxAge, max: maximumMaxAge })
     }
     const key = await signingKey()
     if (!key) throw contentErrorDiagnostics.CONTENT_R0010({ message: missingKeyMessage })
@@ -476,7 +493,7 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
 
   function requireEnabled(method: string): void {
     if (!options.enabled) {
-      throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.preview.${method}() needs document collections. Add defineContent({ workspace, collections }).` })
+      throw contentErrorDiagnostics.CONTENT_COLLECTIONS_UNDEFINED({ method })
     }
   }
 
@@ -514,11 +531,11 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
     async sign(signOptions) {
       const { collection, id } = isObject(signOptions) ? signOptions : {}
       if (String(collection) !== collection || !collection || String(id) !== id || !id) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.preview.sign() requires { collection, id }: the one document the frame previews." })
+        throw contentErrorDiagnostics.CONTENT_PREVIEW_DOCUMENT_INVALID({ tooLong: false })
       }
       const scope = encodeScope(collection, id)
       if (!frameTokenPattern.test(`${frameTokenVersion}.0.${scope}.${"A".repeat(43)}`)) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.preview.sign() received a collection and id that are too long." })
+        throw contentErrorDiagnostics.CONTENT_PREVIEW_DOCUMENT_INVALID({ tooLong: true })
       }
       const { expires, token } = await sign(signOptions, "sign", scope)
       return { token, expiresAt: new Date(expires * 1000) }
@@ -948,6 +965,6 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost | Content
       }
       return
     }
-    throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] defineContentPreviewPlugin() needs a Nitro 3 app." })
+    throw contentErrorDiagnostics.CONTENT_PREVIEW_NITRO_REQUIRED()
   }
 }

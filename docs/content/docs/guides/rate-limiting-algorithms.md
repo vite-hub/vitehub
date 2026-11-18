@@ -166,7 +166,7 @@ export default defineEventHandler(
 
 Without `key`, the count is per client address. The build reads this call, so the ID, `limit`, and `window` must be literals. `key` can change at runtime.
 
-To answer a limited request with something cheaper than an error, use `checkRateLimit()`. It takes the same arguments, uses the same counter, and returns `[error, decision]`:
+To answer a limited request with something cheaper than an error, use `checkRateLimit()`. It takes the same ID, policy, and key, uses the same counter, and returns `[error, decision]`:
 
 ```ts [server/api/search.get.ts]
 import { defineEventHandler } from 'h3'
@@ -236,7 +236,7 @@ For a per-user limit, pass the signed-in user's identity as the Invoker. Use `id
 A rejected Invocation fails with the code `RATE_LIMIT_REJECTED`. `runAgent()` returns it as `error.cause` of `AGENT_RUN_FAILED`. The generated Agent HTTP routes map it to `429`. In your own route, map it yourself:
 
 ```ts [server/api/support.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { runAgent } from 'vite-hub/agent'
 import { getViteHubErrorShape } from 'vite-hub/runtime'
 import support from '../agents/support'
@@ -245,7 +245,7 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<{ question?: string }>(event)
   const [error, result] = await runAgent(support, { prompt: body?.question ?? '' })
   if (getViteHubErrorShape(error?.cause)?.code === 'RATE_LIMIT_REJECTED') {
-    throw createError({ statusCode: 429, message: 'Too many questions. Try again in a minute.' })
+    throw new HTTPError({ status: 429, message: 'Too many questions. Try again in a minute.' })
   }
   if (error) throw error
   return { text: result.text }

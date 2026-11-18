@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 
-import { additionText, createFakeGitHub, gitBlobSha, textSha } from "./fake-github.ts"
+import { createFakeGitHub, gitBlobSha, textSha } from "./fake-github.ts"
 import { localCheckoutStatus } from "../src/checkout.ts"
 import { workspaceCheckoutFeatures } from "../src/checkout-cli.ts"
 import { registerWorkspace, resetWorkspaceRegistry } from "../src/core/registry.ts"
@@ -53,7 +53,7 @@ async function tempDir(name: string) {
  */
 function app(options: { refs?: GitHubWorkspaceRefs, user?: OperationUser | null } = {}) {
   resetWorkspaceRegistry()
-  const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "content", ...(options.refs ? { refs: options.refs } : {}) }, "content")
+  const store = createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: "content", ...(options.refs ? { refs: options.refs } : {}) }, "content")
   const definition: WorkspaceDefinition = { name: "content", store }
   registerWorkspace("content", { store })
   const { history } = useWorkspace("content", { definition, mode: "write" })
@@ -442,7 +442,7 @@ describe("workspace checkout on the GitHub Store", { timeout: 60_000 }, () => {
     expect(await view.stat("bin/run.sh")).toMatchObject({ metadata: { gitMode: "100755" } })
   })
 
-  it("records the signed-in user in the commit trailer, and reports the Git author as the revision author", async () => {
+  it("writes the signed-in user as the Git author and reports it as the revision author", async () => {
     fake.commit("main", { "content/posts/hello.md": post("Hello", "One.") })
     const server = app({ user: { id: "user-1", name: "Ana", email: "ana@example.com" } })
     const local = await project(server.fetch, "author")
@@ -451,13 +451,13 @@ describe("workspace checkout on the GitHub Store", { timeout: 60_000 }, () => {
 
     expect((await local.run("push")).code).toBe(0)
 
-    const [input] = fake.commitInputs().slice(-1)
-    expect(input!.message.body).toBe(`Vitehub-Metadata: ${JSON.stringify({ source: "cli", author: { id: "user-1", name: "Ana", email: "ana@example.com" } })}`)
-    expect(additionText(input!.fileChanges.additions![0]!.contents)).toBe(post("Hello", "Two."))
-    // GitHub writes the commit as the account of the token. Its author wins over the trailer, so a commit message cannot forge it.
+    const commit = fake.commits.get(fake.head("main")!)!
+    expect(commit.author).toMatchObject({ name: "Ana", email: "ana@example.com" })
+    expect(commit.tree).toContainEqual(expect.objectContaining({ path: "content/posts/hello.md", sha: textSha(post("Hello", "Two.")) }))
+    expect(commit.message.endsWith(`Vitehub-Metadata: ${JSON.stringify({ source: "cli", author: { id: "user-1", name: "Ana", email: "ana@example.com" } })}`)).toBe(true)
     const revision = await server.history.head()
-    expect(revision!.metadata).toMatchObject({ source: "cli", author: "Bot", authorEmail: "bot@example.com" })
+    expect(revision!.metadata).toMatchObject({ source: "cli", author: "Ana", authorEmail: "ana@example.com" })
     const listed = await runOperation(registry, "workspace.history", { workspace: "content", ref: "main", limit: 1 }, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
-    expect(listed).toMatchObject({ ok: true, value: { revisions: [{ author: "Bot", id: revision!.id }] } })
+    expect(listed).toMatchObject({ ok: true, value: { revisions: [{ author: "Ana", id: revision!.id }] } })
   })
 })

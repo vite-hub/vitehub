@@ -19,7 +19,7 @@ export default defineNuxtConfig({
     blob: {
       stores: {
         default: { driver: 'fs' },
-        reports: { driver: 'vercel-blob', access: 'private' },
+        reports: { driver: 'vercel', access: 'private' },
       },
     },
   },
@@ -39,7 +39,7 @@ export default defineConfig({
       blob: {
         stores: {
           default: { driver: 'fs' },
-          reports: { driver: 'vercel-blob', access: 'private' },
+          reports: { driver: 'vercel', access: 'private' },
         },
       },
     }),
@@ -60,7 +60,7 @@ export default defineConfig({
       blob: {
         stores: {
           default: { driver: 'fs' },
-          reports: { driver: 'vercel-blob', access: 'private' },
+          reports: { driver: 'vercel', access: 'private' },
         },
       },
     }),
@@ -127,7 +127,7 @@ export default defineConfig({
 Writes from `vite dev` then change real data. On first use, the dev server prints `Blob store "default" is remote`, and `vitehub inspect definitions --kind blob` shows `Development: Remote`.
 ::
 
-`remote` changes only `vite dev`. Builds ignore it. A store with an explicit `driver` uses that driver in `vite dev`, with or without `remote`, because you selected it. On a `cloudflare-r2` store, `remote: true` makes `vite dev` use the real bucket through the R2 API and the HTTP credentials, not the local binding. In `blob.stores`, set `remote` on each named store. A value that is not a boolean fails with `BLOB_C0017`. `remote: true` on a store that uses the local `fs` driver fails with `BLOB_C0018`.
+`remote` changes only `vite dev`. Builds ignore it. A store with an explicit `driver` uses that driver in `vite dev`, with or without `remote`, because you selected it. On a `cloudflare` store, `remote: true` makes `vite dev` use the real bucket through the R2 API and the HTTP credentials, not the local binding. In `blob.stores`, set `remote` on each named store. A value that is not a boolean fails with `BLOB_C0017`. `remote: true` on a store that uses the local `fs` driver fails with `BLOB_C0018`.
 
 ### Protect served objects
 
@@ -387,6 +387,27 @@ The route also serves [image variants](/docs/blob/media#image-variants), such as
 
 Files from the served store include a URL. With `serve.publicBaseUrl`, it is absolute. Without it, it is relative to the route, so callers can add their own origin.
 
+## Seed files
+
+Seed files are the starting files of the app, such as the poster and captions of a demo video. Put them in `server/seed/blob/`, in the folders of their pathnames:
+
+```txt [Files]
+server/seed/blob/
+  video/receiving-a-delivery.mp4
+  video/receiving-a-delivery.en.vtt
+  video/receiving-a-delivery-poster.jpg
+```
+
+Start `vite dev`, then upload the files to the default store:
+
+```bash [Terminal]
+pnpm vitehub seed blob
+```
+
+The pathname is the path in the folder, so `server/seed/blob/video/receiving-a-delivery.mp4` is the blob `video/receiving-a-delivery.mp4`. The store sets the content type from the extension, such as `video/mp4` or `text/vtt`. Files that start with `.` are skipped. Each file can have up to 8 MiB, like `vitehub blob put`. The command uploads each file again on every run.
+
+Without `--remote`, `vitehub seed` writes the stores of the running dev server. With `--remote`, it writes the deployed app at `--url`, or at `vitehub({ publicUrl })`. Only the default store has seed files. `pnpm vitehub seed` also runs the [Database](/docs/database/configure#seed-data) and [KV](/docs/kv/configure#seed-values) seeds.
+
 ## Image variants
 
 `images` sets how the serve route makes image variants. Without it, the `auto` transformer uses the Cloudflare Images binding when the Worker has one, sharp when it is installed, and the original otherwise.
@@ -574,13 +595,13 @@ The value must be in exactly one env variable at build time. When two variables 
 | `base` | `string` | `BLOB_FS_BASE` or `.vitehub/data/blob` | Storage folder. |
 | `urlBaseUrl` | `string` | None | Origin of the links that `blob.sign()` returns, such as `https://app.example`. Add the base URL of the app when it has one, such as `https://app.example/app`. Without it, the links start with `/_vitehub/blob/signed/`. |
 
-Use filesystem storage on one machine with one process. On a serverless host, it is not durable or shared. [Signed links](/docs/blob/server-api#signed-links-of-fs-stores) need `VITEHUB_SECRET`. For several instances, use an object store. With `VITEHUB_INSTANCES` above 1, a server with an `fs` store fails at boot with `RUNTIME_R0017`.
+Use filesystem storage on one machine with one process. Each object is the file at its pathname in the folder. Like S3 and R2, the store can hold both `docs` and `docs/a.txt`. On a serverless host, it is not durable or shared. [Signed links](/docs/blob/server-api#signed-links-of-fs-stores) need `VITEHUB_SECRET`. For several instances, use an object store. With `VITEHUB_INSTANCES` above 1, a server with an `fs` store fails at boot with `RUNTIME_R0017`.
 
 ### Cloudflare R2
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `driver` | `'cloudflare-r2'` | Required | Cloudflare R2. |
+| `driver` | `'cloudflare'` | Required | Cloudflare R2. |
 | `binding` | `string` | `BLOB` | Runtime R2 binding name. |
 | `bucketName` | `string` | R2 or Blob bucket env | Bucket for the generated R2 binding and HTTP fallback. |
 | `jurisdiction` | `'eu' \| 'fedramp' \| 'us'` | `R2_JURISDICTION` or `CLOUDFLARE_R2_JURISDICTION` env | Bucket [R2 jurisdiction](/docs/blob/hosts#jurisdictional-buckets) for the binding, provisioning, and the S3 API host. |
@@ -596,7 +617,7 @@ The runtime binding takes precedence. HTTP credentials are used when no active b
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `driver` | `'vercel-blob'` | Required | Vercel Blob. |
+| `driver` | `'vercel'` | Required | Vercel Blob. |
 | `access` | `'private' \| 'public'` | `'public'` when `serve: { access: 'public' }` serves the store, else `'private'` | Provider access of every object in the store. A public object has a public Vercel Blob URL. `'public'` on a store that `serve: { authorize: true }` serves fails with `BLOB_C0022`. |
 | `allowOverwrite` | `boolean` | `true` | Allows writes to replace an existing pathname. |
 | `downloadTimeoutMs` | `number` | Provider default | Download timeout in milliseconds. |

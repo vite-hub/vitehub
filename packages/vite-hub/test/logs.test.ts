@@ -2,7 +2,6 @@ import { createLogger, initLogger } from "evlog";
 import { Diagnostic } from "nostics";
 import { describe, expect, it } from "vitest";
 import { createLogBuffer } from "../src/logs/memory.ts";
-import { LogCursorExpiredError } from "../src/logs/source.ts";
 
 const entry = (id: string) => ({
   id,
@@ -71,9 +70,9 @@ describe("Logs source", () => {
     expect((await buffer.source.query({})).entries).toHaveLength(2);
     buffer.append(entry("c"));
     expect((await buffer.source.query({})).dropped).toBe(1);
-    await expect(buffer.source.query({ cursor: "a" })).rejects.toBeInstanceOf(
-      LogCursorExpiredError,
-    );
+    await expect(buffer.source.query({ cursor: "a" })).rejects.toMatchObject({
+      code: "LOGS_CURSOR_EXPIRED",
+    });
   });
   it("snapshots structured fields and keeps query callers from mutating stored events", async () => {
     const buffer = createLogBuffer();

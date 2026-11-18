@@ -5,7 +5,7 @@ import { withColocatedAgentSkills } from "@vite-hub/agent/server/internal"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
-import { installConsoleInvocationFallback } from "../src/console/internal.ts"
+import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { requestConsole } from "../src/console/runtime/client/request.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
@@ -21,7 +21,7 @@ function install() {
   })
   const definition = agentWithSkills(base, { review: "# Review\n\nRead the evidence.\n" })
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-  installConsoleInvocationFallback(invocations, process.cwd())
+  installConsoleInvocations(process.cwd(), invocations)
   installConsoleAgentDefinitions([{ definition, fallbackName: "reviewer" }, { definition: defineAgent({ driver: codexDriver(), runtime: false }), fallbackName: "empty" }], {
     invocations,
   })

@@ -1,7 +1,7 @@
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { ledgerUpgradeProblem, matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
+import { ledgerUpgradeProblem, ledgerUpgradeStatements, matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
 import { withoutNewTableDataLoss } from "../internal/migration-sql.ts"
 
 import type { LedgerMatch, LedgerRow } from "../internal/migration-ledger.ts"
@@ -88,15 +88,7 @@ async function readLedger(client: LibsqlMigrationClient, databases: readonly Sta
   if (problem) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: databases[0]!.name, problem })
   const hashes = ledgerHashes(rows, match.backfill)
   if (named) return { ...match, hashes, upgrade: [] }
-  return {
-    ...match,
-    hashes,
-    upgrade: [
-      `ALTER TABLE "${migrationsTable}" ADD COLUMN "name" text`,
-      `ALTER TABLE "${migrationsTable}" ADD COLUMN "applied_at" TEXT`,
-      ...match.backfill.map(({ column, name, value }) => ({ args: [name, value], sql: `UPDATE "${migrationsTable}" SET "name" = ?, "applied_at" = NULL WHERE "${column}" = ?` })),
-    ],
-  }
+  return { ...match, hashes, upgrade: ledgerUpgradeStatements(migrationsTable, match) }
 }
 
 type PendingEntry = { migration: StartMigration, name: string }
@@ -227,12 +219,14 @@ export function ensureDatabaseMigrations(context: EnsureMigrationsContext, names
     const run = lastRun.then(() => context.load()).then(async (shipped) => {
       if (shipped.unsupported) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ problem: shipped.unsupported })
       const test = getViteHubTestMode()
+      // A container image is built once, so its operator accepts data loss for one start with this variable.
+      const allowDataLoss = shipped.allowDataLoss || process.env.VITEHUB_DATABASE_ALLOW_DATA_LOSS === "1"
       await migrateOnStart(missing.flatMap((name) => {
         const database = Object.hasOwn(shipped.databases, name) ? shipped.databases[name] : undefined
         if (database && "problem" in database) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: name, problem: database.problem })
         if (!database?.migrations.length || (test && database.dialect === "sqlite")) return []
         return [{ db: context.databases[name]!.db, dialect: database.dialect, migrations: database.migrations, name }]
-      }), { allowDataLoss: shipped.allowDataLoss, backup: shipped.backup })
+      }), { allowDataLoss, backup: shipped.backup })
     })
     for (const name of missing) runs.set(name, run)
     lastRun = run.catch(() => {

@@ -32,10 +32,10 @@ Create a folder for the site. Add a `package.json` with the two scripts that Nux
 }
 ```
 
-Install Nuxt 5, Nuxt UI, Tailwind CSS, Comark with its Vue and HTML renderers and comark-ui, and the docs module. Nuxt 5 is only in nightly builds for now:
+Install Nuxt 5, Nuxt UI, Tailwind CSS, Comark with its Vue and HTML renderers and comark-ui, and the docs module. `vite-hub` gives the module its `vite-hub/docs/nuxt` path. Nuxt 5 is only in nightly builds for now:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/docs nuxt@npm:nuxt-nightly@5x @nuxt/ui tailwindcss comark @comark/vue @comark/html comark-ui
+pnpm add vite-hub @vite-hub/docs nuxt@npm:nuxt-nightly@5x @nuxt/ui tailwindcss comark @comark/vue @comark/html comark-ui
 ```
 
 ::
@@ -47,7 +47,7 @@ Add the module to `nuxt.config.ts`, and give the site a name:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vite-hub/docs/nuxt'],
+  modules: ['vite-hub/docs/nuxt'],
   docs: {
     site: {
       name: 'Lumen',

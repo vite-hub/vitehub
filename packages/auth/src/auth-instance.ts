@@ -111,8 +111,8 @@ export function requestProvider(
 export function authForRequest(
   request: Pick<Request, "headers" | "url">,
   event?: ViteHubContext,
+  definition: AuthDefinition = resolveDefaultDefinition(),
 ): RegisteredAuth {
-  const definition = resolveDefaultDefinition()
   if (!hasRequestRuntimeOptions(definition) && !hasConfiguredPublicUrl()) {
     return getAuthForDefinition(definition) as RegisteredAuth
   }

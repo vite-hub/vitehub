@@ -1,7 +1,10 @@
 import { defineOperation } from "@vite-hub/internal/operations"
+import { ViteHubError } from "@vite-hub/runtime"
 import * as v from "valibot"
 
 import { compileDocumentsPath, parseDocumentFile, renderDocumentFile } from "./documents.ts"
+import { contentErrorDiagnostics } from "./error-diagnostics.ts"
+import { contentInputErrorCodes } from "./input-errors.ts"
 import { contentSourceHeadsRuntime } from "./source-heads.ts"
 
 import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
@@ -59,19 +62,15 @@ function isRuntime(value: unknown): value is ContentOperationsRuntime {
   return value !== null && Object(value) === value && runtimeMembers.every(member => Reflect.get(Object(value), member) instanceof Function)
 }
 
-class ContentOperationError extends Error {
-  readonly code: string
-  readonly details?: unknown
-  readonly fix?: string
-  readonly status: number
-
-  constructor(status: number, code: string, message: string, options: { details?: unknown, fix?: string } = {}) {
-    super(message)
-    this.code = code
-    this.status = status
-    if (options.details !== undefined) this.details = options.details
-    if (options.fix) this.fix = options.fix
-  }
+/**
+ * Gives an operation error its HTTP status, and the fix of the call site when it names more than the code. The codes
+ * that the Content pages document, such as `CONTENT_NOT_FOUND`, stay the `ViteHubError` codes of the runtime.
+ */
+function withStatus<TError extends Error>(error: TError, status: number, fix?: string): TError {
+  return Object.defineProperties(error, {
+    ...(fix ? { fix: { configurable: true, enumerable: false, value: fix, writable: true } } : {}),
+    status: { configurable: true, enumerable: false, value: status, writable: true },
+  })
 }
 
 const errorStatus = new Map([
@@ -79,7 +78,6 @@ const errorStatus = new Map([
   ["CONTENT_LEASE_HELD", 409],
   ["CONTENT_NOT_FOUND", 404],
   ["CONTENT_R0007", 409],
-  ["CONTENT_R0008", 400],
   ["CONTENT_R0009", 400],
   ["CONTENT_R0011", 400],
   ["CONTENT_R0013", 409],
@@ -105,7 +103,7 @@ async function attempt<T>(work: () => Promise<T>): Promise<T> {
   }
   catch (error) {
     const code = errorCode(error)
-    const status = code === undefined ? undefined : errorStatus.get(code)
+    const status = code === undefined ? undefined : errorStatus.get(code) ?? (contentInputErrorCodes.has(code) ? 400 : undefined)
     if (status && Reflect.get(Object(error), "status") === undefined) Object.assign(Object(error), { status })
     throw error
   }
@@ -115,11 +113,11 @@ async function contentRuntime(): Promise<ContentOperationsRuntime> {
   const modules = Reflect.get(globalThis, sectionModulesKey) as SectionModules | undefined
   const load = modules?.content
   if (!load) {
-    throw new ContentOperationError(409, "CONTENT_UNDEFINED", "This app has no server/content.ts, so there is no Content to work on.", { fix: "Create server/content.ts with `export default defineContent({ ... })`." })
+    throw withStatus(new ViteHubError("CONTENT_UNDEFINED", "This app has no server/content.ts, so there is no Content to work on."), 409, "Create server/content.ts with `export default defineContent({ ... })`.")
   }
   const content = (await load()).default
   if (!isRuntime(content)) {
-    throw new ContentOperationError(409, "CONTENT_UNDEFINED", "server/content.ts does not default-export a defineContent() runtime.", { fix: "Write `export default defineContent({ ... })`." })
+    throw withStatus(new ViteHubError("CONTENT_UNDEFINED", "server/content.ts does not default-export a defineContent() runtime."), 409, "Write `export default defineContent({ ... })`.")
   }
   return content
 }
@@ -156,9 +154,8 @@ function guard(content: ContentOperationsRuntime, context: OperationContext): Gu
     can,
     async allow(action, collection, id) {
       if (await can(action, collection, id)) return
-      throw new ContentOperationError(403, "CONTENT_FORBIDDEN", `You cannot ${action === "read-draft" ? "read drafts of" : action === "write" ? "edit" : "publish"} this ${id === undefined ? "collection" : "document"}.`, {
-        fix: content.hasPolicy ? "Ask for access, or allow the action in defineContent({ authorize })." : "Add authorize to defineContent(). Without a policy nobody can use Content outside `vite dev`.",
-      })
+      throw withStatus(contentErrorDiagnostics.CONTENT_FORBIDDEN({ action: action === "read-draft" ? "read drafts of" : action === "write" ? "edit" : "publish", target: id === undefined ? "collection" : "document" }), 403,
+        content.hasPolicy ? "Ask for access, or allow the action in defineContent({ authorize })." : "Add authorize to defineContent(). Without a policy nobody can use Content outside `vite dev`.")
     },
     async readable(collection, ids) {
       const list = [...new Set(ids)]
@@ -177,7 +174,7 @@ function modelSurface(context: OperationContext): boolean {
 function leaseOption(lease: "override" | undefined, context: OperationContext): Pick<ContentWriteOptions, "lease"> {
   if (lease === undefined) return {}
   if (modelSurface(context) && !context.overrideLeases) {
-    throw new ContentOperationError(403, "CONTENT_FORBIDDEN", "An Agent may not take over a document that a person is editing.", { fix: "Tell the person you work for who is editing it, and try again after they finish. A developer allows overrides with operations({ overrideLeases: true })." })
+    throw withStatus(contentErrorDiagnostics.CONTENT_FORBIDDEN({}), 403, "Tell the person you work for who is editing it, and try again after they finish. A developer allows overrides with operations({ overrideLeases: true }).")
   }
   return { lease }
 }
@@ -197,10 +194,7 @@ async function write<T>(context: OperationContext, work: () => Promise<T>): Prom
     const user: unknown = Reflect.get(Object(holder), "user")
     const name: unknown = Reflect.get(Object(user), "name") ?? Reflect.get(Object(user), "id")
     const document = `${String(Reflect.get(Object(details), "collection"))}/${String(Reflect.get(Object(details), "id"))}`
-    throw new ContentOperationError(409, "CONTENT_LEASE_HELD", `${String(name) === name ? name : "Someone"} is editing Content document ${JSON.stringify(document)}. Nothing was saved.`, {
-      details,
-      fix: "Tell the person you work for, and try again after they finish.",
-    })
+    throw withStatus(new ViteHubError("CONTENT_LEASE_HELD", `${String(name) === name ? name : "Someone"} is editing Content document ${JSON.stringify(document)}. Nothing was saved.`, { details: { ...Object(details) } }), 409, "Tell the person you work for, and try again after they finish.")
   }
 }
 
@@ -230,12 +224,12 @@ function titleOf(collection: AnyContentCollection, data: Record<string, unknown>
   return String(title) === title && title.trim() ? title : id
 }
 
-function notFound(collection: string, id: string): ContentOperationError {
-  return new ContentOperationError(404, "CONTENT_NOT_FOUND", `Content document ${JSON.stringify(`${collection}/${id}`)} exists on neither draft nor published.`)
+function notFound(collection: string, id: string): Error {
+  return withStatus(new ViteHubError("CONTENT_NOT_FOUND", `Content document ${JSON.stringify(`${collection}/${id}`)} exists on neither draft nor published.`), 404)
 }
 
-function invalid(message: string, fix?: string): ContentOperationError {
-  return new ContentOperationError(400, "CONTENT_R0014", message, fix ? { fix } : {})
+function invalid(message: string, fix?: string): Error {
+  return withStatus(contentErrorDiagnostics.CONTENT_R0014({ message }), 400, fix)
 }
 
 /** The document id of the input. A singleton has one document, so its id may be omitted. */
@@ -576,14 +570,12 @@ const save = defineOperation({
     const id = documentId(collection, input.id, "save")
     await access.allow("write", collection.name, id)
     if (context.surface === "mcp" && input.ifDigest === undefined) {
-      throw new ContentOperationError(400, "CONTENT_R0009", "content.save requires ifDigest on MCP calls.", {
-        fix: "Read the draft with content_show and pass its digest, or pass null to create a new document.",
-      })
+      throw withStatus(contentErrorDiagnostics.CONTENT_R0009({ message: "content.save requires ifDigest on MCP calls." }), 400, "Read the draft with content_show and pass its digest, or pass null to create a new document.")
     }
     const lease = leaseOption(input.lease, context)
     const parsed = parseDocumentFile(input.text, collection.format)
     if (!("frontmatter" in parsed)) {
-      throw new ContentOperationError(422, "CONTENT_INVALID", `Content document ${JSON.stringify(`${collection.name}/${id}`)} cannot be read as ${collection.format}.`, { details: { collection: collection.name, id, issues: parsed.issues } })
+      throw withStatus(new ViteHubError("CONTENT_INVALID", `Content document ${JSON.stringify(`${collection.name}/${id}`)} cannot be read as ${collection.format}.`, { details: { collection: collection.name, id, issues: parsed.issues } }), 422)
     }
     const options: ContentWriteOptions = { metadata: metadata(context), ...lease }
     if (input.ifDigest !== undefined) options.ifDigest = input.ifDigest
@@ -737,7 +729,7 @@ const unschedule = defineOperation({
     const content = await contentRuntime()
     const access = guard(content, context)
     const found = (await content.schedules()).find(entry => entry.id === input.schedule)
-    if (!found) throw new ContentOperationError(404, "CONTENT_NOT_FOUND", `No schedule ${JSON.stringify(input.schedule)}. It already ran or was cancelled.`)
+    if (!found) throw withStatus(new ViteHubError("CONTENT_NOT_FOUND", `No schedule ${JSON.stringify(input.schedule)}. It already ran or was cancelled.`), 404)
     // Cancelling decides what gets published, so it needs publish access to every document of the schedule.
     for (const document of found.expect) await access.allow("publish", document.collection, document.id)
     await content.unschedule(input.schedule, { metadata: metadata(context) })

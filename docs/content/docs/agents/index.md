@@ -18,6 +18,8 @@ icon: i-lucide-bot
 - [Learning path](/docs/agents/get-started): go from the first run to models, tools, and a full app.
 - [Build a chat app](/docs/agents/build-a-chat-app): add a model, a streaming route, and a Vue chat UI.
 
+For one model call with no tools, such as a summary or fields read from text, you do not need an Agent. Use [`ask(prompt, { model, schema })`](/docs/gateways/server-api#get-typed-data-from-a-model) from AI Gateways. It returns data that your schema checked.
+
 ## Define and run
 
 An Agent Definition picks a Driver, the thing that does the work. An Invocation runs the definition with one input. This example needs no model or credentials:

@@ -381,6 +381,11 @@ interface AgentInvocationBindOptions {
   agentName?: string
   cancellationDriver?: AgentInvocationCancellationDriver
   deferClaim?: boolean
+  /**
+   * A Workflow attempt of an Agent turn. A record that an earlier attempt left `running` may have started its Driver,
+   * so this attempt does not start the Driver again, even when the earlier claim has expired. See {@link AgentInvocationJournal.driverInterrupted}.
+   */
+  driverAtMostOnce?: boolean
   /** Overrides the configured enforcement for this run. Channel replay passes `"strict"`. */
   enforcement?: AgentInvocationsOptions["enforcement"]
   terminalTakeover?: boolean
@@ -430,14 +435,6 @@ export function pendingAgentInvocationAnnotations(input: AgentRunMetadata["annot
   return annotations
 }
 
-// Internal invariant: Channel replay and the Workflow dispatch catch this conflict and skip the duplicate run.
-export class AgentInvocationClaimConflict extends Error {
-  constructor() {
-    super("Invocation already exists or is claimed.")
-    this.name = "AgentInvocationClaimConflict"
-  }
-}
-
 export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   /** Aborts when a user requests cancellation of this Invocation. */
   abortSignal: AbortSignal
@@ -445,6 +442,11 @@ export interface AgentInvocationJournal<TRuntimeConfig extends AgentRuntimeConfi
   /** Whether this journal holds the store execution claim, lost it, or could not reach the store. */
   readonly createdNew: boolean
   readonly reusedTerminal: boolean
+  /**
+   * An earlier attempt of this turn reached `running`, so its Driver may have started, even if the record is now `failed`.
+   * An expired claim does not prove that the Driver stopped. Only set when the bind used `driverAtMostOnce`; the Driver must not start.
+   */
+  readonly driverInterrupted: boolean
   readonly claimStatus?: "owned" | "conflict" | "unavailable"
   context: AgentRuntimeContext<TRuntimeConfig>
   /** The record `id` of this Invocation. */
@@ -2227,6 +2229,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let heartbeatRenewal: Promise<unknown> = Promise.resolve()
       let workflowDispatchAllowed = false
       let createdNew = false
+      let driverInterrupted = false
       let creationTimedOut = false
       let creationTask: Promise<AgentInvocationStoreCreateResult | undefined> | undefined
       let runningPersisted = false
@@ -2329,6 +2332,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 boundToTerminalRecord = finished
                 workflowDispatchAllowed = result.created || (result.record.status === "pending" && result.record.annotations?.[pendingAgentInvocationAnnotation] === true)
                 createdNew = result.created
+                // startedAt survives terminal transitions and error redaction. A failed Workflow
+                // attempt that reached running must not enter the reused-terminal dispatch path.
+                driverInterrupted = bindOptions.driverAtMostOnce === true && !result.created
+                  && (result.record.status === "running" || (result.record.status === "failed" && result.record.startedAt !== undefined))
                 created = true
                 cancellationWarningPrepared = (result.record.cancelWarningPending === true && result.record.cancelWarningOwnerId === cancellationOwnerId)
                   || (result.record.cancelNotEnforcedBy !== undefined && result.record.cancelNotEnforcedBy === cancellationDriver?.name)
@@ -2703,6 +2710,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         abortSignal: cancellation.signal,
         get createdNew() { return createdNew },
         get reusedTerminal() { return finished && !createdNew },
+        get driverInterrupted() { return driverInterrupted },
         get claimStatus() { return ownsRecord ? "owned" : claimConflict ? "conflict" : claimUnavailable ? "unavailable" : "conflict" },
         async getWorkflowDispatchAttempted() {
           const record = await boundedStore(() => store.getSummary(recordId))
@@ -2794,12 +2802,19 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             .filter(observation => !pendingOutcomeKeys.has(observationPersistenceKey(observation)))
             .map(observationPersistenceKey)
           pendingObservations.length = 0
-          if (runningRequested && !runningPersisted) {
+          // A Workflow attempt that stopped before its Driver because the running state was not written leaves the
+          // record pending: `running` would tell the retry that the Driver started, and a failure is not an outcome,
+          // since the Workflow retries the turn. The recovery Workflow records the failure when no attempt is left.
+          const stoppedBeforeDriver = bindOptions.driverAtMostOnce === true && runningRequested && !runningPersisted && !driverDispatched
+          if (runningRequested && !runningPersisted && !stoppedBeforeDriver) {
             runningPersisted = await update({ cancelNotEnforcedBy: cancelNotEnforcedBy ?? null, cancelWarningPending: cancellationDriver?.enforced === false && !driverDispatched, cancelWarningOwnerId: cancellationOwnerId, status: "running", timestamp: new Date().toISOString() })
           }
           // A queue stop is an interruption, not an outcome. The queue runs the delivery again under
           // this run ID, so keep the record open for that run. A cancellation request still wins.
-          const outcome: Pick<AgentInvocationStoreUpdateInput, "status"> = status === "cancelled" && !cancellation.signal.aborted && isWebhookQueueStop(error) ? {} : { status }
+          const outcome: Pick<AgentInvocationStoreUpdateInput, "status"> = (status === "cancelled" && !cancellation.signal.aborted && isWebhookQueueStop(error))
+            || (status === "failed" && stoppedBeforeDriver)
+            ? {}
+            : { status }
           const failure = outcome.status ? redactedError(error) : undefined
           for (const observation of pendingOutcomes.slice(0, -1)) {
             const persisted = await update({ observation, timestamp: observation.timestamp })
@@ -2927,7 +2942,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           if (strict && cancellationDriver?.enforced === false && !cancellationWarningPrepared && latest && latest !== storeOperationTimedOut && !terminalStatus(latest.status)) {
             throw agentDiagnostics.AGENT_R0973({ message: "[vitehub] Initial custom Driver cancellation state could not be persisted." })
           }
-          if (runningRetry) return false
+          // A Workflow attempt never starts its Driver without the running state, so nothing waits for this write.
+          if (runningRetry || bindOptions.driverAtMostOnce) return false
           runningRetry = (async () => {
             const deadline = Date.now() + TERMINAL_RETRY_TIMEOUT_MS
             while (!finished && Date.now() < deadline) {
@@ -2945,19 +2961,21 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         startsUnconfirmed() {
           // Only a store answer stops a best-effort run: another owner holds the claim, or a cancellation request was read.
           const conflict = claimConflict || (!ownsRecord && !claimUnavailable)
-          if (reopenFailed || strict || conflict || cancellation.signal.aborted) return false
+          // A Workflow retry reads `running` as "the Driver may have started". A Driver that started on a `pending`
+          // record would run again on that retry, so a Workflow attempt fails instead.
+          if (reopenFailed || strict || conflict || cancellation.signal.aborted || bindOptions.driverAtMostOnce) return false
           warnUnconfirmed("running state")
           return true
         },
         dispatchAllowed() {
-          if (reopenFailed || cancellation.signal.aborted || claimConflict) return false
+          if (driverInterrupted || reopenFailed || cancellation.signal.aborted || claimConflict) return false
           return !strict || ownsRecord
         },
         driverStarted() {
           // Keep the final ownership check adjacent to the dispatch marker.
           // A renewal can confirm a claim loss after the caller's check but
           // before this boundary is reached; do not start the Driver then.
-          if (reopenFailed || cancellation.signal.aborted || claimConflict) return false
+          if (driverInterrupted || reopenFailed || cancellation.signal.aborted || claimConflict) return false
           if (finished || finishing || driverDispatched) return true
           driverDispatched = true
           if (!cancellationDriver || cancellationDriver.enforced) return true

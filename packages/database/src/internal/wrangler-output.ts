@@ -13,6 +13,8 @@ import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
  * A real id replaces an all-zero placeholder. Unresolved primary IDs are left out for provisioning; preview IDs stay
  * to prevent remote development from falling back to production. ViteHub stages its migrations
  * in its own directory, so a project `migrations_dir` or `migrations_pattern` is dropped when ViteHub sets one.
+ * The merge by binding name can go when Nitro releases https://github.com/nitrojs/nitro/pull/5146
+ * (https://github.com/nitrojs/nitro/issues/5145). The placeholder and migrations rules stay.
  */
 const d1EntrySpec: WranglerEntrySpec = {
   path: ["d1_databases"],

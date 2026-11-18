@@ -15,7 +15,7 @@ By default it runs on your ChatGPT plan: you sign in once and need no API key. O
 The assistant needs ViteHub Agents and [Connections](/docs/connections). On Node.js it also needs Codex; a Worker build does not:
 
 ```bash [commands/install-assistant]
-pnpm add vite-hub @vite-hub/agent @vite-hub/workflow @vite-hub/connections @vite-hub/database drizzle-orm @openai/codex
+pnpm add vite-hub @vite-hub/agent @vite-hub/workflow @vite-hub/connections @vite-hub/database drizzle-orm@1.0.0-rc.5 @openai/codex
 ```
 
 Add `vite-hub/nuxt` to `modules` and set `assistant: true`:
@@ -24,7 +24,7 @@ Add `vite-hub/nuxt` to `modules` and set `assistant: true`:
 export default defineNuxtConfig({
   modules: [
     ['vite-hub/nuxt', { host: 'node', agent: true, connections: true, database: true }],
-    '@vite-hub/docs/nuxt',
+    'vite-hub/docs/nuxt',
   ],
   docs: { assistant: true },
 })
@@ -35,7 +35,7 @@ For Cloudflare Workers, use `host: 'cloudflare'` instead of `'node'`.
 Add the Agent. It answers from the pages in `content/`:
 
 ```ts [server/agents/docs/agent.ts]
-import { docsAssistant } from '@vite-hub/docs/assistant'
+import { docsAssistant } from 'vite-hub/docs/assistant'
 import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({ extends: docsAssistant, workspace: {} })
@@ -106,7 +106,7 @@ Each request sends the open page's path. The server accepts only a plain path, s
 ## Customize
 
 ```ts [server/agents/docs.ts]
-import { docsAssistant, docsRateLimit } from '@vite-hub/docs/assistant'
+import { docsAssistant, docsRateLimit } from 'vite-hub/docs/assistant'
 import { defineAgent } from 'vite-hub/agent'
 import { openai } from 'vite-hub/gateways'
 import { glob } from 'vite-hub/workspace'

@@ -23,7 +23,7 @@ import fixtureDocument from "./console.fixture.json" with { type: "json" }
 import manifest from "./package.json" with { type: "json" }
 import { playgroundSkillFiles } from "./skills.ts"
 import { servedSkillsConsoleSection } from "../../packages/vite-hub/src/skills/console.ts"
-import { playgroundCommentsSection, playgroundConsoleContributions } from "./sections.ts"
+import { playgroundCommentsSection, playgroundConsoleContributions, playgroundWebhooksSection } from "./sections.ts"
 
 // SAFETY: console.fixture.json holds Agent Invocation records in the shape that the journal store creates.
 const fixture = fixtureDocument as { invocations: AgentInvocationStoreCreateInput[] }
@@ -59,6 +59,7 @@ const sections = [
   "workflows",
   "queues",
   "schedules",
+  "webhooks",
   "comments",
   "site",
 ] as const;
@@ -418,6 +419,17 @@ function playgroundFailure(request: IncomingMessage, path: string): number | und
   return undefined
 }
 
+/**
+ * Keeps only some sections, so a contributor can see the Console of a smaller app, such as the "Add a primitive" list.
+ * Set the `playground-sections` cookie to section ids, such as `comments,databases`.
+ */
+function playgroundSections(request: IncomingMessage): readonly string[] {
+  const cookie = request.headers?.cookie?.split(/;\s*/).find(entry => entry.startsWith("playground-sections="))
+  if (!cookie) return sections
+  const kept = new Set(decodeURIComponent(cookie.slice("playground-sections=".length)).split(","))
+  return sections.filter(section => kept.has(section))
+}
+
 const playgroundFailureMessages: Record<number, string> = {
   401: "The app does not accept the signature of this Console.",
   403: "This account cannot read this Console section.",
@@ -498,7 +510,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
   }
   if (path === "/_vitehub/api/sections") {
     // A fixed build id, so the Console starts its update check. A test that answers another id shows "Update ready".
-    json(response, { build: "playground", contributions: [...playgroundConsoleContributions, playgroundCommentsSection, servedSkillsConsoleSection], projectName: manifest.name, sections })
+    json(response, { build: "playground", contributions: [...playgroundConsoleContributions, playgroundCommentsSection, playgroundWebhooksSection, servedSkillsConsoleSection], projectName: manifest.name, sections: playgroundSections(request) })
     return true
   }
 

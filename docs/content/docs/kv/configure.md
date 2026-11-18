@@ -74,7 +74,7 @@ export default defineConfig({
 | --- | --- |
 | `kv: false` | Turns KV off. |
 | `kv: { driver: 'fs-lite', base?: string }` | Saves values as local files. Default `base`: `.vitehub/data/kv` for the default store and `.vitehub/data/kv-stores/<store>` for a named store, so stores never share keys. |
-| `kv: { driver: 'cloudflare-kv-binding', binding?: string, namespaceId?: string }` | Uses Cloudflare KV. Default `binding`: `KV`. `namespaceId` can come from `KV_NAMESPACE_ID`. |
+| `kv: { driver: 'cloudflare', binding?: string, namespaceId?: string }` | Uses Cloudflare KV. Default `binding`: `KV`. `namespaceId` can come from `KV_NAMESPACE_ID`. |
 | `kv: { driver: 'deno-kv', path?: string }` | Uses native Deno KV through `Deno.openKv()`. |
 | `kv: { driver: 'redis', url?: string, base?: string }` | Uses a Redis server over TCP. Default `url`: `env:REDIS_URL`, which the server reads when the store starts. `env:<NAME>` reads another variable. A literal URL goes into the build output. `base` prefixes the keys. Default `base`: `vitehub:kv:<store>`, so keys that are not ViteHub's stay apart, and `kv.clear()` deletes only this store. Two ViteHub apps on one Redis database share the default, so give each app its own database or `base`. |
 | `kv: { driver: 'database', database?: string }` | Keeps the keys in the table `vitehub_kv` of a Database. Default `database`: `default`. The store creates the table when it is missing. Works on Postgres and libSQL, not on D1. |
@@ -82,7 +82,7 @@ export default defineConfig({
 | `kv: { remote?: boolean }` | Infers the driver from the host and the env. `remote: true` lets `vite dev` use the inferred hosted store. See [Development stays local](#development-stays-local). |
 | `kv: { stores: Record<string, KVStoreConfig> }` | Defines named KV Stores. `stores.default` is required. |
 
-`cloudflare-kv-binding` and `upstash` stores also accept `remote`. Builds ignore it.
+`cloudflare` and `upstash` stores also accept `remote`. Builds ignore it.
 
 ## Providers
 
@@ -91,7 +91,7 @@ export default defineConfig({
 | Redis | `redis` | Selected with `driver: 'redis'`; the server reads the URL at runtime. |
 | Database | `database` | Used on Node when the app has a Postgres Default Database. |
 | Local filesystem | `fs-lite` | Used on Node when neither applies. |
-| Cloudflare KV | `cloudflare-kv-binding` | Used on Cloudflare hosting. |
+| Cloudflare KV | `cloudflare` | Used on Cloudflare hosting. |
 | Deno KV | `deno-kv` | Used on Deno hosting. |
 | Upstash | `upstash` | Used when Upstash env vars are present during the build or when Vercel hosting is detected. |
 
@@ -181,6 +181,31 @@ Upstash credentials in development can come from Vite's `.env` files for the cur
 
 An explicit `driver` is honored in development as before: an `upstash` store uses Upstash and prints the notice. Only inference and the Cloudflare fallback depend on `remote`. Builds ignore `remote`, so the build output does not change. `remote: true` with `fs-lite` or `deno-kv`, `remote: false` with `upstash`, and `remote: true` in development without a hosted store fail with [`KV_REMOTE_CONFLICT`](/docs/kv/limits-and-errors#kv_remote_conflict).
 
+## Seed values
+
+A seed file holds a starting value, such as the default tasks of a demo. Put one JSON file for each key in `server/seed/kv/`:
+
+```json [server/seed/kv/habits.json]
+[
+  { "title": "Water the plants", "done": false },
+  { "title": "Call the supplier", "done": true }
+]
+```
+
+Start `vite dev`, then write the files to the default store:
+
+```bash [Terminal]
+pnpm vitehub seed kv
+```
+
+```txt [Output]
+Created key habits in store default (object).
+```
+
+The key is the path without its extension, so `server/seed/kv/settings/theme.json` is the key `settings/theme`. A `.json` file is a JSON value. Any other file, such as `welcome.txt`, is a string. Files that start with `.` are skipped. The command writes each value again on every run, so it replaces a value that the app changed.
+
+Without `--remote`, `vitehub seed` writes the stores of the running dev server. With `--remote`, it writes the deployed app at `--url`, or at `vitehub({ publicUrl })`, like `vitehub kv set --url`. Only the default store has seed files. `pnpm vitehub seed` also runs the [Database](/docs/database/configure#seed-data) and [Blob](/docs/blob/configure#seed-files) seeds.
+
 ## Nitro cache in KV
 
 Nitro keeps entries from `defineCachedFunction()`, `defineCachedEventHandler()`, and route rule caches in its `cache` storage. By default, that is memory in each server instance. Set `cache: { driver: 'kv' }` to keep them in the default KV store:
@@ -223,4 +248,5 @@ export default defineConfig({
 - Nitro sends each entry's `maxAge` as the TTL. Cloudflare KV keeps entries at least 60 seconds. Redis, the `database` driver, Upstash, Deno KV, and `fs-lite` expire them on time. Nitro checks the age on each read, so it never serves an expired entry as fresh.
 - The build fails when `kv` is not enabled.
 - A `cache` mount in `nitro.kv` (`nitro.storage` in Nuxt) wins over this option.
+- [Cache tags and `staleIfError`](/docs/guides/cache-server-results) work with this driver too.
 - The Console Cache section and `vitehub cache` list, read, and invalidate the entries. See [Read and invalidate the cache](/docs/development/cli#read-and-invalidate-the-cache).

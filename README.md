@@ -104,7 +104,7 @@ Support is different for each primitive. Read the [support matrix](https://viteh
 ## Get started
 
 ```bash
-pnpm add vite-hub nitro h3
+pnpm add vite-hub @vite-hub/kv nitro h3
 pnpm add -D vite
 ```
 
@@ -128,7 +128,7 @@ If a coding agent writes your app, install the ViteHub skill:
 npx skills add https://vitehub.dev --skill vitehub
 ```
 
-Requirements: Node.js 22.22 or newer and Vite 8 or newer. Presets: `cloudflare`, `netlify`, `vercel`, `deno`, and `node`.
+Requirements: Node.js 22.22 or newer on 22.x, 24.11 or newer on 24.x, or 26 or newer, and Vite 8 or newer. Node.js 23, Node.js 24 before 24.11, and Node.js 25 are not supported. Hosts: `cloudflare`, `netlify`, `vercel`, `deno`, and `node`.
 
 ## Agents
 

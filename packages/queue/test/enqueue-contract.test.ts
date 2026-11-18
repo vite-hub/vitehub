@@ -17,14 +17,14 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
   const sent: { payload: unknown, options: unknown }[] = []
   const client = provider === "cloudflare"
     ? createCloudflareQueueClient({
-        provider,
+        driver: provider,
         binding: {
           send: async (payload, options) => { sent.push({ payload, options }) },
           sendBatch: vi.fn(async () => {}),
         },
       })
     : await createVercelQueueClient({
-        provider,
+        driver: provider,
         topic: "audit",
         client: {
           send: async (_topic, payload, options) => {
@@ -34,7 +34,7 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
           handleCallback: vi.fn(),
         },
       })
-  setQueueRuntimeConfig({ provider }, async () => client)
+  setQueueRuntimeConfig({ driver: provider }, async () => client)
   setQueueRuntimeRegistry({ audit: async () => defineQueue(() => {}) })
 
   const payloads = [
@@ -62,8 +62,8 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
 it.each(["cloudflare", "vercel"] as const)("rejects a caller message id through %s before the provider call", async (provider) => {
   const send = vi.fn(async () => ({ messageId: "provider-id" }))
   const client = provider === "cloudflare"
-    ? createCloudflareQueueClient({ provider, binding: { send, sendBatch: vi.fn(async () => {}) } })
-    : await createVercelQueueClient({ provider, topic: "audit", client: { send, handleCallback: vi.fn() } })
+    ? createCloudflareQueueClient({ driver: provider, binding: { send, sendBatch: vi.fn(async () => {}) } })
+    : await createVercelQueueClient({ driver: provider, topic: "audit", client: { send, handleCallback: vi.fn() } })
 
   // SAFETY: A JavaScript caller can still pass the removed `id` option.
   const [error, result] = await client.send("event", { id: "own-id" } as QueueEnqueueOptions)
@@ -76,7 +76,7 @@ it.each(["cloudflare", "vercel"] as const)("rejects a caller message id through 
 })
 
 it("returns no message id from Cloudflare, which assigns the id that the handler gets", async () => {
-  const client = createCloudflareQueueClient({ provider: "cloudflare", binding: { send: vi.fn(async () => {}), sendBatch: vi.fn(async () => {}) } })
+  const client = createCloudflareQueueClient({ driver: "cloudflare", binding: { send: vi.fn(async () => {}), sendBatch: vi.fn(async () => {}) } })
 
   expect(await client.send("event")).toEqual([undefined, { status: "queued" }])
 })

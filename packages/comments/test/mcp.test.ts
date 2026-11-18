@@ -46,7 +46,7 @@ describe("Comments MCP tools", () => {
     for (const input of [{}, { search: "thread" }, { page: "/pricing" }]) {
       const answer = await call("comments_list_threads", input)
       expect(answer.text).not.toMatch(/Private page|Hidden thread/)
-      expect(answer.structured).toEqual({ threads: input.search ? [] : [expect.objectContaining({ id: visible!.id })] })
+      expect(answer.structured).toEqual({ threads: input.search ? [] : [expect.objectContaining({ id: visible!.id })], hidden: input.page ? 1 : 2 })
     }
     expect((await call("comments_list_threads", { page: "/private" })).isError).toBe(true)
   })
@@ -200,7 +200,7 @@ describe("Comments MCP tools", () => {
     })
 
     const list = await call("comments_list_threads", {})
-    expect(list.text).toBe(`- #${thread!.n} ${thread!.id} /pricing: The price is cut off (Ada, 0 replies, in PricingCard)`)
+    expect(list.text).toBe(`- #${thread!.n} ${thread!.id} /pricing on "h1 Pricing", updated ${new Date(thread!.updatedAt).toISOString().slice(0, 16)}Z: The price is cut off (Ada, 0 replies, in PricingCard)`)
     expect(list.structured).toMatchObject({ threads: [{ id: thread!.id, components: ["PricingCard"] }] })
     expect((await call("comments_list_threads", { search: "nothing" })).text).toBe("No open threads.")
 
@@ -222,6 +222,55 @@ describe("Comments MCP tools", () => {
     expect(after?.messages.at(-1)?.author).toEqual({ id: "ben", name: "Ben" })
     expect(after?.resolvedBy).toEqual({ id: "ben", name: "Ben" })
     expect((await call("comments_resolve_thread", { id: thread!.id, resolved: false })).text).toBe(`Thread ${thread!.id} is open.`)
+  })
+
+  it("filters by a full URL of the page as well as a path", async () => {
+    const { comments, call } = await setup({ authorize: () => true })
+    const [, pricing] = await comments.create({ page: "/pricing", body: "On pricing", author: ada })
+    await comments.create({ page: "/", body: "On home", author: ada })
+    for (const page of ["https://drop.vitehub.dev/pricing", "https://drop.vitehub.dev/pricing/?plan=pro#top", "/pricing"]) {
+      expect((await call("comments_list_threads", { page })).structured).toEqual({ threads: [expect.objectContaining({ id: pricing!.id, page: "/pricing" })], hidden: 0 })
+    }
+  })
+
+  it("says how many threads authorize hid instead of \"No open threads.\"", async () => {
+    const { comments, call } = await setup({ authorize: ({ thread }) => !thread || thread.messages[0]?.body === "Visible" })
+    for (let index = 0; index < 2; index++) await comments.create({ page: "/pricing", body: "Hidden", author: ada })
+    const empty = await call("comments_list_threads", {})
+    expect(empty).toEqual({ text: "No open threads that this caller may read. `authorize` hid 2 threads from this caller.", structured: { threads: [], hidden: 2 } })
+    const [, visible] = await comments.create({ page: "/pricing", body: "Visible", author: ada })
+    const listed = await call("comments_list_threads", {})
+    expect(listed.structured).toEqual({ threads: [expect.objectContaining({ id: visible!.id })], hidden: 2 })
+    expect(listed.text).toMatch(/\n\n`authorize` hid 2 threads from this caller\.$/)
+  })
+
+  it("names the identify cause when a Console caller has no app user", async () => {
+    const comments = await createComments({ identify: () => null, authorize: ({ user, thread }) => !thread || user !== null })
+    await comments.create({ page: "/pricing", body: "Hidden", author: ada })
+    const [tool] = commentsMcpTools(comments, { console: true })
+    expect((await tool!.call({}, { user: null, event: event() })).text).toBe("No open threads that this caller may read. `authorize` hid 1 thread from this caller. With `identify`, a Console call has no app user: allow Console callers in `authorize` with `({ console }) => console`.")
+    const [own] = commentsMcpTools(comments)
+    expect((await own!.call({}, { user: null, event: event() })).text).toBe("No open threads that this caller may read. `authorize` hid 1 thread from this caller, because `identify` found no user for this call.")
+  })
+
+  it.each([true, false])("gives authorize the Console flag of the tools (identify: %s)", async (withIdentify) => {
+    const seen: unknown[] = []
+    const comments = await createComments({
+      ...(withIdentify ? { identify: () => ada } : {}),
+      authorize: ({ console }) => { seen.push(console); return console === true },
+    })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Fix this", author: ada })
+    const inputs = [{}, { id: thread!.id }, { id: thread!.id, body: "Fixed" }, { id: thread!.id }]
+    for (const [index, tool] of commentsMcpTools(comments, { console: true }).entries()) {
+      expect((await tool.call(inputs[index]!, { user: ada, event: event() })).isError).toBeUndefined()
+    }
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.every(flag => flag === true)).toBe(true)
+    seen.length = 0
+    for (const [index, tool] of commentsMcpTools(comments).entries()) {
+      expect((await tool.call(inputs[index]!, { user: ada, event: event() })).isError).toBe(true)
+    }
+    expect(seen.every(flag => flag === false)).toBe(true)
   })
 
   it("checks authorize for each call, and reports missing threads", async () => {

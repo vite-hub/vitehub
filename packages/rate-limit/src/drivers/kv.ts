@@ -1,8 +1,11 @@
+import { toResultError } from "@vite-hub/runtime"
+
+import type { Result } from "@vite-hub/runtime"
 import type { RateLimitDriver, RateLimitDriverInput } from "../types.ts"
 import { rateLimitErrorDiagnostics } from "../error-diagnostics.ts"
 
 /** `[error, data]`, as KV operations return it. */
-type KVOperationResult<T> = readonly [error: Error, data: undefined] | readonly [error: undefined | null, data: T]
+type KVOperationResult<T> = Result<T>
 
 /**
  * The KV operations that the driver uses. `kv` and `kv.store(name)` from `@vite-hub/kv` match it. `increment` must be
@@ -35,7 +38,7 @@ function isStorage(value: unknown): value is RateLimitKVStorage {
 async function withKVDeadline<T>(operation: Promise<KVOperationResult<T>>): Promise<KVOperationResult<T>> {
   let timer: ReturnType<typeof setTimeout> | undefined
   const deadline = new Promise<KVOperationResult<T>>((resolve) => {
-    timer = setTimeout(() => resolve([new Error("[vitehub] Rate Limit KV operation timed out after 1000 milliseconds."), undefined]), 1_000)
+    timer = setTimeout(() => resolve([toResultError(rateLimitErrorDiagnostics.RATE_LIMIT_KV_TIMEOUT()), undefined]), 1_000)
   })
   try {
     return await Promise.race([operation, deadline])
@@ -97,7 +100,7 @@ export function kvRateLimitDriver(options: KVRateLimitDriverOptions): KVRateLimi
       const [error, used] = await withKVDeadline(storage.increment(window.key, input.windowMs / 1_000))
       if (error) return [error, undefined]
       if (used > input.limit) {
-        return [null, {
+        return [undefined, {
           allowed: false,
           remaining: 0,
           resetAt: window.resetAt,
@@ -105,7 +108,7 @@ export function kvRateLimitDriver(options: KVRateLimitDriverOptions): KVRateLimi
           used,
         }]
       }
-      return [null, { allowed: true, remaining: input.limit - used, resetAt: window.resetAt, used }]
+      return [undefined, { allowed: true, remaining: input.limit - used, resetAt: window.resetAt, used }]
     },
     name: "kv",
     async peek(input) {
@@ -113,11 +116,11 @@ export function kvRateLimitDriver(options: KVRateLimitDriverOptions): KVRateLimi
       const [error, value] = await withKVDeadline(storage.get(window.key))
       if (error) return [error, undefined]
       const used = typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : 0
-      return [null, { resetAt: used ? window.resetAt : undefined, used }]
+      return [undefined, { resetAt: used ? window.resetAt : undefined, used }]
     },
     async reset(input) {
       const [error] = await withKVDeadline(storage.delete(fixedWindow(input, now()).key))
-      return [error ?? null]
+      return error ? [error, undefined] : [undefined, undefined]
     },
   }
 }

@@ -1,9 +1,10 @@
+import { clientRateLimitIssue } from "@vite-hub/internal/runtime/client-rate-limit"
+
 import { formsDiagnostics } from "./errors.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { DefineFormOptions, FormDefinition } from "./types.ts"
 
-const windowPattern = /^\d+(?:ms|s|m|h|d)$/
 const fieldPattern = /^[A-Za-z_][\w-]*$/
 
 function invalid(message: string): Error {
@@ -21,10 +22,8 @@ export function defineForm<const TSchema extends StandardSchemaV1>(options: Defi
     throw invalid("`schema` must be a Standard Schema, such as a Valibot or Zod object schema.")
   }
   const { rateLimit, honeypot, maxBytes, notify } = options
-  if (rateLimit !== undefined && rateLimit !== false) {
-    if (!Number.isInteger(rateLimit.limit) || rateLimit.limit < 1) throw invalid("`rateLimit.limit` must be a whole number of 1 or more.")
-    if (!windowPattern.test(rateLimit.window)) throw invalid("`rateLimit.window` must be a duration such as `30s`, `1m`, or `1h`.")
-  }
+  const rateLimitIssue = rateLimit === undefined || rateLimit === false ? undefined : clientRateLimitIssue(rateLimit)
+  if (rateLimitIssue) throw invalid(rateLimitIssue)
   if (honeypot !== undefined && honeypot !== false && !fieldPattern.test(honeypot)) throw invalid("`honeypot` must be a field name, such as `website`.")
   if (maxBytes !== undefined && (!Number.isInteger(maxBytes) || maxBytes < 1024)) throw invalid("`maxBytes` must be a whole number of 1024 or more.")
   for (const origin of options.origins ?? []) {

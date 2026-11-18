@@ -97,9 +97,9 @@ describe("Console members", () => {
     const url = await link("site.link", { path: "/runs/42" })
     const { response, cookie } = await open(url)
     expect(response.status).toBe(303)
-    expect(response.headers.get("location")).toBe(`${origin}/runs/42`)
+    expect(response.headers.get("location")).toBe(`${origin}/runs/42?vitehub`)
     expect(response.headers.getSetCookie()).toEqual([
-      expect.stringMatching(/^better-auth\.session_token=[^;]+; Path=\/; Max-Age=604800; HttpOnly; SameSite=Lax$/),
+      expect.stringMatching(/^better-auth\.session_token=[^;]+; Max-Age=604800; Path=\/; HttpOnly; SameSite=Lax$/),
       "vitehub_session=1; Path=/; SameSite=Lax; Max-Age=604800",
       "vitehub-tools=; Path=/; Max-Age=0; SameSite=Lax",
     ])
@@ -206,36 +206,72 @@ describe("guests", () => {
 })
 
 describe("GET /_vitehub", () => {
-  async function enter(path = "/_vitehub"): Promise<{ response: Response, location: URL, state: string, cookie: string }> {
-    const response = await siteEntryRoute.fetch(new Request(`${origin}${path}`))
+  async function enter(path = "/_vitehub", headers: Record<string, string> = {}): Promise<{ response: Response, location: URL, state: string, cookie: string }> {
+    const response = await siteEntryRoute.fetch(new Request(`${origin}${path}`, { headers }))
     const location = new URL(response.headers.get("location") ?? "", origin)
     const cookie = response.headers.getSetCookie()[0] ?? ""
     return { response, location, state: location.searchParams.get("state") ?? "", cookie }
   }
 
-  it("sends the browser to the Console with the page and a state, and keeps the state in a cookie", async () => {
-    const { response, location, state, cookie } = await enter("/_vitehub?page=%2Fruns%2F42")
+  it("sends the browser to the Console with the page of the Referer and a state, and keeps the state in a cookie", async () => {
+    const { response, location, state, cookie } = await enter("/_vitehub", { referer: `${origin}/runs/42?tab=logs` })
     expect(response.status).toBe(303)
     expect(`${location.origin}${location.pathname}`).toBe("https://console.vitehub.dev/open")
-    expect(Object.fromEntries(location.searchParams)).toEqual({ project: origin, site: "/runs/42", state })
+    expect(Object.fromEntries(location.searchParams)).toEqual({ project: origin, site: "/runs/42?tab=logs", state })
     expect(state).toMatch(/^[\w-]{43}$/)
     expect(cookie).toBe(`__Host-vitehub-site-state=${state}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`)
   })
 
-  it("signs in only the browser that has the state cookie of the link", async () => {
+  it("comes back to the path below /_vitehub, with its query", async () => {
+    const { location } = await enter("/_vitehub/projects/meetups?task=x", { referer: `${origin}/elsewhere` })
+    expect(location.searchParams.get("site")).toBe("/projects/meetups?task=x")
+  })
+
+  it.each([
+    ["/_vitehub", {}, "/"],
+    ["/_vitehub/", {}, "/"],
+    ["/_vitehub", { referer: "https://evil.example/runs/42" }, "/"],
+    ["/_vitehub", { referer: `${origin}/_vitehub/rpc` }, "/"],
+    ["/_vitehub//evil.example/x", {}, "/"],
+  ])("comes back from %s with %o to %s, a page of the app", async (path, headers, site) => {
+    const { location } = await enter(path, headers)
+    expect(location.origin).toBe("https://console.vitehub.dev")
+    expect(location.searchParams.get("site")).toBe(site)
+  })
+
+  it("answers 404 for a path that ViteHub serves itself, and goes to no page", async () => {
+    for (const path of ["/_vitehub/rpc/x", "/_vitehub/page/assets/old.js", "/_vitehub/.well-known/skills/x", "/_vitehub/_vitehub/runs"]) {
+      const response = await siteEntryRoute.fetch(new Request(`${origin}${path}`))
+      expect(response.status, path).toBe(404)
+      expect(response.headers.get("location"), path).toBeNull()
+    }
+  })
+
+  it("signs in only the browser that has the state cookie, and goes back to the page with the pill", async () => {
     app.database.sqlite.prepare("UPDATE user SET emailVerified = 1 WHERE id = ?").run(app.member.id)
-    const { state, cookie } = await enter("/_vitehub?page=%2Fruns%2F42")
+    const { state, cookie, location } = await enter("/_vitehub/projects/meetups?task=x")
     const stateCookie = cookie.split(";")[0]!
+    // The Console calls site.link with the page and the state of the link, as for a signed-out person after the sign-in.
+    const input = { path: location.searchParams.get("site"), state }
 
     // A link made for another browser's state signs nobody in here.
-    const stolen = await open(await link("site.link", { path: "/runs/42", state }))
+    const stolen = await open(await link("site.link", input))
     expect(stolen.response.status).toBe(403)
     expect(stolen.cookie).toBe("")
 
-    const { response, cookie: session } = await open(await link("site.link", { path: "/runs/42", state }), chrome, stateCookie)
+    const { response, cookie: session } = await open(await link("site.link", input), chrome, stateCookie)
     expect(response.status).toBe(303)
-    expect(response.headers.get("location")).toBe(`${origin}/runs/42`)
+    expect(response.headers.get("location")).toBe(`${origin}/projects/meetups?task=x&vitehub`)
     expect((await signedIn(session))?.user).toMatchObject({ id: app.member.id })
+
+    // Signed in now, /_vitehub goes back to the page at once.
+    const nitroApp = { fetch: (request: Request) => siteEntryRoute.fetch(request) }
+    installConsolePageTool(nitroApp, { script: "/console.js", user: consolePageAuthUser })
+    const again = await nitroApp.fetch(new Request(`${origin}/_vitehub/projects/meetups?task=x`, { headers: { cookie: session } }))
+    expect(again.headers.get("location")).toBe("/projects/meetups?task=x&vitehub")
+    // Without the session, it still goes through the Console.
+    const anonymous = await nitroApp.fetch(new Request(`${origin}/_vitehub/projects/meetups`))
+    expect(new URL(anonymous.headers.get("location")!).origin).toBe("https://console.vitehub.dev")
   })
 
   it("keeps the state of this browser, so a link from another tab still works", async () => {
@@ -246,10 +282,11 @@ describe("GET /_vitehub", () => {
 
   it("goes to the page with ?vitehub on a development server", async () => {
     installConsoleDevelopment("", true)
-    const { response, cookie } = await enter("/_vitehub?page=%2Fdocs%3Ftab%3D1%23intro")
+    const { response, cookie } = await enter("/_vitehub/docs?tab=1")
     expect(response.status).toBe(303)
-    expect(response.headers.get("location")).toBe("/docs?tab=1&vitehub#intro")
+    expect(response.headers.get("location")).toBe("/docs?tab=1&vitehub")
     expect(cookie).toBe("")
+    expect((await enter("/_vitehub", { referer: `${origin}/docs?vitehub=comments` })).response.headers.get("location")).toBe("/docs?vitehub=comments")
   })
 
   it.each([
@@ -259,19 +296,23 @@ describe("GET /_vitehub", () => {
     ["https://evil.example/", "/"],
     ["/\\evil.example", "/"],
     ["/\t/evil.example", "/"],
-  ])("comes back to %s as %s", (page, path) => {
+    ["/_vitehub/rpc", "/"],
+  ])("reads %s as the page %s", (page, path) => {
     expect(siteEntryPage(page, "")).toBe(path)
   })
 
-  it("reads the page below the app base", () => {
+  it("reads the page below the app base", async () => {
     expect(siteEntryPage("/portal/runs/42?x=1", "/portal")).toBe("/runs/42?x=1")
     expect(siteEntryPage("/portal", "/portal")).toBe("/")
     expect(siteEntryPage("/portality", "/portal")).toBe("/")
     expect(siteEntryPage("/runs/42", "/portal")).toBe("/")
+    const { location } = await enter("/portal/_vitehub/runs/42")
+    expect(Object.fromEntries(location.searchParams)).toMatchObject({ project: `${origin}/portal`, site: "/runs/42" })
   })
 
-  it("answers only GET", async () => {
+  it("answers only GET, and 404 for another method on a page path", async () => {
     expect((await siteEntryRoute.fetch(new Request(`${origin}/_vitehub`, { method: "POST" }))).status).toBe(405)
+    expect((await siteEntryRoute.fetch(new Request(`${origin}/_vitehub/schedules/run`, { method: "POST" }))).status).toBe(404)
   })
 })
 
@@ -410,7 +451,7 @@ describe("the vitehub site commands", () => {
     // A development server answers only this machine, so the browser that opens the link runs here too.
     const response = await redeemConsoleTicket(requestEvent(new Request(url!, { headers: { "user-agent": chrome } }), { remoteAddress: "127.0.0.1" }))
     const cookie = response.headers.getSetCookie().map(value => value.split(";")[0]!).filter(pair => !pair.endsWith("=")).join("; ")
-    expect(response.headers.get("location")).toBe(`${origin}/runs/42`)
+    expect(response.headers.get("location")).toBe(`${origin}/runs/42?vitehub`)
     expect((await signedIn(cookie))?.user).toMatchObject({ name: "Ana", role: "guest,comments-read,comments-write" })
     expect((await vitehub(["site", "grants"], "dev")).stdout).toBe([
       "ROLE            LABEL           GUESTS",

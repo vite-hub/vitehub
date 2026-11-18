@@ -70,13 +70,13 @@ export default defineConfig({
 Create `server/api/files.post.ts`. This file is the route `POST /api/files`. It saves the text of the request as `hello.txt`.
 
 ```ts [server/api/files.post.ts]
-import { createError, defineEventHandler, readRawBody } from 'h3'
+import { defineEventHandler, HTTPError, readRawBody } from 'h3'
 import { blob } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   const text = await readRawBody(event)
   if (!text) {
-    throw createError({ statusCode: 400, message: 'Send a text file in the request body.' })
+    throw new HTTPError({ status: 400, message: 'Send a text file in the request body.' })
   }
 
   const [error, object] = await blob.put('hello.txt', text, {
@@ -103,14 +103,14 @@ export default defineEventHandler(async (event) => {
 Create `server/api/files.get.ts`. This route reads `hello.txt` and returns its text.
 
 ```ts [server/api/files.get.ts]
-import { createError, defineEventHandler, setResponseHeader } from 'h3'
+import { defineEventHandler, HTTPError, setResponseHeader } from 'h3'
 import { blob } from 'vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
   const [error, file] = await blob.get('hello.txt')
   if (error) throw error
   if (file === null) {
-    throw createError({ statusCode: 404, message: 'Upload hello.txt first.' })
+    throw new HTTPError({ status: 404, message: 'Upload hello.txt first.' })
   }
 
   setResponseHeader(event, 'content-type', 'text/plain; charset=utf-8')
