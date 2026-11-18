@@ -11,17 +11,8 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-
 import { defineAgent } from "../src/agent.ts"
 import { agentInvocationsDisabledKey, installAgentInvocations, resolveDefaultAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { renderAgentInvocationsNitroPlugin } from "../src/agent-invocations-vite.ts"
-import {
-  consoleInvocationsIdentityKey,
-  consoleInvocationsIdentityRootKey,
-  consoleInvocationsKey,
-  consoleInvocationsRegistryKey,
-  consoleInvocationsRootIdentityRegistryKey,
-  consoleInvocationsRootKey,
-  installConsoleInvocationFallback,
-  resolveConsoleInvocations,
-  type ConsoleInvocationScope,
-} from "../src/console/internal.ts"
+import { consoleStateKey, resolveConsoleInvocations } from "../src/console/internal.ts"
+import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { vitehub } from "../src/index.ts"
 
@@ -34,16 +25,10 @@ const libsql = async () => await import("../src/internal/agent-invocations-libsq
 
 const driver = { run: () => "done" }
 const context = () => ({ memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() })
-// SAFETY: ConsoleInvocationScope adds only optional symbol-keyed state to the global object.
-const scope = globalThis as ConsoleInvocationScope
 
 afterEach(() => {
   installAgentInvocations({})
-  for (const target of [scope, process]) {
-    for (const key of [consoleInvocationsKey, consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsRootKey, consoleInvocationsRegistryKey, consoleInvocationsRootIdentityRegistryKey]) {
-      Reflect.deleteProperty(target, key)
-    }
-  }
+  Reflect.deleteProperty(globalThis, consoleStateKey)
 })
 
 async function recordedAgents(agent: { invocations?: unknown }): Promise<string[]> {
@@ -129,7 +114,7 @@ describe("defineAgent({ invocations })", () => {
 
   it("records no journal for false, also with an app-wide journal and a Console journal", async () => {
     installAgentInvocations({ default: "memory" })
-    installConsoleInvocationFallback(defineAgentInvocations({ store: createMemoryAgentInvocationStore() }), process.cwd())
+    installConsoleInvocations(process.cwd(), defineAgentInvocations({ store: createMemoryAgentInvocationStore() }))
     const agent = defineAgent({ driver, invocations: false, name: "off" })
     expect(agent.invocations).toBeUndefined()
     expect(Reflect.get(agent, agentInvocationsDisabledKey)).toBe(true)

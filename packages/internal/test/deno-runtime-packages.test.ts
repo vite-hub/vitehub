@@ -396,7 +396,24 @@ await import("data-package", { with: { type: "json" } })
     })
     await execFile("deno", ["check", "--config", "deno.json", "main.ts"], { cwd: join(root, ".output") })
     await expect(readFile(join(root, ".output/deploy.mjs"), "utf8")).resolves.toContain('const entrypoint = "main.ts"')
-  })
+  }, 30_000)
+
+  it("writes the Deno entrypoint that registers Schedules when the project has no main.ts", async () => {
+    const root = await temporaryDirectory("vitehub-deno-default-entry-")
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "globalThis.order = [...globalThis.order ?? [], \"server\"]\n", "utf8")
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "globalThis.order = [...globalThis.order ?? [], \"cron\"]\n", "utf8")
+
+    await finalize({ hasScheduleIntegration: true, rootDir: root })
+
+    await expect(readFile(join(root, ".output/deno.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
+      deploy: { runtime: { entrypoint: "./main.ts" } },
+      tasks: { start: "deno run --unstable-cron -A ./main.ts" },
+    })
+    const { stdout } = await execFile("deno", ["eval", "await import(\"./main.ts\"); console.log(globalThis.order.join(\",\"))"], { cwd: join(root, ".output") })
+    expect(stdout.trim()).toBe("cron,server")
+  }, 30_000)
 
   it("stages retained Schedule sources with Deno deployment output", async () => {
     const root = await temporaryDirectory("vitehub-deno-schedule-sources-")

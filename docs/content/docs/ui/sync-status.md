@@ -13,10 +13,10 @@ icon: i-lucide-cloud-check
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `vite-hub/ui`:
 
 ```ts
-import { SyncStatus, SyncStatusIndicator, SyncStatusLabel } from "@vite-hub/ui";
+import { SyncStatus, SyncStatusIndicator, SyncStatusLabel } from "vite-hub/ui";
 ```
 
 ## Usage
@@ -25,7 +25,7 @@ Derive the status from the Realtime room:
 
 ```ts
 import { computed, ref } from "vue"
-import type { SyncStatusValue } from "@vite-hub/ui";
+import type { SyncStatusValue } from "vite-hub/ui";
 import { useRealtimeTiptap } from "vite-hub/realtime/vue";
 
 const realtime = useRealtimeTiptap("docs", "guides/welcome.md");

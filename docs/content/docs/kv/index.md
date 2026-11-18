@@ -117,6 +117,14 @@ export default defineEventHandler(async () => {
   `setIfAbsent()` writes a token once. With Redis, a Database, or Upstash, `increment()` counts and `getAndDelete()` reads a value only once.
   :::
 
+  :::product-feature-item{title="Many keys in one call" icon="i-lucide-list" to="/docs/kv/server-api#read-and-write-many-keys"}
+  `kv.getMany()` reads a list of keys. `kv.setMany()` writes a list of values.
+  :::
+
+  :::product-feature-item{title="Run a job once at a time" icon="i-lucide-lock" to="/docs/kv/server-api#locks"}
+  With Redis, a Database, or Upstash, `kv.lock()` lets one server run a cron job or a sync while the others skip it.
+  :::
+
   :::product-feature-item{title="Know when to use a database" icon="i-lucide-database" to="/docs/kv/hosts#production-checks"}
   Use KV to read by key. Use Database for tables, joins, or queries.
   :::
@@ -126,6 +134,8 @@ export default defineEventHandler(async () => {
 Use KV for small values addressed by a key, such as flags, cursors, short-lived state, or counters that do not require relational queries.
 
 Turn KV on with `vitehub add kv`. Where the host needs an explicit driver, such as Upstash on Netlify, pass it with `--option kv.driver=<driver>`. Keep key names and serialization in application code. KV operations are not a substitute for atomic Rate Limit enforcement or relational transactions.
+
+Read or write many keys with `kv.getMany(keys)` and `kv.setMany([{ key, value }])`, not a loop of `get()` or `set()`. `setMany()` is not atomic. To stop two servers from running the same job, use `kv.lock(key, { ttl }).run(fn)` and return when `acquired` is `false`. Only the `redis`, `database`, and `upstash` drivers support `lock()`; the others return `KV_UNSUPPORTED_OPERATION`. For work that must renew its hold, use a Database lease.
 
 Prove put, get, list with a prefix, and delete. Restart local storage or query the hosted provider to confirm the durability you need.
 ::

@@ -2,7 +2,7 @@ import { end, findProperty, indentAt, keyName, line, quoteString, start } from "
 
 import { addViteHubOptions, ConfigEditor, createLineResolver, planHost, useViteHubModule } from "../shared/config-editor.ts"
 import { findModuleEntry, literalValue, staticOptionsObject, unwrapExpression } from "../shared/nuxt-config.ts"
-import { CodemodError } from "../types.ts"
+import { codemodError } from "../error-diagnostics.ts"
 
 import type { ObjectExpression } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
@@ -133,7 +133,7 @@ function readDatabase(config: NuxtConfigFile, value: Node, notes: ConfigNote[]):
   if (literal === false) return undefined
   if (literal === true || literal === "sqlite") return "sqlite"
   if (literal === "postgresql") return "postgresql"
-  if (literal === "mysql") throw new CodemodError("hub.db is \"mysql\". ViteHub does not support MySQL, so keep NuxtHub or Drizzle for this app.")
+  if (literal === "mysql") throw codemodError("hub.db is \"mysql\". ViteHub does not support MySQL, so keep NuxtHub or Drizzle for this app.")
   const object = unwrapExpression(value)
   if (object.type !== "ObjectExpression") {
     notes.push({ path: ["database"], message: `hub.db is ${optionText(config, value)}, which the codemod cannot read. It set database: true for SQLite. Check the dialect and the connection.` })
@@ -158,7 +158,7 @@ export function readHub(config: NuxtConfigFile, redisSource?: RedisKVSource): Hu
   const hubProperty = findProperty(config.root, "hub")
   const value = hubProperty ? unwrapExpression(hubProperty.value) : undefined
   if (value && value.type !== "ObjectExpression") {
-    throw new CodemodError(`${config.fileName} sets hub to an expression. Make it an object literal, then run the codemod again.`)
+    throw codemodError(`${config.fileName} sets hub to an expression. Make it an object literal, then run the codemod again.`)
   }
   const hub: ObjectExpression | undefined = value
   const features: HubFeatures = { kv: false, blob: false, cache: false }
@@ -185,7 +185,7 @@ export function readHub(config: NuxtConfigFile, redisSource?: RedisKVSource): Hu
       else if (options) {
         const binding = findProperty(options, "binding")
         const driver = findProperty(options, "driver")
-        const expectedDriver = feature === "blob" ? "cloudflare-r2" : "cloudflare-kv-binding"
+        const expectedDriver = "cloudflare"
         if (!driver || literalValue(driver.value) === expectedDriver) {
           const value = binding ? literalValue(binding.value) : feature.toUpperCase()
           if (typeof value === "string" && value) bindings[feature] = value
@@ -235,7 +235,7 @@ export interface ConfigEditResult {
 export function editConfig(config: NuxtConfigFile, plan: HubPlan, wranglerFile: string | undefined, resources: CloudflareResourceOptions = {}): ConfigEditResult {
   const entry = findModuleEntry(config, moduleName)
   if (entry?.inlineOptions) {
-    throw new CodemodError(`${config.fileName} passes options to ${moduleName} in modules. Move them to the hub key, then run the codemod again.`)
+    throw codemodError(`${config.fileName} passes options to ${moduleName} in modules. Move them to the hub key, then run the codemod again.`)
   }
   const editor = new ConfigEditor(config)
   const style = editor.style

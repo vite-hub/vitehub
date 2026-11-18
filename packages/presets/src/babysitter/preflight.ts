@@ -1,3 +1,4 @@
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { execFile } from "node:child_process";
 import { access, open, stat } from "node:fs/promises";
 import { constants } from "node:fs";
@@ -13,7 +14,7 @@ const execute = promisify(execFile);
 async function validateExecutable(path: string): Promise<void> {
   await access(path, constants.X_OK);
   const info = await stat(path);
-  if (!info.isFile()) throw new Error(`Executable is not a file: ${path}`);
+  if (!info.isFile()) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_HOST_EXECUTABLE_UNAVAILABLE({ program: path, problem: "is not a file" });
   // An executable text file must name an interpreter, otherwise execve reports
   // ENOEXEC even though the executable permission bit is present.
   if (process.platform !== "win32") {
@@ -34,7 +35,7 @@ async function validateExecutable(path: string): Promise<void> {
         [0xbf, 0xba, 0xfe, 0xca], // FAT_CIGAM_64
       ].some(magic => magic.every((byte, index) => bytes[index] === byte));
       if (!elf && !macho) {
-        throw new Error(`Executable has no interpreter: ${path}`);
+        throw presetsErrorDiagnostics.PRESETS_BABYSITTER_HOST_EXECUTABLE_UNAVAILABLE({ program: path, problem: "has no interpreter" });
       }
     } else {
       const header = bytes.toString("utf8");
@@ -43,7 +44,7 @@ async function validateExecutable(path: string): Promise<void> {
       const interpreter = parts[0] === "/usr/bin/env" || parts[0] === "/bin/env"
         ? parts.slice(1).find(part => !part.startsWith("-") && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(part))
         : parts[0];
-      if (!interpreter) throw new Error(`Executable has no interpreter: ${path}`);
+      if (!interpreter) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_HOST_EXECUTABLE_UNAVAILABLE({ program: path, problem: "has no interpreter" });
       await resolveExecutable(interpreter);
     }
   }
@@ -70,7 +71,7 @@ async function resolveExecutable(program: string): Promise<void> {
       return;
     }
   }
-  throw new Error(`Executable not found: ${program}`);
+  throw presetsErrorDiagnostics.PRESETS_BABYSITTER_HOST_EXECUTABLE_UNAVAILABLE({ program, problem: "is not on PATH" });
 }
 
 /** Cached host prerequisites. Failed checks recover without restarting webhook intake. */

@@ -9,7 +9,7 @@ describe("standalone Source definitions", () => {
     const guide = file({ workspacePath: "intro.md", content: "# Introduction\n" })
     const workspace = createWorkspace({
       ...defineWorkspace({
-        store: { provider: "memory" },
+        store: { driver: "memory" },
         sources: {
           guide: { source: guide, mount: "docs", materialize: "lazy" },
         },

@@ -69,7 +69,7 @@ const BLOB_DRIVER_OPTIONS: Record<BlobStoreConfig["driver"], BlobDriverOptions> 
     options: ["accountName", "container", "endpoint", "publicBaseUrl"],
     secrets: { accountKey: "AZURE_STORAGE_KEY", connectionString: "AZURE_STORAGE_CONNECTION_STRING", sasToken: "AZURE_STORAGE_SAS_TOKEN" },
   },
-  "cloudflare-r2": { ...S3_COMPATIBLE_OPTIONS("R2"), options: ["accountId", "binding", "bucketName", "jurisdiction", "publicBaseUrl"] },
+  "cloudflare": { ...S3_COMPATIBLE_OPTIONS("R2"), options: ["accountId", "binding", "bucketName", "jurisdiction", "publicBaseUrl"] },
   fs: { options: ["base", "urlBaseUrl"], secrets: {} },
   gcs: {
     options: ["bucket", "credentials.client_email", "keyFilename", "projectId", "publicBaseUrl"],
@@ -81,7 +81,7 @@ const BLOB_DRIVER_OPTIONS: Record<BlobStoreConfig["driver"], BlobDriverOptions> 
     options: ["bucket", "endpoint", "publicBaseUrl", "region"],
     secrets: { "credentials.accessKeyId": "AWS_ACCESS_KEY_ID", "credentials.secretAccessKey": "AWS_SECRET_ACCESS_KEY", "credentials.sessionToken": "AWS_SESSION_TOKEN" },
   },
-  "vercel-blob": { options: ["access"], secrets: { token: "BLOB_READ_WRITE_TOKEN" } },
+  "vercel": { options: ["access"], secrets: { token: "BLOB_READ_WRITE_TOKEN" } },
 }
 
 /** Options that ViteHub sets itself and that hold no credential. */
@@ -181,7 +181,7 @@ export function resolveRuntimeBlobSecrets<TStore extends ResolvedBlobStoreConfig
   const lazy: Record<string, string> = {}
   let resolved: Record<string, unknown> = config
   for (const [option, name] of Object.entries(secretEnv)) {
-    if (store.driver === "cloudflare-r2" && LAZY_R2_SECRETS.has(option)) lazy[option] = name
+    if (store.driver === "cloudflare" && LAZY_R2_SECRETS.has(option)) lazy[option] = name
     else resolved = withOptionPath(resolved, option.split("."), readBlobSecretEnv(env, name, option, store.driver))
   }
   // SAFETY: Only the masked string options changed to their runtime values, so the store keeps its shape.
@@ -226,7 +226,7 @@ function resolveCloudflareStore(
       jurisdiction: resolveCloudflareJurisdiction(config.jurisdiction, env),
       secretAccessKey: resolveBuildRuntimeValue(config.secretAccessKey, env, "R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY"),
     },
-    { binding: "BLOB", driver: "cloudflare-r2" as const },
+    { binding: "BLOB", driver: "cloudflare" as const },
   )
 }
 
@@ -255,7 +255,7 @@ function resolveVercelStore(
   return {
     ...config,
     access: resolveVercelAccess(config, served, path),
-    driver: "vercel-blob",
+    driver: "vercel",
     token,
     ...(token === MASKED_BLOB_RUNTIME_VALUE && trimmed(config.token) ? { tokenFromConfig: true } : {}),
   }
@@ -336,7 +336,7 @@ function resolveExplicitStore(
   path: string,
 ) {
   switch (store.driver) {
-    case "cloudflare-r2":
+    case "cloudflare":
       return resolveCloudflareStore(store, env)
     case "fs":
       return resolveFsStore(store, env)
@@ -344,7 +344,7 @@ function resolveExplicitStore(
       return resolveMinioStore(store, env)
     case "netlify-blobs":
       return resolveNetlifyStore(store)
-    case "vercel-blob":
+    case "vercel":
       return resolveVercelStore(store, env, served, path)
     case "s3":
       assertS3CredentialsShape(store, path)
@@ -352,11 +352,16 @@ function resolveExplicitStore(
     case "azure":
     case "gcs":
       return store
-    default:
+    default: {
       // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
-      throw blobErrorDiagnostics.BLOB_C0001({ message: `Unknown \`blob.driver\`: ${JSON.stringify((store as { driver: unknown }).driver)}.` })
+      const driver = (store as { driver: unknown }).driver
+      throw blobErrorDiagnostics.BLOB_C0001({ driver: JSON.stringify(driver) ?? String(driver), renamed: renamedBlobDrivers.get(String(driver)) })
+    }
   }
 }
+
+/** Driver names that ViteHub renamed to the host name. `npx @vite-hub/codemods driver-key` moves them. */
+const renamedBlobDrivers = new Map([["cloudflare-r2", "cloudflare"], ["vercel-blob", "vercel"]])
 
 function normalizeServeHeaders(value: unknown): Record<string, string> | undefined {
   if (value === undefined) return
@@ -524,8 +529,8 @@ function applyDevelopmentMode(
   if (!options.dev) return local
   if (options.remote) return { ...local, remote: true }
   if (!options.inferred) return local
-  if (local.driver === "vercel-blob" || local.driver === "s3") return resolveFsStore({}, options.env)
-  if (local.driver === "cloudflare-r2") return { ...local, localFallback: resolveFsStore({}, options.env) }
+  if (local.driver === "vercel" || local.driver === "s3") return resolveFsStore({}, options.env)
+  if (local.driver === "cloudflare") return { ...local, localFallback: resolveFsStore({}, options.env) }
   return local
 }
 

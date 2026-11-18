@@ -1,5 +1,7 @@
 import { defineDiagnostics } from "nostics"
 
+import type { Diagnostic } from "nostics"
+
 const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
@@ -22,8 +24,8 @@ export const formsDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ field, found, surface, takes }: { field: string, found: string, surface: string, takes: string }) => `${field ? `The field \`${field}\`` : "The form schema"} is ${found}. ${surface} takes ${takes}.`,
       fix: "Keep the form flat: one field for each text, number, true or false, or choice. Move nested data to its own form, or join it into one text field.",
     },
-    /** The store could not read or write submissions. */
-    FORMS_R0001: { ...dynamicError, fix: "Apply the Forms tables with `vitehub database generate` and `vitehub database migrate`. `error.cause` holds the Database error." },
+    /** The store could not read or write submissions, for a reason other than a missing table. */
+    FORMS_R0001: { ...dynamicError, fix: "Read `error.cause` for the Database error, and check that the Database of the forms is reachable. When the cause names a missing column, apply the Forms tables with `vitehub database generate` and `vitehub database migrate`." },
     /** No submission has that id. */
     FORMS_R0002: { ...dynamicError, fix: "Pass the id of a form submission that the inbox lists." },
     // Named errors. Keep these codes in alphabetical order.
@@ -43,5 +45,14 @@ export const formsDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ status }: { status: string }) => `[vitehub] A form submission status is open, done, or spam, not ${status}.`,
       fix: "Pass `setStatus()` one of `open`, `done`, or `spam`.",
     },
+    FORMS_TABLES_MISSING: {
+      why: ({ action }: { action: string }) => `[vitehub] Forms could not ${action}: the Database has no \`vitehub_form_submissions\` table.`,
+      fix: "Run `vitehub database generate` to add the Forms tables to your migrations, then `vitehub database migrate` to apply them. Restart the dev server.",
+    },
   },
 })
+
+/** An error of the Forms catalog, such as `FORMS_TABLES_MISSING` from the store. */
+export function isFormsDiagnostic(error: unknown): error is Diagnostic {
+  return formsDiagnostics.is(error)
+}

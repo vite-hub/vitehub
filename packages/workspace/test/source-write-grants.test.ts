@@ -21,7 +21,7 @@ function docsSource() {
 }
 
 function definition(name: string, rules?: WorkspaceDefinition["rules"]): WorkspaceDefinition {
-  return { name, rules, sources: { docs: docsSource() }, store: { provider: "memory" } }
+  return { name, rules, sources: { docs: docsSource() }, store: { driver: "memory" } }
 }
 
 describe("Source write grants", () => {

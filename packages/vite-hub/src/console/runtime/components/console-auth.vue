@@ -33,6 +33,7 @@ import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
 import ConsoleSection from "./console-section.vue";
+import Icon from "./console-icon.vue";
 const props = defineProps<{ sectionsBase: string }>();
 // The rail's Search button and Cmd+K open the search of the page. Its API routes sit next to the sections route.
 const apiBase = props.sectionsBase.replace(/\/sections$/, "");
@@ -270,7 +271,7 @@ onBeforeUnmount(() => {
             class="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 sm:px-6"
           >
             <div class="flex min-w-0 flex-[1_1_16rem] items-start gap-2">
-              <UIcon
+              <Icon
                 name="i-lucide-venetian-mask"
                 class="mt-0.5 size-4 shrink-0 text-warning"
                 aria-hidden="true"
@@ -348,7 +349,7 @@ onBeforeUnmount(() => {
             <div class="mx-auto flex w-full max-w-6xl flex-col gap-3 p-4 sm:p-6">
               <details v-if="description?.access.length && page === 'users'" class="group text-xs text-muted">
                 <summary class="inline-flex cursor-pointer items-center gap-1 rounded-md select-none hover:text-highlighted">
-                  <UIcon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
+                  <Icon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
                   Access rules
                 </summary>
                 <ul class="mt-2 list-inside list-disc space-y-1">
@@ -640,11 +641,11 @@ onBeforeUnmount(() => {
   padding: 0 0.75rem;
   font-size: 0.75rem;
   font-weight: 500;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   white-space: nowrap;
 }
 .auth-table td {
   padding: 0.625rem 0.75rem;
-  border-top: 1px solid var(--ui-border);
+  border-top: 1px solid var(--border);
 }
 </style>

@@ -102,4 +102,6 @@ export interface DocsSearchSection {
   content: string
   /** Page entries only: the page's `keywords`, which search matches like a title. */
   keywords?: string[]
+  /** `false` on the one record of a page that search engines skip, such as a generated error code page. */
+  indexed?: false
 }

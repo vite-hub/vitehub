@@ -247,7 +247,7 @@ it("accepts host-staged resolutions in commitRepair and records a two-parent mer
   expect(result).toEqual({ conflicted: ["file.txt", "package.json"], resolved: [{ path: "package.json", rule: "package-json" }], remaining: ["file.txt"] });
   expect(JSON.parse(await readFile(join(root, ".git", "vitehub-merge.json"), "utf8")).conflicts).toEqual(result);
   await expect(commitGitHubPullRequestWorkspace(root, { message: "merge", paths: ["package.json"] }, { expectedHead })).rejects.toThrow(/file.txt/);
-  await writeFile(join(root, "file.txt"), "both\n");
+  await writeFile(join(root, "file.txt"), "main\nPR\n");
   const head = await commitGitHubPullRequestWorkspace(root, { message: "merge main", paths: ["file.txt"] }, { expectedHead });
   expect(await git(root, "rev-parse", `${head}^1`, `${head}^2`)).toBe(`${expectedHead}\n${base}`);
   expect(JSON.parse(await git(root, "show", `${head}:package.json`))).toEqual({ name: "b", version: "1.1.0", dependencies: { x: "1.0.0", y: "2.0.0" } });

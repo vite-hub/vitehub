@@ -3,12 +3,12 @@ import { Buffer } from "node:buffer"
 import type { ForgeProvider, RepoRef } from "forges"
 
 import { forgeDiagnostics } from "../error-diagnostics.ts"
-import { ForgeResponseError } from "../provider.ts"
+import { forgeResponseError } from "../provider.ts"
 
 /**
  * The bytes of one Git blob, by its sha. The blob of a symlink holds the link target.
  * Gap: `forges` reads files by path only, and GitHub follows a symlink path to its target.
- * Proposed upstream as `provider.contents.blob(repo, sha, options)`.
+ * Proposed upstream as `provider.contents.blob(repo, sha, options)` (https://github.com/danielroe/forges/issues/295).
  */
 export async function forgeBlob(provider: ForgeProvider, repo: RepoRef, sha: string, options: { signal?: AbortSignal } = {}): Promise<Uint8Array> {
   if (provider.forge !== "github") {
@@ -20,7 +20,7 @@ export async function forgeBlob(provider: ForgeProvider, repo: RepoRef, sha: str
     { signal: options.signal },
   )
   const bytes = decodeBase64Blob(data)
-  if (!bytes) throw new ForgeResponseError(`GitHub returned a malformed blob ${sha}.`)
+  if (!bytes) throw forgeResponseError(`GitHub returned a malformed blob ${sha}.`)
   return new Uint8Array(bytes)
 }
 

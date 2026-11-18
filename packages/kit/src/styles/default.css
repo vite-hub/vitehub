@@ -1,6 +1,7 @@
 /*
  * The default style family of ViteHub UI: ui-sdk's own stylesheet, the shadcn tokens of `tokens.css` mapped onto its
- * `--ui-*` variables, the ViteHub look, and the rules for the kit's TagsInput, which ui-sdk does not have. The build
+ * `--ui-*` variables, the ViteHub look, the rules for the kit's TagsInput, and the CSS-only parts that ui-sdk does not
+ * have (skeleton, empty state, badge, chip, alert, card, and avatar group). The build
  * replaces the web.css import with the file itself, with the workspace patch (`patches/@ui-sdk__core@*.patch`).
  *
  *   @import "@vite-hub/kit/styles/tokens.css";
@@ -102,7 +103,7 @@
     outline-offset: calc(var(--ui-ring-width) * -1);
   }
 
-  /* Popups float on a 1px ring and a soft shadow, with no border. */
+  /* Popups float on a 1px ring and a soft shadow, with no border. `--popover` is translucent over a blurred page. */
   :is(
     [data-slot="menu-content"],
     [data-slot="select-content"],
@@ -116,6 +117,7 @@
   ) {
     border-width: 0;
     background: var(--popover);
+    backdrop-filter: blur(12px);
     box-shadow: var(--shadow-popover);
     color: var(--popover-foreground);
   }
@@ -165,6 +167,92 @@
       background: var(--ui-muted);
       color: var(--ui-foreground);
     }
+  }
+
+  /*
+   * The Nuxt UI looks that the ui-sdk set of `@vite-hub/ui` (`uiSdkComponents`) asks for: `soft`, `ghost`, and `link`
+   * buttons, the `xs` and `sm` sizes, a spinner, a dialog footer, a menu item description, and a tab badge.
+   */
+  [data-slot="button"] {
+    &:is([data-variant="soft"], [data-variant="ghost"], [data-variant="link"]) {
+      border-color: transparent;
+    }
+
+    &[data-variant="soft"] {
+      background: var(--ui-muted);
+
+      &:hover:not([data-disabled]) {
+        background: color-mix(in oklab, var(--ui-muted), var(--ui-foreground) 8%);
+      }
+    }
+
+    &:is([data-variant="ghost"], [data-variant="link"]) {
+      background: transparent;
+    }
+
+    &[data-variant="link"] {
+      height: auto;
+      padding-inline: 0;
+      color: var(--ui-muted-foreground);
+
+      &:hover:not([data-disabled]) {
+        background: transparent;
+        color: var(--ui-foreground);
+      }
+    }
+
+    &[data-size="xs"] {
+      gap: calc(var(--ui-spacing) * 1);
+      height: calc(var(--ui-spacing) * 6);
+      padding-inline: calc(var(--ui-spacing) * 2);
+      font-size: 0.75rem;
+    }
+
+    &[data-size="sm"] {
+      height: calc(var(--ui-spacing) * 7);
+      padding-inline: calc(var(--ui-spacing) * 2.5);
+    }
+
+    &[aria-label]:has(> svg:only-child, > [data-slot$="-icon"]:only-child) {
+      &[data-size="xs"] {
+        width: calc(var(--ui-spacing) * 6);
+      }
+
+      &[data-size="sm"] {
+        width: calc(var(--ui-spacing) * 7);
+      }
+    }
+  }
+
+  [data-slot="spinner"] {
+    animation: kit-spin 1s linear infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="spinner"] {
+      animation-duration: 3s;
+    }
+  }
+
+  @keyframes kit-spin {
+    to {
+      rotate: 1turn;
+    }
+  }
+
+  [data-slot="dialog-footer"] {
+    display: flex;
+    justify-content: flex-end;
+    gap: calc(var(--ui-spacing) * 2);
+  }
+
+  :is([data-slot="menu-item-description"], [data-slot="tabs-tab-badge"]) {
+    color: var(--ui-muted-foreground);
+    font-size: 0.75rem;
+  }
+
+  [data-slot="menu-item-description"] {
+    display: block;
   }
 
   [data-slot="tags-input"] {
@@ -252,5 +340,397 @@
     &::placeholder {
       color: var(--ui-muted-foreground);
     }
+  }
+
+  /*
+   * The CSS-only parts: plain HTML with a `vh-` slot name, which neither Nuxt UI nor web.css uses. They look like the
+   * Nuxt UI parts that the Console shows with `@vite-hub/ui/theme.css` today. Their state and sizes are attributes:
+   * `data-tone`, `data-size`, and `data-variant`. The rules are in the `ui-sdk` layer, so a utility class wins over them.
+   */
+
+  /* A gray block in the place of content that loads. Set its size with the page's own classes. */
+  [data-slot="vh-skeleton"] {
+    display: block;
+    border-radius: calc(var(--radius) * 1.5);
+    background: var(--muted);
+    animation: vh-skeleton-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  /* A page or a panel with nothing to show: an icon, a title, a description, and actions, centered. */
+  [data-slot="vh-empty"] {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: calc(var(--ui-spacing) * 2);
+    min-width: 0;
+    padding: calc(var(--ui-spacing) * 5);
+    border-radius: calc(var(--radius) * 2);
+
+    @media (width >= 40rem) {
+      padding: calc(var(--ui-spacing) * 6);
+    }
+
+    @media (width >= 64rem) {
+      padding: calc(var(--ui-spacing) * 8);
+    }
+
+    &[data-variant="outline"] {
+      background: var(--background);
+      box-shadow: 0 0 0 1px var(--border);
+    }
+
+    & > * {
+      max-width: 24rem;
+    }
+
+    /* Content after the text, such as a code example, sits 12px below it. */
+    & > :not([data-slot^="vh-empty-"]) {
+      margin-block-start: calc(var(--ui-spacing) * 1);
+    }
+  }
+
+  [data-slot="vh-empty-icon"] {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: calc(var(--ui-spacing) * 10);
+    height: calc(var(--ui-spacing) * 10);
+    margin-block-end: calc(var(--ui-spacing) * 2);
+    border-radius: 9999px;
+    background: var(--muted);
+    color: var(--muted-foreground);
+    font-size: 1.25rem;
+
+    & > svg {
+      width: 1em;
+      height: 1em;
+    }
+  }
+
+  [data-slot="vh-empty-title"] {
+    margin: 0;
+    color: var(--foreground);
+    font-size: 1rem;
+    font-weight: 500;
+    line-height: 1.5rem;
+    text-align: center;
+    text-wrap: pretty;
+  }
+
+  [data-slot="vh-empty-description"] {
+    margin: 0;
+    color: var(--muted-foreground);
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    text-align: center;
+    text-wrap: balance;
+  }
+
+  [data-slot="vh-empty-actions"] {
+    display: flex;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: calc(var(--ui-spacing) * 2);
+    margin-block-start: calc(var(--ui-spacing) * 2);
+  }
+
+  /* `xs` and `sm` for a panel or a sidebar: a smaller icon and 14px and 12px text. */
+  [data-slot="vh-empty"]:is([data-size="xs"], [data-size="sm"]) {
+    & [data-slot="vh-empty-title"] {
+      font-size: 0.875rem;
+      line-height: 1.25rem;
+    }
+
+    & [data-slot="vh-empty-description"] {
+      font-size: 0.75rem;
+      line-height: 1rem;
+    }
+  }
+
+  [data-slot="vh-empty"][data-size="xs"] [data-slot="vh-empty-icon"] {
+    width: calc(var(--ui-spacing) * 8);
+    height: calc(var(--ui-spacing) * 8);
+    font-size: 1rem;
+  }
+
+  [data-slot="vh-empty"][data-size="sm"] [data-slot="vh-empty-icon"] {
+    width: calc(var(--ui-spacing) * 9);
+    height: calc(var(--ui-spacing) * 9);
+    font-size: 1.125rem;
+  }
+
+  /*
+   * A count or a state in a few words. Neutral by default; `data-tone` gives it a status color: a 10% fill, a 25% ring,
+   * and the darker text shade.
+   */
+  [data-slot="vh-badge"] {
+    --vh-badge-fill: var(--muted);
+    --vh-badge-ring: var(--ui-border-accented);
+    display: inline-flex;
+    align-items: center;
+    gap: calc(var(--ui-spacing) * 1);
+    padding: calc(var(--ui-spacing) * 1) calc(var(--ui-spacing) * 2);
+    border-radius: calc(var(--radius) * 1.5);
+    background: var(--vh-badge-fill);
+    box-shadow: inset 0 0 0 1px var(--vh-badge-ring);
+    color: var(--ui-text);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1rem;
+    white-space: nowrap;
+
+    &[data-size="sm"] {
+      padding: calc(var(--ui-spacing) * 0.5) calc(var(--ui-spacing) * 1.5);
+      border-radius: var(--radius);
+    }
+  }
+
+  /* A dot on the corner of an icon, such as a filter that is on. Leave the dot out, or set `hidden`, to hide it. */
+  [data-slot="vh-chip"] {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+  }
+
+  [data-slot="vh-chip-indicator"] {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 7px;
+    height: 7px;
+    border-radius: 9999px;
+    background: var(--foreground);
+    box-shadow: 0 0 0 1px var(--background);
+    translate: 50% -50%;
+  }
+
+  /*
+   * A notice in a page or a panel: an icon, then the title, the description, and actions. Neutral by default;
+   * `data-tone` colors it. `data-variant="outline"` drops the fill. Actions inside `vh-alert-content` go under the text;
+   * actions after it sit at the end of the row, centered.
+   */
+  [data-slot="vh-alert"] {
+    --vh-alert-fill: color-mix(in oklab, var(--muted) 50%, transparent);
+    --vh-alert-ring: var(--ui-border-accented);
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: calc(var(--ui-spacing) * 2);
+    width: 100%;
+    padding: calc(var(--ui-spacing) * 3);
+    overflow: hidden;
+    border-radius: calc(var(--radius) * 2);
+    background: var(--vh-alert-fill);
+    box-shadow: inset 0 0 0 1px var(--vh-alert-ring);
+    color: var(--foreground);
+
+    &[data-variant="outline"] {
+      --vh-alert-fill: transparent;
+    }
+
+    &[data-variant="outline"]:is(:not([data-tone]), [data-tone="neutral"]) {
+      --vh-alert-fill: var(--background);
+      --vh-alert-ring: var(--border);
+    }
+
+    &:has(> [data-slot="vh-alert-actions"]) {
+      align-items: center;
+    }
+
+    & > svg {
+      width: 1rem;
+      height: 1rem;
+      margin-block-start: calc(var(--ui-spacing) * 0.5);
+    }
+  }
+
+  [data-slot="vh-alert-content"] {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  [data-slot="vh-alert-title"] {
+    margin: 0;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.5;
+  }
+
+  [data-slot="vh-alert-description"] {
+    margin: 0;
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+  }
+
+  [data-slot="vh-alert-title"] + [data-slot="vh-alert-description"] {
+    margin-block-start: calc(var(--ui-spacing) * 1);
+  }
+
+  [data-slot="vh-alert-actions"] {
+    display: flex;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: calc(var(--ui-spacing) * 1.5);
+  }
+
+  [data-slot="vh-alert-content"] > [data-slot="vh-alert-actions"] {
+    align-items: flex-start;
+    margin-block-start: calc(var(--ui-spacing) * 2.5);
+  }
+
+  /* An icon-only button that dismisses the alert, in the top end corner. */
+  [data-slot="vh-alert-close"] {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: calc(var(--radius) * 1.5);
+    background: none;
+    color: var(--muted-foreground);
+    cursor: pointer;
+
+    &:hover {
+      color: var(--ui-text);
+    }
+
+    & > svg {
+      opacity: 0.8;
+    }
+  }
+
+  :is([data-slot="vh-badge"], [data-slot="vh-alert"]) {
+    &[data-tone="success"] {
+      --vh-tone-fill: var(--ui-success);
+      --vh-tone-text: var(--vh-text-success);
+    }
+
+    &[data-tone="warning"] {
+      --vh-tone-fill: var(--ui-warning);
+      --vh-tone-text: var(--vh-text-warning);
+    }
+
+    &[data-tone="info"] {
+      --vh-tone-fill: var(--ui-info);
+      --vh-tone-text: var(--vh-text-info);
+    }
+
+    &[data-tone="error"] {
+      --vh-tone-fill: var(--ui-error);
+      --vh-tone-text: var(--vh-text-error);
+    }
+
+    &[data-tone]:not([data-tone="neutral"]) {
+      --vh-badge-fill: color-mix(in oklab, var(--vh-tone-fill) 10%, transparent);
+      --vh-badge-ring: color-mix(in oklab, var(--vh-tone-fill) 25%, transparent);
+      --vh-alert-ring: color-mix(in oklab, var(--vh-tone-fill) 25%, transparent);
+      color: var(--vh-tone-text);
+    }
+
+    &[data-tone]:not([data-tone="neutral"], [data-variant="outline"]) {
+      --vh-alert-fill: color-mix(in oklab, var(--vh-tone-fill) 10%, transparent);
+    }
+  }
+
+  /* A framed box, such as a row of numbers. */
+  [data-slot="vh-card"] {
+    padding: calc(var(--ui-spacing) * 4);
+    overflow: hidden;
+    border-radius: calc(var(--radius) * 2);
+    background: var(--background);
+    box-shadow: 0 0 0 1px var(--border);
+  }
+
+  /*
+   * Avatars that overlap in a row, each in a 2px ring of the page color, the first on top. Put ui-sdk `Avatar`s and a
+   * `vh-avatar-group-count` in it. Avatars are 24px, or 20px with `data-size="sm"`.
+   */
+  [data-slot="vh-avatar-group"] {
+    --vh-avatar-group-size: calc(var(--ui-spacing) * 6);
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    isolation: isolate;
+
+    &[data-size="sm"] {
+      --vh-avatar-group-size: calc(var(--ui-spacing) * 5);
+    }
+
+    & > * {
+      position: relative;
+      display: inline-flex;
+      border-radius: 9999px;
+      box-shadow: 0 0 0 2px var(--background);
+    }
+
+    & > * + * {
+      margin-inline-start: calc(var(--ui-spacing) * -1.5);
+    }
+
+    & > :nth-child(1) { z-index: 5; }
+    & > :nth-child(2) { z-index: 4; }
+    & > :nth-child(3) { z-index: 3; }
+    & > :nth-child(4) { z-index: 2; }
+    & > :nth-child(5) { z-index: 1; }
+
+    & [data-slot="avatar"] {
+      width: var(--vh-avatar-group-size);
+      height: var(--vh-avatar-group-size);
+      overflow: visible;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      line-height: 1rem;
+
+      & svg {
+        width: 1em;
+        height: 1em;
+      }
+    }
+
+    & [data-slot="avatar-image"] {
+      border-radius: inherit;
+    }
+
+    & [data-slot="avatar-fallback"] {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    &[data-size="sm"] [data-slot="avatar"] {
+      font-size: 0.625rem;
+      line-height: 0.9375rem;
+    }
+  }
+
+  [data-slot="vh-avatar-group-count"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: var(--vh-avatar-group-size);
+    height: var(--vh-avatar-group-size);
+    padding-inline: calc(var(--ui-spacing) * 1.5);
+    background: var(--muted);
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    line-height: 1;
+  }
+}
+
+@keyframes vh-skeleton-pulse {
+  50% {
+    opacity: 0.5;
   }
 }

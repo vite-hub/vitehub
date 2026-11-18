@@ -75,6 +75,7 @@ export const componentNames = [
   "TraceRun",
   "UnresolvedFile",
   "CopyButton",
+  "RelativeTime",
   "Status",
   ...partFamilies.attachment,
   ...partFamilies["avatar-stack"],

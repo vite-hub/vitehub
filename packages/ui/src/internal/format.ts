@@ -1,22 +1,5 @@
-// Display formatters that every @vite-hub/ui component shares, so a time, a duration, or a name reads the same in a
+// Display formatters that every @vite-hub/ui component shares, so a duration or a name reads the same in a
 // comment, a trace, and a boot checklist.
-
-const relativeUnits: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-  ["day", 86_400_000],
-  ["hour", 3_600_000],
-  ["minute", 60_000],
-];
-
-/** "5 minutes ago", "yesterday", or "now" for under a minute. */
-export function timeAgo(at: number, now: number = Date.now()): string {
-  const difference = at - now;
-  for (const [unit, size] of relativeUnits) {
-    if (Math.abs(difference) >= size) {
-      return new Intl.RelativeTimeFormat("en", { numeric: "auto" }).format(Math.round(difference / size), unit);
-    }
-  }
-  return "now";
-}
 
 /** "320 ms", "1.2 s", "30 s", or "1 min 35 s". Seconds round down, so a running counter never shows "60 s". */
 export function formatDuration(ms: number): string {

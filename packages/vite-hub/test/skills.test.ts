@@ -1,6 +1,10 @@
+import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
+import { mkdtempSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
-import { parseTarGzip } from "nanotar"
+import { Parser } from "tar"
 import { describe, expect, it, vi } from "vitest"
 
 import { defineSkill, defineSkills, isSkillSettings, serveSkills, skillArchive, skillDigest, skillSettings, skillsMcp } from "../src/skills.ts"
@@ -16,6 +20,26 @@ const handoff = defineSkill({ "SKILL.md": handoffMd })
 
 const get = (path: string, init?: RequestInit) => new Request(`https://app.example.com${path}`, init)
 const sha256 = (bytes: Uint8Array | string) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`
+
+/** The files of a `.tar.gz` in archive order, read with node-tar, the tar library of the `skills` CLI. */
+async function readArchive(archive: Uint8Array): Promise<Array<[string, Uint8Array]>> {
+  const entries: Array<[string, Uint8Array]> = []
+  await new Promise<void>((resolve, reject) => {
+    const parser = new Parser({
+      onReadEntry(entry) {
+        const chunks: Buffer[] = []
+        entry.on("data", (chunk: Buffer) => chunks.push(chunk))
+        entry.on("end", () => entries.push([entry.path, new Uint8Array(Buffer.concat(chunks))]))
+      },
+    })
+    parser.on("end", resolve)
+    parser.on("error", reject)
+    parser.end(Buffer.from(archive))
+  })
+  return entries
+}
+
+const names = async (archive: Uint8Array) => (await readArchive(archive)).map(([name]) => name)
 
 async function json(response: Response | undefined): Promise<unknown> {
   expect(response?.status).toBe(200)
@@ -77,6 +101,9 @@ describe("defineSkill", () => {
     [{ "SKILL.md": releaseMd, "/etc/passwd": "x" }, "SKILL_INVALID_PATH"],
     [{ "SKILL.md": releaseMd, "references\\a.md": "x" }, "SKILL_INVALID_PATH"],
     [{ "SKILL.md": releaseMd, "references//a.md": "x" }, "SKILL_INVALID_PATH"],
+    [{ "SKILL.md": releaseMd, [`${"a".repeat(101)}.md`]: "x" }, "SKILL_INVALID_PATH"],
+    [{ "SKILL.md": releaseMd, [`${"a".repeat(156)}/b.md`]: "x" }, "SKILL_INVALID_PATH"],
+    [{ "SKILL.md": releaseMd, [`a/${"é".repeat(50)}.md`]: "x" }, "SKILL_INVALID_PATH"],
   ])("rejects %j with %s", (files, code) => {
     expect(() => defineSkill(files)).toThrow(expect.objectContaining({ code, docs: `https://vitehub.dev/docs/development/diagnostics/${code.toLowerCase()}` }))
   })
@@ -113,7 +140,7 @@ describe("defineSkills", () => {
     const resources = await mcp.resources()
     expect(resources).toHaveLength(4)
     expect(resources.find(file => file.uri === listed[0]?.uri)?.description).toBe("A nested skill.")
-    expect((await parseTarGzip(await skillArchive(skills[1]!))).map(file => file.name)).toEqual(["SKILL.md", "b.md", "nested/SKILL.md", "nested/a.md"])
+    expect(await names(await skillArchive(skills[1]!))).toEqual(["SKILL.md", "b.md", "nested/SKILL.md", "nested/a.md"])
     expect(await (await serveSkills(get("/.well-known/skills/release/nested/a.md"), skills))?.text()).toBe("a")
   })
 
@@ -153,8 +180,8 @@ describe("serveSkills", () => {
   })
 
   it("archives a skill with SKILL.md at the root and the same bytes every time", async () => {
-    const entries = await parseTarGzip(await skillArchive(release))
-    expect(entries.map(entry => [entry.name, [...entry.data ?? []]])).toEqual([
+    const entries = await readArchive(await skillArchive(release))
+    expect(entries.map(([name, data]) => [name, [...data]])).toEqual([
       ["SKILL.md", [...new TextEncoder().encode(releaseMd)]],
       ["assets/logo.png", [137, 80, 78, 71]],
       ["references/checklist.md", [...new TextEncoder().encode(checklist)]],
@@ -163,9 +190,29 @@ describe("serveSkills", () => {
     const full = defineSkill({ "SKILL.md": releaseMd, "x.txt": "x".repeat(8704) })
     const tar = new Uint8Array(await new Response(new Response(await skillArchive(full)).body!.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())
     expect(tar.subarray(-1024).every(byte => byte === 0)).toBe(true)
-    expect((await parseTarGzip(await skillArchive(full))).map(entry => entry.name)).toEqual(["SKILL.md", "x.txt"])
+    expect(await names(await skillArchive(full))).toEqual(["SKILL.md", "x.txt"])
     const copy = defineSkill({ "SKILL.md": releaseMd, "assets/logo.png": new Uint8Array([137, 80, 78, 71]), "references/checklist.md": checklist })
     expect(await skillDigest(copy)).toBe(await skillDigest(release))
+  })
+
+  it("keeps paths longer than 100 bytes whole in the archive", async () => {
+    const folder = `references/${"x".repeat(120)}`
+    const long = defineSkill({ "SKILL.md": releaseMd, [`${folder}/first.md`]: "first", [`${folder}/other.md`]: "other" })
+    const archive = await skillArchive(long)
+    expect((await readArchive(archive)).map(([name, data]) => [name, new TextDecoder().decode(data)])).toEqual([
+      ["SKILL.md", releaseMd],
+      [`${folder}/first.md`, "first"],
+      [`${folder}/other.md`, "other"],
+    ])
+    const file = join(mkdtempSync(join(tmpdir(), "vitehub-skills-")), "long.tar.gz")
+    writeFileSync(file, archive)
+    expect(execFileSync("tar", ["-tzf", file], { encoding: "utf8" }).split("\n").filter(Boolean)).toEqual(["SKILL.md", `${folder}/first.md`, `${folder}/other.md`])
+    expect(execFileSync("tar", ["-xzOf", file, `${folder}/other.md`], { encoding: "utf8" })).toBe("other")
+  })
+
+  it("refuses to archive a skill object with a path that does not fit", async () => {
+    const skill: Skill = { ...release, files: [...release.files, { ...release.files[2]!, path: `${"a".repeat(101)}.md` }] }
+    await expect(skillArchive(skill)).rejects.toMatchObject({ code: "SKILL_INVALID_PATH" })
   })
 
   it("serves the v0.1.0 index that npx skills reads, with a version that follows the files", async () => {
@@ -178,8 +225,29 @@ describe("serveSkills", () => {
     const reference = await serveSkills(get("/.well-known/skills/release/references/checklist.md"), skills)
     expect(await reference?.text()).toBe(checklist)
     const logo = await serveSkills(get("/.well-known/skills/release/assets/logo.png"), skills)
-    expect(logo?.headers.get("content-type")).toBe("image/png")
+    expect(logo?.headers.get("content-type")).toBe("text/plain; charset=utf-8")
     expect(new Uint8Array(await logo!.arrayBuffer())).toEqual(new Uint8Array([137, 80, 78, 71]))
+  })
+
+  it("serves every file as text in a sandbox, so a skill file never runs as a page on the app origin", async () => {
+    const html = "<script>fetch('/api/me')</script>"
+    const svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" onload=\"alert(1)\"/>"
+    const payload = defineSkill({ "SKILL.md": releaseMd, "payload.html": html, "payload.svg": new TextEncoder().encode(svg), "tool.js": "alert(1)" })
+    const answers = {
+      "/.well-known/agent-skills/index.json": "application/json",
+      "/.well-known/agent-skills/release.tar.gz": "application/gzip",
+      "/.well-known/agent-skills/release/SKILL.md": "text/markdown; charset=utf-8",
+      "/.well-known/skills/release/payload.html": "text/plain; charset=utf-8",
+      "/.well-known/skills/release/payload.svg": "text/plain; charset=utf-8",
+      "/.well-known/skills/release/tool.js": "text/plain; charset=utf-8",
+      "/.well-known/skills/release/missing.html": null,
+    }
+    for (const [path, type] of Object.entries(answers)) {
+      const response = await serveSkills(get(path), [payload])
+      expect([response?.headers.get("content-type"), response?.headers.get("content-security-policy"), response?.headers.get("x-content-type-options")], path).toEqual([type, "default-src 'none'; sandbox", "nosniff"])
+    }
+    expect(await (await serveSkills(get("/.well-known/skills/release/payload.html"), [payload]))?.text()).toBe(html)
+    expect(await (await serveSkills(get("/.well-known/skills/release/payload.svg"), [payload]))?.text()).toBe(svg)
   })
 
   it("answers 404 for unknown skills and files, 405 for other methods, and no body for HEAD", async () => {

@@ -9,6 +9,51 @@ const dynamicError = {
 export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/workflows/diagnostics",
   codes: {
+    WORKFLOW_AGENT_NOT_DISCOVERED: {
+      why: ({ name }: { name: string }) => `[vitehub] The Agent Workflow ${JSON.stringify(name)} is not a discovered Agent, so OpenWorkflow workers cannot run its turns.`,
+      fix: "Move the Agent to server/agents/, so that the build adds its Workflow to the registry that every OpenWorkflow worker loads. To run it without a Workflow, call runAgent().",
+    },
+    // Operation errors. The `workflow.*` operations of the CLI, the Console, and Agents throw them with an HTTP status.
+    WORKFLOW_DEFINITION_NOT_FOUND: {
+      why: ({ available, workflow }: { available?: string, workflow?: string }) => workflow === undefined ? "Workflow definition was not found." : `Unknown Workflow: ${workflow}.${available ?? ""}`,
+      fix: "Pass the name of a Workflow Definition, the file name in `server/workflows/` without the extension.",
+    },
+    WORKFLOW_DISABLED: {
+      why: "Workflow is disabled in this runtime.",
+      fix: "Enable Workflow with `vitehub({ workflow: true })` or `hubWorkflow()`.",
+    },
+    WORKFLOW_OPERATION_FAILED: {
+      why: "The Workflow operation failed.",
+      fix: "Read `error.cause` for the error of the Workflow runtime. Check the Workflow handler and the provider, then retry.",
+    },
+    WORKFLOW_OPERATION_UNSUPPORTED: {
+      why: ({ note, operation, provider }: { note?: string, operation: string, provider: string }) => note === undefined
+        ? `workflow ${operation} is not supported by the ${provider} provider for this run.`
+        : `workflow ${operation} is not supported by the ${provider} provider. ${note}`,
+      fix: "Use an operation that the provider supports, or run the app with a Workflow provider that supports it. The message says what the provider cannot do.",
+    },
+    WORKFLOW_REGISTRY_MISSING: {
+      why: ({ workflow }: { workflow: string }) => `Unknown Workflow: ${workflow}. The runtime has no Workflow registry.`,
+      fix: "Restart the dev server. In development the Workflow Vite plugin installs the registry with the Nitro plugin .vitehub/nitro/workflow/dev-plugin.mjs.",
+    },
+    WORKFLOW_RUNS_UNAVAILABLE: {
+      why: "This runtime keeps no Workflow run history. Only `vite dev` records runs.",
+      fix: "Run the app with `vite dev`. On a deployment, read one run with `vitehub workflow get <runId> --workflow <name>`, or use the provider dashboard.",
+    },
+    WORKFLOW_RUN_AMBIGUOUS: {
+      why: ({ id, workflows }: { id: string, workflows: string }) => `Runs of ${workflows} have the id ${id}.`,
+      fix: "Pass the name of the Workflow with `--workflow <name>`.",
+    },
+    WORKFLOW_RUN_NOT_FOUND: {
+      why: ({ id }: { id: string }) => `No recorded run has the id ${id}.`,
+      fix: "Run `vitehub workflow runs list` for the ids. The dev server keeps the newest 200 runs until it restarts or `vitehub workflow runs clear` empties the history.",
+    },
+    WORKFLOW_RUN_UNKNOWN: {
+      why: ({ runId }: { runId: string }) => `Run ${runId} was not started by \`workflow.start\` in this runtime.`,
+      fix: "Pass the name of the Workflow with `--workflow <name>`.",
+    },
+
+    // Published numbered errors.
     WORKFLOW_C0001: {
       ...dynamicError,
       fix: "Set the `workflow` option that the message names to a non-empty string, or remove it.",
@@ -39,11 +84,11 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     WORKFLOW_C0008: {
       ...dynamicError,
-      fix: "On Netlify, set `workflow: { provider: \"openworkflow\" }` with `workflow.sqlite.path` or `workflow.postgres.url`, or set `workflow: false`.",
+      fix: "On Netlify, set `workflow: { driver: \"openworkflow\" }` with `workflow.sqlite.path` or `workflow.postgres.url`, or set `workflow: false`.",
     },
     WORKFLOW_C0009: {
       ...dynamicError,
-      fix: "Set `workflow.provider` to `\"cloudflare\"`, `\"openworkflow\"`, or `\"vercel\"`, or remove it to let ViteHub select the provider of the host.",
+      fix: "Set `workflow.driver` to `\"cloudflare\"`, `\"openworkflow\"`, or `\"vercel\"`, or remove it to let ViteHub select the driver of the host.",
     },
     WORKFLOW_C0010: {
       ...dynamicError,
@@ -59,7 +104,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     WORKFLOW_C0013: {
       ...dynamicError,
-      fix: "Set `workflow` to an object, such as `{ provider: \"openworkflow\" }`, or remove it.",
+      fix: "Set `workflow` to an object, such as `{ driver: \"openworkflow\" }`, or remove it.",
     },
     WORKFLOW_C0014: {
       ...dynamicError,
@@ -87,7 +132,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     WORKFLOW_C0020: {
       ...dynamicError,
-      fix: "Set `workflow: { provider: \"openworkflow\", sqlite: { path: \".vitehub/data/workflow.sqlite\" } }` or `workflow.postgres.url`, and start the worker with `startOpenWorkflowWorker()`.",
+      fix: "Set `workflow: { driver: \"openworkflow\", sqlite: { path: \".vitehub/data/workflow.sqlite\" } }` or `workflow.postgres.url`, and start the worker with `startOpenWorkflowWorker()`.",
     },
     WORKFLOW_CLOUDFLARE_RUN_ID_INVALID: {
       why: ({ id }: { id: string }) => `[vitehub] Cloudflare does not accept the run id ${JSON.stringify(id)}. A Cloudflare instance id starts with a letter, a digit, or \`_\`, then uses only letters, digits, \`-\`, and \`_\`, up to 100 characters.`,
@@ -163,7 +208,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     WORKFLOW_R0017: {
       ...dynamicError,
-      fix: "Set `workflow: { provider: \"openworkflow\" }` in `vitehub()`, or pass a `config` with that provider to `createOpenWorkflowWorker()`.",
+      fix: "Set `workflow: { driver: \"openworkflow\" }` in `vitehub()`, or pass a `config` with that driver to `createOpenWorkflowWorker()`.",
     },
     WORKFLOW_R0018: {
       ...dynamicError,
@@ -175,7 +220,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     WORKFLOW_R0020: {
       ...dynamicError,
-      fix: "Set `workflow: { provider: \"openworkflow\" }` in `vitehub()` before you use the OpenWorkflow runtime.",
+      fix: "Set `workflow: { driver: \"openworkflow\" }` in `vitehub()` before you use the OpenWorkflow runtime.",
     },
     WORKFLOW_R0021: {
       ...dynamicError,
@@ -229,9 +274,17 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "[vitehub] Agent Workflows need the Agent package, and the project does not resolve `@vite-hub/agent`.",
       fix: "Install `@vite-hub/agent`, or turn the Agent on with `vitehub({ agent: true })`.",
     },
+    WORKFLOW_RENAMED_PROVIDER_KEY: {
+      why: ({ value }: { value: string }) => `\`workflow.provider\` is ${value}. ViteHub renamed this key to \`driver\`, and it does not read \`provider\`, so Workflow would not use the driver you chose.`,
+      fix: ({ value }: { value: string }) => `Set \`workflow: { driver: ${value} }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
+    },
     WORKFLOW_ROOT_STEP_SLEEP: {
-      why: ({ name }: { name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`context.step.sleep()\` in its root step. Only a folder Workflow can sleep: move it to \`server/workflows/${name}/index.ts\` and put the work in numbered step files.`,
-      fix: "A single-file Workflow runs as one step, so a replay after a sleep would run the code before the sleep again. Move the handler to `server/workflows/<name>/index.ts`, put each side effect in a numbered step file such as `01.charge.ts`, and call `context.step.sleep()` between the steps.",
+      why: ({ name }: { name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`context.sleep()\` in its root step. Only a folder Workflow can sleep: move it to \`server/workflows/${name}/index.ts\` and put the work in numbered step files.`,
+      fix: "A single-file Workflow runs as one step, so a replay after a sleep would run the code before the sleep again. Move the handler to `server/workflows/<name>/index.ts`, put each side effect in a numbered step file such as `01.charge.ts`, and call `context.sleep()` between the steps.",
+    },
+    WORKFLOW_SLEEP_DURATION_INVALID: {
+      why: ({ name, value }: { name: string, value: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`context.sleep(${value})\`. A sleep takes a duration such as \`'30 seconds'\` or \`'1 day'\`, a number of milliseconds that is 0 or more, or a valid \`Date\`.`,
+      fix: "Write the duration as a number, one space, and a unit: second, minute, hour, day, week, month, or year, with or without a final `s`. For example `context.sleep('2 hours')`, `context.sleep(5_000)`, or `context.sleep(new Date(payload.remindAt))`.",
     },
     WORKFLOW_START_DELAY_INVALID: {
       why: ({ delay }: { delay: string }) => `[vitehub] \`startWorkflow()\` does not accept the delay ${JSON.stringify(delay)}. A delay is a number of milliseconds of 0 or more, a duration such as \`"30 minutes"\` or \`"3 days"\`, or a valid \`Date\`.`,

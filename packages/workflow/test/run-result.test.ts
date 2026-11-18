@@ -11,9 +11,9 @@ afterEach(() => resetWorkflowRuntime())
 async function runOnCloudflare(name: string, handler: () => unknown) {
   const step: WorkflowProviderStep = { do: async (_name, _options, run) => await run() }
   const registry = { [name]: async () => ({ default: { handler } }) }
-  const output = await runCloudflareWorkflow({ config: { provider: "cloudflare" }, env: {}, event: { instanceId: "cf-1" }, name, registry, step })
+  const output = await runCloudflareWorkflow({ config: { driver: "cloudflare" }, env: {}, event: { instanceId: "cf-1" }, name, registry, step })
   resetWorkflowRuntime()
-  setWorkflowRuntimeConfig({ provider: "cloudflare" })
+  setWorkflowRuntimeConfig({ driver: "cloudflare" })
   setWorkflowRuntimeRegistry(registry)
   const binding = { createBatch: vi.fn(), get: async (id: string) => ({ id, status: async () => ({ status: "complete", output }) }) }
   enterWorkflowRuntimeEvent({ req: { runtime: { cloudflare: { env: { [getCloudflareWorkflowBindingName(name)]: binding } } } } })
@@ -21,7 +21,7 @@ async function runOnCloudflare(name: string, handler: () => unknown) {
 }
 
 async function runInline(name: string, handler: () => unknown) {
-  setWorkflowRuntimeConfig({ provider: "vercel" })
+  setWorkflowRuntimeConfig({ driver: "vercel" })
   const workflow = createWorkflow(name, handler)
   await workflow.start(undefined, { id: "inline-1" })
   await getWorkflowRunState(name, "inline-1")!.promise

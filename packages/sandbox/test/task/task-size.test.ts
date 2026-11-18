@@ -97,7 +97,7 @@ describe("Vercel Sandbox Task size", () => {
   })
 
   it("creates the Sandbox with the vCPU count that fits memory", async () => {
-    const provider = await resolveVercelTaskSandbox({ local: {}, provider: { provider: "vercel", memory: 8192 } })
+    const provider = await resolveVercelTaskSandbox({ local: {}, provider: { driver: "vercel", memory: 8192 } })
     await provider.resolveSandbox(["node"])
     expect(resolveVercelSandbox).toHaveBeenLastCalledWith(expect.objectContaining({ cpu: 4 }), ["node"])
   })

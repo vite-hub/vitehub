@@ -65,7 +65,7 @@ const publicEntries = [".", "./headless", "./markdown-editor", "./nuxt", "./play
 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {
-    expect(Object.keys(packageJson.exports).sort()).toEqual([...publicEntries, "./comment-marks.css", "./package.json", "./styles.css", "./theme.css"].sort());
+    expect(Object.keys(packageJson.exports).sort()).toEqual([...publicEntries, "./comment-marks.css", "./icon-swap.css", "./package.json", "./styles.css", "./theme.css"].sort());
     expect(packageJson.peerDependencies).toMatchObject({
       "@iconify-json/lucide": expect.any(String),
       "@nuxt/ui": expect.any(String),
@@ -74,10 +74,14 @@ describe("@vite-hub/ui package contract", () => {
       vue: expect.any(String),
     });
     expect(packageJson.peerDependenciesMeta).toEqual({
+      // The ui-sdk editor parts' drag handle and its placement, which Nuxt UI otherwise brings.
+      "@floating-ui/dom": { optional: true },
       "@iconify-json/lucide": { optional: true },
       "@nuxt/ui": { optional: true },
       // MarkdownEditor's Tiptap, only for apps that import @vite-hub/ui/markdown-editor.
       "@tiptap/core": { optional: true },
+      "@tiptap/extension-drag-handle": { optional: true },
+      "@tiptap/extension-drag-handle-vue-3": { optional: true },
       "@tiptap/extension-image": { optional: true },
       "@tiptap/extension-list": { optional: true },
       "@tiptap/extension-table": { optional: true },
@@ -87,6 +91,7 @@ describe("@vite-hub/ui package contract", () => {
       vite: { optional: true },
     });
     expect(packageJson.dependencies).toEqual({
+      "reka-ui": "catalog:ui",
       "@comark/vue": "0.9.0",
       "comark-chat": "catalog:",
       comark: "catalog:markdown-ui",
@@ -97,8 +102,8 @@ describe("@vite-hub/ui package contract", () => {
       "@shikijs/themes": "4.5.0",
       "@types/node": "catalog:tooling",
       "@vite-hub/comments": "workspace:*",
-      "@ui-sdk/core": "0.1.0-beta.2",
-      "@ui-sdk/vue": "0.1.0-beta.2",
+      "@ui-sdk/core": "0.1.0-beta.5",
+      "@ui-sdk/vue": "0.1.0-beta.5",
       "nostics": "catalog:runtime",
       shiki: "^4.5.0",
       "@codemirror/autocomplete": "6.20.4",

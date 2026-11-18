@@ -5,16 +5,17 @@ import { tmpdir } from "node:os";
 import { join, posix } from "node:path";
 import { promisify } from "node:util";
 import type { SandboxSession } from "@vite-hub/sandbox";
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 
 /** Import committed Sandbox work before the host publishes it with host-owned credentials. */
 export async function importSandboxCommit(session: SandboxSession, checkout: string, base: string, signal: AbortSignal): Promise<void> {
   const git = async (args: string[]) => {
     const result = await session.exec("git", args, { signal });
-    if (!result.ok) throw new Error(`Cannot export the repair Sandbox commit: ${result.stderr}`);
+    if (!result.ok) throw presetsErrorDiagnostics.PRESETS_SANDBOX_COMMIT_EXPORT_FAILED({ stderr: result.stderr });
     return result.stdout.trim();
   };
   const head = await git(["rev-parse", "HEAD"]);
-  if (!/^[a-f0-9]{40}$/.test(head)) throw new Error("The repair Sandbox did not return a commit SHA.");
+  if (!/^[a-f0-9]{40}$/.test(head)) throw presetsErrorDiagnostics.PRESETS_SANDBOX_COMMIT_MISSING();
   if (head === base) return;
   await git(["merge-base", "--is-ancestor", base, head]);
   const remoteBundle = posix.join(session.cwd, `.vitehub-repair-${randomUUID()}.bundle`);
@@ -22,7 +23,7 @@ export async function importSandboxCommit(session: SandboxSession, checkout: str
   try {
     await git(["bundle", "create", remoteBundle, "HEAD", `^${base}`]);
     const contents = await session.files.read(remoteBundle, { signal });
-    if (!contents) throw new Error("The repair Sandbox bundle is unavailable.");
+    if (!contents) throw presetsErrorDiagnostics.PRESETS_SANDBOX_BUNDLE_MISSING();
     const bundle = join(temporary, "repair.bundle");
     await writeFile(bundle, contents);
     // Never let imported Git state run with GitHub credentials or inherited Git overrides.
@@ -32,7 +33,7 @@ export async function importSandboxCommit(session: SandboxSession, checkout: str
     const localGit = async (args: string[]) => (await promisify(execFile)("git", ["-C", checkout, "-c", "core.hooksPath=/dev/null", ...args], { env, signal })).stdout.trim();
     const previous = await localGit(["rev-parse", "HEAD"]);
     await localGit(["-c", "protocol.file.allow=always", "fetch", "--no-tags", "--", bundle, "HEAD"]);
-    if (await localGit(["rev-parse", "FETCH_HEAD"]) !== head) throw new Error("The repair Sandbox HEAD changed during export.");
+    if (await localGit(["rev-parse", "FETCH_HEAD"]) !== head) throw presetsErrorDiagnostics.PRESETS_SANDBOX_HEAD_CHANGED();
     await localGit(["merge-base", "--is-ancestor", base, head]);
     // A broker commit may already include the imported Sandbox ancestor. Never
     // replace it with that older HEAD, or overwrite a divergent host repair.

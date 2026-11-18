@@ -133,7 +133,7 @@ export default defineScene<EmailPlan>({
       const c = `job pj ${tone}${open ? " open" : ""}`;
       if (pill.className !== c) pill.className = c;
       pill.style.opacity = t < a.send - 200 ? "0" : "1";
-      put(lab, p.cf ? fs("cloudflare-email", "cloudflare") : "resend");
+      put(lab, p.cf ? "cloudflare" : "resend");
       const w = t < a.ok ? "spin" : "ok";
       if (tail.dataset.v !== w) { tail.dataset.v = w; tail.className = w === "spin" ? "tail spin" : "tail"; tail.textContent = w === "ok" ? "✓" : "" }
       // The inbox notification arrives on top.

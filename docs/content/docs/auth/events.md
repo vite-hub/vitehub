@@ -15,7 +15,7 @@ Use the app's SQLite Drizzle database or another one. Like the Env and Connectio
 Here, users and events share the `auth` Database. [`authDatabase('auth')`](/docs/auth/configure#keep-users-in-the-app-database) adds the Better Auth tables to it.
 
 ```ts [server/databases/auth/index.ts]
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 
 export default defineDatabase({ name: 'auth', schema: {} })
 ```
@@ -111,6 +111,19 @@ vitehub auth events --url http://localhost:5173/api/auth --aggregate \
 ```
 
 Output is JSON. List commands also take `--from`, `--to`, and `--cursor`. The CLI needs HTTPS except on loopback, does not follow redirects, and times out after 30 seconds. It uses the same readers as server code.
+
+## Run code for each event
+
+`events.onEvent` runs for each event after the store records it. Use it to send the event to another service:
+
+```ts fragment
+events: {
+  store,
+  onEvent: event => fetch('https://example.com/hooks/auth', { method: 'POST', body: JSON.stringify(event) }),
+},
+```
+
+With a host `waitUntil()`, the callback runs after the response. Else Auth waits for it. A thrown error never fails the request. Auth logs it as `AUTH_EVENT_CALLBACK_FAILED`, with the error in `cause`. An event that the store could not record does not reach `onEvent`.
 
 ## Event fields
 
