@@ -95,7 +95,11 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_DOCKERFILE_NATIVE_PACKAGES_NOT_LINUX: {
       why: ({ os, packages }: { os: string, packages: string }) => `The build ran on ${os}, so these native packages in \`.output\` hold ${os} code: ${packages}. The Linux image of \`.output/Dockerfile\` cannot load them.`,
-      fix: "Build on Linux with the CPU of the server, for example in CI or in a `node` container, then build the image. Or set `docker: false` in `vitehub()` and write a Dockerfile that installs and builds the app in the image.",
+      fix: "Build the app in the same Linux Node image that will run it, for the target CPU, then build the generated Dockerfile. Or set `docker: false` in `vitehub()` and use a Dockerfile with compatible build and runtime stages.",
+    },
+    VITE_HUB_HOST_PROVIDER_CONFLICT: {
+      why: ({ detected, host, variable }: { detected: string, host: string, variable: string }) => `\`vitehub({ host: "${host}" })\` builds ${host} output, but \`${variable}\` is set, so this build runs on the ${detected} host, which cannot run ${host} output.`,
+      fix: ({ host }: { host: string }) => `Remove \`host\` from \`vitehub()\` to build for the host that the environment names. To build ${host} output on purpose, set \`VITEHUB_HOST=${host}\`.`,
     },
     VITE_HUB_MCP_AUTH_MISSING: {
       why: "The MCP server needs Auth, so that only signed-in MCP clients call its tools.",

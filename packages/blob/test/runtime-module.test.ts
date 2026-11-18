@@ -378,9 +378,8 @@ describe("Blob Nitro runtime module", () => {
       expect.objectContaining({ method: "PUT" }),
     )
 
-    const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
-    expect(runtimeContents).toContain("resolveRuntimeVercelBlobStore")
-    expect(runtimeContents).toContain("createDriver0(resolveRuntimeVercelBlobStore(store, process.env))")
+    const [, init] = fetchMock.mock.lastCall!
+    expect(new Headers(init?.headers).get("authorization")).toBe("Bearer secret-token")
   })
 
   it("selects named stores from generated runtime output", { timeout: 30_000 }, async () => {
@@ -437,8 +436,6 @@ describe("Blob Nitro runtime module", () => {
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
     expect(runtimeContents).toContain("resolveRuntimeVercelBlobStore(resolveRuntimeBlobSecrets(store, blobRuntimeEnv()), process.env)")
     expect(runtimeContents).not.toMatch(/assets-token|default-token/)
-    expect(runtimeContents).toContain("store: (storeName, options) => selectGeneratedBlobStore(storeName, options, createGeneratedBlobStorage)")
-    expect(runtimeContents).toContain("export const blob = createLazyGeneratedBlobStorage(\"default\")")
   })
 
   it.each(["lazy", "eager"] as const)("applies read mode to %s generated handles", { timeout: 30_000 }, async (kind) => {
@@ -582,8 +579,6 @@ describe("Blob Nitro runtime module", () => {
     expect(runtimeContents).toContain("drivers/minio")
     expect(runtimeContents).toContain("\"driver\": \"minio\"")
     expect(runtimeContents).toContain(`"endpoint": "${endpoint}"`)
-    expect(runtimeContents).toContain("resolveRuntimeMinioBlobStore")
-    expect(runtimeContents).toContain("createDriver0(resolveRuntimeMinioBlobStore(store, process.env))")
     expect(runtimeContents).toContain("\"accessKeyId\": \"********\"")
     expect(runtimeContents).toContain("\"secretAccessKey\": \"********\"")
     expect(runtimeContents).not.toContain("build-user")

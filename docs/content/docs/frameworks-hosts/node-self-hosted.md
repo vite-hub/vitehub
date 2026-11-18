@@ -322,29 +322,41 @@ ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
 EXPOSE 3000
 VOLUME ["/app/.vitehub"]
 STOPSIGNAL SIGTERM
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["node","-e","fetch(\"http://127.0.0.1:\" + (process.env.PORT || 3000) + \"/api/_vitehub/health\").then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
 CMD ["node",".output/server/index.mjs"]
 ```
 
 - The server runs as the `node` user in `/app`, as the systemd unit runs in
   the project root. Relative data paths, such as `.vitehub/data`, resolve
-  there. The volume is `/app/.vitehub`, or `dataDir` when you set it. Mount a
-  volume there to keep the data when the container changes.
+  there. Keep a named volume at `/app/.vitehub` for default stores such as the
+  Database and Queue. A separate `dataDir`, such as `/var/lib/app`, gets its
+  own named volume. Use all the mounts shown in the generated `docker run`
+  command when you replace a container. Do not mount over `/app` or
+  `/app/.output`; the server files there must come from the new image.
 - The image does not include `.env`. Pass Server Env with `--env-file` or `-e`.
 - Docker sends `SIGTERM` on stop, and ViteHub
   [drains Agent work](/docs/agents/process-hosts#drain-agent-work-on-stop-signals).
   A Dockerfile cannot set the stop timeout, so the comment at the top of the file
-  shows `--stop-timeout`: the `agent.shutdown.drainMs` budget plus 30 seconds,
-  as `TimeoutStopSec` in the systemd unit. `--init` collects the child
-  processes that Agents start.
-- `HEALTHCHECK` is there only when `health` is on. It reads `PORT`.
+  shows the build-time default: the `agent.shutdown.drainMs` budget rounded up
+  to seconds, plus 30. If you set `VITEHUB_SHUTDOWN_DRAIN_MS` at runtime, use
+  that budget instead. For example, `45000` needs `--stop-timeout 75`.
+  `--init` collects the child processes that Agents start.
+- When `health` is on, `HEALTHCHECK` calls the health route over plain HTTP.
+  It uses `NITRO_HOST` before `HOST` and `NITRO_PORT` before `PORT`. If you
+  change the container port, update `-p` to match. For TLS, a Unix socket, or
+  listener overrides in Nitro's server configuration, pass `--no-healthcheck`
+  to `docker run` or replace `HEALTHCHECK` in your own Dockerfile.
 - Nitro copies native packages, such as the libSQL binary, into
   `.output/server/node_modules` for the build machine. When the output has
   them, the image uses the CPU of the build machine (`--platform`) and its C
-  library: `node:<major>-slim` for glibc, `node:<major>-alpine` for musl. A
+  library family: `node:<major>-slim` for glibc, `node:<major>-alpine` for musl. A
   build on macOS or Windows with native packages prints
   [`VITE_HUB_DOCKERFILE_NATIVE_PACKAGES_NOT_LINUX`](/docs/development/diagnostics/vite_hub_dockerfile_native_packages_not_linux).
-  Build on Linux, for example in CI, then build the image.
+  Matching the C library family does not guarantee binary compatibility. In a
+  clean checkout, install dependencies and build inside the same Linux Node
+  image named in `FROM`, on the target CPU, then build the generated Dockerfile.
+  For example, use `node:24-slim` on `linux/amd64` for both steps. If the app
+  needs a different Linux distribution or system libraries, set `docker: false`
+  and use your own compatible build and runtime images.
 
 Each build replaces the file. To add system packages, such as `git`, start your
 own Dockerfile `FROM` the image that you built. Set `docker: false` in

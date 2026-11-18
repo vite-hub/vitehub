@@ -397,15 +397,18 @@ describe("createWorkspaceTools", () => {
     await expect(runShell(tools, "cat README.md")).rejects.toThrow("toolCalls")
   })
 
-  it("accepts shell timeout through workspace tools", async () => {
-    const tools = createWorkspaceTools(createAssets({
-      "README.md": "# Docs\n",
-    }), { timeout: 5 })
+  it("passes the shell timeout of workspace tools to the Shell driver", async () => {
+    let timeout: number | undefined
+    const driver = createDriver("driver\n")
+    const exec = driver.exec
+    driver.exec = async (command, options) => {
+      timeout = options?.timeout
+      return await exec(command, options)
+    }
+    const tools = createWorkspaceTools(createAssets({ "README.md": "# Docs\n" }), { shellDriver: driver, timeout: 5 })
 
-    await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: "# Docs\n",
-    })
+    await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({ exitCode: 0, stdout: "driver\n" })
+    expect(timeout).toBe(5)
   })
 
   it("returns model-readable feedback when shell call budget is exhausted", async () => {
