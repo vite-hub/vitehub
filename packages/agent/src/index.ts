@@ -336,6 +336,7 @@ export type {
   AgentChannelDeliveryEventInput,
   AgentChannelDeliveryEventType,
   AgentChannelDeliveryInspection,
+  AgentChannelDeliveryRejection,
   AgentChannelDeliveryStatus,
   AgentCallSettingsInstrumentation,
   AgentCallSettingsInstrumentationContext,
@@ -3785,7 +3786,7 @@ function agentTelemetryAttributeForContent(
     const messages = agentTelemetryMessagesForContent(value, policy)
     return messages ? { selected: true, value: messages } : undefined
   }
-  if (key === "input.message" && typeof value !== "string") {
+  if (key === "input.trigger.message" || (key === "input.message" && typeof value !== "string")) {
     const contentClass = agentTelemetryMessageContentClass(value)
     return contentClass !== undefined && policy[contentClass] === true
       ? { selected: true, value }
