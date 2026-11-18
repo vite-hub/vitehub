@@ -99,6 +99,15 @@ describe("optional packages in Workflow bundles", () => {
     await expect(loadClient()).resolves.toMatchObject({ client: "installed" })
   })
 
+  it("keeps the build error of an installed optional peer that does not export the subpath", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-peer-without-subpath-"))
+    roots.push(rootDir)
+    await writeOptionalPeerLoader(rootDir)
+    await writePackage(rootDir, "mcp-sdk-like", `export const root = true\n`)
+
+    await expect(bundleEntry(rootDir, `export { loadClient } from "source-like"\n`)).rejects.toThrow(/mcp-sdk-like\/client\/index\.js/)
+  })
+
   it("still fails the build for a missing package that is not an optional peer", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-missing-package-"))
     roots.push(rootDir)

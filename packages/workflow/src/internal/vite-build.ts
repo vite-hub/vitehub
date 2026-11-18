@@ -148,7 +148,8 @@ function createOptionalPeerReader(): (file: string) => ReadonlySet<string> {
     if (cached) return cached
     let peers: ReadonlySet<string> = new Set()
     const manifest = join(directory, "package.json")
-    const metadata: unknown = existsSync(manifest) ? JSON.parse(readFileSync(manifest, "utf8")) : undefined
+    // Node and esbuild accept a manifest that starts with a byte order mark, so drop it before parsing.
+    const metadata: unknown = existsSync(manifest) ? JSON.parse(readFileSync(manifest, "utf8").replace(/^\uFEFF/, "")) : undefined
     if (isRuntimeRecord(metadata) && typeof metadata.name === "string") {
       const meta = isRuntimeRecord(metadata.peerDependenciesMeta) ? metadata.peerDependenciesMeta : {}
       peers = new Set(Object.entries(meta).filter(([, value]) => isRuntimeRecord(value) && value.optional === true).map(([name]) => name))
@@ -160,6 +161,14 @@ function createOptionalPeerReader(): (file: string) => ReadonlySet<string> {
     return peers
   }
   return file => read(dirname(file))
+}
+
+/** Tells whether a `node_modules` folder on the way up from `directory` holds the package, as Node looks it up. */
+function packageInstalledFrom(directory: string, name: string): boolean {
+  for (let current = directory; ; current = dirname(current)) {
+    if (existsSync(join(current, "node_modules", name))) return true
+    if (dirname(current) === current) return false
+  }
 }
 
 /**
@@ -193,9 +202,11 @@ export function createOptionalPackagesPlugin(rootDir: string): Plugin {
       })
       build.onResolve({ filter: /^[^./#]/ }, async (args) => {
         if (args.kind !== "dynamic-import" || args.pluginData === namespace || !isAbsolute(args.importer)) return
-        if (!optionalPeersOf(args.importer).has(packageNameOf(args.path))) return
-        const resolved = await build.resolve(args.path, { importer: args.importer, kind: args.kind, pluginData: namespace, resolveDir: args.resolveDir })
-        return resolved.errors.length ? { namespace, path: args.path } : resolved
+        const name = packageNameOf(args.path)
+        if (!optionalPeersOf(args.importer).has(name)) return
+        // An installed peer keeps esbuild's own error, such as a subpath that the peer does not export.
+        if (packageInstalledFrom(args.resolveDir, name)) return
+        return { namespace, path: args.path }
       })
       build.onLoad({ filter: /.*/, namespace }, args => ({
         contents: optionalViteDevtoolsPattern.test(args.path)
