@@ -99,10 +99,25 @@ export function getLocales(): readonly string[] {
   return state().config?.locales ?? [getLocale()]
 }
 
-/** Each message is text, or a compiled list of tokens where each token is text or a placeholder list. */
+/** Validate the recursive token tuples consumed by Lingui's compiled-message reader. */
+function isCompiledMessage(value: unknown): boolean {
+  return Array.isArray(value) && value.every((token) => {
+    if (typeof token === "string") return true
+    if (!Array.isArray(token) || token.length < 1 || token.length > 3 || typeof token[0] !== "string") return false
+    const [, type, format] = token
+    if (type === undefined) return token.length === 1
+    if (typeof type !== "string") return false
+    if (type === "plural" || type === "selectordinal" || type === "select") {
+      return isRecord(format) && Object.hasOwn(format, "other") && Object.entries(format).every(([key, choice]) =>
+        key === "offset" && type !== "select" ? typeof choice === "number" && Number.isFinite(choice) : isCompiledMessage(choice))
+    }
+    return format === undefined || format === null || typeof format === "string" || isRecord(format)
+  })
+}
+
+/** Each message is text or a compiled list of text and validated placeholders. */
 function isMessages(value: unknown): value is Messages {
-  return isRecord(value) && Object.values(value).every(message => typeof message === "string"
-    || (Array.isArray(message) && message.every(token => typeof token === "string" || Array.isArray(token))))
+  return isRecord(value) && Object.values(value).every(message => typeof message === "string" || isCompiledMessage(message))
 }
 
 /** The body of the live catalog route: `{ revision, messages }`. */
