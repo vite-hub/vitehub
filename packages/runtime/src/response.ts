@@ -1,5 +1,5 @@
-import { isRuntimeDiagnostic } from "./diagnostics.ts"
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
+import { isPreparedResultError, type ResultError } from "./result.ts"
 
 /** A JSON-safe representation of a web Response for durable boundaries. */
 export interface SerializedResponse {
@@ -111,7 +111,7 @@ const jsonHeaders = { "content-type": "application/json; charset=utf-8" }
  */
 export function toResponse(value: unknown): Response {
   if (isResponse(value)) return value
-  if (isRuntimeDiagnostic(value)) return errorResponse(value)
+  if (isPreparedResultError(value)) return errorResponse(value)
   if (value === undefined) return new Response(null, { status: 204 })
   if (typeof value === "string" || value instanceof Blob || isArrayBufferValue(value) || ArrayBuffer.isView(value)) {
     // SAFETY: The guards admit only strings, Blob, ArrayBuffer, and views accepted by Response.
@@ -124,8 +124,8 @@ export function toResponse(value: unknown): Response {
   return new Response(JSON.stringify(value), { headers: jsonHeaders })
 }
 
-function errorResponse(error: { code: string, why: string, fix?: string }): Response {
-  const status: unknown = Reflect.get(error, "status")
+function errorResponse(error: ResultError): Response {
+  const { status } = error
   return new Response(JSON.stringify({ code: error.code, why: error.why, fix: error.fix }), {
     headers: jsonHeaders,
     status: typeof status === "number" && Number.isInteger(status) && status >= 400 && status <= 599 ? status : 500,

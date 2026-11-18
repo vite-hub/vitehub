@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Buffer as NodeBuffer } from "node:buffer"
 import { runInNewContext } from "node:vm"
+import { Diagnostic } from "nostics"
 import { deserializeResponse, isSerializedResponse, serializeResponse, toResponse } from "../src/response.ts"
-import { defineErrors } from "../src/result.ts"
+import { defineErrors, toResultError } from "../src/result.ts"
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -254,6 +255,17 @@ describe("durable Response representation", () => {
 })
 
 describe("toResponse with a ResultError", () => {
+  it("only applies the error response contract to prepared diagnostics", async () => {
+    const diagnostic = new Diagnostic({ code: "EXAMPLE_DIAGNOSTIC", why: "An ordinary diagnostic.", data: { count: 2 } })
+    const response = toResponse(diagnostic)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ code: "EXAMPLE_DIAGNOSTIC", data: { count: 2 } })
+
+    const result = toResponse(toResultError(diagnostic))
+    expect(result.status).toBe(500)
+    expect(await result.json()).toEqual({ code: "EXAMPLE_DIAGNOSTIC", why: "An ordinary diagnostic." })
+  })
+
   const errors = defineErrors({
     docs: "https://vitehub.dev/docs/example",
     codes: {

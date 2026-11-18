@@ -139,11 +139,13 @@ On the server, `setLocale()` switches only the current request, for example to a
 
 `useTranslations()` from `vite-hub/i18n/server` reads, saves, and publishes translations in the Workspace of [`i18n.workspace`](/docs/i18n/configure#store-translations-in-a-workspace). A save goes to the `draft` ref, so people and Agents can prepare translations without changing the site. `publish()` copies the changed drafts to `published` in one revision, and the server uses them on the next request.
 
-```ts [server/routes/translations.post.ts]
+Run this server code only after checking that the caller may edit translations and publish **all pending drafts**. Editing a draft alone should not grant publish access.
+
+```ts fragment
 import { useTranslations } from 'vite-hub/i18n/server'
 import { toResponse } from 'vite-hub/runtime'
 
-export default async () => {
+async function saveAndPublish() {
   const translations = useTranslations()
   const [error] = await translations.save({ locale: 'es', source: 'Payment received', translation: 'Pago recibido', by: 'ana' })
   if (error) return toResponse(error)

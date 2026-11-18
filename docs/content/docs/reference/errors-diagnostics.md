@@ -38,11 +38,13 @@ A catalog code can give static or computed `data`, which stays in memory. Each f
 
 `toResponse(error)` from `vite-hub/runtime` turns a `ResultError` into a JSON `Response` with `code`, `why`, and `fix`. The status is the `status` of the catalog code, such as 409 for a conflict, or 500 when the code has none.
 
-```ts [server/api/translations.post.ts]
+In the body of a handler that has already authorized the caller to edit translations:
+
+```ts fragment
 import { useTranslations } from 'vite-hub/i18n/server'
 import { toResponse } from 'vite-hub/runtime'
 
-export default async () => {
+async function saveTranslation() {
   const [error, saved] = await useTranslations().save({ locale: 'es', source: 'Payment received', translation: 'Pago recibido' })
   if (error) return toResponse(error) // 409 for I18N_SAVE_CONFLICT
   return saved

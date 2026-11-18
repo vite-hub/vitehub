@@ -93,6 +93,11 @@ describe("auth events with real Better Auth and Node SQLite", () => {
     const [cursorError] = await listAuthEvents({ cursor: "%" }, definition)
     expect(cursorError).toMatchObject({ code: "AUTH_EVENT_QUERY_INVALID", status: 400 })
     expect(toResponse(cursorError).status).toBe(400)
+    for (const bound of ["from", "to"]) {
+      const [boundError] = await listAuthEvents({ [bound]: "2026-10-01T00:00:00+05" }, definition)
+      expect(boundError).toMatchObject({ code: "AUTH_EVENT_QUERY_INVALID", status: 400 })
+      expect(toResponse(boundError).status).toBe(400)
+    }
     const [windowError] = await aggregateAuthEvents({ from: window.to, to: window.from }, definition)
     expect(windowError).toMatchObject({ code: "AUTH_EVENT_QUERY_INVALID", status: 400 })
     const failingRead = vi.spyOn(store, "list").mockRejectedValueOnce(new Error("database is locked"))
