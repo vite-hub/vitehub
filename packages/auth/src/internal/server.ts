@@ -296,6 +296,8 @@ function handleSignInRoute(
   if (redirect === null) {
     return Promise.resolve(textResponse("The redirect must be a path of this site, such as /docs.", 400))
   }
+  const appRoot = resolveAuthMountPath("/")
+  const destination = redirect === undefined ? undefined : `${appRoot}${redirect.slice(1)}`
   if (path === `${basePath}/sign-out`) {
     // A sign-out link on another site could end the session. Browsers send `none` for a typed URL or a bookmark.
     const site = headers.get("sec-fetch-site")
@@ -306,10 +308,9 @@ function handleSignInRoute(
     if (/prefetch/i.test(`${headers.get("sec-purpose") ?? ""} ${headers.get("purpose") ?? ""}`)) {
       return Promise.resolve(textResponse("A prefetch does not sign out.", 403))
     }
-    return endSession(auth, headers, resolveAuthMountPath(redirect ?? "/"))
+    return endSession(auth, headers, destination ?? appRoot)
   }
-  const callbackURL = redirect === undefined ? {} : { callbackURL: resolveAuthMountPath(redirect) }
-  return startSignIn(auth, options, headers, { ...signIn, ...callbackURL }, address)
+  return startSignIn(auth, options, headers, { ...signIn, callbackURL: destination ?? signIn.callbackURL }, address)
 }
 
 async function startSignIn(
@@ -347,6 +348,7 @@ function appPath(value: string): string | null {
   // eslint-disable-next-line no-control-regex
   if (!value.startsWith("/") || /^\/[/\\]/.test(value) || /[\u0000-\u001F\u007F]/.test(value)) return null
   const url = new URL(value, "http://app.invalid")
+  if (url.pathname.startsWith("//")) return null
   return `${url.pathname}${url.search}${url.hash}`
 }
 

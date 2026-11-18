@@ -170,6 +170,10 @@ describe("below Nuxt app.baseURL", () => {
     expect(signIn.status).toBe(302)
     expect(signIn.headers.get("location")).toBe("/app/docs")
 
+    const nestedSignIn = await get("/app/api/auth/sign-in?redirect=/app/docs", { cookie })
+    expect(nestedSignIn.status).toBe(302)
+    expect(nestedSignIn.headers.get("location")).toBe("/app/app/docs")
+
     const signOut = await get("/app/api/auth/sign-out", { cookie })
     expect(signOut.status).toBe(303)
     expect(signOut.headers.get("location")).toBe("/app/")
