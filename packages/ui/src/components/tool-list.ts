@@ -102,7 +102,6 @@ export const ToolList = defineComponent({
                 {
                   "aria-hidden": "true",
                   class: "vh-agent-tool-list__chevron",
-                  "data-motion-turn": "180",
                   fill: "none",
                   viewBox: "0 0 24 24",
                 },

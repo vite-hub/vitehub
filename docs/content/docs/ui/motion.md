@@ -68,7 +68,7 @@ Use `Progress` for work that runs, `DropField` for files that a person drags in,
 Some motion comes from attributes, with no part:
 
 - `data-motion-appear="<trigger>"` on an element that appears next to its trigger, such as a bubble next to a pin, makes it come out of the trigger as a tooltip does. The value selects the trigger around the element or next to it.
-- `data-motion-turn="180"` on a chevron in a control with `aria-expanded`, or in a `<details>`, turns it with a spring when the control opens. Set the same `rotate` in CSS for the open state.
+- `data-motion-chevron` on an element in a `<summary>` or in a control with `aria-expanded` turns it with a spring when the control opens or closes, as the layer does with an icon there. Set its angle for each state in CSS, with no transition.
 - `data-leaving="true"` on a mark that the page removes a moment later folds a copy of it away.
 
 ## Animation

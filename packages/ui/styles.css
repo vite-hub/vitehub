@@ -819,7 +819,7 @@
     color: var(--vh-error);
   }
 
-  /* The disclosure effect of the motion layer turns the chevron with a spring (`data-motion-turn`). */
+  /* The disclosure effect of the motion layer turns the chevron from its old angle to this one with a spring. */
   [data-trace-chevron] svg {
     stroke: currentColor;
     stroke-width: 2;
@@ -3182,7 +3182,7 @@
     width: 0.8rem;
   }
 
-  /* The disclosure effect of the motion layer turns the chevron with a spring (`data-motion-turn`). */
+  /* The disclosure effect of the motion layer turns the chevron from its old angle to this one with a spring. */
   .vh-agent-tool-list__disclosure[open] > summary .vh-agent-tool-list__chevron {
     rotate: 180deg;
   }
@@ -3863,7 +3863,7 @@
   .vh-agent-session__work-summary:hover { color: var(--vh-text); }
   .vh-agent-session__work-count { color: var(--vh-muted); font-size: 0.75rem; }
   .vh-agent-session__work-failed { color: var(--vh-error); }
-  /* The disclosure effect of the motion layer turns the chevron with a spring (`data-motion-turn`). */
+  /* The disclosure effect of the motion layer turns the chevron from its old angle to this one with a spring. */
   .vh-agent-session__work-chevron { height: 0.875rem; width: 0.875rem; }
   .vh-agent-session__work[data-open] .vh-agent-session__work-chevron { rotate: 180deg; }
   .vh-agent-session__work[data-open] .vh-agent-session__work-summary {

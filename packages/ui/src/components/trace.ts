@@ -44,8 +44,7 @@ export const TraceCollapsible = defineComponent({
 
 const chevron = () =>
   h("span", { "aria-hidden": "true", "data-slot": "trace-icon", "data-trace-chevron": "" }, [
-    // The trigger's disclosure turns the chevron by 90 degrees with the motion layer.
-    h("svg", { "data-motion-turn": "90", fill: "none", viewBox: "0 0 24 24" }, [
+    h("svg", { fill: "none", viewBox: "0 0 24 24" }, [
       h("path", { d: "m9 18 6-6-6-6", "stroke-linecap": "round", "stroke-linejoin": "round" }),
     ]),
   ]);
