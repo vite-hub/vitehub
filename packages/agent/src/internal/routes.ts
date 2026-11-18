@@ -31,7 +31,7 @@ export function agentRouteUsesParam(route: false | string | undefined, param: st
 export function validateAgentStaticRoute(route: string, handlers: readonly { route: string, middleware?: boolean }[], label = "readiness", namespace?: string): string {
   const normalized = normalizeAgentRoute(route).replace(/\/$/, "") || "/"
   if (!route.trim() || /[:*?#\x5B\x5D]/.test(normalized)) {
-    throw agentDiagnostics.AGENT_B0006({ message: `[vitehub] Agent ${label} requires a static route path.` })
+    throw agentDiagnostics.AGENT_ROUTE_NOT_STATIC({ label })
   }
   const target = normalized.split("/")
   const namespaceDepth = namespace && normalized.startsWith(`${normalizeAgentRoute(namespace).replace(/\/$/, "")}/`) ? normalizeAgentRoute(namespace).replace(/\/$/, "").split("/").length : 0

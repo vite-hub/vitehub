@@ -244,15 +244,17 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
 
   if (!manifestRegistered.has(nuxt) && nuxt.hook) {
     manifestRegistered.add(nuxt)
-    // Nuxt prefetches the dynamic imports of the app entry on every page. The Auth plugin's client imports Better Auth
-    // on first use, so remove that import from the hints: a page that does not use Auth does not download Better Auth.
+    // Nuxt prefetches the dynamic imports of the app entry on every page. The Auth plugin loads the composables only for
+    // a guarded page, and the client imports Better Auth on first use, so remove both imports from the hints: a page
+    // that does not use Auth downloads neither.
     ;(nuxt.hook as unknown as (name: "build:manifest", handler: (manifest: Record<string, { dynamicImports?: string[] }>) => void) => void)("build:manifest", (manifest) => {
-      const client = resolveBetterAuthVueClient()
+      // Node loads this module from its real path, so the built composables next to it have a real path too.
+      const lazy = new Set([resolveBetterAuthVueClient(), fileURLToPath(new URL("./vue.js", import.meta.url))])
       // Vite writes manifest keys relative to its root. Nuxt resolves `vite.root` to `srcDir` unless the app sets it.
       const root = nuxt.options.vite?.root || nuxt.options.srcDir || nuxt.options.rootDir || process.cwd()
-      const key = client && Object.keys(manifest).find(id => resolve(root, id) === client)
-      if (!key) return
-      for (const chunk of Object.values(manifest)) chunk.dynamicImports &&= chunk.dynamicImports.filter(id => id !== key)
+      const keys = new Set(Object.keys(manifest).filter(id => lazy.has(resolve(root, id))))
+      if (!keys.size) return
+      for (const chunk of Object.values(manifest)) chunk.dynamicImports &&= chunk.dynamicImports.filter(id => !keys.has(id))
     })
   }
 

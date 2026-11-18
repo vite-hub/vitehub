@@ -25,7 +25,8 @@ const SANDBOX_CLEANUP_GRACE_MS = 1_000
 
 export interface SandboxTaskDefinitionExecutionLifecycle {
   onExecution?: (execution: Promise<unknown>) => void
-  onHandlerStart?: () => void
+  /** Called before a command that must not run twice: the package install, the project publish, and the handler. */
+  onCommandStart?: () => void
 }
 
 function toJson(value: unknown, label: string) {
@@ -74,6 +75,7 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
         ), 'payload/context')
       : undefined
     const prepared = await prepareSandboxTaskDefinition(sandbox, bundle, files.baseDir, {
+      onCommandStart: lifecycle?.onCommandStart,
       signal,
       timeout: definitionOptions?.timeout,
     })
@@ -98,7 +100,7 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
     let execution: Awaited<ReturnType<TaskSandbox['exec']>> | undefined
 
     try {
-      lifecycle?.onHandlerStart?.()
+      lifecycle?.onCommandStart?.()
       execution = await sandbox.exec('node', execArgs, {
         cwd: prepared.cwd,
         env: definitionOptions?.env,

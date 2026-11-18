@@ -36,8 +36,8 @@ interface Selected {
   bottom: number
 }
 
-/** The names of the CSS highlights of commented text. `documentStyles` colors them. */
-export const highlightNames = { open: "vitehub-comment", resolved: "vitehub-comment-resolved", active: "vitehub-comment-active" } as const
+/** The names of the CSS highlights of commented text. `@vite-hub/ui/comment-marks.css` colors them. */
+export const highlightNames = { open: "vh-comment", resolved: "vh-comment-resolved", active: "vh-comment-active", draft: "vh-comment-draft" } as const
 
 interface Toast {
   text: string
@@ -114,6 +114,23 @@ function style(text: string): HTMLStyleElement {
   const element = document.createElement("style")
   element.textContent = text
   return element
+}
+
+type RealtimePerson = ReturnType<RealtimeRoom["people"]>[number]
+
+/**
+ * The other people on the page, one entry per person with the number of tabs they have open. The overlay leaves out
+ * `me` whatever the sign-in, so a person never sees themselves.
+ */
+function others(people: readonly RealtimePerson[], me: string | undefined): { person: RealtimePerson, tabs: number }[] {
+  const byId = new Map<string, { person: RealtimePerson, tabs: number }>()
+  for (const person of people) {
+    if (person.id === me) continue
+    const seen = byId.get(person.id)
+    if (seen) seen.tabs++
+    else byId.set(person.id, { person, tabs: 1 })
+  }
+  return [...byId.values()]
 }
 
 function initials(name: string): string {
@@ -301,6 +318,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   /** The server-identified person. */
   const account = (): CommentUser | undefined => session?.user ?? undefined
+  /** `false` when the app shows its own presence: no faces in the toolbar and no cursors on the page. */
+  const showPresence = session?.presence !== false
   const me = computed<CommentUser | undefined>(() => account() ?? (guest.value ? { id: `guest:${guest.value.id}`, name: guest.value.name, guest: true } : undefined))
   /** What this person may do on the current page. The answer of `/session` for each new page replaces it. */
   const pageCan = shallowRef(session?.can)
@@ -632,7 +651,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const highlights = typeof CSS !== "undefined" && "highlights" in CSS && typeof Highlight === "function"
   function paintHighlights() {
     if (!highlights) return
-    const groups = { open: [] as Range[], resolved: [] as Range[], active: [] as Range[] }
+    const groups = { open: [] as Range[], resolved: [] as Range[], active: [] as Range[], draft: [] as Range[] }
     const active = new Set([state.openId.value, state.hoverId.value].filter(Boolean))
     const threads = state.threads.value.filter(thread => state.isShown(thread.id))
     for (const thread of threads) {
@@ -644,7 +663,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const draft = state.draft.value?.anchor
     if (draft?.kind === "text") {
       const range = anchorRange(toRaw(draft))
-      if (range) groups.active.push(range)
+      if (range) groups.draft.push(range)
     }
     for (const [group, name] of Object.entries(highlightNames)) CSS.highlights.set(name, new Highlight(...groups[group as keyof typeof groups]))
   }
@@ -858,13 +877,10 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     if (marking.value || finishing.value) return markerToolbar()
     const signOutUrl = session?.signOut
     const github = signOutUrl ? session?.github : undefined
-    // Each person shows once, however many tabs they have open. The sign-out button shows the person themselves, so
-    // presence then lists only the others.
-    const seen = new Set(github && session?.user ? [session.user.id] : [])
-    const people = (room?.people() ?? []).filter(person => !seen.has(person.id) && seen.add(person.id))
-    const avatars = people.slice(0, 5).map(person =>
-      h("span", { class: "avatar", key: person.id, title: person.name, style: { background: person.color } }, person.image ? h("img", { src: person.image, alt: "" }) : initials(person.name)))
-    const peopleLabel = `${people.length} ${github ? "other " : ""}${people.length === 1 ? "person" : "people"} on this page`
+    const people = showPresence ? others(room?.people() ?? [], me.value?.id) : []
+    const avatars = people.slice(0, 5).map(({ person, tabs }) =>
+      h("span", { class: "avatar", key: person.id, title: tabs > 1 ? `${person.name} · ${tabs} tabs` : person.name, style: { background: person.color } }, person.image ? h("img", { src: person.image, alt: "" }) : initials(person.name)))
+    const peopleLabel = `${people.length} other ${people.length === 1 ? "person" : "people"} on this page`
     const open = state.counts.value.open
     const commenting = commentOn.value
     const badge = (shown: boolean) => shown && open > 0 ? h("span", { class: "count" }, String(open)) : null
@@ -916,33 +932,39 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     ])
   }
 
-  /** The outlines of the areas that threads point at, and of the one being written. Resolved ones are dashed. */
+  /**
+   * The areas that threads point at, and the one being written, as `comment-mark-area` of
+   * `@vite-hub/ui/comment-marks.css`: the open or hovered one is active, and resolved ones are dashed.
+   */
   function areas(): VNode[] {
     const nodes: VNode[] = []
-    const box = (key: string, kind: CommentAnchor["kind"], status: string) => {
+    const box = (key: string, kind: CommentAnchor["kind"], marks: { status?: string, active?: boolean, draft?: boolean }) => {
       const position = state.positions.value.get(key)
       if (!position || position.detached || position.clipped || (kind !== "area" && kind !== "image") || !position.width || !position.height) return
       // While comments are hidden, only the ones that still show, and for a moment the ones that stop showing.
       const leaving = key !== "draft" && state.leaving.value.has(key)
       if (key !== "draft" && !leaving && !state.isShown(key)) return
       nodes.push(h("div", {
-        class: "area",
         key,
         "data-leaving": leaving ? "true" : undefined,
-        "data-status": status,
+        "data-active": marks.active ? "true" : undefined,
+        "data-draft": marks.draft ? "true" : undefined,
+        "data-slot": "comment-mark-area",
+        "data-status": marks.status,
         style: { left: `${position.x}px`, top: `${position.y}px`, width: `${position.width}px`, height: `${position.height}px` },
       }))
     }
     const active = new Set([state.openId.value, state.hoverId.value])
-    for (const thread of state.threads.value) box(thread.id, thread.anchor.kind, active.has(thread.id) ? "active" : thread.status)
+    for (const thread of state.threads.value) box(thread.id, thread.anchor.kind, { status: thread.status, active: active.has(thread.id) })
     const draft = state.draft.value
-    if (draft) box("draft", draft.anchor.kind, "active")
+    if (draft) box("draft", draft.anchor.kind, { draft: true })
     return nodes
   }
 
   function cursors(): VNode[] {
     void tick.value
     const nodes: VNode[] = []
+    if (!showPresence) return nodes
     for (const [id, presence] of room?.states() ?? []) {
       // SAFETY: the overlay of each person sets `cursor` with `setLocal`. Each field is checked before use.
       const cursor = presence.cursor as Cursor | undefined
@@ -1070,7 +1092,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         const field = target ? fieldElementOf(target) : undefined
         if (field !== hover.value) hover.value = field
       }
-      if (!room || !target) return
+      if (!room || !target || !showPresence) return
       const box = target.getBoundingClientRect()
       room.setLocal("cursor", {
         selector: selectorOf(target),

@@ -18,11 +18,11 @@ const vercelCredentialNames = {
  */
 export function sandboxDeploymentEnv(
   config: AgentSandboxTaskConfig | false | undefined,
-  provider: 'cloudflare' | 'vercel' | undefined,
+  driver: 'cloudflare' | 'vercel' | undefined,
   context: DeploymentEnvContext,
 ): DeploymentEnvEntry[] {
-  if (config === false || provider !== 'vercel') return []
-  const configured = config?.provider === 'vercel' ? config : undefined
+  if (config === false || driver !== 'vercel') return []
+  const configured = config?.driver === 'vercel' ? config : undefined
   const required = context.host !== 'vercel'
   return (['token', 'teamId', 'projectId'] as const).flatMap(option => configured?.[option]?.trim()
     ? []

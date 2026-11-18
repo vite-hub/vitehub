@@ -191,6 +191,10 @@ async function runConsoleOperation(operation: AnyOperation, rawInput: unknown, r
   if (section !== false && !operationAccessAllows(context.access, section, classification)) {
     throw consoleRequestError(403, `This Console access to the "${section}" section is read-only, and ${operation.name} is a ${operation.kind} operation.`, "CONSOLE_ACCESS_DENIED")
   }
+  // A read-only caller, such as read_operation of the ViteHub MCP, runs only the operations, and the calls, that read.
+  if (context.access.readOnly && classification.kind !== "read" && !classification.readOnly) {
+    throw consoleRequestError(403, `${operation.name} is a ${classification.kind} operation, and this caller may only read.`, "CONSOLE_ACCESS_DENIED")
+  }
   assertOperationConfirmation(request, classification)
   // An MCP call is unconfirmed unless the signed caller says that the person agreed.
   if (mcp) assertOperationConfirmed(classification, context.access.confirmed === true)

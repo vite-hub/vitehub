@@ -29,7 +29,7 @@ import type {
   BrowserDefinitionHandler,
   BrowserPage,
   BrowserPageSession,
-  BrowserProviderOpenOptions,
+  BrowserDriverOpenOptions,
   BrowserSession,
 } from "./types.ts"
 import type { CDPClient } from "./controllers/cdp.ts"
@@ -117,7 +117,7 @@ class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
     return await runBrowserAction(action, input)
   }
 
-  async open(options?: BrowserProviderOpenOptions): Promise<BrowserPageSession> {
+  async open(options?: BrowserDriverOpenOptions): Promise<BrowserPageSession> {
     const providerSession = await (this.options.client ?? resolveConfiguredClient()).open(options)
     let control: BrowserControl<CDPClient> | undefined
     try {
@@ -168,11 +168,11 @@ let configuredClient: BrowserClient<PlaywrightBrowserConnection> | undefined
 
 function resolveConfiguredClient(): BrowserClient<PlaywrightBrowserConnection> {
   if (configuredClient) return configuredClient
-  if (!isBrowserAvailable() || runtimeConfig.provider !== "cloudflare") throw browserUnavailableError()
+  if (!isBrowserAvailable() || runtimeConfig.driver !== "cloudflare") throw browserUnavailableError()
   const configuredLoader = loadCloudflarePlaywright
     ?? (() => importBrowserOptionalPeer<CloudflarePlaywrightDriver>("@cloudflare/playwright"))
   configuredClient = createBrowser({
-    provider: createCloudflareBrowser(
+    driver: createCloudflareBrowser(
       {
         binding: runtimeConfig.binding,
         engine: runtimeConfig.engine,

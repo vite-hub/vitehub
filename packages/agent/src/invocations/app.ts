@@ -1,3 +1,4 @@
+import { invariantError } from "@vite-hub/internal/invariant"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../invocations.ts"
 import { createDefaultAgentInvocations, defaultAgentInvocationsUrlEnv } from "./default-core.ts"
@@ -119,8 +120,7 @@ function deferredDatabaseStore(options: DatabaseAgentInvocationStoreOptions): Ag
     create: async input => await (await store()).create(input),
     delete: async (id) => {
       const target = await store()
-      // Internal invariant: the Database store always has delete(); createD1AgentInvocationStore() returns every method.
-      if (!target.delete) throw new TypeError("[vitehub] The Database Invocation store does not support delete.")
+      if (!target.delete) throw invariantError("createD1AgentInvocationStore() returns a store with delete()")
       return await target.delete(id)
     },
     get: async (...args) => await (await store()).get(...args),
@@ -132,8 +132,7 @@ function deferredDatabaseStore(options: DatabaseAgentInvocationStoreOptions): Ag
     listTriggeredBy: async agentName => await (await store()).listTriggeredBy?.(agentName) ?? [],
     prune: async (options) => {
       const target = await store()
-      // Internal invariant: the Database store always has prune(); createD1AgentInvocationStore() returns every method.
-      if (!target.prune) throw new TypeError("[vitehub] The Database Invocation store does not support prune.")
+      if (!target.prune) throw invariantError("createD1AgentInvocationStore() returns a store with prune()")
       return await target.prune(options)
     },
     release: async (...args) => await (await store()).release(...args),

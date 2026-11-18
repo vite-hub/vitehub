@@ -20,7 +20,7 @@ import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deploym
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin, PluginOption, UserConfig } from "vite"
-import type { RealtimeInspectionAuthority } from "./inspect.ts"
+import type { RealtimeInspectionDriver } from "./inspect.ts"
 import type { DiscoveredRealtimeDefinition, RealtimeOptions } from "./types.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import unavailable from "./internal/runtime/unavailable.ts"
@@ -31,7 +31,7 @@ export interface RealtimeContributionContext {
    * Where the rooms of this build live: Durable Objects (`cloudflare`), or the memory of each Node process (`memory`),
    * also when Node instances share rooms through Postgres or Redis. Contributions only run when there is one.
    */
-  authority: "cloudflare" | "memory"
+  driver: "cloudflare" | "memory"
   /** `.vitehub/nitro/realtime`, for generated definition files. */
   directory: string
   projectRoot: string
@@ -51,7 +51,7 @@ export interface RealtimeVitePluginOptions extends RealtimeOptions {
   databaseImport?: string
   importBase?: string
   /**
-   * Adds definitions owned by another package. It runs only when the build has a room authority (Cloudflare Durable
+   * Adds definitions owned by another package. It runs only when the build has a room driver (Cloudflare Durable
    * Objects, a Node server, or memory in development). Without one, Realtime leaves the contribution out without an
    * error, so the contributing feature can fall back.
    */
@@ -65,8 +65,8 @@ export type RealtimeVitePlugin = Plugin & {
 }
 
 export interface RealtimeInspectionOptions {
-  /** Resolved room authority. Defaults to `auto`. */
-  authority?: RealtimeInspectionAuthority
+  /** Resolved driver. Defaults to `auto`. */
+  driver?: RealtimeInspectionDriver
   projectRoot: string
   serverDirs?: string[]
   /** Definitions other packages contributed to this build, such as Content live editing. */
@@ -75,13 +75,13 @@ export interface RealtimeInspectionOptions {
 
 /**
  * Lists Realtime Definitions with their document adapter, editor codec, identity, authorization,
- * persistence, and room authority, read statically from each definition file.
+ * persistence, and driver, read statically from each definition file.
  */
 export async function inspectRealtimeDefinitions(options: RealtimeInspectionOptions): Promise<ViteHubDefinitionSummary[]> {
   return await summarizeRealtimeDefinitions(
     options.projectRoot,
     [...discoverRealtimeDefinitions(options.projectRoot, options.serverDirs), ...options.contributed ?? []],
-    options.authority ?? "auto",
+    options.driver ?? "auto",
   )
 }
 
@@ -149,36 +149,36 @@ function hasPostgresDefaultDatabase(plugin: DatabaseVitePlugin | undefined): boo
   return plugin?.api?.getConfig?.()?.databases.default?.dialect === "postgresql"
 }
 
-type RealtimeNodeAuthority = "auto" | "postgres" | "redis"
+type RealtimeNodeDriver = "auto" | "postgres" | "redis"
 
 /**
  * The handler and the Nitro plugin of a Node build. `database` is the module that exports the app's `databases`, when
  * the Default Database is on Postgres: the bus then borrows the postgres.js client of that Database.
  */
-function renderNodeFiles(input: { busPlugin?: string, database?: string, handlerFile: string, importBase: string, namespace: string, nodeAuthority?: RealtimeNodeAuthority, registryFile: string }): Array<[string, string]> {
-  const { busPlugin, database, handlerFile, importBase, namespace, nodeAuthority, registryFile } = input
+function renderNodeFiles(input: { busPlugin?: string, database?: string, handlerFile: string, importBase: string, namespace: string, nodeDriver?: RealtimeNodeDriver, registryFile: string }): Array<[string, string]> {
+  const { busPlugin, database, handlerFile, importBase, namespace, nodeDriver, registryFile } = input
   const busOptions = `, { ${database ? `databases: () => import(${JSON.stringify(database)}).then(module => module.databases), ` : ""}namespace: ${JSON.stringify(namespace)} }`
   const logOptions = `{ ${database ? "database: true, " : ""}namespace: ${JSON.stringify(namespace)} }`
   const handler = [
     `import registry from ${JSON.stringify(moduleSpecifier(handlerFile, registryFile))}`,
     `import { createRealtimeHandler } from ${JSON.stringify(`${importBase}/server`)}`,
-    ...nodeAuthority
+    ...nodeDriver
       ? [
           `import { useRealtimeBus } from ${JSON.stringify(`${importBase}/bus`)}`,
           "",
           "// Shares rooms with the other instances of this app. The server picks the bus when it starts.",
-          `export default createRealtimeHandler(registry, { bus: () => useRealtimeBus(${JSON.stringify(nodeAuthority)}${busOptions}) })`,
+          `export default createRealtimeHandler(registry, { bus: () => useRealtimeBus(${JSON.stringify(nodeDriver)}${busOptions}) })`,
         ]
       : ["", "export default createRealtimeHandler(registry)"],
     "",
   ].join("\n")
-  if (!busPlugin || !nodeAuthority) return [[handlerFile, handler]]
+  if (!busPlugin || !nodeDriver) return [[handlerFile, handler]]
   return [[handlerFile, handler], [busPlugin, [
-    `import { closeRealtimeBuses, logRealtimeNodeAuthority } from ${JSON.stringify(`${importBase}/bus`)}`,
+    `import { closeRealtimeBuses, logRealtimeNodeDriver } from ${JSON.stringify(`${importBase}/bus`)}`,
     "",
     "export default (nitroApp) => {",
     "  // Prints where the rooms of this server live.",
-    `  logRealtimeNodeAuthority(${JSON.stringify(nodeAuthority)}, ${logOptions})`,
+    `  logRealtimeNodeDriver(${JSON.stringify(nodeDriver)}, ${logOptions})`,
     "  // Removes this instance's presence from the other instances, and lets the process exit. A borrowed Database client stays open.",
     "  nitroApp.hooks.hook(\"close\", () => closeRealtimeBuses())",
     "}",
@@ -200,36 +200,42 @@ const realtimeAvailabilityId = "#vitehub/realtime/availability"
 const resolvedRealtimeAvailabilityId = `\0${realtimeAvailabilityId}`
 
 export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVitePlugin {
+  // Without `driver`, Realtime picks the host's driver, so the former `authority` key would be ignored silently.
+  if (options.driver === undefined && Object.hasOwn(options, "authority")) {
+    // SAFETY: An app config without types still passes the former `authority` key.
+    const authority = (options as { authority?: unknown }).authority
+    throw realtimeErrorDiagnostics.REALTIME_RENAMED_AUTHORITY_KEY({ value: JSON.stringify(authority) ?? String(authority) })
+  }
   const importBase = options.importBase ?? "@vite-hub/realtime"
   let inspectionRoot: string | undefined
   let inspectionServerDirs: string[] | undefined
-  let inspectionAuthority: RealtimeInspectionAuthority = options.authority ?? "auto"
+  let inspectionDriver: RealtimeInspectionDriver = options.driver ?? "auto"
   let inspectionContributed: DiscoveredRealtimeDefinition[] = []
-  let hasRoomAuthority = false
+  let hasRoomDriver = false
   const databaseImport = options.databaseImport ?? "@vite-hub/database/drizzle"
   let databasePlugin: DatabaseVitePlugin | undefined
   // The Default Database is on Postgres. Read when the config is made, and again at `buildStart`.
   let postgresDatabase = false
   // The files of a Node build, to write again when the Default Database turns out to be on Postgres.
-  let nodeWrite: { busPlugin?: string, handlerFile: string, namespace: string, nodeAuthority: RealtimeNodeAuthority, postgres: boolean, registryFile: string } | undefined
+  let nodeWrite: { busPlugin?: string, handlerFile: string, namespace: string, nodeDriver: RealtimeNodeDriver, postgres: boolean, registryFile: string } | undefined
   return {
     name: "@vite-hub/realtime/vite",
     enforce: "pre",
     api: {
-      // Without a room authority the build fails or Realtime is unavailable, so the server reads nothing.
-      deploymentEnv: context => hasRoomAuthority ? realtimeDeploymentEnv({ authority: options.authority ?? "auto", postgresDatabase }, context) : [],
+      // Without a room driver the build fails or Realtime is unavailable, so the server reads nothing.
+      deploymentEnv: context => hasRoomDriver ? realtimeDeploymentEnv({ driver: options.driver ?? "auto", postgresDatabase }, context) : [],
     },
     vitehub: {
-      // Without a room authority the build fails or Realtime is unavailable, so there is no state to report.
-      durability: () => hasRoomAuthority
-        ? [{ export: "realtimeDurability", input: { authority: inspectionAuthority }, module: durabilityModuleFile(import.meta.url), primitive: "realtime" }]
+      // Without a room driver the build fails or Realtime is unavailable, so there is no state to report.
+      durability: () => hasRoomDriver
+        ? [{ export: "realtimeDurability", input: { driver: inspectionDriver }, module: durabilityModuleFile(import.meta.url), primitive: "realtime" }]
         : [],
       inspect: () => ({
         definitions: [{
           kind: "realtime",
           label: "Realtime",
           list: () => inspectRealtimeDefinitions({
-            authority: inspectionAuthority,
+            driver: inspectionDriver,
             projectRoot: inspectionRoot ?? resolveViteHubProjectRoot(process.cwd(), options),
             serverDirs: inspectionServerDirs,
             contributed: inspectionContributed,
@@ -247,24 +253,24 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       const nitro = { ...(config as { nitro?: NitroConfig }).nitro }
       const host = resolveHost({ nitro })
       const provider = getHostingProvider(host)
-      const authority = options.authority || "auto"
+      const driver = options.driver || "auto"
       const directory = resolve(root, ".vitehub/nitro/realtime")
       const build = isProductionBuild(config, environment)
       const node = !host || host === "node"
       // A Node build shares its rooms with the other instances through Postgres or Redis. `vite dev` keeps them in memory.
-      const nodeAuthority = !build || !node ? undefined
-        : authority === "postgres" || authority === "redis" ? authority
-          : authority === "auto" && provider !== "cloudflare" ? "auto" as const : undefined
-      // The authority a contribution may rely on. Configurations that fail below have none. Rooms on Node live in the
+      const nodeDriver = !build || !node ? undefined
+        : driver === "postgres" || driver === "redis" ? driver
+          : driver === "auto" && provider !== "cloudflare" ? "auto" as const : undefined
+      // The driver a contribution may rely on. Configurations that fail below have none. Rooms on Node live in the
       // memory of each instance, also when they are shared.
-      const available: RealtimeContributionContext["authority"] | undefined
-        = authority === "cloudflare" ? (!host || host === "cloudflare" ? "cloudflare" : undefined)
-          : authority === "auto" && provider === "cloudflare" ? "cloudflare"
-            : authority !== "auto" ? (node ? "memory" : undefined)
-              : !build || nodeAuthority ? "memory" : undefined
-      hasRoomAuthority = Boolean(available)
+      const available: RealtimeContributionContext["driver"] | undefined
+        = driver === "cloudflare" ? (!host || host === "cloudflare" ? "cloudflare" : undefined)
+          : driver === "auto" && provider === "cloudflare" ? "cloudflare"
+            : driver !== "auto" ? (node ? "memory" : undefined)
+              : !build || nodeDriver ? "memory" : undefined
+      hasRoomDriver = Boolean(available)
       const contribution = available && options.contribute
-        ? await options.contribute({ authority: available, directory, projectRoot: root, serverDirs })
+        ? await options.contribute({ driver: available, directory, projectRoot: root, serverDirs })
         : undefined
       const definitions = [
         ...discovered,
@@ -299,30 +305,30 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
 
       const registryFile = resolve(directory, "registry.mjs")
       const handlerFile = resolve(directory, "handler.ts")
-      const busPlugin = nodeAuthority ? resolve(directory, "bus.mjs") : undefined
+      const busPlugin = nodeDriver ? resolve(directory, "bus.mjs") : undefined
       databasePlugin = findDatabasePlugin(config.plugins) ?? databasePlugin
-      postgresDatabase = !!nodeAuthority && hasPostgresDefaultDatabase(databasePlugin)
+      postgresDatabase = !!nodeDriver && hasPostgresDefaultDatabase(databasePlugin)
       const namespace = options.namespace?.trim() || defaultNamespace(root)
       const nodeFiles = (files: { busPlugin?: string, handlerFile: string, registryFile: string }) => renderNodeFiles({
         ...files,
         database: postgresDatabase ? databaseImport : undefined,
         importBase,
         namespace,
-        nodeAuthority,
+        nodeDriver,
       })
-      nodeWrite = nodeAuthority ? { busPlugin, handlerFile, namespace, nodeAuthority, postgres: postgresDatabase, registryFile } : undefined
+      nodeWrite = nodeDriver ? { busPlugin, handlerFile, namespace, nodeDriver, postgres: postgresDatabase, registryFile } : undefined
       await mkdir(directory, { recursive: true })
       await Promise.all([
         writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions)),
         ...nodeFiles({ busPlugin, handlerFile, registryFile }).map(([file, contents]) => writeFile(file, contents)),
       ])
 
-      if (authority === "cloudflare" && host && host !== "cloudflare") {
-        throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority: "cloudflare", host })
+      if (driver === "cloudflare" && host && host !== "cloudflare") {
+        throw realtimeErrorDiagnostics.REALTIME_DRIVER_CONFLICT({ driver: "cloudflare", host })
       }
       let durablePlugin: string | undefined
-      if (authority === "cloudflare" || (authority === "auto" && provider === "cloudflare")) {
-        inspectionAuthority = "cloudflare"
+      if (driver === "cloudflare" || (driver === "auto" && provider === "cloudflare")) {
+        inspectionDriver = "cloudflare"
         configureCloudflareRealtime(nitro)
         // The plugin does not import the Realtime server (Tiptap, ProseMirror, Yjs), so a cold start does not load it.
         durablePlugin = resolve(directory, "durable-object.mjs")
@@ -336,15 +342,15 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
           "",
         ].join("\n"))
       }
-      else if (build && authority === "auto" && !nodeAuthority) {
-        throw realtimeErrorDiagnostics.REALTIME_MISSING_AUTHORITY()
+      else if (build && driver === "auto" && !nodeDriver) {
+        throw realtimeErrorDiagnostics.REALTIME_MISSING_DRIVER()
       }
-      else if (authority !== "auto" && !node && host) {
-        throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority, host })
+      else if (driver !== "auto" && !node && host) {
+        throw realtimeErrorDiagnostics.REALTIME_DRIVER_CONFLICT({ driver, host })
       }
-      if (nodeAuthority) inspectionAuthority = nodeAuthority === "auto" ? "node" : nodeAuthority
-      else if (authority === "memory" || authority === "postgres" || authority === "redis" || (authority === "auto" && !build && inspectionAuthority !== "cloudflare")) {
-        inspectionAuthority = "memory"
+      if (nodeDriver) inspectionDriver = nodeDriver === "auto" ? "node" : nodeDriver
+      else if (driver === "memory" || driver === "postgres" || driver === "redis" || (driver === "auto" && !build && inspectionDriver !== "cloudflare")) {
+        inspectionDriver = "memory"
       }
       nitro.features = { ...nitro.features, websocket: true }
       const kit = createNitroServerKit(nitro)
@@ -378,7 +384,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       filter: { id: /^\0#vitehub\/realtime\/availability$/ },
       handler(id) {
         if (id === resolvedRealtimeAvailabilityId) {
-          return hasRoomAuthority ? "export default { available: true }\n" : `export default ${JSON.stringify(unavailable)}\n`
+          return hasRoomDriver ? "export default { available: true }\n" : `export default ${JSON.stringify(unavailable)}\n`
         }
       },
     },

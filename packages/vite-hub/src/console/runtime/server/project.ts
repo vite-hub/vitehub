@@ -2,7 +2,7 @@ import { allowedConsoleSections, consoleOperationGranted } from "./access.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { consoleOperations } from "./operations.ts"
 import { getConsoleBuild, getConsoleProjectName, getConsoleSections } from "./sections.ts"
-import { version } from "../../../version.ts"
+import { consoleState } from "../../internal.ts"
 
 import type { ConsoleAccess } from "./access.ts"
 import type { ConsoleSectionsResponse } from "./sections.get.ts"
@@ -25,6 +25,8 @@ export interface ConsoleProjectBuild {
     /** The name of the commit author, without the email. */
     author?: string
     branch?: string
+    /** The github.com repository of the commit, as `owner/name`, so the Console can compare the commit with the default branch. */
+    repository?: string
   }
 }
 
@@ -67,5 +69,5 @@ export async function readConsoleProject(access: ConsoleAccess, options: { navig
   const name = getConsoleProjectName()
   const build = getConsoleBuild()
   const navigation = options.navigation ? await (await import("./sections.get.ts")).listConsoleSections(access) : undefined
-  return { protocol: 1, ...(name ? { name } : {}), vitehub: version, ...(build ? { build } : {}), sections, operations, ...(navigation ? { navigation } : {}) }
+  return { protocol: 1, ...(name ? { name } : {}), vitehub: consoleState().vitehub ?? "0.0.0", ...(build ? { build } : {}), sections, operations, ...(navigation ? { navigation } : {}) }
 }

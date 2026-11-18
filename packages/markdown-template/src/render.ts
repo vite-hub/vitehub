@@ -7,12 +7,11 @@ import type { NodeHandler, NodeRenderData, State } from "comark/render"
 import { resolveTemplateBinding, resolveScalarTemplateBinding, resolveScalarTemplateAttributes, snapshotTemplateData } from "./bindings.ts"
 import { matchesCondition } from "./condition.ts"
 import { markdownTemplateErrorDiagnostics as diagnostics } from "./error-diagnostics.ts"
-import { htmlPlugins, parserOptions } from "./parser.ts"
+import { hasMarkdownHtmlChildren, htmlPlugins, parserOptions } from "./parser.ts"
 import { prepareTemplate } from "./prepare.ts"
 import { safeLinkDestination } from "./links.ts"
 import type { RenderMarkdownTemplateInternalOptions, RenderMarkdownTemplateOptions } from "./types.ts"
 
-const literalHtmlTags = new Set(["code", "pre", "script", "style", "textarea", "kbd", "samp", "var"])
 const rawBlockTags = new Set(["script", "style", "textarea"])
 const urlAttributesByTag = new Map([
   ["a", new Set(["href"])],
@@ -59,7 +58,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
     const sanitized = await sanitizeUrlAttributes(tag, props, attrs, state.context.svg === true)
     const escaped = Object.fromEntries(Object.entries(sanitized).map(([key, value]) =>
       [key, typeof value === "string" ? escapeHtml(value) : value]))
-    const content = childPolicy === "markdown" && attrs.$?.block === 1 && !literalHtmlTags.has(tag) && children.every(child => typeof child === "string")
+    const content = childPolicy === "markdown" && hasMarkdownHtmlChildren(node)
       ? (await parseMarkdown(children.join(""), parseOptions)).nodes
       : rawBlockTags.has(tag) && attrs.$?.block === 1 && typeof children[0] === "string"
         // Comark keeps the line break after `<script>`, and its HTML renderer adds another one.

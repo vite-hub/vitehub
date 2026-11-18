@@ -15,9 +15,12 @@ describe("runtime-contracts", () => {
     const input = join(fixture, "input")
     const run = await runCodemod("runtime-contracts", { cwd: input, dryRun: true })
     for (const edit of run.result.edits) {
+      const { after } = edit
+      // This codemod edits files and never deletes one.
+      if (after === null) throw new Error(`runtime-contracts deleted ${edit.path}`)
       expect(edit.before).toBe(await readFile(join(input, edit.path), "utf8"))
-      await expect(edit.after).toMatchFileSnapshot(join(fixture, "output", edit.path))
-      expect(() => parseProgram(edit.after, { typescript: true })).not.toThrow()
+      await expect(after).toMatchFileSnapshot(join(fixture, "output", edit.path))
+      expect(() => parseProgram(after, { typescript: true })).not.toThrow()
     }
     await expect(formatReport(run)).toMatchFileSnapshot(join(fixture, "output", "report.txt"))
   })

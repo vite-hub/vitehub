@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { deserializeResponse, serializeResponse } from "@vite-hub/runtime"
 import { defineSchedule, type ScheduleDefinition, type ScheduleKVStorage, type ScheduleRunAttemptRecord, type ScheduleRunRecord } from "../src/index.ts"
 import { createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule } from "../src/runtime.ts"
+import { registerRunScope } from "@vite-hub/runtime/internal/run-scope"
 import { runScheduleFrom } from "../src/runtime/execute.ts"
+import { executeStaticSchedule as executeStaticScheduleHandler } from "../src/runtime/static.ts"
 import { installProcessScheduleRuntime } from "../src/runtime/process.ts"
 import { getScheduleRunStore, loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
@@ -186,6 +188,32 @@ describe("Schedule Run bookkeeping", () => {
     })).resolves.toMatchObject({
       id: "srun_direct_daily-report_2026-05-23T09:00:00.000Z",
     })
+  })
+
+  it("runs the handler inside the run scopes, such as the Workspace scope that drops a failed run's writes", async () => {
+    const events: string[] = []
+    registerRunScope(async (run) => {
+      events.push("enter")
+      try {
+        await run()
+      }
+      finally {
+        events.push("leave")
+      }
+    })
+    await executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: () => { events.push("handler") } },
+      name: "mirror",
+      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+    })
+    await executeStaticScheduleHandler({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: () => { events.push("static handler") } },
+      name: "mirror",
+      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+    })
+    expect(events).toEqual(["enter", "handler", "leave", "enter", "static handler", "leave"])
   })
 
   it("accepts scheduledAt Date values from another JavaScript realm", async () => {
@@ -804,7 +832,7 @@ describe("KV Schedule Run Store", () => {
     for (const options of [{ limit: 1 }, { scheduleId: "legacy" }, { scheduleId: "legacy", limit: 1 }]) {
       await expect(store.listRuns(options)).rejects.toMatchObject({
         code: "SCHEDULE_HISTORY_INCOMPLETE",
-        name: "ScheduleHistoryIncompleteError",
+        name: "SCHEDULE_HISTORY_INCOMPLETE",
       })
     }
     expect(get).not.toHaveBeenCalled()

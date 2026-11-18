@@ -1,6 +1,7 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
 import { isRecordOrFunction as isObjectRecord } from "@vite-hub/internal/object"
 import { serializeResponse, toResponse } from "@vite-hub/runtime"
+import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 
 import { createScheduleError } from "../errors.ts"
 import { parseScheduledAt, scheduleIdempotencyKey, validateScheduledAt } from "./date.ts"
@@ -221,10 +222,10 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
   const attempt = await startAttempt(run, runStore)
   options.onExecution?.()
   try {
-    const value = await runWithScheduleWaitUntil(
+    const value = await runInRunScopes(() => runWithScheduleWaitUntil(
       waitUntil => options.definition.handler(toHandlerContext(run, attempt, waitUntil)),
       options.waitUntil,
-    )
+    ))
     const response = await serializeResponse(toResponse(value))
     return await completeRun(run, attempt, response, runStore)
   }

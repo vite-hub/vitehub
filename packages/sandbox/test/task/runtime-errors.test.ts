@@ -7,9 +7,8 @@ const providerMocks = vi.hoisted(() => ({ open: vi.fn() }))
 
 vi.mock("#vitehub-sandbox-task-provider-loader", () => ({
   loadSandboxTaskRuntimeProvider: async () => ({
-    resolveTaskSandbox: async ({ provider }: { provider: { provider: "cloudflare" | "vercel", keepAlive?: boolean, sandboxId?: string } }) => ({
-      provider: provider.provider,
-      closeAfterRun: provider.provider === "vercel" || provider.keepAlive === true,
+    resolveTaskSandbox: async ({ provider }: { provider: { driver: "cloudflare" | "vercel", keepAlive?: boolean, sandboxId?: string } }) => ({
+      provider: provider.driver,
       sandboxId: provider.sandboxId,
       resolveSandbox: async () => ({
         plan: { executionAuthority: unknownExecutionAuthority },
@@ -74,7 +73,7 @@ function providerError() {
 
 beforeEach(() => {
   providerMocks.open.mockReset()
-  setSandboxTaskRuntimeConfig({ provider: "cloudflare", sandboxId: "shared-errors" })
+  setSandboxTaskRuntimeConfig({ driver: "cloudflare", sandboxId: "shared-errors" })
   setSandboxTaskRuntimeRegistry({ example: {
     bundle: {
       entry: "index.mjs",
@@ -193,7 +192,7 @@ describe("Sandbox Task error preservation", () => {
   })
 
   it("returns the handler result from a per-run Sandbox without deleting files it closes", async () => {
-    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
     const { session, cleanup } = createSession()
     cleanup.mockRejectedValue(new Error("Sandbox invocation cleanup failed."))
 
@@ -273,9 +272,7 @@ describe("Sandbox Task error preservation", () => {
 
   it.each(["cloudflare", "vercel"] as const)("keeps the handler error when %s session close also fails", async (provider) => {
     const { session, execute } = createSession()
-    setSandboxTaskRuntimeConfig(provider === "cloudflare"
-      ? { provider, sandboxId: "shared-errors", keepAlive: true }
-      : { provider })
+    setSandboxTaskRuntimeConfig({ driver: provider })
     execute.mockResolvedValue({ ok: false, error: { message: "Handler failed." } })
     const cleanupError = new Error("private session cleanup message", { cause: providerError() })
     session.close.mockRejectedValue(cleanupError)
@@ -317,6 +314,8 @@ describe("Sandbox Task error preservation", () => {
   ])("preserves timeout and $failure through the $boundary", async ({ boundary, failure }) => {
     vi.useFakeTimers()
     const { session, cleanup, execute } = createSession()
+    // A timeout leaves a shared Sandbox open, so only a per-run Sandbox closes its session.
+    if (failure === "session rejection") setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: {
       options: { timeout: 1000 },
       bundle: { entry: "index.mjs", modules: { "index.mjs": "export default async () => true" } },
@@ -349,8 +348,13 @@ describe("Sandbox Task error preservation", () => {
       expect(response.status).toBe(504)
       expect(await response.json()).toMatchObject({ error: { code: "SANDBOX_TASK_TIMEOUT" } })
     }
-    expect(session.exec.mock.calls.find(([command]) => command === "rm")?.[2]).toEqual({ timeout: 1000 })
-    expect(session.close).toHaveBeenCalledOnce()
+    if (failure === "session rejection") {
+      expect(session.close).toHaveBeenCalledOnce()
+    }
+    else {
+      expect(session.exec.mock.calls.find(([command]) => command === "rm")?.[2]).toEqual({ timeout: 1000 })
+      expect(session.close).not.toHaveBeenCalled()
+    }
     expect(execute).toHaveBeenCalledOnce()
   })
 })

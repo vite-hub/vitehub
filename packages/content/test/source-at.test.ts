@@ -165,7 +165,7 @@ describe("content.sources.at()", () => {
       await expect(content.sources.at(ref as string, "docs")).rejects.toMatchObject({ code: "CONTENT_R0027" })
     }
     expect(fake.requests).toHaveLength(0)
-    await expect(content.sources.at("main", "unknown")).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(content.sources.at("main", "unknown")).rejects.toMatchObject({ code: "CONTENT_SOURCE_WITHOUT_HEAD" })
   })
 
   it("opens no view of a commit whose documents do not parse", async () => {

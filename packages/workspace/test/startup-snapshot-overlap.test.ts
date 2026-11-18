@@ -12,7 +12,7 @@ it.each(["", "docs"])("reuses overlapping startup snapshots at '%s' without avai
   const secondKeys = vi.fn(async () => ["shared.md"])
   const definition = {
     name: "overlapping-inspection",
-    store: { provider: "memory" as const },
+    store: { driver: "memory" as const },
     sources: {
       first: custom({ materialize: "startup", mount, getKeys: firstKeys, async getItem(key) { return { key, content: "first" } } }),
       second: custom({ materialize: "startup", mount, getKeys: secondKeys, async getItem(key) { return { key, content: "second" } } }),

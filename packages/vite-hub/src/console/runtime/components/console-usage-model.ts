@@ -30,7 +30,7 @@ export interface ConsoleUsageSegment {
 
 /** A neutral step between background and text, so a mix never looks like a status color. */
 const ink = (percent: number) =>
-  `color-mix(in oklab, var(--ui-text-highlighted) ${percent}%, var(--ui-bg))`;
+  `color-mix(in oklab, var(--foreground) ${percent}%, var(--background))`;
 
 /** Adjacent segments keep a visible contrast step in light and dark mode. */
 const segmentColors = {

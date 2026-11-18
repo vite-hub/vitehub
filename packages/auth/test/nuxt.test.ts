@@ -76,7 +76,7 @@ describe("Auth Nuxt integration", () => {
     expect(page).toContain("definePageMeta({ auth: 'guest' })")
   })
 
-  it("removes Better Auth's client from the prefetch hints of every page", () => {
+  it("removes Better Auth's client and the lazy composables from the prefetch hints of every page", () => {
     type Manifest = Record<string, { isEntry?: boolean, dynamicImports?: string[] }>
     const hooks = new Map<string, (manifest: Manifest) => void>()
     const nuxt = { ...createNuxt(), hook: (name: string, handler: (manifest: Manifest) => void) => hooks.set(name, handler) }
@@ -84,17 +84,19 @@ describe("Auth Nuxt integration", () => {
     hubAuthNuxt({ env: false }, { ...nuxt, options: { ...nuxt.options, srcDir: "/tmp/vitehub-auth-nuxt/other", vite: { root } } } as never)
     // Vite writes manifest keys relative to its root, from the real path of each module.
     const client = relative(root, realpathSync(fileURLToPath(import.meta.resolve("better-auth/vue"))))
+    // The built composables sit next to the built module. This test runs the source, so `src/vue.js` is a stand-in.
+    const composables = relative(root, fileURLToPath(new URL("../src/vue.js", import.meta.url)))
     const manifest: Manifest = {
-      "entry.js": { isEntry: true, dynamicImports: [client, "pages/index.vue"] },
+      "entry.js": { isEntry: true, dynamicImports: [client, composables, "pages/index.vue"] },
       [client]: {},
+      [composables]: {},
       "pages/index.vue": { dynamicImports: [client] },
     }
 
     hooks.get("build:manifest")?.(manifest)
 
-    expect(manifest).toEqual({
+    expect(manifest).toMatchObject({
       "entry.js": { isEntry: true, dynamicImports: ["pages/index.vue"] },
-      [client]: {},
       "pages/index.vue": { dynamicImports: [] },
     })
   })

@@ -9,6 +9,22 @@ const dynamicError = {
 export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/source/diagnostics",
   codes: {
+    SOURCE_COLLECTION_ACCESS_CONFLICT: {
+      why: "[vitehub] A Collection cannot set both `access: \"public\"` and `authorize`.",
+      fix: "Keep `access: \"public\"` to let anyone read the route, or keep `authorize` to check each request. Remove the other.",
+    },
+    SOURCE_COLLECTION_ACCESS_REQUIRED: {
+      why: "[vitehub] A routed Collection must set authorize or access. Without one, the generated /api route would serve every item to anyone.",
+      fix: "Set `authorize: true` to require a signed-in session, a callback to decide each request, or `access: \"public\"` for a public route. Set `route: false` to keep the Collection server-only.",
+    },
+    SOURCE_COLLECTION_AUTHORIZE_FALSE: {
+      why: "[vitehub] Collection `authorize: false` does not make a route public.",
+      fix: "Replace `authorize: false` with `access: \"public\"` to let anyone read the route. Use `authorize: true` or a callback to require sign-in.",
+    },
+    SOURCE_COLLECTION_PUBLIC_TRANSFORM_REQUIRED: {
+      why: "[vitehub] A Collection over table() with `access: \"public\"` would serve every column of each row, such as password hashes or emails.",
+      fix: "Add `transform` that returns only the public fields, or replace `access: \"public\"` with `authorize: true` or a callback.",
+    },
     SOURCE_R0023: {
       ...dynamicError,
       fix: "Pass the `cursor` of the last page of this Collection without changes, or omit `cursor` to read the first page.",
@@ -129,14 +145,38 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ endpoint, status }: { endpoint: string; status: number }) => `[vitehub] Collection request to ${endpoint} failed with status ${status}.`,
       fix: "Check the Collection route and server logs for this HTTP status, correct the request or server error, then refresh the Collection.",
     },
-    SOURCE_B0001: dynamicError,
-    SOURCE_B0002: dynamicError,
-    SOURCE_B0003: dynamicError,
-    SOURCE_B0004: dynamicError,
-    SOURCE_B0005: dynamicError,
-    SOURCE_B0006: dynamicError,
-    SOURCE_B0007: dynamicError,
-    SOURCE_B0008: dynamicError,
+    SOURCE_B0001: {
+      ...dynamicError,
+      fix: "Remove the server route that answers the route that the message names. To keep your route, turn off the generated one: set `route: false` in the Collection or in `defineContent()`, or turn off the `seo` option of server/content.ts that adds it.",
+    },
+    SOURCE_B0002: {
+      ...dynamicError,
+      fix: "Remove the handler for the route that the message names from the Nitro `handlers` config, or from `serverHandlers` in Nuxt. To keep it, turn off the generated route: set `route: false` in the Collection or in `defineContent()`, or turn off the `seo` option of server/content.ts that adds it.",
+    },
+    SOURCE_B0003: {
+      ...dynamicError,
+      fix: "Rename the Collection file under server/collections/ to a valid JavaScript identifier, such as `posts.ts` or `blog_posts.ts`, without dashes, dots, or a leading digit.",
+    },
+    SOURCE_B0004: {
+      ...dynamicError,
+      fix: "Export the Collection from the file with the same name as the file: `export const posts = defineCollection(...)` in server/collections/posts.ts.",
+    },
+    SOURCE_B0005: {
+      ...dynamicError,
+      fix: "Keep each Collection name in one server directory. Rename or remove the file under server/collections/ in one of the server directories, such as a Nuxt layer.",
+    },
+    SOURCE_B0006: {
+      ...dynamicError,
+      fix: "Rename one of the two Collection files under server/collections/, so that the names are different also when you ignore the letter case.",
+    },
+    SOURCE_B0007: {
+      ...dynamicError,
+      fix: "Keep one Content file. Remove the other server/content.ts files from the other server directories, such as a Nuxt layer.",
+    },
+    SOURCE_B0008: {
+      ...dynamicError,
+      fix: "Write `export default defineContent({ ... })` in the Content file that the message names.",
+    },
     SOURCE_B0009: {
       ...dynamicError,
       fix: "Write `export default defineContent({ ... })` in server/content.ts. Run `npx @vite-hub/codemods define-forms` to move the export and the imports of it.",
@@ -144,6 +184,10 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SOURCE_B0010: {
       why: ({ route, other }: { route: string, other: string }) => `[vitehub] defineContent({ seo: { mcp } }) serves its MCP server at ${JSON.stringify(route)}, and ${other} answers there too.`,
       fix: "One route serves one MCP server. Give the app MCP server another route, such as `vitehub({ mcp: { route: '/mcp/app' } })`, or another `publicRoute`. Or set `seo: { mcp: false }` in server/content.ts.",
+    },
+    SOURCE_GLOB_OPTIONS_NOT_LITERAL: {
+      why: "glob() here takes options that are not literals, so the build cannot bundle its files. It reads them from disk at runtime, which hosts such as Cloudflare Workers do not have.",
+      fix: "Write the options of `glob()` as literals in the call, such as `glob({ cwd: \"content\", include: [\"**/*.md\"] })`, so the build can find and bundle the files.",
     },
   },
 })

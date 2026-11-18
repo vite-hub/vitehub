@@ -111,6 +111,64 @@ describe("seal and unseal", () => {
     expect(error?.code).toBe("ENV_SEAL_INVALID")
   })
 
+  it("opens values sealed with a previous secret from VITEHUB_SECRET_PREVIOUS after a rotation", async () => {
+    const old = await seal("app:test", { id: 1 })
+    vi.stubEnv("VITEHUB_SECRET", otherRoot)
+    vi.stubEnv("VITEHUB_SECRET_PREVIOUS", ` unused-old-secret-of-at-least-32-characters , ${root}`)
+    expect(await unseal("app:test", old)).toEqual([undefined, { id: 1 }])
+    // New values use the new secret only.
+    const fresh = await seal("app:test", { id: 2 })
+    vi.stubEnv("VITEHUB_SECRET_PREVIOUS", "")
+    expect(await unseal("app:test", fresh)).toEqual([undefined, { id: 2 }])
+    expect((await unseal("app:test", old))[0]?.code).toBe("ENV_SEAL_INVALID")
+    vi.stubEnv("VITEHUB_SECRET", root)
+    expect((await unseal("app:test", fresh))[0]?.code).toBe("ENV_SEAL_INVALID")
+  })
+
+  it("keeps purpose, expiry, and tamper checks for values of a previous secret", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-07T10:00:00.000Z"))
+    const old = await seal("app:upload", { id: 1 }, { ttl: 60 })
+    vi.stubEnv("VITEHUB_SECRET", otherRoot)
+    vi.stubEnv("VITEHUB_SECRET_PREVIOUS", root)
+    expect((await unseal("app:invite", old))[0]?.code).toBe("ENV_SEAL_WRONG_PURPOSE")
+    expect((await unseal("app:upload", flip(old, 20)))[0]?.code).toBe("ENV_SEAL_INVALID")
+    vi.setSystemTime(new Date("2026-11-07T10:01:00.000Z"))
+    expect((await unseal("app:upload", old))[0]?.code).toBe("ENV_SEAL_EXPIRED")
+  })
+
+  it("reads VITEHUB_SECRET_PREVIOUS from Cloudflare bindings", async () => {
+    vi.stubEnv("VITEHUB_SECRET", "")
+    const old = await seal("app:test", { id: 1 }, { event: cloudflareRequest({ VITEHUB_SECRET: root }) })
+    const event = cloudflareRequest({ VITEHUB_SECRET: otherRoot, VITEHUB_SECRET_PREVIOUS: root })
+    expect(await unseal("app:test", old, { event })).toEqual([undefined, { id: 1 }])
+  })
+
+  it("throws ENV_RUNTIME_VALUE_INVALID for a short secret in VITEHUB_SECRET_PREVIOUS only in unseal()", async () => {
+    vi.stubEnv("VITEHUB_SECRET_PREVIOUS", `${otherRoot},short`)
+    // seal() never reads VITEHUB_SECRET_PREVIOUS, so a bad old secret does not stop new values.
+    const sealed = await seal("app:test", { id: 1 })
+    await expect(unseal("app:test", sealed)).rejects.toMatchObject({ code: "ENV_RUNTIME_VALUE_INVALID" })
+  })
+
+  it("seals with the first of a secret list and opens with any of them", async () => {
+    vi.stubEnv("VITEHUB_SECRET", "")
+    const oldKey = new SecretEnv("finance-encryption-key-of-32-characters-or-more")
+    const newKey = "finance-encryption-key-2-of-32-characters-or-more"
+    const stored = await seal("finance:credentials", { apiKey: "k" }, { secret: oldKey })
+    expect(await unseal("finance:credentials", stored, { secret: [newKey, oldKey] })).toEqual([undefined, { apiKey: "k" }])
+    const resealed = await seal("finance:credentials", { apiKey: "k" }, { secret: [newKey, oldKey] })
+    expect(await unseal("finance:credentials", resealed, { secret: newKey })).toEqual([undefined, { apiKey: "k" }])
+    expect((await unseal("finance:credentials", resealed, { secret: oldKey }))[0]?.code).toBe("ENV_SEAL_INVALID")
+  })
+
+  it("does not read VITEHUB_SECRET_PREVIOUS for a value with its own secret", async () => {
+    const stored = await seal("finance:credentials", { apiKey: "k" })
+    vi.stubEnv("VITEHUB_SECRET_PREVIOUS", root)
+    const [error] = await unseal("finance:credentials", stored, { secret: otherRoot })
+    expect(error?.code).toBe("ENV_SEAL_INVALID")
+  })
+
   it("returns ENV_SEAL_EXPIRED once the ttl has passed", async () => {
     vi.useFakeTimers({ toFake: ["Date"] })
     vi.setSystemTime(new Date("2026-11-07T10:00:00.000Z"))
@@ -199,6 +257,8 @@ describe("seal and unseal", () => {
       return seal("app:test", value)
     }],
     ["a short secret", () => seal("app:test", 1, { secret: "short" })],
+    ["an empty secret list", () => seal("app:test", 1, { secret: [] })],
+    ["a short secret in a list", () => unseal("app:test", "x", { secret: [otherRoot, "short"] })],
     ["an empty purpose in unseal", () => unseal("", "x")],
   ])("throws ENV_SEAL_ARGUMENT_INVALID for %s", async (_name, call) => {
     await expect(call()).rejects.toMatchObject({

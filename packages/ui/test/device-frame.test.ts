@@ -58,6 +58,7 @@ it("keeps an uncontrolled size in local storage", async () => {
   await first.get("select").setValue("laptop");
   first.unmount();
   const second = frame({ storageKey: "test:device" });
+  await nextTick();
   expect(page(second).attributes("style")).toContain("width: 1280px");
   second.unmount();
 });

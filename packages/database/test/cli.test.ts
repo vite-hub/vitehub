@@ -101,6 +101,21 @@ async function runRealDrizzleKit(rootDir: string, feature: "generate" | "migrate
 }
 
 describe("DB CLI contributor", () => {
+  it("prints the help of every command without the project config", async () => {
+    // `vitehub database <feature> --help` runs this contributor without loading the project.
+    const getConfig = vi.fn(() => {
+      throw new Error("loaded the project")
+    })
+    const spawn = vi.fn()
+    for (const feature of createDbCliContributor(undefined, getConfig)!.namespaces[0]!.features) {
+      const stdout = { write: vi.fn() }
+      await expect(feature.run(["--help"], { env: {}, rootDir: "/app", spawn, stderr: process.stderr, stdout } as never)).resolves.toBe(0)
+      expect(stdout.write.mock.calls.join("")).toContain(`Usage: vitehub database ${feature.name}`)
+    }
+    expect(getConfig).not.toHaveBeenCalled()
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
   it.each([
     { viteRoot: ".", databaseFile: ".vitehub/data/database/sqlite.db", connection: "" },
     { viteRoot: "app", databaseFile: ".vitehub/data/database/sqlite.db", connection: "" },
@@ -192,6 +207,31 @@ describe("DB CLI contributor", () => {
 
     expect(result).toEqual({ exitCode: 0, stderr: "" })
     expect((await migrationFolders(join(rootDir, "migrations"))).length > 0).toBe(true)
+  }, 60_000)
+
+  it("orders a later schema generate after future SQL-only contributions", async () => {
+    const imports = "import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'"
+    const rootDir = await writeDrizzleProject([imports, "export const users = sqliteTable('users', { id: integer('id') })"])
+    await expect(runRealDrizzleKit(rootDir)).resolves.toEqual({ exitCode: 0, stderr: "" })
+    const migrationsDir = join(rootDir, "migrations")
+    const contributed = "20990101000000_insert_users"
+    await mkdir(join(migrationsDir, contributed))
+    await writeFile(join(migrationsDir, contributed, "migration.sql"), "INSERT INTO users VALUES (1);")
+    await writeFile(join(rootDir, "schema.ts"), [imports, "export const users = sqliteTable('users', { id: integer('id'), name: text('name') })"].join("\n"))
+
+    await expect(runRealDrizzleKit(rootDir)).resolves.toEqual({ exitCode: 0, stderr: "" })
+    const folders = await migrationFolders(migrationsDir)
+    expect(folders).toHaveLength(3)
+    expect(folders[1]).toBe(contributed)
+    expect(folders[2]).toMatch(/^20990101000001_/)
+    const database = new DatabaseSync(":memory:")
+    try {
+      for (const folder of folders) database.exec(await readFile(join(migrationsDir, folder, "migration.sql"), "utf8"))
+      expect(database.prepare("SELECT id, name FROM users").get()).toMatchObject({ id: 1, name: null })
+    }
+    finally {
+      database.close()
+    }
   }, 60_000)
 
   // A custom migration that changes the tables, such as the Comments upgrade, must leave nothing for the next generate.

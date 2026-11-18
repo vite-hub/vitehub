@@ -87,7 +87,7 @@ blockquote{border-left:3px solid var(--soft);padding-left:10px;color:var(--muted
 @keyframes b{0%,60%,100%{opacity:.35;transform:none}30%{opacity:1;transform:translateY(-2px)}}
 .compose{margin:0 20px 16px;display:flex;align-items:flex-end;gap:2px;background:var(--input);border:1px solid var(--line);border-radius:6px;padding:4px 6px 4px 12px;flex:none}
 .compose:focus-within{border-bottom-color:var(--brand);box-shadow:inset 0 -1px 0 var(--brand)}
-textarea{flex:1;resize:none;border:0;outline:0;background:none;color:inherit;font:inherit;padding:6px 0;height:32px;max-height:160px}
+textarea{flex:1;resize:none;border:0;outline:0;background:none;color:inherit;font:inherit;padding:6px 0;min-height:32px;max-height:160px}
 textarea::placeholder{color:var(--soft)}
 .send{color:var(--brand)}
 .compose:has(textarea:placeholder-shown) .send{color:var(--soft)}

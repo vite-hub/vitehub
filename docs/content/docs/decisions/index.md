@@ -33,7 +33,7 @@ export const forecast = defineChoices({
 ```
 
 ```ts [server/api/choices.post.ts]
-import { createError, defineEventHandler, readValidatedBody } from 'h3'
+import { defineEventHandler, HTTPError, readValidatedBody } from 'h3'
 import * as v from 'valibot'
 import { forecast } from '../utils/forecast-choices'
 
@@ -41,7 +41,7 @@ import { forecast } from '../utils/forecast-choices'
 export default defineEventHandler(async (event) => {
   const { text } = await readValidatedBody(event, v.parser(v.object({ text: v.string() })))
   const [error, selection] = await forecast.resolve(text)
-  if (error) throw createError({ statusCode: 422, message: error.message })
+  if (error) throw new HTTPError({ status: 422, message: error.message })
   return selection
 })
 ```

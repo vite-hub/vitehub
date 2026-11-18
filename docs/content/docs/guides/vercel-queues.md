@@ -82,13 +82,13 @@ Vercel can deliver the same job twice. A handler that sends mail or charges a ca
 ### Send a job from a route
 
 ```ts [server/api/signup.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { sendQueue } from 'vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email?: unknown }>(event)
   if (typeof body?.email !== 'string' || !body.email.trim()) {
-    throw createError({ statusCode: 400, message: 'Send a non-empty email.' })
+    throw new HTTPError({ status: 400, message: 'Send a non-empty email.' })
   }
 
   const [error, result] = await sendQueue('welcome-email', { email: body.email.trim() })
@@ -253,4 +253,4 @@ The queue file and route stay the same. To move to Cloudflare Queues:
 3. Replace `callbackOptions` with `onError`, which returns `'ack'`, `'retry'`, or `{ retry: { delaySeconds } }`.
 4. Create the queues with `vitehub provision run --host cloudflare`.
 
-See [Cloudflare Queues](/docs/guides/cloudflare-queues) for all steps. Self-hosted Node uses the local provider. Deno has no Queue Provider. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a host.
+See [Cloudflare Queues](/docs/guides/cloudflare-queues) for all steps. Self-hosted Node uses the local driver. Deno has no Queue Provider. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a host.

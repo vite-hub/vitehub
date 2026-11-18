@@ -2,12 +2,12 @@ import { rm } from "node:fs/promises"
 
 import { afterAll, describe, expect, it, vi } from "vitest"
 
-import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
+import { createOperationRegistry, runOperation, toOperationFailure } from "@vite-hub/internal/operations"
 
 import { kvErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { kv } from "../src/index.ts"
 import { kvOperations } from "../src/operations.ts"
-import { KVOperationError, listKVDevStores, runKVOperation } from "../src/runtime/operations.ts"
+import { listKVDevStores, runKVOperation } from "../src/runtime/operations.ts"
 
 import type { KVDevStore } from "../src/runtime/operations.ts"
 
@@ -47,8 +47,8 @@ async function handle(body: Record<string, unknown>, stores?: readonly KVDevStor
       return { json: async () => value as Record<string, unknown>, status: 200 }
     }
     catch (error) {
-      if (!(error instanceof KVOperationError)) throw error
-      return { json: async () => ({ error: { code: error.code, fix: error.fix, message: error.message } }), status: error.status }
+      const failure = toOperationFailure(error)
+      return { json: async () => ({ error: { code: failure.code, fix: failure.fix, message: failure.message } }), status: failure.status }
     }
   }
   const result = await runOperation(registry, `kv.${String(operation)}`, input, { access, surface: "cli", user: null })
@@ -128,7 +128,7 @@ describe("kv operations", () => {
   it("reports the effective Cloudflare TTL when fractional seconds are rounded", async () => {
     const set = vi.spyOn(kv, "set").mockResolvedValue([undefined, undefined])
     try {
-      const response = await handle({ key: "fractional", operation: "set", ttl: 60.5, value: "x" }, [{ driver: "cloudflare-kv-binding", name: "default" }])
+      const response = await handle({ key: "fractional", operation: "set", ttl: 60.5, value: "x" }, [{ driver: "cloudflare", name: "default" }])
       expect(set).toHaveBeenCalledWith("fractional", "x", { ttl: 61 })
       expect(await response.json()).toMatchObject({ ttl: 61, notice: expect.stringContaining("61 seconds") })
     }
@@ -230,7 +230,7 @@ describe("kv operations", () => {
   it("says that a key can expire, since no driver reports the time left", async () => {
     await run({ key: "ephemeral", operation: "set", value: "x" })
     expect((await run({ key: "ephemeral", operation: "get" })).body).toMatchObject({ expiry: "unknown" })
-    for (const driver of ["cloudflare-kv-binding", "upstash", "deno-kv"] as const) {
+    for (const driver of ["cloudflare", "upstash", "deno-kv"] as const) {
       const response = await handle({ key: "ephemeral", operation: "get" }, [{ driver, name: "default" }])
       expect(await response.json()).toMatchObject({ expiry: "unknown", found: true })
     }
@@ -240,7 +240,7 @@ describe("kv operations", () => {
   it("clamps Cloudflare TTL before calling storage", async () => {
     const set = vi.spyOn(kv, "set").mockResolvedValue([undefined, undefined])
     try {
-      const response = await handle({ key: "clamped", operation: "set", ttl: 1.5, value: "x" }, [{ driver: "cloudflare-kv-binding", name: "default" }])
+      const response = await handle({ key: "clamped", operation: "set", ttl: 1.5, value: "x" }, [{ driver: "cloudflare", name: "default" }])
       expect(response.status).toBe(200)
       expect(set).toHaveBeenCalledWith("clamped", "x", { ttl: 60 })
       expect(await response.json()).toMatchObject({ ttl: 60, notice: expect.stringContaining("60 seconds") })

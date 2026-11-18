@@ -21,7 +21,7 @@ describe("types", () => {
     const config = {
       store: {
         binding: "BLOB",
-        driver: "cloudflare-r2",
+        driver: "cloudflare",
       },
     } satisfies ResolvedBlobModuleOptions
 
@@ -143,7 +143,7 @@ describe("types", () => {
   it("narrows Blob results by the error element", async () => {
     const [error, value] = await blob.put("proof.txt", "value")
     if (error) {
-      expectTypeOf(error.code).toEqualTypeOf<"BLOB_CONFLICT" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG">()
+      expectTypeOf(error.code).toEqualTypeOf<"BLOB_CONFLICT" | "BLOB_INVALID_CURSOR" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG">()
       expectTypeOf(value).toEqualTypeOf<undefined>()
       return
     }

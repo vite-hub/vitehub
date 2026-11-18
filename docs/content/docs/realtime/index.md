@@ -80,7 +80,7 @@ import { defineWorkspace } from 'vite-hub/workspace'
 // The files that the docs room saves to.
 // Memory is for development only.
 export default defineWorkspace({
-  store: { provider: 'memory' },
+  store: { driver: 'memory' },
   rules: {
     '/**': { write: true, mediaType: 'text/markdown' },
   },
@@ -185,11 +185,11 @@ checkpoint.snapshot
 ::
 
 ::agent-only{skill="realtime"}
-Use Realtime for collaborative state that changes while clients are connected. Realtime keeps room authority, document format, and durable checkpoints explicit.
+Use Realtime for collaborative state that changes while clients are connected. Realtime keeps the driver, document format, and durable checkpoints explicit.
 
-The Configure page describes host authority and persistence.
+The Configure page describes the driver of each host and persistence.
 
-On Cloudflare, rooms use Durable Objects. On Node, `auto` shares rooms across instances through Redis (`REDIS_URL`) or Postgres (the client of a Postgres Default Database, or `REALTIME_POSTGRES_URL`) when the server starts, else keeps them in one process. Memory authority is single-process. Vercel, Netlify, and Deno have no room authority.
+On Cloudflare, rooms use Durable Objects. On Node, the `auto` driver shares rooms across instances through Redis (`REDIS_URL`) or Postgres (the client of a Postgres Default Database, or `REALTIME_POSTGRES_URL`) when the server starts, else keeps them in one process. The `memory` driver is single-process. Vercel, Netlify, and Deno have no Realtime driver.
 
 Rooms save through a document adapter: `document: { workspace }` writes Markdown files, or pass `{ load, save }` for your own storage and throw `RealtimeDocumentConflict` on a stale `ifDigest`. A presence-only definition sets `document: false` and clients join with `connectRealtimeRoom()`. The Yjs state is the source of truth while a room is open; an external write re-seeds the room and resets clients. Use `editor` for a custom schema and async Markdown codec, `fields` for structured values, `identify()` and `authorize()` for identity and access. Inspect definitions with `vitehub inspect definitions`.
 

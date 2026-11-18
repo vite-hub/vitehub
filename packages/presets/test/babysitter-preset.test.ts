@@ -1953,9 +1953,9 @@ describe("Babysitter preset runtime", () => {
   });
 
   it("merges directly and holds outside contributors for approval by default", () => {
-    expect(resolveBabysitterMerge(babysitter.options.merge)).toEqual({ mode: "direct", method: "squash", ready: approvedIfOutside });
-    expect(resolveBabysitterMerge({ strategy: "direct", method: "rebase" })).toEqual({ mode: "direct", method: "rebase", ready: approvedIfOutside });
-    expect(resolveBabysitterMerge({ strategy: "direct", markDraftsReady: ["Octocat"] })).toEqual({ mode: "direct", method: "squash", ready: approvedIfOutside, markDraftsReady: new Set(["octocat"]) });
+    expect(resolveBabysitterMerge(babysitter.options.merge)).toEqual({ mode: "direct", method: "squash", ready: approvedIfOutside, foldStacks: true });
+    expect(resolveBabysitterMerge({ strategy: "direct", method: "rebase" })).toEqual({ mode: "direct", method: "rebase", ready: approvedIfOutside, foldStacks: true });
+    expect(resolveBabysitterMerge({ strategy: "direct", markDraftsReady: ["Octocat"] })).toEqual({ mode: "direct", method: "squash", ready: approvedIfOutside, foldStacks: true, markDraftsReady: new Set(["octocat"]) });
   });
 
   it("applies lifecycle labels before admitting a model pass", async () => {
@@ -2140,7 +2140,13 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
-  it("ends the pass at the first write that new evidence refuses", async () => {
+  it.each([false, true])("ends the pass at the first write that new evidence refuses (cancellation delayed: %s)", async (delayCancellation) => {
+    const abort = AbortController.prototype.abort;
+    const cancellation = vi.spyOn(AbortController.prototype, "abort").mockImplementation(function (this: AbortController, reason?: unknown) {
+      // Let the provider finish before the deferred evidence-change cancellation.
+      if (delayCancellation && reason instanceof DOMException && reason.message === "Pull request evidence changed.") return;
+      abort.call(this, reason);
+    });
     const f = await fixture(false, false, { expectedOperationErrorAt: 0 });
     f.choose("updatePullRequest", { title: "Fix value now" });
     f.onRepair(async () => {
@@ -2156,7 +2162,10 @@ describe("Babysitter preset runtime", () => {
       const current = (await f.runtime.inbox.get("acme/app", 12))!;
       expect(current.status).toBe("ready");
       expect(current.lastResult).toBe("Pass interrupted; current webhook state retained.");
-    } finally { await f.runtime.inbox.close(); }
+    } finally {
+      cancellation.mockRestore();
+      await f.runtime.inbox.close();
+    }
   });
 
   it("gives back the worker slot before the install when the PR changed while the pass waited for it", async () => {
@@ -2447,6 +2456,109 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
+  describe("merge.foldStacks", () => {
+    const parent = { number: 7, state: "open", head: { ref: "feat/parent", sha: "d".repeat(40), repo: { full_name: "acme/app", owner: { login: "acme" } } }, base: { ref: "main" } };
+    /** A stack child of open PR #7, whose live record the fixture serves. */
+    const stackChild = async (options: { merge?: unknown; deleteBranchOnMerge?: boolean; parents?: unknown[] } = {}) => {
+      const parents = options.parents ?? [parent];
+      const f = await fixture(false, false, { merge: options.merge ?? "direct", base: "feat/parent", parents });
+      const command = f.command.getMockImplementation()!;
+      let grandchildBase = "fix";
+      f.command.mockImplementation(async (args, request) => {
+        const text = args.join(" ");
+        const path = args.find(arg => arg.startsWith("repos/")) ?? "";
+        if (path.includes("state=open") && path.includes("head=acme%3Afeat%2Fparent")) return { stdout: parents.map(value => JSON.stringify(value)).join("\n"), stderr: "" };
+        if (options.deleteBranchOnMerge) {
+          if (path === "repos/acme/app") return { stdout: JSON.stringify({ ...JSON.parse((await command(args, request)).stdout), delete_branch_on_merge: true }), stderr: "" };
+          if (text.includes("-X PATCH") && path === "repos/acme/app/pulls/13") {
+            grandchildBase = args.find(arg => arg.startsWith("base="))!.slice(5);
+            return { stdout: JSON.stringify({ number: 13, state: "open", base: { ref: grandchildBase } }), stderr: "" };
+          }
+          if (path.includes("pulls?") && path.includes("state=open") && path.includes("base=fix")) {
+            return { stdout: grandchildBase === "fix" ? JSON.stringify({ number: 13, state: "open", base: { ref: "fix" }, head: { ref: "grandchild", repo: { full_name: "acme/app" } } }) : "", stderr: "" };
+          }
+        }
+        return command(args, request);
+      });
+      return { ...f, grandchildBase: () => grandchildBase };
+    };
+    const mergeRequest = (f: Awaited<ReturnType<typeof fixture>>) => f.command.mock.calls.find(([args]) => args.join(" ").includes("-X PUT") && args.join(" ").includes("/merge"))?.[0];
+
+    it("merges a ready stack child into its open parent's branch with a merge commit", async () => {
+      const f = await stackChild();
+      try {
+        await f.reconcile();
+        expect(mergeRequest(f)).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12/merge-async", "merge_method=merge", `sha=${"a".repeat(40)}`]));
+        expect(f.passes).toHaveLength(0);
+        expect(f.events).toHaveBeenCalledWith("babysitter.stack.folded", expect.objectContaining({ child: 12, parent: 7, branch: "feat/parent", head_sha: "a".repeat(40) }));
+        expect(f.events).not.toHaveBeenCalledWith("babysitter.owner.merged", expect.anything());
+        expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
+        expect(await f.runtime.inbox.meta("stack-fold:acme/app:7")).toBeUndefined();
+      } finally { await f.runtime.inbox.close(); }
+    });
+
+    it("moves grandchildren onto the parent's branch before a fold deletes the child's branch", async () => {
+      const f = await stackChild({ deleteBranchOnMerge: true });
+      try {
+        await f.reconcile();
+        expect(f.grandchildBase()).toBe("feat/parent");
+        expect(f.events).toHaveBeenCalledWith("babysitter.stack.children_retargeted", expect.objectContaining({ children: [13], base: "feat/parent" }));
+        expect(mergeRequest(f)).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12/merge-async"]));
+      } finally { await f.runtime.inbox.close(); }
+    });
+
+    it("does not fold into a branch that two open pull requests own", async () => {
+      const f = await stackChild({ parents: [parent, { ...parent, number: 8, base: { ref: "release" } }] });
+      try {
+        await f.reconcile();
+        expect(mergeRequest(f)).toBeUndefined();
+        expect((await f.runtime.inbox.get("acme/app", 12))?.wait?.reason).toBe("stack-parent");
+      } finally { await f.runtime.inbox.close(); }
+    });
+
+    it("waits for the parent with foldStacks: false", async () => {
+      const f = await stackChild({ merge: { strategy: "direct", foldStacks: false } });
+      try {
+        await f.reconcile();
+        expect(mergeRequest(f)).toBeUndefined();
+        expect((await f.runtime.inbox.get("acme/app", 12))?.wait?.reason).toBe("stack-parent");
+      } finally { await f.runtime.inbox.close(); }
+    });
+
+    it("does not fold into a parent whose own merge is in flight", async () => {
+      const f = await stackChild();
+      try {
+        await f.runtime.inbox.setMeta("direct-merge:acme/app:7", { token: "parent", generation: 1, revision: 0, head: "d".repeat(40), startedAt: Date.now(), asynchronous: true });
+        await f.reconcile();
+        expect(mergeRequest(f)).toBeUndefined();
+        expect(f.events).toHaveBeenCalledWith("babysitter.direct_merge.skipped", expect.objectContaining({ reason: "parent #7 has a merge in flight" }));
+        expect((await f.runtime.inbox.get("acme/app", 12))?.wait?.reason).toBe("stack-parent");
+        // Once the parent's merge request ends, a new check result wakes the parked child and it folds.
+        await f.runtime.inbox.deleteMeta("direct-merge:acme/app:7");
+        await f.runtime.inbox.ingest("fold-checks-green", "check_run", { repository: { full_name: "acme/app" }, action: "completed",
+          check_run: { id: 8, name: "lint", head_sha: f.pr().head.sha, status: "completed", conclusion: "success", app: { id: 6 }, pull_requests: [{ number: 12 }] } });
+        await f.reconcile();
+        expect(mergeRequest(f)).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12/merge-async", "merge_method=merge"]));
+      } finally { await f.runtime.inbox.close(); }
+    });
+  });
+
+  it("keeps a parent from merging while a child folds into its branch", async () => {
+    const f = await fixture(false, false, { merge: "direct" });
+    try {
+      await f.runtime.inbox.setMeta("direct-merge:acme/app:13", { token: "child", generation: 1, revision: 0, head: "e".repeat(40), startedAt: Date.now(), asynchronous: true, foldInto: 12 });
+      await f.runtime.inbox.setMeta("stack-fold:acme/app:12", { child: 13, token: "child" });
+      await f.reconcile();
+      expect(f.command.mock.calls.some(([args]) => args.join(" ").includes("-X PUT") && args.join(" ").includes("/merge"))).toBe(false);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.lastResult).toContain("stacked pull request #13");
+      // A finished fold no longer holds the parent.
+      await f.runtime.inbox.deleteMeta("direct-merge:acme/app:13");
+      const now = vi.spyOn(Date, "now").mockReturnValue((await f.runtime.inbox.get("acme/app", 12))!.wait!.retryAt! + 1);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+      expect(f.command.mock.calls.some(([args]) => args.includes("repos/acme/app/pulls/12/merge-async"))).toBe(true);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   it("repairs a stack child while its parent is open only with repairStackChildren", async () => {
     const parents = [{ number: 7, state: "open", head: { ref: "feat/parent", repo: { owner: { login: "acme" } } }, base: { ref: "main" } }];
     const parked = await fixture(false, false, { merge: "direct", base: "feat/parent", parents });
@@ -2589,7 +2701,7 @@ describe("Babysitter preset runtime", () => {
     const f = await fixture(false, false, { gitWorkspace: true, options: { install: { required: true } } });
     await writeFile(join(f.checkout, "package.json"), "{}");
     const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace")
-      .mockRejectedValueOnce(new githubInstalls.GitHubWorkspaceInstallError(new Error("Registry temporarily unavailable.")))
+      .mockRejectedValueOnce(githubInstalls.githubWorkspaceInstallError(new Error("Registry temporarily unavailable.")))
       .mockResolvedValueOnce();
     try {
       await f.reconcile("babysitter.install.failed");
@@ -2609,7 +2721,7 @@ describe("Babysitter preset runtime", () => {
     const f = await fixture(false, false, { gitWorkspace: true });
     await writeFile(join(f.checkout, "package.json"), "{}");
     const install = vi.spyOn(githubInstalls, "installGitHubPullRequestWorkspace")
-      .mockRejectedValueOnce(new githubInstalls.GitHubWorkspaceInstallError(new Error("Installer capacity is busy"), true, "capacity"));
+      .mockRejectedValueOnce(githubInstalls.githubWorkspaceInstallError(new Error("Installer capacity is busy"), true, "capacity"));
     try {
       await f.reconcile();
       const waiting = await f.runtime.inbox.get("acme/app", 12);
@@ -2772,6 +2884,34 @@ describe("Babysitter preset runtime", () => {
       await f.reconcile();
       expect(f.command.mock.calls.some(([args]) => args.includes("PATCH"))).toBe(false);
       expect(createProviderRuntime).toHaveBeenCalled();
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("retargets a stacked PR to the open branch its parent folded into", async () => {
+    const parents = [{ state: "closed", merged_at: "2026-10-01T00:00:00Z", head: { ref: "feat/parent", repo: { owner: { login: "acme" } } }, base: { ref: "feat/grandparent" } }];
+    const f = await fixture(false, false, { base: "feat/parent", parents });
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => (args.find(arg => arg.startsWith("repos/")) ?? "").includes("head=acme%3Afeat%2Fgrandparent")
+      ? { stdout: JSON.stringify({ number: 5, state: "open", head: { ref: "feat/grandparent" } }), stderr: "" } : command(args, request));
+    try {
+      await f.reconcile();
+      const patch = f.command.mock.calls.find(([args]) => args.includes("PATCH"));
+      expect(patch?.[0]).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12", "base=feat/grandparent"]));
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("retargets a stacked PR past a merged chain of folded parents to the default branch", async () => {
+    // B (feat/parent) folded into A (feat/grandparent), then A merged into main before this child moved.
+    const b = { state: "closed", merged_at: "2026-10-01T00:00:00Z", head: { ref: "feat/parent", repo: { owner: { login: "acme" } } }, base: { ref: "feat/grandparent" } };
+    const a = { number: 5, state: "closed", merged_at: "2026-10-02T00:00:00Z", head: { ref: "feat/grandparent", repo: { owner: { login: "acme" } } }, base: { ref: "main" } };
+    const f = await fixture(false, false, { base: "feat/parent", parents: [b] });
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => (args.find(arg => arg.startsWith("repos/")) ?? "").includes("head=acme%3Afeat%2Fgrandparent")
+      ? { stdout: JSON.stringify(a), stderr: "" } : command(args, request));
+    try {
+      await f.reconcile();
+      const patch = f.command.mock.calls.find(([args]) => args.includes("PATCH"));
+      expect(patch?.[0]).toEqual(expect.arrayContaining(["repos/acme/app/pulls/12", "base=main"]));
     } finally { await f.runtime.inbox.close(); }
   });
 
@@ -3877,6 +4017,35 @@ describe("Babysitter preset runtime", () => {
       } finally { f.restore(); await f.runtime.inbox.close(); }
     });
 
+    it("lets placement admit a conflict that needs the model while this host's memory admits none", async () => {
+      const release = vi.fn();
+      const place = vi.fn(async () => ({ sandbox: { runtime: "trusted-host" as const, requires: ["sh"] }, release }));
+      const hostCapacity = vi.fn(async () => ({ concurrency: 0, reason: "waiting for capacity (0 B memory headroom)" }));
+      // Without the no-findings prefix, the bot review is feedback, so the merge needs a model pass.
+      const f = await conflictOnly({ placement: { place }, hostCapacity, options: { noFindingsReviews: [] } });
+      try {
+        await f.reconcile();
+        expect(hostCapacity).not.toHaveBeenCalled();
+        expect(place).toHaveBeenCalledOnce();
+        expect(f.passes).toHaveLength(1);
+        expect(f.events).not.toHaveBeenCalledWith("babysitter.conflict.capacity_waiting", expect.anything());
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
+
+    it("keeps host admission for a conflict that an install defect keeps off placement", async () => {
+      const place = vi.fn(async () => ({ sandbox: { runtime: "trusted-host" as const, requires: ["sh"] }, release: vi.fn() }));
+      const hostCapacity = vi.fn(async () => ({ concurrency: 0, reason: "waiting for capacity (0 B memory headroom)" }));
+      const f = await conflictOnly({ placement: { place }, hostCapacity, options: { noFindingsReviews: [] } });
+      await f.runtime.inbox.setMeta("install-defect:acme/app#12", { head: "a".repeat(40), error: "ERR_PNPM_OUTDATED_LOCKFILE" });
+      try {
+        await f.reconcile();
+        expect(hostCapacity).toHaveBeenCalledOnce();
+        expect(place).not.toHaveBeenCalled();
+        expect(f.install).not.toHaveBeenCalled();
+        expect(f.passes).toHaveLength(0);
+      } finally { f.restore(); await f.runtime.inbox.close(); }
+    });
+
     it("pushes a host-resolved merge without asking placement", async () => {
       const place = vi.fn(async () => ({ sandbox: { runtime: "trusted-host" as const, requires: ["sh"] }, release: vi.fn() }));
       const f = await conflictOnly({ placement: { place }, hostCapacity: async () => ({ concurrency: 1 }) });
@@ -3988,6 +4157,8 @@ describe("Babysitter preset runtime", () => {
         await vi.waitFor(() => expect(hostCapacity).toHaveBeenCalledTimes(2), { timeout: 30_000 });
         release();
         await vi.waitFor(() => expect(f.events).toHaveBeenCalledWith("babysitter.conflict.capacity_waiting", expect.anything()), { timeout: 30_000 });
+        // The admitted preparation can reach the checkout after the other PR parks.
+        await vi.waitFor(() => expect(prepareGitHubRepairBase).toHaveBeenCalled(), { timeout: 30_000 });
         expect(prepareGitHubRepairBase).toHaveBeenCalledOnce();
       } finally {
         release(); finish();

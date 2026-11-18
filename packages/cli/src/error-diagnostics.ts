@@ -9,6 +9,30 @@ const dynamicError = {
 export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/development/diagnostics",
   codes: {
+    CLI_CONSOLE_LOGIN_FAILED: {
+      fix: "Run `vitehub login` again, and approve the code in the browser within 15 minutes. Pass --console <url> for a self-hosted Console.",
+      why: ({ console, message }: { console?: unknown, message?: unknown }) => `Sign-in to ${String(console)} did not finish. ${String(message)}`,
+    },
+    CLI_CONSOLE_SIGNED_OUT: {
+      fix: "Run `vitehub login`, or set VITEHUB_CONSOLE_TOKEN to an API key from Account settings in the Console.",
+      why: ({ console }: { console?: unknown }) => `There is no valid API key for ${String(console)}. The key is missing, expired, or revoked.`,
+    },
+    CLI_ENV_FILE_EXISTS: {
+      fix: ({ file }: { file?: unknown }) => `Pass --yes to replace ${String(file)}, or move it first.`,
+      why: ({ file }: { file?: unknown }) => `${String(file)} exists. \`vitehub env pull\` does not replace a file without --yes.`,
+    },
+    CLI_ENV_FILE_NOT_IGNORED: {
+      fix: ({ file, tracked }: { file?: unknown, tracked?: unknown }) => tracked
+        ? `Run \`git rm --cached ${String(file)}\` and add \`.env.*\` to .gitignore, then pull again.`
+        : `Run \`echo '.env.*' >> .gitignore\`, then pull again.`,
+      why: ({ file, tracked }: { file?: unknown, tracked?: unknown }) => tracked
+        ? `git tracks ${String(file)}, so the values would be committed.`
+        : `${String(file)} is not in .gitignore, so the values could be committed.`,
+    },
+    CLI_ENV_PULL_FAILED: {
+      fix: "Check that the Console stores env values, that the key opens the project, and that you are an owner or admin of the team.",
+      why: ({ code, message }: { code?: unknown, message?: unknown }) => `The Console refused the pull (${String(code)}). ${String(message)}`,
+    },
     /** A host API answered with a shape that the CLI cannot read. */
     CLI_HOST_RESPONSE_INVALID: {
       fix: "Run the command again. If the error stays, check the status page of the host and update `@vite-hub/cli`.",
@@ -161,6 +185,10 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
         ? `package.json has no \`build\` script, so \`${String(command)}\` cannot build the app.`
         : `\`${String(command)}\` exited with code ${String(exitCode)}.`,
     },
+    SETUP_DEPLOY_CHECK_FAILED: {
+      fix: ({ rollback }: { failed?: unknown, rollback?: unknown, url?: unknown }) => `${String(rollback)} Then fix the app and deploy again. Pass --no-check only when the check itself is wrong.`,
+      why: ({ failed, url }: { failed?: unknown, rollback?: unknown, url?: unknown }) => `The app is deployed to ${String(url)}, but a \`deploy.check\` path did not answer with a 2xx status: ${String(failed)}.`,
+    },
     SETUP_DEPLOY_OUTPUT_MISSING: {
       fix: "Build the app with vitehub() for this host, then run the command again without --no-build.",
       why: ({ file }: { file?: unknown }) => `The build output has no ${String(file)}.`,
@@ -233,13 +261,33 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Run it again with --yes, or check the change first with a dry run when the command has one.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
+    SETUP_ENV_DECRYPT_FAILED: {
+      fix: ({ file, key }: { file?: unknown, key?: unknown, name?: unknown, reason?: unknown }) => `Set ${String(key)} to the private key that encrypted ${String(file)}. Check it with \`dotenvx get -f ${String(file)}\`.`,
+      why: ({ file, key, name, reason }: { file?: unknown, key?: unknown, name?: unknown, reason?: unknown }) => `${String(key)} cannot decrypt ${String(name)} in ${String(file)} (${String(reason)}).`,
+    },
+    SETUP_ENV_FILE_NOT_IGNORED: {
+      fix: ({ file }: { file?: unknown, names?: unknown }) => `Add \`.env*\` or \`${String(file)}\` to .gitignore. Or set the values in the shell for this command.`,
+      why: ({ file, names }: { file?: unknown, names?: unknown }) => `The secret ${String(names)} reads ${String(file)}, which git does not ignore, so a commit can add it. \`vitehub env push\` pushes a secret only from a file that git ignores.`,
+    },
     SETUP_ENV_FILE_TRACKED: {
       fix: ({ file }: { file?: unknown, names?: unknown }) => `Run \`git rm --cached ${String(file)}\`, add \`.env*\` to .gitignore, and rotate the values that git has seen. Or set the values in the shell for this command.`,
-      why: ({ file, names }: { file?: unknown, names?: unknown }) => `${String(file)} is tracked by git and holds the secret ${String(names)}. \`vitehub env push\` does not push a secret that is in git.`,
+      why: ({ file, names }: { file?: unknown, names?: unknown }) => `The secret ${String(names)} reads ${String(file)}, which git tracks, directly or through \`$NAME\` expansion or a symlink. \`vitehub env push\` does not push a secret that is in git.`,
+    },
+    SETUP_ENV_GIT_FAILED: {
+      fix: "Fix the git repository so that `git ls-files` and `git check-ignore` work, then run the command again. Or set the values in the shell for this command.",
+      why: ({ file, reason }: { file?: unknown, reason?: unknown }) => `Git could not tell whether it tracks or ignores ${String(file)}, which holds a secret: ${String(reason)}. Nothing was pushed.`,
+    },
+    SETUP_ENV_KEYS_TRACKED: {
+      fix: ({ file }: { file?: unknown }) => `Run \`git rm --cached ${String(file)}\`, add it to .gitignore, and rotate the keys with \`dotenvx rotate\`. Everyone with the repository can decrypt the values until then.`,
+      why: ({ file }: { file?: unknown }) => `${String(file)} holds the private keys of the encrypted env files and is tracked by git. \`vitehub env push\` does not decrypt with a key that is in git.`,
     },
     SETUP_ENV_NAME_UNKNOWN: {
       fix: "Pass names that `vitehub env diff` lists, or build again after you declare the name.",
       why: ({ names }: { names?: unknown }) => `The build output lists no variable named ${String(names)}.`,
+    },
+    SETUP_ENV_PRIVATE_KEY_MISSING: {
+      fix: ({ key }: { file?: unknown, key?: unknown, names?: unknown }) => `Set ${String(key)} in the shell, or add it to .env.keys, which git must ignore.`,
+      why: ({ file, key, names }: { file?: unknown, key?: unknown, names?: unknown }) => `${String(file)} holds the encrypted ${String(names)}, and ${String(key)} is not set.`,
     },
     SETUP_ENV_STAGE_UNSUPPORTED: {
       fix: ({ host, stage }: { host?: unknown, stage?: unknown }) => stage !== "preview"
@@ -252,6 +300,14 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SETUP_ENV_VALUE_UNSUPPORTED: {
       fix: ({ host }: { host?: unknown, name?: unknown, reason?: unknown }) => `Set this value in the ${String(host)} dashboard.`,
       why: ({ host, name, reason }: { host?: unknown, name?: unknown, reason?: unknown }) => `The value of ${String(name)} cannot go to ${String(host)} without a terminal prompt or argv. ${String(reason)}`,
+    },
+    SETUP_GITHUB_REPOSITORY_REQUIRED: {
+      fix: "Pass --repo owner/name, or add a GitHub remote named origin.",
+      why: ({ remote }: { remote?: unknown }) => remote ? `The git remote origin (${String(remote)}) is not a github.com repository.` : "This folder has no git remote named origin.",
+    },
+    SETUP_GITHUB_REQUEST_FAILED: {
+      fix: "Check that the token can write the Actions secrets of the repository, and that the repository and environment exist.",
+      why: ({ operation, reason }: { operation?: unknown, reason?: unknown }) => `GitHub refused \`${String(operation)}\`: ${String(reason)}`,
     },
   },
 })

@@ -68,7 +68,8 @@ export function createAdminClaimPlugin(hash: string, plugins: readonly BetterAut
         const storage = claimStorage(ctx.context)
         const use = async () => {
           // A database rejects a second row with the same primary key, so two instances cannot both use the code.
-          // Better Auth's memory adapter does not, so the lookup and the queue cover it in one process.
+          // Better Auth's memory adapter does not (https://github.com/better-auth/better-auth/issues/12710), so the
+          // lookup and the queue cover it in one process.
           if (await claimUsed(storage, hash)) return false
           const identifier = claimIdentifier(hash)
           const owner = crypto.randomUUID()
