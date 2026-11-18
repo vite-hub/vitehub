@@ -176,15 +176,18 @@ installWorkflowRuntime();
 
 export default defineEventHandler(async (event) => {
   const payload = await readBody<{ email: string }>(event);
-  const started = await startWorkflow("onboard-user", payload);
+  const [startError, started] = await startWorkflow("onboard-user", payload);
+  if (startError) throw startError;
 
-  return await getWorkflowRun("onboard-user", started.id);
+  const [error, run] = await getWorkflowRun("onboard-user", started.id);
+  if (error) throw error;
+  return run;
 });
 ```
 
-`startWorkflow()` returns a normalized acknowledgement with an id, provider, and status. When you pass `{ id }`, that id is the run id on Cloudflare, OpenWorkflow, and inline runs, and a second start with the same id returns the first run. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, and results when the provider supplies them. A failed run has `error`: `{ message, name?, code? }`, safe to send as JSON, on every provider. `metadata` keeps provider data and no longer holds the error. Every provider reports the same statuses: a sleeping or waiting run reports `running`, a Cloudflare `terminated` run reports `cancelled`, and a run id that does not exist reports `unknown`.
+`startWorkflow()` returns `[error, run]`: a normalized acknowledgement with an id, provider, and status. `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, and the `start`, `getRun`, and `cancel` methods of a handle also return `[error, data]`. A provider failure, an unsupported option, or an invalid `delay` is `error`; its `code` is a `WorkflowResultErrorCode`. A config error, such as an unknown Workflow name, throws. When you pass `{ id }`, that id is the run id on Cloudflare, OpenWorkflow, and inline runs, and a second start with the same id returns the first run. `getWorkflowRun()` returns normalized run and step state, including timestamps, attempts, and results when the provider supplies them. A failed run has `error`: `{ message, name?, code? }`, safe to send as JSON, on every provider. `metadata` keeps provider data and no longer holds the error. Every provider reports the same statuses: a sleeping or waiting run reports `running`, a Cloudflare `terminated` run reports `cancelled`, and a run id that does not exist reports `unknown`.
 
-To set your own id, pass `{ id }`. On Cloudflare, start with a letter, a digit, or `_`, then use only letters, digits, `-`, and `_`, up to 100 characters. Invalid start ids fail with `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID`. Inspection queries the binding because existing instance ids can follow different rules.
+To set your own id, pass `{ id }`. On Cloudflare, start with a letter, a digit, or `_`, then use only letters, digits, `-`, and `_`, up to 100 characters. `startWorkflow()` returns the error `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID` for another id. Inspection queries the binding because existing instance ids can follow different rules.
 
 The other runtime helpers are:
 
@@ -205,10 +208,10 @@ Inline run inspection uses weak references while execution is active. A reachabl
 
 ## Start a run later
 
-Pass `delay` to start the run later. It accepts milliseconds, a duration such as `"30 minutes"` or `"3 days"`, or a `Date` that the run must not start before. A `Date` in the past starts the run now. A negative or unknown value fails with `WORKFLOW_START_DELAY_INVALID`. Use a `Date` for a month or a calendar time. `delay` works with `{ id }`.
+Pass `delay` to start the run later. It accepts milliseconds, a duration such as `"30 minutes"` or `"3 days"`, or a `Date` that the run must not start before. A `Date` in the past starts the run now. For a negative or unknown value, `startWorkflow()` returns the error `WORKFLOW_START_DELAY_INVALID`. Use a `Date` for a month or a calendar time. `delay` works with `{ id }`.
 
 ```ts fragment
-await startWorkflow("send-reminder", { email }, { delay: "3 days", id: `reminder-${userId}` });
+const [error, run] = await startWorkflow("send-reminder", { email }, { delay: "3 days", id: `reminder-${userId}` });
 ```
 
 | Provider | How the delay works | Status during the delay |
@@ -216,7 +219,7 @@ await startWorkflow("send-reminder", { email }, { delay: "3 days", id: `reminder
 | OpenWorkflow | The run stays pending in storage until its start time (`availableAt`). | `queued` |
 | Cloudflare | The run sleeps with `step.sleepUntil()` before the handler. A waiting instance does not count toward the concurrency limit. | `running` |
 | Vercel `native` entry of a folder Workflow | The generated entry calls Workflow DevKit `sleep()` before the first step. | `running` |
-| Vercel `native` entry that you wrote | Not supported. `startWorkflow()` fails with `WORKFLOW_OPERATION_UNSUPPORTED`. | |
+| Vercel `native` entry that you wrote | Not supported. `startWorkflow()` returns the error `WORKFLOW_OPERATION_UNSUPPORTED`. | |
 | Inline runs (`vite dev`, normal Vercel handlers) | A timer in the process. It is not durable: a restart loses the run. | `queued` |
 
 For a recurring run, call `startWorkflow()` from a [Schedule](https://vitehub.dev/docs/schedule) handler.
@@ -282,7 +285,14 @@ async function transcribe(recordingId: string) {
 
 `code` and `message` remain available through `error.toJSON()`. Keep `details` JSON-safe and free of secrets; `toJSON()` omits `cause`, which remains available only on the in-memory error. ViteHub's built-in codes are typed as `WorkflowErrorCode` and use code-derived messages and code-specific details. A `ViteHubError` does not change the retry policy.
 
-A step file has no retry option. On Cloudflare and OpenWorkflow, every step file uses `limit: 3`, `delay: "10 seconds"`, and `backoff: "exponential"`. A Vercel `native` entry follows the Workflow DevKit rules, and an inline run does not retry.
+A step gets 3 retries after the first attempt, 10 seconds apart and then twice as long each time. A step file can export its own policy and a time limit for each attempt:
+
+```ts
+export const retries = { limit: 5, delay: "30 seconds", backoff: "exponential" };
+export const timeout = "2 minutes";
+```
+
+Cloudflare gets both in `step.do()`. OpenWorkflow gets `retries` as its `retryPolicy`, and a generated Vercel step gets `limit` as `maxRetries`. Vercel steps cannot set `delay` or `backoff`, so the build fails with `WORKFLOW_STEP_RETRY_DELAY_UNSUPPORTED`. Outside Cloudflare, ViteHub enforces `timeout` itself: it aborts the `signal` that the step function gets as its second argument and fails the attempt. Code that ignores the signal keeps running. An inline run does not retry. See [Retries and sleeps](https://vitehub.dev/docs/workflows/limits-and-errors#retries-and-sleeps).
 
 Throw `NonRetryableError` when another attempt cannot succeed. The run fails at once on every provider. `getWorkflowRun()` reports the error `message` and `name` in `metadata` for inline and OpenWorkflow runs, Cloudflare keeps the error in its status record in `metadata`, and a Vercel `native` run reports the message on the failed step in `steps`.
 

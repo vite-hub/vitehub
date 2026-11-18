@@ -194,6 +194,7 @@ describe("connect", () => {
     const callback = connect(test)
     await entered
     const revoking = test.runtime.revoke({ actor: "user:owner", name: "mail" })
+    await new Promise(resolve => setTimeout(resolve, 10))
     resume()
     await callback
     await revoking
@@ -218,6 +219,7 @@ describe("connect", () => {
     const call = test.runtime.client("mail", {}).call("mail.labels.list", { userId: "me" })
     await entered
     const revoking = test.runtime.revoke({ actor: "user:owner", name: "mail" })
+    await new Promise(resolve => setTimeout(resolve, 10))
     resume()
     await Promise.allSettled([call])
     await revoking
