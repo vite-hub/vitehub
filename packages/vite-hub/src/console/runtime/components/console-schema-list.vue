@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { HoldToDelete, MotionList } from "@vite-hub/ui";
 import { computed, nextTick, ref, watch } from "vue";
 
 import { consoleItemTitle, consoleSchemaItemValue } from "../client/schema-form";
@@ -10,6 +11,9 @@ import Icon from "./console-icon.vue";
  * The items of a list field, such as the links of a navigation menu. An item that is an object is one row with its
  * title and detail, and opens in place to show its fields. Any other item is one row with its control. Each row can
  * move up, move down, or be removed, and Add appends a new item. The item controls come from the `item` slot.
+ *
+ * Rows move with the list mover of @vite-hub/ui. Remove is a hold: the row's content leaves toward the trash, the row
+ * shows Undo for a few seconds, and only then the item leaves the value.
  */
 const props = defineProps<{
   disabled?: boolean;
@@ -37,6 +41,9 @@ watch(() => items.value.length, (length) => {
   if (keys.value.length !== length) keys.value = Array.from({ length }, () => nextKey++);
 }, { immediate: true });
 const open = ref(new Set<number>());
+/** Rows whose remove waits for its Undo window to pass. */
+const pending = ref(new Set<number>());
+const rows = ref<Record<number, HTMLElement | null>>({});
 
 function itemId(index: number): string {
   return `${props.inputId}-${keys.value[index] ?? index}`;
@@ -83,8 +90,18 @@ function move(index: number, offset: -1 | 1): void {
   void focus(() => document.getElementById(`${itemId(target)}-${offset < 0 ? "up" : "down"}`));
 }
 
-function remove(index: number): void {
-  const key = keys.value[index]!;
+function setPending(key: number, value: boolean): void {
+  const next = new Set(pending.value);
+  if (value) next.add(key);
+  else next.delete(key);
+  pending.value = next;
+}
+
+/** Removes the row with `key` once its Undo window has passed. The row may have moved since the hold. */
+function remove(key: number): void {
+  setPending(key, false);
+  const index = keys.value.indexOf(key);
+  if (index === -1) return;
   const next = items.value.filter((_, position) => position !== index);
   write(next, keys.value.filter((_, position) => position !== index));
   const remaining = new Set(open.value);
@@ -114,9 +131,12 @@ function toggle(index: number): void {
 
 <template>
   <div class="grid grid-cols-1 ms-3 border-s border-default ps-[calc(0.75rem-1px)]">
-    <ol class="grid grid-cols-1" :aria-label="field.label">
-      <li v-for="(value, index) in items" :id="itemId(index)" :key="keys[index]" class="group/item grid grid-cols-1">
-        <div class="flex min-h-8 items-start gap-1">
+    <MotionList tag="ol" class="grid grid-cols-1" :aria-label="field.label">
+      <li v-for="(value, index) in items" :id="itemId(index)" :key="keys[index]" class="group/item relative grid grid-cols-1">
+        <p v-if="pending.has(keys[index]!)" class="flex h-8 min-w-0 items-center px-1.5 text-sm text-dimmed">
+          <span class="truncate">Removed {{ title(value, index).title }}</span>
+        </p>
+        <div v-show="!pending.has(keys[index]!)" :ref="(element) => { rows[keys[index]!] = element as HTMLElement | null }" class="flex min-h-8 items-start gap-1" :class="disabled ? '' : 'pe-7'">
           <!-- A field value, not an action: it reads in the type of the ghost fields of the form, which UButton does not. -->
           <button
             v-if="objectItems"
@@ -136,14 +156,27 @@ function toggle(index: number): void {
           <div v-if="!disabled" class="flex h-8 shrink-0 items-center opacity-0 group-hover/item:opacity-100 group-focus-within/item:opacity-100 max-sm:opacity-100">
             <UButton :id="`${itemId(index)}-up`" icon="i-lucide-arrow-up" size="xs" variant="ghost" :disabled="index === 0" :aria-label="`Move ${title(value, index).title} up`" @click="move(index, -1)" />
             <UButton :id="`${itemId(index)}-down`" icon="i-lucide-arrow-down" size="xs" variant="ghost" :disabled="index === items.length - 1" :aria-label="`Move ${title(value, index).title} down`" @click="move(index, 1)" />
-            <UButton :id="`${itemId(index)}-remove`" icon="i-lucide-x" size="xs" variant="ghost" :aria-label="`Remove ${title(value, index).title}`" @click="remove(index)" />
           </div>
         </div>
-        <div v-if="objectItems && open.has(keys[index]!)" :id="`${itemId(index)}-fields`" class="grid grid-cols-1 ms-3 border-s border-default ps-[calc(0.75rem-1px)]">
+        <!-- One button for remove and Undo, so it keeps its state while the row waits for the Undo window. -->
+        <HoldToDelete
+          v-if="!disabled"
+          :id="`${itemId(index)}-remove`"
+          label=""
+          class="absolute end-0 top-0.5"
+          :class="pending.has(keys[index]!) ? '' : 'opacity-0 group-hover/item:opacity-100 group-focus-within/item:opacity-100 focus-visible:opacity-100 max-sm:opacity-100'"
+          :aria-label="pending.has(keys[index]!) ? `Undo removing ${title(value, index).title}` : `Hold to remove ${title(value, index).title}`"
+          :item="() => rows[keys[index]!]"
+          :commit="() => remove(keys[index]!)"
+          :confirm="() => true"
+          @delete="setPending(keys[index]!, true)"
+          @undo="setPending(keys[index]!, false)"
+        />
+        <div v-if="objectItems && open.has(keys[index]!) && !pending.has(keys[index]!)" :id="`${itemId(index)}-fields`" class="grid grid-cols-1 ms-3 border-s border-default ps-[calc(0.75rem-1px)]">
           <slot name="item" :id="itemId(index)" :depth="depth + 2" :index="index" :value="value" :update="(next: unknown) => update(index, next)" />
         </div>
       </li>
-    </ol>
+    </MotionList>
     <UButton
       v-if="!disabled"
       :id="`${inputId}-add`"
