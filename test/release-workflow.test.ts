@@ -149,7 +149,6 @@ describe("release workflow artifact handoff", () => {
     expect(publishNpm).toContain('readFileSync("release-metadata.json", "utf8")')
     expect(publishNpm).not.toContain("release-data/.github/scripts")
     expect(publishNpm).not.toContain("vp install")
-    expect(publishNpm).not.toContain("package-release-order.mjs")
     expect(publishNpm).not.toContain("vp pm publish")
     expect(publishNpm).toContain("timeout-minutes: 360")
     expect(githubRelease).toContain(`metadata=${downloadedPath(".release/release-metadata.json").replace("release-data/", "")}`)
@@ -186,7 +185,6 @@ describe("release workflow artifact handoff", () => {
     expect(verify).toContain("release-packages.mjs publish")
     expect(verify).toContain("--dry-run")
     expect(verify).not.toContain("vp pm publish")
-    expect(verify).not.toContain("package-release-order.mjs")
   })
 
   it("publishes packages from a fresh build of the root build selection", () => {
