@@ -340,13 +340,13 @@ export const comments = defineComments({
 The route below uses two helpers of the app: the signed-in user, and the app's own rule for who may comment on a document.
 
 ```ts [server/utils/docs.ts]
-import { createError } from 'h3'
+import { HTTPError } from 'h3'
 import { auth } from 'vite-hub/auth/server'
 import type { H3Event } from 'h3'
 
 export async function requireUser(event: H3Event) {
   const session = await auth.api.getSession({ headers: event.req.headers })
-  if (!session) throw createError({ status: 401 })
+  if (!session) throw new HTTPError({ status: 401 })
   return session.user
 }
 
