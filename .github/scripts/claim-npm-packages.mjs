@@ -5,8 +5,9 @@
 // package. For each publishable package under packages/ that npm does not have yet, it:
 //
 // 1. publishes a placeholder `0.0.0-claim` under the `claim` dist-tag, so the name exists, and
-// 2. links every publishable package without a trusted publisher to `.github/workflows/release.yml` in the
-//    `npm-release` environment of vite-hub/vitehub. A second run picks up what the first left.
+// 2. links every publishable package that the release job cannot publish to `.github/workflows/release.yml` in the
+//    `npm-release` environment of vite-hub/vitehub, and revokes its other links. A second run picks up what the first
+//    left.
 //
 // npm asks for two-factor authentication on the first publish and the first `npm trust` call. Choose "skip for the next
 // 5 minutes" on the npm page so the rest of the run does not ask again.
@@ -43,8 +44,18 @@ function ownedPackages(packages) {
   return names
 }
 
-function hasTrustedPublisher(name) {
-  return npmOutput(["trust", "list", name, "--json"]).trim() !== ""
+/** The trusted publisher configurations of a package. `npm trust list --json` prints one object or several. */
+function trustConfigs(name) {
+  const output = npmOutput(["trust", "list", name, "--json"]).trim()
+  if (!output) return []
+  const parsed = JSON.parse(output.startsWith("[") ? output : `[${output.replace(/\}\s*\{/g, "},{")}]`)
+  return parsed.flat()
+}
+
+/** The release job runs in the `npm-release` environment. A configuration without an environment also accepts it. */
+function publishesFromRelease(config) {
+  return config.type === "github" && config.file === trust.file && config.repository === trust.repository
+    && (config.environment == null || config.environment === trust.environment)
 }
 
 function npm(npmArgs, options = {}) {
@@ -123,11 +134,27 @@ for (const pkg of packages) {
 if (missing.length) console.log(`npm does not have: ${missing.map(pkg => pkg.name).join(", ")}${dryRun ? " (dry run)" : ""}`)
 for (const pkg of missing) publishPlaceholder(pkg)
 
-const untrusted = dryRun ? missing : packages.filter(pkg => !hasTrustedPublisher(pkg.name))
-if (untrusted.length) console.log(`No trusted publisher: ${untrusted.map(pkg => pkg.name).join(", ")}`)
-for (const [index, pkg] of untrusted.entries()) {
+// A package needs a link when none of its configurations accepts the release job. Its other configurations, such as one
+// for an environment that no workflow uses, cannot publish, so the script revokes them first.
+const untrusted = []
+if (dryRun) untrusted.push(...missing.map(pkg => ({ pkg, stale: [] })))
+else {
+  for (const pkg of packages) {
+    const configs = trustConfigs(pkg.name)
+    if (!configs.some(publishesFromRelease)) untrusted.push({ pkg, stale: configs })
+    await sleep(500)
+  }
+}
+for (const { pkg, stale } of untrusted) {
+  console.log(`${pkg.name}: ${stale.length ? `links only ${stale.map(config => `${config.file} in ${config.environment ?? "any environment"}`).join(", ")}` : "no trusted publisher"}`)
+}
+for (const [index, { pkg, stale }] of untrusted.entries()) {
   // npm asks for at most one `npm trust` call every 2 seconds.
   if (index > 0) await sleep(2000)
+  for (const config of stale) {
+    npm(["trust", "revoke", pkg.name, `--id=${config.id}`, "--yes"])
+    await sleep(2000)
+  }
   linkTrustedPublisher(pkg.name)
 }
 
@@ -135,5 +162,5 @@ if (dryRun) console.log("\nDry run: reading trusted publishers needs a login, so
 else {
   console.log(missing.length || untrusted.length
     ? `\nClaimed ${missing.length} and linked ${untrusted.length} package(s).`
-    : "Every publishable package is on npm with a trusted publisher.")
+    : "Every publishable package is on npm with a trusted publisher for the release job.")
 }
