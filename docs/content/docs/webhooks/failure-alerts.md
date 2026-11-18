@@ -58,4 +58,4 @@ For Discord, add `/slack` to the end of the Discord webhook URL. Discord then re
 
 ## Where it runs
 
-ViteHub sends the event from the server process that ran the failed code, after it stores the failure. The webhook must be in the same app. A Vercel Workflow that runs in the Workflow DevKit (a `native` entry) does not send `workflow.failed`: its run code runs in a sandbox without the app.
+The process that runs the failed code must load the app's Webhooks. A Cloudflare cron that runs in the app's Nitro Worker can send `schedule.failed`. Standalone cron entries, including Vercel and Netlify cron functions, do not load the app's Webhooks and do not send alerts. A Vercel Workflow that runs in the Workflow DevKit (a `native` entry) does not send `workflow.failed` because it runs in a separate sandbox.

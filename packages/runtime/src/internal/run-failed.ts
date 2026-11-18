@@ -67,8 +67,12 @@ export function toRunFailedError(error: unknown): RunFailedError {
 export async function emitRunFailed(event: RunFailedEvent): Promise<void> {
   const current = [...listeners()]
   if (!current.length) return
-  const results = await Promise.allSettled(current.map(listener => listener(event)))
+  const results = await Promise.allSettled(current.map(async listener => await listener(event)))
   for (const result of results) {
     if (result.status === "rejected") console.error(`[vitehub] A listener of ${event.event} failed.`, result.reason)
   }
+}
+
+export function hasRunFailedListeners(): boolean {
+  return listeners().size > 0
 }

@@ -37,6 +37,8 @@ export async function failInterruptedAgentInvocations(
     const timestamp = new Date().toISOString()
     let updated: Awaited<ReturnType<AgentInvocationStore["update"]>>
     try {
+      const current = await store.getSummary(invocation.id)
+      if (current?.status !== "pending" && current?.status !== "running") return false
       updated = await store.update(invocation.id, { error: { message }, status: "failed", timestamp }, claimId)
     }
     finally {

@@ -431,16 +431,13 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
         })
         // SAFETY: Workflow provider normalization establishes the asserted run contract.
         .then(result => ({ result, status: "completed" as const }))
-        .catch(async (error: unknown) => {
-          await emitWorkflowFailed(name, id, error, definition)
-          return { error, status: "failed" as const }
-        })
+        .catch((error: unknown) => ({ error, status: "failed" as const }))
       const runState = setWorkflowRun(name, id, run, payload, true)
       runState.startAt = startAt
-      const waitUntil = resolveWaitUntil(event)
-      if (waitUntil) {
-        waitUntil(runState.promise)
-      }
+      const notify = runState.promise.then(async (outcome) => {
+        if (outcome.status === "failed") await emitWorkflowFailed(name, id, outcome.error, definition)
+      })
+      resolveWaitUntil(event)?.(notify)
 
       return {
         id,

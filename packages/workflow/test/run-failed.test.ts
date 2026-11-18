@@ -7,7 +7,8 @@ import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 import { createWorkflowSteps } from "../src/runtime/execute.ts"
 import { resetOpenWorkflowRuntime } from "../src/runtime/openworkflow.ts"
 import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
-import { resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { resetWorkflowRuntime, runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { unwrap } from "./unwrap.ts"
 
 import type { RunFailedEvent } from "@vite-hub/runtime/internal/run-failed"
 import type { WorkflowProviderStep } from "../src/types.ts"
@@ -35,22 +36,45 @@ it("sends workflow.failed when an inline run fails", async () => {
     throw Object.assign(new TypeError("card declined"), { code: "CARD_DECLINED" })
   })
 
-  await workflow.start({}, { id: "inline-1" })
-  await vi.waitFor(async () => expect((await workflow.getRun("inline-1")).status).toBe("failed"))
-
-  expect(events).toEqual([{ event: "workflow.failed", workflow: "charge-card", runId: "inline-1", error: { message: "card declined", code: "CARD_DECLINED" }, failedAt: expect.any(String) }])
+  const gate = Promise.withResolvers<void>()
+  const listener = vi.fn(() => gate.promise)
+  const unsubscribe = onRunFailed(listener)
+  const wake = vi.fn<(task: Promise<unknown>) => void>()
+  try {
+    await runWithWorkflowRuntimeEvent({ waitUntil: wake }, () => unwrap(workflow.start({}, { id: "inline-1" })))
+    await vi.waitFor(async () => expect((await unwrap(workflow.getRun("inline-1"))).status).toBe("failed"))
+    expect(listener).toHaveBeenCalledOnce()
+    expect(wake).toHaveBeenCalledOnce()
+    expect(events).toEqual([{ event: "workflow.failed", workflow: "charge-card", runId: "inline-1", error: { message: "card declined", code: "CARD_DECLINED" }, failedAt: expect.any(String) }])
+  }
+  finally {
+    gate.resolve()
+    await wake.mock.calls[0]?.[0]
+    unsubscribe()
+  }
 })
 
-it("sends workflow.failed when a Cloudflare instance ends with an error", async () => {
-  const step = { do: async (_name: string, _options: unknown, run: () => unknown) => await run() } as WorkflowProviderStep
-  await expect(runCloudflareWorkflow({
+it("sends workflow.failed once when Cloudflare replays a failed instance", async () => {
+  const checkpoints = new Map<string, unknown>()
+  const step: WorkflowProviderStep = {
+    async do<TResult>(name: string, _options: unknown, run: () => TResult | Promise<TResult>): Promise<TResult> {
+      if (checkpoints.has(name)) return structuredClone(checkpoints.get(name)) as TResult
+      const result = await run()
+      checkpoints.set(name, result)
+      return result
+    },
+  }
+  const handler = vi.fn(async () => { throw new Error("CSV is empty") })
+  const run = () => runCloudflareWorkflow({
     config: { driver: "cloudflare" },
     env: {},
     event: { instanceId: "cf-1" },
     name: "import-orders",
-    registry: { "import-orders": async () => ({ default: { handler: async () => { throw new Error("CSV is empty") } } }) },
+    registry: { "import-orders": async () => ({ handler, options: { rootStep: false } }) },
     step,
-  })).rejects.toThrow("CSV is empty")
+  })
+  await expect(run()).rejects.toThrow("CSV is empty")
+  await expect(run()).rejects.toThrow("CSV is empty")
 
   expect(events).toEqual([expect.objectContaining({ event: "workflow.failed", workflow: "import-orders", runId: "cf-1", error: { message: "CSV is empty" } })])
 })
@@ -62,8 +86,8 @@ it("skips the internal Workflow of an Agent turn, which reports invocation.faile
     throw new Error("model down")
   }, { internalAgentWorkflow: true })
 
-  await workflow.start({}, { id: "turn-1" })
-  await vi.waitFor(async () => expect((await workflow.getRun("turn-1")).status).toBe("failed"))
+  await unwrap(workflow.start({}, { id: "turn-1" }))
+  await vi.waitFor(async () => expect((await unwrap(workflow.getRun("turn-1"))).status).toBe("failed"))
 
   expect(events).toEqual([])
 })
@@ -93,15 +117,15 @@ it("sends workflow.failed for an OpenWorkflow run only when no retry is left", a
     }),
   })
 
-  const retried = await startWorkflow("onboard-user", {})
-  const failed = await startWorkflow("send-digest", {})
+  const retried = await unwrap(startWorkflow("onboard-user", {}))
+  const failed = await unwrap(startWorkflow("send-digest", {}))
   const worker = await createOpenWorkflowWorker()
   await worker.tick()
   await worker.stop()
 
   // The failed step waits for its retry, so only the Workflow that failed outside a step ended.
-  expect((await getWorkflowRun("onboard-user", retried.id)).status).not.toBe("failed")
-  expect((await getWorkflowRun("send-digest", failed.id)).status).toBe("failed")
+  expect((await unwrap(getWorkflowRun("onboard-user", retried.id))).status).not.toBe("failed")
+  expect((await unwrap(getWorkflowRun("send-digest", failed.id))).status).toBe("failed")
   expect(events).toEqual([expect.objectContaining({ event: "workflow.failed", workflow: "send-digest", runId: failed.id, error: expect.objectContaining({ message: "SMTP timeout" }) })])
   failStep = false
 })

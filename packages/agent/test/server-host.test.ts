@@ -73,6 +73,33 @@ describe("Agent Invocation host recovery", () => {
     await expect(Promise.resolve(store.get("other"))).resolves.toMatchObject({ status: "running" })
   })
 
+  it("does not fail or emit again from a stale recovery scan", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const createdAt = "2026-08-30T10:00:00.000Z"
+    store.create({ createdAt, id: "interrupted", observations: [], status: "running", traceId: "trace", updatedAt: createdAt })
+    const scanned = Promise.withResolvers<void>()
+    const resume = Promise.withResolvers<boolean>()
+    const listener = vi.fn()
+    const stop = onRunFailed(listener)
+    const stale = failInterruptedAgentInvocations(store, {
+      recover: () => {
+        scanned.resolve()
+        return resume.promise
+      },
+    })
+    try {
+      await scanned.promise
+      await expect(failInterruptedAgentInvocations(store, { recover: () => true })).resolves.toBe(1)
+      resume.resolve(true)
+      await expect(stale).resolves.toBe(0)
+      expect(listener).toHaveBeenCalledOnce()
+    }
+    finally {
+      resume.resolve(false)
+      stop()
+    }
+  })
+
   it("recovers every page without taking work claimed by another host", async () => {
     const store = createMemoryAgentInvocationStore()
     const createdAt = "2026-08-30T10:00:00.000Z"

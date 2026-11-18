@@ -1,5 +1,7 @@
 import { defineDiagnostics } from "nostics"
 
+import type { WorkflowProviderFailure } from "./errors.ts"
+
 const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
@@ -13,6 +15,19 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ name }: { name: string }) => `[vitehub] The Agent Workflow ${JSON.stringify(name)} is not a discovered Agent, so OpenWorkflow workers cannot run its turns.`,
       fix: "Move the Agent to server/agents/, so that the build adds its Workflow to the registry that every OpenWorkflow worker loads. To run it without a Workflow, call runAgent().",
     },
+    // Runtime errors. `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, and `resumeWorkflow()` return them as `[error, undefined]`, with `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID`, `WORKFLOW_OPERATION_UNSUPPORTED`, `WORKFLOW_START_DELAY_INVALID`, and `WORKFLOW_R0014`.
+    WORKFLOW_PROVIDER_OPERATION_FAILED: {
+      why: ({ operation, provider, reason }: WorkflowProviderFailure): string => `The ${provider} Workflow provider failed during ${operation}.${reason ? ` ${reason}` : ""}`,
+      fix: ({ acknowledgement }: WorkflowProviderFailure): string => acknowledgement === "unknown"
+        ? "The call may have reached the provider. If the original start supplied a run `id`, check that ID with `getWorkflowRun()` and reuse the same ID if you retry. If you do not know the original ID, verify whether the run started before trying again. Read `error.cause` for the provider error."
+        : "Read `error.cause` for the provider error. Retry when the provider is available again.",
+      data: ({ acknowledgement, operation, provider, reason, status }: WorkflowProviderFailure): WorkflowProviderFailure => ({ acknowledgement, operation, provider, reason, status }),
+    },
+    WORKFLOW_RUN_ID_UNSUPPORTED: {
+      why: "A native Vercel Workflow assigns its own run ID, so `startWorkflow()` cannot use the `id` option.",
+      fix: "Remove `id` from the options of `startWorkflow()`. Store the `id` of the run that it returns.",
+    },
+
     // Operation errors. The `workflow.*` operations of the CLI, the Console, and Agents throw them with an HTTP status.
     WORKFLOW_DEFINITION_NOT_FOUND: {
       why: ({ available, workflow }: { available?: string, workflow?: string }) => workflow === undefined ? "Workflow definition was not found." : `Unknown Workflow: ${workflow}.${available ?? ""}`,
@@ -31,6 +46,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
         ? `workflow ${operation} is not supported by the ${provider} provider for this run.`
         : `workflow ${operation} is not supported by the ${provider} provider. ${note}`,
       fix: "Use an operation that the provider supports, or run the app with a Workflow provider that supports it. The message says what the provider cannot do.",
+      data: ({ operation, provider }: { note?: string, operation: string, provider: string }): { operation: string, provider: string } => ({ operation, provider }),
     },
     WORKFLOW_REGISTRY_MISSING: {
       why: ({ workflow }: { workflow: string }) => `Unknown Workflow: ${workflow}. The runtime has no Workflow registry.`,
@@ -289,6 +305,22 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKFLOW_START_DELAY_INVALID: {
       why: ({ delay }: { delay: string }) => `[vitehub] \`startWorkflow()\` does not accept the delay ${JSON.stringify(delay)}. A delay is a number of milliseconds of 0 or more, a duration such as \`"30 minutes"\` or \`"3 days"\`, or a valid \`Date\`.`,
       fix: "Pass `{ delay: 60_000 }`, `{ delay: \"1 hour\" }`, or `{ delay: new Date(\"2026-12-01T09:00:00Z\") }`. The duration units are ms, seconds, minutes, hours, days, and weeks. For a month or a calendar time, pass a `Date`.",
+    },
+    WORKFLOW_STEP_OPTIONS_INVALID: {
+      why: ({ option, step, value }: { option: string, step: string, value: string }) => `[vitehub] The Workflow step ${JSON.stringify(step)} sets \`${option}\` to ${value}. A step takes \`retries: { limit, delay, backoff }\` and \`timeout\`.`,
+      fix: "Set `retries.limit` to a whole number of 0 or more, `retries.delay` to a duration such as `'30 seconds'` or a number of milliseconds, `retries.backoff` to `'constant'` or `'exponential'`, and `timeout` to a duration that is more than 0. Remove other keys.",
+    },
+    WORKFLOW_STEP_OPTIONS_NOT_STATIC: {
+      why: ({ file, option }: { file: string, option: string }) => `[vitehub] The Workflow step file ${JSON.stringify(file)} exports \`${option}\`, and the build cannot read its value without running the file.`,
+      fix: "Write the value in the export itself, with literals only, such as `export const retries = { limit: 5, delay: '30 seconds' }` or `export const timeout = '2 minutes'`. The build reads it from the source to check it and to configure the provider.",
+    },
+    WORKFLOW_STEP_RETRY_DELAY_UNSUPPORTED: {
+      why: ({ file }: { file: string }) => `[vitehub] The Workflow step file ${JSON.stringify(file)} sets \`retries.delay\` or \`retries.backoff\`. On Vercel, Workflow DevKit runs this step and retries it after about one second. It has no wait or backoff option for a step.`,
+      fix: "Remove `delay` and `backoff` from `retries`, and keep `limit`. To wait longer between attempts, deploy the Workflow on Cloudflare or OpenWorkflow.",
+    },
+    WORKFLOW_STEP_TIMEOUT: {
+      why: ({ step, timeout }: { step: string, timeout: string }) => `[vitehub] The Workflow step ${JSON.stringify(step)} ran longer than its timeout of ${timeout}. ViteHub aborted the step's signal and failed this attempt.`,
+      fix: "Make the step finish sooner, or set a longer `timeout` in the step file. Pass the `signal` of the step to `fetch()` and other calls, so they stop when the attempt times out. The provider retries the step as its `retries` say.",
     },
   },
 })

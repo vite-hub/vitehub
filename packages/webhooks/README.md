@@ -68,7 +68,7 @@ export default defineWebhook({
 })
 ```
 
-Agent, Workflow, and Schedule send the event once, when a run fails with no retry left. The body has the `event`, the Agent, Workflow, or Schedule name, the run or Invocation id, `error: { message, code? }`, `failedAt`, and `text`, one line that a Slack incoming webhook shows as the message. With `debounce`, failures of the same Agent, Workflow, or Schedule collapse into one delivery. A Vercel Workflow DevKit (`native`) run does not send `workflow.failed`.
+Agent, Workflow, and Schedule send the event when a run fails with no retry left. The body has the `event`, the Agent, Workflow, or Schedule name, the run or Invocation id, `error: { message, code? }`, `failedAt`, and `text`, one line that a Slack incoming webhook shows as the message. With `debounce`, failures of the same Agent, Workflow, or Schedule collapse into one delivery. The run must execute in a process that loads the app's Webhooks. Standalone cron entries, including Vercel and Netlify cron functions, and Vercel Workflow DevKit (`native`) runs do not send these events.
 
 ## How a delivery works
 
