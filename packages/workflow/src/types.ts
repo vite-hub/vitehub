@@ -137,15 +137,34 @@ export interface WorkflowRunStep {
   status: WorkflowRunStatus
 }
 
-export interface WorkflowStepOptions {
-  retries?: {
-    backoff?: string
-    delay?: string
-    limit?: number
-  }
+/** How the wait between retries grows: `exponential` doubles it after each retry, `constant` keeps it. */
+export type WorkflowStepBackoff = "constant" | "exponential"
+
+/** When a step runs again after it throws. The defaults are `{ limit: 3, delay: '10 seconds', backoff: 'exponential' }`. */
+export interface WorkflowStepRetries {
+  backoff?: WorkflowStepBackoff
+  /** How long to wait before the first retry. */
+  delay?: WorkflowDuration
+  /** How many times to run the step again after the first attempt fails. `0` runs it once. */
+  limit?: number
 }
 
-export type WorkflowStepFunction<TInput = unknown, TResult = unknown> = (input: TInput) => TResult | Promise<TResult>
+/**
+ * The options of one step. A step file exports them as `retries` and `timeout`. `timeout` is the time limit of one
+ * attempt: when it passes, the step's `signal` aborts and the attempt fails with `WORKFLOW_STEP_TIMEOUT`.
+ */
+export interface WorkflowStepOptions {
+  retries?: WorkflowStepRetries
+  timeout?: WorkflowDuration
+}
+
+/** The second argument of a step function. */
+export interface WorkflowStepContext {
+  /** Aborts when the `timeout` of the step passes. Pass it to `fetch()` and other calls that take a signal. */
+  signal: AbortSignal
+}
+
+export type WorkflowStepFunction<TInput = unknown, TResult = unknown> = (input: TInput, context: WorkflowStepContext) => TResult | Promise<TResult>
 
 export interface WorkflowProviderStep {
   do?: <TResult>(
