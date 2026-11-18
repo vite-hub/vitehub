@@ -393,7 +393,6 @@ describe("vitehub add", () => {
       const before = await readFile(join(root, configFile), "utf8")
       const options = [
         ...(id === "console" ? ["--option", "console.auth=false"] : []),
-        ...(host === "node" && id === "schedule" ? ["--option", "schedule.runtime.driver=process"] : []),
         ...(featureSupport("database", host).level === "explicit" && ["comments", "connections"].includes(id) ? ["--option", "database.connection.url=libsql://example.com"] : []),
       ]
 
@@ -566,18 +565,11 @@ describe("vitehub add", () => {
     expect((await add(args, root)).json.status).toBe("unchanged")
   })
 
-  it("requires a wake configuration for Node Schedules", async () => {
+  it("adds Node Schedules with no wake configuration", async () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node" }`) })
-    const before = await snapshot(root)
-
     const first = await add(["schedule", "--no-install", "--yes"], root)
-    expect(first.exitCode).toBe(2)
-    expect(first.json.missing).toEqual([{ choices: ["process"], field: "schedule.runtime.driver" }])
-    expect(await snapshot(root)).toEqual(before)
-
-    const rerun = await runSetup<AddResult>(first.json.rerun!.split(" ").slice(1), root)
-    expect(rerun.exitCode).toBe(0)
-    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain("schedule: { runtime: { driver: \"process\" } }")
+    expect(first.exitCode, first.stdout).toBe(0)
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain("schedule: true")
     expect((await add(["schedule", "--no-install", "--yes"], root)).json.status).toBe("unchanged")
   })
 

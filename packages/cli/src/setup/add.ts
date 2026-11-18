@@ -373,7 +373,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
         missing.push({ choices: ["auto"], field: "schedule.providerOutput" })
         setPath(defaults.schedule ??= {}, ["providerOutput"], "auto")
       }
-      if (!isRecord(value) || !isRecord(value.runtime) || value.runtime.driver !== "process") {
+      // `schedule: true` on Node uses the Process Runtime. Only a `runtime` without its driver needs a choice.
+      if (isRecord(value) && value.runtime !== undefined && (!isRecord(value.runtime) || value.runtime.driver !== "process")) {
         missing.push({ choices: ["process"], field: "schedule.runtime.driver" })
         setPath(defaults.schedule ??= {}, ["runtime", "driver"], "process")
       }

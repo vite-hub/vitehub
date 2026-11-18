@@ -904,6 +904,8 @@ describe("vitehub", () => {
         "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-redis-driver\.(?:ts|js)$/),
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-upstash-driver\.(?:ts|js)$/),
       },
+      requireKVPluginForProcessStores: true,
+      runtime: { driver: "process" },
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, {
       databaseImport: "vite-hub/database",
@@ -2477,9 +2479,8 @@ describe("vitehub", () => {
     const nodePreset = (schedule: ViteHubOptions["schedule"]) =>
       // SAFETY: The explicit Node preset installs the named deployment plugin.
       vitehub({ host: "node", schedule }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-host") as Plugin
-    expect(() => callHook(nodePreset(true).config, [{}, { command: "build", mode: "production" }])).toThrow("would never run its Schedules")
-    expect(() => callHook(nodePreset({ providerOutput: "auto" }).config, [{}, { command: "build", mode: "production" }])).toThrow("would never run its Schedules")
-    expect(() => callHook(nodePreset(true).config, [{}, { command: "serve", mode: "development" }])).not.toThrow()
+    expect(() => callHook(nodePreset(true).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
+    expect(() => callHook(nodePreset({ providerOutput: "auto" }).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
     expect(() => callHook(nodePreset({ runtime: { driver: "process" } }).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
     expect(() => callHook(nodePreset({ runtime: { driver: "process" }, providerOutput: "auto" }).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
     expect(() => callHook(nodePreset({ runtime: { driver: "process" }, providerOutput: false }).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
@@ -2489,6 +2490,27 @@ describe("vitehub", () => {
     const conflicting = vitehub({ host: "vercel" }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-host") as Plugin
     expect(() => callHook(conflicting.config, [{ nitro: { preset: "netlify" } }, { command: "build", mode: "production" }])).toThrow("conflicts with nitro.preset")
     expect(() => callHook(conflicting.config, [{ nitro: { preset: "vercel-edge" } }, { command: "build", mode: "production" }])).toThrow("conflicts with nitro.preset")
+  })
+
+  it.each([
+    [true, { runtime: { driver: "process" } }],
+    [{ providerOutput: "auto" }, { providerOutput: "auto", runtime: { driver: "process" } }],
+    [{ runtime: { driver: "process", intervalMs: 1000 } }, { runtime: { driver: "process", intervalMs: 1000 } }],
+    [{ providerOutput: false }, { providerOutput: false }],
+  ] as const)("runs Node Schedules in the Process Runtime unless the app chooses the wake: %j", (schedule, expected) => {
+    vitehub({ host: "node", schedule })
+    expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(expect.objectContaining(expected))
+    if (!("runtime" in expected)) expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith(expect.not.objectContaining({ runtime: expect.anything() }))
+  })
+
+  it("keeps host cron output without the Process Runtime on other hosts", () => {
+    for (const host of ["cloudflare", "netlify", "vercel", "deno"] as const) {
+      vitehub({ host, schedule: true })
+      expect(integrationMocks.hubSchedule, host).toHaveBeenLastCalledWith(expect.not.objectContaining({ runtime: expect.anything() }))
+      if (host === "vercel" || host === "deno") {
+        expect(integrationMocks.hubSchedule, host).toHaveBeenLastCalledWith(expect.objectContaining({ providerOutput: "standalone" }))
+      }
+    }
   })
 
   it.each(["nitro", "standalone"] as const)("rejects Node Schedule Provider Output %s even with the Process Runtime", providerOutput => {

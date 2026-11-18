@@ -406,6 +406,10 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Pass the pull request number, a whole number from 1, to `content.sources.previewLinks()`.",
       why: ({ pull }: { pull: unknown }) => `[vitehub] content.sources.previewLinks() needs a pull request number, received ${JSON.stringify(pull)}.`,
     },
+    CONTENT_PREWARM_HEAD_NOT_VISIBLE: {
+      fix: "Retry the prewarm job. If retries keep failing, check that the webhook and the Queue consumer use the same default KV store.",
+      why: ({ source, sha, headVersion }: { source: string, sha: string, headVersion: number }) => `[vitehub] Content source ${JSON.stringify(source)} has not read published head ${sha} (version ${headVersion}) from KV.`,
+    },
     CONTENT_PUBLIC_SOURCE_UNDECIDED: {
       fix: "Set `defineContent({ authorize })` to decide who reads, or `access: \"public\"` when the Content is public, or turn off the readers that the message names.",
       why: ({ readers, names, route }: { readers: string, names: string, route: boolean }) => `[vitehub] ${readers} would serve the potentially token-backed Source ${names} to everyone, and a github() Source or an opaque registered name, reader, or factory can read a private repository with a token. Set authorize to decide who may read (it gets action: "read"), or access: "public" when the content is public (or pass a direct non-GitHub Source definition).${route ? " route: false removes /api/content/**." : ""}`,
