@@ -46,6 +46,7 @@ If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages f
 | Console with Agents | `@libsql/client drizzle-orm` |
 | Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
 | `vite-hub/decisions` | `@vite-hub/decisions` |
+| `vite-hub/device` | `@vite-hub/device` |
 | `vite-hub/forge` | `@vite-hub/forge` |
 | `vite-hub/gateways` | `@vite-hub/gateways` |
 | `vite-hub/ui` | `@vite-hub/ui` |
@@ -164,7 +165,7 @@ Nitro output includes `.vitehub/nitro/error-log.mjs`. It logs each unhandled req
 
 `vitehub({ trustProxy: true })` trusts a proxy that ends TLS: when the server sees `http:` and the first `X-Forwarded-Proto` value is `https`, the request URL becomes `https:` before any middleware or route runs. It never reads `X-Forwarded-Host`. `vitehub({ sameOriginWrites: true })` answers `403` to a write with cookies whose `Sec-Fetch-Site` is `same-site` or `cross-site`, or whose `Origin` is not the app's origin; `exclude` lists path prefixes that take writes from other sites. See [Run behind a reverse proxy](https://vitehub.dev/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy).
 
-`vitehub({ security: { headers: true } })` adds `Strict-Transport-Security` (built output only), `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, and `Permissions-Policy` to each response that does not set them itself, and to static files through `_headers` on Cloudflare and Netlify and a static-file route on Vercel. An object changes, adds, or removes (`false`) one header. `security: { maxBodySize: "1mb" }` answers `413` with `data.code: "VITE_HUB_REQUEST_BODY_TOO_LARGE"` to a larger request body, on every route. It adds no Content Security Policy. See [Add security headers and a body limit](https://vitehub.dev/docs/frameworks-hosts/production#add-security-headers-and-a-body-limit).
+Built output sends `Strict-Transport-Security: max-age=31536000`, `X-Content-Type-Options: nosniff`, and `Referrer-Policy: strict-origin-when-cross-origin` on each response that does not set them itself, and on static files through `_headers` on Cloudflare and Netlify and a static-file route on Vercel. `vitehub({ security: { headers: { "X-Frame-Options": "SAMEORIGIN" } } })` changes, adds, or removes (`false`) one header; `security: { headers: false }` sends none. `security: { maxBodySize: "1mb" }` answers `413` with `data.code: "VITE_HUB_REQUEST_BODY_TOO_LARGE"` to a larger request body, on every route. It adds no Content Security Policy. See [Add security headers and a body limit](https://vitehub.dev/docs/frameworks-hosts/production#add-security-headers-and-a-body-limit).
 
 A tab that is open during a deploy asks for files of the old build when it loads a lazy page or component. `vitehub()` and `vite-hub/nuxt` reload the page once when such a file is missing, and not again within 10 seconds. Call `preventDefault()` on the `vite:preloadError` event to handle it yourself. See [Open tabs after a deploy](https://vitehub.dev/docs/frameworks-hosts/production#open-tabs-after-a-deploy).
 

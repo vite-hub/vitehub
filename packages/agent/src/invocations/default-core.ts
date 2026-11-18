@@ -4,7 +4,7 @@
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../invocations.ts"
 import { d1AgentInvocationRetention } from "./d1-retention.ts"
-import { defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsUrlEnv } from "./default-location.ts"
+import { agentJournalBesideState, defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsUrlEnv } from "./default-location.ts"
 
 import type { Client } from "@libsql/client"
 import type { openDefaultLibsqlJournal } from "./default-libsql.ts"
@@ -117,14 +117,6 @@ type DefaultAgentInvocationsTarget =
   | { authToken?: string, kind: "remote", url: string }
   | { cwd?: true, kind: "file", url?: string }
 
-/** `agent-invocations.sqlite` in the directory of a `file:` State URL. Undefined for remote and in-memory State. */
-function besideStateUrl(stateUrl: string | undefined): { cwd?: true, url: string } | undefined {
-  const path = stateUrl && /^file:([^?#]*)/i.exec(stateUrl)?.[1]
-  if (!path || path === ":memory:" || /[?&]mode=memory(?:&|$)/.test(stateUrl)) return
-  const url = `file:${path.slice(0, path.lastIndexOf("/") + 1)}agent-invocations.sqlite`
-  return /^file:\//i.test(url) ? { url } : { cwd: true, url }
-}
-
 function selectTarget(options: Omit<DefaultAgentInvocationsOptions, "observations" | "retention">): DefaultAgentInvocationsTarget {
   const env = runtimeEnv(options)
   const configuredUrl = env[defaultAgentInvocationsUrlEnv]?.trim()
@@ -139,7 +131,7 @@ function selectTarget(options: Omit<DefaultAgentInvocationsOptions, "observation
     if (url) throw agentDiagnostics.AGENT_R1029()
     return { kind: "memory", url: "memory:" }
   }
-  const beside = url || !options.stateUrl ? undefined : besideStateUrl(env.VITEHUB_AGENT_STATE_URL?.trim() || options.stateUrl)
+  const beside = url ? undefined : agentJournalBesideState(options.stateUrl, env)
   return beside ? { kind: "file", ...beside } : { kind: "file", url }
 }
 

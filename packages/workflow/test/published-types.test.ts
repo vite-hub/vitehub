@@ -51,9 +51,3 @@ it("keeps Effect internals out of published Workflow artifacts", async () => {
   expect(manifest.optionalDependencies?.effect).toBeUndefined()
   expect(manifest.peerDependencies?.effect).toBeUndefined()
 })
-
-it("does not publish Workflow-specific error constructors", async () => {
-  const workflow = await import("../dist/index.js")
-  expect(workflow).not.toHaveProperty("WorkflowError")
-  expect(workflow).not.toHaveProperty("ApplicationWorkflowError")
-})

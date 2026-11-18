@@ -101,7 +101,8 @@ async function reconcileAgentWorkflowInvocation<TRuntimeConfig extends AgentRunt
   // ponytail: Recovery is bounded to one day; add provider events or re-enqueueing if runs routinely exceed it.
   for (let attempt = 0; attempt < 166; attempt++) {
     try {
-      const run = await getWorkflowRun(recovery.workflowName, recovery.runId)
+      const [error, run] = await getWorkflowRun(recovery.workflowName, recovery.runId)
+      if (error) throw error
       if (run.status === "cancelled" || run.status === "completed" || run.status === "failed") {
         await journal.finish(run.status, run.status === "failed" ? run.error : undefined)
         await Promise.all(agentInvocationRecoveryTasks(runtimeContext))

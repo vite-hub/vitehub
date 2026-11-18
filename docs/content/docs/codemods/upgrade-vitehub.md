@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `agent-surface`, `renamed-apis`, `tsconfig-paths`, and `shell-driver`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, and `shell-driver`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -97,6 +97,26 @@ The codemod reads imports from `vite-hub/queue`, `vite-hub/workflow`, and their 
 - object keys and strings with an old name, for example in a `vi.mock()` factory,
 - Workflow handles that a file exports, because other files call their methods.
 
+## result-tuples
+
+`startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, and `resumeWorkflow()` return `[error, data]` now, as `sendQueue()` does. They threw before. The `start()`, `getRun()`, and `cancel()` methods of a `createWorkflow()` handle changed in the same way. `result-tuples` reads each call as a Result that throws the error, so the code keeps its behavior:
+
+```bash [Terminal]
+npx @vite-hub/codemods result-tuples [dir] [--dry-run]
+```
+
+```diff [server/api/onboard.post.ts]
+ export default defineEventHandler(async (event) => {
+   const body = await readBody<{ email: string }>(event)
+-  const run = await startWorkflow('onboard-user', body)
++  const [runError, run] = await startWorkflow('onboard-user', body)
++  if (runError) throw runError
+   return { id: run.id }
+ })
+```
+
+`return startWorkflow(...)` in an async function and a call in an `if` test move to a `const` before the statement. The codemod reads imports from `vite-hub/workflow` and `@vite-hub/workflow`, and the Nuxt auto-imports in `server/`. The report lists the calls that it cannot change, such as a call in a function that is not `async`, a call without `await`, or a handle that another file creates.
+
 ## one-entry-imports
 
 ViteHub folded some subpaths into one entry per concept. `one-entry-imports` moves each import:
@@ -136,6 +156,83 @@ npx @vite-hub/codemods agent-surface [dir] [--dry-run]
 - `context: { actor }` in an Invocation input, `context.actor`, and a destructured `actor` next to other Agent context fields in a `defineAgent()` or `defineCapability()` callback become `invoker`.
 
 The report lists what the codemod leaves: `getAgent()` and the root helpers that are no longer public, the private `agent/invocations/default` entry, a dynamic `preset` name, and an `actor` read that could also be another field, such as a GitHub sender.
+
+## driver-key
+
+`driver` is the only key that selects the backend of a resource. An old key fails with a `*_RENAMED_*_KEY` error that names `driver`. `driver-key` renames the old keys and the old driver names:
+
+```bash [Terminal]
+npx @vite-hub/codemods driver-key [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `queue`, `workflow`, `rateLimit`, `sandboxTask`: `provider` | `driver` |
+| `realtime: { authority }` | `realtime: { driver }` |
+| Workspace `store: { provider }` | `store: { driver }` |
+| `createBrowser({ provider })` | `createBrowser({ driver })` |
+| Blob `driver: "cloudflare-r2"`, `"vercel-blob"` | `"cloudflare"`, `"vercel"` |
+| KV `driver: "cloudflare-kv-binding"` | `"cloudflare"` |
+| Email `driver: "cloudflare-email"` | `"cloudflare"` |
+| Cache `driver: "cloudflare-kv-binding"`, `"vercel-runtime-cache"` | `"cloudflare"`, `"vercel"` |
+| Database `driver: "d1"` | `"cloudflare"` |
+| Workspace Store `"cloudflare-artifacts"`, `"vercel-blob"` | `"cloudflare"`, `"vercel"` |
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```diff [nuxt.config.ts]
+ export default defineNuxtConfig({
+   modules: ['vite-hub/nuxt'],
+   vitehub: {
+-    queue: { provider: 'cloudflare' },
+-    kv: { driver: 'cloudflare-kv-binding' },
++    queue: { driver: 'cloudflare' },
++    kv: { driver: 'cloudflare' },
+   },
+ })
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```diff [vite.config.ts]
+ import { defineConfig } from 'vite'
+ import { vitehub } from 'vite-hub'
+ import { nitro } from 'nitro/vite'
+
+ export default defineConfig({
+   plugins: [
+     vitehub({
+-      queue: { provider: 'cloudflare' },
+-      kv: { driver: 'cloudflare-kv-binding' },
++      queue: { driver: 'cloudflare' },
++      kv: { driver: 'cloudflare' },
+     }),
+     nitro(),
+   ],
+ })
+```
+:::
+
+:::tabs-item{label="Vite"}
+```diff [vite.config.ts]
+ import { defineConfig } from 'vite'
+ import { vitehub } from 'vite-hub'
+
+ export default defineConfig({
+   plugins: [
+     vitehub({
+-      queue: { provider: 'cloudflare' },
+-      kv: { driver: 'cloudflare-kv-binding' },
++      queue: { driver: 'cloudflare' },
++      kv: { driver: 'cloudflare' },
+     }),
+   ],
+ })
+```
+:::
+::
+
+It changes the options of `vitehub()`, the `vitehub` key of `nuxt.config` and `nitro.config`, the `hub*()` plugins, `createQueueClient()`, `createEmail()`, and `createBrowser()`. Workspace `store` objects change only in Workspace config, `defineWorkspace()`, `hubWorkspace()`, and the `workspace` option of `defineAgent()`. The report lists a driver value that is not a string literal. Options that a variable or a helper builds stay as they are, so search for `provider` and `authority` after the run.
 
 ## tsconfig-paths
 

@@ -3,8 +3,8 @@ import { computed, inject, ref, watch } from "vue";
 
 import type { DropdownMenuItem } from "@nuxt/ui";
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance";
-import { createConsoleTeam, signOutConsoleAccount, switchConsoleTeam } from "../client/account";
-import { reloadConsoleAccount, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
+import { createConsoleTeam, switchConsoleTeam } from "../client/account";
+import { reloadConsoleAccount, showConsoleAccountPage, signOutConsole, useConsoleProjects } from "../client/project-session";
 import { consoleDocsItem } from "../client/sidebar";
 import { useConsoleToast } from "../client/toast";
 import ConsoleSidebarItem from "./console-sidebar-item.vue";
@@ -62,7 +62,7 @@ const teamItems = computed<DropdownMenuItem[]>(() => [
   })),
   { icon: "i-lucide-plus", label: "Create team", onSelect: () => { creating.value = true; } },
 ]);
-const signOutItems: DropdownMenuItem[] = [{ icon: "i-lucide-log-out", label: "Sign out", onSelect: () => void signOutConsoleAccount().then(reloadConsoleAccount) }];
+const signOutItems: DropdownMenuItem[] = [{ icon: "i-lucide-log-out", label: "Sign out", onSelect: () => void signOutConsole().catch(error => toast.show({ title: error instanceof Error ? error.message : "Try again." })) }];
 
 const items = computed<DropdownMenuItem[][]>(() => {
   if (!account.value) return [[...appearanceItems.value, consoleDocsItem]];

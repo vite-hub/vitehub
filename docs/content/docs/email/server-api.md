@@ -139,7 +139,7 @@ TypeScript completes `template` with the names under `server/emails`, and types
 | `{{ data.x }}` or a bound attribute such as `{:href="data.x"}` | `string \| number \| boolean` |
 | `:insert{:markdown="data.x"}` | `string` |
 | `::if{:condition="data.x"}` and the other condition props | Optional `unknown` |
-| A value that the template reads only inside an `::if` branch | Optional |
+| A value that the template reads only inside an `::if` branch | Optional, and also takes `null`, such as a database column with no value |
 
 An unknown name, a missing value, or a value of the wrong type does not compile.
 When `data` does not fit at runtime, `send()` returns

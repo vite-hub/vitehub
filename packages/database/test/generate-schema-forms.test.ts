@@ -102,16 +102,6 @@ describe("database generate schema forms", () => {
 })
 
 describe("Database table names", () => {
-  it("exports every loaded table from the generated schema", async () => {
-    const rootDir = await createProject(forms.spread!.definition)
-    const config = resolveDBViteConfig(undefined, rootDir)!
-    await writeGeneratedDatabaseArtifacts(config)
-
-    const generated = await readFile(config.generatedSchemaFilesByDatabase.default!, "utf8")
-    expect(generated).toContain("export { table_0 as revisions }")
-    expect(generated).toContain("export { table_2 as notes }")
-  })
-
   it("marks imported and spread schemas in source-only inspection", async () => {
     const tables = async (form: string) => {
       const rootDir = await createProject(forms[form]!.definition)

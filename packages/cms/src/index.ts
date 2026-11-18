@@ -79,13 +79,13 @@ const cms: ContentPreset<CmsPresetOptions> = defineContentPreset<CmsPresetOption
   configure(options) {
     for (const key of cmsOptionKeys) {
       const problem = cmsOptionProblem(key, Reflect.get(options, key))
-      if (problem) throw cmsErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content cms preset option ${JSON.stringify(key)} ${problem}` })
+      if (problem) throw cmsErrorDiagnostics.CONTENT_CMS_OPTION_INVALID({ problem: `option ${JSON.stringify(key)} ${problem}` })
     }
     // The default `blob` is not something the app set, so a GitHub store does not see it.
     const github = cmsStoreOf(options) === "github"
     const set = { ...options, blob: github && options.blob === "default" ? undefined : options.blob }
     const problem = cmsOptionsProblem(set)
-    if (problem) throw cmsErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content cms preset ${problem}` })
+    if (problem) throw cmsErrorDiagnostics.CONTENT_CMS_OPTION_INVALID({ problem })
     return {
       workspace: options.workspace,
       ...(options.access === "roles" ? { authorize: cmsDefaultAuthorize } : {}),
