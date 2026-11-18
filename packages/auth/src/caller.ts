@@ -1,8 +1,12 @@
 import { defineErrors } from "@vite-hub/runtime"
 
 import type { ResultError } from "@vite-hub/runtime"
+import type { User } from "better-auth"
 
 import type { AuthAuthorization } from "./types.ts"
+
+/** The Auth user of a caller, with the fields of the app's plugins, such as `role` of `admin()`. */
+export type AuthCallerUser = User & Record<string, unknown>
 
 /**
  * Who calls a route, as `requireCaller()` returns it: a person in the browser with an Auth Session, or an Agent with
@@ -11,13 +15,13 @@ import type { AuthAuthorization } from "./types.ts"
 export type AuthCaller =
   | {
     kind: "browser"
-    user: AuthAuthorization["user"]
+    user: AuthCallerUser
     session: AuthAuthorization["session"]
   }
   | {
     kind: "agent"
     /** The person who approved the MCP client, read again for each request. */
-    user: AuthAuthorization["user"]
+    user: AuthCallerUser
     /** The OAuth client and the name it registered, such as "Claude Code". */
     client: { id: string, name: string | undefined }
     /** The scopes that the person approved. */

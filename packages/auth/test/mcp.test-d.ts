@@ -61,6 +61,7 @@ it("narrows the caller of requireCaller() by kind", async () => {
     return
   }
   expectTypeOf(caller.user.id).toEqualTypeOf<string>()
+  expectTypeOf(caller.user.email).toEqualTypeOf<string>()
   if (caller.kind === "agent") {
     expectTypeOf(caller.client.name).toEqualTypeOf<string | undefined>()
     expectTypeOf(caller.scopes).toEqualTypeOf<string[]>()

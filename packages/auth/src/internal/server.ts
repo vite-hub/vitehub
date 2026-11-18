@@ -57,7 +57,7 @@ import { notMemberError } from "../members.ts"
 import type { AuthMemberErrorCode } from "../members.ts"
 import type { Result } from "@vite-hub/runtime"
 import { signedOutError } from "../caller.ts"
-import type { AuthCaller, AuthCallerErrorCode } from "../caller.ts"
+import type { AuthCaller, AuthCallerErrorCode, AuthCallerUser } from "../caller.ts"
 import type { McpOAuthAuth } from "../mcp-token.ts"
 
 export { createBetterAuthOptions, getAuthForDefinition } from "../auth-instance.ts"
@@ -961,13 +961,15 @@ async function readCaller(event: AuthRequestInput, definition: AuthDefinition): 
         client: { id: caller.clientId, name: caller.clientName },
         kind: "agent",
         scopes: caller.scopes,
-        user: caller.user,
+        // SAFETY: The token check read this record with `findUserById()`, so it is the Auth user row.
+        user: caller.user as AuthCallerUser,
       })]
     }
   }
   const { session } = await readRequestSession(event, definition)
   if (!session) return [signedOutError(), undefined]
-  return [undefined, Object.freeze({ kind: "browser", session: session.session, user: session.user })]
+  // SAFETY: Better Auth's `getSession()` returns the Auth user row of the session.
+  return [undefined, Object.freeze({ kind: "browser", session: session.session, user: session.user as AuthCallerUser })]
 }
 
 // One session read per request, however many abilities the handler checks.
