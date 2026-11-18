@@ -76,6 +76,8 @@ Sign in to the Console and enter the app URL in **Get started**, or later with *
 VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC=<public key>
 ```
 
+The Console names each app by the **Name** you give it when you link it. Without one, it uses the name that the app reports, from its `package.json`. Owners and admins rename an app from the menu of its row on Home.
+
 The Console keeps the private key of each link encrypted and [signs](/docs/console/signed-requests) every call with it. Your app and the browser never see it. Each link has its own variable, so the app can keep other keys, such as the CLI's, beside it. To unlink, unlink the app in the Console and remove its variable.
 
 Under a base path, from Nuxt `app.baseURL` or a root-relative Vite `base`, every Console route moves too. With `base: '/portal/'` the route is `/portal/_vitehub/rpc`, and you link `https://app.example.com/portal`.

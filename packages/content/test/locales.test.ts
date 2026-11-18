@@ -67,10 +67,10 @@ describe("documents() with locales", () => {
       { path: "docs/*/{locale}.md", locales: ["en"] },
       { path: "docs/{locale}-x/*.md", locales: ["en"] },
       { path: ["docs/{locale}/*.md", "blog/{locale}/*.md"], locales: ["en"] },
-      { path: "docs/{locale}/*.md", locales: ["en"], url: "/:lang/:id" },
     ]) {
-      expect(() => documents({ fields, ...options }), JSON.stringify(options)).toThrow(expect.objectContaining({ code: "CONTENT_R0006" }))
+      expect(() => documents({ fields, ...options }), JSON.stringify(options)).toThrow(expect.objectContaining({ code: "CONTENT_DOCUMENTS_LOCALES_INVALID" }))
     }
+    expect(() => documents({ fields, path: "docs/{locale}/*.md", locales: ["en"], url: "/:lang/:id" })).toThrow(expect.objectContaining({ code: "CONTENT_DOCUMENTS_URL_INVALID" }))
     expect(() => documents({ path: "docs/{locale}/*.md", locales: ["en"], fields: { derivedFrom: z.string() } })).toThrow(/derivedFrom/)
     expect(documents({ path: ["docs/{locale}/guides/*.md", "docs/{locale}/blog/*.md"], locales: ["en", "pt-BR"], fields }).paths)
       .toEqual(["docs/en/guides/*.md", "docs/en/blog/*.md", "docs/pt-BR/guides/*.md", "docs/pt-BR/blog/*.md"])
@@ -96,7 +96,7 @@ describe("documents() with locales", () => {
     const page = await docs.list({ ref: "draft", locale: "es" })
     expect(page.items.map(item => [item.id, item.locale, item.fallback ?? false])).toEqual([["guide", "es", false], ["intro", "en", true]])
     expect((await docs.list({ ref: "draft" })).items.map(item => [item.id, item.locale])).toEqual([["guide", "en"], ["intro", "en"]])
-    expect(await rejection(docs.get("guide", { locale: "fr" }))).toMatchObject({ code: "CONTENT_R0008" })
+    expect(await rejection(docs.get("guide", { locale: "fr" }))).toMatchObject({ code: "CONTENT_LOCALE_UNKNOWN" })
   })
 
   it("records derivedFrom on translations and reports stale and missing ones", async () => {
@@ -159,8 +159,8 @@ describe("documents() with locales", () => {
     // derivedFrom is Content's to write, and sourceDigest is only for a translation in the lineage form.
     await docs.save("guide", { data: Object.assign({ title: "Guía" }, { derivedFrom: a }), body: "Versión B.\n" }, { locale: "es" })
     expect(await docs.status("guide")).toMatchObject({ translations: { es: "current" } })
-    expect(await rejection(docs.save("guide", { data: { title: "Guía" } }, { locale: "es", sourceDigest: read!.digest }))).toMatchObject({ code: "CONTENT_R0008", message: expect.stringMatching(/source\.digest/) })
-    expect(await rejection(docs.save("guide", { data: { title: "Guide" } }, { sourceDigest: b }))).toMatchObject({ code: "CONTENT_R0008", message: expect.stringMatching(/translation/) })
+    expect(await rejection(docs.save("guide", { data: { title: "Guía" } }, { locale: "es", sourceDigest: read!.digest }))).toMatchObject({ code: "CONTENT_SOURCE_DIGEST_INVALID", message: expect.stringMatching(/source\.digest/) })
+    expect(await rejection(docs.save("guide", { data: { title: "Guide" } }, { sourceDigest: b }))).toMatchObject({ code: "CONTENT_SOURCE_DIGEST_INVALID", message: expect.stringMatching(/translation/) })
   })
 
   it("compares a translation written through Workspace with the source locale file of its id only", async () => {
@@ -329,7 +329,7 @@ describe("documents() with locales", () => {
     expect(saved).not.toHaveProperty("derivedFrom")
     expect(await posts.status("hello")).not.toHaveProperty("translations")
     expect(posts).not.toHaveProperty("locales")
-    expect(await rejection(posts.get("hello", { locale: "en" }))).toMatchObject({ code: "CONTENT_R0008" })
+    expect(await rejection(posts.get("hello", { locale: "en" }))).toMatchObject({ code: "CONTENT_LOCALE_UNKNOWN" })
   })
 
   it("reads a locale field in the url of a collection without locales", async () => {
