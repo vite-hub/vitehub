@@ -11,6 +11,7 @@ import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, with
 import * as esbuild from "@vite-hub/internal/build/esbuild"
 import * as providerSources from "@vite-hub/internal/build/provider-output-sources"
 import { createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
+import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
 
 import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, generateProviderOutputsWithinLock, resolveSchedulePublicEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
 import { discoverScheduleDefinitions } from "../src/discovery.ts"
@@ -403,6 +404,33 @@ describe("schedule provider output", () => {
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("executeStaticSchedule")
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("unwrapScheduleDefinition")
+  })
+
+  it("emits schedule.failed from the generated Cloudflare cron entry when a listener is installed", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-failure-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 0 * * *', handler: () => { throw new Error('Cleanup failed') } })",
+    ].join("\n"))
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    const entry = join(createDefaultCloudflareOutputRoot(rootDir), "index.js")
+    const { default: worker } = await import(pathToFileURL(entry).href)
+    const listener = vi.fn()
+    const stop = onRunFailed(listener)
+    try {
+      await expect(worker.scheduled({ cron: "0 0 * * *", scheduledTime: Date.parse("2026-11-18T00:00:00Z") }, {}, { waitUntil: vi.fn() }))
+        .rejects.toThrow("Cleanup failed")
+      expect(listener).toHaveBeenCalledExactlyOnceWith({
+        event: "schedule.failed",
+        schedule: "cleanup",
+        runId: "run_cleanup_2026-11-18T00:00:00.000Z",
+        error: { message: "Cleanup failed" },
+        failedAt: expect.any(String),
+      })
+    }
+    finally {
+      stop()
+    }
   })
 
   it("preserves Node built-ins for the Cloudflare runtime", async () => {

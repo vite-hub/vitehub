@@ -3,6 +3,7 @@ import { maxAgentInvocationListLimit as MAX_LIST_LIMIT, normalizeAgentInvocation
 import { isRuntimeRecord, isUnbrandedValue } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { consoleInvocationUrl, createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, resolvePublicUrl } from "@vite-hub/runtime"
+import { emitRunFailed, toRunFailedError } from "@vite-hub/runtime/internal/run-failed"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
 import { parentInvocationTrace } from "./internal/invocation-scope.ts"
 import { abortLocalAgentInvocation, createAgentInvocationCancellationError, registerAgentInvocationCancellation } from "./internal/invocation-cancellation.ts"
@@ -2898,6 +2899,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             stopHeartbeat()
             if (ownsRecord) await write(() => boundedStore(() => store.release(recordId, claimId)))
             ownsRecord = false
+            // A failure with a retry pending is not the end of the Invocation: the retry reports its own outcome.
+            if (finishInput.status === "failed" && !finishInput.retryPending) {
+              await emitRunFailed({ event: "invocation.failed", agent: agentName ?? null, invocationId: recordId, error: toRunFailedError(failure ?? "The Agent Invocation failed."), failedAt: finishInput.timestamp })
+            }
             const recoveries = terminalObservationRecoveries.splice(0)
             const observations = terminalRetryObservations.splice(0)
             if (recoveries.length > 0 || observations.length > 0) {
