@@ -1,0 +1,57 @@
+:root {
+  font: 14px/1.5 system-ui, sans-serif;
+}
+
+main {
+  display: grid;
+  gap: 1rem;
+  width: 20rem;
+  padding: 2rem;
+}
+
+summary {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font: inherit;
+}
+
+.chev {
+  flex: none;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 2;
+}
+
+/* The docs sidebar: a `transform` while the group is shut. */
+#native:not([open]) .chev,
+#off:not([open]) .chev,
+#own:not([open]) .chev {
+  transform: rotate(-90deg);
+}
+
+/* The support matrix: Tailwind's `group-open:rotate-90`, the `rotate` property. */
+#property[open] .chev {
+  rotate: 90deg;
+}
+
+[aria-expanded="true"] .chev {
+  rotate: 180deg;
+}
+
+#own .chev {
+  transition: transform 200ms ease;
+}
+
+/* The CSS transition that the docs had before the layer. */
+[data-mode="today"] .chev {
+  transition: transform 150ms ease, rotate 150ms ease;
+}

@@ -9,6 +9,8 @@ export const motionStateAttributes = [
   "data-state",
   "data-checked",
   "data-open",
+  // A native `<details>` opens and closes with its `open` attribute.
+  "open",
 ] as const;
 
 export type MotionStateAttribute = (typeof motionStateAttributes)[number];

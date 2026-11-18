@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Disclosure motion page</title>
+  </head>
+  <body>
+    <main>
+      <details id="native">
+        <summary><svg class="chev" viewBox="0 0 24 24" width="16" height="16"><path d="m6 9 6 6 6-6" /></svg> A folded group</summary>
+        <p>Its pages.</p>
+      </details>
+      <details id="property" class="group">
+        <summary><svg class="chev" viewBox="0 0 24 24" width="16" height="16"><path d="m9 18 6-6-6-6" /></svg> What the statuses mean</summary>
+        <p>The statuses.</p>
+      </details>
+      <div>
+        <button id="expanded" type="button" aria-expanded="false" aria-controls="expanded-panel">
+          Details <svg class="chev" viewBox="0 0 24 24" width="16" height="16"><path d="m6 9 6 6 6-6" /></svg>
+        </button>
+        <div id="expanded-panel" hidden>The panel.</div>
+      </div>
+      <div data-motion="none">
+        <details id="off">
+          <summary><svg class="chev" viewBox="0 0 24 24" width="16" height="16"><path d="m6 9 6 6 6-6" /></svg> Motion off</summary>
+          <p>Off.</p>
+        </details>
+      </div>
+      <details id="own">
+        <summary><svg class="chev" viewBox="0 0 24 24" width="16" height="16"><path d="m6 9 6 6 6-6" /></svg> Its own transition</summary>
+        <p>Own.</p>
+      </details>
+    </main>
+    <script type="module" src="./disclosure.ts"></script>
+  </body>
+</html>
