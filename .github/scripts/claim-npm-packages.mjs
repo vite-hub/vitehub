@@ -35,20 +35,41 @@ const only = args.filter(arg => !arg.startsWith("--"))
 const repoRoot = resolve(import.meta.dirname, "../..")
 
 function npmOutput(npmArgs) {
-  const capture = () => spawnSync("npm", npmArgs, { encoding: "utf8", stdio: ["inherit", "pipe", "pipe"] })
-  let result = capture()
-  if (result.status !== 0 && /EOTP|one-time password|authenticat/i.test(`${result.stdout}${result.stderr}`)) {
-    // npm prints its sign-in link on stdout, which this function captures. Run the command in the terminal once, so the
-    // link shows and "skip for the next 5 minutes" covers the reads after it.
-    console.log(`npm asks for two-factor authentication. Sign in and choose "skip for the next 5 minutes".`)
-    npm(npmArgs.filter(arg => arg !== "--json"))
-    result = capture()
-  }
-  if (result.status !== 0) {
+  const result = spawnSync("npm", npmArgs, { encoding: "utf8", stdio: ["inherit", "pipe", "pipe"] })
+  if (result.status === 0) return result.stdout
+  if (!/EOTP|one-time password/i.test(`${result.stdout}${result.stderr}`)) {
     process.stderr.write(result.stderr)
     throw new Error(`npm ${npmArgs.join(" ")} failed with exit code ${result.status}`)
   }
-  return result.stdout
+  // npm waits for the browser sign-in only when it writes to a terminal. Without one it fails at once. Run the command in
+  // a pseudo-terminal, so the link shows and npm waits, and read its output from the transcript file.
+  console.log(`npm asks for two-factor authentication. Sign in and choose "skip for the next 5 minutes", so the next reads do not ask again.`)
+  return npmInTerminal(npmArgs)
+}
+
+function npmInTerminal(npmArgs) {
+  const directory = mkdtempSync(join(tmpdir(), "vitehub-npm-"))
+  const transcript = join(directory, "output")
+  try {
+    // In a terminal npm draws a spinner on the line of the output, so turn it off.
+    const commandArgs = ["npm", ...npmArgs, "--no-progress"]
+    const command = commandArgs.map(arg => `'${arg.replaceAll("'", `'\\''`)}'`).join(" ")
+    const scriptArgs = process.platform === "darwin" ? ["-q", transcript, ...commandArgs] : ["-qec", command, transcript]
+    const result = spawnSync("script", scriptArgs, { stdio: "inherit" })
+    if (result.status !== 0) throw new Error(`npm ${npmArgs.join(" ")} failed with exit code ${result.status}`)
+    // The transcript also has the sign-in prompts, npm notices, terminal escape codes and lines from `script`. npm prints
+    // JSON that starts at the first line that opens an object or an array, and ends on that line or at the last line that
+    // starts by closing one.
+    // eslint-disable-next-line no-control-regex
+    const lines = readFileSync(transcript, "utf8").replace(/\u001B\[[0-9;?]*[A-Za-z]|\r/g, "").split("\n")
+    const start = lines.findIndex(line => /^[[{]/.test(line))
+    if (start === -1) return ""
+    const end = Math.max(start, lines.findLastIndex(line => /^[\]}]/.test(line)))
+    return lines.slice(start, end + 1).join("\n")
+  }
+  finally {
+    rmSync(directory, { force: true, recursive: true })
+  }
 }
 
 /** The packages of the scopes of `packages` that the signed-in account can write. */
