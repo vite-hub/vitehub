@@ -9,6 +9,7 @@ import { files } from "@vite-hub/source"
 import { acceptsMarkdown, contentSource, defineContent, defineContentLlmsHandler, defineContentMarkdownHandler, renderContentLlms, renderContentMarkdownNotFound, renderContentSitemapMarkdown, seo } from "../src/index.ts"
 import { historyWorkspace } from "./history-workspace.ts"
 
+import type { ContentPlugin } from "comark-content"
 import type { DefineContentSeoOptions } from "../src/index.ts"
 
 const cleanup: Array<() => Promise<void> | void> = []
@@ -402,19 +403,25 @@ describe("llms files of Sources", { timeout: 30_000 }, () => {
       getItem: async (key: string) => pages[key] ?? "",
       getItemRaw: async (key: string) => pages[key],
     }
+    const plugin: ContentPlugin = {
+      name: "published-pages",
+      setup(instance) {
+        instance.hooks.hook("file:parsed", (context) => {
+          if (context.file?.meta.key === "docs/hidden.md") context.file = null
+          if (context.file?.meta.key === "docs/guide.md") context.file.data.title = "Published guide"
+        })
+      },
+    }
     const content = defineContent({
       route: false,
       logger: false,
       sources: { docs: contentSource(source, {
         url: ({ key }) => key === "guide.md" ? "/docs/../guide" : key === "logo.svg" ? "/guide/" : `/${key?.split(".")[0]}`,
       }) },
+      plugins: [plugin],
       seo: { site: "https://example.com", markdown: true },
     })
     cleanup.push(() => content.dispose())
-    content.from("docs").hooks.hook("file:parsed", (context) => {
-      if (context.file?.meta.key === "docs/hidden.md") context.file = null
-      if (context.file?.meta.key === "docs/guide.md") context.file.data.title = "Published guide"
-    })
     expect(await content.markdown("/guide.md")).toContain("# Published guide")
     expect(await content.page("/guide")).toMatchObject({ title: "Published guide" })
     expect(await content.hasMarkdown("/guide.md")).toBe(true)
