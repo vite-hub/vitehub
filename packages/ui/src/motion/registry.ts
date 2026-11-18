@@ -4,6 +4,8 @@ export const motionStateAttributes = [
   "aria-selected",
   "aria-pressed",
   "aria-expanded",
+  "aria-valuenow",
+  "aria-valuetext",
   "data-state",
   "data-checked",
   "data-open",
@@ -19,7 +21,10 @@ export interface MotionStateChange {
 
 /** What a press does next. The motion layer calls it until the pointer or the key goes up. */
 export interface MotionPress {
-  /** The pointer moved while it was down, such as on a slider thumb. Not called for a key press. */
+  /**
+   * The pointer moved while it was down, such as on a resize handle. Not called for a key press. A press with `move`
+   * is a drag: it goes on when the pointer leaves the element, until the pointer goes up.
+   */
   move?(event: PointerEvent): void;
   /** The pointer or the key went up, or the pointer left the element or was cancelled. */
   release(): void;
