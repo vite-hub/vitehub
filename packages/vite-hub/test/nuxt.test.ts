@@ -41,7 +41,6 @@ import { forgetPackageChecks } from "../src/internal/optional-owners.ts"
 
 const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
 const kvCacheDriver = kvStorageDriver
-const databaseRuntimeState = fileURLToPath(new URL("../dist/internal/database-runtime-state.js", import.meta.url))
 
 // Each run gets its own fixture directories, so two runs at the same time do not overwrite each other.
 const tmp = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-test-"))
@@ -4274,7 +4273,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect([...tsConfig.exclude ?? [], ...tsConfig.include ?? []].join("\n")).not.toContain("packages/db")
   })
 
-  it("installs the Database Nuxt runtime alias through the framework module", async () => {
+  it("imports the Database runtime of the generated Nuxt middleware by path", async () => {
     const { nuxt, runNitroConfigHook } = createNuxt()
     Object.assign(nuxt.options.vite, {
       root: `${tmp}/vitehub-nuxt/custom-vite-root`,
@@ -4291,54 +4290,15 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect((nuxt.options.vite.plugins as unknown[]).flat(Infinity)).toContainEqual(
       expect.objectContaining({ name: "@vite-hub/database/vite" }),
     )
-    // SAFETY: Nuxt aliases are normalized to a string map by the module setup path.
-    expect((nuxt.options.alias as Record<string, string>)["@vite-hub/database/runtime/state"]).toBe(
-      databaseRuntimeState,
-    )
     expect(nitroConfig).toMatchObject({
       alias: {
         "@vite-hub/database/runtime/registry": `${tmp}/vitehub-nuxt/.vitehub/database/cloudflare-runtime.mjs`,
-        "@vite-hub/database/runtime/state": databaseRuntimeState,
       },
     })
-  })
-
-  it("keeps the Database Nitro runtime alias out of development", async () => {
-    const { nuxt, runNitroConfigHook } = createNuxt(true)
-
-    await viteHubNuxtModule({ database: true, host: "cloudflare" }, nuxt)
-    const nitroConfig = {}
-    await runNitroConfigHook(nitroConfig)
-
-    // SAFETY: Nuxt aliases are normalized to a string map by the module setup path.
-    expect((nuxt.options.alias as Record<string, string>)["@vite-hub/database/runtime/state"]).toBe(
-      databaseRuntimeState,
-    )
+    // An app that lists only `vite-hub` cannot resolve `@vite-hub/database` with strict pnpm, so no alias or bare import.
     expect(nitroConfig).not.toHaveProperty("alias.@vite-hub/database/runtime/state")
-  })
-
-  it("preserves an explicitly configured Database runtime alias", async () => {
-    const { nuxt, runNitroConfigHook } = createNuxt()
-    Object.assign(nuxt.options.alias, {
-      "@vite-hub/database/runtime/state": "./custom-nuxt-database-state.ts",
-    })
-
-    await viteHubNuxtModule(
-      { database: { databaseId: "content-id", databaseName: "content" }, host: "cloudflare" },
-      nuxt,
-    )
-    const nitroConfig = {
-      alias: {
-        "@vite-hub/database/runtime/state": "./custom-database-state.ts",
-      },
-    }
-    await runNitroConfigHook(nitroConfig)
-
-    // SAFETY: Nuxt aliases are normalized to a string map by the module setup path.
-    expect((nuxt.options.alias as Record<string, string>)["@vite-hub/database/runtime/state"]).toBe(
-      "./custom-nuxt-database-state.ts",
-    )
-    expect(nitroConfig.alias["@vite-hub/database/runtime/state"]).toBe("./custom-database-state.ts")
+    const middleware = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/database/middleware.ts`, "utf8")
+    expect(middleware).toContain(`from ${JSON.stringify(fileURLToPath(import.meta.resolve("@vite-hub/database/runtime/state")))}`)
   })
 
   it("installs the Auth Vue and server runtime integration through module options", async () => {
