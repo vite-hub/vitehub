@@ -9,7 +9,7 @@ import { files } from "@vite-hub/source"
 import { acceptsMarkdown, contentSource, defineContent, defineContentLlmsHandler, defineContentMarkdownHandler, renderContentLlms, renderContentMarkdownNotFound, renderContentSitemapMarkdown, seo } from "../src/index.ts"
 import { historyWorkspace } from "./history-workspace.ts"
 
-import type { DefineContentSeoOptions } from "../src/index.ts"
+import type { ContentSourceOptions, DefineContentSeoOptions } from "../src/index.ts"
 
 const cleanup: Array<() => Promise<void> | void> = []
 
@@ -393,6 +393,53 @@ describe("llms files of Sources", { timeout: 30_000 }, () => {
     expect(await content.llms({ file: "sitemap.md" })).toContain("- [Guide](https://example.com/portal/raw/guide.md)")
     expect(await content.pages()).toEqual([{ title: "Guide", path: "/guide", url: "https://example.com/portal/guide" }])
     expect(await content.page("/guide")).toMatchObject({ url: "https://example.com/portal/guide" })
+  })
+
+  /** A Source whose `url` reads only the file key, as a docs manifest gives it, and that counts its reads. */
+  function indexedSite(options: Pick<ContentSourceOptions, "seo"> = {}) {
+    const pages: Record<string, string> = {
+      "guide.md": "---\ntitle: Guide\ndescription: Start here.\n---\nRead the guide.\n",
+      "about.md": "---\ntitle: About\n---\nAbout us.\n",
+      "logo.svg": "<svg/>",
+    }
+    const urls: Record<string, string> = { "guide.md": "/docs/guide", "about.md": "/about", "logo.svg": "/logo" }
+    const reads: string[] = []
+    const source = {
+      keys: async () => Object.keys(pages),
+      getItem: async (key: string) => {
+        reads.push(key)
+        return pages[key] ?? ""
+      },
+      getItemRaw: async (key: string) => pages[key],
+    }
+    const content = defineContent({
+      route: false,
+      logger: false,
+      sources: { docs: contentSource(source, { url: ({ key }) => key === undefined ? null : urls[key] ?? null, ...options }) },
+      seo: { site: "https://example.com", markdown: { prefix: "/raw" }, llms: true, mcp: true },
+    })
+    cleanup.push(() => content.dispose())
+    return { content, reads }
+  }
+
+  it("reads one page by its URL through the URL index, without reading the other files", async () => {
+    const { content, reads } = indexedSite()
+    expect(await content.markdown("/raw/docs/guide.md")).toBe("# Guide\n\n> Start here.\n\nRead the guide.\n")
+    expect(reads).toEqual(["guide.md"])
+    expect(await content.hasMarkdown("/docs/guide.md")).toBe(true)
+    expect(await content.page("/about")).toMatchObject({ title: "About", path: "/about", url: "https://example.com/about" })
+    expect(await content.markdown("/raw/missing.md")).toBeNull()
+    expect(await content.markdown("/raw/logo.md")).toBeNull()
+    expect(reads).toEqual(["guide.md", "guide.md", "about.md", "logo.svg"])
+    // The listing reads every file, and gives the same copy.
+    expect((await content.llms({ file: "llms-full.txt" }))).toContain("Read the guide.")
+    expect(await content.markdown("/raw/docs/guide.md")).toBe("# Guide\n\n> Start here.\n\nRead the guide.\n")
+  })
+
+  it("reads through the listing when an option reads the id of a page", async () => {
+    const { content } = indexedSite({ seo: ({ id }) => ({ title: `Page ${id}` }) })
+    expect(await content.markdown("/raw/docs/guide.md")).toBe("# Page guide\n\n> Start here.\n\nRead the guide.\n")
+    expect(await content.page("/about")).toMatchObject({ title: "Page about" })
   })
 
   it("rejects page options without a url, and a prefix with a trailing slash", () => {

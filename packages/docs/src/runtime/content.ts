@@ -4,7 +4,7 @@ import manifest from "#docs/manifest"
 import { useRuntimeConfig } from "nitro/runtime-config"
 import { docsAgentCopy, docsAgentPages, docsContentSource } from "../agent-copy.ts"
 import { docsDocumentOf, docsMarkdown } from "../markdown.ts"
-import { docsManifestPages, docsRawPath, findDocsPage } from "../navigation.ts"
+import { docsManifestPages } from "../navigation.ts"
 import { docsParserOptions } from "./documents.ts"
 import { readDocsFile } from "./files.ts"
 
@@ -34,23 +34,6 @@ let content: { runtime: DocsContent, siteUrl: string } | undefined
 async function docsPageCopy(page: DocsPage, text: string, siteUrl: string): Promise<DocsMarkdownCopy> {
   const rewritten = await readDocsFile("docs-agent", `${docsContentSource(page)}/${page.file}`)
   return docsAgentCopy(manifest, page, rewritten === null ? text : String(rewritten), siteUrl)
-}
-
-/**
- * The agent copy at a raw path such as `/raw/docs/kv.md`, or null. Content finds a Source page by its URL only after it lists every file,
- * which costs a cold Worker about 250 ms on a large site. The manifest knows the file of each URL, so this reads the
- * one file and renders it with the copy that Content serves in `llms-full.txt` and the MCP server.
- */
-export async function readDocsRawCopy(rawPath: string): Promise<string | null> {
-  const path = rawPath.replace(/^\/raw/, "").replace(/\.md$/, "")
-  const found = findDocsPage(manifest, path === "/index" ? "/" : path)
-  // One copy per page: `/raw/docs/kv/index.md` is not the copy of `/docs/kv`.
-  if (!found || docsRawPath(found.page.path) !== rawPath) return null
-  const config = useRuntimeConfig().public.docs
-  const text = await readDocsFile(found.page.source ?? "docs", found.page.file)
-  if (text === null) return null
-  const copy = await docsPageCopy(found.page, String(text), `${config.site.url}${config.appBase.replace(/\/+$/, "")}`)
-  return `${copy.markdown}${copy.footer}`
 }
 
 /**

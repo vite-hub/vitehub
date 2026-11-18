@@ -532,7 +532,9 @@ export function contentDocumentUrl(
     return resolved === null ? null : `/${document.locale}${resolved === "/" ? "" : resolved}`
   }
   if (url instanceof Function) {
-    const result: unknown = url({ id: document.id, data: document.data, ...document.locale === undefined ? {} : { locale: document.locale }, ...document.key === undefined ? {} : { key: document.key } })
+    // The id and the fields are read only when the function reads them, so a `url` that reads only `key` works for a file
+    // that is not parsed yet.
+    const result: unknown = url({ get id() { return document.id }, get data() { return document.data }, ...document.locale === undefined ? {} : { locale: document.locale }, ...document.key === undefined ? {} : { key: document.key } })
     if (result === null || result === undefined) return null
     if (String(result) !== result || !result.startsWith("/") || result.startsWith("//")) {
       throw contentErrorDiagnostics.CONTENT_DOCUMENTS_URL_INVALID({ problem: `Content url() must return a path that starts with /, or null, received ${JSON.stringify(result)} for ${JSON.stringify(document.id)}.` })

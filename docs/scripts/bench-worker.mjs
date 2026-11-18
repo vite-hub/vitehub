@@ -80,6 +80,7 @@ function bundle(server, outdir) {
   if (result.status !== 0) throw new Error(`wrangler deploy --dry-run failed:\n${result.stdout}${result.stderr}`);
   const upload = /Total Upload: ([\d.]+) KiB \/ gzip: ([\d.]+) KiB/.exec(result.stdout);
   if (!upload) throw new Error(`No upload size in Wrangler's report:\n${result.stdout}`);
+  // Wrangler copies the D1 migrations of the Database next to the modules. They are not modules.
   const modules = readdirSync(outdir, { recursive: true, withFileTypes: true })
     .filter(entry => entry.isFile() && entry.name !== "README.md" && !entry.name.endsWith(".map"))
     .map((entry) => {
@@ -124,7 +125,8 @@ async function startup(server, outdir, samples, port) {
   const workerd = createRequire(createRequire(wranglerPackage).resolve("miniflare"))("workerd").default;
   const config = JSON.parse(readFileSync(join(server, "wrangler.json"), "utf8"));
   const base = { compatibilityDate: config.compatibility_date, compatibilityFlags: config.compatibility_flags ?? [] };
-  const modules = readdirSync(outdir, { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()).map(entry => relative(outdir, join(entry.parentPath, entry.name))).filter(name => name !== "README.md" && !name.endsWith(".map") && !name.endsWith(".capnp")).map((name) => {
+  // Wrangler copies the D1 migrations of the Database next to the modules. They are not modules.
+  const modules = readdirSync(outdir, { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()).map(entry => relative(outdir, join(entry.parentPath, entry.name))).filter(name => name !== "README.md" && !name.endsWith(".map") && !name.endsWith(".capnp") && !name.endsWith(".sql")).map((name) => {
     const type = moduleTypes[name.slice(name.lastIndexOf("."))];
     if (!type) throw new Error(`No module type for ${name} in ${outdir}.`);
     return { name, type, file: name };

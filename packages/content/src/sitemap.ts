@@ -304,31 +304,77 @@ export async function contentRoutedPages(collections: readonly AnyContentCollect
   }
   for (const source of sources) {
     for (const document of await source.list()) {
-      const id = document.path.replace(/^\/+/, "")
-      // Comark keys a file as `<source>/<Source key>`.
-      const fileKey = document.meta?.key
-      const key = fileKey?.startsWith(`${source.name}/`) ? fileKey.slice(source.name.length + 1) : fileKey
-      const url = contentDocumentUrl(source.url, { id, data: document.data, ...key === undefined ? {} : { key } })
-      if (url === null) continue
-      const loc = absolute(url, site)
-      const seo: unknown = source.seo ? source.seo({ id, data: document.data, ...key === undefined ? {} : { key } }) : document.data.seo
-      if (seo !== null && Object(seo) === seo && Reflect.get(Object(seo), "noindex") === true && !options.all) continue
-      const canonical: unknown = seo !== null && Object(seo) === seo ? Reflect.get(Object(seo), "canonical") : undefined
-      if (String(canonical) === canonical && absolute(canonical, site) !== loc && !options.all) continue
-      if (seen.has(loc)) continue
-      seen.add(loc)
-      const entry: ContentRoutedPage = { collection: source.name, id, loc, markdown: document.meta?.extension === undefined || /^\.?(?:md|markdown)$/i.test(document.meta.extension) }
-      if (key) entry.key = key
-      const title = stringField(seo, "title") ?? stringField(document.data, "title")
-      const description = stringField(seo, "description") ?? stringField(document.data, "description")
-      const date = dateField(document.data)
-      if (title) entry.title = title
-      if (description) entry.description = description
-      if (date) entry.date = date
+      const entry = contentSourcePage(source, document, site, options)
+      if (!entry || seen.has(entry.loc)) continue
+      seen.add(entry.loc)
       pages.push(entry)
     }
   }
   return pages
+}
+
+/** A document of a Source as `list()` returns it. */
+type ContentSourceDocument = Awaited<ReturnType<ContentSitemapSource["list"]>>[number]
+
+/**
+ * Thrown when a Source option reads the id of a page that Content found through its URL index. The index knows the
+ * Source key and the frontmatter of the file, but only Comark's listing gives the document id.
+ */
+export const contentPageIdUnknown: unique symbol = Symbol("contentPageIdUnknown")
+
+/**
+ * The routed page of one Source document, or undefined when it has no URL. Without `all`, also undefined for a
+ * `noindex` page and a page whose canonical URL points elsewhere. The id is read only when an option or a caller reads
+ * it, so a page from the URL index works while nothing asks for its id.
+ */
+export function contentSourcePage(source: Omit<ContentSitemapSource, "list">, document: ContentSourceDocument, site: string | undefined, options: { all?: boolean } = {}): ContentRoutedPage | undefined {
+  let id: string | undefined
+  const readId = () => id ??= document.path.replace(/^\/+/, "")
+  // Comark keys a file as `<source>/<Source key>`.
+  const fileKey = document.meta?.key
+  const key = fileKey?.startsWith(`${source.name}/`) ? fileKey.slice(source.name.length + 1) : fileKey
+  const fields = { get id() { return readId() }, data: document.data, ...key === undefined ? {} : { key } }
+  const url = contentDocumentUrl(source.url, fields)
+  if (url === null) return
+  const loc = absolute(url, site)
+  const seo: unknown = source.seo ? source.seo(fields) : document.data.seo
+  if (seo !== null && Object(seo) === seo && Reflect.get(Object(seo), "noindex") === true && !options.all) return
+  const canonical: unknown = seo !== null && Object(seo) === seo ? Reflect.get(Object(seo), "canonical") : undefined
+  if (String(canonical) === canonical && absolute(canonical, site) !== loc && !options.all) return
+  const entry: ContentRoutedPage = { collection: source.name, get id() { return readId() }, loc, markdown: document.meta?.extension === undefined || /^\.?(?:md|markdown)$/i.test(document.meta.extension) }
+  if (key) entry.key = key
+  const title = stringField(seo, "title") ?? stringField(document.data, "title")
+  const description = stringField(seo, "description") ?? stringField(document.data, "description")
+  const date = dateField(document.data)
+  if (title) entry.title = title
+  if (description) entry.description = description
+  if (date) entry.date = date
+  return entry
+}
+
+/**
+ * The page path of a Source file from its key alone, such as `/docs/kv` for `docs/kv.md`: from a `url` function that
+ * reads only `key`, or a pattern without tokens. Null when the file has no URL. Undefined when the `url` reads the
+ * document id or its frontmatter, so only Comark's listing gives the URL.
+ */
+export function contentSourceKeyUrl(url: ContentDocumentUrl, key: string): string | null | undefined {
+  const unknown = Symbol("unknown")
+  const fields = {
+    key,
+    get id(): string {
+      throw unknown
+    },
+    get data(): Record<string, unknown> {
+      throw unknown
+    },
+  }
+  try {
+    return contentDocumentUrl(url, fields)
+  }
+  catch (error) {
+    if (error === unknown) return
+    throw error
+  }
 }
 
 /** The sitemap entries of the routed pages. A Source page gets `lastmod` from `dates`, its latest history entry. */

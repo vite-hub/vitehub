@@ -20,7 +20,7 @@ import type {
 import type { ContentListFile, ContentRegistry, RegistryData, SourceData } from "comark-content"
 import { checkContentDocuments, contentCheckResult, parseContentFiles } from "./check.ts"
 import type { ContentCheckFinding, ContentCheckInput, ContentCheckOptions, ContentCheckResult } from "./check.ts"
-import { contentSource, contentSourceKeys, contentSourceKind, contentSourceNeedsExposureChoice, contentSourceRoute, contentSourceUrl, createContentInstance } from "./content-source.ts"
+import { contentSource, contentSourceDefinition, contentSourceKeys, contentSourceKind, contentSourceNeedsExposureChoice, contentSourceRoute, contentSourceUrl, createContentInstance } from "./content-source.ts"
 import { setContentSnapshotTargets, takeContentSnapshots } from "./snapshots.ts"
 import { createContentHistory } from "./history.ts"
 import type { ContentHistoryOptions, ContentHistoryResult } from "./history.ts"
@@ -37,7 +37,8 @@ import { createContentPreview, createRequestScope } from "./preview.ts"
 import { contentRefTokenParameter } from "./preview-parameters.ts"
 import { parseContentPreviewPath, previewLink, previewLinkQuery, previewResponse, requestWithUrl, rewriteContentLinks } from "./ref-routes.ts"
 import type { ContentPreviewLink, ContentPreviewLinkAccess, ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
-import { contentLabel, contentMarkdownCopy, contentMarkdownCopyExists, contentMarkdownCopyPage, contentRoutedPages, contentSitemapEntries, markdownPrefix, normalizeSeoOptions, renderContentRobots, renderContentSitemap, renderMarkdownCopy, siteOrigin } from "./sitemap.ts"
+import { parseFrontmatter } from "comark"
+import { contentLabel, contentMarkdownCopy, contentMarkdownCopyExists, contentMarkdownCopyPage, contentPageIdUnknown, contentRoutedPages, contentSitemapEntries, contentSourceKeyUrl, contentSourcePage, markdownPrefix, normalizeSeoOptions, renderContentRobots, renderContentSitemap, renderMarkdownCopy, siteOrigin } from "./sitemap.ts"
 import { contentPageCharacters, contentPageKey, contentPagePath, contentPagesLimit, contentPageSummary } from "./mcp.ts"
 import { contentSearchSections } from "./search-sections.ts"
 import { contentRssChannel, contentRssItems, contentRssLimit, renderContentRss } from "./rss.ts"
@@ -851,13 +852,14 @@ export function defineContent<
    * The Markdown copy of a routed page, from its published collection document or its Source file. A Source with
    * `contentSource(input, { markdown })` renders its own copy. `footer` adds the end that only the `.md` copy has.
    */
-  async function pageMarkdown(page: ContentRoutedPage, site: string | undefined, footer = false): Promise<string | null> {
+  async function pageMarkdown(page: ContentRoutedPage, site: string | undefined, footer = false, read?: string): Promise<string | null> {
     if (page.key !== undefined) {
-      const text = await sourceText(page.collection, page.key)
+      const text = read ?? await sourceText(page.collection, page.key)
       if (text === null) return null
       const render = routedSources.find(source => source.name === page.collection)?.markdown
       if (render) {
-        const copy = await render({ id: page.id, key: page.key, path: contentPagePath(page.loc, site), text, ...page.title ? { title: page.title } : {}, ...page.description ? { description: page.description } : {}, ...site ? { site } : {} })
+        // The id is read only when `markdown()` reads it: a page from the URL index has none yet.
+        const copy = await render({ get id() { return page.id }, key: page.key, path: contentPagePath(page.loc, site), text, ...page.title ? { title: page.title } : {}, ...page.description ? { description: page.description } : {}, ...site ? { site } : {} })
         if (copy === null || typeof copy === "string") return copy
         return footer && copy.footer ? `${copy.markdown}${copy.footer}` : copy.markdown
       }
@@ -888,8 +890,87 @@ export function defineContent<
   async function markdownPages(site: string | undefined, all = false): Promise<ContentRoutedPage[]> {
     return (await contentRoutedPages(documentsRuntime ? [...documentsRuntime.collections.values()] : [], site, routedSources, { all })).filter(page => page.markdown)
   }
+  /**
+   * The URL index of each routed Source whose `url` reads only the Source key, such as a docs manifest: the Source key of
+   * each page, by page key. A read of one page by its URL reads one file through it, where the listing reads and parses
+   * every file of the Source. A Source whose `url` reads the id or the frontmatter has no index. The index follows the
+   * head commit of a `github()` Source, and `content.cache.refresh()` rebuilds it.
+   */
+  const urlIndexes = new Map<string, { revision: string | undefined, index: Promise<Map<string, string> | undefined> }>()
+  async function urlIndex(source: (typeof routedSources)[number]): Promise<Map<string, string> | undefined> {
+    const commits = sourceCommits.get(source.name)
+    const revision = await commits?.revision()
+    const cached = urlIndexes.get(source.name)
+    if (cached && cached.revision === revision?.id) return await cached.index
+    const index = (async () => {
+      const input = inputs[source.name]!
+      const keys = commits && revision
+        ? (await commits.files(revision)).map(file => file.path ?? file.key)
+        : contentSourceDefinition(input) ? await contentSourceKeys(input) : await from(source.name).getSource(source.name)?.keys() ?? []
+      const pages = new Map<string, string>()
+      for (const key of keys) {
+        const url = contentSourceKeyUrl(source.url, key)
+        if (url === undefined) return
+        // Two files with one URL: the first one wins, as in the listing.
+        if (url !== null && !pages.has(contentPageKey(url))) pages.set(contentPageKey(url), key)
+      }
+      return pages
+    })()
+    const entry = { revision: revision?.id, index }
+    urlIndexes.set(source.name, entry)
+    // A failed build, such as a Source that is down, is not kept, so the next read tries again.
+    void index.catch(() => {
+      if (urlIndexes.get(source.name) === entry) urlIndexes.delete(source.name)
+    })
+    return await index
+  }
+  /**
+   * The routed Source page at a page key, such as `/docs/kv`, with the text of its file when the URL index found it.
+   * The first Source that routes the path wins, as in the listing. A page from the index throws `contentPageIdUnknown`
+   * when an option reads its id: call it through `withUrlIndex()`.
+   */
+  async function sourcePageAt(key: string, site: string | undefined): Promise<{ page: ContentRoutedPage, text?: string } | undefined> {
+    for (const source of routedSources) {
+      const index = await urlIndex(source)
+      if (!index) {
+        const page = (await contentRoutedPages([], site, [source], { all: true })).find(candidate => contentPageKey(contentPagePath(candidate.loc, site)) === key)
+        if (page) return { page }
+        continue
+      }
+      const file = index.get(key)
+      if (file === undefined) continue
+      const text = await sourceText(source.name, file)
+      if (text === null) continue
+      const document = {
+        get path(): string {
+          throw contentPageIdUnknown
+        },
+        data: parseFrontmatter(text).data,
+        meta: { key: `${source.name}/${file}`, extension: /\.[^./]+$/.exec(file)?.[0] ?? "" },
+      }
+      const page = contentSourcePage(source, document, site, { all: true })
+      if (page) return { page, text }
+    }
+  }
+  /** Run a read through the URL index, or through the listing when a Source option reads the id of an indexed page. */
+  async function withUrlIndex<T>(indexed: () => Promise<T>, listed: () => Promise<T>): Promise<T> {
+    try {
+      return await indexed()
+    }
+    catch (error) {
+      if (error === contentPageIdUnknown) return await listed()
+      throw error
+    }
+  }
   /** The Source page whose Markdown copy is at `path`, such as `/docs/kv.md`, or with the `seo.markdown` prefix. */
-  async function sourceCopyPage(path: string, site: string | undefined): Promise<ContentRoutedPage | undefined> {
+  async function sourceCopyPage(path: string, site: string | undefined): Promise<{ page: ContentRoutedPage, text?: string } | undefined> {
+    const page = contentMarkdownCopyPage(path, markdownPrefix(seo))
+    if (page === undefined || !routedSources.length) return
+    const found = await sourcePageAt(contentPageKey(page), site)
+    return found?.page.markdown ? found : undefined
+  }
+  /** The Source page whose Markdown copy is at `path`, from the listing of every Source. */
+  async function listedCopyPage(path: string, site: string | undefined): Promise<ContentRoutedPage | undefined> {
     const page = contentMarkdownCopyPage(path, markdownPrefix(seo))
     if (page === undefined || !routedSources.length) return
     const key = contentPageKey(page)
@@ -937,11 +1018,23 @@ export function defineContent<
       if (String(path) !== path) throw contentErrorDiagnostics.CONTENT_R0070({ message: "[vitehub] content.page() takes a page path such as /blog/hello." })
       const site = siteFor(pageOptions) ?? "http://localhost"
       const key = contentPageKey(path)
-      // Like the `.md` copy, a `noindex` page is readable by its path, though `pages()` does not list it.
-      const page = (await markdownPages(site, true)).find(candidate => contentPageKey(contentPagePath(candidate.loc, site)) === key)
-      if (!page) return null
-      let markdown = await pageMarkdown(page, site)
-      if (markdown === null) return null
+      const matches = (candidate: ContentRoutedPage) => contentPageKey(contentPagePath(candidate.loc, site)) === key
+      // Like the `.md` copy, a `noindex` page is readable by its path, though `pages()` does not list it. Collection
+      // pages come first, as in the listing.
+      const found = await withUrlIndex(async () => {
+        const collected = documentsRuntime ? (await contentRoutedPages([...documentsRuntime.collections.values()], site, [], { all: true })).find(matches) : undefined
+        const at = collected ? { page: collected } : await sourcePageAt(key, site)
+        if (!at?.page.markdown) return null
+        const markdown = await pageMarkdown(at.page, site, false, at.text)
+        return markdown === null ? null : { page: at.page, markdown }
+      }, async () => {
+        const page = (await markdownPages(site, true)).find(matches)
+        const markdown = page ? await pageMarkdown(page, site) : null
+        return page && markdown !== null ? { page, markdown } : null
+      })
+      if (!found) return null
+      const { page } = found
+      let { markdown } = found
       if (markdown.length > contentPageCharacters) markdown = `${markdown.slice(0, contentPageCharacters)}\n\n[The page is longer than ${contentPageCharacters} characters and ends here. Open ${contentPageSummary(page, site).url} for the rest.]\n`
       return { ...contentPageSummary(page, site), content: markdown }
     },
@@ -950,8 +1043,13 @@ export function defineContent<
       const prefix = markdownPrefix(seo)
       const copy = documentsRuntime ? await contentMarkdownCopy(documentsRuntime, prefix && path.startsWith(`${prefix}/`) ? path.slice(prefix.length) : path, site, documentCopy) : null
       if (copy !== null) return copy
-      const page = await sourceCopyPage(path, site)
-      return page ? await pageMarkdown(page, site, true) : null
+      return await withUrlIndex(async () => {
+        const found = await sourceCopyPage(path, site)
+        return found ? await pageMarkdown(found.page, site, true, found.text) : null
+      }, async () => {
+        const page = await listedCopyPage(path, site)
+        return page ? await pageMarkdown(page, site, true) : null
+      })
     },
     hasMarkdown: async (path: string) => {
       const prefix = markdownPrefix(seo)
@@ -960,7 +1058,10 @@ export function defineContent<
         if (!collectionEntries.find(([name]) => name === collection)?.[1].markdown) return true
         return await contentMarkdownCopy(documentsRuntime, copyPath, configuredSite, documentCopy) !== null
       })) return true
-      return await sourceCopyPage(path, configuredSite) !== undefined
+      return await withUrlIndex(
+        async () => await sourceCopyPage(path, configuredSite) !== undefined,
+        async () => await listedCopyPage(path, configuredSite) !== undefined,
+      )
     },
     llms: async (llmsOptions: ContentLlmsOptions = {}) => {
       const llms = seo?.llms
@@ -1289,7 +1390,10 @@ export function defineContent<
         const selected = name ? [from(name)] : instances
         return (await Promise.all(selected.map(instance => instance.cache.keys()))).flat()
       },
-      refresh: (name: string) => from(name).refresh(),
+      refresh: (name: string) => {
+        urlIndexes.delete(name)
+        return from(name).refresh()
+      },
       async snapshot(name: string, opts?: CacheArtifactOptions) {
         const instance = from(name)
         const items = await instance.refresh()
