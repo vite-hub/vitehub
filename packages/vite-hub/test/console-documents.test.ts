@@ -338,7 +338,15 @@ describe("Console document editor discovery", () => {
     try {
       installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["content:read"] }) })
       installConsoleSections(root, sections)
-      installConsoleDocuments(root, { content: { actions: createContentConsoleActions, load: async () => ({ default: content }) } })
+      installConsoleDocuments(root, {
+        content: {
+          actions(module) {
+            const actions = createContentConsoleActions(module)
+            return fakeActions({ overview: (_input, context) => actions.overview({}, context) })
+          },
+          load: async () => ({ default: content }),
+        },
+      })
       installConsoleOperations([{ operations: contentOperations }])
       await expect(call("content.head", {})).resolves.toMatchObject({ status: 200, body: { ok: true, value: { heads: [{ source: "docs", live: false }] } } })
       await expect(documents("overview", {})).resolves.toMatchObject({ status: 200, body: { ok: true, value: { activity: [], collections: [] } } })
