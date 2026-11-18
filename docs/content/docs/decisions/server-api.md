@@ -69,7 +69,7 @@ export default defineEventHandler(async (event) => {
   await requireUserSession(event) // your auth
   const { text } = await readBody(event)
   const [error, selection] = await forecast.resolve(text)
-  if (error) throw createError({ statusCode: 422, message: error.message })
+  if (error) throw new HTTPError({ status: 422, message: error.message })
   return selection
 })
 ```

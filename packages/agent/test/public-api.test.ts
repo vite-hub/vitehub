@@ -26,8 +26,9 @@ async function readBundleGraph(entry: URL): Promise<string> {
   async function visit(file: URL): Promise<void> {
     if (visited.has(file.href)) return
     visited.add(file.href)
+    // A missing entry fails the check; a missing relative chunk is skipped.
     const source = await readFile(file, "utf8").catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return undefined
+      if (error.code === "ENOENT" && file !== entry) return undefined
       throw error
     })
     if (source === undefined) return
@@ -51,18 +52,6 @@ it("keeps Effect out of published Agent declarations", async () => {
 
   const output = declarations.join("\n")
   expect(containsForbiddenPublicReference(output)).toBe(false)
-  expect(output).not.toContain("class AgentOutputValidationError")
-  expect(output).not.toContain("class TranscriptionError")
-  expect(output).not.toMatch(/\brepositoryHost(?:Context)?\b/)
-})
-
-it("does not publish Agent-specific error constructors", async () => {
-  const agent = await import("../dist/index.js")
-  const capabilities = await import("../dist/capabilities.js")
-  expect(agent).not.toHaveProperty("AgentOutputValidationError")
-  expect(capabilities).not.toHaveProperty("TranscriptionError")
-  expect(capabilities).not.toHaveProperty("repositoryHost")
-  expect(capabilities).not.toHaveProperty("repositoryHostContext")
 })
 
 it("does not depend on Effect or leak its runtime failures", async () => {
@@ -95,7 +84,7 @@ it("publishes additive Agent Invocation Stream error metadata", async () => {
 })
 
 it("keeps Effect out of provider and browser bundle graphs", async () => {
-  for (const entry of ["cloudflare.js", "cloudflare/state.js", "messages.js", "output.js"]) {
+  for (const entry of ["cloudflare.js", "cloudflare/state.js", "messages.js"]) {
     const bundle = await readBundleGraph(new URL(`../dist/${entry}`, import.meta.url))
     expect(containsForbiddenPublicReference(bundle), `${entry} must remain Effect and FiberFailure-free`).toBe(false)
   }

@@ -70,6 +70,19 @@ cloudflare	cloudflare-r2-bucket	default
 
 For the Vercel Blob store, the id is `BLOB_STORE_ID`, which Vercel sets for the store connected to the project. Off Vercel, the store is reached through `BLOB_READ_WRITE_TOKEN`, and the CLI reports only whether the token is set, never its value. A configured `token` that overrides the environment is reported as `config`, without a store id or token value. `--json` prints `{ "resources": [...] }` with the same fields and the CLI redaction. D1 over HTTP, PostgreSQL Databases, and Definitions whose `cloudflare` value cannot be read statically are not listed.
 
+`inspect routes` lists the server routes and middleware that ViteHub and other Vite plugins add to the build, with the method, the path, the owner, and the handler file. The owner is the ViteHub area of a generated handler, such as `blob` or `queue`, the package of a package file, or `app`. Routes in `server/routes` and `server/api` are not listed. Like `inspect output`, it loads the configuration that a production build uses.
+
+```bash [Terminal]
+pnpm vitehub inspect routes
+pnpm vitehub inspect routes --json
+```
+
+```txt [Output]
+METHOD  PATH                      OWNER           HANDLER
+*       /**                       queue           .vitehub/nitro/queue/middleware.ts  (middleware)
+*       /_vitehub/blob/signed/**  @vite-hub/blob  @vite-hub/blob/dist/runtime/signed.js
+```
+
 Packages contribute inspection through `vitehub.inspect` on their Vite plugin. The owner package defines the summary; the CLI and the Console only render it. A package lists its host resources with `resources()`.
 
 ## Run any operation

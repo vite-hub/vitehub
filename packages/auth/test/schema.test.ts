@@ -181,3 +181,11 @@ describe("Auth tables", () => {
     }
   })
 })
+
+it("preserves NOT NULL on optional existing Auth fields", () => {
+  const schema = createAuthSqliteSchema({}, { user: {
+    columns: { role: { notNull: true, default: "'user'" } },
+    indexes: [], uniques: [], foreignKeys: [],
+  } })
+  expect(getSqliteTableConfig(schema.user).columns.find(column => column.name === "role")?.notNull).toBe(true)
+})

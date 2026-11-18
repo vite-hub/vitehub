@@ -128,7 +128,7 @@ binding is `unknown`.
 import { getHostBinding } from "vite-hub/runtime"
 
 const [error, email] = getHostBinding("REVIEW_EMAIL", event)
-if (error) throw createError({ statusCode: 503, statusMessage: error.why })
+if (error) throw new HTTPError({ status: 503, message: error.why })
 await email.send(message)
 ```
 

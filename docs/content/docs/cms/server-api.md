@@ -46,7 +46,7 @@ The build reads `server/content.ts` without running it, to add the Workspace and
 - pass that import directly to `extends`, not a value built at runtime;
 - write each option as a string literal.
 
-The build follows a re-export of the default export from a relative file, such as `export { default } from './content/index'`. When it cannot read the selection, the build fails with `CONTENT_B0001`. At runtime, `defineContent()` checks the same rules and throws `CONTENT_R0006`.
+The build follows a re-export of the default export from a relative file, such as `export { default } from './content/index'`. When it cannot read the selection, the build fails with `CONTENT_B0001`. At runtime, `defineContent()` checks the same rules and throws `CONTENT_PRESET_INVALID`, `CONTENT_PRESET_OPTION_UNKNOWN`, or `CONTENT_CMS_OPTION_INVALID`.
 
 The preset fills `workspace` in `defineContent()`, so you cannot use `extends` with `workspace`. It also:
 

@@ -22,7 +22,8 @@ import { consoleAddablePrimitives, openConsoleAddPrimitive } from "../client/add
 import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import { recentTimestamp } from "../client/format";
-import { useConsoleProjects } from "../client/project-session";
+import { consoleCompareUrl } from "../client/project-link";
+import { consoleOpenProjectName, useConsoleProjects } from "../client/project-session";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsolePageHeader from "./console-page-header.vue";
@@ -93,6 +94,7 @@ const agentsEnabled = computed(() => sections.value.includes("agents"));
 // The build that serves the app, from `project.get`. A development server has none.
 const projects = useConsoleProjects();
 const build = computed(() => projects.info.value?.build);
+const compareUrl = computed(() => consoleCompareUrl(build.value));
 const sessionItems = computed(() =>
   recentSessions.items.value.slice(0, 5).map((item) => ({
     agentName: item.agentName,
@@ -253,7 +255,7 @@ onBeforeUnmount(() => {
                 <h1 class="truncate text-base font-semibold tracking-tight text-highlighted">
                   <!-- The name comes with the sections, so a placeholder holds its line instead of a name that then changes. -->
                   <USkeleton v-if="loading" class="my-0.5 h-5 w-40" />
-                  <template v-else>{{ installedNavigation?.projectName || "ViteHub Console" }}</template>
+                  <template v-else>{{ consoleOpenProjectName(installedNavigation?.projectName) || "ViteHub Console" }}</template>
                 </h1>
                 <p class="text-sm text-muted">
                   {{ loading ? "Loading the enabled primitives…" : summary }}
@@ -316,6 +318,17 @@ onBeforeUnmount(() => {
                       <span v-if="build.commit?.branch" class="hidden font-mono sm:inline">{{ build.commit.branch }}</span>
                       <ConsoleRelativeTime :value="build.time" />
                     </span>
+                    <UButton
+                      v-if="compareUrl"
+                      icon="i-lucide-git-compare-arrows"
+                      label="Compare"
+                      :to="compareUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      variant="ghost"
+                      size="xs"
+                      title="Compare the live commit with the default branch on GitHub"
+                    />
                   </li>
                 </ul>
               </section>

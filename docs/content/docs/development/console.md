@@ -78,6 +78,8 @@ To use the Console UI, deploy the app and link it as the next section shows.
 
 [console.vitehub.dev](https://console.vitehub.dev) is the Console as its own app, [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console). Sign in with GitHub or a passkey. Each account has a personal team, and you can make more teams and invite people. A team's projects open in any browser where a member signs in. The sidebar lists the team's apps, **Members** to invite people and remove them, and **Settings** for your name, GitHub sign-in, and passkeys. Invitations are links that you send yourself. The Console sends no email.
 
+The Console names each app by the **Name** you give it when you link it. Without one, it uses the name that the app reports, from its `package.json`. Owners and admins rename an app from the menu of its row on Home.
+
 The Console server keeps an Ed25519 key pair for each linked project, with the private key encrypted, and [signs](#sign-console-requests) each call to the project's Console endpoint with it. The signature names the person who calls. The app keeps only the public key, and the browser never sees the private key.
 
 To open a deployed app there:
@@ -148,14 +150,14 @@ pnpm vitehub project info --url https://app.example.com
   "vitehub": "0.1.0",
   "build": {
     "time": "2026-11-14T10:00:00.000Z",
-    "commit": { "sha": "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f", "message": "feat: add the ferry schedule", "author": "Ada Lovelace", "branch": "main" }
+    "commit": { "sha": "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f", "message": "feat: add the ferry schedule", "author": "Ada Lovelace", "branch": "main", "repository": "ferries/timetable" }
   },
   "sections": ["env", "kv"],
   "operations": ["definitions.list", "documents.action", "env.get", "kv.delete", "kv.get", "kv.has", "kv.list", "kv.set", "media.action", "project.get", "sections.list"]
 }
 ```
 
-`protocol` is the version of this answer. A client stops when the protocol is one that it does not know. `name` is the `name` option of `vitehub`, or the `name` in `package.json` when the option is not set. `vitehub` is the version of the `vite-hub` package that the app runs, such as `0.0.0-preview-4f9c2e1` for a pkg.pr.new build. `build` is what the production build recorded: when it ran, and its Git commit with the first line of the message, the author name, and the branch. The Console shows it as **Last deploy** on Home and on the app Overview. CI variables come first, such as `GITHUB_SHA`, `VERCEL_GIT_COMMIT_SHA`, `CF_PAGES_COMMIT_SHA`, and `WORKERS_CI_COMMIT_SHA`, and `git` in the project fills the rest. A build without Git records only the time, and `SOURCE_DATE_EPOCH` sets the time of a reproducible build. A development server sends no `build`. Every caller that may read `project.get` sees the commit message and the author name. An operation that reads its section from the input, such as `documents.action`, is in the list, and each call checks its section again.
+`protocol` is the version of this answer. A client stops when the protocol is one that it does not know. `name` is the `name` option of `vitehub`, or the `name` in `package.json` when the option is not set. `vitehub` is the version of the `vite-hub` package that the app runs, such as `0.0.0-preview-4f9c2e1` for a pkg.pr.new build. `build` is what the production build recorded: when it ran, and its Git commit with the first line of the message, the author name, the branch, and the github.com repository. The Console shows it as **Last deploy** on Home and on the app Overview. With a repository, the Overview has a **Compare** link to the GitHub page that compares the live commit with the default branch, so you see the commits that are not deployed yet. CI variables come first, such as `GITHUB_SHA`, `VERCEL_GIT_COMMIT_SHA`, `CF_PAGES_COMMIT_SHA`, and `WORKERS_CI_COMMIT_SHA`, and `git` in the project fills the rest. The [health route](/docs/frameworks-hosts/node-self-hosted#check-health) reads the commit the same way. `VITEHUB_BUILD_COMMIT`, `VITEHUB_BUILD_BRANCH`, and `VITEHUB_BUILD_REPOSITORY` set each value for a build that has neither CI variables nor `.git`, such as a Docker build. A build without Git records only the time, and `SOURCE_DATE_EPOCH` sets the time of a reproducible build. A development server sends no `build`. Every caller that may read `project.get` sees the commit message and the author name. An operation that reads its section from the input, such as `documents.action`, is in the list, and each call checks its section again.
 
 The Console page also gets `navigation`, the answer of `sections.list`, so it opens a project with one call. `vitehub project info` and MCP clients do not get it.
 

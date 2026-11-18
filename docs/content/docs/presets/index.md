@@ -44,7 +44,7 @@ export default defineAgent({
 
 An Agent file alone is not enough. Babysitter also needs [GitHub setup](/docs/presets/babysitter#configure-github), [deployment](/docs/presets/babysitter#deploy), and [label controls](/docs/presets/babysitter#control-work-with-labels).
 
-You can also pick one parent with `extends: babysitter`. Use `extends` or `preset`, not both. Preset names are local to the definition. ViteHub does not load packages by name and has no global preset registry.
+`extends` takes one parent Agent Definition that you import. `defineAgent()` has no `preset` or `presets` option: it throws `AGENT_PRESET_OPTION_UNSUPPORTED`. ViteHub does not load packages by name and has no global preset registry.
 
 ## Customize the Agent
 
@@ -67,14 +67,13 @@ Export a `defineAgent()` definition. If users need workflow settings, add typed 
 
 Publishers must declare `@vite-hub/agent` as a peer dependency and include instruction content and required assets explicitly. Selecting a preset does not discover files inside its package. See [Presets from a package](/docs/agents/agent-presets#presets-from-a-package) for the authoring API.
 
-A preset that needs a long-running Node host attaches one with `withAgentProcessHost()` from `vite-hub/agent/process`. List the preset subpath in the `vitehub.agent.processHost` field of your package.json, so that ViteHub starts the host and rejects hosts that cannot run it. List subpaths that select the Codex or Claude Code Driver in `vitehub.agent.providerDriver`, so that Worker builds fail early:
+A preset that needs a long-running Node host attaches one with `withAgentProcessHost()` from `vite-hub/agent/process`. List the preset subpath in the `vitehub.agent.processHost` field of your package.json, so that ViteHub starts the host and rejects hosts that cannot run it:
 
 ```json [package.json]
 {
   "vitehub": {
     "agent": {
-      "processHost": ["./babysitter"],
-      "providerDriver": ["./babysitter", "./workspace"]
+      "processHost": ["./babysitter"]
     }
   }
 }

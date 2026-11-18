@@ -2,6 +2,7 @@ import { createBuilder } from "vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { vitehub } from "../src/index.ts"
+import { readViteHubVersion } from "../src/version.ts"
 import { startBuiltServer } from "./content-preview-fixture.ts"
 import { createProject } from "./support/content-cms.ts"
 
@@ -13,7 +14,7 @@ afterEach(() => {
 })
 
 describe("health route in a built Nitro 3 app", () => {
-  it("answers with the commit of the build and pings the Database", async () => {
+  it("answers with the commit of the build and checks the Database and the KV store", async () => {
     const root = await createProject({
       "package.json": JSON.stringify({ name: "health-build", private: true, type: "module" }),
       "server/databases/default.ts": "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ schema: {} })\n",
@@ -21,7 +22,7 @@ describe("health route in a built Nitro 3 app", () => {
     })
     vi.stubEnv("COMMIT_REF", "0123abc")
     const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown }
-    const app = [vitehub({ database: true, health: { route: "/api/health" }, host: "node" }), nitro()]
+    const app = [vitehub({ database: true, health: { route: "/api/health" }, host: "node", kv: true }), nitro()]
     const builder = await createBuilder({ cacheDir: `${root}.vite-cache`, logLevel: "silent", plugins: app, root } as never)
     await builder.buildApp()
 
@@ -32,7 +33,7 @@ describe("health route in a built Nitro 3 app", () => {
       const response = await server.fetch("/api/health")
       expect(response.status).toBe(200)
       expect(response.headers.get("cache-control")).toBe("no-store")
-      expect(await response.json()).toEqual({ ok: true, commit: "0123abc", databases: { default: true } })
+      expect(await response.json()).toEqual({ ok: true, commit: "0123abc", vitehub: readViteHubVersion(), checks: { database: { default: true }, kv: { default: true } } })
     }
     finally {
       server.close()

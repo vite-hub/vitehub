@@ -276,6 +276,7 @@ fi
     "contract-tests",
     "package-tests",
     "package-tests-success",
+    "typecheck",
     "ui-sdk",
     "service-tests",
     "docs",
