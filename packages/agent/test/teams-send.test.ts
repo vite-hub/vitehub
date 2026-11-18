@@ -102,6 +102,21 @@ describe("teams() send", () => {
     expect(adapter.postMessage).toHaveBeenCalledOnce()
   })
 
+  // Teams accepts a message whose image URL it cannot load and returns no ID. A retry must not post it again.
+  it("stores a message posted without an ID, so a repeated key posts nothing", async () => {
+    const { adapter, connector } = await setup()
+    adapter.postMessage.mockImplementation(async (threadId: string) => ({ id: "", raw: {}, threadId }))
+    const thread = { key: "ticket:2", root: "Ticket 2" }
+    await expect(connector.send("Two images", { recipient: channel, thread, idempotencyKey: "m1" })).resolves.toEqual({})
+    await expect(connector.send("Two images", { recipient: channel, thread, idempotencyKey: "m1" })).resolves.toEqual({})
+    await expect(connector.send("Hi", { recipient: "user:29:abc", idempotencyKey: "dm" })).resolves.toEqual({})
+    await expect(connector.send("Hi", { recipient: "user:29:abc", idempotencyKey: "dm" })).resolves.toEqual({})
+    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+    await expect(connector.send("Edited", { recipient: channel, thread, idempotencyKey: "m1", update: true }))
+      .rejects.toMatchObject({ code: "AGENT_CHANNEL_MESSAGE_ID_MISSING" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+  })
+
   it("creates one root per thread key and replies under it", async () => {
     const { adapter, connector } = await setup()
     const thread = { key: "ticket:1", root: "**Ticket 1**" }

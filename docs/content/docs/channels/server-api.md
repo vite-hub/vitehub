@@ -199,7 +199,7 @@ if (error) throw error
 | --- | --- |
 | `recipient` | A Chat SDK thread ID where the bot got a message, or `user:<id>` for a direct message. |
 | `thread` | Optional. Sends with the same `key` reply under one root. ViteHub posts the root once, from `root` or the first message, and stores it in KV. The recipient must be a channel without a message ID. |
-| `idempotencyKey` | Optional. A repeated key for the same recipient returns the stored receipt and posts nothing. |
+| `idempotencyKey` | Optional. A repeated key for the same recipient returns the stored receipt and posts nothing. When the platform posts a message without returning its ID, such as a Teams message with an image URL that Teams cannot load, the receipt has no `id`, a repeated key still posts nothing, and `update` throws `AGENT_CHANNEL_MESSAGE_ID_MISSING`. |
 | `update` | Optional. With `idempotencyKey`, a repeated key edits the stored message and returns the same receipt. Without a stored receipt, it posts as usual. |
 | `replace` | Optional. Needs `idempotencyKey`. Set it to the `idempotencyKey` of an earlier send to the same `recipient` and `thread`, not this send's key. After this send posts or edits, ViteHub deletes that message and its receipt. Without a stored receipt, it deletes nothing. |
 

@@ -927,7 +927,8 @@ export type TeamsChatMessage = ChatMessage | TeamsAdaptiveCardMessage
 
 /** An outbound connector that sends through a Chat SDK adapter. */
 export interface ChatConnector<TMessage = ChatMessage> {
-  send: (message: TMessage, options: ChatSendOptions) => Promise<{ id: string }>
+  /** Resolves without `id` when the platform posted the message but returned no ID. Such a message cannot be edited or deleted. */
+  send: (message: TMessage, options: ChatSendOptions) => Promise<{ id?: string }>
 }
 
 type TelegramChannelValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
@@ -3097,9 +3098,30 @@ async function connectorKVGet(kv: ConnectorKV, key: string): Promise<Record<stri
   return isRecord(value) ? value : undefined
 }
 
-async function connectorKVSet(kv: ConnectorKV, key: string, value: { id: string } | { threadId: string }): Promise<void> {
+async function connectorKVSet(kv: ConnectorKV, key: string, value: ConnectorReceipt | { threadId: string }): Promise<void> {
   const [error] = await kv.set(key, value)
   if (error) throw error
+}
+
+/**
+ * The stored result of a send with `idempotencyKey`. `{ posted: true }` is a message that the platform posted without
+ * returning its ID, such as a Teams message with an image URL that Teams cannot load. A repeated key does not post it again.
+ */
+type ConnectorReceipt = { id: string } | { posted: true }
+
+function storedReceipt(value: Record<string, unknown> | undefined): ConnectorReceipt | undefined {
+  if (typeof value?.id === "string" && value.id) return { id: value.id }
+  if (value?.posted === true) return { posted: true }
+  return undefined
+}
+
+/** A post that resolved is in the conversation, with or without an ID. */
+function postReceipt(sent: { id?: string }): ConnectorReceipt {
+  return sent.id ? { id: sent.id } : { posted: true }
+}
+
+function sendResult(receipt: ConnectorReceipt): { id?: string } {
+  return "id" in receipt ? { id: receipt.id } : {}
 }
 
 /** What a Chat connector must know about one platform. Everything else uses the Chat SDK adapter API. */
@@ -3160,6 +3182,11 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
     }
     return adapter
   }
+  /** A message posted without an ID cannot be edited. */
+  const editableId = (receipt: ConnectorReceipt) => {
+    if ("id" in receipt) return receipt.id
+    throw agentDiagnostics.AGENT_CHANNEL_MESSAGE_ID_MISSING({ label, root: false })
+  }
   return {
     async send(message, { recipient, thread, idempotencyKey, update, replace }) {
       if (typeof recipient !== "string" || !recipient) throw agentDiagnostics.AGENT_CONNECTOR_RECIPIENT_MISSING({ label })
@@ -3175,16 +3202,16 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
           if (!chat.openDM) throw agentDiagnostics.AGENT_CONNECTOR_ADAPTER_UNSUPPORTED({ label, action: "open direct messages" })
           return await chat.openDM(recipient.slice(5))
         }
-        const post = async () => ({ id: (await chat.postMessage(await target(), chatPostable(message))).id })
-        if (!idempotencyKey) return await post()
+        const post = async () => postReceipt(await chat.postMessage(await target(), chatPostable(message)))
+        if (!idempotencyKey) return sendResult(await post())
         const kv = await connectorKV(name)
         const receiptKeyFor = (key: string) => `${name}:messages:${connectorHash(`${recipient}\0${key}`)}`
         const receiptKey = receiptKeyFor(idempotencyKey)
         const receipt = await withConnectorLock(receiptKey, async () => {
-          const stored = await connectorKVGet(kv, receiptKey)
-          if (typeof stored?.id === "string") {
-            if (update) await chat.editMessage(await target(), stored.id, chatPostable(message))
-            return { id: stored.id }
+          const stored = storedReceipt(await connectorKVGet(kv, receiptKey))
+          if (stored) {
+            if (update) await chat.editMessage(await target(), editableId(stored), chatPostable(message))
+            return stored
           }
           const receipt = await post()
           await connectorKVSet(kv, receiptKey, receipt)
@@ -3194,7 +3221,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
           const replacedKey = receiptKeyFor(replace)
           await withConnectorLock(replacedKey, async () => await deleteConnectorReceipt(platform, chat, kv, replacedKey, await target()))
         }
-        return receipt
+        return sendResult(receipt)
       }
       const threads = platform.thread
       if (!threads) throw agentDiagnostics.AGENT_CONNECTOR_THREAD_UNSUPPORTED({ name })
@@ -3208,7 +3235,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
       const receiptKey = idempotencyKey ? `${key}:messages:${connectorHash(idempotencyKey)}` : undefined
       const replacedKey = replace ? `${key}:messages:${connectorHash(replace)}` : undefined
       const receipt = await withConnectorLock(key, async () => {
-        const stored = receiptKey ? await connectorKVGet(kv, receiptKey) : undefined
+        const stored = receiptKey ? storedReceipt(await connectorKVGet(kv, receiptKey)) : undefined
         const savedRoot = await connectorKVGet(kv, `${key}:root`)
         let threadId = typeof savedRoot?.threadId === "string" ? savedRoot.threadId : undefined
         if (replacedKey && threadId) {
@@ -3217,10 +3244,10 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
             throw agentDiagnostics.AGENT_CONNECTOR_REPLACE_THREAD_ROOT({ label })
           }
         }
-        if (typeof stored?.id === "string") {
+        if (stored) {
           // Inside a channel thread, edit a message through the root thread ID, also when the message is the root.
-          if (update && threadId) await chat.editMessage(threadId, stored.id, chatPostable(message))
-          return { id: stored.id }
+          if (update && threadId) await chat.editMessage(threadId, editableId(stored), chatPostable(message))
+          return stored
         }
         if (!threadId) {
           const root = await postChannelMessage(recipient, chatPostable(thread.root ?? message))
@@ -3232,10 +3259,9 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
             return { id: root.id }
           }
         }
-        const sent = await chat.postMessage(threadId, chatPostable(message))
-        if (!sent.id) throw agentDiagnostics.AGENT_CHANNEL_MESSAGE_ID_MISSING({ label, root: false })
-        if (receiptKey) await connectorKVSet(kv, receiptKey, { id: sent.id })
-        return { id: sent.id }
+        const sent = postReceipt(await chat.postMessage(threadId, chatPostable(message)))
+        if (receiptKey) await connectorKVSet(kv, receiptKey, sent)
+        return sent
       })
       if (replacedKey) {
         await withConnectorLock(key, async () => {
@@ -3244,14 +3270,14 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
           if (typeof savedRoot?.threadId === "string") await deleteConnectorReceipt(platform, chat, kv, replacedKey, savedRoot.threadId)
         })
       }
-      return receipt
+      return sendResult(receipt)
     },
   }
 }
 
 /** A chat adapter that also sends: `useChannel(name).send(message, options)` posts through it. */
 export type ChatChannelAdapter<TChannel, TMessage = ChatMessage> = TChannel & {
-  send: (message: TMessage, options: ChatSendOptions) => Promise<{ id: string }>
+  send: (message: TMessage, options: ChatSendOptions) => Promise<{ id?: string }>
 }
 
 /** Adds `send` to a chat adapter. The connector is built on the first send, from the adapter's own options. */
