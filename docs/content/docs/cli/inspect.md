@@ -80,7 +80,7 @@ pnpm vitehub inspect routes --json
 ```txt [Output]
 METHOD  PATH                      OWNER           HANDLER
 *       /**                       queue           .vitehub/nitro/queue/middleware.ts  (middleware)
-*       /_vitehub/blob/signed/**  @vite-hub/blob  @vite-hub/blob/dist/runtime/signed.js
+*       /_vitehub/blob-signed/**  @vite-hub/blob  @vite-hub/blob/dist/runtime/signed.js
 ```
 
 Packages contribute inspection through `vitehub.inspect` on their Vite plugin. The owner package defines the summary; the CLI and the Console only render it. A package lists its host resources with `resources()`.

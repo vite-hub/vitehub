@@ -42,7 +42,7 @@ export async function publishBurst(event: H3Event, ownerId: string) {
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `limit` | positive integer | required | Allowed requests per fixed window. |
-| `window` | duration string | required | Fixed window such as `10s`, `1m`, `1h`, or `1d`. Must be finite, more than zero, and at most `8.64e15` milliseconds. |
+| `window` | duration string | required | Fixed window such as `10s`, `1m`, `1 hour`, or `1d`. Must be more than zero and at most `8.64e15` milliseconds. |
 | `enforcement` | `"best-effort" \| "strict"` | `"best-effort"` | Lowest guarantee the driver must give. |
 | `failure` | `"deny" \| "allow"` | `"deny"` | Whether an unavailable driver denies or allows the request. |
 | `key` | `string` | request client address | Identity of a user, tenant, account, or API client. |

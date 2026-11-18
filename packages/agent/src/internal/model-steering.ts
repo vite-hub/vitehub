@@ -1,9 +1,10 @@
 import type { PrepareStepFunction, PrepareStepResult, ToolSet, UserModelMessage } from "ai"
 
 import type { AgentInvocationControlOutcome } from "../agent-invocation.ts"
-import { getMessageText } from "../messages.ts"
+import { getMessageText, isAttachmentPart } from "../messages.ts"
 import type { AgentRunInput } from "../types.ts"
 import { registerAgentInvocationInputHandler } from "./agent-invocation-control.ts"
+import { chatContextModelText } from "./chat-message-header.ts"
 
 interface PendingSteering {
   message: UserModelMessage
@@ -17,13 +18,34 @@ export interface ModelSteering {
   prepareStep: (prepareStep: unknown) => PrepareStepFunction<ToolSet>
 }
 
-/** Reads the text of steering input. Returns `undefined` when the input has a non-text part. */
-export function agentSteeringText(input: AgentRunInput): string | undefined {
+/** Why a Driver cannot add input to an active turn as text. */
+export type AgentSteeringInputIssue =
+  /** The input has an image, audio or file part. Drivers steer with text only. */
+  | "attachments"
+  /** The input has no user text, for example only a chat message header. */
+  | "empty"
+  /** The input has a part that is neither text, chat context, nor an attachment. */
+  | "unsupported-parts"
+
+/**
+ * Reads steering input as the text that a Driver adds to the active turn. Chat context parts, such as
+ * the sender header of a group chat message, become their model text, each on its own line before the
+ * message text, as in the first prompt.
+ */
+export function agentSteeringInput(input: AgentRunInput): { text: string } | { issue: AgentSteeringInputIssue } {
   const messages = input.messages ?? (Array.isArray(input.prompt) ? input.prompt : input.message && typeof input.message !== "string" ? [input.message] : [])
-  if (messages.some(message => !Array.isArray(message.parts) || message.parts.some(part => part.type !== "text"))) return undefined
-  if (typeof input.prompt === "string") return input.prompt
-  if (typeof input.message === "string") return input.message
-  return messages.map(getMessageText).filter((value): value is string => typeof value === "string").join("\n\n")
+  const parts = messages.flatMap(message => Array.isArray(message.parts) ? message.parts : [undefined])
+  if (parts.some(part => part && isAttachmentPart(part))) return { issue: "attachments" }
+  if (parts.some(part => !part || (part.type !== "text" && chatContextModelText(part) === undefined))) return { issue: "unsupported-parts" }
+  if (typeof input.prompt === "string") return input.prompt.trim() ? { text: input.prompt } : { issue: "empty" }
+  if (typeof input.message === "string") return input.message.trim() ? { text: input.message } : { issue: "empty" }
+  if (!messages.some(message => getMessageText(message).trim())) return { issue: "empty" }
+  return {
+    text: messages.map(message => [
+      ...message.parts.map(part => part.type === "text" ? undefined : chatContextModelText(part)),
+      getMessageText(message),
+    ].filter(Boolean).join("\n")).join("\n\n"),
+  }
 }
 
 /**
@@ -39,8 +61,9 @@ export function openModelSteering(invocationId: string): ModelSteering {
   const unregister = registerAgentInvocationInputHandler(invocationId, {
     sendInput(input, options) {
       if (options.mode !== "steer") return "unsupported"
-      const text = agentSteeringText(input)?.trim()
-      if (!text) return "unsupported"
+      const steering = agentSteeringInput(input)
+      if ("issue" in steering) return { outcome: "unsupported", reason: steering.issue }
+      const text = steering.text.trim()
       if (closed) return "unavailable"
       return new Promise<AgentInvocationControlOutcome>((settle) => {
         pending.push({ message: { content: text, role: "user" }, settle })

@@ -279,7 +279,7 @@ export async function createEmailDevOutboxDriver(options: EmailDevOutboxDriverOp
       name: "outbox",
       send(message) {
         const { id } = record(message, { status: "captured" })
-        return { data: { at: new Date(), driver: "outbox", id }, error: null }
+        return [undefined, { at: new Date(), driver: "outbox", id }]
       },
     }
   }
@@ -311,11 +311,12 @@ export async function createEmailDevOutboxDriver(options: EmailDevOutboxDriverOp
         captured.delivery = failedDelivery(error)
         throw error
       }
-      if (result.error) {
-        captured.delivery = failedDelivery(result.error)
+      const [failure, sent] = result
+      if (failure) {
+        captured.delivery = failedDelivery(failure)
       }
-      else if (v.safeParse(v.pipe(v.string(), v.check(id => id.trim().length > 0)), result.data?.id).success) {
-        captured.delivery = { id: result.data.id, status: "sent" }
+      else if (v.safeParse(v.pipe(v.string(), v.check(id => id.trim().length > 0)), sent.id).success) {
+        captured.delivery = { id: sent.id, status: "sent" }
       }
       else {
         // Keep malformed provider responses out of the successful delivery history.

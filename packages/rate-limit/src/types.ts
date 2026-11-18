@@ -1,13 +1,6 @@
-import type { Result, ViteHubContext } from "@vite-hub/runtime"
+import type { Duration, Result, ViteHubContext } from "@vite-hub/runtime"
 
 type MaybePromise<T> = Promise<T> | T
-
-export type RateLimitWindow =
-  | `${number}ms`
-  | `${number}s`
-  | `${number}m`
-  | `${number}h`
-  | `${number}d`
 
 export type RateLimitEnforcement = "best-effort" | "strict"
 export type RateLimitFailurePolicy = "allow" | "deny"
@@ -18,7 +11,8 @@ export interface RateLimitPolicy {
   enforcement?: RateLimitEnforcement
   failure?: RateLimitFailurePolicy
   limit: number
-  window: RateLimitWindow
+  /** The length of the window, such as `"10s"`, `"1m"`, or `"1 hour"`. */
+  window: Duration
 }
 
 export interface CheckRateLimitOptions extends RateLimitPolicy {
@@ -47,7 +41,7 @@ export interface ResolvedRateLimitPolicy {
   readonly enforcement: RateLimitEnforcement
   readonly failure: RateLimitFailurePolicy
   readonly limit: number
-  readonly window: RateLimitWindow
+  readonly window: Duration
   readonly windowMs: number
 }
 

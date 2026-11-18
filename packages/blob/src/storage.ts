@@ -11,6 +11,7 @@ export { handleBlobMultipartUpload, handleBlobUpload }
 export { createLazyBlobMedia } from "./media/lazy.ts"
 export { blobStoreMode, readonlyBlobStorage } from "./readonly.ts"
 
+import { parseDuration } from "@vite-hub/runtime"
 import type { Result } from "@vite-hub/runtime"
 
 import type { BlobDeletePrefixOptions, BlobDeletePrefixResult, BlobDriverAdapter, BlobDriverMultipartUpload, BlobDriverPutCondition, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobObject, BlobServeResponseOptions, BlobStorage } from "./types.ts"
@@ -370,8 +371,9 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       return [undefined, object]
     },
     async sign(pathname, options) {
-      if (!Number.isInteger(options.expiresIn) || options.expiresIn <= 0) {
-        throw blobErrorDiagnostics.BLOB_R0024({ message: "`expiresIn` must be a positive integer." })
+      const expiresIn = typeof options.expiresIn === "string" ? parseDuration(options.expiresIn) / 1000 : options.expiresIn
+      if (!Number.isInteger(expiresIn) || expiresIn <= 0) {
+        throw blobErrorDiagnostics.BLOB_R0024({ message: "`expiresIn` must be a positive whole number of seconds or a duration such as \"15m\"." })
       }
       if (options.method === "PUT" && options.maxSize !== undefined && blobSizeToBytes(options.maxSize) === undefined) {
         throw blobErrorDiagnostics.BLOB_R0039({ message: `\`maxSize\` must be a size such as "8MB". Received ${JSON.stringify(options.maxSize)}.` })
@@ -381,7 +383,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       }
       const normalizedPathname = normalizePathname(pathname)
       if (options.method === "PUT") assertWritablePath(normalizedPathname)
-      return blobResult("sign", store, () => driver.sign!(normalizedPathname, options, { store }))
+      return blobResult("sign", store, () => driver.sign!(normalizedPathname, { ...options, expiresIn }, { store }))
     },
     async serve(request, pathname, options = {}) {
       // Like a static file server, answer every other method without reading storage, so a POST to a file URL does

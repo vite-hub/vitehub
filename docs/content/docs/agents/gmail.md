@@ -160,15 +160,15 @@ To only poll, stop here. For push, continue:
      --role=roles/pubsub.publisher
    ```
 
-6. Create a service account that signs push requests, and a push subscription with OIDC authentication to the Agent's webhook route, `/api/_vitehub/agents/<agent>/webhooks/<channel>`.
+6. Create a service account that signs push requests, and a push subscription with OIDC authentication to the Agent's webhook route, `/_vitehub/agents/<agent>/webhooks/<channel>`.
 
    ```sh
    gcloud iam service-accounts create gmail-push-invoker
    gcloud pubsub subscriptions create gmail-push \
      --topic=gmail-push \
-     --push-endpoint=https://mail.example.com/api/_vitehub/agents/labeller/webhooks/gmail \
+     --push-endpoint=https://mail.example.com/_vitehub/agents/labeller/webhooks/gmail \
      --push-auth-service-account=gmail-push-invoker@my-project.iam.gserviceaccount.com \
-     --push-auth-token-audience=https://mail.example.com/api/_vitehub/agents/labeller/webhooks/gmail \
+     --push-auth-token-audience=https://mail.example.com/_vitehub/agents/labeller/webhooks/gmail \
      --ack-deadline=600 \
      --min-retry-delay=10s \
      --max-retry-delay=600s

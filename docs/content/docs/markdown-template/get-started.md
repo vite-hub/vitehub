@@ -9,7 +9,7 @@ icon: i-lucide-rocket
 
 Build a short release note from a Markdown template and a data object. You insert the version and status as text, then add a trusted Markdown list. You get a Markdown string to print or pass to an Agent.
 
-You need Node.js 22.18 or newer and pnpm. Set `"type": "module"` in `package.json` so Node.js reads `import` and `export`. You need no Vite server, account, or network access.
+You need Node.js 24.15 or newer and pnpm. Set `"type": "module"` in `package.json` so Node.js reads `import` and `export`. You need no Vite server, account, or network access.
 
 ::tutorial-step{title="Install the package"}
 ## Install the package
@@ -54,7 +54,7 @@ console.log(markdown);
 ::tutorial-step{title="Run and check the result"}
 ## Run and check the result
 
-Run the file with Node.js 22.18 or newer:
+Run the file with Node.js 24.15 or newer:
 
 ```sh [commands/verify]
 node server/render-release.ts

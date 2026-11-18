@@ -208,7 +208,7 @@ Telegram's `getWebhookInfo` returns the URL and delivery errors, but not the sec
 
 ## Export a Channel conversation
 
-When the app has the Channel operations, `vitehub channels list` lists Channels and their retention, `channels threads` lists a Channel's threads, and `channels conversation` reads one thread's messages in order. `vitehub channels status <agent> <channel>` shows sync health and skipped messages of a [Gmail Channel](/docs/agents/gmail#failed-messages).
+When the app has the Channel operations, `vitehub channels list` lists Channels and their retention, `channels threads` lists a Channel's threads, and `channels conversation` reads one thread's messages in order. `vitehub channels status <agent> <channel>` shows sync health and skipped messages of a [Gmail Channel](/docs/agents/gmail#failed-messages). `vitehub channels deliveries <agent> <channel>` lists the newest messages a Channel received, with the run each one reached or [why it started none](/docs/agents/channels#why-a-message-started-no-work).
 
 `conversations export` calls the `conversations.export` [operation](/docs/development/operations) on the dev server, or on the app at `--url` with the credentials of [Run any operation](/docs/cli/inspect#run-any-operation). It needs no webhook secret, only Console access to the `channels` section.
 

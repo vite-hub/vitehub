@@ -109,7 +109,7 @@ import * as v from "valibot";
 const Upload = v.object({ userId: v.string() });
 
 export async function uploadUrl(userId: string) {
-  const ticket = await seal("my-app:upload", { userId }, { ttl: 900 });
+  const ticket = await seal("my-app:upload", { userId }, { ttl: "15m" });
   return `/api/uploads/${ticket}`;
 }
 
@@ -120,7 +120,7 @@ export async function readTicket(ticket: string) {
 }
 ```
 
-Each purpose gets its own key, derived from `VITEHUB_SECRET` with `deriveSecret()`, so a value sealed for one purpose does not open as another. `ttl` is in seconds; without it, the value does not expire. `schema` takes any Standard Schema and types the value; without it, the value is `unknown`. `unseal()` returns a `Result`; a missing root secret or a bad argument throws. Web Crypto does the work, so the same string opens on Node, Workers, Deno, and Bun.
+Each purpose gets its own key, derived from `VITEHUB_SECRET` with `deriveSecret()`, so a value sealed for one purpose does not open as another. `ttl` is a duration such as `"15m"`, or a number of seconds; without it, the value does not expire. `schema` takes any Standard Schema and types the value; without it, the value is `unknown`. `unseal()` returns a `Result`; a missing root secret or a bad argument throws. Web Crypto does the work, so the same string opens on Node, Workers, Deno, and Bun.
 
 To rotate `VITEHUB_SECRET`, put the old secret in `VITEHUB_SECRET_PREVIOUS` (one secret, or a comma-separated list). `seal()` uses `VITEHUB_SECRET`, and `unseal()` also tries each old secret, so open links and cookies keep working until they expire. For values that you store, such as provider credentials, pass a separate root secret: `seal("my-app:credentials", value, { secret: env.credentialsKey })`, with the same `secret` for `unseal()`. To rotate it, pass `[newKey, oldKey]`: `seal()` uses the first, and `unseal()` tries each. See [Sign and seal values](https://vitehub.dev/docs/env/seal).
 
@@ -134,7 +134,7 @@ import { defineEventHandler, getRouterParam, HTTPError } from "h3";
 import { unseal } from "vite-hub/env";
 import { db } from "vite-hub/database";
 
-// Create the link elsewhere: await seal("my-app:share", { apiKey }, { uses: 1, ttl: 3600, db })
+// Create the link elsewhere: await seal("my-app:share", { apiKey }, { uses: 1, ttl: "1h", db })
 export default defineEventHandler(async (event) => {
   const [error, shared] = await unseal("my-app:share", getRouterParam(event, "token")!, { db });
   if (error) throw new HTTPError({ status: 410, message: error.why }); // ENV_SEAL_USED_UP, ENV_SEAL_EXPIRED, ...

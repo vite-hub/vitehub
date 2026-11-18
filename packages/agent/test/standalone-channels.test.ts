@@ -71,7 +71,7 @@ describe('standalone Channel folders', () => {
     try {
       const { app, routes } = await nitroApp(vite)
       expect(routes).toEqual(expect.arrayContaining(['/api/intake/webhook', '/hooks/intake']))
-      for (const path of ['/api/_vitehub/channels/intake', '/api/intake/webhook', '/hooks/intake', '/api/_vitehub/agents/channel-intake/webhooks/intake']) {
+      for (const path of ['/_vitehub/channels/intake', '/api/intake/webhook', '/hooks/intake', '/_vitehub/agents/channel-intake/webhooks/intake']) {
         expect((await app.request(path, { method: 'POST', body: '{}' })).status).toBe(401)
         const delivered = await app.request(path, { method: 'POST', body: '{}', headers: { 'x-test-secret': 'secret' } })
         expect(delivered.status).toBe(200)
@@ -95,8 +95,8 @@ export default defineChannel({
     const vite = await server(root)
     try {
       const { app, routes } = await nitroApp(vite)
-      expect(routes).toEqual(expect.arrayContaining(['/api/_vitehub/channels/payments', '/hooks/payments']))
-      for (const path of ['/api/_vitehub/channels/payments', '/hooks/payments']) {
+      expect(routes).toEqual(expect.arrayContaining(['/_vitehub/channels/payments', '/hooks/payments']))
+      for (const path of ['/_vitehub/channels/payments', '/hooks/payments']) {
         expect((await app.request(path, { method: 'POST', body: '{}' })).status).toBe(401)
         const delivered = await app.request(path, { method: 'POST', body: '{}', headers: { authorization: 'Bearer secret' } })
         expect(delivered.status).toBe(200)
@@ -116,7 +116,7 @@ export default defineAgent({ channels: [${JSON.stringify(channelName)}], runtime
     const vite = await server(root)
     try {
       const { app } = await nitroApp(vite)
-      const delivered = await app.request(`/api/_vitehub/channels/${channelName}`, { method: 'POST', body: '{}' })
+      const delivered = await app.request(`/_vitehub/channels/${channelName}`, { method: 'POST', body: '{}' })
       expect(delivered.status).toBe(200)
       expect(await delivered.json()).toEqual({ agent: 'support' })
     } finally { await vite.close() }
@@ -137,7 +137,7 @@ export default defineAgent({ extends: parent, channels: ['added'] })`,
     try {
       const { app } = await nitroApp(vite)
       for (const name of ['inherited', 'added']) {
-        const delivered = await app.request(`/api/_vitehub/channels/${name}`, { method: 'POST', body: '{}' })
+        const delivered = await app.request(`/_vitehub/channels/${name}`, { method: 'POST', body: '{}' })
         expect(delivered.status).toBe(200)
         expect(await delivered.json()).toEqual({ agent: 'support' })
       }
@@ -176,12 +176,12 @@ export default ${call}({ channels: ${channels.replace('hooks', channelName)}, ru
     const vite = await server(root)
     try {
       const { app } = await nitroApp(vite)
-      for (const path of [`/api/_vitehub/channels/${channelName}`, `/api/_vitehub/agents/support/webhooks/${channelName}`]) {
+      for (const path of [`/_vitehub/channels/${channelName}`, `/_vitehub/agents/support/webhooks/${channelName}`]) {
         const delivered = await app.request(path, { method: 'POST', body: '{}', headers: { authorization: 'Bearer secret' } })
         expect(delivered.status).toBe(200)
         expect(await delivered.json()).toEqual({ agent: 'support', channel: channelName })
       }
-      expect((await app.request(`/api/_vitehub/agents/channel-${channelName}/webhooks/${channelName}`, { method: 'POST', body: '{}', headers: { authorization: 'Bearer secret' } })).status).toBe(404)
+      expect((await app.request(`/_vitehub/agents/channel-${channelName}/webhooks/${channelName}`, { method: 'POST', body: '{}', headers: { authorization: 'Bearer secret' } })).status).toBe(404)
     } finally { await vite.close() }
   }, 30_000)
 
@@ -242,7 +242,7 @@ export default defineAgent({ name: 'owner', channels: ['owner-task'], runtime: f
       const module = await vite.ssrLoadModule(join(root, 'server/agents/owner.ts'))
       expect(module.default.channels['owner-task'].triggers.webhook.tasks.reply.agent).toBeTypeOf('function')
       const { app } = await nitroApp(vite)
-      const response = await app.request('/api/_vitehub/channels/owner-task', { method: 'POST', body: '{}' })
+      const response = await app.request('/_vitehub/channels/owner-task', { method: 'POST', body: '{}' })
       expect(response.status).toBe(200)
       expect(await response.json()).toEqual({ target: 'owner' })
     } finally { await vite.close() }
@@ -279,7 +279,7 @@ const options = { webhooks: [{ path: '/hooks', aliases: ['/old-hooks'] }, { path
 export default defineChannel({ adapter: adapter(${args}) })
 ` })
     expect(discoverStandaloneChannels(root)[0]).toMatchObject({
-      inbound: false, paths: ['/api/_vitehub/channels/hooks', '/hooks', '/old-hooks', '/hooks-two'],
+      inbound: false, paths: ['/_vitehub/channels/hooks', '/hooks', '/old-hooks', '/hooks-two'],
     })
   })
 
@@ -301,9 +301,9 @@ export default function factory() { return defineChannel({ adapter: webhook({ pa
 `,
     })
     expect(discoverStandaloneChannels(root).map(({ agent, handler, inbound, name, paths }) => ({ agent, handler: handler.slice(root.length), inbound, name, paths }))).toEqual([
-      { agent: 'channel-flat', handler: '/server/channels/flat.ts', inbound: true, name: 'flat', paths: ['/api/_vitehub/channels/flat', '/flat/one', '/flat/old'] },
-      { agent: 'channel-intake', handler: '/server/channels/intake/index.ts', inbound: true, name: 'intake', paths: ['/api/_vitehub/channels/intake', '/api/intake/webhook', '/hooks/intake'] },
-      { agent: 'channel-teams', handler: '/server/channels/teams/index.ts', inbound: false, name: 'teams', paths: ['/api/_vitehub/channels/teams'] },
+      { agent: 'channel-flat', handler: '/server/channels/flat.ts', inbound: true, name: 'flat', paths: ['/_vitehub/channels/flat', '/flat/one', '/flat/old'] },
+      { agent: 'channel-intake', handler: '/server/channels/intake/index.ts', inbound: true, name: 'intake', paths: ['/_vitehub/channels/intake', '/api/intake/webhook', '/hooks/intake'] },
+      { agent: 'channel-teams', handler: '/server/channels/teams/index.ts', inbound: false, name: 'teams', paths: ['/_vitehub/channels/teams'] },
     ])
   })
 

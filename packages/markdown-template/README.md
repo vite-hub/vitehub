@@ -17,7 +17,7 @@ User docs: [Markdown templates](https://vitehub.dev/docs/markdown-template).
 pnpm add @vite-hub/markdown-template
 ```
 
-The package requires Node.js 22.18 or newer.
+The package requires Node.js 24.15 or newer.
 
 ## Render a template string
 
