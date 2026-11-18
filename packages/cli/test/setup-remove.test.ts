@@ -44,10 +44,30 @@ describe("vitehub remove", () => {
     expect(exitCode, JSON.stringify(json.error)).toBe(0)
     expect(loadConfig).not.toHaveBeenCalled()
     expect(json).toMatchObject({ features: ["schedule"], status: "applied", turnedOff: ["schedule"], uninstall: { command: "pnpm remove @vite-hub/schedule", packages: ["@vite-hub/schedule"] } })
-    expect(json.changes.map(change => [change.kind, change.path])).toEqual([["patch", "vite.config.ts"], ["delete", "server/schedules/nightly.ts"]])
+    // The starter turned Schedule on, so neither command touches the config.
+    expect(json.changes.map(change => [change.kind, change.path])).toEqual([["delete", "server/schedules/nightly.ts"]])
     expect(pm.calls.at(-1)).toEqual(["pnpm", "remove", "@vite-hub/schedule"])
     expect(await snapshot(root)).toEqual(original)
     expect(existsSync(join(root, "server"))).toBe(false)
+  })
+
+  it("keeps Workflow's opt-out when an Agent still implies it after deleting the starter", async () => {
+    const config = viteConfig('{ host: "cloudflare", agent: true }')
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": config })
+    const pm = fakePackageManager(root)
+    const added = await add(["workflow", "--name", "jobs"], root, pm.spawn)
+    expect(added.exitCode, added.stdout).toBe(0)
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(config)
+
+    const refused = await remove(["workflow", "--yes"], root, pm.spawn)
+    expect(refused.json).toMatchObject({ error: { code: "SETUP_FEATURE_IMPLIED" }, impliedBy: ["agent"] })
+    expect(existsSync(join(root, "server/workflows/jobs.ts"))).toBe(true)
+
+    const forced = await remove(["workflow", "--force", "--yes"], root, pm.spawn)
+    expect(forced.exitCode, forced.stdout).toBe(0)
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain("workflow: false")
+    expect(existsSync(join(root, "server/workflows/jobs.ts"))).toBe(false)
+    expect((await runSetup<SetupStatus>(["status", "--json"], root)).json.features).toContainEqual(expect.objectContaining({ id: "workflow", enabled: "off" }))
   })
 
   it.each([
@@ -594,7 +614,7 @@ describe("vitehub remove", () => {
     })
 
     const refused = await remove(["comments", "--dry-run"], root)
-    expect(refused.exitCode).toBe(3)
+    expect(refused.exitCode, JSON.stringify(refused.json.error)).toBe(3)
     expect(refused.json.references).toEqual([{ feature: "comments", file: "server/comments.ts" }])
 
     const forced = await remove(["comments", "--yes", "--force", "--no-uninstall"], root)

@@ -7,7 +7,7 @@ navigation.group: Auth
 icon: i-simple-icons-betterauth
 ---
 
-Set `host: 'cloudflare'` and `auth: true` in `vitehub()`, and add `server/auth.ts` with `defineAuth()`. ViteHub mounts Better Auth at `/api/auth/**`. To keep users and sessions in D1, add `database: true` and `database: authDatabase()`, and ViteHub adds the tables and their migration. For social sign-in with no database, use the `stateless()` preset.
+Set `host: 'cloudflare'` in `vitehub()`, and add `server/auth.ts` with `defineAuth()`. The file turns Auth on. ViteHub mounts Better Auth at `/api/auth/**`. To keep users and sessions in D1, add `database: true` and `database: authDatabase()`, and ViteHub adds the tables and their migration. For social sign-in with no database, use the `stateless()` preset.
 
 ## What Better Auth, Workers, and D1 are
 
@@ -42,7 +42,7 @@ pnpm add -D drizzle-kit@1.0.0-rc.5 wrangler
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'cloudflare', auth: true, database: true },
+  vitehub: { host: 'cloudflare', database: true },
 })
 ```
 :::
@@ -54,7 +54,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'cloudflare', auth: true, database: true }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare', database: true }), nitro()],
 })
 ```
 :::
@@ -65,7 +65,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'cloudflare', auth: true, database: true })],
+  plugins: [vitehub({ host: 'cloudflare', database: true })],
 })
 ```
 :::
@@ -177,7 +177,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'cloudflare', auth: true,
+    host: 'cloudflare',
     env: {
       server: {
         auth: {
@@ -203,7 +203,6 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [vitehub({
     host: 'cloudflare',
-    auth: true,
     env: {
       server: {
         auth: {
@@ -228,7 +227,6 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [vitehub({
     host: 'cloudflare',
-    auth: true,
     env: {
       server: {
         auth: {
