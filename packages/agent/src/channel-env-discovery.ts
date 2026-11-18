@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { resolve, sep } from "node:path"
 
 import { forgeEnv } from "@vite-hub/internal/forge"
-import { discoverServerChannelModules, listMatchingFiles } from "@vite-hub/internal/definition-catalog"
+import { discoverServerChannelModules, listMatchingFiles, listSourceFiles } from "@vite-hub/internal/definition-catalog"
 import { builtInChannelEnv } from "./channel-env.ts"
 import { discoverAgentDefinitions, tokenizeAgentSource } from "./discovery.ts"
 import { builtInGatewayEnv } from "./internal/gateway-env.ts"
@@ -958,15 +958,24 @@ export function discoverAgentChannelEnv(options: { rootDir: string, serverDirs?:
 }
 
 /**
- * Declare the Server Env of each gateway preset used by a discovered Agent, such as
- * `cliproxy()` or `cloudflareAccess()` imported from `vite-hub/gateways`.
- * The values stay optional, so one server can host Agents that do not use the gateway.
+ * Declare the Server Env of each gateway preset, such as `cliproxy()` or `cloudflareAccess()` imported from
+ * `vite-hub/gateways`, that an Agent file or any other server file uses, for example a Channel that asks a question
+ * through `defineChoices()`. The values stay optional, so one server can host code that does not use the gateway.
  */
 export function discoverAgentGatewayEnv(options: { rootDir: string, serverDirs?: string[] }): AgentChannelEnv {
   const fields: Readonly<Record<string, Readonly<Record<string, ChannelEnvField>>>> = builtInGatewayEnv
   const declared: AgentChannelEnv = {}
-  for (const handler of agentHandlers(options)) {
-    const uses = discoverBuiltInChannelUses(readFileSync(handler, "utf8"), Object.keys(fields), {
+  const serverDirs = options.serverDirs ?? [resolve(options.rootDir, "server")]
+  const files = new Set([
+    ...agentHandlers(options),
+    ...serverDirs.flatMap(directory => listSourceFiles(directory)),
+    ...listMatchingFiles(options.rootDir, name => /\.channel\.(?:c|m)?[jt]s$/i.test(name)),
+  ])
+  for (const handler of files) {
+    const source = readFileSync(handler, "utf8")
+    // Every gateway module path ends in `vite-hub/gateways`, so a file without it uses no preset.
+    if (!source.includes("vite-hub/gateways")) continue
+    const uses = discoverBuiltInChannelUses(source, Object.keys(fields), {
       modules: gatewayFactoryModules,
       shorthands: false,
       typescript: /\.(?:c|m)?ts$/i.test(handler),
