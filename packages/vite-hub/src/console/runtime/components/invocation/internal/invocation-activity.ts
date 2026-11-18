@@ -130,6 +130,17 @@ function messageText(value: unknown): string | undefined {
   return parts.length ? parts.join("") : undefined;
 }
 
+/** The header line that ViteHub adds to a chat message for the model, such as its time and author, without brackets. */
+function chatMessageHeader(message: Record<string, unknown> | undefined): string | undefined {
+  if (!Array.isArray(message?.parts)) return;
+  for (const part of message.parts) {
+    const item = record(part);
+    if (item?.type !== "data-chat-message-header") continue;
+    const text = stringAttribute(record(item.data) ?? {}, "modelText");
+    return text?.replace(/^\[(.*)\]$/s, "$1") || undefined;
+  }
+}
+
 function messageRole(value: unknown): InvocationActivity["role"] {
   return value === "assistant" || value === "system" || value === "tool" || value === "user"
     ? value
@@ -435,25 +446,41 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         : undefined;
     if (Array.isArray(inputMessages)) {
       let lastInputKey: string | undefined;
-      inputMessages.forEach((message, index) => {
+      let firstInputKey: string | undefined;
+      // The message that started the run. The journal keeps it whole, apart from the history.
+      const trigger = record(originalAttributes["input.trigger.message"]);
+      const triggerId = trigger && stringAttribute(trigger, "id");
+      const inputs = trigger && triggerId && !inputMessages.some(message => record(message)?.id === triggerId)
+        ? [...inputMessages, trigger]
+        : inputMessages;
+      inputs.forEach((message, index) => {
         const value = record(message);
         const body = messageText(value) ?? (Array.isArray(value?.parts) ? "```json\n" + payloadText(value.parts) + "\n```" : undefined);
         const role = messageRole(value?.role);
         if (!body || !role) return;
         const key = `input-message:${observation.sequence}:${index}`;
+        const id = value ? stringAttribute(value, "id") : undefined;
+        const header = chatMessageHeader(value);
+        firstInputKey ??= key;
         lastInputKey = key;
         groups.set(key, [{
           ...observation,
           attributes: {
             "message.content": body,
+            ...(header ? { "message.header": header } : {}),
             "message.origin": "invocation-input",
-            "message.id": value ? stringAttribute(value, "id") ?? key : key,
+            "message.id": id ?? key,
             "message.role": role,
+            ...(triggerId && id === triggerId ? { "message.trigger": true } : {}),
           },
           name: "agent.input.message",
-          sequence: observation.sequence - (inputMessages.length - index) / (inputMessages.length + 1),
+          sequence: observation.sequence - (inputs.length - index) / (inputs.length + 1),
         }]);
       });
+      // The journal left the oldest messages out of a long history. The conversation says how many.
+      const omitted = originalAttributes["input.messages.omitted"];
+      const firstInput = firstInputKey === undefined ? undefined : groups.get(firstInputKey)?.[0];
+      if (firstInput && typeof omitted === "number" && omitted > 0) firstInput.attributes = { ...firstInput.attributes, "input.messages.omitted": omitted };
       // One note after the history says it was shortened; repeating it on every message adds noise.
       const historyTruncation = truncatedContent(observation) === undefined
         ? { "vitehub.observation.truncated": true }
@@ -527,7 +554,8 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const kind = activityKind(first, attributes, paths.length ? paths : patches);
       const failed = sorted.some(item => item.type === "error" || /\.(error|failed)$/.test(item.name))
         || (kind === "delivery" && Boolean(stringAttribute(attributes, "error.message")))
-        || attributes["agent.capability.outcome"] === "error";
+        || attributes["agent.capability.outcome"] === "error"
+        || attributes["input.steer.outcome"] === "failed";
       const approvalDenied = attributes["approval.approved"] === false;
       const completed = sorted.some(item => /\.(abort|cancelled|completed|decision|error|failed|finish|recorded)$/.test(item.name));
       const explicitRole = messageRole(attributes["message.role"]);
@@ -656,6 +684,7 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   const explicit = activity.attributes["vitehub.activity.title"];
   if (typeof explicit === "string" && explicit.trim()) return explicit.trim();
   if (activity.name === "vitehub.observation.truncated") return "Trace content was truncated";
+  if (activity.name === "agent.input.steer") return steerTitle(activity);
   if (activity.name === "vitehub.agent.configured") return agentConfigurationTitle(activity);
   if (activity.skill) return `Read ${activity.skill.name} skill`;
   if (activity.kind === "preparation") return "Prepared session";
@@ -681,6 +710,13 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   if (activity.kind === "run") return activity.name.endsWith(".finish") ? "Finished session" : "Started session";
   if (activity.kind === "error" && activity.name.startsWith("agent.invocation.")) return "Session failed";
   return normalizedTitle(activity.name.replace(/\.(start|finish|error|decision|recorded)$/, "").replaceAll(".", " "));
+}
+
+/** A follow-up chat message that tried to reach this run: `Steer deferred: unsupported`. */
+function steerTitle(activity: InvocationActivity): string {
+  const outcome = stringAttribute(activity.attributes, "input.steer.outcome") ?? "attempted";
+  const reason = stringAttribute(activity.attributes, "input.steer.reason");
+  return `Steer ${outcome}${reason ? `: ${reason}` : ""}`;
 }
 
 function agentConfigurationTitle(activity: InvocationActivity): string {

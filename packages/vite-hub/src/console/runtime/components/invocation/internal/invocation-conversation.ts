@@ -2,6 +2,8 @@ import { stringAttribute, type InvocationActivity } from "./invocation-activity.
 
 export type InvocationConversation = {
   deliveredAnswerCount: number;
+  /** Earlier history messages that the journal did not record. */
+  omittedHistory: number;
   promptId?: string;
 } & (
   | { kind: "activities"; activities: readonly InvocationActivity[] }
@@ -27,7 +29,8 @@ export function buildInvocationConversation(activities: readonly InvocationActiv
   const tail = orderedActivities.slice(firstUser + 1);
   const finalBody = lastAssistant >= 0 ? orderedActivities[lastAssistant]!.body?.trim() : undefined;
   const answers = new Set(uniqueDeliveredAnswers(tail, new Set(finalBody ? [finalBody] : [])));
-  const metadata = { deliveredAnswerCount: answers.size, promptId };
+  const omittedHistory = Math.max(0, ...activities.map(activity => Number(activity.attributes["input.messages.omitted"]) || 0));
+  const metadata = { deliveredAnswerCount: answers.size, omittedHistory, promptId };
   if (firstUser < 0 && !orderedActivities.some(isDeliveredAnswer)) {
     return { ...metadata, kind: "activities", activities: orderedActivities };
   }
@@ -99,6 +102,9 @@ function promptActivityIndex(activities: readonly InvocationActivity[]): number 
       && activity.name !== "agent.input.message"
       && activity.attributes["input.mode"] !== "steer") return index;
   }
+  // The input history marks the message that started the run. Older records have no mark: take their last user message.
+  const triggerPrompt = activities.findIndex(activity => activity.attributes["message.trigger"] === true);
+  if (triggerPrompt >= 0) return triggerPrompt;
   const inputPrompt = activities.findLastIndex(activity => activity.role === "user"
     && activity.attributes["message.origin"] === "invocation-input");
   if (inputPrompt >= 0) return inputPrompt;

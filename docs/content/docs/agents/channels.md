@@ -153,7 +153,7 @@ An ignored bot message is recorded as a `rejected` delivery with the reason `bot
 
 ### Why a message started no work
 
-Each message that a chat Channel receives has a delivery record. `vitehub channels deliveries <agent> <channel>` lists them. The webhook answer is `acknowledged`, because Chat handles the message after the answer. A message that starts no work ends `rejected` with a `reason`:
+Each message that a chat Channel receives has a delivery record. `vitehub channels deliveries <agent> <channel>` and the Channels page of the Console list them. The webhook answer is `acknowledged`, because Chat handles the message after the answer. A message that starts no work ends `rejected` with a `reason`:
 
 | Reason | Message |
 | --- | --- |
@@ -185,7 +185,7 @@ teams({
 - Only human authors in the same thread can steer, even when `lockScope` covers several threads.
 - The Invocation keeps the first invoker's identity and authority. The steering message is input only, and its header names its author.
 - If the Driver (the part that runs the Agent) cannot steer live, the message runs as its own Invocation afterwards, as for one invoker.
-- Each attempt adds an `agent.input.steer` observation to the running Invocation, with `input.steer.outcome` (`accepted`, `deferred`, or `failed`), `input.steer.reason`, `channel.delivery.id`, and `input.steer.messageId`.
+- Each attempt adds an `agent.input.steer` observation to the running Invocation, with `input.steer.outcome` (`accepted`, `deferred`, or `failed`), `input.steer.reason`, `channel.delivery.id`, and `input.steer.messageId`. The Console shows it as a step of the run.
 - This applies to inline steering. With durable Workflow delivery, another invoker's message still queues separately.
 
 ## Act on the Channel message in hooks

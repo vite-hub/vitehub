@@ -17,6 +17,10 @@ vi.mock("@vite-hub/ui", async () => {
       props: { message: { required: true, type: Object } },
       setup: (props, { slots }) => () => h("div", { "data-slot": "message" }, [slots.header?.(), (props.message as { parts: Array<{ text: string }> }).parts[0]!.text, slots.actions?.()]),
     }),
+    Status: defineComponent({
+      props: { label: String, tone: String },
+      setup: props => () => h("span", { "data-status": props.tone }, props.label),
+    }),
   }
 })
 vi.mock("../src/console/runtime/components/console-frame.vue", async () => {
@@ -178,6 +182,31 @@ describe("Channels page", () => {
     await router.push({ path: "/channels", query: { agent: "support", channel: "slack" } })
     await vi.waitFor(() => expect(frame.style.display).toBe(""))
     expect(host.querySelector("iframe")).toBe(frame)
+  })
+
+  it("lists what happened to each received message while no thread is open", async () => {
+    const deliveries = [
+      { events: [], id: "d3", invocationId: "sha256_run", receivedAt: "2026-11-18T10:02:00.000Z", sourceId: "1763460002", status: "completed" },
+      { events: [], id: "d2", reason: "not-addressed", receivedAt: "2026-11-18T10:01:00.000Z", sourceId: "1763460001", status: "rejected" },
+      { error: "Teams disconnected", events: [], id: "d1", receivedAt: "2026-11-18T10:00:00.000Z", sourceId: "1763460000", status: "failed" },
+    ]
+    mocks.request.mockImplementation(async (path: string, options?: { query?: Record<string, string> }) => {
+      if (path === "/api/c/channels/deliveries") {
+        expect(options?.query).toEqual({ agent: "support", channel: "telegram" })
+        return { agent: "support", channel: "telegram", deliveries }
+      }
+      return answers[path]
+    })
+    const { host, router } = await mountPage({ agent: "support", channel: "telegram" }, "[aria-label='Received messages']")
+    const rows = [...host.querySelectorAll(".vitehub-console__delivery")]
+    expect(rows.map(row => row.querySelector("[data-status]")?.textContent)).toEqual(["completed", "rejected: not-addressed", "failed: Teams disconnected"])
+    expect(rows.map(row => row.querySelector("[data-status]")?.getAttribute("data-status"))).toEqual(["success", "neutral", "error"])
+    expect(rows[0]?.querySelector("a")?.getAttribute("href")).toBe(router.resolve({ name: "vitehub-console-invocation", params: { agent: "support", invocation: "sha256_run" } }).href)
+    expect(rows[1]?.querySelector("a")).toBeNull()
+    // A thread shows its conversation in place of the list.
+    await router.push({ path: "/channels", query: { agent: "support", channel: "telegram", thread: "telegram:1" } })
+    await vi.waitFor(() => expect(host.querySelector("[data-slot=message]")).not.toBeNull())
+    expect(host.querySelector("[aria-label='Received messages']")).toBeNull()
   })
 
   it("links only http(s) attachments", async () => {

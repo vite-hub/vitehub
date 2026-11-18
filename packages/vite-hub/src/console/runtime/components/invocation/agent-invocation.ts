@@ -436,6 +436,10 @@ function renderMessage(
       activity.attributes["input.mode"] === "steer"
         ? h("small", { class: "vh-invocation-message__method" }, "Steered")
         : null,
+      // The line that the model read before the message, such as its time, its id, and its author.
+      typeof activity.attributes["message.header"] === "string"
+        ? h("small", { class: "vh-invocation-message__header" }, activity.attributes["message.header"])
+        : null,
       h("div", {
         class: "vh-invocation-message__content",
         "data-collapsed": collapsible && !isExpanded ? "true" : undefined,
@@ -1547,6 +1551,7 @@ function renderWorkSummary(
 
 function renderPreviousMessages(
   messages: readonly InvocationActivity[],
+  omitted: number,
   invocation: AgentInvocationView,
   expanded: ReadonlySet<string>,
   toggleExpanded: (id: string) => void,
@@ -1555,15 +1560,20 @@ function renderPreviousMessages(
   openActivities: ReadonlySet<string>,
   setActivityOpen: (id: string, open: boolean) => void,
 ) {
-  if (!messages.length) return null;
+  if (!messages.length && !omitted) return null;
+  const total = messages.length + omitted;
   return h("li", { class: "vh-invocation-history", key: "invocation-history" }, [
     h("details", { class: "vh-invocation-history__details" }, [
       h("summary", { class: "vh-invocation-history__summary" }, [
-        h("span", `${messages.length} previous ${messages.length === 1 ? "message" : "messages"}`),
+        h("span", `${total} previous ${total === 1 ? "message" : "messages"}`),
         renderDisclosureChevron("vh-invocation-history__disclosure"),
       ]),
-      h("ol", { class: "vh-invocation-history__messages" },
-        renderActivitySequence(messages, invocation, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen)),
+      h("ol", { class: "vh-invocation-history__messages" }, [
+        omitted
+          ? h("li", { class: "vh-invocation-history__omitted", key: "omitted" }, `${omitted} earlier ${omitted === 1 ? "message" : "messages"} not recorded`)
+          : null,
+        ...renderActivitySequence(messages, invocation, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen),
+      ]),
     ]),
   ]);
 }
@@ -1597,7 +1607,7 @@ function renderInvocationActivities(
     return renderActivitySequence(conversation.activities, invocation, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen);
   }
   return [
-    renderPreviousMessages(conversation.history, invocation, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen),
+    renderPreviousMessages(conversation.history, conversation.omittedHistory, invocation, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen),
     conversation.prompt ? renderInvocationActivity(conversation.prompt, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen) : null,
     renderWorkSummary(conversation.work, invocation, expanded, workOpen, setWorkOpen, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen),
     ...conversation.answers.map(activity => renderInvocationActivity(activity, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen)),
