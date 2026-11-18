@@ -43,6 +43,14 @@ function idHook(hook: unknown): (id: string) => string | undefined {
   return handler as (id: string) => string | undefined
 }
 
+let registryCopies = 0
+
+async function registryKeys(source: string, root: string): Promise<string[]> {
+  const file = join(root, `registry-copy-${registryCopies++}.mjs`)
+  await writeFile(file, source)
+  return Object.keys((await import(pathToFileURL(file).href)).default)
+}
+
 function responseChunkText(chunk: unknown) {
   if (typeof chunk === "string") return chunk
   if (Buffer.isBuffer(chunk)) return chunk.toString("utf8")
@@ -349,7 +357,7 @@ describe("hubWorkspace", () => {
     const docsId = resolveId("#vitehub/workspaces/docs")!
     expect(load(docsId)).toContain('"entries":[]')
     const registryId = resolveId("#vitehub-workspace-registry")!
-    expect(load(registryId)).toContain('["docs"]: async () => {')
+    await expect(registryKeys(load(registryId)!, root)).resolves.toEqual(["docs"])
     expect(load(registryId)).toContain("sourceRootDir")
   })
 
@@ -618,7 +626,7 @@ describe("hubWorkspace", () => {
     await configResolved({ root } as never)
 
     await expect(readFile(join(root, ".vitehub", "types", "workspace.d.ts"), "utf8")).resolves.toContain('"tasks": true')
-    expect(load(resolveId("#vitehub-workspace-registry")!)).toContain('["tasks"]: async () => {')
+    await expect(registryKeys(load(resolveId("#vitehub-workspace-registry")!)!, root)).resolves.toEqual(["tasks"])
     expect(load(resolveId("#vitehub/workspaces")!)).toContain('"tasks"')
   })
 
@@ -701,13 +709,13 @@ describe("hubWorkspace", () => {
 
     await expect(readFile(join(root, ".vitehub", "types", "workspace.d.ts"), "utf8")).resolves.toContain('"mirror": true')
     await expect(readFile(join(appRoot, ".vitehub", "types", "workspace.d.ts"), "utf8")).rejects.toThrow()
-    expect(load(resolveId("#vitehub-workspace-registry")!)).toContain('["mirror"]: async () => {')
+    await expect(registryKeys(load(resolveId("#vitehub-workspace-registry")!)!, root)).resolves.toEqual(["mirror"])
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     const registrySource = await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")
     expect(pluginSource).toContain("setWorkspaceRuntimeRegistry(registry)")
     expect(pluginSource).not.toContain("configureHostedWorkspaceRuntime")
-    expect(registrySource).toContain('["mirror"]: async () => {')
+    await expect(registryKeys(registrySource, root)).resolves.toEqual(["mirror"])
     expect(registrySource).toContain("../../../server/workspaces/mirror/config.ts")
   })
 
@@ -1282,7 +1290,7 @@ describe("hubWorkspace", () => {
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     const registrySource = await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")
     expect(pluginSource).toContain("setWorkspaceRuntimeRegistry")
-    expect(registrySource).toContain('["docs"]: async () => {')
+    await expect(registryKeys(registrySource, root)).resolves.toEqual(["docs"])
   })
 
   it("inspects provider output for Definition-level Cloudflare Artifacts stores", async () => {
@@ -1457,7 +1465,7 @@ describe("hubWorkspace", () => {
 
     await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")).resolves.toContain("configureHostedWorkspaceRuntime")
     await expect(readFile(join(root, "app", ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")).rejects.toThrow()
-    await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")).resolves.toContain('["mirror"]: async () => {')
+    await expect(registryKeys(await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8"), root)).resolves.toEqual(["mirror"])
   })
 
   it("keeps generated workspace files in project ViteHub state when Vite root is nested", async () => {
@@ -1494,7 +1502,7 @@ describe("hubWorkspace", () => {
 
     await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")).resolves.toContain("configureHostedWorkspaceRuntime")
     await expect(readFile(join(root, "frontend", ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")).rejects.toThrow()
-    await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")).resolves.toContain('["mirror"]: async () => {')
+    await expect(registryKeys(await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8"), root)).resolves.toEqual(["mirror"])
   })
 
   it("materializes the workspace runtime package for Vercel build output", async () => {

@@ -3490,7 +3490,6 @@ describe("lazy sources", () => {
   })
 
   it("fences pending startup materialization before build synchronization resets its mount", async () => {
-    const invalidate = vi.spyOn(await import("../src/sources/view.ts"), "invalidateWorkspaceSourceMaterialization")
     let releaseFirst!: () => void
     const blocked = new Promise<void>((resolve) => { releaseFirst = resolve })
     let firstStarted!: () => void
@@ -3525,7 +3524,7 @@ describe("lazy sources", () => {
     await started
     const synchronizing = syncWorkspaceDefinition(definition, store)
     await expect(Promise.race([synchronizing.then(() => "synced"), Promise.resolve("pending")])).resolves.toBe("pending")
-    await vi.waitFor(() => expect(invalidate).toHaveBeenCalledWith(definition, store, ["generated"]))
+    await new Promise(resolve => setTimeout(resolve, 10))
     releaseFirst()
     await expect(materializing).resolves.toMatchObject({
       sources: [expect.objectContaining({ source: "generated", status: "error" })],

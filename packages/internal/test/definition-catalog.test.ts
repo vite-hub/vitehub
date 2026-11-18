@@ -140,16 +140,6 @@ describe("createRuntimeRegistryContents", () => {
       name: owner,
     }])
 
-    expect(contents).toBe([
-      "",
-      "const registry = {",
-      `  [${JSON.stringify(owner)}]: async () => import(${JSON.stringify(`../../definitions/${owner}.mjs`)}),`,
-      "}",
-      "",
-      "export default registry",
-      "",
-    ].join("\n"))
-
     await mkdir(join(root, ".vitehub", owner), { recursive: true })
     await writeFile(registryFile, contents, "utf8")
     const generated = await import(`${pathToFileURL(registryFile).href}?owner=${owner}`)
@@ -164,17 +154,22 @@ describe("writeRuntimeRegistryFiles", () => {
   it("writes registry and plugin files with direct relative registry imports", async () => {
     const root = await createTempDir("vitehub-internal-runtime-files-")
     const registryFile = join(root, ".vitehub", "queue", "registry.mjs")
-    const pluginFile = join(root, ".vitehub", "queue", "plugin.ts")
+    const pluginFile = join(root, ".vitehub", "queue", "plugin.mjs")
+    const handler = join(root, "server", "queues", "welcome.mjs")
+    await mkdir(join(root, "server", "queues"), { recursive: true })
+    await writeFile(handler, "export default \"welcome\"\n", "utf8")
 
     await writeRuntimeRegistryFiles({
       createPluginContents: (_plugin, registry) => `import registry from ${JSON.stringify(`./${registry.split("/").pop()}`)}\nexport default registry\n`,
-      definitions: [{ handler: join(root, "server", "queues", "welcome.ts"), name: "welcome" }],
+      definitions: [{ handler, name: "welcome" }],
       pluginFile,
       registryFile,
     })
 
-    await expect(readFile(registryFile, "utf8")).resolves.toContain('["welcome"]: async () => import("../../server/queues/welcome.ts")')
-    await expect(readFile(pluginFile, "utf8")).resolves.toContain('import registry from "./registry.mjs"')
+    const plugin = await import(pathToFileURL(pluginFile).href)
+    // SAFETY: The plugin above re-exports the generated registry.
+    const registry = plugin.default as Record<string, () => Promise<{ default: string }>>
+    await expect(registry.welcome!()).resolves.toMatchObject({ default: "welcome" })
   })
 })
 
@@ -182,13 +177,16 @@ describe("writeRuntimeRegistryFile", () => {
   it("writes a generated registry and creates its parent directory", async () => {
     const root = await createTempDir("vitehub-internal-runtime-registry-")
     const registryFile = join(root, ".vitehub", "schedule", "registry.mjs")
+    const handler = join(root, "src", "cleanup.schedule.mjs")
+    await mkdir(join(root, "src"), { recursive: true })
+    await writeFile(handler, "export default \"cleanup\"\n", "utf8")
 
-    await writeRuntimeRegistryFile(registryFile, [{
-      handler: join(root, "src", "cleanup.schedule.ts"),
-      name: "cleanup",
-    }])
+    await writeRuntimeRegistryFile(registryFile, [{ handler, name: "cleanup" }])
 
-    await expect(readFile(registryFile, "utf8")).resolves.toContain('["cleanup"]: async () => import("../../src/cleanup.schedule.ts")')
+    const generated = await import(pathToFileURL(registryFile).href)
+    // SAFETY: The generated registry maps each Definition name to its handler import.
+    const registry = generated.default as Record<string, () => Promise<{ default: string }>>
+    await expect(registry.cleanup!()).resolves.toMatchObject({ default: "cleanup" })
   })
 })
 

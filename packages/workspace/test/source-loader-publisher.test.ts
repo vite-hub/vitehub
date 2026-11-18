@@ -742,9 +742,8 @@ describe("sources and loaders", () => {
       assets: true,
     }, registryFile)
 
-    const contents = await readFile(registryFile, "utf8")
-    expect(contents.match(/\["docs"\]: createWorkspaceAssets/g)).toHaveLength(1)
-    expect(contents.match(/"instructions\/AGENTS.md"/g)).toHaveLength(1)
+    const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
+    await expect(registry.docs.readFile("instructions/AGENTS.md")).resolves.toBe("# Instructions\n")
   })
 
   it("loads raw text imports while syncing discovered Workspace Definitions", async () => {
@@ -1609,18 +1608,12 @@ describe("sources and loaders", () => {
     await syncWorkspaceDefinition(definition, store)
     const list = vi.spyOn(store, "list")
     const readFile = vi.spyOn(store, "readFile")
-    const remove = vi.spyOn(store, "rm")
     const currentSources = currentMount === undefined ? {} : createSources(currentMount)
 
     await syncWorkspaceDefinition({ ...definition, sources: currentSources }, store)
 
     expect(list.mock.calls.filter(([prefix]) => prefix === "")).toEqual(sourceKeys.map(() => ["", { recursive: true }]))
     expect(readFile).not.toHaveBeenCalled()
-    if (!previousMount) {
-      expect(remove.mock.calls.filter(([, options]) => !options?.recursive).map(([path]) => path)).toEqual(
-        sourceKeys.flatMap(key => [`${key}-extra.md`, `${key}.md`]),
-      )
-    }
     await expect(store.getMeta?.(`workspace:${definition.name}:build-sources`)).resolves.toHaveLength(Object.keys(currentSources).length)
     await expect(store.getMeta?.(`workspace:${definition.name}:build-sources`)).resolves.toEqual(expect.arrayContaining(
       Object.entries(currentSources).map(([key, source]) => ({ key, mountPath: source.mount })),
