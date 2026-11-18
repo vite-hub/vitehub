@@ -109,6 +109,8 @@ const plugins = [
   "app/.vitehub/nitro/console/plugin.mjs",
   "app/.vitehub/nitro/durability/plugin.mjs",
   "app/.vitehub/nitro/error-log.mjs",
+  // `security` headers, on by default in built output.
+  "app/.vitehub/nitro/request-policy.mjs",
   "app/.vitehub/nitro/standard-context.mjs",
   "app/.vitehub/nitro/workflow/dev-plugin.mjs",
 ]
