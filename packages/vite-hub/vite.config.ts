@@ -121,6 +121,7 @@ const runtimeEntries = [
   "src/console/runtime/client/schedule-run.ts",
   "src/console/runtime/client/schema-form.ts",
   "src/console/runtime/client/site-access.ts",
+  "src/console/runtime/client/stored.ts",
   "src/console/runtime/client/toast.ts",
   "src/console/runtime/client/workflow.ts",
   "src/console/runtime/auth-operations.ts",
@@ -284,6 +285,10 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-account-home.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-account-rename.vue",
           to: "dist/console/runtime/components",
         },
         {
@@ -601,6 +606,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/schedule-run"];
           delete exports["./console/runtime/client/schema-form"];
           delete exports["./console/runtime/client/site-access"];
+          delete exports["./console/runtime/client/stored"];
           delete exports["./console/runtime/client/toast"];
           delete exports["./console/runtime/client/workflow"];
           delete exports["./console/runtime/auth-operations"];

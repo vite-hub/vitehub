@@ -109,7 +109,7 @@ describe("Content live leases", { timeout: 30_000 }, () => {
   it("rejects an unknown acquire kind", async () => {
     const { content } = await setup()
     await expect(rejection(content.sessions.acquire("posts", "hello", { kind: "view" as never, session: "tab-ana-0001", user: ana })))
-      .resolves.toMatchObject({ code: "CONTENT_R0008" })
+      .resolves.toMatchObject({ code: "CONTENT_SESSION_KIND_INVALID" })
   })
 })
 
@@ -165,7 +165,11 @@ describe("contentDocument", { timeout: 30_000 }, () => {
     const { content, posts } = await setup()
     await content.sessions.acquire("posts", "hello", { session: "tab-cleo-0001", user: { id: "cleo", name: "Cleo" } })
     await expect(contentDocument(posts, { sessions: content.sessions }).hold!(context("hello"), { users: [ana] }))
-      .rejects.toThrow("Cleo is editing this document alone.")
+      .rejects.toThrow(expect.objectContaining({
+        code: "CONTENT_LIVE_DOCUMENT_HELD",
+        fix: expect.stringContaining("edit lease"),
+        message: expect.stringContaining("Cleo is editing this document alone."),
+      }))
   })
 
   it("holds nothing without the sessions table", async () => {

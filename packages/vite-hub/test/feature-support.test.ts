@@ -17,7 +17,6 @@ const checks: Partial<Record<FeatureId, { code: string, at: "vitehub" | "config"
   queue: { at: "config", code: "INTERNAL_R0002" },
   rateLimit: { at: "config", code: "INTERNAL_R0002" },
   sandboxTask: { at: "config", code: "INTERNAL_R0002" },
-  schedule: { at: "vitehub", code: "VITE_HUB_R0086" },
 }
 
 /** Features whose owner package checks the host during the Nitro build, not `vitehub()`. */

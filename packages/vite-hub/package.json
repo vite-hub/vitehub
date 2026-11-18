@@ -417,6 +417,16 @@
       "import": "./dist/decisions/vue.js",
       "default": "./dist/decisions/vue.js"
     },
+    "./device": {
+      "types": "./dist/device.d.ts",
+      "import": "./dist/device.js",
+      "default": "./dist/device.js"
+    },
+    "./device/vue": {
+      "types": "./dist/device/vue.d.ts",
+      "import": "./dist/device/vue.js",
+      "default": "./dist/device/vue.js"
+    },
     "./docs": {
       "types": "./dist/docs.d.ts",
       "import": "./dist/docs.js",
@@ -742,6 +752,36 @@
       "import": "./dist/source/vite.js",
       "default": "./dist/source/vite.js"
     },
+    "./sync": {
+      "types": "./dist/sync.d.ts",
+      "import": "./dist/sync.js",
+      "default": "./dist/sync.js"
+    },
+    "./sync/client": {
+      "types": "./dist/sync/client.d.ts",
+      "import": "./dist/sync/client.js",
+      "default": "./dist/sync/client.js"
+    },
+    "./sync/database": {
+      "types": "./dist/sync/database.d.ts",
+      "import": "./dist/sync/database.js",
+      "default": "./dist/sync/database.js"
+    },
+    "./sync/operations": {
+      "types": "./dist/sync/operations.d.ts",
+      "import": "./dist/sync/operations.js",
+      "default": "./dist/sync/operations.js"
+    },
+    "./sync/runtime": {
+      "types": "./dist/sync/runtime.d.ts",
+      "import": "./dist/sync/runtime.js",
+      "default": "./dist/sync/runtime.js"
+    },
+    "./sync/vue": {
+      "types": "./dist/sync/vue.d.ts",
+      "import": "./dist/sync/vue.js",
+      "default": "./dist/sync/vue.js"
+    },
     "./ui": {
       "types": "./dist/ui.d.ts",
       "import": "./dist/ui.js",
@@ -806,6 +846,11 @@
       "types": "./dist/webhooks/database.d.ts",
       "import": "./dist/webhooks/database.js",
       "default": "./dist/webhooks/database.js"
+    },
+    "./webhooks/operations": {
+      "types": "./dist/webhooks/operations.d.ts",
+      "import": "./dist/webhooks/operations.js",
+      "default": "./dist/webhooks/operations.js"
     },
     "./webhooks/runtime": {
       "types": "./dist/webhooks/runtime.d.ts",
@@ -1015,6 +1060,7 @@
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/decisions": "workspace:*",
+    "@vite-hub/device": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/email": "workspace:*",
     "@vite-hub/forge": "workspace:*",
@@ -1034,6 +1080,7 @@
     "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
+    "@vite-hub/sync": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
     "@vite-hub/webhooks": "workspace:*",
@@ -1102,6 +1149,7 @@
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/decisions": "workspace:*",
+    "@vite-hub/device": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/email": "workspace:*",
     "@vite-hub/forge": "workspace:*",
@@ -1118,6 +1166,7 @@
     "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
+    "@vite-hub/sync": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
     "@vite-hub/webhooks": "workspace:*",
@@ -1224,6 +1273,9 @@
     "@vite-hub/decisions": {
       "optional": true
     },
+    "@vite-hub/device": {
+      "optional": true
+    },
     "@vite-hub/docs": {
       "optional": true
     },
@@ -1270,6 +1322,9 @@
       "optional": true
     },
     "@vite-hub/shell": {
+      "optional": true
+    },
+    "@vite-hub/sync": {
       "optional": true
     },
     "@vite-hub/ui": {
