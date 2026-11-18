@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -52,6 +52,7 @@ describe("workspace CLI", () => {
       const token = await refreshWorkspaceDevToken(rootDir)
 
       await expect(readWorkspaceDevToken(rootDir)).resolves.toBe(token)
+      await expect(readdir(rootDir, { recursive: true })).resolves.toEqual([])
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })

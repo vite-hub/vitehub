@@ -54,7 +54,7 @@ Follow the [Agent setup](/docs/agents/get-started), then turn on the Agent integ
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', agent: true },
+  vitehub: { agent: true },
 })
 ```
 :::
@@ -66,7 +66,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', agent: true }), nitro()],
+  plugins: [vitehub({ agent: true }), nitro()],
 })
 ```
 :::
@@ -77,7 +77,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', agent: true })],
+  plugins: [vitehub({ agent: true })],
 })
 ```
 :::
@@ -315,7 +315,6 @@ The Babysitter uses the invocation journal assigned to its discovered Agent. Set
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     agent: { invocations: { databaseUrl: 'file:/var/lib/babysitter/agent-invocations.sqlite' } },
     console: {
       authorize: './server/console-authorize.ts',
@@ -333,7 +332,6 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     agent: { invocations: { databaseUrl: 'file:/var/lib/babysitter/agent-invocations.sqlite' } },
     console: {
       authorize: './server/console-authorize.ts',
@@ -350,7 +348,6 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     agent: { invocations: { databaseUrl: 'file:/var/lib/babysitter/agent-invocations.sqlite' } },
     console: {
       authorize: './server/console-authorize.ts',

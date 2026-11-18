@@ -447,8 +447,17 @@ describe("Realtime rooms from Console access", () => {
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: [section] }) })
     const access = consoleRealtimeAccess("comments")
     const request = event()
-    await expect(access.authorize({ event: request })).resolves.toBe(true)
-    await expect(access.authorize({ event: request, kind: "write" })).resolves.toBe(section === "comments")
+    await expect(access.authorize({ event: request, mode: "read" })).resolves.toBe(true)
+    await expect(access.authorize({ event: request, mode: "write" })).resolves.toBe(section === "comments")
+  })
+
+  it("denies Content live editing to a read-only Console user", async () => {
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["content:read"] }) })
+    const content = consoleRealtimeAccess("content")
+    const request = event()
+    // Realtime names the access mode `mode` in the context of `authorize()`.
+    await expect(content.authorize({ event: request, mode: "write" })).resolves.toBe(false)
+    await expect(content.authorize({ event: request, mode: "read" })).resolves.toBe(true)
   })
 
   it("names the person that the Console signed and gates rooms by section access", async () => {
@@ -459,12 +468,12 @@ describe("Realtime rooms from Console access", () => {
       const content = consoleRealtimeAccess("content")
       const ana = await signedEvent({ email: "ana@vitehub.dev", id: "ana", name: "Ana" })
       await expect(content.identify({ event: ana })).resolves.toEqual({ email: "ana@vitehub.dev", id: "ana", name: "Ana" })
-      await expect(content.authorize({ event: ana })).resolves.toBe(true)
+      await expect(content.authorize({ event: ana, mode: "read" })).resolves.toBe(true)
       await expect(content.user({ event: ana })).resolves.toMatchObject({ id: "ana" })
       // Without the section, a room has no person and no access.
       const cli = await signedEvent()
       await expect(content.identify({ event: cli })).resolves.toBeNull()
-      await expect(content.authorize({ event: cli })).resolves.toBe(false)
+      await expect(content.authorize({ event: cli, mode: "read" })).resolves.toBe(false)
       await expect(content.user({ event: cli })).resolves.toBeNull()
     }
     finally {

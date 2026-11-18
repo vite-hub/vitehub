@@ -156,7 +156,7 @@ function each<T, Q extends AskQuestion>(
 
 /**
  * Asks a model one question and returns validated, typed data as `[error, data]`: `ask(prompt, { model, schema })`.
- * Use it for one structured answer, such as a summary or extracted fields, without an Agent.
+ * Use it for one structured answer, such as extracted fields, without an Agent. Leave out `schema` to get the answer as text.
  *
  * Its properties build TypeSafe Jev questions for `gateway.ask()` and `defineAgent({ driver: { ask } })`.
  * Each builder returns a plain question object. The Driver sends questions in deterministic sequential batches when needed; the combined serialized shared state and each question must fit below 30,000 bytes, including request overhead.

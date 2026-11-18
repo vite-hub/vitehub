@@ -183,6 +183,17 @@ export function detectHost(env: Record<string, string | undefined> = process.env
 }
 
 /**
+ * Returns the provider variable that names another host than `host`, such as `VERCEL` when `host` is `"node"`.
+ * Returns `undefined` when `VITEHUB_HOST`, `NITRO_PRESET`, or `SERVER_PRESET` names a host, because that variable
+ * selects the host on purpose.
+ */
+export function findProviderHostConflict(host: ViteHubHost, env: Record<string, string | undefined> = process.env): { host: ViteHubHost, variable: string } | undefined {
+  if (["VITEHUB_HOST", "NITRO_PRESET", "SERVER_PRESET"].some(name => hostFromNitroPreset(env[name]))) return
+  const provider = providerHosts.find(([name]) => env[name]?.trim())
+  if (provider && provider[1] !== host) return { host: provider[1], variable: provider[0] }
+}
+
+/**
  * Returns the host that `vitehub()` builds for. `vitehub deploy --host` sets `VITEHUB_HOST` with
  * `VITEHUB_HOST_SOURCE=cli`, and that host wins over the `host` option. Otherwise the `host` option wins, then
  * `detectHost()`, then `"node"`.
