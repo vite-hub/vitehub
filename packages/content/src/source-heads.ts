@@ -84,6 +84,26 @@ export interface ContentSourceWebhookDelivery {
   result: "failed" | "kept" | "moved" | "pinned" | "rejected"
   /** The error of a `failed` delivery. */
   error?: string
+  /** The head commit before the delivery, or null when the Source had none. */
+  before?: string | null
+}
+
+/** One page of a `github()` Source to load at a new head commit, so the first read after a push is warm. */
+export interface ContentPrewarmJob {
+  /** The Source name. */
+  source: string
+  /** The head commit that moved. A job for an older head does nothing. */
+  sha: string
+  /** The Source key of the changed file, such as `guide/start.md`. */
+  key: string
+}
+
+/** The files that a push changed, from the `commits` of its payload. */
+export interface ContentPushedChanges {
+  /** The commit before the push. The changes count only when it is the head that the push moved from. */
+  before: string | null
+  /** The repository paths that the commits added, modified, or removed. */
+  paths: string[]
 }
 
 /**
@@ -272,6 +292,14 @@ function webhookKey(name: string): string {
   return `content:webhook:${name}`
 }
 
+/** The content of a file as text, so the files of two commits compare. */
+function fileContent(file: SourceItem<string, unknown, object>): string | undefined {
+  const content: unknown = file.content
+  if (typeof content === "string") return content
+  if (content instanceof Uint8Array) return new TextDecoder().decode(content)
+  return file.data === undefined ? undefined : JSON.stringify(file.data)
+}
+
 function isFunction(value: unknown): value is (...args: unknown[]) => unknown {
   return typeof value === "function"
 }
@@ -339,6 +367,13 @@ interface ContentSourceHeadsRuntime {
   onMove(work: (source: string) => Promise<void>): void
   /** The work of `onMove()` for a Source whose head moved. The push webhook runs it in `waitUntil`. */
   moved(source: string): Promise<void>
+  /**
+   * The Source keys of the documents that changed from commit `from` to commit `to`. `pushed` are the paths of the push
+   * payload: they count when the push started at `from`. Else Content compares the files of both commits.
+   */
+  changed(source: string, from: string | null, to: string, pushed?: ContentPushedChanges): Promise<string[]>
+  /** Load one changed document at the head commit. Returns false when the head has moved on from `job.sha`. */
+  prewarm(job: ContentPrewarmJob): Promise<boolean>
 }
 
 const runtimes = new WeakMap<object, ContentSourceHeadsRuntime>()
@@ -975,6 +1010,13 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     },
   }
 
+  /** The folder of the repository that a `github()` Source reads, such as `docs`, or an empty string for the whole repository. */
+  function rootOf(state: HeadState): string {
+    const fingerprint: unknown = state.definition.fingerprint
+    const root: unknown = typeof fingerprint === "object" && fingerprint !== null ? Reflect.get(fingerprint, "root") : undefined
+    return typeof root === "string" ? root.replace(/^\/+|\/+$/g, "") : ""
+  }
+
   /** The `repo` and `ref` of a `github()` Source. `ref` is undefined for the default branch. */
   function target(state: HeadState): { repo: string, ref: string | undefined } | undefined {
     const fingerprint: unknown = state.definition.fingerprint
@@ -1080,6 +1122,34 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     async moved(name) {
       await Promise.all(onMoved.map(work => work(name)))
     },
+    async changed(name, from, to, pushed) {
+      const state = stateOf(name)
+      const next = await load(state, { id: to, immutable: true })
+      if (!next.commit) return []
+      // Only documents are pages. Comark keys them as `<source>/<Source key>`.
+      const documents = new Set(next.commit.items.filter(item => item.meta.kind === "document").map(item => item.meta.key.slice(item.meta.key.indexOf("/") + 1)))
+      let keys: Iterable<string>
+      // A push that did not start at the old head, such as a force push or a missed delivery, names other changes.
+      // GitHub also cuts `commits` at 2,048 entries. Both compare the files of the two commits instead.
+      if (pushed && from !== null && pushed.before === from && pushed.paths.length) {
+        const root = rootOf(state)
+        keys = pushed.paths.flatMap(path => !root ? [path] : path.startsWith(`${root}/`) ? [path.slice(root.length + 1)] : [])
+      }
+      else {
+        const previous = from === null ? undefined : await load(state, { id: from, immutable: true }).catch(() => undefined)
+        const old = new Map((previous?.files ?? []).map(file => [file.path ?? file.key, fileContent(file)]))
+        keys = next.files.filter(file => old.get(file.path ?? file.key) !== fileContent(file)).map(file => file.path ?? file.key)
+      }
+      return [...new Set(keys)].filter(key => documents.has(key)).sort()
+    },
+    async prewarm({ source, sha, key }) {
+      const state = stateOf(source)
+      await sync(state)
+      if (state.served?.sha !== sha) return false
+      // The guarded read loads the head commit into this server instance and parses the document once.
+      await state.instance?.get(`${source}/${key}`)
+      return state.served?.sha === sha
+    },
     names: () => [...states.keys()],
     async read(ref, read) {
       assertActive()
@@ -1142,7 +1212,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
         const head = await api.advance(name)
         if (!head.live) throw contentKV() ? contentErrorDiagnostics.CONTENT_R0020({ source: name }) : contentErrorDiagnostics.CONTENT_R0021({ source: name })
         const result = head.pinned ? "pinned" : sha && head.rejected?.sha === sha ? "rejected" : head.sha !== (before?.sha ?? null) ? "moved" : "kept"
-        delivery = { id, at, sha, result }
+        delivery = { id, at, sha, result, before: before?.sha ?? null }
       }
       catch (error) {
         delivery = { id, at, sha, result: "failed", error: error instanceof Error ? error.message : String(error) }
