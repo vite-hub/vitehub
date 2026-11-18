@@ -121,7 +121,9 @@ import { startWorkflow } from 'vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const payload = await readBody<{ email: string }>(event)
-  return startWorkflow('onboard-user', payload)
+  const [error, run] = await startWorkflow('onboard-user', payload)
+  if (error) throw error
+  return run
 })
 ```
 
