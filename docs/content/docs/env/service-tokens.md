@@ -2,7 +2,7 @@
 title: Service tokens
 navigation.title: Service tokens
 description: Protect routes that scripts, runners, and webhooks call with a bearer token from a server variable.
-navigation.order: 10
+navigation.order: 11
 icon: i-lucide-key-round
 ---
 
@@ -66,5 +66,5 @@ export default defineEventHandler((event) => {
 `error.code` is `ENV_SERVICE_TOKEN_INVALID` or `ENV_SERVICE_TOKEN_UNSET`.
 
 ::details{summary="When to use Auth instead"}
-A service token proves that the caller knows a secret. It does not say who the caller is, and every caller with the token has the same access. For people, use [Auth](/docs/auth) sessions. For a webhook that a provider signs, such as GitHub or Stripe, check the signature of the body.
+A service token proves that the caller knows a secret. It does not say who the caller is, and every caller with the token has the same access. For people, use [Auth](/docs/auth) sessions. For a webhook that a provider signs, such as GitHub or Stripe, check the signature of the body with [`verifyWebhook()`](/docs/env/webhooks).
 ::

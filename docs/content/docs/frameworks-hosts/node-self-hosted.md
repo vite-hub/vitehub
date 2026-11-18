@@ -197,18 +197,32 @@ there.
 
 ## Check health
 
-Set `health: true` in `vitehub()` to add `/api/_vitehub/health`. It answers
-`{ ok: true, commit }`, and with a Database it runs `SELECT 1` on each one and
-answers `503` when one fails. Point a container health check or a load
-balancer at it:
+Set `health: true` in `vitehub()` to add `/api/_vitehub/health`. It tells
+which app version, commit, and ViteHub version are live, and whether each
+Database, KV store, and Blob store of the app answers:
+
+```json
+{
+  "ok": true,
+  "version": "1.4.0",
+  "commit": "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f",
+  "vitehub": "0.1.0",
+  "checks": { "database": { "default": true }, "kv": { "default": true }, "blob": { "default": true } }
+}
+```
+
+A Database runs `SELECT 1`, and a KV or Blob store reads one key. Each check
+has 2 seconds. When one fails, the route answers `503` with `ok: false`. The
+error goes to the server log, never to the response. Point a container health
+check or a load balancer at it:
 
 ```dockerfile [Dockerfile]
 HEALTHCHECK --interval=30s --timeout=5s \
   CMD node -e "fetch('http://127.0.0.1:3000/api/_vitehub/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 ```
 
-A Docker build context often has no `.git`. Pass the commit as `COMMIT_REF`
-or `GITHUB_SHA` at build time, or `commit` is `null`. See
+A Docker build context often has no `.git`. Pass the commit as
+`VITEHUB_BUILD_COMMIT` at build time, or `commit` is `null`. See
 [`health` options](/docs/reference/config-options#vite-integration-options).
 
 ## Run the server with systemd
@@ -316,7 +330,7 @@ one disk, so they do not work across several instances.
 | Realtime | `auto`: Redis with `REDIS_URL`, else Postgres on the Default Database when it is on Postgres, else memory | With Redis or Postgres, each instance holds its rooms in memory and shares them with the other instances. Unsaved edits survive while an instance keeps the room open, except for a reset after an [interrupted normalizing save](/docs/realtime/server-api#interrupted-normalizing-saves). With memory, one process. See [Share rooms across Node instances](/docs/realtime/configure#share-rooms-across-node-instances). |
 | Schedule | None. A build needs `schedule: { runtime: { driver: 'process' } }`, or `providerOutput: false` to wake Schedules yourself. | No. The Process Runtime has no distributed lock, so every instance runs each Schedule. |
 | Workflow | None. Set `workflow.postgres.url` or `workflow.sqlite.path` to select OpenWorkflow, or the build fails with `WORKFLOW_C0020`. The Workflow that only `agent` turns on runs inline in the request process. | Only with OpenWorkflow and `postgres.url`. ViteHub does not start the OpenWorkflow worker, so runs stay `queued` until you call [`startOpenWorkflowWorker()`](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker) in a server plugin. |
-| Sandbox | None | `sandboxTask: true` fails the build. `sandboxTask: { provider: 'vercel' }` uses Vercel Sandbox with Vercel credentials. |
+| Sandbox | None | `sandboxTask: true` fails the build. `sandboxTask: { driver: 'vercel' }` uses Vercel Sandbox with Vercel credentials. |
 
 A multi-instance deploy today needs one instance that owns Schedule.
 Queue also needs one instance unless it uses Postgres. Realtime needs one

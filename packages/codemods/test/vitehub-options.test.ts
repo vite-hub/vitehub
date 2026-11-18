@@ -229,8 +229,8 @@ describe("vitehub-options transform", () => {
   })
 
   it.each([
-    ["vite.config.ts", "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ host: 'cloudflare' })], sandboxTask: { provider: 'cloudflare' } }\n", "import{vitehub}from'vite-hub'exportdefault{plugins:[vitehub({host:'cloudflare',sandboxTask:{provider:'cloudflare'},})]}"],
-    ["nuxt.config.ts", "export default defineNuxtConfig({ modules: ['vite-hub/nuxt'], vitehub: {}, vite: { sandboxTask: { provider: 'cloudflare' } } })\n", "exportdefaultdefineNuxtConfig({modules:['vite-hub/nuxt'],vitehub:{sandboxTask:{provider:'cloudflare'},},vite:{}})"],
+    ["vite.config.ts", "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ host: 'cloudflare' })], sandboxTask: { driver: 'cloudflare' } }\n", "import{vitehub}from'vite-hub'exportdefault{plugins:[vitehub({host:'cloudflare',sandboxTask:{driver:'cloudflare'},})]}"],
+    ["nuxt.config.ts", "export default defineNuxtConfig({ modules: ['vite-hub/nuxt'], vitehub: {}, vite: { sandboxTask: { driver: 'cloudflare' } } })\n", "exportdefaultdefineNuxtConfig({modules:['vite-hub/nuxt'],vitehub:{sandboxTask:{driver:'cloudflare'},},vite:{}})"],
     ["nuxt.config.ts", "export default defineNuxtConfig({ modules: [['vite-hub/nuxt', {}]], vite: { sandboxTask: taskOptions } })\n", "exportdefaultdefineNuxtConfig({modules:[['vite-hub/nuxt',{sandboxTask:taskOptions,}]],vite:{}})"],
   ])("moves Sandbox Task options into the framework options in %s", (file, input, output) => {
     const result = migrateViteHubOptions(file, input)
@@ -248,9 +248,9 @@ describe("vitehub-options transform", () => {
   })
 
   it.each(["@vite-hub/sandbox/task/vite", "vite-hub/sandbox/task/vite"])("passes Sandbox Task options to the standalone plugin from %s", (source) => {
-    const input = `import { hubSandboxTask as tasks } from '${source}'\nexport default { plugins: [tasks()], sandboxTask: { provider: 'cloudflare' } }\n`
+    const input = `import { hubSandboxTask as tasks } from '${source}'\nexport default { plugins: [tasks()], sandboxTask: { driver: 'cloudflare' } }\n`
     const result = migrateViteHubOptions("vite.config.ts", input)
-    expect(result.code).toBe(`import { hubSandboxTask as tasks } from '${source}'\nexport default { plugins: [tasks({ provider: 'cloudflare' })] }\n`)
+    expect(result.code).toBe(`import { hubSandboxTask as tasks } from '${source}'\nexport default { plugins: [tasks({ driver: 'cloudflare' })] }\n`)
     expect(result.followUps).toEqual([])
   })
 

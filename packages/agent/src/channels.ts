@@ -13,10 +13,11 @@ export { matchesGitHubPullRequestFilter } from './internal/github-pull-request-f
 export { channelEnv, channelEnvValue } from "./channel-env.ts"
 export { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
 import { createHash, randomUUID } from "node:crypto"
-import { forgeErrorStatus, forgeProvider, githubAppCredentials, githubInstallationFor, githubInstallationRouting, isForgeResponseError, readGitHubAppPrivateKey } from "@vite-hub/forge"
+import { forgeEnv, forgeErrorStatus } from "@vite-hub/internal/forge"
 import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { invariant } from "@vite-hub/internal/invariant"
-import type { ForgeKind } from "@vite-hub/forge"
+import type { Forge, ForgeKind, ForgeProvider } from "@vite-hub/forge"
+import { loadForge } from "./internal/forge-module.ts"
 import { agentHttpError } from "./http-error.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { defineCapability, trustGitHubPullRequestWorkspaceCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "./capability-runtime.ts"
@@ -803,7 +804,7 @@ export type ForgejoChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
 
 interface ForgeChannelServices<TRuntimeConfig extends AgentRuntimeConfig> {
   kind: "gitlab" | "forgejo"
-  provider: (context: AgentCallbackContext<TRuntimeConfig>, fetcher?: typeof fetch) => ReturnType<typeof forgeProvider>
+  provider: (context: AgentCallbackContext<TRuntimeConfig>, fetcher?: typeof fetch) => Promise<ForgeProvider>
 }
 
 export interface DiscordAdapterOptions {
@@ -878,7 +879,7 @@ export interface TelegramConnectorOptions {
   adapter?: TelegramConnectorAdapterOptions | ChatConnectorAdapter
 }
 
-/** The send options of every Chat connector, such as `teams.connector()` or `slack.connector()`. */
+/** The send options of `useChannel(name).send()` for every chat Channel, such as `teams()` or `slack()`. */
 export interface ChatSendOptions {
   /** A Chat SDK thread ID, such as a channel or chat that the bot received a message in, or `user:<id>` for a direct message. */
   recipient: string
@@ -911,9 +912,22 @@ export interface ChatSendOptions {
  */
 export type ChatMessage = AdapterPostableMessage
 
+/** A raw Adaptive Card that the Teams adapter sends as is, for card features that Chat SDK cards don't cover, such as `Badge`. */
+export interface TeamsAdaptiveCardMessage {
+  /** The card's JSON, or a card built with `@microsoft/teams.cards`. */
+  adaptiveCard: object
+  /** Shown in notifications and in clients that cannot render the card. */
+  fallbackText?: string
+  aiGenerated?: boolean
+  files?: FileUpload[]
+}
+
+/** What `useChannel("teams").send()` sends: a `ChatMessage` or a raw Adaptive Card. */
+export type TeamsChatMessage = ChatMessage | TeamsAdaptiveCardMessage
+
 /** An outbound connector that sends through a Chat SDK adapter. */
-export interface ChatConnector {
-  send: (message: ChatMessage, options: ChatSendOptions) => Promise<{ id: string }>
+export interface ChatConnector<TMessage = ChatMessage> {
+  send: (message: TMessage, options: ChatSendOptions) => Promise<{ id: string }>
 }
 
 type TelegramChannelValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
@@ -1484,7 +1498,7 @@ async function githubPullRequestMetadata<TRuntimeConfig extends AgentRuntimeConf
     })
     const webhookUrl = new URL(command.pullRequestUrl)
     const baseUrl = appOptions.apiBaseUrl ?? `${webhookUrl.origin}${webhookUrl.pathname.replace(/\/repos\/[^/]+\/[^/]+\/pulls\/\d+\/?$/, "")}`
-    const provider = services ? await services.provider(context) : await forgeProvider({ forge: "github", baseUrl, token, fetch: forgeChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
+    const provider = services ? await services.provider(context) : await (await loadForge()).forgeProvider({ forge: "github", baseUrl, token, fetch: forgeChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
     const { thread, comments, files } = services
       ? await forgeChannelMetadata(provider, { forge: services.kind, instance: provider.instance, repository: command.repository, number: command.issueNumber }, { maxComments, maxFiles })
       : await forgePullRequestMetadata(provider, githubForgeTarget(command), { maxComments, maxFiles, authenticated: Boolean(token) })
@@ -1838,6 +1852,7 @@ async function githubAppPrivateKey<TRuntimeConfig extends AgentRuntimeConfig>(
 ) {
   const inline = cleanSecret(await githubAppSetting(options, env, "privateKey", "privateKey", context))
   const path = cleanSecret(await githubAppSetting(options, env, "privateKeyPath", "privateKeyPath", context))
+  const { readGitHubAppPrivateKey } = await loadForge()
   try {
     const privateKey = await readGitHubAppPrivateKey(inline, path)
     if (privateKey) return privateKey
@@ -1846,6 +1861,36 @@ async function githubAppPrivateKey<TRuntimeConfig extends AgentRuntimeConfig>(
     throw agentDiagnostics.AGENT_R0347({ message: `[vitehub] Failed to read GitHub App privateKeyPath: ${path}`, cause: error })
   }
   throw agentDiagnostics.AGENT_R0348({ message: "[vitehub] Missing GitHub App privateKey. github.app.privateKey, github.app.privateKeyPath, VITEHUB_GITHUB_PRIVATE_KEY, or VITEHUB_GITHUB_PRIVATE_KEY_PATH is required." })
+}
+
+/**
+ * The Forge of the Channel's GitHub App: `app` options first, then Server Env. `useForge()` mints and caches the
+ * installation tokens, and routes repository owners to installations as Server Env sets it.
+ */
+async function githubAppForge<TRuntimeConfig extends AgentRuntimeConfig>(
+  options: GitHubAppOptions<TRuntimeConfig>,
+  context: GitHubAppContext<TRuntimeConfig>,
+  routeInstallation = false,
+): Promise<Forge<"github">> {
+  const env = await githubEnv(context)
+  const appId = requiredString(await githubAppSetting(options, env, "appId", "appId", context), "appId")
+  const privateKey = await githubAppPrivateKey(options, env, context)
+  const { github } = forgeEnv
+  const { useForge } = await loadForge()
+  return useForge({
+    env: {
+      [github.appId.names[0]]: appId,
+      [github.privateKey.names[0]]: privateKey,
+      ...(routeInstallation ? {
+        [github.installationId.names[0]]: envNumberText(env.installationId),
+        [github.appOwner.names[0]]: cleanSecret(env.appOwner),
+        [github.appInstallations.names[0]]: cleanSecret(env.appInstallations),
+      } : {}),
+    },
+    ...(options.apiBaseUrl ? { baseUrl: options.apiBaseUrl } : {}),
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+    ...(options.userAgent ? { userAgent: options.userAgent } : {}),
+  })
 }
 
 async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -1865,38 +1910,23 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
     }) : options.token
     return requiredString(token, 'token')
   }
-  const env = await githubEnv(context)
-  const appId = requiredString(await githubAppSetting(options, env, "appId", "appId", context), "appId")
-  const configuredInstallation = installation
+  const configured = installation
     // SAFETY: Presence of the effect discriminator establishes the delivery-effect context variant.
     ?? ("effect" in context ? githubCommandFromEffect(context as AgentChannelDeliveryEffectContext<TRuntimeConfig>)?.installationId : undefined)
     ?? await resolveGithubAppOption(options.installationId, context)
-    // Server Env routes by repository owner, the same way as useForge().
-    ?? githubInstallationFor(githubInstallationRouting({
-      installationId: envNumberText(env.installationId),
-      appOwner: cleanSecret(env.appOwner),
-      appInstallations: cleanSecret(env.appInstallations),
-    }), repository)
-  const credentials = githubAppCredentials({
-    appId,
-    privateKey: await githubAppPrivateKey(options, env, context),
-    baseUrl: options.apiBaseUrl,
-    fetch: options.fetch,
-    userAgent: options.userAgent,
+  const forge = await githubAppForge(options, context, configured === undefined || configured === "")
+  // Without an installation, useForge() routes the repository owner, or asks GitHub which installation reaches it.
+  const [error, minted] = await forge.token({
+    ...(repository ? { repository } : {}),
+    ...(configured === undefined || configured === "" ? {} : { installation: requiredNumber(configured, "installationId") }),
+    ...(signal ? { signal } : {}),
+    ...(minLifetime === undefined ? {} : { minLifetime }),
   })
-  try {
-    // Without a fixed installation, find the App installation of the target repository.
-    const installationId = (configuredInstallation === undefined || configuredInstallation === "") && repository
-      ? await credentials.installation(repository, signal)
-      : requiredNumber(configuredInstallation, "installationId")
-    return (await credentials.installationToken(installationId, { signal, minLifetime })).token
-  }
-  catch (error) {
-    const status = forgeErrorStatus(error)
-    if (status !== undefined) throw agentDiagnostics.AGENT_R0350({ message: `[vitehub] GitHub delivery effect failed with ${status}.`, cause: error })
-    if (isForgeResponseError(error)) throw agentDiagnostics.AGENT_R0349({ message: "[vitehub] GitHub App installation token response did not include token.", cause: error })
-    throw error
-  }
+  if (!error) return minted.token
+  const status = forgeErrorStatus(error.cause)
+  if (status !== undefined) throw agentDiagnostics.AGENT_R0350({ message: `[vitehub] GitHub delivery effect failed with ${status}.`, cause: error })
+  if ((await loadForge()).isForgeResponseError(error.cause)) throw agentDiagnostics.AGENT_R0349({ message: "[vitehub] GitHub App installation token response did not include token.", cause: error })
+  throw error
 }
 
 async function githubPullRequestMetadataToken<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -2012,28 +2042,17 @@ async function githubAppIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
 ): Promise<GitHubActivityIdentity> {
   const options = githubAppOptions(app) || {}
   if (options.identity) return options.identity
-  const env = await githubEnv(context)
-  const appId = requiredString(await githubAppSetting(options, env, "appId", "appId", context), "appId")
-  const credentials = githubAppCredentials({
-    appId,
-    privateKey: await githubAppPrivateKey(options, env, context),
-    baseUrl: options.apiBaseUrl,
-    fetch: options.fetch,
-    userAgent: options.userAgent,
-  })
-  try {
-    return { appId: (await credentials.app(signal)).id }
-  }
-  catch (error) {
-    const status = forgeErrorStatus(error)
-    if (status !== undefined) throw agentDiagnostics.AGENT_R0351({ message: `[vitehub] GitHub metadata request failed with ${status}.`, cause: error })
-    if (isForgeResponseError(error)) throw agentDiagnostics.AGENT_R0355({ message: "[vitehub] GitHub App metadata did not include an ID.", cause: error })
-    throw error
-  }
+  const forge = await githubAppForge(options, context)
+  const [error, identity] = await forge.app(signal ? { signal } : {})
+  if (!error) return { appId: identity.id }
+  const status = forgeErrorStatus(error.cause)
+  if (status !== undefined) throw agentDiagnostics.AGENT_R0351({ message: `[vitehub] GitHub metadata request failed with ${status}.`, cause: error })
+  if ((await loadForge()).isForgeResponseError(error.cause)) throw agentDiagnostics.AGENT_R0355({ message: "[vitehub] GitHub App metadata did not include an ID and a slug.", cause: error })
+  throw error
 }
 
 async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
-  provider: Awaited<ReturnType<typeof forgeProvider>>,
+  provider: ForgeProvider,
   token: string,
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
   context: GitHubAppContext<TRuntimeConfig>,
@@ -2349,7 +2368,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         deadline = githubActivityDeadline(context.abortSignal)
         deadline.throwIfAborted()
         const publication = async () => {
-          const provider = hostProvider || await forgeProvider({ forge: "github", baseUrl: apiBaseUrl, token, fetch: forgeChannelFetch(fetcher), userAgent: options.userAgent })
+          const provider = hostProvider || await (await loadForge()).forgeProvider({ forge: "github", baseUrl: apiBaseUrl, token, fetch: forgeChannelFetch(fetcher), userAgent: options.userAgent })
           const identity = services ? await githubActivityAwait(forgeIdentity(provider, { kind: "token" }), deadline) : await githubActivityIdentity(provider, token, app, context, deadline)
           const activityKey = `${githubActivityIdentityKey(identity)}\0${commentsTarget}`
           const runId = githubActivityRunId(context.activity.agentName || "", context.activity.runId)
@@ -2732,7 +2751,7 @@ async function githubBodyImageArtifacts<TRuntimeConfig extends AgentRuntimeConfi
   body: string | undefined,
   options: GitHubPullRequestEffectsOptions<TRuntimeConfig>,
   command: GitHubPullRequestCommand,
-  provider: Awaited<ReturnType<typeof forgeProvider>>,
+  provider: ForgeProvider,
 ): Promise<PublishedAgentDeliveryArtifact[]> {
   if (!body || !context.workspace || options.artifacts === false) return []
   const paths = new Set<string>()
@@ -2760,7 +2779,7 @@ async function githubBodyImageArtifacts<TRuntimeConfig extends AgentRuntimeConfi
 }
 
 async function ensureGitHubArtifactBranch(
-  provider: Awaited<ReturnType<typeof forgeProvider>>,
+  provider: ForgeProvider,
   command: GitHubPullRequestCommand,
   branch: string,
 ): Promise<void> {
@@ -2789,7 +2808,7 @@ async function ensureGitHubArtifactBranch(
 }
 
 async function publishGitHubArtifact(
-  provider: Awaited<ReturnType<typeof forgeProvider>>,
+  provider: ForgeProvider,
   command: GitHubPullRequestCommand,
   branch: string,
   input: AgentDeliveryArtifactPublishInput,
@@ -2824,7 +2843,7 @@ async function githubBodyWithArtifacts<TRuntimeConfig extends AgentRuntimeConfig
   body: string | undefined,
   options: GitHubPullRequestEffectsOptions<TRuntimeConfig>,
   command: GitHubPullRequestCommand,
-  provider: Awaited<ReturnType<typeof forgeProvider>>,
+  provider: ForgeProvider,
 ): Promise<string | undefined> {
   const structuredArtifacts = deliveryArtifacts(context)
   const referencedStructuredPaths = new Set(deliveryArtifactMarkdownReferencePaths(body, structuredArtifacts))
@@ -2870,7 +2889,7 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
   options: GitHubPullRequestEffectsOptions<TRuntimeConfig>,
 ): AgentChannelDeliveryEffects<TRuntimeConfig> {
   return forgeDeliveryEffects({
-    provider: async context => await forgeProvider({ forge: "github", baseUrl: options.apiBaseUrl, token: await resolveEffectOption(options.token, context), fetch: forgeChannelFetch(options.fetch || fetch), userAgent: options.userAgent }),
+    provider: async context => await (await loadForge()).forgeProvider({ forge: "github", baseUrl: options.apiBaseUrl, token: await resolveEffectOption(options.token, context), fetch: forgeChannelFetch(options.fetch || fetch), userAgent: options.userAgent }),
     target: context => {
       const command = githubCommandFromEffect(context)
       return command ? githubForgeTarget(command) : undefined
@@ -3068,7 +3087,7 @@ function connectorKV(name: string): Promise<ConnectorKV> {
   // @vite-hub/kv is optional and loaded only when a Chat connector runs.
   // Resolve it for each operation so a native dev reload can replace or remove the installed store.
   return importOptionalKV().then(module => module.kv, (error: unknown) => {
-    throw agentDiagnostics.AGENT_R0365({ message: `[vitehub] ${name}.connector() requires @vite-hub/kv to be installed and configured.`, cause: error })
+    throw agentDiagnostics.AGENT_R0365({ message: `[vitehub] Sending with ${name}() requires @vite-hub/kv to be installed and configured.`, cause: error })
   })
 }
 
@@ -3116,16 +3135,20 @@ async function deleteConnectorReceipt(platform: ChatConnectorPlatform, adapter: 
   if (error) throw error
 }
 
-/** Text is Markdown. The Chat SDK reads a plain string as raw text, so wrap it. */
-function chatPostable(message: ChatMessage): AdapterPostableMessage {
-  return typeof message === "string" ? { markdown: message } : message
+/**
+ * Text is Markdown. The Chat SDK reads a plain string as raw text, so wrap it. A platform message, such as a raw Teams
+ * Adaptive Card, goes to its own adapter as is.
+ */
+function chatPostable(message: TeamsChatMessage): AdapterPostableMessage {
+  // SAFETY: Only `teams()` sends `TeamsAdaptiveCardMessage`, and the Teams adapter takes it in place of a Chat SDK message.
+  return typeof message === "string" ? { markdown: message } : message as AdapterPostableMessage
 }
 
 /**
  * An outbound connector that sends through one Chat SDK adapter.
  * Thread roots and idempotent receipts are stored in `@vite-hub/kv` under `<channel>:`.
  */
-function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => MaybePromise<Adapter>): ChatConnector {
+function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => MaybePromise<Adapter>): ChatConnector<TeamsChatMessage> {
   const { label, name } = platform
   let adapter: Promise<Adapter> | undefined
   const useAdapter = (): Promise<Adapter> => {
@@ -3139,17 +3162,17 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
   }
   return {
     async send(message, { recipient, thread, idempotencyKey, update, replace }) {
-      if (typeof recipient !== "string" || !recipient) throw new TypeError(`[vitehub] ${label} send requires a recipient.`)
-      if (thread !== undefined && (!isRecord(thread) || typeof thread.key !== "string" || !thread.key)) throw new TypeError(`[vitehub] ${label} thread requires a non-empty key.`)
+      if (typeof recipient !== "string" || !recipient) throw agentDiagnostics.AGENT_CONNECTOR_RECIPIENT_MISSING({ label })
+      if (thread !== undefined && (!isRecord(thread) || typeof thread.key !== "string" || !thread.key)) throw agentDiagnostics.AGENT_CONNECTOR_THREAD_KEY_MISSING({ label })
       if (replace !== undefined && (typeof replace !== "string" || !replace || !idempotencyKey || replace === idempotencyKey)) {
-        throw new TypeError(`[vitehub] ${label} replace requires the idempotency key of an earlier send and its own idempotencyKey.`)
+        throw agentDiagnostics.AGENT_CONNECTOR_REPLACE_INVALID({ label })
       }
       const chat = await useAdapter()
-      if (replace && !chat.deleteMessage) throw new TypeError(`[vitehub] The ${label} adapter cannot delete messages.`)
+      if (replace && !chat.deleteMessage) throw agentDiagnostics.AGENT_CONNECTOR_ADAPTER_UNSUPPORTED({ label, action: "delete messages" })
       if (!thread) {
         const target = async () => {
           if (!recipient.startsWith("user:")) return recipient
-          if (!chat.openDM) throw new TypeError(`[vitehub] The ${label} adapter cannot open direct messages.`)
+          if (!chat.openDM) throw agentDiagnostics.AGENT_CONNECTOR_ADAPTER_UNSUPPORTED({ label, action: "open direct messages" })
           return await chat.openDM(recipient.slice(5))
         }
         const post = async () => ({ id: (await chat.postMessage(await target(), chatPostable(message))).id })
@@ -3174,11 +3197,11 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
         return receipt
       }
       const threads = platform.thread
-      if (!threads) throw new TypeError(`[vitehub] ${name}.connector() does not support thread.`)
+      if (!threads) throw agentDiagnostics.AGENT_CONNECTOR_THREAD_UNSUPPORTED({ name })
       if (recipient.startsWith("user:") || !threads.isChannel(chat, recipient)) {
-        throw new TypeError(`[vitehub] A ${label} thread requires a channel recipient without a message ID.`)
+        throw agentDiagnostics.AGENT_CONNECTOR_THREAD_RECIPIENT_INVALID({ label })
       }
-      if (!chat.postChannelMessage) throw new TypeError(`[vitehub] The ${label} adapter cannot post channel messages.`)
+      if (!chat.postChannelMessage) throw agentDiagnostics.AGENT_CONNECTOR_ADAPTER_UNSUPPORTED({ label, action: "post channel messages" })
       const postChannelMessage = chat.postChannelMessage.bind(chat)
       const kv = await connectorKV(name)
       const key = `${name}:threads:${connectorHash(`${recipient}\0${thread.key}`)}`
@@ -3191,7 +3214,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
         if (replacedKey && threadId) {
           const replaced = await connectorKVGet(kv, replacedKey)
           if (typeof replaced?.id === "string" && threads.rootMessageId(chat, threadId) === replaced.id) {
-            throw new TypeError(`[vitehub] ${label} replace cannot delete a channel thread root. Set thread.root on the first send so the temporary message is a reply.`)
+            throw agentDiagnostics.AGENT_CONNECTOR_REPLACE_THREAD_ROOT({ label })
           }
         }
         if (typeof stored?.id === "string") {
@@ -3201,7 +3224,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
         }
         if (!threadId) {
           const root = await postChannelMessage(recipient, chatPostable(thread.root ?? message))
-          if (!root.id) throw new Error(`[vitehub] ${label} did not return a root message ID.`)
+          if (!root.id) throw agentDiagnostics.AGENT_CHANNEL_MESSAGE_ID_MISSING({ label, root: true })
           threadId = threads.rootThreadId(chat, recipient, root)
           await connectorKVSet(kv, `${key}:root`, { threadId })
           if (thread.root === undefined) {
@@ -3210,7 +3233,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
           }
         }
         const sent = await chat.postMessage(threadId, chatPostable(message))
-        if (!sent.id) throw new Error(`[vitehub] ${label} did not return a message ID.`)
+        if (!sent.id) throw agentDiagnostics.AGENT_CHANNEL_MESSAGE_ID_MISSING({ label, root: false })
         if (receiptKey) await connectorKVSet(kv, receiptKey, { id: sent.id })
         return { id: sent.id }
       })
@@ -3227,15 +3250,15 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
 }
 
 /** A chat adapter that also sends: `useChannel(name).send(message, options)` posts through it. */
-export type ChatChannelAdapter<TChannel> = TChannel & {
-  send: (message: ChatMessage, options: ChatSendOptions) => Promise<{ id: string }>
+export type ChatChannelAdapter<TChannel, TMessage = ChatMessage> = TChannel & {
+  send: (message: TMessage, options: ChatSendOptions) => Promise<{ id: string }>
 }
 
 /** Adds `send` to a chat adapter. The connector is built on the first send, from the adapter's own options. */
-function withChatSend<TChannel extends object>(channel: TChannel, createConnector: () => ChatConnector): ChatChannelAdapter<TChannel> {
-  let connector: ChatConnector | undefined
+function withChatSend<TChannel extends object, TMessage = ChatMessage>(channel: TChannel, createConnector: () => ChatConnector<TMessage>): ChatChannelAdapter<TChannel, TMessage> {
+  let connector: ChatConnector<TMessage> | undefined
   return Object.assign(channel, {
-    send: async (message: ChatMessage, options: ChatSendOptions) => await (connector ??= createConnector()).send(message, options),
+    send: async (message: TMessage, options: ChatSendOptions) => await (connector ??= createConnector()).send(message, options),
   })
 }
 
@@ -3257,7 +3280,7 @@ function connectorAdapter<TOptions>(input: TOptions | ChatConnectorAdapter | und
 
 function decodeTeamsThread(adapter: Adapter, threadId: string): Record<string, unknown> & { conversationId: string } {
   const data = adapter.decodeThreadId(threadId)
-  if (!isRecord(data) || typeof data.conversationId !== "string") throw new TypeError("[vitehub] The Teams recipient is not a Teams thread ID.")
+  if (!isRecord(data) || typeof data.conversationId !== "string") throw agentDiagnostics.AGENT_CONNECTOR_RECIPIENT_INVALID({ label: "Teams" })
   return { ...data, conversationId: data.conversationId }
 }
 
@@ -3288,13 +3311,13 @@ const teamsConnectorPlatform: ChatConnectorPlatform = {
 }
 
 /** Sends Markdown to Microsoft Teams. It builds one adapter like `teams()`. Roots and receipts live in KV under `teams:`. */
-function teamsConnector(options: TeamsConnectorOptions = {}): ChatConnector {
+function teamsConnector(options: TeamsConnectorOptions = {}): ChatConnector<TeamsChatMessage> {
   return chatConnector(teamsConnectorPlatform, connectorAdapter(options.adapter, input => createTeamsConnectorAdapterFromEnv(input ?? {})))
 }
 
 function decodeSlackThread(adapter: Adapter, threadId: string): { channel: string, threadTs: string } {
   const data = adapter.decodeThreadId(threadId)
-  if (!isRecord(data) || typeof data.channel !== "string" || typeof data.threadTs !== "string") throw new TypeError("[vitehub] The Slack recipient is not a Slack thread ID.")
+  if (!isRecord(data) || typeof data.channel !== "string" || typeof data.threadTs !== "string") throw agentDiagnostics.AGENT_CONNECTOR_RECIPIENT_INVALID({ label: "Slack" })
   return { channel: data.channel, threadTs: data.threadTs }
 }
 
@@ -3313,7 +3336,7 @@ const slackConnectorPlatform: ChatConnectorPlatform = {
 /** Sends Markdown to Slack through your Slack adapter. Roots and receipts live in KV under `slack:`. */
 function slackConnector(options: SlackConnectorOptions): ChatConnector {
   const input = isRecord(options) ? options.adapter : undefined
-  if (!isAdapter(input) && typeof input !== "function") throw new TypeError("[vitehub] slack.connector() requires an adapter, such as createSlackAdapter() from @chat-adapter/slack.")
+  if (!isAdapter(input) && typeof input !== "function") throw agentDiagnostics.AGENT_SLACK_CONNECTOR_ADAPTER_MISSING()
   return chatConnector(slackConnectorPlatform, typeof input === "function" ? input : () => input)
 }
 
@@ -3529,7 +3552,7 @@ async function githubPullRequestMatchesFilter<TRuntimeConfig extends AgentRuntim
       const appOptions = app ? githubAppOptions(app) || {} : {}
       try {
         const token = services ? undefined : await githubPullRequestMetadataToken(app, context, maybeNumber(payload.installation?.id), repository)
-        const provider = services ? await services.provider(context) : await forgeProvider({ forge: "github", baseUrl: appOptions.apiBaseUrl, token, fetch: forgeChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
+        const provider = services ? await services.provider(context) : await (await loadForge()).forgeProvider({ forge: "github", baseUrl: appOptions.apiBaseUrl, token, fetch: forgeChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
         const pullRequest = services ? await forgeChannelPullRequest(provider, { forge: services.kind, instance: provider.instance, repository, number }) : (await forgeChannelRead(provider, "AGENT_R0351", async () => await forgePullRequest(provider, { forge: "github", instance: provider.instance, repository, number }))).raw
         if (isRecord(pullRequest)) {
           const hydrated = githubPullRequestFilterContext({ ...payload, pull_request: pullRequest })
@@ -3560,7 +3583,7 @@ async function githubActivitySessionLink<TRuntimeConfig extends AgentRuntimeConf
   const agentName = context.agentName || context.agentIdentity?.name
   if (!options.publicUrl && !agentName) return
   if (!agentName && services) throw agentDiagnostics.AGENT_FORGE_AGENT_IDENTITY_MISSING()
-  if (!agentName) throw new Error("GitHub activity session links require an Agent identity.")
+  if (!agentName) throw agentDiagnostics.AGENT_GITHUB_ACTIVITY_AGENT_MISSING()
   const { agentInvocationId } = await import("./invocations.ts")
   const id = await agentInvocationId(runId, agentName)
   // The public URL callback uses the discovered name, while an explicit name identifies the invocation.
@@ -3587,6 +3610,7 @@ async function githubPullRequestTriggerEvent<TRuntimeConfig extends AgentRuntime
     try {
       const appOptions = app ? githubAppOptions(app) || {} : {}
       const token = await githubPullRequestMetadataToken(app, context, command.installationId, command.repository)
+      const { forgeProvider } = await loadForge()
       const provider = await forgeProvider({ forge: "github", baseUrl: appOptions.apiBaseUrl, token, fetch: forgeChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
       const read = await forgePullRequest(provider, { forge: "github", instance: provider.instance, repository: command.repository, number: command.issueNumber })
       if (isRecord(read.raw) && isRecord(read.raw.head)) head = read.raw.head
@@ -4418,7 +4442,7 @@ function forgeChannel<TRuntimeConfig extends AgentRuntimeConfig, TData, TMethods
   const setting = forgeChannelSetting(kind, options)
   const services: ForgeChannelServices<TRuntimeConfig> = {
     kind,
-    provider: async (context, fetcher) => await forgeProvider({ forge: kind, baseUrl: await setting("baseUrl", context), token: await setting("token", context), fetch: forgeChannelFetch(fetcher || globalThis.fetch) }),
+    provider: async (context, fetcher) => await (await loadForge()).forgeProvider({ forge: kind, baseUrl: await setting("baseUrl", context), token: await setting("token", context), fetch: forgeChannelFetch(fetcher || globalThis.fetch) }),
   }
   const secret = async (context: AgentCallbackContext<TRuntimeConfig>) => {
     const value = await setting("webhookSecret", context)
@@ -5009,9 +5033,9 @@ function slackChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
  */
 export const slack: typeof slackChannel = slackChannel
 
-function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>>
-function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>>
-function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {}): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>> {
+function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>, TeamsChatMessage>
+function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>, TeamsChatMessage>
+function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {}): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>, TeamsChatMessage> {
   return withChatSend(defineMessageChannelInstructions(channelAdapter("teams", { ...options, adapter: teamsAdapterResolver(options.adapter) }), "Write formulas for Microsoft Teams as readable plain text, using words, Unicode symbols, or inline code. Teams does not render LaTeX math delimiters or Mermaid diagrams. Explain variables in short bullets; use a numbered flow instead of diagram syntax. Cite sources with descriptive Markdown links to verified URLs. Never emit native citation markers or internal source IDs. If a source URL is unavailable, name the source without inventing a link."), () => teamsConnector({ adapter: chatSendAdapterInput<TeamsConnectorOptions["adapter"]>(options.adapter) }))
 }
 

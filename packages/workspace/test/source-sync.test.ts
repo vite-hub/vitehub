@@ -71,11 +71,11 @@ describe("Workspace Source Sync", () => {
   })
 
   it.each([
-    { provider: "local", sync: true }, { provider: "memory", sync: true },
-    { provider: "local", sync: false }, { provider: "memory", sync: false },
-  ])("materializes optional Source metadata: $provider, sync=$sync", async ({ provider, sync }) => {
+    { driver: "local", sync: true }, { driver: "memory", sync: true },
+    { driver: "local", sync: false }, { driver: "memory", sync: false },
+  ])("materializes optional Source metadata: $driver, sync=$sync", async ({ driver, sync }) => {
     const root = await createRoot()
-    const store = provider === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const store = driver === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
     const metadata = { title: "Readme", optional: undefined, nested: { keep: true, optional: undefined }, values: ["docs", undefined, undefined, { optional: undefined }] }
     delete metadata.values[2]
     registerWorkspace("optional-metadata", defineWorkspace({
@@ -92,7 +92,7 @@ describe("Workspace Source Sync", () => {
     const workspace = await useRegisteredWorkspace("optional-metadata")
     if (sync) await workspace.sync({ sources: ["docs"] })
     else await workspace.readFile("docs/README.md")
-    const reader = provider === "local" ? createLocalWorkspaceStore(root) : store
+    const reader = driver === "local" ? createLocalWorkspaceStore(root) : store
     const file = await reader.readFile("docs/README.md")
     expect(file?.metadata).toMatchObject({ title: "Readme", nested: { keep: true }, source: "docs" })
     expect(file?.metadata).not.toHaveProperty("optional")
@@ -120,7 +120,7 @@ describe("Workspace Source Sync", () => {
       if (kind === "top-getter") Object.defineProperty(metadata, "value", { enumerable: true, get: getter })
       const name = `invalid-${kind}-${sync}`
       registerWorkspace(name, defineWorkspace({
-        store: { provider: "memory" },
+        store: { driver: "memory" },
         sources: {
           docs: {
             sync: sync ? true : undefined,
@@ -139,7 +139,7 @@ describe("Workspace Source Sync", () => {
 
   it("requires explicit source selection and materializes sync-only sources on demand", async () => {
     registerWorkspace("explicit-sync", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: {
           sync: true,
@@ -182,7 +182,7 @@ describe("Workspace Source Sync", () => {
   it("preserves streamed source content", async () => {
     const bytes = new Uint8Array([0, 1, 2, 3, 254, 255])
     registerWorkspace("stream-sync", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         assets: {
           sync: true,
@@ -220,7 +220,7 @@ describe("Workspace Source Sync", () => {
       ["stale/old.md", "# Stale\n"],
     ])
     registerWorkspace("stale-sync", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: custom({
           sync: { stale: "remove" },
@@ -513,7 +513,7 @@ describe("Workspace Source Sync", () => {
 
   it("rejects unsafe source sync item paths before writing files", async () => {
     registerWorkspace("unsafe-path-sync", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: {
           sync: true,
@@ -537,7 +537,7 @@ describe("Workspace Source Sync", () => {
 
   it("syncs all sync-eligible sources without touching build-only sources", async () => {
     registerWorkspace("all-sync", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         synced: {
           sync: true,
@@ -574,7 +574,7 @@ describe("Workspace Source Sync", () => {
 
   it("can snapshot after successful source sync", async () => {
     registerWorkspace("snapshot-sync", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: {
           sync: true,
@@ -599,7 +599,7 @@ describe("Workspace Source Sync", () => {
 
   it("can apply successful source plans and snapshot partial sync results when requested", async () => {
     registerWorkspace("partial-sync", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: {
           sync: true,
@@ -645,7 +645,7 @@ describe("Workspace Source Sync", () => {
 
     registerWorkspace("plain-object-sync", defineWorkspace({
       rootDir: root,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: {
           cwd: "content",
@@ -664,7 +664,7 @@ describe("Workspace Source Sync", () => {
 
   it("supports Source Sync from the public writable workspace facade", async () => {
     registerWorkspace("public-sync", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: {
           sync: true,
@@ -692,7 +692,7 @@ describe("Workspace Source Sync", () => {
 
     registerWorkspace("markdown-helper-sync", defineWorkspace({
       rootDir: root,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: markdown({
           path: "README.md",
@@ -709,7 +709,7 @@ describe("Workspace Source Sync", () => {
 
   it("rejects ambiguous plain object source configuration", async () => {
     registerWorkspace("ambiguous-sync", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: {
           repo: "acme/docs",
@@ -722,7 +722,7 @@ describe("Workspace Source Sync", () => {
     await expect(useRegisteredWorkspace("ambiguous-sync")).rejects.toThrow("ambiguous")
 
     registerWorkspace("ambiguous-local-sync", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: {
           include: "*.md",

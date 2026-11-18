@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
+import { readdir, readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
+import { invariantError } from "@vite-hub/internal/invariant"
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -21,6 +23,7 @@ import {
 } from "@nuxt/kit"
 import { findContentEntry } from "@vite-hub/source/vite"
 import { vitehubTheme } from "@vite-hub/ui/theme"
+import { sizeOf } from "comark-zoom/size"
 import { defu } from "defu"
 import { addRoute, createRouter, findAllRoutes, routeToRegExp } from "rou3"
 
@@ -40,10 +43,11 @@ import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi, type DocsT
 import { docsThemeCss } from "./theme-css.ts"
 
 import type { ContentLlmsSection } from "@vite-hub/content"
-import type { Nuxt } from "nuxt/schema"
+import type { Nuxt, PublicRuntimeConfig } from "nuxt/schema"
 
 import type { DocsContentSnapshot, DocsSourceInput } from "./manifest.ts"
 import type { DocsSectionFile } from "./schema.ts"
+import type { DocsImageSizes } from "./markdown.ts"
 import type { DocsPage } from "./types.ts"
 
 export { DocsAssistantSetupError } from "./assistant-nuxt.ts"
@@ -222,6 +226,15 @@ export interface DocsPublicConfig {
   ogImage: { component: string } | false
 }
 
+// `useRuntimeConfig().public.docs` is typed in the app and in Nitro server code. Nuxt types Nitro's runtime config as
+// its own when its server types load. Package code and server files without them get the same `public` here.
+declare module "nuxt/schema" {
+  interface PublicRuntimeConfig { docs: DocsPublicConfig }
+}
+declare module "nitro/types" {
+  interface NitroRuntimeConfig { public: PublicRuntimeConfig }
+}
+
 interface DiscoveryLink {
   href: string
   anchor?: string
@@ -292,10 +305,19 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // Nuxt passes the inline options only to setup, so read them from the `modules` entry too.
     // SAFETY: the `docs` key and the inline entry options of this module are its options.
     const docs = (await readModuleOptions(nuxt, ["@vite-hub/docs", "@vite-hub/docs/nuxt", "vite-hub/docs/nuxt"], "docs") ?? {}) as DocsModuleOptions
+    // Nuxt UI may already have queued its own fonts path when it precedes docs in the app's modules.
+    // Redirect both that path and future name resolutions before Nuxt loads dependency modules.
+    const fontsPath = dependency("@nuxt/fonts")
+    const uiFontsPath = createRequire(dependency("@nuxt/ui")).resolve("@nuxt/fonts")
+    nuxt.options.alias["@nuxt/fonts"] = fontsPath
+    nuxt.options.alias[uiFontsPath] = fontsPath
     return {
       // Comments keeps threads in a ViteHub Database, so it runs through `vite-hub/nuxt`, which the app installs.
       ...await docsCommentsDependencies(nuxt, docs.comments),
       // Pages render with Nuxt UI prose components, and search and the outline are Nuxt UI content components.
+      // Nuxt UI asks for @nuxt/fonts 0.14, which writes empty font files on a Nitro 3 build.
+      // Resolve the shared dependency to this package's Nitro 3-compatible version in either module order.
+      "@nuxt/fonts": {},
       // A peer dependency: the app's own copy, so the app and the shell share one Nuxt UI.
       "@nuxt/ui": { defaults: { prose: true, content: true } },
       [dependency("@vite-hub/ui/nuxt")]: {},
@@ -344,8 +366,23 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // Without an `app.vue` of its own, the app is the docs site: the docs `app.vue` draws the site header, search, and
     // head on every page. An app with its own `app.vue` keeps it, and the docs layouts draw them on docs pages only.
     const ownsApp = !hasAppComponent(nuxt.options._layers.map(layer => layer.config.srcDir), nuxt.options.extensions)
-    nuxt.options.alias["#docs/shell"] = addTemplate({ filename: "docs/shell.mjs", write: true, getContents: () => `export const ownsApp = ${ownsApp}\n` }).dst
-    addTemplate({ filename: "docs/shell.d.mts", write: true, getContents: () => "export declare const ownsApp: boolean\n" })
+    // `nuxi build` and `nuxi dev` write the types before the templates, so Nuxt finds no `.d.mts` beside a `#docs/*`
+    // template then, and a site's typecheck reads the module's JavaScript.
+    nuxt.hook("prepare:types", ({ tsConfig, sharedTsConfig, serverTsConfig }) => {
+      const templates = new Set(nuxt.options.build.templates.map(template => template.dst))
+      for (const paths of [tsConfig, sharedTsConfig, serverTsConfig].map(config => config?.compilerOptions?.paths)) {
+        for (const [alias, target] of Object.entries(nuxt.options.alias)) {
+          const declaration = target.replace(/\.mjs$/, ".d.mts")
+          if (paths?.[alias] && alias.startsWith("#docs/") && templates.has(declaration)) paths[alias] = [declaration]
+        }
+      }
+    })
+    // Pages outside the sections are plain articles. In the docs site they use the `default` layout, which an app
+    // page uses too. In an app with its own `app.vue`, they get a layout of their own, so app pages keep theirs.
+    // The declaration names that one layout, so a site's typecheck accepts it as a layout of the app.
+    const articleLayout = ownsApp ? "default" : "docs-article"
+    nuxt.options.alias["#docs/shell"] = addTemplate({ filename: "docs/shell.mjs", write: true, getContents: () => `export const ownsApp = ${ownsApp}\nexport const articleLayout = ${JSON.stringify(articleLayout)}\n` }).dst
+    addTemplate({ filename: "docs/shell.d.mts", write: true, getContents: () => `export declare const ownsApp: boolean\nexport declare const articleLayout: ${JSON.stringify(articleLayout)}\n` })
     // comark-ui's blocks add their styles when they mount. The page links them instead, so the first paint, before the
     // app hydrates, shows no raw blocks, such as an anchor's screen reader text or a tab row as plain text, and nothing
     // moves when it does. They are one static file, because Vite's CSS pipeline does not parse some of their newer
@@ -412,6 +449,10 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     nuxt.hook("build:before", async () => { agentCopies = await writeAgentSources() })
     // The link checker counts a link as built only when it was prerendered or sits in `public/`, and fetches any other
     // from the live site. The Markdown copies are neither, so it is told that every page has one.
+    // A build that prerenders only some routes, such as a bundle analysis, also has indexed pages that are not on the
+    // live site yet, like a new section. The manifest has them, so they are valid too. Only the link checker module
+    // skips them: `checkDocsLinks()` reads the built pages and still checks their fragments.
+    const indexedPagePaths = new Set(docsManifestPages(manifest).filter(page => docsPageIndexed(page)).map(page => docsAppPath(page.path, config.appBase)))
     if (options.linkChecker !== false) {
       const linkChecker = (moduleOptions.linkChecker ??= {})
       linkChecker.excludeLinks = [
@@ -420,6 +461,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         ...docsManifestPages(manifest).map(page => docsAppPath(docsRawPath(page.path), config.appBase)),
         // A page with `seo.index: false` is not prerendered, but the manifest has it, so links to it are valid.
         ...docsManifestPages(manifest).filter(page => !docsPageIndexed(page)).map(page => docsAppPath(page.path, config.appBase)),
+        ...indexedPagePaths,
       ]
     }
 
@@ -535,6 +577,17 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       filename: "docs/parser.mjs",
       write: true,
       getContents: () => `${parserEntry ? `export { default } from ${JSON.stringify(parserEntry)}` : "export default {}"}\nexport const githubRepo = ${JSON.stringify(options.github ? options.github.repo : null)}\n`,
+    }).dst
+
+    // comark-ui cannot measure an image of the site, such as `/screenshots/console.png`, from its path, so the picture
+    // took its room only once it loaded and pushed the page down. The build measures the pictures of every public
+    // folder, and the parser gives each image its size. The app's own file wins over a layer's. The Worker that parses
+    // drafts has no files, so it reads the sizes from this module too.
+    const publicDirs = () => nuxt.options._layers.map(layer => resolve(layer.cwd, layer.config.dir?.public ?? "public"))
+    const imageSizesFile = addTemplate({
+      filename: "docs/image-sizes.mjs",
+      write: true,
+      getContents: async () => `export default ${JSON.stringify(await publicImageSizes(publicDirs()))}\n`,
     }).dst
 
     const componentsEntry = options.components ? resolve(nuxt.options.rootDir, options.components) : null
@@ -691,16 +744,18 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     nuxt.options.alias["#docs/components"] = addTemplate({
       filename: "docs/components.mjs",
       write: true,
-      getContents: () => `export default {\n${contentComponents.map(component => `  ${JSON.stringify(component.kebabName)}: () => import(${JSON.stringify(component.filePath)}),`).join("\n")}\n}\n`,
+      getContents: () => [
+        `export default {\n${contentComponents.map(component => `  ${JSON.stringify(component.kebabName)}: () => import(${JSON.stringify(component.filePath)}),`).join("\n")}\n}`,
+        // The app's own blocks, not the package's. A `home` page draws them at full width.
+        `export const pageBlocks = ${JSON.stringify(contentComponents.filter(component => !component.filePath.startsWith(`${contentDirs[0]}/`)).map(component => component.kebabName))}`,
+        "",
+      ].join("\n"),
     }).dst
-    addTemplate({ filename: "docs/components.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const components: Record<string, (() => Promise<{ default: Component }>) | undefined>\nexport default components\n` })
+    addTemplate({ filename: "docs/components.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const components: Record<string, (() => Promise<{ default: Component }>) | undefined>\nexport default components\nexport declare const pageBlocks: string[]\n` })
     addImportsDir([join(runtime, "app/composables"), join(runtime, "app/utils")])
     nuxt.hook("app:templates", (app) => {
       app.layouts.docs ??= { file: join(runtime, "app/layouts/docs.vue"), name: "docs" }
-      // Pages outside the sections are plain articles. In the docs site they use the `default` layout, which an app
-      // page uses too. In an app with its own `app.vue`, they get a layout of their own, so app pages keep theirs.
-      const article = ownsApp ? "default" : "docs-article"
-      app.layouts[article] ??= { file: join(runtime, "app/layouts/default.vue"), name: article }
+      app.layouts[articleLayout] ??= { file: join(runtime, "app/layouts/default.vue"), name: articleLayout }
     })
     // A prerendered page has a payload, and the sidebar links every page, so Nuxt's default of prefetching each link in
     // view downloaded every payload in the sidebar on the first visit, megabytes on a large site. A link prefetches when
@@ -739,6 +794,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     addServerHandler({ route: "/api/_docs/page/**", handler: resolver.resolve("./runtime/server/page.js") })
     addServerHandler({ route: "/api/_docs/search.json", handler: resolver.resolve("./runtime/server/search.js") })
     addServerHandler({ route: "/sitemap.xml", handler: resolver.resolve("./runtime/server/sitemap.js") })
+    // One URL per page: the canonical link and the sitemap name `/docs/kv`, so `/docs/kv/` redirects there.
+    addServerHandler({ middleware: true, handler: resolver.resolve("./runtime/server/trailing-slash.js") })
     // Content serves the agent files. HEAD too: link checkers probe with it, and a GET-only route answers it with a 404.
     for (const method of ["get", "head"] as const) {
       for (const route of ["/llms.txt", "/llms-full.txt", "/sitemap.md"]) addServerHandler({ route, method, handler: resolver.resolve("./runtime/server/llms.js") })
@@ -781,7 +838,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           const redirects = docsRedirects(nitro.options.routeRules ?? {})
           const settings = options.linkChecker || {}
           const result = checkDocsLinks({ dir: nitro.options.output.publicDir, siteUrl: config.site.url || "https://docs.local", appBase: config.appBase, ...settings, isRuntimePath: docsRuntimePath(nitro.options, config.appBase, docsMount(manifest)), excludeLinks: [
-            ...moduleOptions.linkChecker?.excludeLinks ?? [],
+            // Indexed pages stay checked here, with their fragments.
+            ...(moduleOptions.linkChecker?.excludeLinks ?? []).filter(link => typeof link !== "string" || !indexedPagePaths.has(link)),
             ...settings.excludeLinks ?? [],
             ...redirects.map(redirect => docsAppPath(redirect.from, config.appBase)),
             // The MCP endpoint is a server route, so the built output has no file for it.
@@ -827,7 +885,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // The `/raw/**` route goes to Nitro directly: nuxt-agent-discovery skips the prerender of raw copies that an app
       // route of Nuxt serves, and the build prerenders them.
       nitro.handlers = [...nitro.handlers ?? [], ...(["get", "head"] as const).map(method => ({ route: "/raw/**", method, handler: resolver.resolve("./runtime/server/raw.js") }))]
-      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile, "#docs/agent": agentFile }
+      nitro.alias = {
+        ...nitro.alias,
+        "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile, "#docs/image-sizes": imageSizesFile, "#docs/agent": agentFile,
+        // nuxt-og-image replaces `bufferutil`, `utf-8-validate`, and other optional server packages with virtual modules
+        // that import `mocked-exports/proxy`. Nitro resolves that import from the app, and a pnpm app has no such
+        // dependency, so the build failed when a package such as `ws` imported one of them.
+        "mocked-exports/proxy": mockedExportsProxy(),
+      }
       // Pack production files into one module to stay below Cloudflare's module limit. Development imports each file
       // through Vite: Nitro server assets read the folders from disk, and the Cloudflare dev server runs in workerd.
       const stores = [...sourceDirs ? sourceDirs.map((dir, index) => ({ name: `docs-${index}`, dir })) : [{ name: "docs", dir: contentDir }], { name: "docs-agent", dir: agentDir }]
@@ -918,6 +983,23 @@ function setDocsHead(head: Nuxt["options"]["app"]["head"], siteName: string): vo
   head.titleTemplate ??= `%s · ${siteName}`
 }
 
+const pictures = /\.(?:avif|gif|jpe?g|png|svg|webp)$/i
+
+/** The size of each picture in the folders, by its URL path, such as `/screenshots/console.png`. The first folder wins. */
+async function publicImageSizes(dirs: string[]): Promise<DocsImageSizes> {
+  const sizes: Record<string, [number, number]> = {}
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue
+    for (const file of await readdir(dir, { recursive: true })) {
+      const path = encodeURI(`/${file.split(sep).join("/")}`)
+      if (!pictures.test(file) || sizes[path]) continue
+      const size = await sizeOf(await readFile(join(dir, file)))
+      if (size) sizes[path] = [size.width, size.height]
+    }
+  }
+  return sizes
+}
+
 /** Whether a layer has an `app.vue`, as Nuxt looks for it: `app` or `App` with any Nuxt extension. */
 function hasAppComponent(srcDirs: string[], extensions: string[]): boolean {
   return srcDirs.some(dir => ["app", "App"].some(name => extensions.some(extension => existsSync(join(dir, `${name}${extension}`)))))
@@ -947,13 +1029,17 @@ function dependency(name: string): string {
   return fileURLToPath(import.meta.resolve(name))
 }
 
+/** The ESM proxy of `mocked-exports`, from the copy that nuxt-og-image depends on. */
+function mockedExportsProxy(): string {
+  return createRequire(dependency("nuxt-og-image")).resolve("mocked-exports/proxy-mjs")
+}
+
 /** The file a CSS `@import "<name>"` loads: the package's `style` export. */
 function stylesheet(name: string): string {
   // `@nuxt/ui` does not export its package.json, so walk up from its entry.
   let root = dirname(fileURLToPath(import.meta.resolve(name)))
   while (!existsSync(join(root, "package.json")) || JSON.parse(readFileSync(join(root, "package.json"), "utf8")).name !== name) {
-    // Internal invariant: a package that resolved has a package.json above its entry.
-    if (dirname(root) === root) throw new Error(`Cannot find the package.json of ${name}.`)
+    if (dirname(root) === root) throw invariantError(`a resolved package has a package.json above its entry, but ${name} has none`)
     root = dirname(root)
   }
   const { exports } = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { exports: { ".": { style: string } } }
@@ -966,13 +1052,16 @@ function docsLogo(logo: DocsSiteOptions["logo"], appBase: string): DocsLogo | nu
   return { src: docsAppPath(logo.light, appBase), dark: logo.dark ? docsAppPath(logo.dark, appBase) : null, mask: false }
 }
 
+// The icon plugin sets `icon.customize`. Nuxt types the app config from its values, and a function is not one of them.
 const docsRuntimeConfigTypes = `import type { DocsPublicConfig } from "@vite-hub/docs"
 
 declare module "nuxt/schema" {
   interface PublicRuntimeConfig { docs: DocsPublicConfig }
+  interface CustomAppConfig { icon?: { customize?: (content: string, name?: string, prefix?: string) => string } }
 }
 declare module "@nuxt/schema" {
   interface PublicRuntimeConfig { docs: DocsPublicConfig }
+  interface CustomAppConfig { icon?: { customize?: (content: string, name?: string, prefix?: string) => string } }
 }
 
 export {}

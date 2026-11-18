@@ -26,6 +26,7 @@ vi.mock("#docs/content", () => ({ content: undefined }))
 vi.mock("#docs/agent", () => ({ default: { llms: { details: "Rules for agents.", sections: [{ title: "Links", links: [{ title: "API", href: "https://docs.example.com/openapi.json" }] }] } } }))
 // The app's `parser` module: a Comark plugin that adds a paragraph, so the test sees which parser ran.
 vi.mock("#docs/example-sources", () => ({ default: {} }))
+vi.mock("#docs/image-sizes", () => ({ default: {} }))
 vi.mock("#docs/parser", () => ({
   default: { plugins: [{ name: "app-plugin", post: (state: { tree: { nodes: unknown[] } }) => void state.tree.nodes.push(["p", {}, "Added by the app plugin"]) }] },
   githubRepo: "vite-hub/vitehub",
@@ -41,8 +42,9 @@ const { default: llms } = await import("../src/runtime/server/llms.ts")
 const { default: mcp } = await import("../src/runtime/server/mcp.ts")
 const { default: page } = await import("../src/runtime/server/page.ts")
 const { default: search } = await import("../src/runtime/server/search.ts")
+const { default: trailingSlash } = await import("../src/runtime/server/trailing-slash.ts")
 const { docsAgentCopy } = await import("../src/agent-copy.ts")
-const { findDocsPage } = await import("../src/navigation.ts")
+const { docsCanonicalUrl, docsIndexedPages, findDocsPage } = await import("../src/navigation.ts")
 const { default: manifest } = await import("#docs/manifest")
 const app = new H3().get("/raw/**", raw).get("/sitemap.xml", sitemap).get("/llms.txt", llms).get("/llms-full.txt", llms).get("/sitemap.md", llms).post("/mcp", mcp)
 
@@ -131,6 +133,44 @@ describe("sitemap route", () => {
     // `navigation: false` hides a page from the sidebar, not from crawlers.
     expect(locations).toContain("https://docs.example.com/docs/kv/draft")
     expect(locations).toContain("https://docs.example.com/a&amp;b")
+  })
+})
+
+describe("one URL per page", () => {
+  const locations = async (fetch: (request: Request) => Response | Promise<Response>, url: string) =>
+    [...(await (await fetch(new Request(url))).text()).matchAll(/<loc>([^<]+)<\/loc>/g)].map(match => match[1]!.replaceAll("&amp;", "&"))
+  const canonicalLinks = (appBase: string) => [...new Set([
+    ...docsIndexedPages(manifest).map(page => docsCanonicalUrl("https://docs.example.com", page.path, appBase)),
+    ...docsConfig.sitemap.map(path => docsCanonicalUrl("https://docs.example.com", path, appBase)),
+  ])].sort()
+
+  // Search engines report a page whose sitemap URL and canonical link differ as "Duplicate, Google chose different canonical".
+  it.each(["/", "/portal/"])("lists each page at the URL of its canonical link under %s", async (appBase) => {
+    docsConfig.appBase = appBase
+    const prefix = appBase.replace(/\/+$/, "")
+    const based = new H3().get(`${prefix}/sitemap.xml`, sitemap)
+    expect(await locations(request => based.fetch(request), `https://docs.example.com${prefix}/sitemap.xml`)).toEqual(canonicalLinks(appBase))
+    // Nitro serves an app only below its base, so the home of a mounted app keeps its slash.
+    expect(docsCanonicalUrl("https://docs.example.com", "/", appBase)).toBe(`https://docs.example.com${appBase}`)
+    expect(docsCanonicalUrl("https://docs.example.com", "/docs/kv/", appBase)).toBe(`https://docs.example.com${prefix}/docs/kv`)
+  })
+
+  it.each(["/", "/portal/"])("redirects a page with a trailing slash to its canonical path under %s", async (appBase) => {
+    docsConfig.appBase = appBase
+    const prefix = appBase.replace(/\/+$/, "")
+    const pages = new H3().use(trailingSlash).all("/**", () => "page")
+    const answer = async (path: string, method = "GET") => {
+      const response = await pages.fetch(new Request(`https://docs.example.com${prefix}${path}`, { method }))
+      return response.status === 301 ? response.headers.get("location") : response.status
+    }
+    expect(await answer("/docs/kv/")).toBe(`${prefix}/docs/kv`)
+    expect(await answer("/docs/kv/configure/?tab=nuxt")).toBe(`${prefix}/docs/kv/configure?tab=nuxt`)
+    expect(await answer("/about/", "HEAD")).toBe(`${prefix}/about`)
+    expect(await answer("/docs/kv")).toBe(200)
+    expect(await answer("/")).toBe(200)
+    expect(await answer("/docs/kv/", "POST")).toBe(200)
+    // Not a docs page: the app owns it.
+    expect(await answer("/dashboard/")).toBe(200)
   })
 })
 

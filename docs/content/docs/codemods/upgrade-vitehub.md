@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `agent-surface`, `renamed-apis`, and `tsconfig-paths`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, and `shell-driver`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -137,6 +137,83 @@ npx @vite-hub/codemods agent-surface [dir] [--dry-run]
 
 The report lists what the codemod leaves: `getAgent()` and the root helpers that are no longer public, the private `agent/invocations/default` entry, a dynamic `preset` name, and an `actor` read that could also be another field, such as a GitHub sender.
 
+## driver-key
+
+`driver` is the only key that selects the backend of a resource. An old key fails with a `*_RENAMED_*_KEY` error that names `driver`. `driver-key` renames the old keys and the old driver names:
+
+```bash [Terminal]
+npx @vite-hub/codemods driver-key [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `queue`, `workflow`, `rateLimit`, `sandboxTask`: `provider` | `driver` |
+| `realtime: { authority }` | `realtime: { driver }` |
+| Workspace `store: { provider }` | `store: { driver }` |
+| `createBrowser({ provider })` | `createBrowser({ driver })` |
+| Blob `driver: "cloudflare-r2"`, `"vercel-blob"` | `"cloudflare"`, `"vercel"` |
+| KV `driver: "cloudflare-kv-binding"` | `"cloudflare"` |
+| Email `driver: "cloudflare-email"` | `"cloudflare"` |
+| Cache `driver: "cloudflare-kv-binding"`, `"vercel-runtime-cache"` | `"cloudflare"`, `"vercel"` |
+| Database `driver: "d1"` | `"cloudflare"` |
+| Workspace Store `"cloudflare-artifacts"`, `"vercel-blob"` | `"cloudflare"`, `"vercel"` |
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```diff [nuxt.config.ts]
+ export default defineNuxtConfig({
+   modules: ['vite-hub/nuxt'],
+   vitehub: {
+-    queue: { provider: 'cloudflare' },
+-    kv: { driver: 'cloudflare-kv-binding' },
++    queue: { driver: 'cloudflare' },
++    kv: { driver: 'cloudflare' },
+   },
+ })
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```diff [vite.config.ts]
+ import { defineConfig } from 'vite'
+ import { vitehub } from 'vite-hub'
+ import { nitro } from 'nitro/vite'
+
+ export default defineConfig({
+   plugins: [
+     vitehub({
+-      queue: { provider: 'cloudflare' },
+-      kv: { driver: 'cloudflare-kv-binding' },
++      queue: { driver: 'cloudflare' },
++      kv: { driver: 'cloudflare' },
+     }),
+     nitro(),
+   ],
+ })
+```
+:::
+
+:::tabs-item{label="Vite"}
+```diff [vite.config.ts]
+ import { defineConfig } from 'vite'
+ import { vitehub } from 'vite-hub'
+
+ export default defineConfig({
+   plugins: [
+     vitehub({
+-      queue: { provider: 'cloudflare' },
+-      kv: { driver: 'cloudflare-kv-binding' },
++      queue: { driver: 'cloudflare' },
++      kv: { driver: 'cloudflare' },
+     }),
+   ],
+ })
+```
+:::
+::
+
+It changes the options of `vitehub()`, the `vitehub` key of `nuxt.config` and `nitro.config`, the `hub*()` plugins, `createQueueClient()`, `createEmail()`, and `createBrowser()`. Workspace `store` objects change only in Workspace config, `defineWorkspace()`, `hubWorkspace()`, and the `workspace` option of `defineAgent()`. The report lists a driver value that is not a string literal. Options that a variable or a helper builds stay as they are, so search for `provider` and `authority` after the run.
+
 ## tsconfig-paths
 
 ViteHub types the `#vitehub/*` aliases itself, in `.vitehub/types/`. Older apps mapped them by hand in `tsconfig.json`:
@@ -159,3 +236,31 @@ npx @vite-hub/codemods tsconfig-paths [dir] [--dry-run]
 ```
 
 The codemod removes each `#vitehub/*` entry whose targets are all inside `.vitehub/` or `.nuxt/`. When no entry is left, it removes `paths` too, so the paths of the extended config apply again. The report lists `#vitehub/*` entries that point at your own files, such as a test stub.
+
+## shell-driver
+
+`shell-driver` updates an app that uses Shell. Shell now uses `driver` for the key that selects its backend, like Browser and the other primitives:
+
+```bash [Terminal]
+npx @vite-hub/codemods shell-driver [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `createShellRuntime({ provider })` | `createShellRuntime({ driver })` |
+| `ShellExecutionProvider` from `vite-hub/shell` | `ShellDriver` |
+| `createJustBashProvider()` and `JustBashProviderOptions` from `vite-hub/shell/providers/just-bash` | `createJustBashDriver()` and `JustBashDriverOptions` |
+| `createWorkspaceTools(workspace, { executionProvider })` | `createWorkspaceTools(workspace, { shellDriver })` |
+
+```diff [server/utils/docs-shell.ts]
+ import { createShellRuntime } from 'vite-hub/shell'
+-import { createJustBashProvider } from 'vite-hub/shell/providers/just-bash'
++import { createJustBashDriver } from 'vite-hub/shell/providers/just-bash'
+
+ export const shell = createShellRuntime({
+-  provider: createJustBashProvider({ commands: ['ls', 'cat'], fs }),
++  driver: createJustBashDriver({ commands: ['ls', 'cat'], fs }),
+ })
+```
+
+The same renames apply to the `@vite-hub/*` paths, to namespace imports, and to `const { createJustBashProvider } = await import(...)`. The codemod changes only calls of the imported `createShellRuntime()` and `createWorkspaceTools()`, so a `provider` key of another API stays. The report lists a call whose options it cannot see, such as a variable or a spread object.

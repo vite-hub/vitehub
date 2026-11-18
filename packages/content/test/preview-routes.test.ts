@@ -102,8 +102,9 @@ describe("rewriteContentLinks()", () => {
     const date = new Date(0)
     const body = { nodes: [["p", {}, ["a", { href: "/next" }, "Next"], ["a", { href: "#install" }, "Section"], ["a", { href: "//cdn.example/x" }, "CDN"], ["a", { href: "/pr/12/done" }, "Done"]]], date }
     const result = rewriteContentLinks(body, "/pr/12")
-    expect(result.nodes).toEqual([["p", {}, ["a", { href: "/pr/12/next" }, "Next"], ["a", { href: "#install" }, "Section"], ["a", { href: "//cdn.example/x" }, "CDN"], ["a", { href: "/pr/12/done" }, "Done"]]])
+    expect(result.nodes).toEqual([["p", {}, ["a", { href: "/pr/12/next", external: true }, "Next"], ["a", { href: "#install" }, "Section"], ["a", { href: "//cdn.example/x" }, "CDN"], ["a", { href: "/pr/12/done", external: true }, "Done"]]])
     expect(result.date).toBe(date)
+    expect(rewriteContentLinks(result, "/pr/12")).toBe(result)
     // The cached document stays as it was.
     expect(body.nodes[0]![2]).toEqual(["a", { href: "/next" }, "Next"])
     const unchanged = { nodes: [["a", { href: "https://example.com" }, "x"]] }
@@ -259,6 +260,29 @@ describe("content.sources.route()", () => {
     expect(response.status).toBe(200)
     expect(text).toContain("Draft guide")
     expect(response.headers.get("cache-control")).toBe("private, no-store")
+  })
+
+  it("keeps a signed link working for the page's own requests below its prefix with a cookie", async () => {
+    const { pulls } = repository()
+    const content = server()
+    const { token } = await content.sources.sign(draftBranch, "docs")
+    const prefix = `/tree/${draftBranch}/-`
+    const { response } = await serve(content, `https://docs.example${prefix}/guide?${contentRefTokenParameter}=${encodeURIComponent(token)}`)
+    const cookie = response.headers.get("set-cookie")!
+    expect(cookie).toMatch(new RegExp(`^${contentRefTokenParameter}=${token.replaceAll(".", "\\.")}; Path=${prefix}; Max-Age=(\\d+); HttpOnly; SameSite=Lax; Secure$`))
+    expect(Number(/Max-Age=(\d+)/.exec(cookie)![1])).toBeGreaterThan(3500)
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+    // A data request of the page, such as Nuxt's `$fetch`, sends the cookie and no query.
+    const sent = { headers: { cookie: cookie.split(";", 1)[0]! } }
+    const data = await serve(content, `https://docs.example${prefix}/next`, sent)
+    expect(data.response.status).toBe(200)
+    expect(data.text).toContain('"title":"Next"')
+    expect(data.response.headers.get("set-cookie")).toBeNull()
+    // The cookie opens only the ref it was signed for.
+    const other = await serve(content, `https://docs.example/pr/${pulls.fork}/guide`, sent)
+    expect(other.response.status).toBe(404)
+    // Without the cookie, the draft branch stays private.
+    expect((await serve(content, `https://docs.example${prefix}/next`)).response.status).toBe(404)
   })
 
   it("asks authorize for read before it serves a ref, unless a signed link opened it", async () => {
@@ -486,6 +510,38 @@ describe("defineContentPreviewRoutesPlugin()", () => {
     expect(await response.text()).toContain("Guide on feat/open")
   })
 
+
+  it("puts the app base under the preview prefix in a preview request, and keeps build assets at the app root", async () => {
+    const { pulls } = repository()
+    const content = server()
+    const app = { baseURL: "/", buildAssetsDir: "/_nuxt/", cdnURL: "" }
+    const seen: unknown[] = []
+    const nitroApp = {
+      fetch: async (request: Request) => {
+        // Nuxt reads the app config while it renders, and sends it to the browser as JSON.
+        seen.push({ path: new URL(request.url).pathname, app: JSON.parse(JSON.stringify(app)) })
+        return new Response("ok")
+      },
+    }
+    defineContentPreviewRoutesPlugin(content, { app })(nitroApp)
+    await nitroApp.fetch(new Request(`https://docs.example/pr/${pulls.open}/guide`))
+    await nitroApp.fetch(new Request("https://docs.example/guide"))
+    await nitroApp.fetch(new Request("https://docs.example/tree/feat/open/-/guide"))
+    // A denied ref reaches the app unchanged, with the app base.
+    await nitroApp.fetch(new Request(`https://docs.example/pr/${pulls.fork}/guide`))
+    // A base set at runtime, such as with NUXT_APP_BASE_URL, and a CDN for the assets.
+    app.baseURL = "/portal/"
+    app.cdnURL = "https://cdn.example/"
+    await nitroApp.fetch(new Request(`https://docs.example/pr/${pulls.open}/portal/guide`))
+    expect(seen).toEqual([
+      { path: "/guide", app: { baseURL: `/pr/${pulls.open}/`, buildAssetsDir: "/_nuxt/", cdnURL: "/" } },
+      { path: "/guide", app: { baseURL: "/", buildAssetsDir: "/_nuxt/", cdnURL: "" } },
+      { path: "/guide", app: { baseURL: "/tree/feat/open/-/", buildAssetsDir: "/_nuxt/", cdnURL: "/" } },
+      { path: `/pr/${pulls.fork}/guide`, app: { baseURL: "/", buildAssetsDir: "/_nuxt/", cdnURL: "" } },
+      { path: "/portal/guide", app: { baseURL: `/pr/${pulls.open}/portal/`, buildAssetsDir: "/_nuxt/", cdnURL: "https://cdn.example/" } },
+    ])
+    expect(app).toEqual({ baseURL: "/portal/", buildAssetsDir: "/_nuxt/", cdnURL: "https://cdn.example/" })
+  })
 
   it("loads Content on the first preview URL only, and serves the page with its production path", async () => {
     const { pulls } = repository()

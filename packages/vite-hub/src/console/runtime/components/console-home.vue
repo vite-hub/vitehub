@@ -18,10 +18,12 @@ import {
   resolveConsoleSectionDocs,
   resolveConsoleSectionGroup,
 } from "../sections";
+import { consoleAddablePrimitives, openConsoleAddPrimitive } from "../client/add-primitive";
 import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import { recentTimestamp } from "../client/format";
-import { useConsoleProjects } from "../client/project-session";
+import { consoleCompareUrl } from "../client/project-link";
+import { consoleOpenProjectName, useConsoleProjects } from "../client/project-session";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsolePageHeader from "./console-page-header.vue";
@@ -87,17 +89,12 @@ const sectionGroups = computed(() =>
     };
   }),
 );
-// Usage and Skills come with Agents, so they are not offered on their own. A user limited to some sections may not see the others,
-// so the Overview does not call them "not enabled".
-const notEnabledPrimitives = computed(() =>
-  installedNavigation.value?.scoped
-    ? []
-    : consolePrimitives.filter((entry) => entry.id !== "usage" && entry.id !== "skills" && !sections.value.includes(entry.id)),
-);
+const addablePrimitives = computed(() => consoleAddablePrimitives(sections.value));
 const agentsEnabled = computed(() => sections.value.includes("agents"));
 // The build that serves the app, from `project.get`. A development server has none.
 const projects = useConsoleProjects();
 const build = computed(() => projects.info.value?.build);
+const compareUrl = computed(() => consoleCompareUrl(build.value));
 const sessionItems = computed(() =>
   recentSessions.items.value.slice(0, 5).map((item) => ({
     agentName: item.agentName,
@@ -258,7 +255,7 @@ onBeforeUnmount(() => {
                 <h1 class="truncate text-base font-semibold tracking-tight text-highlighted">
                   <!-- The name comes with the sections, so a placeholder holds its line instead of a name that then changes. -->
                   <USkeleton v-if="loading" class="my-0.5 h-5 w-40" />
-                  <template v-else>{{ installedNavigation?.projectName || "ViteHub Console" }}</template>
+                  <template v-else>{{ consoleOpenProjectName(installedNavigation?.projectName) || "ViteHub Console" }}</template>
                 </h1>
                 <p class="text-sm text-muted">
                   {{ loading ? "Loading the enabled primitives…" : summary }}
@@ -321,6 +318,17 @@ onBeforeUnmount(() => {
                       <span v-if="build.commit?.branch" class="hidden font-mono sm:inline">{{ build.commit.branch }}</span>
                       <ConsoleRelativeTime :value="build.time" />
                     </span>
+                    <UButton
+                      v-if="compareUrl"
+                      icon="i-lucide-git-compare-arrows"
+                      label="Compare"
+                      :to="compareUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      variant="ghost"
+                      size="xs"
+                      title="Compare the live commit with the default branch on GitHub"
+                    />
                   </li>
                 </ul>
               </section>
@@ -410,26 +418,18 @@ onBeforeUnmount(() => {
                 </section>
               </div>
 
-              <section v-if="notEnabledPrimitives.length" class="vitehub-console__overview-block" aria-labelledby="console-home-not-enabled">
-                <h2 id="console-home-not-enabled" class="vitehub-console__overview-label">Not enabled</h2>
+              <section v-if="addablePrimitives.length" class="vitehub-console__overview-block" aria-labelledby="console-home-add">
+                <h2 id="console-home-add" class="vitehub-console__overview-label">Add</h2>
                 <ul class="vitehub-console__overview-list">
-                  <li v-for="entry in notEnabledPrimitives" :key="entry.id">
-                    <a
-                      class="vitehub-console__overview-row" data-focus-inset
-                      data-optional
-                      :href="entry.setup"
-                      rel="noreferrer"
-                      target="_blank"
-                      :aria-label="`Set up ${entry.label}`"
-                    >
-                      <ConsoleSectionIcon :icon="entry.icon" class="vitehub-console__overview-icon" />
-                      <span class="vitehub-console__overview-name">{{ entry.label }}</span>
-                      <span class="vitehub-console__overview-description" :title="entry.pitch">{{ entry.pitch }}</span>
+                  <li>
+                    <button type="button" class="vitehub-console__overview-row" data-focus-inset @click="openConsoleAddPrimitive()">
+                      <Icon name="i-lucide-plus" class="vitehub-console__overview-icon" />
+                      <span class="vitehub-console__overview-name">Add a primitive</span>
+                      <span class="vitehub-console__overview-description">Get the vitehub add command or a prompt for your coding agent.</span>
                       <span class="vitehub-console__overview-meta">
-                        Set up
-                        <Icon name="i-lucide-arrow-up-right" class="size-3" />
+                        <Icon name="i-lucide-chevron-right" class="size-3.5" />
                       </span>
-                    </a>
+                    </button>
                   </li>
                 </ul>
               </section>
@@ -624,12 +624,6 @@ onBeforeUnmount(() => {
 .vitehub-console__overview-docs:hover {
   color: var(--foreground);
   text-decoration: underline;
-}
-
-/* Primitives that are not enabled read one tone quieter, so they look optional. */
-.vitehub-console__overview-row[data-optional] .vitehub-console__overview-name {
-  color: var(--ui-text-toned);
-  font-weight: 400;
 }
 
 /* On a phone the name and meta fit; a description after a name would truncate to a few letters. */

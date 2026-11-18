@@ -15,16 +15,20 @@ export async function consoleEventsFixture(options: {
   secondaryStorage?: SecondaryStorage
   /** The role of the operator account. `admin` by default. */
   operatorRole?: string
+  /** The app origin, `http://localhost:5173` by default. An `https:` origin gives `__Secure-` cookies. */
+  origin?: string
+  session?: { cookieCache: { enabled: boolean } }
 } = {}) {
   const database = eventDatabase();
   const store = createDatabaseAuthEventStore({ db: database.db });
-  const origin = "http://localhost:5173";
+  const origin = options.origin ?? "http://localhost:5173";
   const definition = defineFixedAuth({
     emailAndPassword: { enabled: true },
     plugins: options.plugins ?? [admin()],
     events: { store },
     database: database.sqlite,
     ...(options.secondaryStorage ? { secondaryStorage: options.secondaryStorage } : {}),
+    ...(options.session ? { session: options.session } : {}),
     secret: "console-events-local-test-secret-abcdefghijklmnopqrstuvwxyz",
     baseURL: origin,
   });

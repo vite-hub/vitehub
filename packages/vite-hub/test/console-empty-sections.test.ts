@@ -3,7 +3,7 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-
 import { beforeEach, expect, it } from "vitest"
 
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
-import { installConsoleInvocationFallback } from "../src/console/internal.ts"
+import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
@@ -14,7 +14,7 @@ const projectRoot = "/console-empty-sections-test"
 
 beforeEach(() => {
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-  installConsoleInvocationFallback(invocations, projectRoot)
+  installConsoleInvocations(projectRoot, invocations)
   installConsoleAgentDefinitions([], { invocations })
   installConsoleEnv(projectRoot, { entries: [] })
   installConsoleSections(projectRoot, ["agents", "skills", "channels", "env"])
@@ -55,7 +55,7 @@ it("shows bundled Skills and declared Env through the operation reader", async (
     review: "# Review\n\nRead the evidence.\n",
   })
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
-  installConsoleInvocationFallback(invocations, projectRoot)
+  installConsoleInvocations(projectRoot, invocations)
   installConsoleAgentDefinitions([{ definition, fallbackName: "reviewer" }], { invocations })
   installConsoleEnv(projectRoot, { entries: [{
     path: "env.server.token", source: "env", secret: true, required: true, hasDefault: false,

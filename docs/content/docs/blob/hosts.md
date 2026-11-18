@@ -38,7 +38,7 @@ Each command runs a `blob.*` operation through the Console RPC, on the dev serve
 
 ## Cloudflare R2 bucket
 
-An R2 store uses its runtime binding when it exists. `binding` defaults to `BLOB`. With `bucketName`, ViteHub adds the R2 bucket binding to the generated `wrangler.json`.
+An R2 store uses its runtime binding when it exists. `binding` defaults to `BLOB`. With `bucketName`, ViteHub adds the R2 bucket binding to the generated `wrangler.json`. The driver is `cloudflare`: the former `cloudflare-r2` fails with `BLOB_C0001`, and `npx @vite-hub/codemods driver-key` renames it.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -47,7 +47,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     blob: {
-      driver: 'cloudflare-r2',
+      driver: 'cloudflare',
       binding: 'BLOB',
       bucketName: 'assets',
     },
@@ -66,7 +66,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         binding: 'BLOB',
         bucketName: 'assets',
       },
@@ -86,7 +86,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         binding: 'BLOB',
         bucketName: 'assets',
       },
@@ -108,7 +108,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     blob: {
-      driver: 'cloudflare-r2',
+      driver: 'cloudflare',
       bucketName: 'assets',
       jurisdiction: 'eu',
     },
@@ -127,7 +127,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         bucketName: 'assets',
         jurisdiction: 'eu',
       },
@@ -147,7 +147,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         bucketName: 'assets',
         jurisdiction: 'eu',
       },

@@ -167,6 +167,17 @@ describe("hubComments", () => {
     expect(await readFile(file, "utf8")).toContain("overlay: false")
   })
 
+  it("passes checkRateLimit to the runtime only when Rate Limit counts in a shared store", async () => {
+    const root = await project(true)
+    const file = join(root, ".vitehub/nitro/comments/plugin.mjs")
+    await configHook(hubComments({ rateLimit: true, imports: { rateLimit: "vite-hub/rate-limit" } }))({ nitro: { plugins: [] }, root })
+    const shared = await readFile(file, "utf8")
+    expect(shared).toContain('import { checkRateLimit } from "vite-hub/rate-limit"')
+    expect(shared).toContain("rateLimit: checkRateLimit")
+    await configHook(hubComments())({ nitro: { plugins: [] }, root })
+    expect(await readFile(file, "utf8")).not.toContain("checkRateLimit")
+  })
+
   it("fails the build when the app has no Database", async () => {
     const root = await project(true)
     const plugin = hubComments()

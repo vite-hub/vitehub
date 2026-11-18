@@ -4,18 +4,19 @@ import { getAuthTables } from "better-auth/db"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { isRecord as isPlainObject } from "@vite-hub/internal/object"
 import { resolvePublicUrl } from "@vite-hub/runtime"
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { createAdminClaimPlugin, readAdminClaim } from "./admin-claim.ts"
 import { createAdminsPlugin, readAdmins } from "./admins.ts"
-import { assertAuthDatabaseAdditionalFields, assertAuthDatabaseIdStrategy, authDatabaseName, authMemoryDatabaseError } from "./database-options.ts"
-import { assertAuthDatabaseSchema } from "./database-schema-options.ts"
+import { assertAuthDatabaseIdStrategy, authDatabaseName, authMemoryDatabaseError } from "./database-options.ts"
+import { assertAuthDatabaseNames } from "./database-schema-options.ts"
 import { withPasswordHasher } from "./password.ts"
 import { applyAuthPreset } from "./preset-options.ts"
 import { deriveAuthSecret } from "./secret.ts"
 import { validateAuthEvents } from "./events-config.ts"
 import { createAuthEventsPlugin } from "./event-plugin.ts"
 import { createImpersonationPlugin, withImpersonationExpiry } from "./impersonation-plugin.ts"
-import { authProcessMemoryDatabase, getAuthRuntimeState } from "./runtime-state.ts"
+import { authProcessMemoryDatabase, getAuthRuntimeState, resetAuth } from "./runtime-state.ts"
 import { clientAddressHeader } from "./client-address.ts"
 import { createSessionRefreshPlugin } from "./session-refresh.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
@@ -24,6 +25,7 @@ import { optionsKey } from "./options-key.ts"
 import { authCloudflareEnv } from "./request.ts"
 import { assertNoRuntimeOption, validateAuthAccessPolicy } from "./definition.ts"
 import { createAccessPolicyPlugin } from "./access-policy.ts"
+import { assertMembersSessionStore, createMembersGate, readMembers, withMemberScopes } from "./members.ts"
 
 import type { BetterAuthOptions } from "better-auth"
 import type { ViteHubContext } from "@vite-hub/runtime"
@@ -53,9 +55,11 @@ function isAuthSecondaryStoragePlacement(value: unknown): boolean {
  */
 function sharedMemoryDatabase(definition: AuthDefinition): NonNullable<BetterAuthOptions["database"]> {
   const state = getAuthRuntimeState()
-  state.memoryDatabases ??= new WeakMap()
-  const tables = state.memoryDatabases.get(definition) ?? {}
-  state.memoryDatabases.set(definition, tables)
+  // In app tests, `reset()` empties the tables and drops the instances that hold them.
+  const databases = getViteHubTestMode()?.backend("auth", () => new WeakMap<object, Record<string, unknown[]>>(), resetAuth)
+    ?? (state.memoryDatabases ??= new WeakMap())
+  const tables = databases.get(definition) ?? {}
+  databases.set(definition, tables)
   const database = (options: BetterAuthOptions) => {
     for (const { modelName } of Object.values(getAuthTables(options))) tables[modelName] ??= []
     return memoryAdapter(tables)(options)
@@ -71,6 +75,7 @@ declare const __VITEHUB_AUTH_DEV__: boolean | undefined
  */
 function isDevelopmentServer(): boolean {
   if (typeof __VITEHUB_AUTH_DEV__ === "boolean") return __VITEHUB_AUTH_DEV__
+  if (getViteHubTestMode()) return true
   // Code that a ViteHub build did not bundle, such as a test runner, has no flag.
   const mode = globalThis.process?.env?.NODE_ENV
   return mode === "development" || mode === "test"
@@ -111,6 +116,7 @@ function readProviderEnvironment(options: AuthRuntimeOptions & Record<string, un
   const env: Record<string, unknown> = { ...globalThis.process?.env, ...authCloudflareEnv(event) }
   return {
     admins: readAdmins(event),
+    members: readMembers(event),
     adminClaim: options.adminClaim === false ? undefined : readAdminClaim(event),
     // Presence is significant here: Better Auth must validate an explicitly empty secret
     // instead of silently replacing it with the ViteHub-derived fallback.
@@ -150,8 +156,8 @@ function stripViteHubOptions(
   }
   if (authDatabaseName(database) !== undefined) {
     assertAuthDatabaseIdStrategy(rest.advanced?.database?.generateId)
-    assertAuthDatabaseAdditionalFields(rest)
-    assertAuthDatabaseSchema(rest)
+    // The adapter compares the tables and columns with the Database when it opens it.
+    assertAuthDatabaseNames(rest)
   }
   validateAuthEvents(events)
   const sessionRefresh = withSessionRefresh(rest, Boolean(storage.database || storage.secondaryStorage))
@@ -168,7 +174,9 @@ function stripViteHubOptions(
   const declaredPlugins = sessionRefresh.plugins ?? rest.plugins ?? []
   // Bounds the admin plugin's impersonation sessions, which the app or the Console can start.
   const impersonation = declaredPlugins.some(plugin => plugin.id === "admin")
-  const { admins, adminClaim } = environment
+  const { admins, adminClaim, members } = environment
+  assertMembersSessionStore(members, Boolean(storage.database || storage.secondaryStorage))
+  const membersGate = members.length ? createMembersGate(members, admins, declaredPlugins) : undefined
   const adminsPlugin = admins.length ? createAdminsPlugin(admins, declaredPlugins) : undefined
   const adminClaimPlugin = adminClaim ? createAdminClaimPlugin(adminClaim, declaredPlugins) : undefined
   const plugins = [
@@ -176,7 +184,7 @@ function stripViteHubOptions(
     ...(impersonation ? [createImpersonationPlugin()] : []),
     ...(adminsPlugin ? [adminsPlugin] : []),
     ...(adminClaimPlugin ? [adminClaimPlugin] : []),
-    ...(policy ? [createAccessPolicyPlugin(policy)] : []),
+    ...(policy || membersGate ? [createAccessPolicyPlugin({ policy, members: membersGate })] : []),
   ]
   const databaseHooks = impersonation ? withImpersonationExpiry(rest.databaseHooks) : rest.databaseHooks
   const eventPlugin = events ? createAuthEventsPlugin(events) : undefined
@@ -188,6 +196,7 @@ function stripViteHubOptions(
     ...rest,
     ...storage,
     ...sessionRefresh,
+    ...(membersGate ? { socialProviders: withMemberScopes(members, rest.socialProviders) } : {}),
     // Claim reservations need the database's primary key, including when sessions use secondary storage.
     ...(adminClaimPlugin ? { verification: { ...rest.verification, storeInDatabase: true } } : {}),
     ...(databaseHooks ? { databaseHooks } : {}),

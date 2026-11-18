@@ -1,5 +1,3 @@
-import { isRuntimeDiagnostic } from "@vite-hub/runtime"
-
 import { emailProviderError, isEmailProviderError } from "./provider.ts"
 import { createEmailDriverResolver } from "./driver.ts"
 import { applyUnsubscribe } from "./drivers/shared.ts"
@@ -53,11 +51,9 @@ function invalidMessage(message: unknown, driver: string): EmailProviderError | 
   return undefined
 }
 
-const configErrorCodes = new Set(["EMAIL_INVALID_DRIVER", "EMAIL_NOT_CONFIGURED"])
-
 /** Maps a driver failure to the error that `send()` returns. Invalid driver options throw `EMAIL_NOT_CONFIGURED`. */
 function sendError(error: unknown, driver: string): ResultError<EmailErrorCode> {
-  if (isRuntimeDiagnostic(error) && configErrorCodes.has(error.code)) throw error
+  if (emailErrorDiagnostics.EMAIL_INVALID_DRIVER.is(error) || emailErrorDiagnostics.EMAIL_NOT_CONFIGURED.is(error)) throw error
   if (!isEmailProviderError(error)) return emailErrorDiagnostics.EMAIL_PROVIDER_FAILED({ cause: error, driver })
   if (error.code === "NOT_CONFIGURED") throw emailErrorDiagnostics.EMAIL_NOT_CONFIGURED({ cause: error, driver: error.driver })
   return emailErrorDiagnostics[errorCodes[error.code]]({ cause: error, driver: error.driver })

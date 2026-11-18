@@ -128,7 +128,7 @@ binding is `unknown`.
 import { getHostBinding } from "vite-hub/runtime"
 
 const [error, email] = getHostBinding("REVIEW_EMAIL", event)
-if (error) throw createError({ statusCode: 503, statusMessage: error.why })
+if (error) throw new HTTPError({ status: 503, message: error.why })
 await email.send(message)
 ```
 
@@ -311,6 +311,8 @@ A lease gives one caller at a time a key, such as one Schedule occurrence or one
 | --- | --- | --- |
 | `createMemoryLeaseStore()` | One process and tests | One process |
 | `createSqlLeaseStore(client)` | Several instances on one Database | Every process on the Database |
+
+In a ViteHub app, `useLeases()` from `@vite-hub/database` returns a SQL store on the app's Database, on every driver including D1. Use `createSqlLeaseStore()` for a SQL client outside ViteHub Database.
 
 ```ts fragment
 import { createSqlLeaseStore } from '@vite-hub/runtime'

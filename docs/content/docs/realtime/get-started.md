@@ -24,6 +24,8 @@ Add Realtime, Workspace, the TipTap editor for Vue, and Drizzle to your app. Rea
 pnpm add @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3 drizzle-orm@1.0.0-rc.5
 ```
 
+Realtime uses the Tiptap and Yjs of your app, so the editor and your Tiptap components share one copy. pnpm and npm install them with Realtime. When you pin Tiptap, use 3.31.4 or later, the same version for every `@tiptap/*` package.
+
 Then add `realtime` and `workspace` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other options of your app. In Vite, also keep the Vue plugin.
 
 :::tabs{sync="framework"}
@@ -80,7 +82,7 @@ export default defineConfig({
 ::::
 :::
 
-- `realtime: true` keeps the rooms in the memory of your dev server. A Node build shares them across instances through Redis or Postgres with `REDIS_URL` or a Postgres Default Database. See [Configure](/docs/realtime/configure#choose-a-room-authority) for the other choices.
+- `realtime: true` keeps the rooms in the memory of your dev server. A Node build shares them across instances through Redis or Postgres with `REDIS_URL` or a Postgres Default Database. See [Configure](/docs/realtime/configure#choose-a-driver) for the other choices.
 - `workspace: true` turns on Workspace. A Workspace is a folder of files that your server can read and write. Realtime saves your documents there.
 
 Create `server/realtime/docs.ts`. The file name is the name of the room setup: `docs`.
@@ -107,14 +109,14 @@ Create `server/workspaces/docs.ts`. This is the `docs` Workspace that Realtime s
 import { defineWorkspace } from 'vite-hub/workspace'
 
 export default defineWorkspace({
-  store: { provider: 'memory' },
+  store: { driver: 'memory' },
   rules: {
     '/**': { write: true, mediaType: 'text/markdown' },
   },
 })
 ```
 
-- `provider: 'memory'` keeps the files in memory, like the rooms.
+- `driver: 'memory'` keeps the files in memory, like the rooms.
 - `write: true` lets Realtime write any Markdown file in the Workspace.
 
 With `access: 'public'`, anyone can connect to the room. Replace it with `auth: true` in `server/realtime/docs.ts` to accept only users who have signed in with ViteHub Auth.

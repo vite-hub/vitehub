@@ -1,5 +1,5 @@
 ---
-description: "Fix QUEUE_DISABLED in ViteHub. Queue is off in this runtime, because the Vite config sets queue false or the provider does not match the host."
+description: "Fix QUEUE_DISABLED in ViteHub. Queue is off in this runtime, because the Vite config sets queue false or the driver does not match the host."
 seo.title: "QUEUE_DISABLED: Queue is off in this runtime"
 ---
 
@@ -10,7 +10,7 @@ seo.title: "QUEUE_DISABLED: Queue is off in this runtime"
 When the Queue config that the runtime installed is `false`, every Queue call throws this error before it looks up the Queue Definition. In Vitest, the generated test setup `.vitehub/queue/test-setup.mjs` installs the config. The config is `false` in two cases:
 
 - An app that uses `@vite-hub/queue` alone passes `false` to `hubQueue()`.
-- `queue.provider` names a provider that is not the host of the Nitro preset. For example, `provider: 'cloudflare'` with the Vercel preset. ViteHub then turns Queue off and does not report the conflict at build time.
+- `queue.driver` names a driver that is not the host of the Nitro preset. For example, `driver: 'cloudflare'` with the Vercel preset. ViteHub then turns Queue off and does not report the conflict at build time.
 
 In these two cases, a dev or built server registers no Queue runtime. Queue calls there throw [`QUEUE_DEFINITION_NOT_FOUND`](/docs/queue/diagnostics/queue_definition_not_found), not this error.
 
@@ -27,17 +27,17 @@ With `vitehub()`, `queue: false` or no `queue` option adds no Queue runtime. Que
  })
 ```
 
-Remove `false`. Without a `provider`, ViteHub selects the provider from the host: Cloudflare, Vercel, or `local` for a Node server.
+Remove `false`. Without a `driver`, ViteHub selects the driver from the host: Cloudflare, Vercel, or `local` for a Node server.
 
 ```diff [vite.config.ts]
  export default defineConfig({
--  plugins: [hubQueue({ provider: 'cloudflare' })],
-+  plugins: [hubQueue({ provider: 'vercel' })],
+-  plugins: [hubQueue({ driver: 'cloudflare' })],
++  plugins: [hubQueue({ driver: 'vercel' })],
    nitro: { preset: 'vercel' },
  })
 ```
 
-Make the `provider` of `hubQueue()` match the Nitro preset, or remove `provider`. If you use `vitehub()`, enable Queue with `vitehub({ host, queue: true })`. It sets the provider from the host.
+Make the `driver` of `hubQueue()` match the Nitro preset, or remove `driver`. If you use `vitehub()`, enable Queue with `vitehub({ host, queue: true })`. It sets the driver from the host.
 
 ## Check the fix
 
@@ -49,4 +49,4 @@ Run the Vitest test again, then open `.vitehub/queue/test-setup.mjs`. It must no
 - [Queue limits and errors](/docs/queue/limits-and-errors)
 - [Queue Server API](/docs/queue/server-api)
 - [`QUEUE_DEFINITION_NOT_FOUND`](/docs/queue/diagnostics/queue_definition_not_found)
-- [`QUEUE_MISSING_PROVIDER`](/docs/queue/diagnostics/queue_missing_provider)
+- [`QUEUE_MISSING_DRIVER`](/docs/queue/diagnostics/queue_missing_driver)

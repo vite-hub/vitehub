@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { setImmediate } from "node:timers/promises"
 
 import { ViteHubError } from "@vite-hub/runtime"
+import { registerRunScope } from "@vite-hub/runtime/internal/run-scope"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { normalizeQueueOptions } from "../src/config.ts"
@@ -62,7 +63,7 @@ function install(definitions: Record<string, QueueDefinition>) {
 
 describe("local queue provider config", () => {
   it.each([true, false])("rejects a different disclosure mode for a cached directory (development: %s)", async (development) => {
-    const config = { base, development, provider: "local" } as const
+    const config = { base, development, driver: "local" } as const
     const engine = useLocalQueueEngine(config)
     expect(useLocalQueueEngine({ ...config, development: development ? true : undefined })).toBe(engine)
     await expect(createLocalQueueRuntimeClient({ ...config, base: join(base, "."), development: !development, queue: "welcome" })).rejects.toMatchObject({ code: "QUEUE_LOCAL_MODE_MISMATCH" })
@@ -70,10 +71,10 @@ describe("local queue provider config", () => {
   })
 
   it("ignores a development flag passed to the public client", async () => {
-    const options = { base, development: true, provider: "local", queue: "welcome", rules: "vercel" } as const
+    const options = { base, development: true, driver: "local", queue: "welcome", rules: "vercel" } as const
     setQueueRuntimeRegistry({ welcome: async () => ({ handler: async () => { throw new Error("SMTP down") } }) })
     const client = await createQueueClient(options)
-    const engine = useLocalQueueEngine({ base, provider: "local", rules: "vercel" })!
+    const engine = useLocalQueueEngine({ base, driver: "local", rules: "vercel" })!
 
     await client.send({})
 
@@ -83,18 +84,36 @@ describe("local queue provider config", () => {
   })
 
   it("is the default provider for a Node server", () => {
-    expect(normalizeQueueOptions(undefined, { hosting: "node-server" })).toEqual({ base: ".vitehub/data/queue", provider: "local" })
-    expect(normalizeQueueOptions({ provider: "local", base: " data/jobs " })).toEqual({ base: "data/jobs", provider: "local" })
+    expect(normalizeQueueOptions(undefined, { hosting: "node-server" })).toEqual({ base: ".vitehub/data/queue", driver: "local" })
+    expect(normalizeQueueOptions({ driver: "local", base: " data/jobs " })).toEqual({ base: "data/jobs", driver: "local" })
   })
 
   it("keeps Vercel and Cloudflare inference", () => {
-    expect(normalizeQueueOptions(undefined, { hosting: "vercel" })).toEqual({ provider: "vercel" })
-    expect(normalizeQueueOptions(undefined, { hosting: "cloudflare" })).toEqual({ provider: "cloudflare" })
-    expect(normalizeQueueOptions(undefined)).toEqual({ provider: "vercel" })
+    expect(normalizeQueueOptions(undefined, { hosting: "vercel" })).toEqual({ driver: "vercel" })
+    expect(normalizeQueueOptions(undefined, { hosting: "cloudflare" })).toEqual({ driver: "cloudflare" })
+    expect(normalizeQueueOptions(undefined)).toEqual({ driver: "vercel" })
   })
 })
 
 describe("local queue delivery", () => {
+  it("runs each job inside the run scopes, such as the Workspace scope that drops a failed job's writes", async () => {
+    const events: string[] = []
+    registerRunScope(async (run) => {
+      events.push("enter")
+      try {
+        await run()
+      }
+      finally {
+        events.push("leave")
+      }
+    })
+    install({ welcome: { handler: async () => { events.push("handler") } } })
+
+    await dynamicQueue.send("welcome", {})
+
+    await vi.waitFor(() => expect(events).toEqual(["enter", "handler", "leave"]))
+  })
+
   it("runs the Queue Definition after sendQueue() accepts the job", async () => {
     const handler = vi.fn(async (_job: QueueJob) => {})
     install({ welcome: { handler } })
@@ -340,8 +359,8 @@ describe("local queue client", () => {
   })
 
   it("needs a queue name for a direct client", async () => {
-    await expect(createQueueClient({ provider: "local", base })).rejects.toMatchObject({ code: "QUEUE_MISSING_QUEUE" })
-    await expect(createQueueClient({ provider: "local", base, queue: "welcome" })).resolves.toMatchObject({ provider: "local", queue: "welcome" })
+    await expect(createQueueClient({ driver: "local", base })).rejects.toMatchObject({ code: "QUEUE_MISSING_QUEUE" })
+    await expect(createQueueClient({ driver: "local", base, queue: "welcome" })).resolves.toMatchObject({ provider: "local", queue: "welcome" })
   })
 })
 

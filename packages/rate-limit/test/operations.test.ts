@@ -17,14 +17,14 @@ function call(name: string, input: unknown, sections: "all" | readonly string[] 
 
 afterEach(() => {
   vi.useRealTimers()
-  setRateLimitRuntimeConfig({ provider: "memory" })
+  setRateLimitRuntimeConfig({ driver: "memory" })
 })
 
 describe("rate-limit operations", () => {
   it("reads and resets the counters of requireRateLimit() without consuming a token", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(Date.parse("2026-05-22T09:00:30.000Z"))
-    setRateLimitRuntimeConfig({ provider: "memory" })
+    setRateLimitRuntimeConfig({ driver: "memory" })
     const event = mockEvent("https://example.com/login")
     Object.assign(event.req, { ip: "192.0.2.10" })
     await requireRateLimit(event, "op-login", { limit: 5, window: "1m" })
@@ -54,7 +54,7 @@ describe("rate-limit operations", () => {
   })
 
   it("reports that the Cloudflare provider cannot read or reset counters", async () => {
-    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    setRateLimitRuntimeConfig({ driver: "cloudflare" })
     for (const operation of ["rate-limit.peek", "rate-limit.reset"]) {
       expect(await call(operation, { key: "192.0.2.1", name: "login" })).toEqual({
         ok: true,

@@ -1,4 +1,5 @@
 import { defineErrors } from "@vite-hub/runtime"
+import type { InferDiagnosticCodes } from "nostics"
 
 import type { KVOperation } from "./types.ts"
 
@@ -95,7 +96,7 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
         : `The KV \`database\` driver needs the Database "${database}" on Postgres or libSQL. It does not support D1.`,
       fix: ({ problem }: { database: string, problem: "missing" | "unsupported" }) => problem === "missing"
         ? "Add a Database Definition, for example `server/database.ts` with `defineDatabase({ dialect: 'postgresql', schema: {} })`, or select another KV driver."
-        : "On Cloudflare, use the `cloudflare-kv-binding` driver. Elsewhere, point the Database at Postgres or libSQL.",
+        : "On Cloudflare, use the `cloudflare` driver. Elsewhere, point the Database at Postgres or libSQL.",
     },
     KV_DENO_KV_UNAVAILABLE: {
       why: "The `deno-kv` driver needs `Deno.openKv()`, and this runtime does not have it.",
@@ -110,8 +111,12 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Pass an object, for example `kv: { driver: 'fs-lite' }`.",
     },
     KV_INVALID_DRIVER: {
-      why: ({ driver }: { driver: string }) => `\`kv.driver\` ${driver} is not a KV driver.`,
-      fix: "Set `kv.driver` to \"cloudflare-kv-binding\", \"database\", \"deno-kv\", \"fs-lite\", \"redis\", or \"upstash\".",
+      why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
+        ? `\`kv.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`
+        : `\`kv.driver\` ${driver} is not a KV driver.`,
+      fix: ({ renamed }: { driver: string, renamed?: string }) => renamed
+        ? `Set \`kv: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
+        : "Set `kv.driver` to \"cloudflare\", \"database\", \"deno-kv\", \"fs-lite\", \"redis\", or \"upstash\".",
     },
     KV_INVALID_REMOTE: {
       why: ({ store }: { store: string }) => `\`remote\` of the KV store "${store}" must be \`true\` or \`false\`.`,
@@ -122,7 +127,7 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
         ? `The KV store "${store}" sets \`remote: true\`, but it uses the local \`${driver}\` driver in \`vite dev\`.`
         : `The KV store "${store}" sets \`remote: false\`, but the \`${driver}\` driver is always remote.`,
       fix: ({ remote }: { driver: string, remote: boolean, store: string }) => remote
-        ? "Remove `remote: true`, or select a remote store: the `upstash` or `cloudflare-kv-binding` driver, Upstash env, or the Vercel or Cloudflare host."
+        ? "Remove `remote: true`, or select a remote store: the `upstash` or `cloudflare` driver, Upstash env, or the Vercel or Cloudflare host."
         : "Remove `remote: false`, or select a local driver such as `fs-lite` for `vite dev`.",
     },
     KV_INVALID_BATCH: {
@@ -173,7 +178,7 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
 })
 
 /** Codes that a KV operation throws because the code or the deployment must change. */
-export const kvConfigErrorCodes: ReadonlySet<string> = new Set([
+export const kvConfigErrorCodes: ReadonlySet<InferDiagnosticCodes<typeof kvErrorDiagnostics>> = new Set([
   "KV_DATABASE_UNAVAILABLE",
   "KV_INVALID_BATCH",
   "KV_DENO_KV_UNAVAILABLE",

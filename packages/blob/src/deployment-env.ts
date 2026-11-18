@@ -25,12 +25,12 @@ const minioCredentialNames = {
 function storeEntries(store: ResolvedBlobStoreConfig, host: DeploymentEnvContext["host"]): DeploymentEnvEntry[] {
   const secretEnv = store.secretEnv ?? {}
   switch (store.driver) {
-    case "vercel-blob": {
+    case "vercel": {
       if (!isMaskedBlobRuntimeValue(store.token)) return []
       // A token in the config reads only `BLOB_READ_WRITE_TOKEN`. Else Vercel OIDC with `BLOB_STORE_ID` comes first.
       return [entry(store.tokenFromConfig ? ["BLOB_READ_WRITE_TOKEN"] : ["BLOB_STORE_ID", "BLOB_READ_WRITE_TOKEN"], true)]
     }
-    case "cloudflare-r2": {
+    case "cloudflare": {
       // The binding does not use the HTTP credentials. The driver reads them for signed URLs, or without a binding.
       const required = host !== "cloudflare"
       return [

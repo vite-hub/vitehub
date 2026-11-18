@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { resolveCacheStorage } from "../src/cache.ts"
+import { resolveCacheStorage } from "../src/cache-storage.ts"
 import { viteHubErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { vitehub } from "../src/index.ts"
 
@@ -42,7 +42,6 @@ const setupCodes = [
   "VITE_HUB_R0083",
   "VITE_HUB_R0084",
   "VITE_HUB_R0085",
-  "VITE_HUB_R0086",
   "VITE_HUB_R0087",
   "VITE_HUB_R0088",
   "VITE_HUB_R0089",

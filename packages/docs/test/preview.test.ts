@@ -38,6 +38,7 @@ vi.mock("#docs/manifest", async () => {
 })
 vi.mock("#docs/content", () => ({ content }))
 vi.mock("#docs/example-sources", () => ({ default: {} }))
+vi.mock("#docs/image-sizes", () => ({ default: {} }))
 vi.mock("#docs/agent", () => ({ default: { llms: {} } }))
 vi.mock("nitro/runtime-config", () => ({ useRuntimeConfig: () => ({ public: { docs: { appBase: "/", site: { name: "Docs", url: "", description: "" }, mcp: false } } }) }))
 vi.mock("#docs/parser", () => ({ default: {}, githubRepo: null }))
@@ -76,8 +77,9 @@ async function navigate(path: string, layout = "docs", isHydrating = false, owns
     exports,
     require: (id: string) => {
       if (id === "vue") return vue
+      if (id === "#docs/components") return { pageBlocks: [] }
       if (id === "#docs/navigation") return navigation
-      if (id === "#docs/shell") return { ownsApp }
+      if (id === "#docs/shell") return { ownsApp, articleLayout: ownsApp ? "default" : "docs-article" }
       throw new Error(`Unexpected component import: ${id}`)
     },
     useRoute: () => route,

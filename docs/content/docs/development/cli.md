@@ -31,6 +31,8 @@ Help lists the namespaces (command groups) you have:
 - `types`, `task`, `decisions`, and `sandbox` from the framework. `decisions` and `sandbox` do not load the project config, and `sandbox` also runs in a deployed container without Vite.
 - `inspect` and `provision`, built into the CLI. Plugin commands named `inspect` are ignored.
 
+`vitehub database --help` and `vitehub database <feature> --help` print the help without loading the project config, so they answer at once in a Nuxt app.
+
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
        vitehub <command> [args...]
@@ -71,6 +73,7 @@ Available namespaces:
   sandbox     Serve and check an SSH Sandbox runner. Does not load the project config.
   inspect     Inspect discovered Definitions, host resources, and generated Provider Output.
   provision   Idempotently create missing provider resources.
+  seed        Write the seed files of Database, KV, and Blob.
 ```
 
 ## Commands
@@ -143,7 +146,10 @@ Available namespaces:
 | `vitehub database migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
 | `vitehub database up` | Available | Database Package | Convert migrations folders of Drizzle Kit 0.x to the Drizzle Kit 1.0 layout. |
 | `vitehub database export` | Available | Database Package | Write a SQL dump of the local SQLite file, or of the deployed database with `--remote`. |
-| `vitehub database seed` | Available | Database Package | Run the seed file of each database on the local database, or on the deployed database with `--remote`. |
+| `vitehub database sql` | Available | Database Package | Run SQL from an argument or stdin on the local database, or on the deployed one with `--remote`, and print the rows. |
+| `vitehub database drop` | Available | Database Package | Drop every table of a database and its migrations table, after a confirmation or with `--force`. |
+| `vitehub database reset` | Available | Database Package | Drop every table of a database, then apply its migrations again, after a confirmation or with `--force`. |
+| `vitehub seed` | Available | CLI Package | Write the Database seed files and the files in `server/seed/kv/` and `server/seed/blob/`, locally or with `--remote` on the deployed app. |
 | `vitehub database tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
 | `vitehub database rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
 | `vitehub migrate` | Available | Codemods Package | Rewrite an app folder for this ViteHub release with every upgrade codemod of `@vite-hub/codemods` that applies. Usage: `vitehub migrate [dir] [--dry-run]`. `dir` defaults to the current folder, and `--dry-run` prints the diffs. Install `@vite-hub/codemods` as a development dependency first. |
@@ -201,6 +207,7 @@ Available namespaces:
 | `vitehub inspect definitions` | Available | ViteHub CLI plus package inspection contributors | List the Definitions that each active package discovered. |
 | `vitehub inspect output` | Available | ViteHub CLI plus package inspection contributors | List generated Provider Output files with secrets redacted. |
 | `vitehub inspect resources` | Available | ViteHub CLI plus package inspection contributors | List the host resources that Definitions map to, with each id and where it came from. |
+| `vitehub inspect routes` | Available | ViteHub CLI | List the server routes and middleware that plugins add to the build, with method, path, and owner. |
 | `vitehub provision run` | Available | ViteHub CLI plus package Provision Steps | Create missing provider resources idempotently. |
 | `vitehub provision status` | Available | ViteHub CLI plus package Provision Steps | Show recorded provider ids, ids that no Definition declares, and pending plan actions. |
 
@@ -284,9 +291,9 @@ pnpm vitehub add email --option email.driver=resend --yes --json
 
 The command sets `<feature>: true`, or the object from `--option`. A feature that is already on gives no change, so a second run prints `"status": "unchanged"`. Features that an added feature turns on, such as Workflow for Agent, are listed in `implied`; the config names them when you supply their provider options. When an added feature requires Database, the command explicitly enables it if it was disabled. For example, on Netlify or Deno, `add comments` requires `--option database.connection.url=libsql://your-host` before writing the config.
 
-The host decides what `add` accepts. A feature that the host does not support exits with `3`. A host that needs an explicit provider, such as Email on Vercel, exits with `2` and lists the option in `missing` with its `choices`. When ViteHub can choose the values, `rerun` is a command that succeeds as it is, including any provider prerequisites. Node Schedules require `--option schedule.runtime.driver=process`, or `--option schedule.providerOutput=false` when you will wake them yourself.
+The host decides what `add` accepts. A feature that the host does not support exits with `3`. A host that needs an explicit provider, such as Email on Vercel, exits with `2` and lists the option in `missing` with its `choices`. For Email, the choices are `resend` and `log`. `log` prints each message to the server log and sends nothing, for a build without an Email provider. When ViteHub can choose the values, `rerun` is a command that succeeds as it is, including any provider prerequisites. Node Schedules require `--option schedule.runtime.driver=process`, or `--option schedule.providerOutput=false` when you will wake them yourself.
 
-Some host defaults build and run but keep state in one process. `nextSteps` names them, with the option that selects a durable provider. For example, Workspace on Vercel keeps files in memory until `BLOB_READ_WRITE_TOKEN` is set. A provider option that needs more packages, such as `blob.driver=s3`, adds them to the install.
+Some host defaults build and run but keep state in one process. `nextSteps` names them, with the option that selects a durable driver. For example, Workspace on Vercel keeps files in memory until `BLOB_READ_WRITE_TOKEN` is set. A driver option that needs more packages, such as `blob.driver=s3`, adds them to the install.
 
 `vitehub add console` sets `console: true`, so the app takes only [signed calls](/docs/development/console#sign-console-requests). Add `--option console.authorize=server/console-authorize.ts` to limit who may use which section. `--option console.auth=false` takes calls without a signature, for development only.
 
@@ -474,6 +481,8 @@ pnpm vitehub deploy --temporary --yes --json
 - `--no-build`: deploy the build output that is there.
 - `--no-provision`: do not create the missing host resources first.
 - `--no-push`: do not check or push the checkout folders of `vitehub.lock`.
+- `--no-check`: do not request the `deploy.check` paths after the deploy. See [Check the deployed app](#check-the-deployed-app).
+- `--no-index-now`: do not send the sitemap URLs to IndexNow.
 - `--temporary`: deploy without an account. Only Cloudflare and Vercel have it, and only when no credentials are found.
 - `--yes`: deploy and create resources without the questions, and generate a missing `VITEHUB_SECRET`. Without a terminal, the command needs it and exits with `2` and a `rerun`.
 
@@ -584,6 +593,148 @@ A `--preview` deploy does not push, so a preview never writes the shared Workspa
   }
 }
 ```
+
+### Check the deployed app
+
+Set `deploy.check` in `vitehub()` to the paths that must work after each deploy. With `health`, deploy checks the health route first.
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: {
+    health: true,
+    deploy: { check: ["/", "/api/products"] },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from "vite"
+import { nitro } from "nitro/vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [vitehub({
+    health: true,
+    deploy: { check: ["/", "/api/products"] },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [vitehub({
+    health: true,
+    deploy: { check: ["/", "/api/products"] },
+  })],
+})
+```
+:::
+::
+
+After the upload, deploy requests each path on the deployed URL. A path must answer with a `2xx` status, after redirects. Deploy tries each path 4 times in 7 seconds, because a new version can take a few seconds to reach every location.
+
+```txt [vitehub deploy]
+Deployed my-app to cloudflare: https://my-app.example.workers.dev
+Version: 6b1f2c84-0d3e-4a52-9a77-3c1e5f0b2d19
+Checked /api/_vitehub/health: 200
+Checked /: 200
+Checked /api/products: 200
+```
+
+When a path fails, the new version already serves production. Deploy exits with `1` and `SETUP_DEPLOY_CHECK_FAILED`, and prints the command that puts the deployment that it replaced back on production. It does not run that command for you. It does not push the checkout folders and does not send URLs to IndexNow.
+
+| Host | Rollback |
+| --- | --- |
+| Cloudflare | `npx wrangler rollback <version-id> --name <worker> --yes` |
+| Vercel | `npx vercel rollback <deployment-id> --yes` |
+| Netlify | `npx netlify api restoreSiteDeploy --data '{"deploy_id":"<id>","site_id":"<site>"}'` |
+| Deno | No CLI command. Promote the revision that the error names in the Deno Deploy dashboard. |
+
+Deploy reads the deployment that serves production before it uploads, with the credentials of the deploy. It needs a link in `.vitehub/link.json`. On a first deploy, or with a saved `vercel login` and no `VERCEL_TOKEN`, the error says that the previous deployment is not known: run `vitehub deployments` to find it. A failed `--preview` check does not change production, so it prints no rollback.
+
+`--json` returns the checks in `checks`, and on a failure the rollback in `rollback`:
+
+```json [vitehub deploy --json]
+{
+  "schemaVersion": 1,
+  "host": "cloudflare",
+  "url": "https://my-app.example.workers.dev",
+  "checks": [
+    { "path": "/api/_vitehub/health", "url": "https://my-app.example.workers.dev/api/_vitehub/health", "ok": false, "status": 503 }
+  ],
+  "rollback": {
+    "previous": { "deploymentId": "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e", "version": "bcf48806-b317-4351-9ee7-36e7d557d4de" },
+    "command": "npx wrangler rollback bcf48806-b317-4351-9ee7-36e7d557d4de --name my-app --yes"
+  },
+  "error": { "code": "SETUP_DEPLOY_CHECK_FAILED" }
+}
+```
+
+### Tell search engines about new pages
+
+`deploy: { indexNow: true }` sends the URLs of your sitemap to [IndexNow](https://www.indexnow.org) after each production deploy that passes its checks. Bing, Yandex, Seznam, Naver, and Yep then crawl the pages again. It needs a string `publicUrl`, and a `/sitemap.xml` on that site: [`seo: { sitemap: true }`](/docs/frameworks-hosts/sitemap) serves one.
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: {
+    publicUrl: "https://shop.example.com",
+    deploy: { indexNow: true },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from "vite"
+import { nitro } from "nitro/vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [vitehub({
+    publicUrl: "https://shop.example.com",
+    deploy: { indexNow: true },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [vitehub({
+    publicUrl: "https://shop.example.com",
+    deploy: { indexNow: true },
+  })],
+})
+```
+:::
+::
+
+- The build serves the IndexNow key at `/<key>.txt`. The key comes from `publicUrl`, so each build serves the same key and you keep no file. The key is public: it only lets a sender submit URLs of your site.
+- Deploy reads `<publicUrl>/sitemap.xml`, and the sitemaps of a sitemap index on the same site. It sends each URL of the site once, at most 10,000 in one request.
+- A failed submission prints one line and does not fail the deploy. `--json` returns `indexNow: { submitted, status }`, or `indexNow: { error }`.
+- A `--preview` or `--temporary` deploy sends nothing. `--no-index-now` skips it for one deploy.
+
+### `SETUP_DEPLOY_CHECK_FAILED`
+
+The app is deployed, and it serves production, but a `deploy.check` path did not answer with a `2xx` status. The `why` lists each failed path with its status or error. Run the rollback command in the `fix`, then fix the app and deploy again. `rollback` has the previous deployment. Pass `--no-check` only when the check itself is wrong. The command exits with `1`.
 
 ### `SETUP_DEPLOY_HOST_UNSUPPORTED`
 
@@ -1053,6 +1204,19 @@ cloudflare	cloudflare-r2-bucket	default
 
 For the Vercel Blob store, the id is `BLOB_STORE_ID`, which Vercel sets for the store connected to the project. Off Vercel, the store is reached through `BLOB_READ_WRITE_TOKEN`, and the CLI reports only whether the token is set, never its value. A configured `token` that overrides the environment is reported as `config`, without a store id or token value. `--json` prints `{ "resources": [...] }` with the same fields and the CLI redaction. D1 over HTTP, PostgreSQL Databases, and Definitions whose `cloudflare` value cannot be read statically are not listed.
 
+`inspect routes` lists the server routes and middleware that ViteHub and other Vite plugins add to the build, with the method, the path, the owner, and the handler file. The owner is the ViteHub area of a generated handler, such as `blob` or `queue`, the package of a package file, or `app`. Routes in `server/routes` and `server/api` are not listed. Like `inspect output`, it loads the configuration that a production build uses.
+
+```bash [Terminal]
+pnpm vitehub inspect routes
+pnpm vitehub inspect routes --json
+```
+
+```txt [Output]
+METHOD  PATH                      OWNER           HANDLER
+*       /**                       queue           .vitehub/nitro/queue/middleware.ts  (middleware)
+*       /_vitehub/blob/signed/**  @vite-hub/blob  @vite-hub/blob/dist/runtime/signed.js
+```
+
 Packages contribute inspection through `vitehub.inspect` on their Vite plugin. The owner package defines the summary; the CLI and the Console only render it. A package lists its host resources with `resources()`.
 
 ## Synchronize Channel webhooks
@@ -1163,22 +1327,47 @@ pnpm vitehub database export --remote --stage production --output backups/databa
 
 See [Export a database](/docs/database/configure#export-a-database) for each driver and the dump format.
 
-## Seed a Database
+## Run SQL on a Database
 
-`database seed` runs the seed file of each database, `server/databases/<name>/seed.ts`, with no build. Its default export gets `{ db, schema }`. It writes the local database by default, and refuses a database with pending migrations.
+`database sql` runs SQL on one database and prints the rows of each statement as a table. Without a SQL argument, it reads stdin. `database drop` drops every table of one database and its migrations table. It asks first, and needs `--force` without a terminal. `database reset` drops the same way, then applies the migrations of that database again. They use the local SQLite file or PGlite folder by default. Any other database needs `--remote`.
 
 ```bash [Terminal]
-pnpm vitehub database seed
-pnpm vitehub database seed --remote --stage staging --database analytics
+pnpm vitehub database sql "select id, email from users limit 5"
+pnpm vitehub database sql --json < report.sql
+pnpm vitehub database drop --force
+pnpm vitehub database reset --force
 ```
 
 | Option | Description |
 | --- | --- |
-| `--remote` | Write the remote database. Needed for a database that is not local. |
+| `--remote` | Use the remote database. Needed for a database that is not a local file or folder. |
+| `--stage <name>` | Load the Vite env files of this mode. Process variables win. |
+| `--database <name>` | The database to use. Needed when the app has several. |
+| `--json` | `sql` only. Print one JSON array with `{ columns, rows, rowsAffected }` for each statement. |
+| `--force` | `drop` and `reset` only. Drop without asking. |
+
+See [Run SQL and drop tables](/docs/database/configure#run-sql-and-drop-tables) for what `drop` drops on each driver.
+
+## Seed data
+
+`vitehub seed` writes the starting data of the app: the seed file of each Database, the KV values in `server/seed/kv/`, and the Blob files in `server/seed/blob/`. It writes local data by default.
+
+```bash [Terminal]
+pnpm vitehub seed
+pnpm vitehub seed kv blob
+pnpm vitehub seed --remote --stage production
+```
+
+| Option | Description |
+| --- | --- |
+| `<primitive>...` | Seed only these: `database`, `kv`, or `blob`. |
+| `--remote` | Write the deployed data. KV and Blob call the deployed app, like `vitehub kv set --url`. |
+| `--url <url>` | The deployed app for `--remote`. Defaults to `vitehub({ publicUrl })`. |
 | `--stage <name>` | Load the Vite env files of this mode. Process variables win. |
 | `--database <name>` | Seed only this database. |
+| `--timeout <ms>` | Request timeout of each call to the app. |
 
-See [Seed data](/docs/database/configure#seed-data) for the seed file.
+Without `--remote`, KV and Blob write the stores of the running dev server, so start `vite dev` first. The Database seed needs no server. See [Seed data](/docs/database/configure#seed-data) for the seed file of a Database, [Seed values](/docs/kv/configure#seed-values) for KV, and [Seed files](/docs/blob/configure#seed-files) for Blob.
 
 ## Browse Database tables
 
@@ -1735,7 +1924,7 @@ VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --host vercel 
 | `Option --provider is now --host` | The command uses the old flag. | Run the command in the `fix:` line. |
 | Provision fails before applying actions | Required host credentials are missing. | Run `wrangler login` or set `CLOUDFLARE_API_TOKEN`, and set `CLOUDFLARE_ACCOUNT_ID` for a login with several accounts. On Vercel, set `VERCEL_TOKEN`. |
 | Provision dry-run reports no actions | A package plan skipped the provider lookup, because its read credentials are missing. | Set the provider credentials. `--dry-run` still blocks `apply()`. |
-| Vercel Provision reports no resources for Blob | `VERCEL_PROJECT_ID` is missing, or the Blob store is not `vercel-blob`. | Set the project id and the Vercel Blob driver, then run again. |
+| Vercel Provision reports no resources for Blob | `VERCEL_PROJECT_ID` is missing, or the Blob store is not `vercel`. | Set the project id and the Vercel Blob driver, then run again. |
 | Agent eval CLI is disabled | `agent.eval` or `agent.cli` turns off the eval runner. | Turn the option back on for local development. |
 | Agent eval times out | The eval case, model call, or provider run takes longer than `agent.eval.testTimeout`. | Raise `agent.eval.testTimeout` in `nuxt.config.ts` or `vite.config.ts`, or make the case smaller. |
 | Vite config fails to load a ViteHub plugin import | A new npm project loads `vite.config.ts` as CommonJS, but ViteHub packages are ESM-only. | Set `"type": "module"` in `package.json` or rename the config to `vite.config.mts`. |

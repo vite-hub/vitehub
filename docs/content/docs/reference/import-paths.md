@@ -20,6 +20,7 @@ the same behavior.
 | --- | --- |
 | `vite-hub` | `vitehub()`, the framework Vite plugin. |
 | `vite-hub` | `detectHost()`: the host `vitehub()` detects when `host` is omitted. Use it for host-specific config. |
+| `vite-hub/seo` | `defineSitemap()` for the pages of `server/sitemap.ts`. See [Sitemap and robots.txt](/docs/frameworks-hosts/sitemap). |
 | `vite-hub/skills` | Define and serve [Agent Skills](/docs/development/skills) through HTTP discovery and MCP. |
 | `vite-hub/agent/vite` | Process Agent host and generated health and Workspace routes for Vite. |
 | `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Invoker APIs. |
@@ -100,6 +101,7 @@ the same behavior.
 | `vite-hub/browser/controllers/cdp` and `vite-hub/browser/controllers/playwright` | Advanced raw CDP and Playwright Browser Session controllers. |
 | `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Advanced explicit provider selection for low-level Browser Clients. |
 | `vite-hub/bundle` | Read the [bundle report](/docs/bundle) of the last build: `readBundleReport()` and `explainBundleTarget()`. Re-exports `@vite-hub/bundle`. |
+| `vite-hub/cache` | Nitro's `defineCachedFunction()` and `defineCachedHandler()` with `tags`, `defineCachedFunction()` with `staleIfError`, and `invalidateTag()`. See [Cache server results](/docs/guides/cache-server-results). `invalidateTag()` is auto-imported in Nuxt when `cache` is on. |
 | `vite-hub/channels` and `vite-hub/channels/server` | Channels with `defineChannel()`, the `webhook()` and `stripe()` adapters, and `useChannel()` for named sends. |
 | `vite-hub/comments` | `defineComments()` for `server/comments.ts`, as the `comments` export or the default export. One definition runs the overlay, Comments API, presence, MCP, and [comment operations](/docs/comments/operations/get-started). |
 | `vite-hub/comments/anchor`, `vite-hub/comments/database`, and `vite-hub/comments/runtime` | Browser pin anchors, the Comments tables, and the API handler and Nitro plugin that generated output imports. |
@@ -143,14 +145,21 @@ the same behavior.
 | `vite-hub/schedule/runtime/process` | Process Runtime that runs Static Schedules in a long-lived Node process. |
 | `vite-hub/schedule/runtime/kv` | ViteHub KV storage adapter for Schedule Runs. |
 | `vite-hub/shell` | Shell runtime and command analysis APIs. |
-| `vite-hub/shell/providers/just-bash` | Just Bash Shell provider. |
+| `vite-hub/shell/providers/just-bash` | Just Bash Shell driver. |
 | `vite-hub/shell/workspace` | Workspace-backed Shell execution helpers. |
-| `vite-hub/test` | `setupViteHubTest()` for app tests: local backends for KV, Blob, Database, Queue, Email, and Rate Limit, Server Env values, and Channel deliveries. See [Testing](/docs/development/testing). |
+| `vite-hub/test` | `setupViteHubTest()` for app tests: local backends for KV, Blob, Database, Queue, Email, Rate Limit, and Auth, Server Env values, signed-in users, and Channel deliveries. See [Testing](/docs/development/testing). |
+| `vite-hub/test/register` | `node --import vite-hub/test/register --test` runs app tests with Node's test runner. See [Testing](/docs/development/testing). |
 | `vite-hub/source` | Runtime-neutral Source Definitions, custom loaders, registry APIs, Collections (`defineCollection`, `array`), and the built-in loaders `file()`, `files()`, `glob()`, `markdown()`, and `github()`. `files()` is the Source that `glob()` becomes in a server build. |
 | `vite-hub/source/drizzle` | `table()`, a Collection over a Drizzle table. Needs `drizzle-orm`. |
 | `vite-hub/source/client` and `vite-hub/source/server` | Vue Collection pagination and the H3 Collection route adapter. |
 | `vite-hub/source/mcp` | MCP Resources implementation. Needs `@modelcontextprotocol/sdk`. |
 | `vite-hub/source/vite` | Source discovery, generated artifacts, and Nitro route integration for custom Vite plugin composition. |
+| `vite-hub/sync` | `defineSync()` for `server/sync/<name>.ts`: a table that the browser keeps a local copy of, `syncRoute()`, and the wire types. Re-exports `@vite-hub/sync`. |
+| `vite-hub/sync/client` | `createSync()`: the local copy of a Sync table, with writes queued in IndexedDB. Re-exports `@vite-hub/sync/client`. |
+| `vite-hub/sync/database` | The `vitehub_sync_changes`, `vitehub_sync_columns`, `vitehub_sync_mutations`, and `vitehub_sync_state` tables as `syncSchema` and `syncTables`. Re-exports `@vite-hub/sync/database`. |
+| `vite-hub/sync/operations` | The `sync.list` and `sync.changes` operations of `vitehub sync` and MCP. Re-exports `@vite-hub/sync/operations`. |
+| `vite-hub/sync/runtime` | `createSyncHandler()`, which the generated Sync route calls, and `installedSync()`. Apps do not import it. Re-exports `@vite-hub/sync/runtime`. |
+| `vite-hub/sync/vue` | `useSync()`: the reactive rows and writes of a Sync table. Re-exports `@vite-hub/sync/vue`; auto-imported in Nuxt. |
 | `vite-hub/ui`, `vite-hub/ui/headless`, and `vite-hub/ui/styles.css` | Every AI interface component, headless message scrolling, and default styles. |
 | `vite-hub/ui/markdown-editor` | `MarkdownEditor` with uploads to Blob. Kept out of the root import, so it loads Tiptap only where you use it. |
 | `vite-hub/ui/workspace` | The WebContainer workspace parts and `PlaygroundContainer`, outside the root so a chat page never loads CodeMirror or xterm. |
@@ -158,6 +167,10 @@ the same behavior.
 | `vite-hub/ui/theme` and `vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the design tokens and focus ring. |
 | `vite-hub/ui/vite` | Register the canonical UI package for Vue with Vite. In Nuxt, `vite-hub/nuxt` adds the UI runtime. |
 | `vite-hub/tsconfig` | TypeScript config that includes ViteHub's generated declaration entry without taking ownership of application source includes. |
+| `vite-hub/webhooks` | `defineWebhook()` for `server/webhooks/<name>.ts` and `sendWebhook()`: send events to a URL outside the app, signed, retried, and debounced. Needs `queue` and `database`. Re-exports `@vite-hub/webhooks`. |
+| `vite-hub/webhooks/database` | The `vitehub_webhook_deliveries` table and `createDrizzleWebhookStore()`. Re-exports `@vite-hub/webhooks/database`. |
+| `vite-hub/webhooks/operations` | The `webhooks.*` operations of the Console, `vitehub webhooks`, and MCP: list, deliveries, pending, get, test, flush, cancel, and redeliver. Re-exports `@vite-hub/webhooks/operations`. |
+| `vite-hub/webhooks/runtime` | List, flush, cancel, and redeliver webhook deliveries from server code. Re-exports `@vite-hub/webhooks/runtime`. |
 | `vite-hub/workflow` | Workflow Definitions and run helpers. |
 | `vite-hub/workflow/openworkflow` | `startOpenWorkflowWorker()` and `createOpenWorkflowWorker()` for a separate OpenWorkflow worker process. Node servers start a worker automatically. |
 | `vite-hub/workspace` and `vite-hub/workspace/runtime` | Workspace Definitions, Sources, history contracts, runtime facades, and registry APIs. |
@@ -187,6 +200,7 @@ These paths have no `vite-hub` path:
 | `#vitehub/emails/<name>` | Email Package | Generated async renderer for a discovered `server/emails/**/*.md` template. |
 | `#vitehub/env/public` | Env Package | Generated Public Env access for browser code. Server code imports `usePublicEnv()` from `vite-hub/env`. |
 | `@vite-hub/ui/comment-marks.css` | UI Package | The comment pins and highlights as plain CSS, for a page that reads the file as text with `?raw`. |
+| `@vite-hub/ui/icon-swap.css` | UI Package | The `CopyButton` icon swap as plain CSS, for a page that reads the file as text with `?raw`. |
 | `@vite-hub/web-container/vue` | WebContainer Package | `useWebContainer()`, the Vue composable for the WebContainer lifecycle, files, commands, and preview. |
 | `#vitehub/schedule/registry` | Schedule Package | Generated static schedule registry for host bridges. |
 
@@ -213,6 +227,7 @@ These paths have no `vite-hub` path:
 | `@vite-hub/realtime/vite` | Realtime discovery and generated runtime wiring. |
 | `@vite-hub/sandbox/task/vite` | The Sandbox Task Vite plugin. |
 | `@vite-hub/schedule/vite` | The Schedule Vite plugin. |
+| `@vite-hub/webhooks/vite` | Discovers `server/webhooks/`, contributes the `vitehub-webhooks` Queue and the deliveries table, and writes the webhook name types. |
 | `@vite-hub/workflow/vite` | The Workflow Vite plugin. |
 | `@vite-hub/workspace/vite` | The Workspace Vite plugin. |
 

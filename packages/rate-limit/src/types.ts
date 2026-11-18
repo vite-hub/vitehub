@@ -21,8 +21,15 @@ export interface RateLimitPolicy {
   window: RateLimitWindow
 }
 
-export interface RequireRateLimitOptions extends RateLimitPolicy {
+export interface CheckRateLimitOptions extends RateLimitPolicy {
   key?: string
+}
+
+export interface RequireRateLimitOptions extends CheckRateLimitOptions {
+  /** `data.code` of the `429` error, such as a translation key that the client reads. */
+  code?: string
+  /** Message of the `429` error, which the client can show. Defaults to `"Rate limit exceeded."`. */
+  message?: string
 }
 
 /** A Web `Request`. The guard reads only its headers. */
@@ -175,19 +182,20 @@ export interface CreateRateLimiterOptions extends RateLimitPolicy {
  * `kv` counts in the default KV store, shared by every server process when KV uses `redis`, `database`, or `upstash`.
  * With another KV driver, it counts in process memory and prints a warning at boot.
  */
-export type RateLimitProvider = "auto" | "cloudflare" | "kv" | "memory"
+export type RateLimitDriverName = "auto" | "cloudflare" | "kv" | "memory"
 
 export interface RateLimitOptions {
+  /** The driver of the counters. Defaults to `auto`. */
+  driver?: RateLimitDriverName
   namespace?: string
-  provider?: RateLimitProvider
   projectRoot?: string
   scanDirs?: string[]
 }
 
 export interface RateLimitRuntimeConfig {
-  provider: Exclude<RateLimitProvider, "auto">
+  driver: Exclude<RateLimitDriverName, "auto">
   /**
-   * With the `kv` provider: count in the memory of this process, with a warning, when the KV store cannot share counts.
+   * With the `kv` driver: count in the memory of this process, with a warning, when the KV store cannot share counts.
    * Without it, such a store fails with `RATE_LIMIT_KV_RUNTIME_STORE_UNSUPPORTED`. ViteHub sets it in `vite dev` and when it selects `kv` itself.
    */
   memoryFallback?: boolean

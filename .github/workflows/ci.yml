@@ -26,10 +26,12 @@ jobs:
     needs:
       - checks
       - workflow-lint
+      - doctor
       - contracts-examples
       - contract-tests
       - package-tests
       - package-tests-success
+      - typecheck
       - ui-sdk
       - service-tests
       - prepublish-contracts
@@ -78,12 +80,15 @@ jobs:
           ])
           // Deploys run only on a push to main.
           const deployJobs = new Set(["docs-deploy", "docs-demo-deploy", "console-deploy"])
+          // Doctor checks the lines that a pull request changes, so it runs only on pull requests.
+          const pullRequestOnlyJobs = new Set(["doctor"])
           // OS timer checks run only when schedule-os-select says the change can affect them.
           const scheduleOsJobs = new Set(["schedule-os", "schedule-os-success"])
           const scheduleOsSelected = results["schedule-os-select"]?.outputs?.run === "true"
           const failures = Object.entries(results).filter(([name, job]) => {
             const maySkip = (process.env.FULL_SUITE !== "true" && skippedPullRequestJobs.has(name))
               || (process.env.GITHUB_EVENT_NAME !== "push" && deployJobs.has(name))
+              || (process.env.GITHUB_EVENT_NAME !== "pull_request" && pullRequestOnlyJobs.has(name))
               || (!scheduleOsSelected && scheduleOsJobs.has(name))
             return job.result !== "success" && !(maySkip && job.result === "skipped")
           })
@@ -138,6 +143,28 @@ jobs:
       - uses: docker://rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
         with:
           args: -color
+
+  # Doctor reports unsound type evidence on the lines that a pull request
+  # changes. doctor.config.json selects the rules. The agent format gives each
+  # finding its fix and docs link. A push has no pull request base, so it skips
+  # this job.
+  doctor:
+    name: doctor
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+      - name: Check changed lines
+        env:
+          VITE_DOCTOR_SINCE: ${{ github.event.pull_request.base.sha }}
+        run: vp run doctor:typescript --format agent
 
   # Split from checks, which took 9 minutes because typecheck, contracts and
   # examples each ran a full build in sequence.
@@ -314,6 +341,45 @@ jobs:
     permissions: {}
     steps:
       - run: echo 'All package test shards passed'
+
+  # Typechecks ran only in `verify` at release, so type errors reached main. A
+  # job of its own keeps fast checks fast: each package typecheck builds the
+  # package and its dependencies first. A pull request checks the packages
+  # that the package test selection names. The docs site imports most
+  # packages, so its typecheck runs on every pull request.
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The same heap as `vp run typecheck`. vue-tsc checks the docs site in Node.
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select changed packages
+        id: changed
+        if: ${{ env.FULL_SUITE != 'true' }}
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          packages="$(node test/run-package-task.mjs typecheck --affected "$BASE_REF" --list)"
+          echo "Changed packages: ${packages:-none}"
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/setup
+      - if: ${{ env.FULL_SUITE == 'true' }}
+        run: node test/run-package-task.mjs typecheck
+      - name: Typecheck changed packages
+        if: ${{ steps.changed.outputs.packages != '' }}
+        run: node test/run-package-task.mjs typecheck --packages "$PACKAGES"
+        env:
+          PACKAGES: ${{ steps.changed.outputs.packages }}
+      # The docs typecheck needs framework exports regardless of package selection.
+      - run: vp run --cache -t vite-hub#build
+      - name: Typecheck the docs site
+        run: vp run --filter vitehub-docs --ignore-depends-on typecheck
 
   # @vite-hub/ui and @vite-hub/kit build on ui-sdk, pinned and patched in pnpm-workspace.yaml. Package tests run the
   # kit tests when the lockfile changes, but not the two browser checks: the parity harness (ui-sdk against Reka, step
@@ -513,6 +579,8 @@ jobs:
       # Snippet checker tests import the built framework and its discovery plugins.
       - run: vp run --cache -t vite-hub#build
       - run: vp run --filter vitehub-docs test
+      # The same docs typecheck that `vp run verify` runs before a release.
+      - run: vp run --filter vitehub-docs typecheck
       - run: vp run docs:build
       - run: vp run --filter vitehub-docs test:artifact
       - name: Verify Worker bundle
@@ -559,6 +627,7 @@ jobs:
       - contracts-examples
       - contract-tests
       - package-tests-success
+      - typecheck
       - service-tests
       - consumer-contracts-success
       - node-22
@@ -598,6 +667,9 @@ jobs:
               exit 1
             fi
           done
+          # Auth and Comments keep their tables in D1. The Worker secrets (VITEHUB_SECRET and the Console keys) stay on
+          # the Worker between deploys.
+          ./node_modules/.bin/wrangler d1 migrations apply vitehub-docs --remote --config docs/.output/server/wrangler.json
           ./node_modules/.bin/wrangler deploy --config docs/.output/server/wrangler.json
 
       - name: Check the live site
@@ -681,6 +753,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           DOCS_DEMO_GITHUB_CLIENT_ID: ${{ vars.DOCS_DEMO_GITHUB_CLIENT_ID }}
           DOCS_DEMO_GITHUB_CLIENT_SECRET: ${{ secrets.DOCS_DEMO_GITHUB_CLIENT_SECRET }}
+          # The GitHub account of onmax. Only it gets the admin role on the demo.
+          DOCS_DEMO_VITEHUB_ADMINS: github:22072217
           DOCS_DEMO_VITEHUB_CONNECTIONS_KEY: ${{ secrets.DOCS_DEMO_VITEHUB_CONNECTIONS_KEY }}
           DOCS_DEMO_VITEHUB_CONTENT_KEY: ${{ secrets.DOCS_DEMO_VITEHUB_CONTENT_KEY }}
           DOCS_DEMO_VITEHUB_SECRET: ${{ secrets.DOCS_DEMO_VITEHUB_SECRET }}
@@ -952,6 +1026,9 @@ jobs:
           else
             node packages/schedule/test/os-e2e.mjs --scope "$SCOPE"
           fi
+      - name: Install, run, and remove an OS timer from a moved home folder
+        if: ${{ matrix.scope == 'user' && runner.os != 'Windows' }}
+        run: node packages/schedule/test/os-e2e.mjs --scope user --moved-home
 
   # Keep the default success() condition, as for package tests: needs alone can lose failed matrix jobs after a
   # partial rerun.
@@ -975,6 +1052,7 @@ jobs:
       - contracts-examples
       - contract-tests
       - package-tests-success
+      - typecheck
       - service-tests
       - consumer-contracts-success
       - node-22

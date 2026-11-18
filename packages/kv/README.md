@@ -126,7 +126,7 @@ Only the drivers in `KVDriversWith<"deleteIfEquals">` (`redis`, `database`, `ups
 
 ## Read-only handles
 
-`kv.store(name, { mode: "read" })` returns a `ReadonlyKVStorage` handle with `get()`, `has()`, `keys()`, and `list()`. Write methods are a type error and absent at runtime. `mode` defaults to `"write"`, and another value throws `KV_INVALID_STORE_MODE`.
+`kv.store(name, { mode: "read" })` returns a `ReadonlyKVStorage` handle with `get()`, `getMany()`, `has()`, `keys()`, and `list()`. Write methods are a type error and absent at runtime. `mode` defaults to `"write"`, and another value throws `KV_INVALID_STORE_MODE`.
 
 ```ts
 import { kv } from "@vite-hub/kv"
@@ -155,6 +155,8 @@ export default defineNitroPlugin((nitroApp) => {
 ## CLI
 
 `hubKV()` contributes the `vitehub kv` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `get <key>`, `has <key>`, `set <key> <value|@file> [--ttl <seconds>] [--json-value]`, and `delete <key>`. Each command accepts `--store <name>` and `--json`. `get` writes stored strings unchanged, without adding a newline. JSON input rejects underflow and decimal values that change magnitude during parsing; use strings to preserve them. Write commands print what they changed. There is no `clear` command.
+
+`vitehub seed` writes each file in `server/seed/kv/` to the default store: `habits.json` is the JSON value of the key `habits`, and any other extension is a string.
 
 Each command runs a `kv.*` operation of the app through the Console RPC. On the dev server it needs no sign-in. With `--url` it calls a deployed app. The same operations serve the Console KV page, which edits and deletes keys, and agents.
 

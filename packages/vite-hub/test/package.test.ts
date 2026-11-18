@@ -112,8 +112,9 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/forge/build",
   "@vite-hub/forge/build/node",
   "@vite-hub/docs/primitive-rail",
-  // Pages read it as text with `?raw`. A `vite-hub` CSS facade would give its own `@import` line, not the rules.
+  // Pages read these as text with `?raw`. A `vite-hub` CSS facade would give its own `@import` line, not the rules.
   "@vite-hub/ui/comment-marks.css",
+  "@vite-hub/ui/icon-swap.css",
   "@vite-hub/web-container/vue",
   "@vite-hub/workspace/source-metadata",
 ]);
@@ -295,6 +296,7 @@ describe("framework package contract", () => {
         .sort(),
     ).toEqual([
       ".",
+      "./cache",
       "./console",
       "./console/auth",
       "./console/mcp-client",
@@ -306,8 +308,10 @@ describe("framework package contract", () => {
       "./logs/memory",
       "./logs/source",
       "./nuxt",
+      "./seo",
       "./skills",
       "./test",
+      "./test/register",
     ]);
 
     for (const { subpath, targets } of manifestForwarders) {
@@ -375,6 +379,9 @@ describe("framework package contract", () => {
     expect(readFileSync(`${packageRoot}/dist/cloudflare-types.d.ts`, "utf8")).toContain(
       "@cloudflare/workers-types",
     );
+    expect(readFileSync(`${packageRoot}/dist/cloudflare-workers.d.ts`, "utf8")).toContain(
+      'declare module "cloudflare:workers"',
+    );
     const consolePage = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-app.vue`,
       "utf8",
@@ -421,7 +428,6 @@ describe("framework package contract", () => {
     );
     expect(consolePage).toContain('invocation.annotations?.["agent.model.provider"]');
     expect(consolePage).toContain("ConsoleSessionInspector");
-    expect(consolePage).not.toContain("ConsoleHealth");
     const consoleSessionCss = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-session.css`,
       "utf8",
@@ -653,7 +659,6 @@ describe("framework package contract", () => {
     );
     expect(consolePage).toContain("max-width: 48rem");
     expect(consolePage).not.toContain("route.query.agent");
-    expect(consolePage).not.toContain("groupConsoleSessions");
     expect(consolePage).not.toContain("<UApp");
     expect(consolePage).toContain(".vitehub-console");
     // Nuxt serves the standalone Console page, so the package ships no Nuxt pages.

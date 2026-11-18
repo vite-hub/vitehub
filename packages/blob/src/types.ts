@@ -6,13 +6,13 @@ import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, M
 
 export type BlobDriver =
   | "azure"
-  | "cloudflare-r2"
+  | "cloudflare"
   | "fs"
   | "gcs"
   | "minio"
   | "netlify-blobs"
   | "s3"
-  | "vercel-blob"
+  | "vercel"
 export type BlobType = "audio" | "blob" | "image" | "pdf" | "text" | "video" | `${string}/${string}`
 export type SizeUnit = "B" | "GB" | "KB" | "MB"
 type PowOf2 = 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 | 256 | 512 | 1024
@@ -70,7 +70,7 @@ export type BlobSignOptions =
     contentType?: string
     createOnly?: boolean
     expiresIn: number
-    /** The largest body that the upload accepts, such as `"8MB"`. Only the `fs` and `vercel-blob` drivers bind it. */
+    /** The largest body that the upload accepts, such as `"8MB"`. Only the `fs` and `vercel` drivers bind it. */
     maxSize?: BlobSize
     method: "PUT"
   }
@@ -166,8 +166,13 @@ export type BlobMultipartEvent = (ViteHubContext | HostRequestEvent) & { context
 export interface BlobUploadOptions {
   /** Form field that holds the files. Defaults to `"files"`. */
   formKey?: string
-  /** Accept more than one file. Defaults to `true`. */
+  /** Accept more than one file. Defaults to `true`. `false` is the same as `maxFiles: 1`. */
   multiple?: boolean
+  /**
+   * The most files that `formKey` accepts. A request with more files gets an H3 400 error before the extra files are
+   * read. Defaults to no limit.
+   */
+  maxFiles?: number
   /** Validate each file with `ensureBlob()` before it is stored. */
   ensure?: BlobEnsureOptions
   /** Options for each `put()`. The file name is the pathname. */
@@ -352,6 +357,18 @@ export interface BlobCopyOptions {
   overwrite?: boolean
 }
 
+/** Options of `delete({ prefix })`. */
+export interface BlobDeletePrefixOptions {
+  /** Delete every object whose pathname starts with this prefix, such as `"runs/42/"`. It must not be empty. */
+  prefix: string
+}
+
+/** Result of `delete({ prefix })`. */
+export interface BlobDeletePrefixResult {
+  /** Number of objects that the delete found and removed. */
+  deleted: number
+}
+
 export interface BlobStorage {
   /** Media records, folders, and image variants. */
   readonly media: BlobMedia
@@ -362,9 +379,16 @@ export interface BlobStorage {
    * the `fs` driver copies the file. R2 streams the object from the binding. Netlify Blobs reads and writes it.
    */
   copy(from: string, to: string, options?: BlobCopyOptions): Promise<Result<BlobObject, BlobErrorCode>>
-  /** Start a multipart upload. Supported by the `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers. */
+  /** Start a multipart upload. Supported by the `fs`, `cloudflare` (binding), and `vercel` drivers. */
   createMultipartUpload(pathname: string, options?: BlobMultipartOptions): Promise<Result<BlobMultipartUpload, BlobErrorCode>>
+  /** Delete one or more objects. A missing object is not an error. */
   delete(pathnames: string | string[]): Promise<Result<void, BlobErrorCode>>
+  /**
+   * Delete every object under `prefix`, page by page, on every driver. Returns how many objects it deleted. Objects under
+   * the reserved `.vitehub/` and `_vitehub/derived|media/` paths stay unless the prefix itself is in one of them. An
+   * empty prefix fails with `BLOB_R0034`, so a missing value never empties a store.
+   */
+  delete(options: BlobDeletePrefixOptions): Promise<Result<BlobDeletePrefixResult, BlobErrorCode>>
   get(pathname: string): Promise<Result<Blob | null, BlobErrorCode>>
   /** Serve the `create`, `upload`, `complete`, and `abort` requests that the multipart client sends. */
   handleMultipartUpload(event: BlobMultipartEvent, options?: BlobMultipartHandlerOptions): Promise<Result<BlobMultipartHandlerResult, BlobErrorCode>>
@@ -438,7 +462,7 @@ export interface CloudflareR2BlobStoreConfig extends HostedBlobStoreConfig {
   binding?: string
   bucketName?: string
   defaultUrlExpiresIn?: number
-  driver: "cloudflare-r2"
+  driver: "cloudflare"
   /** Jurisdiction of the bucket. Sets the wrangler binding, the provisioning request, and the S3 API host. */
   jurisdiction?: CloudflareR2Jurisdiction
   publicBaseUrl?: string
@@ -461,7 +485,7 @@ export interface VercelBlobStoreConfig extends HostedBlobStoreConfig {
   access?: "private" | "public"
   allowOverwrite?: boolean
   downloadTimeoutMs?: number
-  driver: "vercel-blob"
+  driver: "vercel"
   token?: string
 }
 

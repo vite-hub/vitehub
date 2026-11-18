@@ -148,7 +148,7 @@ it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, "60"])("rejects ttl %s like t
 })
 
 it("expires keys in the Cloudflare KV fallback of vite dev", async () => {
-  const driver = createCloudflareKVLocalDriver({ binding: "KV", driver: "cloudflare-kv-binding", localBase: base })
+  const driver = createCloudflareKVLocalDriver({ binding: "KV", driver: "cloudflare", localBase: base })
   try {
     await driver.setItem?.("ttl", "\"a\"", { ttl: 60 })
     await driver.setItem?.("relative", "\"b\"", { expirationTtl: 120 })

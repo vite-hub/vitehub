@@ -123,7 +123,7 @@ export type EnvRequirednessOptions<TValue> =
 
 export type EnvVariableOptions = EnvVariableBaseOptions & EnvRequirednessOptions<unknown>
 
-/** Options for `env.boolean()`, `env.number()`, and `env.enum()`. The helper owns the parser and type. */
+/** Options for `env.boolean()`, `env.number()`, `env.enum()`, `env.list()`, and `env.json()`. The helper owns the parser and type. */
 export type EnvTypedVariableOptions<TValue> = Omit<EnvVariableBaseOptions, "schema" | "type"> & EnvRequirednessOptions<TValue>
 
 /** Serializable parser for one Server Env value. Host and provider values are strings before parsing. */
@@ -135,6 +135,10 @@ export type EnvValueSchema =
   | { kind: "url" }
   | { kind: "array", items?: EnvValueSchema }
   | { kind: "object", properties?: Record<string, EnvValueSchema> }
+  /** Items from `env.list()`, separated by commas or line breaks. Each item is trimmed, and empty items are dropped. */
+  | { kind: "list", items?: EnvValueSchema }
+  /** Any JSON value from `env.json()`. */
+  | { kind: "json" }
 
 /**
  * A Standard Schema that the server build imports from a module. Server Env runs it on the raw value when it resolves,
@@ -146,6 +150,8 @@ export interface EnvSchemaModuleReference {
   module: string
   /** Name of the export that holds the schema. */
   export: string
+  /** `json` parses a string value as JSON before the schema runs. `env.json()` sets it. */
+  input?: "json"
 }
 
 export type EnvBuildStaticValue = null | string | number | boolean | EnvBuildStaticValue[]

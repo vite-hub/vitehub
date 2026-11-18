@@ -123,7 +123,7 @@ symlink resolution. Trusted GitHub release archives use the HTTPS archive path.
 Workers call `commitRepair` with a message and explicit repair paths, then
 `pushRepair`. The host commits because the provider sandbox protects Git metadata. For a
 conflicting PR, the host first prepares a merge against the exact base commit.
-Installation runs after merge preparation. The worker resolves dependency conflicts and calls `refreshDependencies` before validation, then commits through the same tool. Changing dependency inputs requires another refresh and validation before committing.
+Installation runs after merge preparation. The worker resolves dependency conflicts and calls `refreshDependencies` before validation, then commits through the same tool. Changing dependency inputs requires another refresh and validation before committing. `commitRepair` rejects a base merge whose result undoes changes the base made since the PR branched: lines the base added that the result lacks, or lines the base removed that it brings back. Lockfiles are exempt because the host regenerates them. When the PR deliberately replaces such a change, the worker passes the file in `baseOverrides` with a reason, and the merge commit message lists it.
 Unattended Codex runs preauthorize only the assigned host tools. Capability checks
 still run on the host, and the native shell keeps its edit sandbox.
 
@@ -278,7 +278,9 @@ go when the PR closes, after `idleDays` (7) without a pass, and least recently
 used first above `budgetGb` (60) or below `minFreePercent` (15) free disk.
 `warmWorkspaces: { resumeThreads: true }` also continues the previous pass's
 provider thread when that pass pushed or recorded a wait on the same base and
-release.
+release. The host stores only that session in `provider-sessions.sqlite`: it
+deletes the session of every pass that cannot be resumed, and the last one when
+the PR's workspace goes. Without `resumeThreads`, it stores no provider session.
 While the built-in resource guard pauses model passes for a spent token budget, low temporary space or exhausted proxy accounts, host work continues. A token budget of `0` stops every claim.
 
 Colocated `instructions.md` fills the preset's instruction slot without adding

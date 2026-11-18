@@ -39,6 +39,7 @@ not these files.
 | `.vitehub/schedule/deno-cron.mjs` | Schedule Package | Deno `Deno.cron` wake output for Static Schedule Definitions. |
 | `.vitehub/nitro/schedule/*` | Schedule Package | Narrow Nitro bridge for Schedule Provider Wake. |
 | `.vitehub/provision.json` | ViteHub CLI | Non-secret Provision State read by Vite Integrations. |
+| `.vitehub/hints.json` | ViteHub Framework | Hints of the last build or dev server: warnings about things that work now and fail later, each with its code, `why`, `fix`, and `docs` link. Each run starts it empty. |
 | `.output/server/index.mjs` | Provider Output | Server entry for the `node`, `cloudflare`, and `deno` hosts. |
 | `.output/server/wrangler.json` | Provider Output | Cloudflare Worker config written by a `cloudflare` host build. |
 | `.vercel/output/**` | Provider Output | Vercel Build Output written by a `vercel` host build. |

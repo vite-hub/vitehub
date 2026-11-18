@@ -1,4 +1,4 @@
-export type WorkflowProvider = "cloudflare" | "openworkflow" | "vercel"
+export type WorkflowDriver = "cloudflare" | "openworkflow" | "vercel"
 
 export interface CloudflareWorkflowBinding<TPayload = unknown> {
   createBatch: (batch: Array<{ id: string, params?: TPayload }>) => Promise<CloudflareWorkflowInstance[]>
@@ -17,12 +17,12 @@ export interface WorkflowSharedOptions {
   name?: string
 }
 
-export interface CloudflareWorkflowProviderOptions extends WorkflowSharedOptions {
-  provider: "cloudflare"
+export interface CloudflareWorkflowDriverOptions extends WorkflowSharedOptions {
+  driver: "cloudflare"
 }
 
-export interface VercelWorkflowProviderOptions extends WorkflowSharedOptions {
-  provider: "vercel"
+export interface VercelWorkflowDriverOptions extends WorkflowSharedOptions {
+  driver: "vercel"
 }
 
 export interface OpenWorkflowPostgresOptions {
@@ -61,9 +61,9 @@ export interface OpenWorkflowWorkerOptions {
  */
 export type OpenWorkflowWorkerOption = false | OpenWorkflowWorkerOptions
 
-export interface OpenWorkflowProviderOptions extends WorkflowSharedOptions {
+export interface OpenWorkflowDriverOptions extends WorkflowSharedOptions {
   postgres?: OpenWorkflowPostgresOptions
-  provider: "openworkflow"
+  driver: "openworkflow"
   /**
    * `vite dev` keeps runs in the local SQLite file, even when `DATABASE_URL` or `OPENWORKFLOW_POSTGRES_URL` is set.
    * `true` lets it use that storage, so the dev server can run the runs of a shared database. Builds ignore it.
@@ -73,29 +73,29 @@ export interface OpenWorkflowProviderOptions extends WorkflowSharedOptions {
   worker?: OpenWorkflowWorkerOption
 }
 
-export interface InferredWorkflowProviderOptions extends WorkflowSharedOptions {
+export interface InferredWorkflowDriverOptions extends WorkflowSharedOptions {
   postgres?: OpenWorkflowPostgresOptions
-  provider?: undefined
+  driver?: undefined
   /** See `OpenWorkflowProviderOptions.remote`. */
   remote?: boolean
   sqlite?: OpenWorkflowSqliteOptions
   worker?: OpenWorkflowWorkerOption
 }
 
-export type WorkflowProviderOptions =
-  | CloudflareWorkflowProviderOptions
-  | OpenWorkflowProviderOptions
-  | VercelWorkflowProviderOptions
+export type WorkflowDriverOptions =
+  | CloudflareWorkflowDriverOptions
+  | OpenWorkflowDriverOptions
+  | VercelWorkflowDriverOptions
 
-export type WorkflowModuleProviderOptions =
-  | InferredWorkflowProviderOptions
-  | WorkflowProviderOptions
+export type WorkflowModuleDriverOptions =
+  | InferredWorkflowDriverOptions
+  | WorkflowDriverOptions
 
 export type WorkflowOptions =
   | false
-  | WorkflowModuleProviderOptions
+  | WorkflowModuleDriverOptions
 
-export type ResolvedWorkflowOptions = WorkflowProviderOptions
+export type ResolvedWorkflowOptions = WorkflowDriverOptions
 
 /** The failure of a failed Workflow Run. Every provider fills it, and it is safe to send as JSON. */
 export interface WorkflowRunError {
@@ -112,7 +112,7 @@ export interface WorkflowRun<TPayload = unknown, TResult = unknown> {
   /** Set when `status` is `failed`. */
   error?: WorkflowRunError
   id: string
-  provider: WorkflowProvider
+  provider: WorkflowDriver
   result?: TResult
   startedAt?: Date
   status: WorkflowRunStatus
@@ -186,7 +186,7 @@ export interface WorkflowProviderContext<TPayload = unknown> {
   id?: string
   name: string
   payload: TPayload
-  provider: WorkflowProvider
+  provider: WorkflowDriver
   step?: WorkflowProviderStep
 }
 
@@ -270,7 +270,7 @@ export interface WorkflowStartOptions {
 
 export interface WorkflowSignalResult {
   id: string
-  provider: WorkflowProvider
+  provider: WorkflowDriver
 }
 
 /**
