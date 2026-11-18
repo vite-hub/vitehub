@@ -559,7 +559,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
 
   it("requires the defineContent() runtime as the default export", () => {
     expect(() => createContentConsoleActions({})).toThrow("must default-export the defineContent() runtime")
-    expect(() => createContentConsoleActions({ default: { collection: () => undefined } })).toThrow(TypeError)
+    expect(() => createContentConsoleActions({ default: { collection: () => undefined } })).toThrow(expect.objectContaining({ code: "CONTENT_RUNTIME_EXPORT_INVALID" }))
   })
 })
 
