@@ -94,7 +94,7 @@ export async function createHarness<TTable, TRow, TArgs>(options: {
     // Every definition, for the live stream and for `sync(name)` in actions.
     definitions: { [options.name]: options.definition, ...options.definitions },
   }
-  const route = `/api/_vitehub/sync/${options.name}`
+  const route = `/_vitehub/sync/${options.name}`
   const call = (request: Request, using: SyncServices = services) => handleSyncRequest(options.name, options.definition, request, using)
 
   function pullUrl(query: Held & { where?: SyncValues }): URL {

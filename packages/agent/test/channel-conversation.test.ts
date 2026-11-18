@@ -27,7 +27,7 @@ import type { Adapter, ChatInstance, StateAdapter, WebhookOptions } from "chat"
 
 vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }))
 
-const webhookUrl = "https://example.com/api/_vitehub/agents/support/webhooks/telegram"
+const webhookUrl = "https://example.com/_vitehub/agents/support/webhooks/telegram"
 
 // Every message runs the chat route with a libSQL State, which takes a moment.
 vi.setConfig({ testTimeout: 30_000 })

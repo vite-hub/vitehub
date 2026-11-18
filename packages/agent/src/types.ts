@@ -446,6 +446,7 @@ export type AgentChannelDeliveryEventType =
   | "received"
   | "rejected"
   | "retrying"
+  | "steer.deferred"
   | "superseded"
   | "trigger.completed"
   | "trigger.failed"
@@ -458,8 +459,9 @@ export interface AgentChannelDeliveryEventInput {
   /** `trigger.completed`: `"response"` when the trigger answered without an Invocation, `"input"` when it started one. */
   outcome?: "input" | "response"
   /**
-   * Why the delivery ended this way. A `rejected` chat message has one of `AgentChannelDeliveryRejection`. A trigger's
-   * answer has its own reason, such as the one of `ignored(reason)`.
+   * A `rejected` chat message has one of `AgentChannelDeliveryRejection`. A trigger's answer has its own reason, such
+   * as `ignored(reason)`. On `steer.deferred`, this is why the message could not steer the active run `runId`, such as
+   * `attachments` or `not-invoker`.
    */
   reason?: AgentChannelDeliveryRejection | (string & {})
   runId?: string
@@ -2439,7 +2441,7 @@ export interface AgentPreparationOptions {
   workspace: string
   requireNonEmpty?: boolean
   retryDelayMs?: number
-  /** Readiness probe path. Defaults to /api/_vitehub/ready. */
+  /** Readiness probe path. Defaults to /_vitehub/ready. */
   route?: string
 }
 
