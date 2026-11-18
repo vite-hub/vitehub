@@ -297,7 +297,9 @@ Every control moves the same way, from what a person does with it, not from code
 ```ts
 import { installMotion } from "@vite-hub/ui/motion";
 
-const uninstall = installMotion(shadowRoot);
+const host = document.createElement("div");
+document.body.append(host);
+const uninstall = installMotion(host.attachShadow({ mode: "open" }));
 ```
 
 Four parts move with the helpers of the motion layer, for events that only the component knows:

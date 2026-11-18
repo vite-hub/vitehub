@@ -757,6 +757,11 @@
       "import": "./dist/ui/markdown-editor.js",
       "default": "./dist/ui/markdown-editor.js"
     },
+    "./ui/motion": {
+      "types": "./dist/ui/motion.d.ts",
+      "import": "./dist/ui/motion.js",
+      "default": "./dist/ui/motion.js"
+    },
     "./ui/vite": {
       "types": "./dist/ui/vite.d.ts",
       "import": "./dist/ui/vite.js",
