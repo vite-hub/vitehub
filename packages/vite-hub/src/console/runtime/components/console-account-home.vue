@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared";
 import { computed, onMounted, ref, shallowRef, watch } from "vue";
 
 import type { DropdownMenuItem } from "@nuxt/ui";
@@ -8,6 +7,7 @@ import { useCopy } from "@vite-hub/ui";
 import type { ConsoleAccountAppStatus, ConsoleAccountCheck, ConsoleAccountProject } from "../client/account";
 import { accountAppStatusLabels, loadConsoleTeam } from "../client/account";
 import { consoleAppIdentity } from "../client/app-identity";
+import { consoleCommentsSiteUrl } from "../client/project-link";
 import { accountProjectPath, canManageConsoleProjects, consoleProjectDisplayName, linkAccountProject, openAccountProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost, consoleProjectTarget } from "../client/projects";
 import ConsoleAccountRename from "./console-account-rename.vue";
@@ -47,7 +47,7 @@ const rows = computed(() => apps.value.map((app) => {
     deploy,
     site,
     // The site opens with the Comments pill on, as Comment on site does in the app's Console.
-    comments: check?.comments && { open: check.comments.open, url: `${site}?${viteHubPageToolsQuery}=comments` },
+    comments: check?.comments && { open: check.comments.open, url: consoleCommentsSiteUrl(site) },
   };
 }));
 const shownRows = computed(() => {

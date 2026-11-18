@@ -1,4 +1,5 @@
 import { callOperationRpc, operationRpcPath, type OperationRpcOutcome } from "@vite-hub/internal/operation-rpc"
+import { viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { consoleRpcHeader } from "../rpc"
 import { consoleErrorFields } from "./request"
@@ -53,6 +54,11 @@ export type ConsoleProjectProbe =
 /** The Comments of a project in `project.get`: how many threads are open. */
 export interface ConsoleProjectComments {
   open: number
+}
+
+/** The address of `site` that opens with the Comments pill on, as Comment on site does in the app's Console. */
+export function consoleCommentsSiteUrl(site: string): string {
+  return `${site}?${viteHubPageToolsQuery}=comments`
 }
 
 /** Read the `comments` of a `project.get` answer. A count that is not a whole number is no count. */
