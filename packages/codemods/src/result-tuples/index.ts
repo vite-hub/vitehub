@@ -32,8 +32,6 @@ const handleMethods = new Map([
   ["cancel", "run"],
 ])
 const needles = [...resultFunctions.keys(), "createWorkflow"]
-/** Old names that `queue-workflow-verbs` renames to `startWorkflow` and `resumeWorkflow`. */
-const renamedVerbs = ["runWorkflow", "resumeWorkflowSignal"]
 
 const sourcePatterns = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}"]
 const ignoredPatterns = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/.data/**", "**/.vitehub/**", "**/dist/**", "**/coverage/**"]
@@ -44,16 +42,17 @@ function importedName(specifier: ImportDeclaration["specifiers"][number]): strin
 }
 
 /** Local bindings of the imports that this codemod reads in this block, by their exported name. */
-function resultImports(program: File): Map<Identifier, string> {
-  const bindings = new Map<Identifier, string>()
+function resultImports(program: File): Map<Identifier, { name: string, source: string }> {
+  const bindings = new Map<Identifier, { name: string, source: string }>()
   for (const statement of program.program.body) {
     if (statement.type !== "ImportDeclaration" || statement.importKind === "type") continue
     const source = statement.source.value
     for (const specifier of statement.specifiers) {
+      if (specifier.type === "ImportNamespaceSpecifier" && (workflowModules.has(source) || scheduleModules.has(source))) bindings.set(specifier.local, { name: "*", source })
       if (specifier.type !== "ImportSpecifier" || specifier.importKind === "type") continue
       const name = importedName(specifier)
       if (!name) continue
-      if (resultFunctions.get(name)?.modules.has(source) || (name === "createWorkflow" && workflowModules.has(source))) bindings.set(specifier.local, name)
+      if (resultFunctions.get(name)?.modules.has(source) || (name === "createWorkflow" && workflowModules.has(source))) bindings.set(specifier.local, { name, source })
     }
   }
   return bindings
@@ -67,7 +66,7 @@ function calleeText(call: CallExpression, code: string): string {
 interface BlockContext extends ResultCallContext {
   file: string
   followUps: FollowUp[]
-  /** Nuxt auto-imports the Workflow and Schedule helpers in server code, so a name that the file does not declare counts there. */
+  /** Nuxt auto-imports the Workflow helpers in server code, so a name that the file does not declare counts there. */
   autoImports: boolean
 }
 
@@ -77,24 +76,63 @@ function migrateBlock(context: BlockContext): number {
   if (!imports.size && !autoImports) return 0
   const resolveBinding = bindingResolver(program)
   const exportedName = (node: Node): string | undefined => {
+    if (node.type === "MemberExpression" && node.object.type === "Identifier") {
+      const binding = resolveBinding(node.object)
+      const imported = binding && imports.get(binding)
+      if (imported?.name !== "*") return undefined
+      const name = memberName(node)
+      if (name && (resultFunctions.get(name)?.modules.has(imported.source) || (name === "createWorkflow" && workflowModules.has(imported.source)))) return name
+      return undefined
+    }
     if (node.type !== "Identifier") return undefined
     const binding = resolveBinding(node)
-    if (binding) return imports.get(binding)
-    return autoImports && (resultFunctions.has(node.name) || node.name === "createWorkflow") ? node.name : undefined
+    if (binding) return imports.get(binding)?.name
+    return autoImports && (resultFunctions.get(node.name)?.modules === workflowModules || node.name === "createWorkflow") ? node.name : undefined
   }
   // `const onboard = createWorkflow(...)` makes `onboard` a handle.
   const handles = new Set<Identifier>()
-  walk(program, (node) => {
-    if (node.type === "VariableDeclarator" && node.id.type === "Identifier" && node.init?.type === "CallExpression" && exportedName(node.init.callee) === "createWorkflow") handles.add(node.id)
-  })
+  const isHandle = (node: Node): boolean => {
+    if (node.type === "CallExpression") return exportedName(node.callee) === "createWorkflow"
+    if (node.type !== "Identifier") return false
+    const binding = resolveBinding(node)
+    return binding !== undefined && handles.has(binding)
+  }
+  let previousSize: number
+  do {
+    previousSize = handles.size
+    walk(program, (node) => {
+      if (node.type === "VariableDeclarator" && node.id.type === "Identifier" && node.init && isHandle(node.init)) handles.add(node.id)
+    })
+  } while (previousSize !== handles.size)
+  const exportedHandles = new Set<Identifier>()
+  const addExport = (local: Identifier) => {
+    const binding = resolveBinding(local)
+    if (binding && handles.has(binding)) exportedHandles.add(binding)
+  }
+  for (const statement of program.program.body) {
+    if (statement.type === "ExportNamedDeclaration" && !statement.source && statement.exportKind !== "type") {
+      if (statement.declaration?.type === "VariableDeclaration") {
+        for (const { id } of statement.declaration.declarations) if (id.type === "Identifier") addExport(id)
+      }
+      for (const specifier of statement.specifiers) if (specifier.type === "ExportSpecifier" && specifier.exportKind !== "type") addExport(specifier.local)
+    }
+    else if (statement.type === "ExportDefaultDeclaration" && statement.declaration.type === "Identifier") addExport(statement.declaration)
+  }
+  for (const handle of exportedHandles) {
+    followUps.push({
+      file,
+      line: block.lineOffset + line(handle),
+      message: `\`${handle.name}\` is an exported Workflow handle. In other files, read \`.start()\`, \`.getRun()\`, and \`.cancel()\` as \`[error, data]\`. Those call sites are not rewritten automatically.`,
+    })
+  }
   const match = (call: CallExpression): ResultCall | undefined => {
     const callee = call.callee
     const name = exportedName(callee)
     const value = name ? resultFunctions.get(name)?.value : undefined
     if (value) return { error: "error", errorAfterValue: true, value }
-    if (callee.type !== "MemberExpression" || callee.computed || callee.property.type !== "Identifier" || callee.object.type !== "Identifier") return undefined
-    const binding = resolveBinding(callee.object)
-    const method = binding && handles.has(binding) ? handleMethods.get(callee.property.name) : undefined
+    if (callee.type !== "MemberExpression") return undefined
+    const property = memberName(callee)
+    const method = property && isHandle(callee.object) ? handleMethods.get(property) : undefined
     return method ? { error: "error", errorAfterValue: true, value: method } : undefined
   }
   return rewriteResultCalls(context, match, (call) => {
@@ -105,6 +143,11 @@ function migrateBlock(context: BlockContext): number {
       message: `\`${callee}()\` returns \`[error, data]\` now. It no longer throws on a runtime failure, such as a provider or store failure or an input that is not valid. Read the error first: \`const [error, data] = await ${callee}(...)\`, then \`if (error) throw error\`.`,
     })
   })
+}
+
+function memberName(node: Extract<Node, { type: "MemberExpression" }>): string | undefined {
+  if (!node.computed && node.property.type === "Identifier") return node.property.name
+  if (node.computed && node.property.type === "StringLiteral") return node.property.value
 }
 
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
@@ -150,18 +193,11 @@ export const resultTuples: Codemod = {
   name: "result-tuples",
   description: "Read startWorkflow(), getWorkflowRun(), cancelWorkflow(), resumeWorkflow(), the Workflow handle methods, and runSchedule() as `[error, data]` Results",
   usage: "[dir]",
-  // A call that the code already reads as a Result needs no change, so the codemod applies only when it has an edit.
-  // `vitehub migrate` detects every codemod before the first one runs, so an old verb that `queue-workflow-verbs`
-  // renames to a Workflow call in the same run counts too.
+  detectAfterEdits: true,
   async detect({ cwd }) {
-    const { edits } = await plan(cwd)
+    const { edits, followUps } = await plan(cwd)
     if (edits.length) return { reason: `${edits[0]!.path} reads a Workflow or Schedule call that returns \`[error, data]\` now` }
-    const files = (await glob(sourcePatterns, { cwd, ignore: ignoredPatterns, dot: false })).sort()
-    for (const file of files) {
-      const source = await readFile(join(cwd, file), "utf8")
-      const verb = renamedVerbs.find(name => new RegExp(`\\b${name}\\b`).test(source))
-      if (verb && [...workflowModules].some(module => source.includes(`'${module}'`) || source.includes(`"${module}"`))) return { reason: `${file} calls ${verb}(), which is ${verb === "runWorkflow" ? "startWorkflow" : "resumeWorkflow"}() now` }
-    }
+    if (followUps.length) return { reason: `${followUps[0]!.file} has Workflow or Schedule Result calls to check by hand` }
     return undefined
   },
   run: migrate,

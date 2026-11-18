@@ -1,7 +1,9 @@
 import { end, indentAt, start, walk } from "@vite-hub/internal/ast"
 import { parse as parseSfc } from "@vue/compiler-sfc"
 
-import type { CallExpression, File } from "@babel/types"
+import { bindingResolver } from "./binding-resolver.ts"
+
+import type { CallExpression, File, Identifier } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
 import type MagicString from "magic-string"
 
@@ -74,16 +76,10 @@ function runsFirst(parent: Node, child: Node): boolean {
     case "ConditionalExpression":
       return parent.test === child
     case "CallExpression":
-      // `f(await checkRateLimit(...))` reads `f` first, which has no side effect when it is a name or a property path.
-      return parent.callee === child || (parent.arguments[0] === child && isNamePath(parent.callee))
+      return parent.callee === child
     default:
       return false
   }
-}
-
-function isNamePath(node: Node): boolean {
-  if (node.type === "Identifier") return true
-  return node.type === "MemberExpression" && !node.computed && node.property.type === "Identifier" && isNamePath(node.object)
 }
 
 /** The statement that runs `node` before anything else, when it is in a statement list. */
@@ -118,15 +114,30 @@ function leadingStatement(node: Node, ancestors: readonly Node[]): Node | undefi
 function readsResult(awaited: Node, parent: Node | undefined): boolean {
   if (parent?.type === "VariableDeclarator") return parent.init === awaited && parent.id.type === "ArrayPattern"
   if (parent?.type === "AssignmentExpression") return parent.right === awaited && parent.left.type === "ArrayPattern"
+  if (parent?.type === "MemberExpression") return parent.object === awaited && parent.computed && parent.property.type === "NumericLiteral"
   return false
+}
+
+function tupleBindings(program: File): Set<Identifier> {
+  const bindings = new Set<Identifier>()
+  const resolveBinding = bindingResolver(program)
+  walk(program, (node, ancestors) => {
+    if (node.type !== "Identifier" || !readsResult(node, ancestors.at(-1))) return
+    const binding = resolveBinding(node)
+    if (binding) bindings.add(binding)
+  })
+  return bindings
 }
 
 const functionTypes = new Set(["ArrowFunctionExpression", "ClassMethod", "ClassPrivateMethod", "FunctionDeclaration", "FunctionExpression", "ObjectMethod"])
 
-/** Whether the nearest function around the last ancestor is `async`. */
-function inAsyncFunction(ancestors: readonly Node[]): boolean {
-  const fn = ancestors.findLast(node => functionTypes.has(node.type))
-  return Boolean(fn && "async" in fn && fn.async)
+/** Adding an await must not make a catch see the rejection or delay a finally. */
+function canAwaitBareReturn(ancestors: readonly Node[]): boolean {
+  for (const node of [...ancestors].reverse()) {
+    if (node.type === "TryStatement") return false
+    if (functionTypes.has(node.type)) return "async" in node && node.async === true
+  }
+  return false
 }
 
 /**
@@ -146,7 +157,7 @@ function rangeWithParentheses(code: string, node: Node): [number, number] {
  * - `const value = await call(...)` becomes `const [error, value] = await call(...)`.
  * - `await call(...)` as a statement becomes `const [error] = await call(...)`.
  * - A call that its statement runs first, such as `return await call(...)` or `if (!(await call(...)).ok)`, moves to a
- *   `const` before the statement, and the statement reads the value. `return call(...)` in an async function does too.
+ *   `const` before the statement, and the statement reads the value. An unprotected `return call(...)` in an async function does too.
  * Each line is followed by `if (error) throw error`. `unsupported` gets the other calls, such as a call without
  * `await` or one inside a larger expression. Returns the number of rewritten calls.
  */
@@ -157,6 +168,7 @@ export function rewriteResultCalls(
 ): number {
   const { block, output, program, style } = context
   let taken: Set<string> | undefined
+  let resultBindings: Set<Identifier> | undefined
   const freeName = (base: string) => {
     taken ??= declaredNames(program)
     let index = 1
@@ -171,24 +183,24 @@ export function rewriteResultCalls(
     const call = match(node)
     if (!call) return
     const parent = ancestors.at(-1)
-    if (parent?.type === "AwaitExpression" && readsResult(parent, ancestors.at(-2))) return
-    // `return call(...)` in an async function waits for the call as `return await call(...)` does.
-    const awaited = parent?.type === "AwaitExpression" ? parent : parent?.type === "ReturnStatement" && inAsyncFunction(ancestors) ? node : undefined
+    const owner = ancestors.at(-2)
+    const id = parent?.type === "AwaitExpression" && owner?.type === "VariableDeclarator" && owner.init === parent ? owner.id : undefined
+    if (parent?.type === "AwaitExpression" && readsResult(parent, owner)) return
+    if (id?.type === "Identifier" && (resultBindings ??= tupleBindings(program)).has(id)) return
+    const awaited = parent?.type === "AwaitExpression" ? parent : parent?.type === "ReturnStatement" && canAwaitBareReturn(ancestors) ? node : undefined
     const statement = awaited ? leadingStatement(awaited, awaited === parent ? ancestors.slice(0, -1) : ancestors) : undefined
     if (!awaited || !statement) {
       unsupported(node)
       return
     }
-    const declarator = statement.type === "VariableDeclaration" && statement.declarations.length === 1 ? statement.declarations[0] : undefined
-    const id = declarator?.init === awaited ? declarator.id : undefined
-    const named = id?.type === "Identifier" && !id.typeAnnotation
+    const named = id?.type === "Identifier" && !id.typeAnnotation && statement.type === "VariableDeclaration" && statement.declarations.length === 1
     const error = freeName(call.errorAfterValue && named ? `${id.name}Error` : call.error)
     const semicolon = style.semicolons || block.code[end(statement) - 1] === ";" ? ";" : ""
     const indent = indentAt(block.code, start(statement))
     const check = `if (${error}) throw ${error}${semicolon}`
     const awaitedCode = `${awaited === node ? "await " : ""}${block.code.slice(start(awaited), end(awaited))}`
     // A pattern such as `const { id } = ...` would read the value before the error check, so it takes the last branch.
-    if (named) {
+    if (named && statement.type === "VariableDeclaration" && statement.kind === "const") {
       // `const value = await call(...)` keeps its statement.
       output.overwrite(block.offset + start(id), block.offset + end(id), `[${error}, ${block.code.slice(start(id), end(id))}]`)
       output.appendLeft(block.offset + end(statement), `\n${indent}${check}`)

@@ -11,6 +11,7 @@ vi.mock("#vitehub/schedule/registry", async () => {
   return {
     default: {
       cron: async () => ({ default: defineSchedule({ cron: "0 9 * * *", handler: () => {} }) }),
+      invalid: async () => ({ default: defineSchedule({ cron: "0 9 * * *", handler, manual: true, timeZone: "Not/AZone" }) }),
       report: async () => ({ default: defineSchedule({ cron: "0 9 * * *", handler, manual: true }) }),
     },
   }
@@ -48,6 +49,20 @@ describe("runSchedule() from the Schedule root", () => {
 
     expect(error).toBeUndefined()
     expect(run).toMatchObject({ scheduleId: "report", status: "failed" })
+  })
+
+  it("throws a diagnostic from a lazy Definition before accessing the store", async () => {
+    const getRun = vi.spyOn(getScheduleRunStore(), "getRun")
+    await expect(runSchedule("invalid")).rejects.toMatchObject({ code: "SCHEDULE_C0006" })
+    expect(getRun).not.toHaveBeenCalled()
+  })
+
+  it("returns the store failure if writing completion fails after the handler runs", async () => {
+    const cause = new Error("completion write failed")
+    const updateAttempt = vi.spyOn(getScheduleRunStore(), "updateAttempt").mockRejectedValueOnce(cause)
+    expect(await runSchedule("report")).toMatchObject([{ cause, code: "SCHEDULE_RUN_STORE_FAILED" }, undefined])
+    expect(handler).toHaveBeenCalledOnce()
+    expect(updateAttempt).toHaveBeenCalledOnce()
   })
 
   it("returns an invalid scheduledAt and a failed run store as errors", async () => {

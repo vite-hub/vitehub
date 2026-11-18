@@ -181,20 +181,24 @@ export interface AskSchema<TOutput = unknown> {
 /** The type of the data that a schema validates. */
 export type AskSchemaOutput<TSchema extends AskSchema> = NonNullable<TSchema["~standard"]["types"]>["output"]
 
-export interface AskOptions<TSchema extends AskSchema = AskSchema> {
+export type AskOptions<TSchema extends AskSchema | undefined = undefined> = {
   /** The model that answers: an AI SDK model, such as `languageModel(openrouter(), 'google/gemini-3-flash')`, or an AI SDK gateway model ID. */
   model: AskModel
-  /** The shape of the answer. The model must answer with JSON that this schema accepts. */
-  schema: TSchema
   /** System instructions, such as the role of the model and the rules of the answer. */
   instructions?: string
   /** Receives the model, provider, and token counts of the request. */
   onUsage?: (usage: AiGatewayUsage) => void
   /** Cancels the request. */
   signal?: AbortSignal
-}
+} & (TSchema extends AskSchema ? {
+  /** The shape of the answer. The model must answer with JSON that this schema accepts. */
+  schema: TSchema
+} : {
+  /** Without `schema`, `ask()` returns the answer as text. */
+  schema?: undefined
+})
 
-/** Why `ask()` returned no data: the model request failed, or the answer did not match the schema. */
+/** Why `ask()` returned no data: the model request failed, or the answer did not match the schema or had no text. */
 export type AskError = Diagnostic<unknown, "GATEWAYS_ASK_MODEL_FAILED" | "GATEWAYS_ASK_OUTPUT_INVALID">
 
 /** `[error, data]`. Check `error` first. When `error` is `undefined`, `data` has the validated answer. */
@@ -229,25 +233,27 @@ function statusOf(error: unknown): number | undefined {
   return typeof status === "number" ? status : undefined
 }
 
-export async function askOnce<const TSchema extends AskSchema>(prompt: string, options: AskOptions<TSchema>): Promise<AskResult<AskSchemaOutput<TSchema>>> {
+export async function askOnce<const TSchema extends AskSchema>(prompt: string, options: AskOptions<TSchema> & { schema: TSchema }): Promise<AskResult<AskSchemaOutput<TSchema>>>
+export async function askOnce(prompt: string, options: AskOptions): Promise<AskResult<string>>
+export async function askOnce(prompt: string, options: AskOptions<AskSchema | undefined>): Promise<AskResult<unknown>> {
   if (typeof prompt !== "string" || !prompt.trim()) throw gatewayDiagnostics.GATEWAYS_ASK_PROMPT_INVALID()
-  checkSchema(options?.schema)
-  const { Output, generateText } = await loadAi("ask()")
   const { model, schema } = options
+  if (schema !== undefined) checkSchema(schema)
+  const { Output, generateText } = await loadAi("ask()")
   let result
-  let output
+  let data
   try {
     result = await generateText({
       abortSignal: options.signal,
       // SAFETY: The public structural type accepts AI SDK models without importing the optional SDK in declarations.
       model: model as LanguageModel,
       // SAFETY: `checkSchema()` proved a Standard Schema with JSON Schema conversion, which the AI SDK reads itself.
-      output: Output.object({ schema: schema as never }),
+      ...(schema === undefined ? {} : { output: Output.object({ schema: schema as never }) }),
       prompt,
       // `system` works on AI SDK 6 and 7. AI SDK 7 reads `instructions ?? system`, and AI SDK 6 has no `instructions`.
       ...(options.instructions ? { system: options.instructions } : {}),
     })
-    output = result.output
+    data = schema === undefined ? result.text : result.output
   }
   catch (error) {
     // A missing key or provider package is a setup error, so it throws like at define time.
@@ -262,12 +268,17 @@ export async function askOnce<const TSchema extends AskSchema>(prompt: string, o
     provider: typeof model === "string" ? "gateway" : model.provider,
     usage: { inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens, totalTokens: result.usage.totalTokens },
   })
-  // SAFETY: The AI SDK validated the output with `schema`, so it has the schema output type.
-  return [undefined, output as AskSchemaOutput<TSchema>]
+  // A content filter or an output limit can end a text answer before it has text. With `schema`, the AI SDK validated the output.
+  if (schema === undefined && !data) return [gatewayDiagnostics.GATEWAYS_ASK_OUTPUT_INVALID({ finishReason: result.finishReason }), undefined]
+  return [undefined, data]
 }
 
 /**
- * Asks a model one question and returns validated, typed data as `[error, data]`. One request, no Agent, no tools.
+ * Asks a model one question and returns the answer as `[error, data]`. One request, no Agent, no tools.
+ * With `schema`, `data` is the validated, typed answer. Without `schema`, `data` is the answer text.
  * The request and the model are the AI SDK's: pass `languageModel(gateway, modelId)` to send it through any gateway.
  */
-export type AskCall = <const TSchema extends AskSchema>(prompt: string, options: AskOptions<TSchema>) => Promise<AskResult<AskSchemaOutput<TSchema>>>
+export interface AskCall {
+  <const TSchema extends AskSchema>(prompt: string, options: AskOptions<TSchema> & { schema: TSchema }): Promise<AskResult<AskSchemaOutput<TSchema>>>
+  (prompt: string, options: AskOptions): Promise<AskResult<string>>
+}

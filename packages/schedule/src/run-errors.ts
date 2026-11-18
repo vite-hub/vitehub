@@ -19,7 +19,7 @@ export const runScheduleErrors: ErrorCatalog<RunScheduleErrorCodes> = /*#__PURE_
     },
     SCHEDULE_RUN_STORE_FAILED: {
       why: "The store of Schedule Runs failed, so the run did not start or its record is incomplete. `error.cause` has the store error.",
-      fix: "Check that the Schedule run store, KV on most hosts, is reachable from this server, then run the Schedule again.",
+      fix: "Check that the Schedule run store is reachable from this server. Before retrying, confirm that the handler did not already run or that it is safe to repeat.",
     },
   },
 })

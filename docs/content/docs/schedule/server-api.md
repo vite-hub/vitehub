@@ -125,7 +125,7 @@ Pass `scheduledAt` to run the Definition as if its cron fired at that time: `run
 `runSchedule()` returns `[error, run]`. When the handler fails, `run` has `status: 'failed'`, and `error` is `undefined`. `error` is:
 
 - `SCHEDULE_INVALID_SCHEDULED_AT` when `scheduledAt` is not a valid date-time.
-- `SCHEDULE_RUN_STORE_FAILED` when the store of Schedule Runs fails. `error.cause` has the store error.
+- `SCHEDULE_RUN_STORE_FAILED` when the store of Schedule Runs fails. `error.cause` has the store error. Before retrying, confirm that the handler did not already run or that it is safe to repeat.
 
 A setup error throws: `SCHEDULE_DEFINITION_NOT_FOUND` for an unknown name, and `SCHEDULE_MANUAL_RUN_DISABLED` when the Definition does not set `manual: true`.
 

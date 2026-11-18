@@ -1,56 +1,32 @@
 import { describe, expect, it } from "vitest"
-import { resolve } from "node:path"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
 
 import { listWorkspacePackageInfos, listWorkspacePackageNames } from "../src/workspace-inventory.ts"
 
 const repoRoot = resolve(import.meta.dirname, "../../..")
 
 describe("workspace inventory", () => {
-  it("lists publishable ViteHub packages from the workspace", () => {
-    expect(listWorkspacePackageNames(repoRoot)).toEqual([
-      "agent",
-      "auth",
-      "blob",
-      "browser",
-      "bundle",
-      "channels",
-      "cli",
-      "cms",
-      "codemods",
-      "comments",
-      "connections",
-      "content",
-      "database",
-      "decisions",
-      "device",
-      "docs",
-      "email",
-      "env",
-      "forge",
-      "forms",
-      "gateways",
-      "i18n",
-      "kit",
-      "kv",
-      "markdown-template",
-      "mcp",
-      "presets",
-      "queue",
-      "rate-limit",
-      "realtime",
-      "runtime",
-      "sandbox",
-      "schedule",
-      "shell",
-      "source",
-      "sync",
-      "ui",
-      "vite-hub",
-      "web-container",
-      "webhooks",
-      "workflow",
-      "workspace",
-    ])
+  it("lists publishable ViteHub packages from the workspace, and private ones on request", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-inventory-"))
+    try {
+      const writePackage = async (dir: string, manifest: Record<string, unknown>) => {
+        await mkdir(join(root, "packages", dir), { recursive: true })
+        await writeFile(join(root, "packages", dir, "package.json"), JSON.stringify(manifest))
+      }
+      await writePackage("zeta", { name: "@vite-hub/zeta" })
+      await writePackage("framework", { name: "vite-hub" })
+      await writePackage("internal", { name: "@vite-hub/internal", private: true })
+      await writePackage("other", { name: "other-package" })
+      await mkdir(join(root, "packages", "no-manifest"), { recursive: true })
+
+      expect(listWorkspacePackageNames(root)).toEqual(["framework", "zeta"])
+      expect(listWorkspacePackageNames(root, { includePrivate: true })).toEqual(["framework", "internal", "zeta"])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("maps the framework workspace to the unscoped npm package", () => {

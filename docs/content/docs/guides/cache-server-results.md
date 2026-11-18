@@ -19,7 +19,7 @@ Set `cache: true`. ViteHub then keeps the cache in the store of the host: Worker
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', cache: true },
+  vitehub: { cache: true },
 })
 ```
 :::
@@ -31,7 +31,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', cache: true }), nitro()],
+  plugins: [vitehub({ cache: true }), nitro()],
 })
 ```
 :::
@@ -42,7 +42,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', cache: true })],
+  plugins: [vitehub({ cache: true })],
 })
 ```
 :::

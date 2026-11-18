@@ -74,7 +74,6 @@ Enable Workflow on Node. ViteHub selects OpenWorkflow:
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     workflow: true,
   },
 })
@@ -90,7 +89,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       workflow: true,
     }),
     nitro(),
@@ -105,7 +103,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', workflow: true })],
+  plugins: [vitehub({ workflow: true })],
 })
 ```
 :::
