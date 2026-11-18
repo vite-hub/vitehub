@@ -36,6 +36,11 @@ export interface HubContentOptions {
   importBase?: string
 }
 
+interface InternalContentOptions extends HubContentOptions {
+  /** The module that exports `kv`. `vitehub()` sets `vite-hub/kv`, which every app lists. Defaults to `@vite-hub/kv`. */
+  kvImport?: string
+}
+
 /**
  * Prefix of the modules that hold Content snapshots: `<prefix><instance>` is the index, `<prefix><instance>:<n>` a shard
  * of parsed documents. `\0` keeps other plugins away.
@@ -151,7 +156,7 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
 
   async function registerKV(code: string, id: string): Promise<string> {
     if (!kvEnabled || code.includes("__vitehubRegisterContentKV") || resolve(id.replace(/\?.*$/, "")) !== await discover()) return ""
-    return `import { kv as __vitehubContentKV } from "@vite-hub/kv"; import { registerContentKV as __vitehubRegisterContentKV } from ${JSON.stringify(options.importBase ?? "@vite-hub/content")}; __vitehubRegisterContentKV(__vitehubContentKV, ${JSON.stringify(build)});\n`
+    return `import { kv as __vitehubContentKV } from ${JSON.stringify((options as InternalContentOptions).kvImport ?? "@vite-hub/kv")}; import { registerContentKV as __vitehubRegisterContentKV } from ${JSON.stringify(options.importBase ?? "@vite-hub/content")}; __vitehubRegisterContentKV(__vitehubContentKV, ${JSON.stringify(build)});\n`
   }
 
   return {
