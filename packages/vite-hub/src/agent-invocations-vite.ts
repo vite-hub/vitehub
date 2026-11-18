@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { resolveDurabilityModule } from "@vite-hub/internal/durability"
@@ -111,7 +112,7 @@ export function renderAgentInvocationsNitroPlugin(options: AgentInvocationsRende
     ...(journal.length ? [`journal: { ${journal.join(", ")} }`] : []),
   ]
   return [
-    `import { installAgentInvocations } from "@vite-hub/agent/invocations/app"`,
+    `import { installAgentInvocations } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@vite-hub/agent/invocations/app")))}`,
     "",
     // Install at module evaluation, so Agent and Console plugins that load later read the journal.
     `installAgentInvocations({ ${settings.join(", ")} })`,
