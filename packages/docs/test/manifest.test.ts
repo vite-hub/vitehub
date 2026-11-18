@@ -6,7 +6,7 @@ import { github, glob } from "@vite-hub/source"
 import { describe, expect, it, vi } from "vitest"
 
 import { createFakeGitHub } from "../../workspace/test/fake-github.ts"
-import { createDocsContent, createDocsManifest, DocsContentError, readDocsContent } from "../src/manifest.ts"
+import { createDocsContent, createDocsManifest, readDocsContent } from "../src/manifest.ts"
 import { docsManifestPages, findDocsPage } from "../src/navigation.ts"
 
 import type { DocsManifest } from "../src/types.ts"
@@ -172,7 +172,7 @@ describe("createDocsManifest", () => {
     ["docs/start.md", "docs/start/index.md"],
     ["about.md", "about/index.md"],
   ])("rejects duplicate routes from %s and %s", async (first, second) => {
-    await expect(manifestOf({ [first]: "---\ntitle: First\n---\n# First", [second]: "---\ntitle: Second\n---\n# Second" })).rejects.toThrow(DocsContentError)
+    await expect(manifestOf({ [first]: "---\ntitle: First\n---\n# First", [second]: "---\ntitle: Second\n---\n# Second" })).rejects.toMatchObject({ code: "DOCS_CONTENT_INVALID" })
     await expect(manifestOf({ [first]: "---\ntitle: First\n---\n# First", [second]: "---\ntitle: Second\n---\n# Second" })).rejects.toThrow(new RegExp(`${first}.*${second}|${second}.*${first}`))
   })
 
@@ -243,7 +243,7 @@ describe("createDocsManifest", () => {
 
   it("stops on frontmatter that does not match the schema", async () => {
     await withContent({ "docs/kv/index.md": "---\ntitle: KV\nlayout: wide\n---\n" }, async (dir) => {
-      await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toThrow(DocsContentError)
+      await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toMatchObject({ code: "DOCS_CONTENT_INVALID" })
     })
   })
 
@@ -253,7 +253,7 @@ describe("createDocsManifest", () => {
     ["seo.descriptionn: Description", "descriptionn"],
   ])("rejects unknown page fields: %s", async (fields, key) => {
     await withContent({ "docs/guide/index.md": `---\ntitle: Guide\n${fields}\n---\n` }, async (dir) => {
-      await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toThrow(DocsContentError)
+      await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toMatchObject({ code: "DOCS_CONTENT_INVALID" })
       await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toThrow(key)
     })
   })
@@ -263,7 +263,7 @@ describe("createDocsManifest", () => {
       "docs/guide/index.md": "---\ntitle: Guide\n---\n",
       "docs/guide/.navigation.yml": "titel: Guide\n",
     }, async (dir) => {
-      await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toThrow(DocsContentError)
+      await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toMatchObject({ code: "DOCS_CONTENT_INVALID" })
       await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toThrow(/\.navigation\.yml.*titel/)
     })
   })
@@ -288,7 +288,7 @@ describe("createDocsManifest", () => {
 
   it("names an empty page file, which Content does not list", async () => {
     await withContent({ "docs/guide/index.md": "---\ntitle: Guide\n---\n", "docs/guide/empty.md": "" }, async (dir) => {
-      await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toThrow(DocsContentError)
+      await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toMatchObject({ code: "DOCS_CONTENT_INVALID" })
       await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toThrow(/empty\.md/)
     })
   })

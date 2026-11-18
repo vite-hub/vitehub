@@ -75,6 +75,12 @@ export interface ContentMarkdownOptions {
    * request, converted to Markdown. Content documents keep their exact copy. Default `false`.
    */
   pages?: boolean
+  /**
+   * Parts of the `User-Agent` header, matched without case, that get the copy as if they sent `Accept: text/markdown`.
+   * Defaults to the fetchers of AI chats and AI search: `ChatGPT-User`, `OAI-SearchBot`, `GPTBot`, `Claude-User`,
+   * `Claude-SearchBot`, `ClaudeBot`, `Perplexity-User`, and `PerplexityBot`. `[]` turns this off.
+   */
+  userAgents?: readonly string[]
 }
 
 /** `defineContent({ seo: { llms } })`. */
@@ -133,7 +139,7 @@ export const contentSitemapLimit: number = sitemapUrlLimit
 
 export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions | undefined {
   if (options === undefined) return
-  const invalid = (message: string) => contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] defineContent({ seo }) ${message}` })
+  const invalid = (message: string) => contentErrorDiagnostics.CONTENT_SEO_OPTIONS_INVALID({ problem: message })
   if (options === null || Object(options) !== options || Array.isArray(options)) throw invalid("must be an object such as { site, sitemap: true, robots: true }.")
   const { site, sitemap, robots, markdown, rss, mcp, llms, dateLeases } = options as Record<string, unknown>
   if (site !== undefined) siteOrigin(site, invalid)
@@ -167,12 +173,14 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
   }
   if (sitemap !== undefined && sitemap !== true && sitemap !== false) throw invalid("sitemap must be true or false.")
   if (markdown !== undefined && markdown !== true && markdown !== false) {
-    const shape = "markdown must be true, false, or { prefix: '/raw', pages: true }."
+    const shape = "markdown must be true, false, or { prefix: '/raw', pages: true, userAgents: ['ClaudeBot'] }."
     if (markdown === null || Object(markdown) !== markdown || Array.isArray(markdown)) throw invalid(shape)
     const prefix: unknown = Reflect.get(markdown, "prefix")
     if (prefix !== undefined && (String(prefix) !== prefix || !/^\/[^/?#\s]+(?:\/[^/?#\s]+)*$/.test(prefix))) throw invalid(`${shape} The prefix starts with / and does not end with one.`)
     const pages: unknown = Reflect.get(markdown, "pages")
     if (pages !== undefined && pages !== true && pages !== false) throw invalid(`${shape} pages must be true or false.`)
+    const userAgents: unknown = Reflect.get(markdown, "userAgents")
+    if (userAgents !== undefined && (!Array.isArray(userAgents) || userAgents.some(name => !isText(name) || !name.trim()))) throw invalid(`${shape} userAgents must be a list of User-Agent parts.`)
   }
   if (dateLeases !== undefined && (dateLeases === null || typeof dateLeases !== "object" || typeof Reflect.get(dateLeases, "acquire") !== "function" || typeof Reflect.get(dateLeases, "get") !== "function")) {
     throw invalid("dateLeases must be an atomic LeaseStore with acquire() and get().")
@@ -219,7 +227,7 @@ function isLlmsSection(value: unknown): boolean {
 }
 
 /** The origin of a site URL, such as `https://example.com`, with the path of a mounted app and no trailing slash. */
-export function siteOrigin(site: unknown, invalid: (message: string) => Error = message => contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] ${message}` })): string {
+export function siteOrigin(site: unknown, invalid: (message: string) => Error = () => contentErrorDiagnostics.CONTENT_SITE_INVALID({ site })): string {
   if (String(site) !== site || !/^https?:\/\//i.test(site)) throw invalid(`site must be an absolute http(s) URL such as https://example.com, received ${JSON.stringify(site)}.`)
   try {
     // A site mounted below a path keeps it, such as `https://example.com/docs`, so every URL carries it.

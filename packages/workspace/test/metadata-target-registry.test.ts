@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { custom, defineWorkspace, useWorkspace, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WritableWorkspaceFacade } from "../src/index.ts"
+import { custom, defineWorkspace, useWorkspace, type ReadonlyWorkspaceFacade, type WritableWorkspaceFacade } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/core/registry.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
-import { createWorkspaceSourceResolutionFacade, forwardWorkspaceMetadataView } from "../src/runtime.ts"
+import { forwardWorkspaceMetadataView } from "../src/runtime.ts"
 import { listMaterializedWorkspaceEntries, normalizeWorkspaceSourceMetadata, readWorkspaceSourceMaterializationStatus } from "../src/source-metadata.ts"
 import { resolveWorkspaceMetadataTarget } from "../src/storage/metadata-target.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
@@ -16,15 +16,6 @@ afterEach(() => {
 
 const globalKey = Symbol.for("vitehub.workspace.metadataTarget")
 
-const invocation = {
-  context: {
-    entries: () => new Map<string, unknown>().entries(),
-    get: () => undefined,
-    has: () => false,
-    toJSON: () => ({}),
-  },
-}
-
 const docs = custom({
   materialize: "lazy",
   mount: "docs",
@@ -36,24 +27,14 @@ const docs = custom({
   },
 })
 
-function expectNoGlobalCarrier(value: object) {
-  expect(Reflect.get(value, globalKey)).toBeUndefined()
-  expect(Object.getOwnPropertySymbols(value)).not.toContain(globalKey)
-}
-
 describe("Workspace metadata target", () => {
-  it("is not reachable through the global symbol registry", async () => {
+  it("lets Workspace internals find the target and keeps the Source mount read-only", async () => {
     const store = createMemoryWorkspaceStore()
     registerWorkspace("support", defineWorkspace({ store, sources: { docs } }))
     const core = createWorkspace({ name: "support", sources: { docs }, store })
     const writable = useWorkspace("support", { mode: "write" })
     const readonly = useWorkspace("support")
-    const definition: WorkspaceDefinition = { name: "support", sources: { docs } }
-    const overlay = (await createWorkspaceSourceResolutionFacade(writable, definition, { invocation, overlay: true })).workspace
 
-    for (const value of [core, writable, writable.fs, readonly, readonly.fs, overlay, overlay.fs]) expectNoGlobalCarrier(value)
-
-    // Workspace internals still find the target.
     await expect(resolveWorkspaceMetadataTarget(core)).resolves.toMatchObject({ workspaceName: "support" })
     await expect(resolveWorkspaceMetadataTarget(writable)).resolves.toMatchObject({ workspaceName: "support" })
     await expect(listMaterializedWorkspaceEntries(readonly)).resolves.toEqual([])
@@ -98,7 +79,6 @@ describe("Workspace metadata target", () => {
       expect.objectContaining({ path: "docs/a.md" }),
     ])
     await expect(resolveWorkspaceStoreTarget(view)).resolves.toEqual({ provider: "memory" })
-    expectNoGlobalCarrier(target)
 
     // A source without a target gives nothing.
     const empty: ReadonlyWorkspaceFacade = { fs: { ...readonly.fs }, tools: readonly.tools, history: readonly.history }

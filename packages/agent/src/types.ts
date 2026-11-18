@@ -432,6 +432,7 @@ export interface AgentChannelDelivery {
 
 export type AgentChannelDeliveryEventType =
   | "accepted"
+  | "acknowledged"
   | "completed"
   | "duplicate"
   | "failed"
@@ -445,6 +446,7 @@ export type AgentChannelDeliveryEventType =
   | "received"
   | "rejected"
   | "retrying"
+  | "steer.deferred"
   | "superseded"
   | "trigger.completed"
   | "trigger.failed"
@@ -456,15 +458,40 @@ export interface AgentChannelDeliveryEventInput {
   messageId?: string
   /** `trigger.completed`: `"response"` when the trigger answered without an Invocation, `"input"` when it started one. */
   outcome?: "input" | "response"
-  /** The `reason` of a trigger's answer, such as `ignored(reason)`. */
-  reason?: string
+  /**
+   * A `rejected` chat message has one of `AgentChannelDeliveryRejection`. A trigger's answer has its own reason, such
+   * as `ignored(reason)`. On `steer.deferred`, this is why the message could not steer the active run `runId`, such as
+   * `attachments` or `not-invoker`.
+   */
+  reason?: AgentChannelDeliveryRejection | (string & {})
   runId?: string
-  /** The HTTP status of a trigger's answer. */
+  /** The HTTP status of a trigger's answer, or of the answer that acknowledged the webhook. */
   status?: number
   /** The trigger that the `trigger.*` event is about. */
   trigger?: string
   type: AgentChannelDeliveryEventType
 }
+
+/**
+ * Why a chat message started no work:
+ * - `not-addressed`: a group message that does not mention the Agent, in a thread it does not follow.
+ * - `bot-author`: another bot wrote it, and the Channel does not set `allowBots`.
+ * - `unauthorized`: the Channel's access rules refused its author.
+ * - `empty`: it has no text or attachment for the Agent.
+ * - `filtered`: the Channel's `filter` returned false.
+ * - `edit-without-mention`, `edit-already-mentioned`, `edit-in-direct-message`: an edit that does not add the first mention.
+ * - `unhandled`: Chat acknowledged the webhook but called no message handler, such as for an activity that is not a message.
+ */
+export type AgentChannelDeliveryRejection =
+  | "bot-author"
+  | "edit-already-mentioned"
+  | "edit-in-direct-message"
+  | "edit-without-mention"
+  | "empty"
+  | "filtered"
+  | "not-addressed"
+  | "unauthorized"
+  | "unhandled"
 
 export interface AgentChannelDeliveryEvent extends AgentChannelDeliveryEventInput {
   at: string
@@ -472,10 +499,13 @@ export interface AgentChannelDeliveryEvent extends AgentChannelDeliveryEventInpu
   id: string
 }
 
-export type AgentChannelDeliveryStatus = "accepted" | "completed" | "failed" | "queued" | "received" | "rejected" | "retrying" | "running"
+/** `acknowledged`: the provider got its answer, and the outcome of the message comes later. */
+export type AgentChannelDeliveryStatus = "accepted" | "acknowledged" | "completed" | "failed" | "queued" | "received" | "rejected" | "retrying" | "running"
 
 export interface AgentChannelDeliveryInspection extends AgentChannelDelivery {
   events: AgentChannelDeliveryEvent[]
+  /** The Invocation that the delivery started or steered, when it reached one. */
+  invocationId?: string
   status: AgentChannelDeliveryStatus
 }
 
@@ -2411,7 +2441,7 @@ export interface AgentPreparationOptions {
   workspace: string
   requireNonEmpty?: boolean
   retryDelayMs?: number
-  /** Readiness probe path. Defaults to /api/_vitehub/ready. */
+  /** Readiness probe path. Defaults to /_vitehub/ready. */
   route?: string
 }
 

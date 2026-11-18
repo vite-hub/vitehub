@@ -36,6 +36,12 @@ provider. Without it, ViteHub detects the host in this order:
    `VERCEL` or `VERCEL_ENV`, then `DENO_DEPLOY` or `DENO_DEPLOYMENT_ID`
 4. `node` when none of them is set
 
+When you set `host` and a build variable of step 3 names another host, the
+production build fails with
+[`VITE_HUB_HOST_PROVIDER_CONFLICT`](/docs/development/diagnostics/vite_hub_host_provider_conflict),
+and dev prints a warning once. Remove `host`, or set `VITEHUB_HOST` to build
+for another host on purpose.
+
 Cloudflare Pages is not detected, because the `cloudflare` host builds a
 Worker. To set host-specific options, use `detectHost()` from
 `vite-hub`:
@@ -49,8 +55,7 @@ const host = detectHost() ?? "node";
 
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
-  // The deno host rejects Schedule.
-  vitehub: { host, schedule: host !== "deno" },
+  vitehub: { host, schedule: true },
 });
 ```
 :::
@@ -64,8 +69,7 @@ import { nitro } from "nitro/vite";
 const host = detectHost() ?? "node";
 
 export default defineConfig({
-  // The deno host rejects Schedule.
-  plugins: [vitehub({ host, schedule: host !== "deno" }), nitro()],
+  plugins: [vitehub({ host, schedule: true }), nitro()],
 });
 ```
 :::
@@ -78,8 +82,7 @@ import { defineConfig } from "vite";
 const host = detectHost() ?? "node";
 
 export default defineConfig({
-  // The deno host rejects Schedule.
-  plugins: [vitehub({ host, schedule: host !== "deno" })],
+  plugins: [vitehub({ host, schedule: true })],
 });
 ```
 :::
@@ -97,7 +100,10 @@ app picks the default.
 | `deno` | [Deno](/docs/frameworks-hosts/deno) | `.output/server/index.mjs` | KV Deno KV | Blob, Queue, Rate Limit, Sandbox, Schedule |
 
 - A rejected feature fails the build. It does not fall back to another provider.
-- Browser and `email: true` require the `cloudflare` host.
+- Browser requires the `cloudflare` host.
+- `email: true` uses Cloudflare Email on `cloudflare`. On other hosts, it logs
+  each message in `vite dev`, and a production build fails until you set
+  `email.driver`.
 - Blob without an explicit store requires a host with a Blob provider.
 - KV without an explicit driver uses Upstash Redis on every host except
   `deno` when `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set at build time.

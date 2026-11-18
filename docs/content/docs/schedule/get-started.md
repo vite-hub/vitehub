@@ -23,7 +23,7 @@ Schedule and KV are separate packages. Add them to your app:
 pnpm add @vite-hub/schedule @vite-hub/kv
 ```
 
-Then add `kv` and `schedule` to the ViteHub options. Keep the other options of your app.
+Then add `kv: true` to the ViteHub options so you can read saved runs in the last step. Keep the other options of your app.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
@@ -33,7 +33,6 @@ export default defineNuxtConfig({
   vitehub: {
     host: 'node',
     kv: true,
-    schedule: { runtime: { driver: 'process' } },
   },
 })
 ```
@@ -50,7 +49,6 @@ export default defineConfig({
     vitehub({
       host: 'node',
       kv: true,
-      schedule: { runtime: { driver: 'process' } },
     }), nitro(),
   ],
 })
@@ -67,7 +65,6 @@ export default defineConfig({
     vitehub({
       host: 'node',
       kv: true,
-      schedule: { runtime: { driver: 'process' } },
     }),
   ],
 })
@@ -75,8 +72,7 @@ export default defineConfig({
 ::::
 :::
 
-- `schedule` turns on Schedule. A Node server has no cron of its own, so the `process` runtime checks for due schedules once a minute while the server runs.
-- `kv` gives Schedule a place to save each run. You read those runs in the last step.
+The schedule file that you create next turns Schedule on. You can also set `schedule: true` for the same defaults. Node has no host cron, so ViteHub checks for due schedules once a minute in the server process.
 
 ::
 
@@ -165,10 +161,10 @@ To see the same runs in a page, with a button to run the schedule, open the app 
 
 ## What happens when you deploy
 
-You keep the schedule file. You change the `schedule` option for the host:
+Keep the schedule file when you change hosts. You don't need to change the `schedule` option:
 
-- **Node or Docker**: keep `runtime: { driver: 'process' }`. The server process starts the schedule at 08:00 UTC. With more than one server process, add a Postgres or remote libSQL Database, and one process runs each occurrence. Without a Database, keep one process running. A stopped process runs nothing.
-- **Cloudflare, Vercel, or Netlify**: set the host of the host and `schedule: true`. The build then writes the cron settings of the host, and the host starts the schedule. Do not keep `runtime`. On Cloudflare and Netlify, keeping `runtime` makes the server process own the schedules and suppresses provider cron output. Vercel defaults to standalone cron output even when `runtime` is set.
+- **Node or Docker**: the server process starts the schedule at 08:00 UTC. With more than one server process, add a Postgres or remote libSQL Database, and one process runs each occurrence. Without a Database, keep one process running. A stopped process runs nothing.
+- **Cloudflare, Vercel, or Netlify**: the build writes the cron settings of the host, and the host starts the schedule.
 
 For example, on Vercel:
 
@@ -177,7 +173,7 @@ For example, on Vercel:
 ```ts [vercel/nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'vercel', schedule: true },
+  vitehub: { host: 'vercel' },
 })
 ```
 :::
@@ -189,7 +185,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'vercel', schedule: true }), nitro()],
+  plugins: [vitehub({ host: 'vercel' }), nitro()],
 })
 ```
 :::
@@ -200,13 +196,13 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'vercel', schedule: true })],
+  plugins: [vitehub({ host: 'vercel' })],
 })
 ```
 :::
 ::
 
-The `deno` host does not support Schedule. [Hosts](/docs/schedule/hosts) shows the output for each host.
+On the `deno` host, the same schedule file registers each Schedule with `Deno.cron`. [Hosts](/docs/schedule/hosts) shows the output for each host.
 
 ## Next steps
 

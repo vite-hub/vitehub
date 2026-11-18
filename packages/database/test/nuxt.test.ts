@@ -2182,22 +2182,6 @@ describe("Database Nuxt integration", () => {
       vite: {},
     })
   })
-
-  it.each([false, { binding: "TOP_LEVEL_DB", driver: "cloudflare" }])("ignores a top-level Nuxt `database` key: %j", async (database) => {
-    const { nuxt } = createNuxt({
-      database,
-      dev: false,
-      rootDir: `${tmp}/vitehub-db-nuxt-top-level`,
-      vite: {},
-    })
-
-    await hubDatabase()(undefined, nuxt)
-
-    const options = getResolvedFeatureOptions<Record<string, unknown>>(nuxt.options.vite as object, "database")
-    expect(options).toMatchObject({ nuxtHostResource: true })
-    expect(options).not.toHaveProperty("binding")
-    expect(options).not.toHaveProperty("driver")
-  })
 })
 
 it("discovers a production named D1 resource before provisioning but validates the real build", async () => {

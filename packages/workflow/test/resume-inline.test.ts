@@ -6,6 +6,7 @@ import { resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegis
 import { setVercelWorkflowRuntimeLoader } from "../src/runtime/vercel.ts"
 
 import type { WorkflowDevRecorder } from "../src/runtime/dev-recorder.ts"
+import { unwrap } from "./unwrap.ts"
 
 const missingSdk = vi.fn(async () => {
   throw new Error("Cannot find package 'workflow'")
@@ -30,10 +31,10 @@ it("says that signals are unsupported in vite dev, where every run is inline", a
     welcome: async () => ({ default: { handler: async () => "inline", options: { native: async () => "native" } } }),
   })
 
-  await expect(resumeWorkflow("hook-token", {})).rejects.toMatchObject({
+  expect(await resumeWorkflow("hook-token", {})).toMatchObject([{
     code: "WORKFLOW_OPERATION_UNSUPPORTED",
-    details: { operation: "signals", provider: "vercel" },
-  })
+    data: { operation: "signals", provider: "vercel" },
+  }, undefined])
   expect(missingSdk).not.toHaveBeenCalled()
 })
 
@@ -42,10 +43,10 @@ it("says that signals are unsupported when no Workflow has a native entry and th
     welcome: async () => ({ default: { handler: async () => "inline" } }),
   })
 
-  await expect(resumeWorkflow("hook-token", {})).rejects.toMatchObject({
+  expect(await resumeWorkflow("hook-token", {})).toMatchObject([{
     code: "WORKFLOW_OPERATION_UNSUPPORTED",
-    details: { operation: "signals", provider: "vercel" },
-  })
+    data: { operation: "signals", provider: "vercel" },
+  }, undefined])
 })
 
 it("still asks for the Workflow DevKit when a Workflow has a native entry", async () => {

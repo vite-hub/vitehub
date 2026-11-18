@@ -32,7 +32,7 @@ Then add `database: true` to the ViteHub options of your app. Keep the other opt
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', database: true },
+  vitehub: { database: true },
 })
 ```
 ::::
@@ -45,7 +45,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ host: 'node', database: true }), nitro()],
+  plugins: [vitehub({ database: true }), nitro()],
 })
 ```
 ::::
@@ -57,7 +57,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ host: 'node', database: true })],
+  plugins: [vitehub({ database: true })],
 })
 ```
 ::::
@@ -107,13 +107,13 @@ You do not need a running server for these commands. Make sure both finish witho
 Create `server/api/notes.post.ts`. This file is the route `POST /api/notes`. It checks the title, adds a row, and sends back the new row.
 
 ```ts [server/api/notes.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { useDatabase } from 'vite-hub/database'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ title?: unknown }>(event)
   if (typeof body?.title !== 'string' || !body.title.trim()) {
-    throw createError({ statusCode: 400, message: 'Send a non-empty title.' })
+    throw new HTTPError({ status: 400, message: 'Send a non-empty title.' })
   }
 
   const { db, schema } = useDatabase('default')

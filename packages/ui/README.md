@@ -34,6 +34,8 @@ The parts `Message`, `Bubble`, `Marker`, `Trace`, and `Attachment` follow the [s
 
 The package currently declares `vue` and `ai` as required peers. Styled components also require `@nuxt/ui` and Tailwind CSS. The Vite integration requires `vite`; `@nuxt/ui` and `vite` are optional peers only so applications using another entry point do not have to install them.
 
+`RelativeTime` uses Nuxt UI tooltips when a Reka `TooltipProvider` is present, such as inside `UApp`. Otherwise it uses the native `title` attribute, including in apps that provide a Nuxt UI locale.
+
 ## Edit Markdown
 
 `MarkdownEditor` from `@vite-hub/ui/markdown-editor` edits Markdown with [comark-ui's editor](https://comark-ui.onmax.me/guide/editor/), a bubble toolbar, a "/" menu, and a drag handle: Nuxt UI's, or the ui-sdk ones of [the ui-sdk set](#the-ui-sdk-set). Bind the Markdown with `v-model`, or pass `editor` with a Tiptap editor the app made, such as a Realtime room's. A document that the editor can't save unchanged opens read-only.
@@ -333,7 +335,7 @@ The page displays **ViteHub UI is ready.** in bold. This confirms the public com
 
 ## Boundaries and requirements
 
-- Published builds require Node.js 22.22 or newer. The package is pre-1.0, so pin its version and review changes before upgrading.
+- Published builds require Node.js 24.15 or newer. The package is pre-1.0, so pin its version and review changes before upgrading.
 - The components render state supplied by the application. They do not send messages, fetch Agent Invocations, choose routes, persist sessions, or authorize access to instruction and trace data.
 - `PromptInput` submits only in the ready state after attachment conversion finishes. It preserves the draft while blocked; Stop and Retry remain separate actions. Custom submit slots receive `canSubmit` and `preparingFiles`. The application owns draft recovery and clearing after a send; unmount the prompt when switching sessions with pending file reads.
 - Primary chat and trace output supports Vue server rendering. Scrolling observers, clipboard actions, and attachment conversion use browser APIs and become interactive after hydration. Upload and persist raw files yourself when data URLs are not appropriate.

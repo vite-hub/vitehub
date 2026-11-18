@@ -16,7 +16,7 @@ pnpm add @vite-hub/queue
 pnpm add -D @vite-hub/cli vite
 ```
 
-The package requires Node.js 22.19 or newer. Vite is an optional peer dependency and is required for definition discovery and provider output. The ViteHub CLI provides the `vitehub provision` command used by the host guides.
+The package requires Node.js 24.15 or newer. Vite is an optional peer dependency and is required for definition discovery and provider output. The ViteHub CLI provides the `vitehub provision` command used by the host guides.
 
 For Vercel Queues, also install the provider package and the ambient types used by generated functions:
 
@@ -129,7 +129,7 @@ The server logs the directory and this durability once when it starts. `vitehub 
 
 ## Run jobs on several Node servers
 
-The postgres driver keeps the jobs in the `vitehub_queue_jobs` table, and every server process of the app takes due jobs from it. Install `postgres` (postgres.js). The jobs use the postgres.js client of the Default Database, so they connect as the Database does, whatever variable or URL its Definition reads. `QUEUE_POSTGRES_URL` on the server overrides it. An explicit `provider: "postgres"` without a Postgres Default Database needs `QUEUE_POSTGRES_URL`.
+The postgres driver keeps the jobs in the `vitehub_queue_jobs` table, and every server process of the app takes due jobs from it. Install `postgres` (postgres.js). The jobs use the postgres.js client of the Default Database, so they connect as the Database does, whatever variable or URL its Definition reads. `QUEUE_POSTGRES_URL` on the server overrides it. An explicit `driver: "postgres"` without a Postgres Default Database needs `QUEUE_POSTGRES_URL`.
 
 ```ts
 // vite.config.ts

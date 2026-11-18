@@ -383,7 +383,7 @@ function createTitleChatAdapter(setThreadTitle: (threadId: string, title: string
 }
 
 function chatWebhookRequest(messageId: number, threadId = 456, text = "hello") {
-  return new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
+  return new Request("https://example.com/_vitehub/agents/support/webhooks/channel", {
     body: JSON.stringify({
       message: {
         chat: { id: threadId, type: "private" },
@@ -477,9 +477,9 @@ describe("agent Vite plugin", () => {
       expect(privateConfig).toMatchObject({
         nitro: {
           handlers: [
-            { handler: join(generatedRoot, "agent", "ready-route.ts"), route: "/api/_vitehub/ready" },
-            { handler: generatedRoute, route: "/api/_vitehub/agents/:agent/chat" },
-            { handler: generatedRoute, route: "/api/_vitehub/agents/:agent/webhooks/:webhook" },
+            { handler: join(generatedRoot, "agent", "ready-route.ts"), route: "/_vitehub/ready" },
+            { handler: generatedRoute, route: "/_vitehub/agents/:agent/chat" },
+            { handler: generatedRoute, route: "/_vitehub/agents/:agent/webhooks/:webhook" },
             { handler: join(generatedRoot, "agent", "declared-webhook-route.ts"), middleware: true, route: "/**" },
           ],
           plugins: [generatedQueue],
@@ -1228,12 +1228,12 @@ describe("agent Vite plugin", () => {
       await runProviderOutputHooks(plugin)
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
-      expect(wrapper).toContain('const chatRoutePattern = new RegExp("^/api/_vitehub/agents/[^/]+/chat$")')
+      expect(wrapper).toContain('const chatRoutePattern = new RegExp("^/_vitehub/agents/[^/]+/chat$")')
       expect(wrapper).toContain("createChannelChatRouteHandler")
       const generated = await readFile(join(root, ".netlify/v1/functions/vitehub-agent.mjs"), "utf8")
       expect(generated).toContain('"path": [')
-      expect(generated).toContain('"/api/_vitehub/agents/:agent/chat"')
-      expect(generated).toContain('"/api/_vitehub/agents/:agent/webhooks/:webhook"')
+      expect(generated).toContain('"/_vitehub/agents/:agent/chat"')
+      expect(generated).toContain('"/_vitehub/agents/:agent/webhooks/:webhook"')
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -1264,7 +1264,7 @@ describe("agent Vite plugin", () => {
 
       const generated: { default: (request: Request, context: { params: Record<string, string> }) => Promise<Response> } = await import(pathToFileURL(join(root, ".netlify/v1/functions/vitehub-agent.mjs")).href)
       const gateway = (authorization?: string) => generated.default(
-        new Request("https://example.com/api/_vitehub/agents/support/discord/gateway", authorization ? { headers: { authorization } } : {}),
+        new Request("https://example.com/_vitehub/agents/support/discord/gateway", authorization ? { headers: { authorization } } : {}),
         { params: { agent: "support" } },
       )
       for (const authorization of [undefined, "Bearer gateway", "Bearer gateway-secret-", "Bearer gateway-secreT", "Basic gateway-secret"]) {
@@ -1474,7 +1474,7 @@ describe("agent Vite plugin", () => {
                   ],
                 }),
                 config: expect.objectContaining({
-                  path: ["/api/_vitehub/agents/:agent/chat", "/api/_vitehub/agents/:agent/webhooks/:webhook"],
+                  path: ["/_vitehub/agents/:agent/chat", "/_vitehub/agents/:agent/webhooks/:webhook"],
                 }),
                 functionName: "vitehub-agent",
               }),
@@ -1535,15 +1535,15 @@ describe("agent Vite plugin", () => {
     const webhook = {
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
       lazy: true,
-      route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
+      route: "/_vitehub/agents/:agent/webhooks/:webhook",
     }
 
     expect(handlers).toEqual([
-      { handler: join(hostedAgentRoot, ".vitehub/agent/ready-route.ts"), lazy: true, route: "/api/_vitehub/ready" },
+      { handler: join(hostedAgentRoot, ".vitehub/agent/ready-route.ts"), lazy: true, route: "/_vitehub/ready" },
       {
         handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
         lazy: true,
-        route: "/api/_vitehub/agents/:agent/chat",
+        route: "/_vitehub/agents/:agent/chat",
       },
       webhook,
       { handler: join(hostedAgentRoot, ".vitehub/agent/declared-webhook-route.ts"), lazy: true, middleware: true, route: "/**" },
@@ -1970,12 +1970,12 @@ describe("agent Vite plugin", () => {
           {
             handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
             lazy: true,
-            route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
+            route: "/_vitehub/agents/:agent/webhooks/:webhook",
           },
           {
             handler: join(hostedAgentRoot, ".vitehub/agent/discord-gateway-route.ts"),
             lazy: true,
-            route: "/api/_vitehub/agents/:agent/discord/gateway",
+            route: "/_vitehub/agents/:agent/discord/gateway",
           },
         ]),
       },
@@ -2007,7 +2007,7 @@ describe("agent Vite plugin", () => {
       expect(gatewayRoute).toContain("const secret = runtimeEnvValue(cloudflare, 'VITEHUB_DISCORD_GATEWAY_SECRET')")
       expect(gatewayRoute).toContain("runtimeEnvValue(cloudflare, 'VITEHUB_DISCORD_GATEWAY_DURATION_MS')")
       expect(gatewayRoute).toContain("runtimeEnvValue(cloudflare, 'VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL')")
-      expect(gatewayRoute).toContain('const webhookRoute = "/api/_vitehub/agents/:agent/webhooks/:webhook"')
+      expect(gatewayRoute).toContain('const webhookRoute = "/_vitehub/agents/:agent/webhooks/:webhook"')
       expect(gatewayRoute).toContain("routePath(webhookRoute, { agent, webhook })")
       expect(gatewayRoute).toContain("Object.hasOwn(values, key)")
       expect(gatewayRoute).toContain(".replace(/(^|\\/):([^/]+)/g")
@@ -2039,26 +2039,26 @@ describe("agent Vite plugin", () => {
         { support: async (request: Request) => new Response(`${request.method} ${request.url} ${request.headers.get("authorization")}`) },
         { support: { name: "support" } },
         1000,
-        "/api/_vitehub/agents/:agent/webhooks/:webhook",
-        () => "/api/_vitehub/agents/support/webhooks/discord",
+        "/_vitehub/agents/:agent/webhooks/:webhook",
+        () => "/_vitehub/agents/support/webhooks/discord",
         () => undefined,
         (status: number, message: string) => Response.json({ status, message }, { status }),
         routePathname,
       ) as { fetch: (request: Request) => Promise<Response> }
-      const gatewayRequest = (authorization: string, path = "/api/_vitehub/agents/support/discord/gateway") =>
+      const gatewayRequest = (authorization: string, path = "/_vitehub/agents/support/discord/gateway") =>
         new Request(`https://app.example${path}`, { headers: { authorization }, method: "POST" })
       const rejected = await gatewayHandler.fetch(gatewayRequest("Bearer wrong"))
       expect(rejected.status).toBe(401)
       await expect(rejected.json()).resolves.toEqual({ message: "Unauthorized", status: 401 })
       const accepted = await gatewayHandler.fetch(gatewayRequest("Bearer gateway-secret"))
-      await expect(accepted.text()).resolves.toBe("POST https://app.example/api/_vitehub/agents/support/discord/gateway Bearer gateway-secret")
+      await expect(accepted.text()).resolves.toBe("POST https://app.example/_vitehub/agents/support/discord/gateway Bearer gateway-secret")
       // A Nitro base URL before the route does not move the Agent segment.
-      const based = await gatewayHandler.fetch(gatewayRequest("Bearer gateway-secret", "/base/api/_vitehub/agents/support/discord/gateway/"))
+      const based = await gatewayHandler.fetch(gatewayRequest("Bearer gateway-secret", "/base/_vitehub/agents/support/discord/gateway/"))
       expect(based.status).toBe(200)
       // Like the H3 router, the route decodes `%70` but keeps `%20`.
-      const needless = await gatewayHandler.fetch(gatewayRequest("Bearer gateway-secret", "/api/_vitehub/agents/sup%70ort/discord/gateway"))
+      const needless = await gatewayHandler.fetch(gatewayRequest("Bearer gateway-secret", "/_vitehub/agents/sup%70ort/discord/gateway"))
       expect(needless.status).toBe(200)
-      const encoded = await gatewayHandler.fetch(gatewayRequest("Bearer gateway-secret", "/api/_vitehub/agents/sup%20port/discord/gateway"))
+      const encoded = await gatewayHandler.fetch(gatewayRequest("Bearer gateway-secret", "/_vitehub/agents/sup%20port/discord/gateway"))
       expect(encoded.status).toBe(404)
       await expect(encoded.json()).resolves.toEqual({ message: "Unknown ViteHub agent.", status: 404 })
     } finally {
@@ -2091,7 +2091,7 @@ describe("agent Vite plugin", () => {
       })
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       expect((config as { nitro?: { handlers?: unknown[] } } | undefined)?.nitro?.handlers).not.toEqual(
-        expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/agents/**:agent/discord/gateway" })]),
+        expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/agents/**:agent/discord/gateway" })]),
       )
       const gatewayPlugin = await readFile(join(root, ".vitehub/agent/discord-gateway-plugin.ts"), "utf8")
       expect(gatewayPlugin).toContain(`import { onShutdown } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`)
@@ -2528,12 +2528,12 @@ describe("agent Vite plugin", () => {
     expect(output.nitro?.handlers).toContainEqual({
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
       lazy: true,
-      route: "/api/_vitehub/agents/:agent/chat",
+      route: "/_vitehub/agents/:agent/chat",
     })
     expect(output.nitro?.handlers).toContainEqual({
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
       lazy: true,
-      route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
+      route: "/_vitehub/agents/:agent/webhooks/:webhook",
     })
     expect(output.nitro?.cloudflare).toBeUndefined()
     expect(output.nitro?.rollupConfig).toBeUndefined()
@@ -2593,12 +2593,12 @@ describe("agent Vite plugin", () => {
     expect(output.nitro?.handlers).toContainEqual({
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
       lazy: true,
-      route: "/api/_vitehub/agents/:agent/chat",
+      route: "/_vitehub/agents/:agent/chat",
     })
     expect(output.nitro?.handlers).toContainEqual({
       handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
       lazy: true,
-      route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
+      route: "/_vitehub/agents/:agent/webhooks/:webhook",
     })
     expect(output.nitro?.cloudflare).toBeUndefined()
     expect(output.nitro?.rollupConfig).toBeUndefined()
@@ -2660,7 +2660,6 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("createChannelChatRouteHandler")
       expect(webhookRoute).toContain("withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule")
       expect(webhookRoute).toContain('agentWithColocatedInstructions(resolveAgentModule(agent0), "Use support instructions.\\n")')
-      expect(webhookRoute).not.toContain("withAgentDefaults")
       expect(webhookRoute).toContain("const agentIdentities")
       expect(webhookRoute).toContain('["support"]: {"name":"support"}')
       expect(webhookRoute).not.toContain(`import { createCloudflareAgentState } from ${JSON.stringify(agentRuntimeModule("cloudflare"))}`)
@@ -2689,10 +2688,10 @@ describe("agent Vite plugin", () => {
       const patterns = webhookRoute.slice(webhookRoute.indexOf("const chatRoutePattern"), webhookRoute.indexOf("const webhookAliases"))
       const { code } = await transform(patterns, { loader: "ts", format: "esm" })
       const { chatRoutePattern, webhookRoutePattern } = new Function(`${code}\nreturn { chatRoutePattern, webhookRoutePattern }`)() as Record<string, RegExp>
-      expect(chatRoutePattern!.exec("/api/_vitehub/agents/sup%2Fport/chat")?.groups).toEqual({ agent: "sup%2Fport" })
-      expect(chatRoutePattern!.exec("/base/api/_vitehub/agents/support/chat")?.groups).toEqual({ agent: "support" })
-      expect(webhookRoutePattern!.exec("/api/_vitehub/agents/support/webhooks/git%20hub")?.groups).toEqual({ agent: "support", webhook: "git%20hub" })
-      expect(webhookRoutePattern!.exec("/api/_vitehub/agents/support/chat")).toBeNull()
+      expect(chatRoutePattern!.exec("/_vitehub/agents/sup%2Fport/chat")?.groups).toEqual({ agent: "sup%2Fport" })
+      expect(chatRoutePattern!.exec("/base/_vitehub/agents/support/chat")?.groups).toEqual({ agent: "support" })
+      expect(webhookRoutePattern!.exec("/_vitehub/agents/support/webhooks/git%20hub")?.groups).toEqual({ agent: "support", webhook: "git%20hub" })
+      expect(webhookRoutePattern!.exec("/_vitehub/agents/support/chat")).toBeNull()
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -3140,7 +3139,6 @@ export default defineAgent({
       expect(webhookRoute).not.toContain("setWorkspaceRuntimeRegistry")
       expect(webhookRoute).toContain('agentWorkspaceEntry("audio-bitacora", agent0')
       expect(webhookRoute).toContain('["audio-bitacora"]: {"name":"audio-bitacora","workspace":"audio-bitacora"}')
-      expect(webhookRoute).not.toContain("withAgentDefaults")
       expect(webhookRoute).not.toContain("@vite-hub/workspace/internal/stores/github")
       expect(webhookRoute).not.toContain("configureCloudflareWorkspaceRuntime")
     } finally {
@@ -3207,7 +3205,7 @@ export default defineAgent({
       }
 
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
-      expect(denoServer).toContain('const chatRoutePattern = new RegExp("^/api/_vitehub/agents/(?<agent>[^/]+)/chat$")')
+      expect(denoServer).toContain('const chatRoutePattern = new RegExp("^/_vitehub/agents/(?<agent>[^/]+)/chat$")')
       expect(denoServer).toContain("createChannelChatRouteHandler")
     } finally {
       await rm(root, { force: true, recursive: true })
@@ -3238,8 +3236,8 @@ export default defineAgent({
       )
       expect(denoServer).not.toContain('import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"')
       expect(denoServer).toContain('await import("../schedule/deno-cron.mjs").catch')
-      expect(denoServer).toContain('const chatRoutePattern = new RegExp("^/api/_vitehub/agents/(?<agent>[^/]+)/chat$")')
-      expect(denoServer).toContain('const webhookRoutePattern = new RegExp("^/api/_vitehub/agents/(?<agent>[^/]+)/webhooks/(?<webhook>[^/]+)$")')
+      expect(denoServer).toContain('const chatRoutePattern = new RegExp("^/_vitehub/agents/(?<agent>[^/]+)/chat$")')
+      expect(denoServer).toContain('const webhookRoutePattern = new RegExp("^/_vitehub/agents/(?<agent>[^/]+)/webhooks/(?<webhook>[^/]+)$")')
       expect(denoServer).toContain(`import { createLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("state"))}`)
       expect(denoServer).toContain("const viteHubChatStateOptions: Parameters<typeof createLibsqlAgentState>[0] = {}")
       expect(denoServer).toContain("let viteHubChatState: ReturnType<typeof createLibsqlAgentState> | undefined")
@@ -3401,7 +3399,6 @@ describe("server helpers", () => {
       const workspace = useWorkspace("support-runtime")
 
       expect(preparedAgent).toBe(agent)
-      expect(preparedAgent).not.toHaveProperty("__vitehubWorkspaceAgentDefaults")
       expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Support\n")
       await expect(
         runAgentInline(
@@ -3541,7 +3538,7 @@ describe("server helpers", () => {
     })
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           id: "portal-thread",
           messages: [
@@ -3569,7 +3566,7 @@ describe("server helpers", () => {
     )
     await expect(response.text()).resolves.toContain("echo hello for customer:acme via http on unknown from portal-user after anonymous:http")
     await expect(
-      handler.deliveries(new Request("https://example.com/api/_vitehub/agents/support/chat"), {
+      handler.deliveries(new Request("https://example.com/_vitehub/agents/support/chat"), {
         agentName: "support",
       }),
     ).resolves.toEqual([
@@ -3619,7 +3616,7 @@ describe("server helpers", () => {
     })
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           id: "portal-thread",
           messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
@@ -3717,7 +3714,7 @@ describe("server helpers", () => {
       },
     )
     const request = (approvalId?: string, user = "user-1", sessionId = "session-1", includeLaterMessage = false, approved = true) =>
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           id: "portal-thread",
           messages: approvalId
@@ -3857,7 +3854,7 @@ describe("server helpers", () => {
         toolCallId: "call-1",
       })
       const response = await handler(
-        new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        new Request("https://example.com/_vitehub/agents/support/chat", {
           body: JSON.stringify({
             id: "portal-thread",
             messages: [{ id: "user-1", parts: [{ text: "continue", type: "text" }], role: "user" }],
@@ -3874,7 +3871,7 @@ describe("server helpers", () => {
       expect(chatApprovedTools(run.mock.calls[0]![0])).toEqual([])
 
       const approvalResponse = await handler(
-        new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        new Request("https://example.com/_vitehub/agents/support/chat", {
           body: JSON.stringify({
             id: "portal-thread",
             messages: [
@@ -3927,7 +3924,7 @@ describe("server helpers", () => {
 
     try {
       const response = await handler(
-        new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        new Request("https://example.com/_vitehub/agents/support/chat", {
           body: JSON.stringify({
             id: "portal-thread",
             messages: [{ id: "user-1", parts: [{ text: "update the file", type: "text" }], role: "user" }],
@@ -3966,7 +3963,7 @@ describe("server helpers", () => {
     )
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
         }),
@@ -3998,7 +3995,7 @@ describe("server helpers", () => {
     )
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           messages: [
             {
@@ -4063,7 +4060,7 @@ describe("server helpers", () => {
       }) as never,
     )
     const request = () =>
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }],
         }),
@@ -4103,7 +4100,7 @@ describe("server helpers", () => {
     )
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           messages: [
             {
@@ -4145,7 +4142,7 @@ describe("server helpers", () => {
     )
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           messages: [
             {
@@ -4197,7 +4194,7 @@ describe("server helpers", () => {
     )
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           messages: [
             {
@@ -4263,7 +4260,7 @@ describe("server helpers", () => {
     )
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           id: "portal-thread",
           messages: [
@@ -4330,7 +4327,7 @@ describe("server helpers", () => {
     )
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
           meta: { audience: "customer" },
@@ -4368,7 +4365,7 @@ describe("server helpers", () => {
 
     try {
       const response = await handler(
-        new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        new Request("https://example.com/_vitehub/agents/support/chat", {
           body: JSON.stringify({
             messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
           }),
@@ -4465,7 +4462,7 @@ describe("server helpers", () => {
     )
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           id: "portal-thread",
           messages: [
@@ -4496,7 +4493,7 @@ describe("server helpers", () => {
     authenticate.mockClear()
 
     const malformedResponse = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           id: "portal-thread",
           messages: "bad",
@@ -4521,7 +4518,7 @@ describe("server helpers", () => {
     authenticate.mockClear()
 
     const rejectedResponse = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           messages: [
             {
@@ -4576,7 +4573,7 @@ describe("server helpers", () => {
 
     for (const [body, error] of invalidBodies) {
       const response = await handler(
-        new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        new Request("https://example.com/_vitehub/agents/support/chat", {
           body: JSON.stringify(body),
           method: "POST",
         }),
@@ -4627,7 +4624,7 @@ describe("server helpers", () => {
     )
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           extension: { requestId: "request-1" },
           id: "portal-thread",
@@ -4680,7 +4677,7 @@ describe("server helpers", () => {
 
     for (const [field, value] of Object.entries(protectedFields)) {
       const response = await handler(
-        new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        new Request("https://example.com/_vitehub/agents/support/chat", {
           body: JSON.stringify({
             messages: [
               {
@@ -4728,7 +4725,7 @@ describe("server helpers", () => {
     )
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           id: "portal-thread",
           messages: [
@@ -4776,7 +4773,7 @@ describe("server helpers", () => {
       '{"messages":[{"parts":[{"text":"hello","type":"text"}],"role":"user"}],"timeout":1e400}',
     ]) {
       const invalidResponse = await handler(
-        new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        new Request("https://example.com/_vitehub/agents/support/chat", {
           body,
           headers: { "x-quiver-chat-token": "trusted" },
           method: "POST",
@@ -4814,7 +4811,7 @@ describe("server helpers", () => {
     )
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           messages: [
             {
@@ -4872,7 +4869,7 @@ describe("server helpers", () => {
     )
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           messages: [
             {
@@ -4911,7 +4908,7 @@ describe("server helpers", () => {
     )
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           messages: [
             {
@@ -4978,7 +4975,7 @@ describe("server helpers", () => {
     )
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           messages: [
             {
@@ -5034,7 +5031,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 42,
           message: {
@@ -5143,7 +5140,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 42,
           message: {
@@ -5323,7 +5320,7 @@ describe("server helpers", () => {
 
     // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
     const response = await createChannelWebhookRouteHandler(agent as never)(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 42,
           message: {
@@ -5590,7 +5587,7 @@ describe("server helpers", () => {
     })
 
     // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
-    const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
+    const response = await createChannelWebhookRouteHandler(agent as never)(new Request("https://example.com/_vitehub/agents/support/webhooks/channel", {
       body: JSON.stringify({
         message: { chat: { id: 456, type: "group" }, from: { id: 123, username: "maxi" }, isMention: true, message_id: 8_009, text: "thanks" },
       }),
@@ -5669,7 +5666,7 @@ describe("server helpers", () => {
       })
       // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
       const response = await createChannelWebhookRouteHandler(agent as never)(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({
             message: {
               chat: { id: 456, type: "private" },
@@ -5736,7 +5733,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const response = await createChannelWebhookRouteHandler(agent as never)(
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 43,
           message: {
@@ -5792,7 +5789,7 @@ describe("server helpers", () => {
 
     try {
       const response = await handler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body,
           method: "POST",
         }),
@@ -5802,7 +5799,7 @@ describe("server helpers", () => {
       expect(response.status).toBe(200)
       await response.json()
       const deliveries = await handler.deliveries(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body,
           method: "POST",
         }),
@@ -5876,7 +5873,7 @@ describe("server helpers", () => {
 
     try {
       const response = await handler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body,
           method: "POST",
         }),
@@ -5890,7 +5887,7 @@ describe("server helpers", () => {
         expect.arrayContaining([expect.stringContaining('"event":"alias.failed","alias":"message"')]),
       )
       const deliveries = await handler.deliveries(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body,
           method: "POST",
         }),
@@ -5934,7 +5931,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    const url = "https://example.com/api/_vitehub/agents/review/webhooks/github"
+    const url = "https://example.com/_vitehub/agents/review/webhooks/github"
     const request = () =>
       new Request(url, {
         body: "{}",
@@ -5985,19 +5982,24 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const body = JSON.stringify({ update_id: 43 })
-    const request = new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", { body, method: "POST" })
+    const request = new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", { body, method: "POST" })
     const options = { agentName: "support", state: () => state }
 
     try {
       const response = await handler(request, "telegram", options)
       await expect(response.json()).resolves.toEqual({ ignored: true, ok: true })
-      await expect(handler.deliveries(new Request(request.url, { body, method: "POST" }), "telegram", options)).resolves.toEqual([
+      // The answer acknowledges the webhook. Once Chat finished without a message handler, the delivery says why no work started.
+      await vi.waitFor(async () => await expect(handler.deliveries(new Request(request.url, { body, method: "POST" }), "telegram", options)).resolves.toEqual([
         expect.objectContaining({
-          events: [expect.objectContaining({ type: "received" }), expect.objectContaining({ type: "completed" })],
+          events: [
+            expect.objectContaining({ type: "received" }),
+            expect.objectContaining({ status: 200, type: "acknowledged" }),
+            expect.objectContaining({ reason: "unhandled", type: "rejected" }),
+          ],
           sourceId: "43",
-          status: "completed",
+          status: "rejected",
         }),
-      ])
+      ]))
     } finally {
       info.mockRestore()
       await state.disconnect()
@@ -6025,7 +6027,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (message: Record<string, unknown>) =>
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: message.message_id,
           message: {
@@ -6106,7 +6108,7 @@ describe("server helpers", () => {
         }) as never,
       )
     const request = (messageId: number, threadId: number, isMention = false) =>
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: messageId,
           message: {
@@ -6152,7 +6154,7 @@ describe("server helpers", () => {
       }) as never,
     )
     const request = (messageId: number, isMention = false) =>
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           message: {
             chat: { id: 789, type: "group" },
@@ -6212,7 +6214,7 @@ describe("server helpers", () => {
         driver: { run },
       }) as never,
     )
-    const request = (id: number, threadId: number, isMention = false, isBot = false) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+    const request = (id: number, threadId: number, isMention = false, isBot = false) => new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
       body: JSON.stringify({ update_id: id, message: {
         chat: { id: threadId, type: "group" },
         from: { id: isBot ? 999 : 123, username: isBot ? "other-bot" : "maxi", is_bot: isBot },
@@ -6256,7 +6258,7 @@ describe("server helpers", () => {
     )
     let updateId = 2300
     const request = (kind: "edited_message" | "message", messageId: number, isMention: boolean, previousIsMention?: boolean) =>
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: ++updateId,
           [kind]: { chat: { id: 792, type: "group" }, from: { id: 123, username: "maxi" }, isMention, message_id: messageId, text: "hello" },
@@ -6281,7 +6283,133 @@ describe("server helpers", () => {
       await handler(request("edited_message", 3004, true, true), "telegram", options)
       expect(run).toHaveBeenCalledTimes(2)
       expect(Object.fromEntries(await statuses())).toMatchObject({ 2303: "rejected", 2304: "rejected", 2306: "rejected", 2307: "rejected" })
+      const reasons = Object.fromEntries((await readAgentChannelDeliveries(state)).map(delivery => [delivery.sourceId, delivery.events.findLast(event => event.type === "rejected")?.reason]))
+      expect(reasons).toMatchObject({ 2303: "edit-already-mentioned", 2304: "edit-without-mention", 2306: "edit-already-mentioned", 2307: "edit-already-mentioned" })
     } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("records why each chat message started no work", async () => {
+    const { readAgentChannelDeliveries } = await import("../src/internal/channel-delivery.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-delivery-reasons-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ isDM: false })
+    const run = vi.fn(() => "Done.")
+    const handler = createChannelWebhookRouteHandler(
+      // SAFETY: This fixture omits host-only context that these routes do not inspect.
+      defineAgent({
+        messages: { concurrency: "steer", state, stream: false, triggerHistory: "none" },
+        channels: {
+          telegram: testTelegram(telegram, {
+            adapter: () => adapter as never,
+            messages: { filter: ({ message }) => !message.parts.some(part => part.type === "text" && part.text.includes("ignore me")) },
+          }),
+        },
+        driver: { run },
+      }) as never,
+    )
+    const request = (id: number, options: { isBot?: boolean, isMention?: boolean, text?: string } = {}) =>
+      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: id,
+          message: {
+            chat: { id: 801, type: "group" },
+            from: options.isBot ? { id: 999, is_bot: true, username: "other-bot" } : { id: 123, username: "maxi" },
+            isMention: options.isMention === true,
+            message_id: id,
+            text: options.text ?? "hello",
+          },
+        }),
+        method: "POST",
+      })
+    const options = { agentName: "support" }
+    try {
+      await handler(request(3301), "telegram", options)
+      await handler(request(3302, { isBot: true, isMention: true }), "telegram", options)
+      await handler(request(3303, { isMention: true, text: "ignore me" }), "telegram", options)
+      await handler(request(3304), "telegram", options)
+      await handler(request(3305, { isMention: true }), "telegram", options)
+      expect(run).toHaveBeenCalledOnce()
+      const outcomes = Object.fromEntries((await readAgentChannelDeliveries(state)).map(delivery => [
+        delivery.sourceId,
+        [delivery.status, delivery.events.findLast(event => event.type === "rejected")?.reason],
+      ]))
+      expect(outcomes).toEqual({
+        3301: ["rejected", "not-addressed"],
+        3302: ["rejected", "bot-author"],
+        3303: ["rejected", "filtered"],
+        3304: ["rejected", "not-addressed"],
+        3305: ["completed", undefined],
+      })
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("records the webhook acknowledgement apart from the outcome of its message", { timeout: 15_000 }, async () => {
+    const { readAgentChannelDeliveries } = await import("../src/internal/channel-delivery.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-delivery-ack-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    // Chat checks the thread subscription before it calls a message handler. Hold it there.
+    const handlersMayRun = deferred<void>()
+    const isSubscribed = state.isSubscribed.bind(state)
+    state.isSubscribed = async (threadId) => {
+      await handlersMayRun.promise
+      if (threadId.endsWith(":804")) throw new Error("Subscription read failed")
+      return await isSubscribed(threadId)
+    }
+    const adapter = createTestChatAdapter({ deferMessageProcessing: true, isDM: false })
+    const run = vi.fn(() => "Done.")
+    const handler = createChannelWebhookRouteHandler(
+      // SAFETY: This fixture omits host-only context that these routes do not inspect.
+      defineAgent({
+        // A non-streaming reply waits for the handlers before the answer, so this Channel streams.
+        messages: { concurrency: "steer", state, triggerHistory: "none" },
+        channels: { telegram: testTelegram(telegram, { adapter: () => adapter as never }) },
+        driver: { run },
+      }) as never,
+    )
+    const request = (id: number, message?: { chat: number, isMention: boolean }) =>
+      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: id,
+          ...message ? { message: { chat: { id: message.chat, type: "group" }, from: { id: 123, username: "maxi" }, isMention: message.isMention, message_id: id, text: "hello" } } : {},
+        }),
+        method: "POST",
+      })
+    const tasks: Promise<unknown>[] = []
+    const options = { agentName: "support", waitUntil: (task: Promise<unknown>) => { tasks.push(task) } }
+    const deliveries = async () => Object.fromEntries((await readAgentChannelDeliveries(state)).map(delivery => [delivery.sourceId, delivery]))
+    try {
+      for (const response of [
+        await handler(request(3401, { chat: 802, isMention: true }), "telegram", options),
+        await handler(request(3402, { chat: 803, isMention: false }), "telegram", options),
+        await handler(request(3403), "telegram", options),
+        await handler(request(3404, { chat: 804, isMention: true }), "telegram", options),
+      ]) expect(response.status).toBe(200)
+      const acknowledged = await deliveries()
+      expect(acknowledged["3401"]).toMatchObject({ status: "acknowledged" })
+      expect(acknowledged["3402"]).toMatchObject({ status: "acknowledged" })
+      expect(acknowledged["3401"]?.events.map(event => event.type)).toEqual(["received", "acknowledged"])
+      expect(acknowledged["3401"]?.events.at(-1)).toMatchObject({ status: 200, type: "acknowledged" })
+
+      handlersMayRun.resolve()
+      while (tasks.length) await Promise.all(tasks.splice(0))
+      const settled = await deliveries()
+      expect(run).toHaveBeenCalledOnce()
+      const accepted = settled["3401"]!.events.map(event => event.type)
+      expect(settled["3401"]?.status).toBe("completed")
+      expect(accepted.indexOf("acknowledged")).toBeLessThan(accepted.indexOf("accepted"))
+      expect(accepted).toContain("invocation.started")
+      expect(settled["3402"]).toMatchObject({ status: "rejected", events: expect.arrayContaining([expect.objectContaining({ reason: "not-addressed", type: "rejected" })]) })
+      expect(settled["3403"]).toMatchObject({ status: "rejected", events: expect.arrayContaining([expect.objectContaining({ reason: "unhandled", type: "rejected" })]) })
+      expect(settled["3404"]).toMatchObject({ status: "failed", events: expect.arrayContaining([expect.objectContaining({ error: "Subscription read failed", type: "failed" })]) })
+    } finally {
+      handlersMayRun.resolve()
+      await Promise.allSettled(tasks)
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
@@ -6302,7 +6430,7 @@ describe("server helpers", () => {
     )
     let updateId = 2400
     const request = (kind: "edited_message" | "message", messageId: number, isMention: boolean) =>
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: ++updateId,
           [kind]: { chat: { id: 793, type: "group" }, from: { id: 123, username: "maxi" }, isMention, message_id: messageId, text: "hello" },
@@ -6356,7 +6484,7 @@ describe("server helpers", () => {
         driver: { run },
       }) as never,
     )
-    const request = (id: number, isBot: boolean) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+    const request = (id: number, isBot: boolean) => new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
       body: JSON.stringify({ update_id: id, message: {
         chat: { id: 791, type: "group" },
         from: { id: isBot ? 999 : 123, username: isBot ? "other-bot" : "maxi", is_bot: isBot },
@@ -6407,7 +6535,7 @@ describe("server helpers", () => {
         driver: { run },
       }) as never,
     )
-    const request = (id: number, isMention: boolean) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+    const request = (id: number, isMention: boolean) => new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
       body: JSON.stringify({ update_id: id, message: {
         chat: { id: 789, type: "group" },
         from: { id: 123, username: "maxi" },
@@ -6470,7 +6598,7 @@ describe("server helpers", () => {
     )
 
     await expect(handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           message: {
             chat: { id: 456, type: "private" },
@@ -6513,7 +6641,7 @@ describe("server helpers", () => {
     const waitUntilTasks: Promise<unknown>[] = []
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 2043,
           message: {
@@ -6549,7 +6677,7 @@ describe("server helpers", () => {
 
     // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
     const streamResponse = await createChannelChatRouteHandler(agent as never)(
-      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           id: "portal-thread",
           messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
@@ -6582,7 +6710,7 @@ describe("server helpers", () => {
 
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const response = await createChannelWebhookRouteHandler(agent as never)(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/discord", {
         body: JSON.stringify({
           message: {
             chat: { id: 456, type: "private" },
@@ -6640,7 +6768,7 @@ describe("server helpers", () => {
     const waitUntilTasks: Promise<unknown>[] = []
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/discord", {
         body: JSON.stringify({
           message: {
             chat: { id: 456, type: "private" },
@@ -6710,7 +6838,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/discord", {
         body: JSON.stringify({
           message: {
             chat: { id: 456, type: "private" },
@@ -6795,7 +6923,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/discord", {
         body: JSON.stringify({
           message: {
             chat: { id: 456, type: "private" },
@@ -6834,7 +6962,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/discord", {
         body: JSON.stringify({
           message: {
             chat: { id: 456, type: "private" },
@@ -6885,7 +7013,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/discord", {
         body: JSON.stringify({
           message: {
             chat: { id: 456, type: "private" },
@@ -6934,7 +7062,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/discord", {
         body: JSON.stringify({
           message: {
             chat: { id: 456, type: "private" },
@@ -6974,7 +7102,7 @@ describe("server helpers", () => {
 
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const response = await createChannelWebhookRouteHandler(agent as never)(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/discord", {
         body: JSON.stringify({
           message: {
             chat: { id: 456, type: "private" },
@@ -7021,7 +7149,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (messageId: number) =>
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: messageId,
           message: {
@@ -7097,7 +7225,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (messageId: number) =>
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/discord", {
         body: JSON.stringify({
           message: {
             chat: { id: 456, type: "private" },
@@ -7189,7 +7317,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/discord", {
         body: JSON.stringify({
           message: {
             chat: { id: 456, type: "private" },
@@ -7233,7 +7361,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 42,
           message: {
@@ -7304,7 +7432,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 42,
           message: {
@@ -7363,7 +7491,7 @@ describe("server helpers", () => {
 
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const response = await createChannelWebhookRouteHandler(agent as never)(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 44,
           message: {
@@ -7421,7 +7549,7 @@ describe("server helpers", () => {
 
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const response = await createChannelWebhookRouteHandler(agent as never)(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         method: "HEAD",
       }),
       "telegram",
@@ -7447,7 +7575,7 @@ describe("server helpers", () => {
 
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const response = await createChannelWebhookRouteHandler(agent as never)(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 43,
           message: {
@@ -7531,7 +7659,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: fixtureId,
           message: {
@@ -7579,7 +7707,7 @@ describe("server helpers", () => {
     const attachmentPrefix = "\n\nText attachment (large-prompt.txt):\n\n"
     run.mockClear()
     const largeResponse = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: fixtureId + 1,
           message: {
@@ -7633,7 +7761,7 @@ describe("server helpers", () => {
 
     await expect(
       handler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({
             update_id: 946,
             message: {
@@ -7677,7 +7805,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 43,
           message: {
@@ -7734,7 +7862,7 @@ describe("server helpers", () => {
 
     try {
       await expect(handler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({
             update_id: 222044,
             message: {
@@ -7790,7 +7918,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 42,
           message: {
@@ -7863,7 +7991,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 42,
           message: {
@@ -7931,7 +8059,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 42,
           message: {
@@ -8008,7 +8136,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/custom-support", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/custom-support", {
         body: JSON.stringify({
           message: {
             chat: { id: 456, type: "private" },
@@ -8063,8 +8191,8 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createDiscordGatewayRouteHandler(agent as never)
 
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"), {
-      webhookUrl: (webhook) => `https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`,
+    const response = await handler(new Request("https://example.com/_vitehub/agents/support/discord/gateway"), {
+      webhookUrl: (webhook) => `https://example.com/_vitehub/agents/support/webhooks/${webhook}`,
     })
 
     expect(response.status).toBe(200)
@@ -8072,7 +8200,7 @@ describe("server helpers", () => {
       expect.objectContaining({ waitUntil: expect.any(Function) }),
       undefined,
       undefined,
-      "https://example.com/api/_vitehub/agents/support/webhooks/discord-events",
+      "https://example.com/_vitehub/agents/support/webhooks/discord-events",
     )
   })
 
@@ -8152,7 +8280,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createDiscordGatewayRouteHandler(agent as never)
 
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/mini/discord/gateway"), {})
+    const response = await handler(new Request("https://example.com/_vitehub/agents/mini/discord/gateway"), {})
 
     expect(response.status).toBe(200)
     expect(run).toHaveBeenCalledWith(
@@ -8197,10 +8325,10 @@ describe("server helpers", () => {
     const handler = createDiscordGatewayRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/discord/gateway", {
+      new Request("https://example.com/_vitehub/agents/support/discord/gateway", {
         method: "POST",
       }),
-      { webhookUrl: "https://example.com/api/_vitehub/agents/support/webhooks/discord" },
+      { webhookUrl: "https://example.com/_vitehub/agents/support/webhooks/discord" },
     )
 
     expect(response.status).toBe(405)
@@ -8266,8 +8394,8 @@ describe("server helpers", () => {
     const gatewayHandler = createDiscordGatewayRouteHandler(agent as never)
 
     try {
-      const response = await gatewayHandler(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"), {
-        webhookUrl: (webhook) => `https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`,
+      const response = await gatewayHandler(new Request("https://example.com/_vitehub/agents/support/discord/gateway"), {
+        webhookUrl: (webhook) => `https://example.com/_vitehub/agents/support/webhooks/${webhook}`,
       })
 
       expect(response.status).toBe(200)
@@ -8304,7 +8432,7 @@ describe("server helpers", () => {
       run.mockClear()
 
       const deniedResponse = await webhookHandler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord-events", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/discord-events", {
           body: JSON.stringify({
             message: {
               chat: { id: "support" },
@@ -8333,8 +8461,8 @@ describe("server helpers", () => {
       run.mockClear()
 
       await expect(
-        gatewayHandler(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"), {
-          webhookUrl: (webhook) => `https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`,
+        gatewayHandler(new Request("https://example.com/_vitehub/agents/support/discord/gateway"), {
+          webhookUrl: (webhook) => `https://example.com/_vitehub/agents/support/webhooks/${webhook}`,
         }),
       ).rejects.toThrow("[vitehub] Chat text attachment exceeds 8388608 bytes.")
       expect(fetch).not.toHaveBeenCalled()
@@ -8391,8 +8519,8 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createDiscordGatewayRouteHandler(agent as never)
 
-    const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"), {
-      webhookUrl: (webhook) => `https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`,
+    const responsePromise = handler(new Request("https://example.com/_vitehub/agents/support/discord/gateway"), {
+      webhookUrl: (webhook) => `https://example.com/_vitehub/agents/support/webhooks/${webhook}`,
     })
 
     await supportGatewayStarted
@@ -8406,13 +8534,13 @@ describe("server helpers", () => {
       expect.objectContaining({ waitUntil: expect.any(Function) }),
       undefined,
       undefined,
-      "https://example.com/api/_vitehub/agents/support/webhooks/support-events",
+      "https://example.com/_vitehub/agents/support/webhooks/support-events",
     )
     expect(alertsStartGatewayListener).toHaveBeenCalledWith(
       expect.objectContaining({ waitUntil: expect.any(Function) }),
       undefined,
       undefined,
-      "https://example.com/api/_vitehub/agents/support/webhooks/alerts-events",
+      "https://example.com/_vitehub/agents/support/webhooks/alerts-events",
     )
   })
 
@@ -8450,7 +8578,7 @@ describe("server helpers", () => {
     const abortController = new AbortController()
 
     // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
-    const responsePromise = createDiscordGatewayRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"), {
+    const responsePromise = createDiscordGatewayRouteHandler(agent as never)(new Request("https://example.com/_vitehub/agents/support/discord/gateway"), {
       abortSignal: abortController.signal,
       state: stateResolver,
     })
@@ -8496,8 +8624,8 @@ describe("server helpers", () => {
     })
 
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-    const response = await createDiscordGatewayRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"), {
-      webhookUrl: "https://example.com/api/_vitehub/agents/support/webhooks/support",
+    const response = await createDiscordGatewayRouteHandler(agent as never)(new Request("https://example.com/_vitehub/agents/support/discord/gateway"), {
+      webhookUrl: "https://example.com/_vitehub/agents/support/webhooks/support",
     })
 
     expect(response.status).toBe(200)
@@ -8530,7 +8658,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/custom-support", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/custom-support", {
         body: "{}",
         method: "POST",
       }),
@@ -8574,7 +8702,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/custom-support", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/custom-support", {
         body: "{}",
         method: "POST",
       }),
@@ -8607,7 +8735,7 @@ describe("server helpers", () => {
       driver: { run: vi.fn() },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/custom-support", {
+    const response = await handler(new Request("https://example.com/_vitehub/agents/support/webhooks/custom-support", {
       body: "{}",
       headers: { "x-test-secret": "secret-token" },
       method: "POST",
@@ -8638,7 +8766,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/custom-support", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/custom-support", {
         body: "{}",
         method: "POST",
       }),
@@ -8676,7 +8804,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: "{}",
         method: "POST",
       }),
@@ -8718,8 +8846,8 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createTelegramPollingRouteHandler(agent as never)
 
-    const first = await handler(new Request("https://example.com/api/_vitehub/agents/support/telegram/polling"))
-    const second = await handler(new Request("https://example.com/api/_vitehub/agents/support/telegram/polling"))
+    const first = await handler(new Request("https://example.com/_vitehub/agents/support/telegram/polling"))
+    const second = await handler(new Request("https://example.com/_vitehub/agents/support/telegram/polling"))
 
     expect(first.status).toBe(200)
     await expect(first.json()).resolves.toEqual({ ok: true, polling: 1 })
@@ -8762,7 +8890,7 @@ describe("server helpers", () => {
 
     try {
       const response = await createTelegramPollingRouteHandler(agent as never)(
-        new Request("https://example.com/api/_vitehub/agents/support/telegram/polling"),
+        new Request("https://example.com/_vitehub/agents/support/telegram/polling"),
         { agentName: "support" },
       )
       expect(response.status).toBe(200)
@@ -8818,7 +8946,7 @@ describe("server helpers", () => {
 
     try {
       const response = await createTelegramPollingRouteHandler(agent as never)(
-        new Request("https://example.com/api/_vitehub/agents/support/telegram/polling"),
+        new Request("https://example.com/_vitehub/agents/support/telegram/polling"),
         { agentName: "support" },
       )
       expect(response.status).toBe(200)
@@ -8863,7 +8991,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/github", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/github", {
         body: "{}",
         method: "POST",
       }),
@@ -8896,7 +9024,7 @@ describe("server helpers", () => {
     vi.stubGlobal("process", undefined)
     try {
       const response = await handler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/github", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/github", {
           body: "{}",
           method: "POST",
         }),
@@ -9164,7 +9292,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
     const waitUntilTasks: Promise<unknown>[] = []
     const responsePromise = handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/github", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/github", {
         body: JSON.stringify({ action: "opened" }),
         headers: {
           "content-type": "application/json",
@@ -9313,7 +9441,7 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
       releaseRun()
       await vi.waitFor(async () => {
-        const completedRun = await getWorkflowRun("support-agent", "github:delivery-workflow")
+        const [, completedRun] = await getWorkflowRun("support-agent", "github:delivery-workflow")
         expect(completedRun).toMatchObject({
           result: "accepted github delivery",
           status: "completed",
@@ -12619,7 +12747,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/support", {
         body: "{}",
         method: "POST",
       }),
@@ -12715,7 +12843,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/http", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/http", {
         body: "{}",
         method: "POST",
       }),
@@ -12792,7 +12920,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (webhook: string) =>
-      new Request(`https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`, {
+      new Request(`https://example.com/_vitehub/agents/support/webhooks/${webhook}`, {
         body: JSON.stringify({
           message: {
             chat: { id: 456, type: "private" },
@@ -12833,7 +12961,7 @@ describe("server helpers", () => {
         }) as never,
       )
     const request = () =>
-      new Request("https://example.com/api/_vitehub/agents/mini/webhooks/discord", {
+      new Request("https://example.com/_vitehub/agents/mini/webhooks/discord", {
         body: JSON.stringify({
           message: {
             chat: { id: 456, type: "private" },
@@ -13364,7 +13492,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const responsePromise = handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           message: {
             chat: { id: 456, type: "private" },
@@ -13410,7 +13538,7 @@ describe("server helpers", () => {
 
     const response = await Promise.race([
       handler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({
             update_id: 44,
             message: {
@@ -13475,7 +13603,7 @@ describe("server helpers", () => {
 
     try {
       const responsePromise = handler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({
             update_id: 244,
             message: {
@@ -13567,7 +13695,7 @@ describe("server helpers", () => {
 
     try {
       const responsePromise = handler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({
             update_id: 144,
             message: {
@@ -13659,7 +13787,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const responsePromise = handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 1044,
           message: {
@@ -13723,7 +13851,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 1049,
           message: {
@@ -13783,7 +13911,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const responsePromise = handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 1045,
           message: {
@@ -14118,7 +14246,7 @@ describe("server helpers", () => {
       const handler = createChannelWebhookRouteHandler(agent as never)
 
       const responsePromise = handler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({
             update_id: 1048,
             message: {
@@ -14176,7 +14304,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 1046,
           message: {
@@ -14238,7 +14366,7 @@ describe("server helpers", () => {
 
     try {
       const response = await handler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({
             update_id: 1047,
             message: {
@@ -14343,7 +14471,7 @@ describe("server helpers", () => {
     try {
       await state.connect()
       const response = await firstHandler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({
             update_id: 2001,
             message: {
@@ -14749,7 +14877,7 @@ describe("server helpers", () => {
       await firstStartedPromise
       await expect(handler(await serialRequest(91_011, "B"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
       const ignoredRequest = (updateId: number) =>
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({ update_id: updateId }),
           headers: { "content-type": "application/json" },
           method: "POST",
@@ -14759,7 +14887,7 @@ describe("server helpers", () => {
       const queuedDeliveries = await handler.deliveries(await serialRequest(91_011, "B"), "telegram", { agentName: "support" })
       expect(queuedDeliveries.find((delivery) => delivery.sourceId === "92011")?.status).toBe("accepted")
       expect(queuedDeliveries.find((delivery) => delivery.sourceId === "92010")?.status).not.toBe("completed")
-      expect(queuedDeliveries.find((delivery) => delivery.sourceId === "92014")?.status).toBe("completed")
+      expect(queuedDeliveries.find((delivery) => delivery.sourceId === "92014")).toMatchObject({ events: expect.arrayContaining([expect.objectContaining({ reason: "unhandled", type: "rejected" })]), status: "rejected" })
       await vi.advanceTimersByTimeAsync(31_000)
       expect(extendLock).toHaveBeenCalled()
       await expect(handler(await serialRequest(91_012, "C"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
@@ -14776,7 +14904,7 @@ describe("server helpers", () => {
       })
       expect(deliveries).toHaveLength(5)
       expect(deliveries.map((delivery) => delivery.sourceId).sort()).toEqual(["92010", "92011", "92012", "92013", "92014"])
-      expect(deliveries.every((delivery) => delivery.status === "completed" || delivery.status === "failed")).toBe(true)
+      expect(deliveries.every((delivery) => delivery.status === "completed" || delivery.status === "failed" || (delivery.sourceId === "92014" && delivery.status === "rejected"))).toBe(true)
     } finally {
       releaseFirst()
       consoleError.mockRestore()
@@ -14860,7 +14988,7 @@ describe("server helpers", () => {
       }) as never,
     )
     const request = (messageId: number, threadId: number, text: string) =>
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           message: {
             chat: { id: threadId, type: "group" },
@@ -15080,7 +15208,7 @@ describe("server helpers", () => {
     })
     const routed: Array<{ deliveryKind: string; text: string }> = []
     const request = (messageId: number, text: string, isMention = false) =>
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: messageId,
           message: {
@@ -15991,7 +16119,7 @@ describe("server helpers", () => {
       cloudflare: { env: cloudflareEnv },
     }
     const request = (messageId: number, origin: string) =>
-      new Request(`${origin}/api/_vitehub/agents/support/webhooks/channel?message=${messageId}`, chatWebhookRequest(messageId))
+      new Request(`${origin}/_vitehub/agents/support/webhooks/channel?message=${messageId}`, chatWebhookRequest(messageId))
 
     try {
       await state.connect()
@@ -16017,7 +16145,7 @@ describe("server helpers", () => {
       ).resolves.toBe("completed")
       expect(workflowPayloads).toHaveLength(2)
       expect(workflowPayloads[1]?.input?.messages?.map((message) => message.id)).toEqual(["91155"])
-      expect(workflowPayloads[1]?.requestUrl).toBe("https://second.example/api/_vitehub/agents/support/webhooks/channel?message=91155")
+      expect(workflowPayloads[1]?.requestUrl).toBe("https://second.example/_vitehub/agents/support/webhooks/channel?message=91155")
       await expect(
         runAgentWorkflowDefinition(
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -16209,7 +16337,7 @@ describe("server helpers", () => {
       }
       return await dequeue(queue)
     })
-    const adapter = createTestChatAdapter()
+    const adapter = createTestChatAdapter({ deferMessageProcessing: true })
     let releasePending!: () => void
     let pending: Promise<void> | undefined = new Promise<void>((resolve) => {
       releasePending = resolve
@@ -16264,6 +16392,12 @@ describe("server helpers", () => {
       releasePending()
       await vi.waitFor(() => expect(inputs).toHaveLength(2), { timeout: 5_000 })
       expect(inputs[1]?.messages?.map((message) => message.id).sort()).toEqual(["91142", "91143"])
+      await vi.waitFor(async () => {
+        const deliveries = await handler.deliveries(chatWebhookRequest(91_143), "telegram", runtime)
+        expect(deliveries).toHaveLength(4)
+        expect(deliveries.every(delivery => delivery.invocationId && ["completed", "failed"].includes(delivery.status))).toBe(true)
+        expect(new Set(deliveries.map(delivery => delivery.invocationId)).size).toBe(2)
+      })
     } finally {
       pending = undefined
       releasePending()
@@ -16676,7 +16810,7 @@ describe("server helpers", () => {
       }
       const sideEffect = vi.fn(async () => "completed")
       // SAFETY: The test Agent fixture uses the normalized internal representation expected by the Workflow runner.
-      await expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect)).rejects.toThrow("Workflow provider operation failed")
+      await expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect)).rejects.toThrow("Workflow provider failed during create.")
       expect(sideEffect).not.toHaveBeenCalled()
       expect(await state.queueDepth(`${ownershipKey}:queue`)).toBe(0)
       expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(1)
@@ -16687,7 +16821,7 @@ describe("server helpers", () => {
       // SAFETY: The test Agent fixture uses the normalized internal representation expected by the Workflow runner.
       const recoveredAttempt = expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect))
       if (persistentOutage) {
-        await recoveredAttempt.rejects.toThrow("Workflow provider operation failed")
+        await recoveredAttempt.rejects.toThrow("Workflow provider failed during create.")
       } else {
         await recoveredAttempt.resolves.toBeUndefined()
       }
@@ -17441,7 +17575,7 @@ describe("server helpers", () => {
             | { message?: { settlementError?: string; settlementStatus?: string } }
             | null
           expect(failedPending?.message).toMatchObject({
-            settlementError: "Workflow provider operation failed.",
+            settlementError: expect.stringContaining("Workflow provider failed during create."),
             settlementStatus: "failed",
           })
           const sideEffect = vi.fn(async () => "must not run")
@@ -17615,7 +17749,7 @@ describe("server helpers", () => {
         | { message?: { settlementError?: string; settlementStatus?: string } }
         | null
       expect(pending?.message).toMatchObject({
-        settlementError: "Workflow provider operation failed.",
+        settlementError: expect.stringContaining("Workflow provider failed during create."),
         settlementStatus: "failed",
       })
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -17925,7 +18059,7 @@ describe("server helpers", () => {
 
     try {
       const response = await handler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({
             update_id: messageId,
             message: { chat: { id: 456, type: "private" }, date: 1781092800, from: { first_name: "Maxi", id: 123, username: "maxi" }, message_id: messageId, text: "hello" },
@@ -18510,10 +18644,10 @@ describe("server helpers", () => {
       expect(successor?.events).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            error: "Workflow provider operation failed.",
+            error: expect.stringContaining("Workflow provider failed during create."),
             type: "invocation.failed",
           }),
-          expect.objectContaining({ error: "Workflow provider operation failed.", type: "failed" }),
+          expect.objectContaining({ error: expect.stringContaining("Workflow provider failed during create."), type: "failed" }),
         ]),
       )
       expect(errorFallbackText).toHaveBeenCalledOnce()
@@ -18948,7 +19082,7 @@ describe("server helpers", () => {
           },
           waitUntil: (task) => waitUntilTasks.push(task),
         }),
-      ).rejects.toThrow("Workflow provider operation failed")
+      ).rejects.toThrow("Workflow provider failed during create.")
 
       expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined, { initiatorUserId: "123", messageId: "91108" })
       await expect(
@@ -19216,6 +19350,7 @@ describe("server helpers", () => {
     })
     let remoteOwner: Awaited<ReturnType<typeof state.acquireLock>> = null
     let steeredPrompt: string | undefined
+    let firstRunId: string | undefined
     let releaseFirst!: () => void
     const firstReleased = new Promise<void>(resolve => { releaseFirst = resolve })
     const agent = defineAgent({
@@ -19233,6 +19368,7 @@ describe("server helpers", () => {
           const runId = ownedAgentInvocationControlId(context)
           if (!runId) throw new Error("Expected a Channel-owned invocation control ID")
           expect(runId).toBe(context.run?.runId)
+          firstRunId ??= runId
           const unregister = registerAgentInvocationInputHandler(runId, {
             async sendInput(input, options) {
               if (options.mode !== "steer") return "unsupported"
@@ -19256,7 +19392,7 @@ describe("server helpers", () => {
       hooks: { "agent:finish": event => event.reply("Steered reply") },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
-    const request = (messageId: number, threadId = 456) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
+    const request = (messageId: number, threadId = 456) => new Request("https://example.com/_vitehub/agents/support/webhooks/channel", {
       body: JSON.stringify({
         update_id: messageId,
         message: {
@@ -19290,7 +19426,7 @@ describe("server helpers", () => {
       await driverStarted.promise
       expect(runs).toBe(1)
       const pollingTimer = vi.spyOn(globalThis, "setTimeout")
-      const otherInvoker = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
+      const otherInvoker = handler(new Request("https://example.com/_vitehub/agents/support/webhooks/channel", {
         body: JSON.stringify({ update_id: 91_108, message: {
           chat: { id: 458, type: "private" },
           from: { id: 456, username: "other" },
@@ -19405,6 +19541,8 @@ describe("server helpers", () => {
       expect(followUpDelivery?.events.filter(event => event.type === "completed" || event.type === "failed").map(event => event.type)).toEqual(timeoutAcceptance ? ["failed", outcome] : [outcome])
       expect(runs).toBe(lateResult ? 3 : 2)
       expect(steeredPrompt).toBe("hello")
+      // A late decline runs the follow-up after the active run, and the delivery record says why.
+      if (lateResult) expect(followUpDelivery?.events.filter(event => event.type === "steer.deferred").map(({ reason, runId }) => ({ reason, runId }))).toEqual([{ reason: lateResult, runId: firstRunId }])
     } finally {
       evidenceReleased.resolve()
       acceptance.resolve()
@@ -19562,6 +19700,113 @@ describe("server helpers", () => {
     }
   }, 10_000)
 
+  it.each([
+    { outcome: "accepted", reason: undefined, result: "accepted" },
+    { outcome: "deferred", reason: "unsupported", result: "unsupported" },
+    { outcome: "deferred", reason: "attachments", result: "unsupported" },
+    { outcome: "failed", reason: "invalid-state", result: "invalid-state" },
+    { outcome: "failed", reason: "Driver rejected input", result: "throw" },
+  ] as const)("records a $outcome steer attempt on the running Invocation", async ({ outcome, reason, result }) => {
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
+    const state = createLibsqlAgentState({ url: ":memory:" })
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const released = deferred<void>()
+    const observationStarted = deferred<void>()
+    const writeObservation = deferred<void>()
+    const appendObservation = invocations.appendObservation.bind(invocations)
+    vi.spyOn(invocations, "appendObservation").mockImplementation(async (...args) => {
+      if (args[1].name === "agent.input.steer") {
+        observationStarted.resolve()
+        await writeObservation.promise
+      }
+      return await appendObservation(...args)
+    })
+    let runs = 0
+    // The Driver records nothing about the steer input, so the record comes from the route.
+    const sendInput = vi.fn(async () => {
+      if (result === "throw") throw new Error(reason)
+      if (reason === "attachments") return { outcome: result, reason }
+      return result
+    })
+    const handler = createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => createTestChatAdapter() as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, state, timeout: 500 },
+        }),
+      },
+      driver: {
+        async run(context) {
+          runs += 1
+          const runId = context.run?.runId
+          if (!runId) throw new Error("Expected an invocation run ID")
+          const unregister = registerAgentInvocationInputHandler(runId, { sendInput, support: { steer: true } })
+          try {
+            if (runs === 1) await released.promise
+            return "Reply"
+          } finally {
+            unregister()
+          }
+        },
+      },
+      invocations,
+    }) as never)
+    const tasks: Promise<unknown>[] = []
+    const context = { agentIdentity: { name: "calories" }, waitUntil: (task: Promise<unknown>) => { tasks.push(task) } }
+    const request = (messageId: number, text?: string) => {
+      const value = chatWebhookRequest(messageId, 456, text)
+      value.headers.set("x-vitehub-delivery-id", String(messageId))
+      return value
+    }
+    const pending: Promise<Response>[] = []
+    try {
+      await state.connect()
+      pending.push(handler(request(91_200), "telegram", context))
+      await vi.waitFor(() => expect(runs).toBe(1))
+      const followUpResponse = handler(request(91_201, "Use the k8s values"), "telegram", context)
+      pending.push(followUpResponse)
+      const response = result === "throw" ? expect(followUpResponse).rejects.toThrow(reason) : expect(followUpResponse).resolves.toMatchObject({ status: 200 })
+      void response.catch(() => undefined)
+      await observationStarted.promise
+      if (result !== "unsupported") await response
+      released.resolve()
+      await response
+      await pending[0]
+      if (result === "accepted") {
+        const delivery = (await handler.deliveries(request(91_201), "telegram", context)).find(item => item.sourceId === "91201")
+        expect(delivery).toMatchObject({ invocationId: expect.any(String), status: "completed" })
+        expect(delivery?.events.some(event => event.type === "failed")).toBe(false)
+      }
+      writeObservation.resolve()
+      while (tasks.length) await Promise.all(tasks.splice(0))
+      const records = await Promise.all((await invocations.list()).invocations.map(async summary => await invocations.get(summary.id)))
+      const target = records.find(record => record?.observations.some(item => item.attributes?.["channel.delivery.source.id"] === "91200"))
+      const steers = records.flatMap(record => record?.observations.filter(item => item.name === "agent.input.steer") ?? [])
+      expect(steers).toHaveLength(1)
+      expect(target?.observations.filter(item => item.name === "agent.input.steer")).toEqual([
+        expect.objectContaining({
+          attributes: expect.objectContaining({
+            "channel.delivery.id": expect.any(String),
+            "input.steer.messageId": "91201",
+            "input.steer.outcome": outcome,
+            ...reason ? { "input.steer.reason": reason } : {},
+          }),
+        }),
+      ])
+      const followUp = (await handler.deliveries(request(91_201), "telegram", context)).find(delivery => delivery.sourceId === "91201")
+      expect(steers[0]?.attributes?.["channel.delivery.id"]).toBe(followUp?.id)
+      if (outcome === "deferred") expect(followUp?.events).toContainEqual(expect.objectContaining({ reason, type: "steer.deferred" }))
+    } finally {
+      released.resolve()
+      writeObservation.resolve()
+      await Promise.allSettled(pending)
+      await Promise.allSettled(tasks)
+      await state.disconnect()
+    }
+  })
+
   it.each(["unsupported", "unavailable"] as const)("coalesces duplicate late %s steering fallbacks", async (result) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -19684,7 +19929,7 @@ describe("server helpers", () => {
         },
       },
     }) as never))
-    const request = (messageId: number) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
+    const request = (messageId: number) => new Request("https://example.com/_vitehub/agents/support/webhooks/channel", {
       body: JSON.stringify({ update_id: messageId, message: {
         chat: { id: 456, type: "private" },
         from: { id: 123, username: "maxi" },
@@ -19747,7 +19992,7 @@ describe("server helpers", () => {
         },
       },
     }) as never))
-    const request = (messageId: number, chatId: number) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
+    const request = (messageId: number, chatId: number) => new Request("https://example.com/_vitehub/agents/support/webhooks/channel", {
       body: JSON.stringify({ update_id: messageId * 1000 + chatId, message: {
         chat: { id: chatId, type: "private" },
         from: { id: 123, username: "maxi" },
@@ -20334,7 +20579,7 @@ describe("server helpers", () => {
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (messageId: number, isMention = false) =>
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           message: {
             chat: { id: 456, type: "group" },
@@ -21962,7 +22207,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    const request = new Request("https://example.com/api/_vitehub/agents/mini/webhooks/telegram", {
+    const request = new Request("https://example.com/_vitehub/agents/mini/webhooks/telegram", {
       body: JSON.stringify({
         message: {
           chat: { id: 456, type: "private" },
@@ -23032,7 +23277,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 45,
           message: {
@@ -23086,7 +23331,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (messageId: number, text: string) =>
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: messageId,
           message: {
@@ -23186,7 +23431,7 @@ describe("server helpers", () => {
     })
     // SAFETY: The Agent Definition is valid for the internal webhook route.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+    const response = await handler(new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
       body: JSON.stringify({ threadId: "telegram:456" }),
       headers: { "content-type": "application/json", "x-test-secret": "history-secret", "x-vitehub-channel-history": "1" },
       method: "POST",
@@ -23239,7 +23484,7 @@ describe("server helpers", () => {
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
-    const webhookUrl = "https://example.com/api/_vitehub/agents/calories/webhooks/telegram"
+    const webhookUrl = "https://example.com/_vitehub/agents/calories/webhooks/telegram"
     await expect(
       handler(
         new Request(webhookUrl, {
@@ -23516,7 +23761,7 @@ describe("server helpers", () => {
 
     await expect(
       handler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({
             update_id: 22,
             message: {
@@ -23577,7 +23822,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (updateId: number, text?: string) =>
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: updateId,
           message: {
@@ -23605,7 +23850,7 @@ describe("server helpers", () => {
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const runs: string[][] = []
     const request = (messageId: number, text: string) =>
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: messageId,
           message: {
@@ -23717,7 +23962,7 @@ describe("server helpers", () => {
       const handler = createChannelWebhookRouteHandler(agent as never)
 
       const response = await handler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({
             update_id: 41,
             message: {
@@ -23811,7 +24056,7 @@ describe("server helpers", () => {
       const handler = createChannelWebhookRouteHandler(agent as never)
 
       const response = await handler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({
             update_id: 42,
             message: {
@@ -23875,7 +24120,7 @@ describe("server helpers", () => {
 
     try {
       const response = await handler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({
             update_id: 46,
             message: {
@@ -23957,7 +24202,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 47,
           message: {
@@ -24038,7 +24283,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 88,
           message: {
@@ -24117,7 +24362,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/support", {
         body: JSON.stringify({
           update_id: 89,
           message: {
@@ -24185,7 +24430,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 1889,
           message: {
@@ -24242,7 +24487,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/support", {
         body: JSON.stringify({
           update_id: 1888,
           message: {
@@ -24309,7 +24554,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/support", {
         body: JSON.stringify({
           update_id: 1887,
           message: {
@@ -24392,7 +24637,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/support", {
         body: JSON.stringify({
           update_id: 1989,
           message: {
@@ -24500,7 +24745,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const responsePromise = handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 89,
           message: {
@@ -24594,7 +24839,7 @@ describe("server helpers", () => {
 
     try {
       const response = await handler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({
             update_id: 90,
             message: {
@@ -24681,7 +24926,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const responsePromise = handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 48,
           message: {
@@ -24767,7 +25012,7 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     const response = await handler(
-      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 43,
           message: {
@@ -24856,7 +25101,7 @@ describe("server helpers", () => {
 
     try {
       const response = await handler(
-        new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
           body: JSON.stringify({
             update_id: 42,
             message: {
@@ -24909,7 +25154,7 @@ describe("server helpers", () => {
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
     const body = JSON.stringify({ update_id: 987_654_321 })
-    const url = "https://example.com/api/_vitehub/agents/support/webhooks/telegram"
+    const url = "https://example.com/_vitehub/agents/support/webhooks/telegram"
     const options = { agentName: "support", state: () => state }
 
     try {

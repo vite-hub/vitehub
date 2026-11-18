@@ -11,8 +11,9 @@ import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, with
 import * as esbuild from "@vite-hub/internal/build/esbuild"
 import * as providerSources from "@vite-hub/internal/build/provider-output-sources"
 import { createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
+import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
 
-import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, generateProviderOutputsWithinLock, resolveScheduleDefinitionEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
+import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, generateProviderOutputsWithinLock, resolveSchedulePublicEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
 import { discoverScheduleDefinitions } from "../src/discovery.ts"
 
 const hostedConsoleLink = (project: string, path: string): string => `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
@@ -405,6 +406,33 @@ describe("schedule provider output", () => {
     await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("unwrapScheduleDefinition")
   })
 
+  it("emits schedule.failed from the generated Cloudflare cron entry when a listener is installed", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-failure-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 0 * * *', handler: () => { throw new Error('Cleanup failed') } })",
+    ].join("\n"))
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    const entry = join(createDefaultCloudflareOutputRoot(rootDir), "index.js")
+    const { default: worker } = await import(pathToFileURL(entry).href)
+    const listener = vi.fn()
+    const stop = onRunFailed(listener)
+    try {
+      await expect(worker.scheduled({ cron: "0 0 * * *", scheduledTime: Date.parse("2026-11-18T00:00:00Z") }, {}, { waitUntil: vi.fn() }))
+        .rejects.toThrow("Cleanup failed")
+      expect(listener).toHaveBeenCalledExactlyOnceWith({
+        event: "schedule.failed",
+        schedule: "cleanup",
+        runId: "run_cleanup_2026-11-18T00:00:00.000Z",
+        error: { message: "Cleanup failed" },
+        failedAt: expect.any(String),
+      })
+    }
+    finally {
+      stop()
+    }
+  })
+
   it("preserves Node built-ins for the Cloudflare runtime", async () => {
     const rootDir = await createTempProject("vitehub-schedule-cloudflare-node-builtins-")
     await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
@@ -572,6 +600,34 @@ describe("schedule provider output", () => {
     expect(source).toContain("unwrapScheduleDefinition")
     expect(source).not.toContain("./registry.mjs")
     expect(source).toContain("handler: () => \"ok\"")
+  })
+
+  it("bundles Schedules that import vite-hub/schedule into the Deno cron output", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-deno-facade-")
+    await writeFile(join(rootDir, "src", "heartbeat.schedule.ts"), [
+      "import { defineSchedule } from 'vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 0 * * *', handler: () => 'ok' })",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", host: "deno", rootDir })
+
+    const source = await readFile(join(rootDir, ".vitehub", "schedule", "deno-cron.mjs"), "utf8")
+    expect(source).toContain("handler: () => \"ok\"")
+    expect(source).not.toContain("\"vite-hub/schedule\"")
+  })
+
+  it.each(["vite-hub/schedule", "@vite-hub/schedule"])("preserves runtime helpers imported from %s in Deno output", async (specifier) => {
+    const rootDir = await createTempProject("vitehub-schedule-deno-runtime-")
+    await writeFile(join(rootDir, "src", "heartbeat.schedule.ts"), [
+      `import { defineSchedule, startSchedule } from '${specifier}'`,
+      "export default defineSchedule({ cron: '0 0 * * *', handler: () => startSchedule('reminder', { at: '2026-12-01T00:00:00Z', payload: {} }) })",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", host: "deno", rootDir })
+
+    const source = await readFile(join(rootDir, ".vitehub", "schedule", "deno-cron.mjs"), "utf8")
+    expect(source).toContain('startSchedule("reminder"')
+    expect(source).not.toContain('"vite-hub/schedule"')
   })
 
   it("registers shifted and declared weekdays with Deno weekday names", async () => {
@@ -1046,11 +1102,11 @@ describe("schedule provider output", () => {
     expect(() => validateProviderCron("0 0 1 * 1", "cleanup")).toThrow(/provider wake output only supports five-field UTC cron syntax/)
   })
 
-  it("resolves the private schedule definition from the declared package root", () => {
-    expect(resolveScheduleDefinitionEntry((specifier) => {
+  it("resolves the public Schedule entry from the declared package root", () => {
+    expect(resolveSchedulePublicEntry((specifier) => {
       expect(specifier).toBe("@vite-hub/schedule/package.json")
       return "file:///repo/node_modules/@vite-hub/schedule/package.json"
-    })).toBe("/repo/node_modules/@vite-hub/schedule/dist/definition.js")
+    })).toBe("/repo/node_modules/@vite-hub/schedule/dist/index.js")
   })
 
   it("writes Cloudflare schedule output to an existing Wrangler main", async () => {

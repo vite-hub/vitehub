@@ -174,7 +174,7 @@ export default defineConfig({
 
 The default is 0, which stops work at once. Set the host's termination grace period above the budget plus 25 seconds (15 for interrupted work such as a Chat restart notice, 10 for close hooks), such as 90 seconds for a 45-second budget.
 
-The [systemd unit](/docs/frameworks-hosts/node-self-hosted#run-the-server-with-systemd) that the `node` host writes sets `TimeoutStopSec` from `shutdown.drainMs`.
+The [systemd unit](/docs/frameworks-hosts/node-self-hosted#run-the-server-with-systemd) that the `node` host writes sets `TimeoutStopSec` from `shutdown.drainMs`. The [Dockerfile](/docs/frameworks-hosts/node-self-hosted#run-the-server-with-docker) shows the build-time default for `docker run --stop-timeout`. If you set `VITEHUB_SHUTDOWN_DRAIN_MS` at runtime, round that budget up to seconds and add 30 for Docker's timeout.
 
 ViteHub handles stop signals only where the Nitro server does: the `node`, `node-cluster`, `bun`, and `deno` presets. In development, during prerender, on serverless and Cloudflare hosts, and when graceful shutdown is off (srvx turns it off when `CI` or `TEST` is set), the signal keeps its default behavior, and drains run only when Nitro calls its `close` hooks.
 
@@ -186,7 +186,7 @@ ViteHub handles stop signals only where the Nitro server does: the `node`, `node
 
 A fresh process builds trigger registrations, resolves webhook secrets, and connects and migrates Agent State on its first webhook delivery, which waits for it. Some providers do not wait long: GitHub closes the connection after 10 seconds and does not resend.
 
-With libSQL or SQLite Agent State, the generated webhook queue plugin calls `handler.warm()` for every Agent one second after startup, so Agent routes do not compile during the first requests. A request that loads the Agent routes, such as a webhook delivery or a ready-route call, starts warm-up at once. `/api/_vitehub/ready` reports the result:
+With libSQL or SQLite Agent State, the generated webhook queue plugin calls `handler.warm()` for every Agent one second after startup, so Agent routes do not compile during the first requests. A request that loads the Agent routes, such as a webhook delivery or a ready-route call, starts warm-up at once. `/_vitehub/ready` reports the result:
 
 | State | Status | Body |
 | --- | --- | --- |
@@ -201,7 +201,7 @@ Point a Kubernetes readiness probe at the route so the Service sends traffic onl
 ```yaml [deployment.yaml]
 readinessProbe:
   httpGet:
-    path: /api/_vitehub/ready
+    path: /_vitehub/ready
     port: 3000
   periodSeconds: 2
   failureThreshold: 1

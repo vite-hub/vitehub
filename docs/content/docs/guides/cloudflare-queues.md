@@ -7,7 +7,7 @@ navigation.group: Server work
 icon: i-simple-icons-cloudflare
 ---
 
-Set `host: 'cloudflare'` and `queue: true` in `vitehub()`, and add one file per queue in `server/queues/`. A route calls `sendQueue()` to send a job. The build writes each queue's producer binding and consumer into `.output/server/wrangler.json`. `vitehub provision run` creates the queues, and the same Worker runs the handler when Cloudflare delivers a batch.
+Set `host: 'cloudflare'` in `vitehub()`, and add one file per queue in `server/queues/`. The files turn Queue on. A route calls `sendQueue()` to send a job. The build writes each queue's producer binding and consumer into `.output/server/wrangler.json`. `vitehub provision run` creates the queues, and the same Worker runs the handler when Cloudflare delivers a batch.
 
 ## What Cloudflare Queues is
 
@@ -29,7 +29,7 @@ pnpm add -D wrangler
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'cloudflare', queue: true },
+  vitehub: { host: 'cloudflare' },
 })
 ```
 :::
@@ -41,7 +41,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'cloudflare', queue: true }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare' }), nitro()],
 })
 ```
 :::
@@ -52,7 +52,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'cloudflare', queue: true })],
+  plugins: [vitehub({ host: 'cloudflare' })],
 })
 ```
 :::
@@ -78,13 +78,13 @@ Cloudflare can deliver the same message twice. A handler that sends mail or char
 ### Send a job from a route
 
 ```ts [server/api/signup.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { sendQueue } from 'vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email?: unknown }>(event)
   if (typeof body?.email !== 'string' || !body.email.trim()) {
-    throw createError({ statusCode: 400, message: 'Send a non-empty email.' })
+    throw new HTTPError({ status: 400, message: 'Send a non-empty email.' })
   }
 
   const [error, result] = await sendQueue('welcome-email', { email: body.email.trim() }, {

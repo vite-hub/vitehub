@@ -15,8 +15,8 @@ In this tutorial, you write a Markdown file, search it with `rg`, and return the
 > [!NOTE] Before you start
 > Use the app from [Installation](/docs/getting-started/installation). Run every command from the app root. You need no account. This tutorial uses Just Bash, which runs the commands inside your server process, only on the files you give it. It is not a separate machine. To run other programs in isolation, use [Sandbox](/docs/sandbox).
 
-::tutorial-step{title="Install and configure"}
-## Install and configure
+::tutorial-step{title="Install and define a Workspace"}
+## Install and define a Workspace
 
 Shell runs its commands on the files of a Workspace. A Workspace is a folder of files that your server can read and write.
 
@@ -26,44 +26,7 @@ Install Shell and Workspace:
 pnpm add @vite-hub/shell @vite-hub/workspace valibot
 ```
 
-Add `workspace: true` to the ViteHub options of your app. Keep the other options of your app. Shell needs no option, because your route creates it.
-
-:::tabs{sync="framework"}
-::::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', workspace: true },
-})
-```
-::::
-
-::::tabs-item{label="Nitro"}
-```ts [vite.config.ts]
-import { nitro } from 'nitro/vite'
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ host: 'node', workspace: true }), nitro()],
-})
-```
-::::
-
-::::tabs-item{label="Vite"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ host: 'node', workspace: true })],
-})
-```
-::::
-:::
-
-
-Create `server/workspaces/docs.ts`. This is the `docs` Workspace that holds your file:
+Create `server/workspaces/docs.ts`. This is the `docs` Workspace that holds your file. The file turns Workspace on, and Shell needs no option, because your route creates it:
 
 ```ts [server/workspaces/docs.ts]
 import { defineWorkspace } from 'vite-hub/workspace'
@@ -76,7 +39,7 @@ export default defineWorkspace({
 })
 ```
 
-- `provider: 'memory'` keeps the files in memory. A server restart loses them.
+- `driver: 'memory'` keeps the files in memory. A server restart loses them.
 - `write: true` lets your route write Markdown files to the Workspace.
 
 ::

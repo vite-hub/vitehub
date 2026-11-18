@@ -2,12 +2,12 @@
 title: Schedule
 layout: landing
 navigation.title: Overview
-description: Run server code at set times, as cron on Cloudflare, Vercel, Deno, or a long-running Node process.
+description: Run server code at set times, as cron on Cloudflare, Vercel, Netlify, or a long-running Node process.
 navigation.order: 1
 icon: i-lucide-calendar-clock
 ---
 
-::product-hero{tagline="Run server code at set times. One file deploys as cron on your host." hosts="Cloudflare, Vercel, Deno, Node, Docker"}
+::product-hero{tagline="Run server code at set times. One file deploys as cron on your host." hosts="Cloudflare, Vercel, Netlify, Node, Docker"}
   :hero-figure{name="schedule"}
 ::
 
@@ -35,7 +35,7 @@ export default defineNuxtConfig({
     // Keeps Schedule Run history across restarts
     kv: true,
     // Checks for due schedules every minute
-    schedule: { runtime: { driver: 'process' } },
+    schedule: true,
   },
 })
 ```
@@ -53,7 +53,7 @@ export default defineConfig({
       // Keeps Schedule Run history across restarts
       kv: true,
       // Checks for due schedules every minute
-      schedule: { runtime: { driver: 'process' } },
+      schedule: true,
     }),
     nitro(),
   ],
@@ -72,7 +72,7 @@ export default defineConfig({
       // Keeps Schedule Run history across restarts
       kv: true,
       // Checks for due schedules every minute
-      schedule: { runtime: { driver: 'process' } },
+      schedule: true,
     }),
   ],
 })

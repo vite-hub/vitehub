@@ -1,12 +1,14 @@
 import { signWebhook } from "@vite-hub/env"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import { isWebhookDefinition } from "./define.ts"
 import { webhooksErrors } from "./errors.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
-import type { WebhookDefinition, WebhookSignature } from "./define.ts"
+import type { RunFailedEvent } from "@vite-hub/runtime/internal/run-failed"
+import type { WebhookDefinition, WebhookEvent, WebhookSignature } from "./define.ts"
 import type { ListWebhookDeliveriesOptions, WebhookDelivery, WebhookDeliveryStore, WebhooksDatabase } from "./database.ts"
 import type { SendWebhookErrorCode, WebhookDeliveryErrorCode } from "./errors.ts"
 
@@ -55,9 +57,13 @@ export interface WebhookInfo {
   secret: string
   signature: WebhookSignature
   debounceMs: number
+  /** The events that ViteHub sends to this webhook by itself. */
+  events: readonly WebhookEvent[]
   /** Whether this server has a value for `url` and for `secret`. */
   urlSet: boolean
   secretSet: boolean
+  /** The host of the URL, such as `t3.example.com`, when it is set and valid. Never the path or the query, which can hold a token. */
+  host: string | null
 }
 
 /** What `sendWebhook()` returns. `id` is the delivery: sends that a debounce collapses return the same id. */
@@ -89,7 +95,47 @@ export function installWebhooks(options: InstallWebhooksOptions): InstalledWebho
   }
   const installed: InstalledWebhooks = { webhooks, store: options.store, wake: options.wake }
   Reflect.set(globalThis, installedKey, installed)
+  if (!Reflect.get(globalThis, listenerKey)) Reflect.set(globalThis, listenerKey, onRunFailed(sendRunFailed))
   return installed
+}
+
+const listenerKey = Symbol.for("vitehub.webhooks.runFailedListener")
+
+/**
+ * The body of an event that ViteHub sends by itself, such as `workflow.failed`. `text` is one line that a person reads,
+ * so a Slack incoming webhook shows it as the message.
+ */
+export type WebhookEventBody = RunFailedEvent & { text: string }
+
+/** The Agent, Workflow, or Schedule that failed: the key that collapses repeated failures of it while a debounce waits. */
+function failedSubject(event: RunFailedEvent): string {
+  if (event.event === "invocation.failed") return event.agent ?? event.invocationId
+  return event.event === "workflow.failed" ? event.workflow : event.schedule
+}
+
+function toWebhookEventBody(event: RunFailedEvent): WebhookEventBody {
+  const subject = event.event === "invocation.failed"
+    ? `The Agent Invocation ${event.invocationId}${event.agent ? ` of ${JSON.stringify(event.agent)}` : ""}`
+    : event.event === "workflow.failed"
+      ? `The Workflow run ${event.runId} of ${JSON.stringify(event.workflow)}`
+      : `The Schedule run ${event.runId} of ${JSON.stringify(event.schedule)}`
+  return { ...event, text: `${subject} failed: ${event.error.message}` }
+}
+
+/**
+ * Sends a failed run to each webhook that lists its event. With a debounce, failures of the same Agent, Workflow, or
+ * Schedule collapse into one delivery that holds the last failure, and `x-vitehub-events` counts them.
+ */
+async function sendRunFailed(event: RunFailedEvent): Promise<void> {
+  const installed = installedWebhooks()
+  if (!installed) return
+  const body = toWebhookEventBody(event)
+  for (const [name, definition] of installed.webhooks) {
+    if (!definition.events.includes(event.event)) continue
+    const key = definition.debounceMs > 0 ? `${event.event}:${failedSubject(event)}` : null
+    const [error] = await enqueue(name, body, { event: event.event, key, delayMs: definition.debounceMs })
+    if (error) console.error(`[vitehub] The webhook ${name} did not store the ${event.event} event.`, error)
+  }
 }
 
 function requireInstalled(): InstalledWebhooks {
@@ -152,8 +198,8 @@ async function wake(installed: InstalledWebhooks, delivery: { id: string, revisi
   }
 }
 
-/** Sends a body to a webhook. `sendWebhook()` of `@vite-hub/webhooks` calls it with a typed name. */
-export async function sendDynamicWebhook(name: string, body: unknown, options: { event: string, key?: string }): Promise<Result<SendWebhookResult, SendWebhookErrorCode>> {
+/** Stores a delivery of `body` and wakes the Queue after `delayMs`. A `null` key never collapses with another send. */
+async function enqueue(name: string, body: unknown, options: { event: string, key: string | null, delayMs: number }): Promise<Result<SendWebhookResult, SendWebhookErrorCode>> {
   const installed = requireInstalled()
   const definition = installed.webhooks.get(name)
   if (!definition) throw webhooksErrors.WEBHOOKS_NOT_FOUND({ name: JSON.stringify(name) })
@@ -173,10 +219,10 @@ export async function sendDynamicWebhook(name: string, body: unknown, options: {
     recorded = await installed.store.record({
       id: createDeliveryId(),
       webhook: name,
-      key: definition.debounceMs > 0 ? options.key ?? name : null,
+      key: options.key,
       event: options.event,
       body: text,
-      dueAt: now + definition.debounceMs,
+      dueAt: now + options.delayMs,
       now,
     })
   }
@@ -184,9 +230,27 @@ export async function sendDynamicWebhook(name: string, body: unknown, options: {
     if (webhooksErrors.WEBHOOKS_STORE_FAILED.is(error) || webhooksErrors.WEBHOOKS_DATABASE_MISSING.is(error)) return [error, undefined]
     throw error
   }
-  const wakeError = await wake(installed, { ...recorded, webhook: name }, definition.debounceMs)
+  const wakeError = await wake(installed, { ...recorded, webhook: name }, options.delayMs)
   if (wakeError) return [wakeError, undefined]
   return [undefined, { id: recorded.id, status: "pending" }]
+}
+
+/** Sends a body to a webhook. `sendWebhook()` of `@vite-hub/webhooks` calls it with a typed name. */
+export async function sendDynamicWebhook(name: string, body: unknown, options: { event: string, key?: string }): Promise<Result<SendWebhookResult, SendWebhookErrorCode>> {
+  const debounceMs = requireInstalled().webhooks.get(name)?.debounceMs ?? 0
+  return enqueue(name, body, { event: options.event, key: debounceMs > 0 ? options.key ?? name : null, delayMs: debounceMs })
+}
+
+/** The event of a test delivery. */
+export const webhookTestEvent = "webhooks.test"
+
+/**
+ * Sends a test delivery to a webhook now, without its debounce and apart from the pending sends, with the event
+ * `webhooks.test`. Use it to check the URL, the secret, and the receiver. The default body is
+ * `{ test: true, webhook: name }`. An unknown name throws.
+ */
+export async function testWebhook(name: string, options: { body?: unknown } = {}): Promise<Result<SendWebhookResult, SendWebhookErrorCode>> {
+  return enqueue(name, options.body === undefined ? { test: true, webhook: name } : options.body, { event: webhookTestEvent, key: null, delayMs: 0 })
 }
 
 function isWake(value: unknown): value is WebhookWake {
@@ -304,15 +368,20 @@ async function attempt<T>(run: (installed: InstalledWebhooks) => Promise<T>): Pr
 export function listWebhooks(): WebhookInfo[] {
   const installed = requireInstalled()
   const env = serverEnv()
-  return [...installed.webhooks].sort(([left], [right]) => left.localeCompare(right)).map(([name, definition]) => ({
-    name,
-    url: definition.url,
-    secret: definition.secret,
-    signature: definition.signature,
-    debounceMs: definition.debounceMs,
-    urlSet: readString(env, definition.url) !== undefined,
-    secretSet: readString(env, definition.secret) !== undefined,
-  }))
+  return [...installed.webhooks].sort(([left], [right]) => left.localeCompare(right)).map(([name, definition]) => {
+    const url = readString(env, definition.url)
+    return {
+      name,
+      url: definition.url,
+      secret: definition.secret,
+      signature: definition.signature,
+      debounceMs: definition.debounceMs,
+      events: definition.events,
+      urlSet: url !== undefined,
+      secretSet: readString(env, definition.secret) !== undefined,
+      host: url !== undefined && URL.canParse(url) ? new URL(url).host || null : null,
+    }
+  })
 }
 
 /** Deliveries, newest first. */

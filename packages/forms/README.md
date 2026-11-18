@@ -84,7 +84,7 @@ const [error, sent] = await submitForm("contact", { email, message })
 if (error) showFieldErrors(error.issues)
 ```
 
-`submitForm()` posts JSON to `/api/_vitehub/forms/<name>` with the current page. Pass `url` for another route, `base` for an app base, and `anchor` for a selected sentence. Pass `FormData` instead of an object to send the controls of a `<form>`: the server decodes them to the schema types, as for a post without JavaScript. `fieldErrors(error)` gives the first message of each field by name, such as `{ email: "Enter a valid email." }`.
+`submitForm()` posts JSON to `/_vitehub/forms/<name>` with the current page. Pass `url` for another route, `base` for an app base, and `anchor` for a selected sentence. Pass `FormData` instead of an object to send the controls of a `<form>`: the server decodes them to the schema types, as for a post without JavaScript. `fieldErrors(error)` gives the first message of each field by name, such as `{ email: "Enter a valid email." }`.
 
 Each message has an `Idempotency-Key` header, a UUID. After a failure, a retry with the same values sends the same key, and the route stores the message with the key as its id: a retry after a lost answer gets the same `201 { id }` and stores, runs, and emails nothing again. Pass `idempotencyKey` to choose the key.
 
@@ -111,13 +111,14 @@ For your own markup, use a native `<form>` and `useFormAction()`. It sends the c
 <script setup lang="ts">
 import { Field, FieldError, FieldLabel } from "@ui-sdk/vue/field"
 import { Input } from "@ui-sdk/vue/input"
-import { formRoute, useFormAction } from "@vite-hub/forms/vue"
+import { FormHoneypot, formRoute, useFormAction } from "@vite-hub/forms/vue"
 
 const { submit, errors, sent, clear } = useFormAction("contact")
 </script>
 
 <template>
   <form method="post" :action="formRoute('contact')" @submit="submit">
+    <FormHoneypot />
     <Field name="email" :invalid="errors.email ? true : undefined">
       <FieldLabel>Email</FieldLabel>
       <Input type="email" required @value-change="clear('email')" />
@@ -128,6 +129,8 @@ const { submit, errors, sent, clear } = useFormAction("contact")
   </form>
 </template>
 ```
+
+`<FormHoneypot />` draws the honeypot field of `defineForm()`, which people do not see and bots fill. Pass `name` for another `honeypot`. When you send an object with `submitForm()`, bind it with `v-model` and send its value under the same name.
 
 `AutoForm` uses the same internals: it checks the schema in the browser on the values that the server reads, then sends the controls as form data.
 

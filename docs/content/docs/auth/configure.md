@@ -63,7 +63,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    auth: true,
     env: {
       server: {
         auth: {
@@ -89,7 +88,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    auth: true,
     env: {
       server: {
         auth: {
@@ -114,7 +112,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    auth: true,
     env: {
       server: {
         auth: {
@@ -196,7 +193,7 @@ export default defineAuth(({ env, requestOrigin }) => ({
 }))
 ```
 
-With `vite-hub`, import it from `vite-hub/auth/presets`. `maxAge` is the session lifetime, in seconds or as `'30m'`, `'12h'`, `'7d'`, or `'2w'`. The default is 7 days. The preset sets these Better Auth options:
+With `vite-hub`, import it from `vite-hub/auth/presets`. `maxAge` is the session lifetime: a number of seconds, or a duration such as `'30m'`, `'12h'`, `'7 days'`, or `'2w'`. The default is 7 days. The preset sets these Better Auth options:
 
 | Better Auth option | Value |
 | --- | --- |
@@ -487,7 +484,7 @@ export default defineAuth({
 
 An app with its own MCP server, such as `/mcp`, can use Better Auth as its OAuth 2.1 authorization server. An MCP client such as Claude Code, Codex, or Cursor then registers itself, opens the browser once, and sends a bearer token.
 
-With `vitehub({ auth: true, mcp: true })`, the [app MCP server](/docs/mcp/configure#sign-in-with-mcp-oauth) checks the token and answers the discovery documents for you. Add `mcpOAuth()` below. The other helpers are for an MCP server that you write yourself.
+With `server/auth.ts` and `vitehub({ mcp: true })`, the [app MCP server](/docs/mcp/configure#sign-in-with-mcp-oauth) checks the token and answers the discovery documents for you. Add `mcpOAuth()` below. The other helpers are for an MCP server that you write yourself.
 
 Install `@better-auth/oauth-provider` at the same version as ViteHub's `better-auth`, then add `mcpOAuth()`. It returns `jwt()`, `oauthProvider()`, and a registration guard:
 

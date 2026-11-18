@@ -76,9 +76,9 @@ export default defineConfig({
 | `blob: BlobStoreConfig` | One default store with a `driver` and its provider options. Without a driver, ViteHub picks S3 when the build has `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and `S3_BUCKET`. Otherwise it picks Cloudflare R2, Netlify Blobs, Vercel Blob, or the local filesystem from the host and runtime env. In `vite dev`, an inferred store stays local unless it sets `remote: true`. See [Use the real store in development](#use-the-real-store-in-development). |
 | `blob: { stores: Record<string, BlobStoreConfig> }` | Named stores. `stores.default` is required. |
 | `blob: { serve: false }` | No serve route. This is the default. |
-| `blob: { serve: { access: 'public' } }` | Adds a Nitro route at `/api/_vitehub/blob/**` that sends every file of the default store to anyone. |
+| `blob: { serve: { access: 'public' } }` | Adds a Nitro route at `/_vitehub/blob/**` that sends every file of the default store to anyone. |
 | `blob: { serve: { authorize: true } }` | Adds the same route, but each request needs a signed-in Auth session. |
-| `blob: { serve: { public?, authorize?, route?, store?, publicBaseUrl?, headers?, anonymous? } }` | Adds a Nitro route. Set exactly one of `access: 'public'` and `authorize: true`, or the build fails with `BLOB_C0021`. `route` defaults to `/api/_vitehub/blob` and `store` to `default`. `publicBaseUrl` changes the public URLs. `headers` adds static response headers. `anonymous: true` also sends signed-out requests to the `authorize` export. |
+| `blob: { serve: { public?, authorize?, route?, store?, publicBaseUrl?, headers?, anonymous? } }` | Adds a Nitro route. Set exactly one of `access: 'public'` and `authorize: true`, or the build fails with `BLOB_C0021`. `route` defaults to `/_vitehub/blob` and `store` to `default`. `publicBaseUrl` changes the public URLs. `headers` adds static response headers. `anonymous: true` also sends signed-out requests to the `authorize` export. |
 
 > [!WARNING]
 > The serve route sends each file from the app origin with the content type that the uploader sent. It serves HTML, SVG, XML, and multipart types in a CSP sandbox, so they run no script. A middleware `Content-Security-Policy` does not remove the sandbox. When users who are not fully trusted can upload, set `publicBaseUrl` to an origin that has no app cookies, and limit [`ensure.types`](/docs/blob/server-api#ensureblobblob-options) to the types that your app needs. Read [Serve a transformed object](/docs/blob/server-api#serve-a-transformed-object).
@@ -292,7 +292,7 @@ export default defineConfig({
 :::
 ::
 
-The route uses `/api/_vitehub/blob` by default. This path does not collide with your routes, static assets, or framework asset folders. For URLs that your users see, set `serve.route`.
+The route uses `/_vitehub/blob` by default. This path does not collide with your routes, static assets, or framework asset folders. For URLs that your users see, set `serve.route`.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -593,7 +593,7 @@ The value must be in exactly one env variable at build time. When two variables 
 | --- | --- | --- | --- |
 | `driver` | `'fs'` | Required | Local filesystem storage. |
 | `base` | `string` | `BLOB_FS_BASE` or `.vitehub/data/blob` | Storage folder. |
-| `urlBaseUrl` | `string` | None | Origin of the links that `blob.sign()` returns, such as `https://app.example`. Add the base URL of the app when it has one, such as `https://app.example/app`. Without it, the links start with `/_vitehub/blob/signed/`. |
+| `urlBaseUrl` | `string` | None | Origin of the links that `blob.sign()` returns, such as `https://app.example`. Add the base URL of the app when it has one, such as `https://app.example/app`. Without it, the links start with `/_vitehub/blob-signed/`. |
 
 Use filesystem storage on one machine with one process. Each object is the file at its pathname in the folder. Like S3 and R2, the store can hold both `docs` and `docs/a.txt`. On a serverless host, it is not durable or shared. [Signed links](/docs/blob/server-api#signed-links-of-fs-stores) need `VITEHUB_SECRET`. They work on several instances only when the instances read the same folder and have the same secret.
 

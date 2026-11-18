@@ -130,9 +130,22 @@ export interface ViteHubConsoleAuthView {
 
 export interface ViteHubConsoleAuthSection extends ViteHubConsoleSectionDescriptor<ViteHubConsoleAuthView> {}
 
+/**
+ * The webhooks of the app, their pending debounce timers, and their delivery log. The Console calls the `webhooks.*`
+ * operations of `@vite-hub/webhooks` with the Console user to list them, send a test, send a pending delivery now,
+ * cancel it, and redeliver. It has no build-time data.
+ */
+export interface ViteHubConsoleWebhooksView {
+  kind: "webhooks"
+  notice: string
+}
+
+export interface ViteHubConsoleWebhooksSection extends ViteHubConsoleSectionDescriptor<ViteHubConsoleWebhooksView> {}
+
 export type ViteHubConsoleSectionView =
   | ViteHubConsoleOperationView
   | ViteHubConsoleAuthView
+  | ViteHubConsoleWebhooksView
   | ViteHubConsoleDefinitionCatalogView
   | ViteHubConsoleRecordTableView
   | ViteHubConsoleDocumentEditorView
@@ -313,6 +326,7 @@ export interface ViteHubConsoleDocumentEditorSection<TOptions = void> extends Vi
  */
 export type ViteHubConsoleSectionContribution<TOptions = void> =
   | ViteHubConsoleAuthSection
+  | ViteHubConsoleWebhooksSection
   | ViteHubConsoleDefinitionCatalogSection<TOptions>
   | ViteHubConsoleRecordTableSection<TOptions>
   | ViteHubConsoleRuntimeRecordTableSection<TOptions>
@@ -322,6 +336,7 @@ export type ViteHubConsoleSectionContribution<TOptions = void> =
 export type ViteHubConsoleSectionContent =
   | { kind: "operation-view" }
   | { kind: "auth-management" }
+  | { kind: "webhooks" }
   | { definitions: readonly ViteHubDefinitionSummary[], kind: "definition-catalog" }
   | { kind: "record-table", records: readonly ViteHubConsoleRecord[] }
   | { collections: readonly ViteHubConsoleDocumentCollection[], kind: "document-editor", setup?: ViteHubConsoleDocumentSetup }
@@ -348,6 +363,8 @@ export interface ViteHubConsoleDocumentHint {
  * failing without a reason.
  */
 export interface ViteHubConsoleDocumentSetup {
+  /** The project has GitHub Sources but no document collections. */
+  sourceHeadsOnly?: true
   /** Present when no user can read anything because the owner has no access policy. */
   access?: ViteHubConsoleDocumentHint
   /**
@@ -1066,6 +1083,7 @@ export async function readViteHubConsoleSection<TOptions>(
   options: TOptions,
 ): Promise<ViteHubConsoleSectionContent> {
   if (section.view.kind === "auth-management") return { kind: "auth-management" };
+  if (section.view.kind === "webhooks") return { kind: "webhooks" }
   if (isViteHubConsoleDocumentEditorSection(section)) return { collections: [], kind: "document-editor" }
   if (isViteHubConsoleRuntimeSection(section)) {
     return { kind: "record-table", records: section.read ? [...await section.read(options)] : [] }

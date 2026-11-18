@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/browser",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Browser Definitions and provider-backed sessions for ViteHub.",
   "keywords": [
     "browser",
@@ -118,6 +118,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

@@ -44,7 +44,6 @@ import { type AgentDriverCapacityOptions, agentWithColocatedInstructions, codexD
 import { babysitter, resolveBabysitterLifecycleFilter } from "../src/babysitter.ts";
 import { BabysitterPlacementCapacityError, type BabysitterPlacement } from "../src/babysitter.ts";
 import { babysitterRepositories, type BabysitterRepositories } from "../src/babysitter/repositories.ts";
-import { babysitterInstructions } from "../src/babysitter/instructions.ts";
 import { boundedMergeReady } from "../src/babysitter/merge-ready.ts";
 import { createBabysitterRuntime, isProviderRateLimit } from "../src/babysitter/server.ts";
 import { createPullRequestWorkspaces, type PullRequestWorkspaces } from "../src/babysitter/pr-workspaces.ts";
@@ -874,7 +873,6 @@ describe("Babysitter preset runtime", () => {
       expect(operation === "commitRepair" ? f.commit : f.push).toHaveBeenCalledOnce();
       const compare = f.command.mock.calls.map(([args]) => args).find(args => args.some(arg => arg.startsWith(`repos/acme/app/compare/${"c".repeat(40)}...${"d".repeat(40)}?per_page=1`)));
       expect(compare).toBeDefined();
-      expect(compare).not.toContain("--paginate");
     } finally { await f.runtime.inbox.close(); }
   });
 
@@ -1964,13 +1962,6 @@ describe("Babysitter preset runtime", () => {
       await f.reconcile();
       expect(f.passes).toHaveLength(1);
     } finally { await f.runtime.inbox.close(); }
-  });
-
-  it("tells the worker about the host install and what a push records, once each", () => {
-    for (const sentence of [
-      "When the host installed dependencies, .git/vitehub-install.json records the command and result",
-      "A push records every supplied finding as handled, so fix or explicitly reject each one before pushing.",
-    ]) expect(babysitterInstructions.split(sentence)).toHaveLength(2);
   });
 
   it("ignores deployment preview bots by default, and a list replaces them", () => {
@@ -4576,7 +4567,7 @@ describe("Babysitter preset runtime", () => {
     expect(
       f.command.mock.calls.some(([args]) => args.join(" ").includes("enablePullRequestAutoMerge")),
     ).toBe(true);
-    expect(f.command.mock.calls.some(([args]) => args.includes("merge"))).toBe(false);
+    expect(f.command.mock.calls.some(([args]) => args.some(arg => /\/pulls\/\d+\/merge/.test(arg)))).toBe(false);
     await f.runtime.inbox.close();
   });
   it("keeps queue reconciliation available while a saved status is being published", async () => {

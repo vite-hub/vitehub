@@ -8,45 +8,11 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure the Vite Integration
 
-::tabs{sync="framework"}
-:::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: { workflow: true },
-})
-```
-:::
-
-:::tabs-item{label="Nitro"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ workflow: true }), nitro()],
-})
-```
-:::
-
-:::tabs-item{label="Vite"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ workflow: true })],
-})
-```
-:::
-::
-
-`workflow` takes `true` or an object with these options:
+A file or folder in `server/workflows/` turns on Workflows, so you do not add a `workflow` option. Set `workflow` to an object only to change these options, or `workflow: false` to keep Workflows off:
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `workflow` | `boolean` or `WorkflowOptions` | off, or on when `agent` is on | `true` or an object turns on Workflow discovery and host output in `vitehub()`. `false` turns it off. |
+| `workflow` | `boolean` or `WorkflowOptions` | off | `true` or an object turns on Workflow discovery and host output. Discovered Agents use the configured driver: OpenWorkflow and Cloudflare Workflows are durable; Vercel runs Agent turns inline. |
 | `driver` | `WorkflowDriver` | inferred | `cloudflare`, `vercel`, or `openworkflow`. |
 | `binding` | `string` | provider default | Binding name in generated output. |
 | `name` | `string` | workflow file name | Provider resource name. |
@@ -86,7 +52,6 @@ Use Workflow Steps only when you need parts that the provider can retry or inspe
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `id` | `string` | Static provider id for the workflow. |
 | `native` | `(context: WorkflowProviderContext) => unknown` | Durable entry for Vercel Workflow DevKit. |
 | `rootStep` | `boolean` | Wraps the handler in a root Workflow Step when the provider supports steps. `context.sleep()` in a root step throws `WORKFLOW_ROOT_STEP_SLEEP`. A folder Workflow's `index.ts` has no root step, so it can [sleep](/docs/workflows/limits-and-errors#retries-and-sleeps). |
 

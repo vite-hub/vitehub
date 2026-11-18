@@ -5,7 +5,6 @@ import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { consumedPointerEvents } from "../internal/comment-outside.ts";
 import { excerpt } from "../internal/comment-person.ts";
 import { threadRow } from "../internal/comment-row.ts";
-import { useRelativeTime } from "../internal/relative-time.ts";
 import type { AvatarStackPerson } from "./avatar-stack.ts";
 import { CommentComposer, type CommentComposerSize, type CommentComposerSubmit } from "./comment-composer.ts";
 import { CommentList, CommentToolbar } from "./comment-list.ts";
@@ -116,7 +115,6 @@ export const CommentLayer = defineComponent({
       });
     }
     const layer = ref<HTMLElement | null>(null);
-    const time = useRelativeTime();
     // The comment UI may live in a shadow root. Composers are looked up there, not in the document.
     const uiRoot = () => {
       const node = layer.value?.getRootNode();
@@ -391,12 +389,16 @@ export const CommentLayer = defineComponent({
       });
 
     // Margin placement: the width of the screen decides whether there is room for it.
-    const screenWidth = ref(typeof window === "undefined" ? 0 : window.innerWidth);
+    // The server has no screen, so the first render matches it and the width is read once mounted.
+    const screenWidth = ref(0);
     const onResize = () => {
       screenWidth.value = window.innerWidth;
       measureDraft();
     };
-    onMounted(() => window.addEventListener("resize", onResize, { passive: true }));
+    onMounted(() => {
+      screenWidth.value = window.innerWidth;
+      window.addEventListener("resize", onResize, { passive: true });
+    });
     onBeforeUnmount(() => window.removeEventListener("resize", onResize));
     const inMargin = computed(() => props.placement === "margin" && screenWidth.value >= marginMinWidth);
     // Each card in the margin is measured, so the cards under it move down when it grows, such as when it opens.
@@ -498,7 +500,7 @@ export const CommentLayer = defineComponent({
             style: { top: `${tops[index]}px` },
             type: "button",
           },
-          threadRow(thread, time),
+          threadRow(thread),
         )];
       });
       return { at, node: h("div", { "data-slot": "comment-margin" }, cards) };

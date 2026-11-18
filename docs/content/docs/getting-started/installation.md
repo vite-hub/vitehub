@@ -11,16 +11,10 @@ Set up an app with ViteHub and check that it answers a request. Every later tuto
 
 ## Prerequisites
 
-- Node.js 22.22 or newer on 22.x, 24.11 or newer on 24.x, or 26 or newer. Node.js 23, Node.js 24 before 24.11, and Node.js 25 are not supported.
+- Node.js 24.15 or newer. Nuxt 5 does not install on Node.js 25, so with Nuxt use 24.15 or newer on 24.x, or 26 or newer.
 - pnpm. The examples use pnpm. Use pnpm 11.5 or newer for the Nuxt 5 nightly alias; older versions can hang when they resolve it.
 - For Nuxt: an app on Nuxt 5, which uses Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`.
 - For Nitro: a Nitro 3 app that adds `nitro()` in `vite.config.ts`.
-
-::details{summary="Why Node.js 22.22?"}
-ViteHub uses Nitro, which needs Node.js 22.22. A package installed alone, without `vite-hub`, can need less: Queue needs 22.19, and most others 22.18.
-
-On Node.js 22, features that open a local SQLite file (a `file:` Database and Comments) print one harmless `ExperimentalWarning` for `node:sqlite`. Node.js 24 does not print it.
-::
 
 ## Set up the app
 
@@ -46,11 +40,11 @@ Add the module to `nuxt.config.ts` and put its options under `vitehub`. Keep you
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
-  vitehub: { host: "node" },
+  vitehub: {},
 })
 ```
 
-`host` tells ViteHub where the app runs. `node`, a Node.js server, fits your computer. Other hosts are `cloudflare`, `vercel`, `netlify`, and `deno`.
+ViteHub detects the host when the build runs on Cloudflare Workers Builds, Vercel, Netlify, or Deno Deploy. Elsewhere, such as on your computer, it builds for Node. See [Choose a host](/docs/frameworks-hosts#choose-a-host).
 
 Keep Nuxt's `tsconfig.json`; the module adds the ViteHub types to it. The [Nuxt guide](/docs/frameworks-hosts/nuxt) has more options.
 :::
@@ -70,11 +64,11 @@ import { nitro } from "nitro/vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [vitehub({ host: "node" }), nitro()],
+  plugins: [vitehub(), nitro()],
 })
 ```
 
-`host` tells ViteHub where the app runs. `node`, a Node.js server, fits your computer. Other hosts are `cloudflare`, `vercel`, `netlify`, and `deno`.
+ViteHub detects the host when the build runs on Cloudflare Workers Builds, Vercel, Netlify, or Deno Deploy. Elsewhere, such as on your computer, it builds for Node. See [Choose a host](/docs/frameworks-hosts#choose-a-host).
 
 The tutorials use port 3000, so set the `dev` script in `package.json` to `vite --port 3000 --strictPort`. Add `vite-hub/tsconfig` to `extends` in your `tsconfig.json`, then write the types once:
 
@@ -131,11 +125,11 @@ import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [vitehub({ host: "node" })],
+  plugins: [vitehub()],
 })
 ```
 
-`host` tells ViteHub where the app runs. `node`, a Node.js server, fits your computer. Other hosts are `cloudflare`, `vercel`, `netlify`, and `deno`.
+ViteHub detects the host when the build runs on Cloudflare Workers Builds, Vercel, Netlify, or Deno Deploy. Elsewhere, such as on your computer, it builds for Node. See [Choose a host](/docs/frameworks-hosts#choose-a-host).
 
 Create `tsconfig.json`, or add `vite-hub/tsconfig` to `extends` in yours. This gives your editor the types of the features you turn on.
 
@@ -225,7 +219,7 @@ When another installed package has a version that your `vite-hub` release does n
 
 | Feature | Add these packages |
 | --- | --- |
-| `agent` | `@vite-hub/agent @vite-hub/workflow` (Agents run on Workflow) |
+| `agent` | `@vite-hub/agent` |
 | `auth` | `@vite-hub/auth better-auth` |
 | `blob` | `@vite-hub/blob` |
 | `browser` | `@vite-hub/browser` |
@@ -255,9 +249,9 @@ When another installed package has a version that your `vite-hub` release does n
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
 
-Agent also turns on Workflow, unless you set `workflow: false`. Env is on by default. If the host cannot run a feature you turned on, the build fails. See [Frameworks and hosts](/docs/frameworks-hosts).
+Env is on by default. If the host cannot run a feature you turned on, the build fails. See [Frameworks and hosts](/docs/frameworks-hosts).
 
-Some hosts and providers add an SDK, and the build names it in the same error. On Vercel, [Workflow](/docs/workflows/hosts) needs `@vercel/functions`, and Queue needs `@vercel/queue` and `@vercel/functions`. A Sandbox Task needs `@vercel/sandbox` on Vercel or `@cloudflare/sandbox` on Cloudflare, and also `typescript`. `queue: { provider: "postgres" }` needs `postgres`. A [native Vercel Workflow](/docs/workflows/configure#add-a-durable-vercel-entry), such as a Workflow folder, also needs `workflow` and `@workflow/builders`. When they are missing, the build stops with `WORKFLOW_R0006` and prints the install command.
+Some hosts and providers add an SDK, and the build names it in the same error. On Vercel, [Workflow](/docs/workflows/hosts) needs `@vercel/functions`, and Queue needs `@vercel/queue` and `@vercel/functions`. A Sandbox Task needs `@vercel/sandbox` on Vercel or `@cloudflare/sandbox` on Cloudflare, and also `typescript`. `queue: { driver: "postgres" }` needs `postgres`. A [native Vercel Workflow](/docs/workflows/configure#add-a-durable-vercel-entry), such as a Workflow folder, also needs `workflow` and `@workflow/builders`. When they are missing, the build stops with `WORKFLOW_R0006` and prints the install command.
 ::
 
 ## Update ViteHub
@@ -265,23 +259,31 @@ Some hosts and providers add an SDK, and the build names it in the same error. O
 Move `vite-hub` and every `@vite-hub/*` package to the latest release together:
 
 ```bash [commands/update]
-pnpm update --latest vite-hub "@vite-hub/*"
+pnpm vitehub update
 ```
 
-To try a [pkg.pr.new](https://pkg.pr.new) preview, put its URLs in `package.json`, such as `https://pkg.pr.new/vite-hub/vitehub/vite-hub@<commit>`, for every ViteHub package. Then run:
+The command sets the new version in every `package.json` of the workspace, in the `overrides` and `catalog` of `pnpm-workspace.yaml`, and in npm, Yarn, and Bun overrides. Then it installs. With pnpm, it also adds `vite-hub` and `@vite-hub/*` to `minimumReleaseAgeExclude`, so a new ViteHub release installs on the day it is published, and removes the old ViteHub versions from that list.
+
+To try a [pkg.pr.new](https://pkg.pr.new) preview, pass its commit:
 
 ```bash [commands/update-preview]
-pnpm update vite-hub "@vite-hub/*"
+pnpm vitehub update --preview 01898b8
 ```
 
-A preview also accepts the npm release of each ViteHub package that it uses, so `pnpm install` can keep the npm packages from `pnpm-lock.yaml` next to the preview. `pnpm update` resolves them again and keeps the URLs. To check, run `pnpm why @vite-hub/env`. With a stale lockfile, it lists two versions:
+Each ViteHub package then points at `https://pkg.pr.new/vite-hub/vitehub/<package>@<commit>`. With pnpm, the command also sets `blockExoticSubdeps: false`, because preview packages depend on each other by URL. Run `pnpm vitehub update` again to go back to the npm release.
+
+`--dry-run` prints the changes and writes nothing. `--no-install` writes the files and prints the install command.
+
+::details{summary="Why does pnpm run `pnpm update` and not `pnpm install`?"}
+A preview also accepts the npm release of each ViteHub package that it uses, so `pnpm install` can keep the npm packages from `pnpm-lock.yaml` next to the preview. `pnpm update vite-hub "@vite-hub/*"` resolves them again and keeps the URLs. To check, run `pnpm why @vite-hub/env`. With a stale lockfile, it lists two versions:
 
 ```text [output/pnpm-why-stale.txt]
 @vite-hub/env@0.0.0-preview-156a885
 @vite-hub/env@0.1.0 peer#1f85 (2 variations)
 ```
 
-After the update command, it lists only the preview.
+After `vitehub update`, it lists only the preview.
+::
 
 ## Build for production
 

@@ -180,7 +180,7 @@ it("answers a form post without the Forms tables with the code and the fix", asy
   const store = createDrizzleFormsStore(drizzle({ client: createClient({ url: ":memory:" }) }))
   const log = vi.fn()
   const form = defineForm({ schema: v.object({ message: v.string() }) })
-  const request = (browser = false) => new Request("https://site.test/api/_vitehub/forms/review", {
+  const request = (browser = false) => new Request("https://site.test/_vitehub/forms/review", {
     method: "POST",
     headers: {
       "content-type": browser ? "application/x-www-form-urlencoded" : "application/json",

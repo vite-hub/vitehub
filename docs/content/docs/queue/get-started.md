@@ -17,17 +17,17 @@ In this tutorial, you send a welcome job from an API route, and the handler writ
 >
 > The steps up to **Build and inspect** run on your computer, with no account. The last two steps deploy to Cloudflare. For them, you need a Cloudflare account with Queues, permission to create a queue and deploy a Worker, and access to Worker logs. These steps create real Cloudflare resources, and they can cost money.
 
-::tutorial-step{title="Enable Queue for Cloudflare"}
-## Enable Queue for Cloudflare
+::tutorial-step{title="Build for Cloudflare"}
+## Build for Cloudflare
 
-In `nuxt.config.ts` or `vite.config.ts`, change the ViteHub options to use Cloudflare and turn on Queue. Keep the other options of your app.
+In `nuxt.config.ts` or `vite.config.ts`, change the ViteHub options to use Cloudflare. Keep the other options of your app.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'cloudflare', queue: true },
+  vitehub: { host: 'cloudflare' },
 })
 ```
 ::::
@@ -40,7 +40,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ host: 'cloudflare', queue: true }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare' }), nitro()],
 })
 ```
 ::::
@@ -52,14 +52,14 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ host: 'cloudflare', queue: true })],
+  plugins: [vitehub({ host: 'cloudflare' })],
 })
 ```
 ::::
 :::
 
 - `host: 'cloudflare'` builds the app for Cloudflare. It was `node` before. If your app uses other ViteHub features, they now need their Cloudflare resources too.
-- `queue: true` turns on Queue.
+- You do not add a `queue` option. The queue file that you create in the next step turns on Queue.
 
 For Vercel, see [Queue hosts](/docs/queue/hosts). Deno has no Queue provider.
 
@@ -98,13 +98,13 @@ This handler only writes to the log. A real handler must be safe to run twice, b
 Create `server/api/welcome.post.ts`. It answers `POST /api/welcome`:
 
 ```ts [server/api/welcome.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { sendQueue } from 'vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email?: unknown }>(event)
   if (typeof body?.email !== 'string' || !body.email.trim()) {
-    throw createError({ statusCode: 400, message: 'Send a non-empty email.' })
+    throw new HTTPError({ status: 400, message: 'Send a non-empty email.' })
   }
 
   const [error, result] = await sendQueue('welcome-email', { email: body.email.trim() })
@@ -261,11 +261,11 @@ Cloudflare and Vercel do not let a producer read the queue, so there is no comma
 
 ::card-group
 :::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/queue/configure#queue-definition-options"}
-Set how many times a job runs again, and every other queue option.
+Set how many jobs run at the same time, and every other queue option.
 :::
 
 :::card{title="Server API" icon="i-lucide-code" to="/docs/queue/server-api"}
-Send jobs with a delay, an ID, or an idempotency key.
+Send jobs with a delay or an idempotency key.
 :::
 
 :::card{title="Hosts" icon="i-lucide-cloud-cog" to="/docs/queue/hosts"}

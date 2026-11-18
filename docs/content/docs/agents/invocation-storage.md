@@ -500,7 +500,9 @@ const invocations = defineAgentInvocations({
 
 The byte limit counts the UTF-8 observations array after privacy filtering, not provider output, the live trace log, or process memory. A resumed record keeps its limits.
 
-At a limit, the journal marks `observationsTruncated` and keeps lifecycle outcomes before ordinary observations, stripping large outcome content if needed. A shortened or dropped value adds `vitehub.observation.truncated: true` and the attribute names in `vitehub.observation.truncatedAttributes`. Metadata strings keep 512 characters, and `agent.run.id` the content string limit. When an input history loses only part data it does not show, such as a message header, the list names `input.messages.parts` instead of `input.messages`.
+At a limit, the journal marks `observationsTruncated` and keeps lifecycle outcomes before ordinary observations, stripping large outcome content if needed. A shortened or dropped value adds `vitehub.observation.truncated: true` and the attribute names in `vitehub.observation.truncatedAttributes`. Metadata strings keep 512 characters, and `agent.run.id` the content string limit. When an input history loses only part data it does not show, such as a deeply nested part field, the list names `input.messages.parts` instead of `input.messages`.
+
+The input history has its own budget of 256 messages and four times the content string limit. The journal fills it from the newest message back and keeps each message whole, so the messages next to the trigger survive. When older messages do not fit, it leaves them out and records `input.messages.omitted` and `input.messages.total`. `input.trigger.message` keeps the message that started the run, whole: the message with the run's `messageId`, else the last user message.
 
 `flushTimeoutMs` sets how long finish waits for queued observations. A longer drain helps a long queue of working writes, not an unavailable store.
 
@@ -586,6 +588,7 @@ vitehub agent invocations prune --max-records 1000 --max-size 2GB
 ```
 
 - Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, they use the default journal at `.vitehub/data/agent-invocations.sqlite` in the project root.
+- The CLI does not read your config. When the journal is next to a `file:` Agent State, pass that file with `--database`. The `agent-invocations` line of the boot Durability report shows the file the server uses.
 - Set `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated libSQL endpoint.
 - Durations accept `ms`, `s`, `m`, `h`, `d`, and `w`. `--older-than` defaults to `30d`.
 - With `--max-size` or `--max-records`, prune removes the oldest terminal records first, and `--older-than` applies only if passed.

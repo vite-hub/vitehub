@@ -1,5 +1,6 @@
+import { H3 } from "h3";
 import { describe, expect, it } from "vitest";
-import { getCanonicalRedirect } from "../server/middleware/canonical-url";
+import canonicalUrl, { getCanonicalRedirect } from "../server/middleware/canonical-url";
 
 function redirect(url: string, method = "GET") {
   return getCanonicalRedirect({ method, url: new URL(url) });
@@ -21,5 +22,13 @@ describe("canonical page URLs", () => {
     expect(redirect("https://vitehub.dev/")).toBeUndefined();
     expect(redirect("https://vitehub.dev/docs/queue")).toBeUndefined();
     expect(redirect("https://vitehub.dev/mcp/", "POST")).toBeUndefined();
+  });
+
+  it("answers a duplicate URL with a permanent redirect", async () => {
+    const app = new H3().use(canonicalUrl).get("/docs/queue", () => "page");
+    const response = await app.request("https://www.vitehub.dev/docs/queue/?a=1");
+    expect(response.status).toBe(301);
+    expect(response.headers.get("location")).toBe("https://vitehub.dev/docs/queue?a=1");
+    expect(await (await app.request("https://vitehub.dev/docs/queue")).text()).toBe("page");
   });
 });

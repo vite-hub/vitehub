@@ -13,7 +13,7 @@ Decisions turns what a person types into choices from a list that you give. You 
 In this tutorial, you build a filter box. A person types "nord parts except vak supply". Your page shows one supplier to include and one to exclude.
 
 > [!NOTE] Before you start
-> Use the app from the **Vite** path in [Installation](/docs/getting-started/installation). You need Node.js 22.22 or newer and pnpm.
+> Use the app from the **Vite** path in [Installation](/docs/getting-started/installation). You need Node.js 24.15 or newer and pnpm.
 >
 > Until the last step, you need no API key and no network. A small offline stand-in answers in place of the model. The last step uses a real model, which needs an API key and can cost money.
 
@@ -119,13 +119,13 @@ export const forecast = defineChoices({
 Create `server/api/choices.post.ts`. It calls `resolve()` with the text that the person typed:
 
 ```ts [server/api/choices.post.ts]
-import { createError, defineEventHandler, readBody } from "h3"
+import { defineEventHandler, HTTPError, readBody } from "h3"
 import { forecast } from "../utils/forecast-choices"
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ text?: string }>(event)
   const [error, selection] = await forecast.resolve(body?.text ?? "")
-  if (error) throw createError({ statusCode: 422, message: error.message })
+  if (error) throw new HTTPError({ status: 422, message: error.message })
   return selection
 })
 ```
@@ -193,7 +193,7 @@ In Vite, add the Vue plugin. Nuxt includes Vue:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: "node" },
+  vitehub: {},
 })
 ```
 ::::
@@ -206,7 +206,7 @@ import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [vue(), vitehub({ host: "node" }), nitro()],
+  plugins: [vue(), vitehub(), nitro()],
 })
 ```
 ::::
@@ -218,7 +218,7 @@ import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [vue(), vitehub({ host: "node" })],
+  plugins: [vue(), vitehub()],
 })
 ```
 ::::

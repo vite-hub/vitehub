@@ -4,13 +4,15 @@ An AI gateway is one object that knows where AI requests go and how to sign them
 
 - **Driver routes.** It routes Codex and Claude Code model requests, for example through Vercel AI Gateway or CLIProxyAPI.
 - **AI SDK models.** `languageModel(gateway, modelId)` from `@vite-hub/gateways/ai-sdk` returns an [AI SDK](https://ai-sdk.dev) model that sends its requests through the gateway.
-- **`ask()`.** It answers typed [TypeSafe Jev](https://typesafe.ai) questions, such as "which category fits this transaction". Only gateways that can reach Jev have `ask()`.
+- **`gateway.ask()`.** It answers typed [TypeSafe Jev](https://typesafe.ai) questions, such as "which category fits this transaction". Only gateways that can reach Jev have `ask()`.
+
+`ask(prompt, { model, schema })` sends one model request and returns typed data that a schema checked. Without `schema`, it returns the answer text.
 
 The package has no Agent, Vite, or Nitro code. It works in a plain Node script, a Worker, or another framework, and its only dependency is `nostics`. ViteHub applications import it as `vite-hub/gateways`. User docs: [AI Gateways](https://vitehub.dev/docs/gateways).
 
 ## Install
 
-`languageModel()` and `ask()` load optional peer dependencies only when you use them. `ask()` needs `advocaat`, the TypeSafe client. `languageModel()` needs the AI SDK provider package of its model API, usually `@ai-sdk/openai-compatible`:
+`languageModel()`, `ask()`, and `gateway.ask()` load optional peer dependencies only when you use them. `gateway.ask()` needs `advocaat`, the TypeSafe client. `languageModel()` needs the AI SDK provider package of its model API, usually `@ai-sdk/openai-compatible`, and `ask(prompt, { model, schema })` needs `ai`:
 
 ```sh
 pnpm add @vite-hub/gateways advocaat
@@ -39,6 +41,26 @@ Change the preset to change the provider. The model ID is the ID that the gatewa
 | `'messages'` | Anthropic Messages | `claude-code` | `@ai-sdk/anthropic` |
 
 The default is `'chat'` when the gateway has an `openai-compatible` URL, else `'messages'`, else `'responses'`. Use `api: 'responses'` for OpenAI reasoning models that call tools. The gateway resolves its URL, key, and headers for each request from the values that you passed or from `process.env`. Pass `fetch` to use a custom fetch implementation. `providerOptions` for `'chat'` go under the gateway name, such as `{ openrouter: { ... } }`; `'responses'` reads `openai` and `'messages'` reads `anthropic`.
+
+## Get typed data from one call
+
+`ask(prompt, { model, schema })` sends one request to an AI SDK model and returns the answer that the schema validated, as `[error, data]`. It needs the `ai` package. Use `languageModel(gateway, modelId)` to send it through any gateway:
+
+```ts
+import { z } from 'zod'
+import { ask, openrouter } from '@vite-hub/gateways'
+import { languageModel } from '@vite-hub/gateways/ai-sdk'
+
+const [error, receipt] = await ask('MERCADONA 23.10 -34.90 EUR', {
+  model: languageModel(openrouter(), 'google/gemini-3-flash'),
+  schema: z.object({ merchant: z.string(), amount: z.number() }),
+})
+if (error) throw error
+
+receipt.merchant // string
+```
+
+`schema` is a [Standard Schema](https://standardschema.dev) that converts to JSON Schema: Zod 4, ArkType, or Valibot wrapped with `toStandardJsonSchema()` from `@valibot/to-json-schema`. Leave out `schema` to get the answer as a string: `const [error, summary] = await ask(log, { model })`. Options: `instructions` (system instructions), `signal`, and `onUsage`. `error` is `GATEWAYS_ASK_MODEL_FAILED` when the request fails and `GATEWAYS_ASK_OUTPUT_INVALID` when the answer does not match the schema or has no text. Setup errors, such as a missing key or a schema without JSON Schema, throw. Use an Agent when the model must call tools or keep a conversation.
 
 ## Ask your first question
 
@@ -202,7 +224,7 @@ export const codexThroughCloudflare = defineAiGateway({
 
 ## Use with ViteHub Agents
 
-In a ViteHub application, set a gateway as `driver.gateway` to route an Agent's model requests, pass `languageModel(gateway, modelId)` from `vite-hub/gateways/ai-sdk` as an AI SDK Driver `model`, or pass a gateway with `ask()` to an ask Driver. ViteHub then declares the preset's variables in Server Env. See [Use with Agents](https://vitehub.dev/docs/gateways/agents) in the ViteHub docs.
+In a ViteHub application, set a gateway as `driver.gateway` to route an Agent's model requests, pass `languageModel(gateway, modelId)` from `vite-hub/gateways/ai-sdk` as an AI SDK Driver `model`, or pass a gateway with `ask()` to an ask Driver. ViteHub declares the variables of each preset that a server file imports in Server Env. See [Use with Agents](https://vitehub.dev/docs/gateways/agents) in the ViteHub docs.
 
 `@vite-hub/gateways/internal` is for ViteHub packages: model API route resolution and `ask()` with trace observers.
 

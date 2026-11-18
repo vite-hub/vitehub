@@ -35,6 +35,6 @@
     "vite": "catalog:vite"
   },
   "engines": {
-    "node": ">=22.22.0"
+    "node": ">=24.15.0"
   }
 }

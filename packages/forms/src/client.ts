@@ -28,7 +28,7 @@ export interface FormAnchor {
 }
 
 export interface SubmitFormOptions {
-  /** The route of the form. Default `/api/_vitehub/forms/<name>`, below the app base. */
+  /** The route of the form. Default `/_vitehub/forms/<name>`, below the app base. */
   url?: string
   /** The app base, such as `/docs/`. Default `/`. */
   base?: string
@@ -46,7 +46,7 @@ export interface SubmitFormOptions {
 
 /** The route of a form, below the app base. */
 export function formRoute(name: string, base = "/"): string {
-  return `${base.endsWith("/") ? base : `${base}/`}api/_vitehub/forms/${encodeURIComponent(name)}`
+  return `${base.endsWith("/") ? base : `${base}/`}_vitehub/forms/${encodeURIComponent(name)}`
 }
 
 function readIssues(value: unknown): FormIssue[] {

@@ -23,7 +23,7 @@ Add `vite-hub/nuxt` to `modules` and set `assistant: true`:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: [
-    ['vite-hub/nuxt', { host: 'node', agent: true, connections: true, database: true }],
+    ['vite-hub/nuxt', { agent: true, connections: true, database: true }],
     'vite-hub/docs/nuxt',
   ],
   docs: { assistant: true },
@@ -97,7 +97,7 @@ On Node.js without `@openai/codex` in the app, the panel shows `AGENT_R1026` wit
 | Driver | Codex on `chatgpt()`, through the `chatgpt` Connection. In a Worker build: `{ model: 'gpt-6.1-sol', gateway: chatgpt() }`. | `driver: { gateway, model }` |
 | Instructions | Answer only from the pages, link each page used, and say when the docs do not cover a question | `driver: { instructions }`. Your text comes after these rules. |
 | Pages | A read-only Workspace with `content/**/*.md` as the `pages` Source | `workspace: { sources: { pages: glob(...) } }` |
-| Channel | `web`, a `webChat()` at `/api/_vitehub/agents/docs/chat` | `channels: { web: webChat(...) }` |
+| Channel | `web`, a `webChat()` at `/_vitehub/agents/docs/chat` | `channels: { web: webChat(...) }` |
 | Rate limit | 30 questions per hour for the whole site, in process memory | `docsRateLimit({ limit, window, identity })` |
 | Budget | 2 answers at a time and 8 waiting. It records answers over 200,000 tokens. | `budget` |
 
@@ -138,7 +138,7 @@ To use another Agent name, name the file, for example `server/agents/support.ts`
 Send a question to the chat route. `page` is the open page's path:
 
 ```bash [commands/ask]
-curl -s -X POST http://localhost:3000/api/_vitehub/agents/docs/chat \
+curl -s -X POST http://localhost:3000/_vitehub/agents/docs/chat \
   -H 'content-type: application/json' \
   --data '{"id":"t1","page":"/docs/guide/install","messages":[{"id":"m1","role":"user","parts":[{"type":"text","text":"How do I install Lumen?"}]}]}'
 ```

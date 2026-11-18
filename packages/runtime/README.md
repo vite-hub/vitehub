@@ -29,7 +29,7 @@ or Agent Definitions.
 pnpm add @vite-hub/runtime
 ```
 
-The package declares Node.js 22.18 or newer. Import the root entry for portable
+The package declares Node.js 24.15 or newer. Import the root entry for portable
 Runtime contracts. The `/operations` entry exports `defineOperation()`, its types,
 and the `vitehub: { operations }` contribution types of a Vite plugin.
 
@@ -128,7 +128,7 @@ binding is `unknown`.
 import { getHostBinding } from "vite-hub/runtime"
 
 const [error, email] = getHostBinding("REVIEW_EMAIL", event)
-if (error) throw createError({ statusCode: 503, statusMessage: error.why })
+if (error) throw new HTTPError({ status: 503, message: error.why })
 await email.send(message)
 ```
 

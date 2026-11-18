@@ -111,6 +111,7 @@ const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupI
   channels: "ai",
   usage: "ai",
   "mcp-client": "ai",
+  webhooks: "runtime",
   workflows: "runtime",
   queues: "runtime",
   schedules: "runtime",
@@ -350,7 +351,6 @@ export function resolveConsoleSectionIds(options: {
   connections?: unknown;
   database?: unknown;
   email?: unknown;
-  host?: unknown;
   kv?: unknown;
   observability?: unknown;
   queue?: unknown;
@@ -360,8 +360,6 @@ export function resolveConsoleSectionIds(options: {
   workflow?: unknown;
   workspace?: unknown
 }): ConsoleSectionId[] {
-  const workflowEnabled = options.workflow !== false
-    && Boolean(options.workflow || (options.agent && options.host !== "netlify"))
   return [
     ...(options.auth ? ["auth"] : []),
     // `observability: { logs }` connects the log source that the section reads.
@@ -380,7 +378,7 @@ export function resolveConsoleSectionIds(options: {
     ...(options.rateLimit ? ["rate-limits"] : []),
     ...(options.sandboxTask ? ["sandbox-tasks"] : []),
     ...(options.workspace ? ["workspaces"] : []),
-    ...(workflowEnabled ? ["workflows"] : []),
+    ...(options.workflow ? ["workflows"] : []),
     ...(options.queue ? ["queues"] : []),
     ...(options.schedule ? ["schedules"] : []),
   ]

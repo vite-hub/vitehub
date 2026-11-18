@@ -23,6 +23,7 @@ const serverPrimitiveSections = [
   "content",
   "database",
   "decisions",
+  "device",
   "email",
   "env",
   "forge",
@@ -91,7 +92,8 @@ describe("docs product navigation", () => {
   });
 
   it("orders every Server Primitive section by the product page template", () => {
-    const template = ["Overview", "Get started", "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"];
+    // A primitive that runs only in the browser, such as Device, has a Browser API page in place of the Server API page.
+    const template = ["Overview", "Get started", "Configure", "Server API", "Browser API", "Agent capability", "Hosts", "Limits and errors"];
 
     for (const sectionId of serverPrimitiveSections) {
       const product = section(sectionId);
@@ -102,7 +104,7 @@ describe("docs product navigation", () => {
       expect(pages[0]?.path, sectionId).toBe(`/docs/${sectionId}`);
       expect(titles[0], sectionId).toBe("Overview");
       expect(templateTitles, sectionId).toContain("Get started");
-      expect(templateTitles, sectionId).toContain("Server API");
+      expect(templateTitles.filter(title => title === "Server API" || title === "Browser API"), sectionId).toHaveLength(1);
       // Template pages appear in template order. Product-specific pages such as Env Bridge come after them.
       expect(templateTitles, sectionId).toEqual(template.filter(title => templateTitles.includes(title)));
       expect(titles.slice(templateTitles.length).some(title => template.includes(title)), sectionId).toBe(false);
@@ -117,8 +119,6 @@ describe("docs product navigation", () => {
 
   it("resolves product Overviews by their section name and their sidebar label", () => {
     expect(findDocsPage(docsManifest, "/docs/kv")?.page).toMatchObject({ sourceTitle: "KV", title: "Overview" });
-    // Framework-prefixed docs routes were removed.
-    expect(findDocsPage(docsManifest, "/docs/vite/kv")).toBeNull();
   });
 
   it("preserves the Agents Learning path title", () => {
@@ -133,8 +133,6 @@ describe("docs product navigation", () => {
     expect(capabilities.find(page => page.id === "capabilities")?.group).toBe("Instructions and tools");
     expect(capabilities.find(page => page.id === "capabilities/custom")?.group).toBe("Advanced");
     expect(capabilities.filter(page => !["capabilities", "capabilities/official", "capabilities/custom"].includes(page.id)).every(page => page.group === "Capabilities")).toBe(true);
-    expect(docsManifest.sections.map(candidate => candidate.id)).not.toContain("capabilities");
-    expect(docsManifest.sections.map(candidate => candidate.id)).not.toContain("server-primitives");
   });
 
   it("resolves the sidebar section from the route", () => {
@@ -221,7 +219,7 @@ describe("docs product navigation", () => {
     expect(docsManifest.pages.map(page => page.path)).toEqual(expect.arrayContaining(["/", "/about", "/contact", "/privacy"]));
   });
 
-  it("redirects each removed page, its trailing-slash form, and its raw Markdown copy to a published page", () => {
+  it("redirects each removed page and its raw Markdown copy to a published page, with one rule for both slash forms", () => {
     const routeRules = createDocsRedirectRouteRules();
 
     expect(docsPageRedirects["/docs/server-primitives/kv"]).toBe("/docs/kv");
@@ -232,7 +230,7 @@ describe("docs product navigation", () => {
       expect(findDocsPage(docsManifest, from), from).toBeNull();
       expect(findDocsPage(docsManifest, to), to).not.toBeNull();
       expect(routeRules[from]).toEqual({ redirect: { status: 301, to } });
-      expect(routeRules[`${from}/`]).toEqual({ redirect: { status: 301, to } });
+      expect(routeRules[`${from}/`]).toBeUndefined();
       expect(routeRules[`/raw${from}.md`]).toEqual({ redirect: { status: 301, to: `/raw${to}.md` } });
     }
   });

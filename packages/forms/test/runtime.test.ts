@@ -95,7 +95,7 @@ describe("hubForms without a Database", () => {
 describe("createFormsHandler", () => {
   const contact = defineForm({ schema: v.object({ message: v.string() }), rateLimit: { limit: 2, window: "1m" } })
   const post = (name: string, address = "1.1.1.1") => {
-    const request = new Request(`https://site.test/api/_vitehub/forms/${name}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: "Hi" }) })
+    const request = new Request(`https://site.test/_vitehub/forms/${name}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: "Hi" }) })
     return { request, address }
   }
 

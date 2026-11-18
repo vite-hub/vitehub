@@ -37,7 +37,8 @@ export interface SetupProject {
 const nuxtConfigFiles = ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.js", "nuxt.config.mjs", "nuxt.config.cts", "nuxt.config.cjs"]
 const viteConfigFiles = ["vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs", "vite.config.cts", "vite.config.cjs"]
 
-const lockfiles: ReadonlyArray<readonly [string, SetupPackageManager]> = [
+/** The lockfiles and workspace files that name a package manager, in the order that detection reads them. */
+export const setupLockfiles: ReadonlyArray<readonly [string, SetupPackageManager]> = [
   ["pnpm-lock.yaml", "pnpm"],
   ["pnpm-workspace.yaml", "pnpm"],
   ["bun.lock", "bun"],
@@ -76,7 +77,7 @@ export function detectPackageManager(root: string, manifest: PackageManifest | u
   const declared = packageManagerName(manifest?.packageManager)
   if (declared) return { packageManager: declared, packageManagerSource: "manifest" }
   for (const folder of parentFolders(root)) {
-    const found = lockfiles.find(([file]) => existsSync(join(folder, file)))
+    const found = setupLockfiles.find(([file]) => existsSync(join(folder, file)))
     if (found) return { packageManager: found[1], packageManagerSource: "lockfile" }
   }
   const agent = packageManagerName(env.npm_config_user_agent)

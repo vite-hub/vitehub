@@ -19,7 +19,7 @@ it("reports a negative execution budget limit with its code and fix", () => {
   }))
 })
 
-it.each(["RUNTIME_CONSOLE_PATH_INVALID", "RUNTIME_CONSOLE_PROJECT_URL_INVALID", "RUNTIME_EXECUTION_BUDGET_AMOUNT_INVALID", "RUNTIME_SERIALIZED_RESPONSE_INVALID"] as const)("gives %s a fix and its own docs page", (code) => {
+it.each(["RUNTIME_CONSOLE_PATH_INVALID", "RUNTIME_CONSOLE_PROJECT_URL_INVALID", "RUNTIME_DURATION_INVALID", "RUNTIME_EXECUTION_BUDGET_AMOUNT_INVALID", "RUNTIME_SERIALIZED_RESPONSE_INVALID"] as const)("gives %s a fix and its own docs page", (code) => {
   const error = runtimeErrorDiagnostics[code]({ counter: "inputBytes", value: "x" })
   expect(error.fix).toMatch(/\S/)
   expect(error.docs).toBe(`https://vitehub.dev/docs/development/diagnostics/${code.toLowerCase()}`)

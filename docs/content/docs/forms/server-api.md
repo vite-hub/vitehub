@@ -8,7 +8,7 @@ icon: i-lucide-code
 
 ## `defineForm()`
 
-`server/forms/<name>.ts` default-exports `defineForm()`. The name is lowercase letters, digits, and dashes. The route is `POST <base>api/_vitehub/forms/<name>`.
+`server/forms/<name>.ts` default-exports `defineForm()`. The name is lowercase letters, digits, and dashes. The route is `POST <base>_vitehub/forms/<name>`.
 
 | Option | Default | Does |
 | --- | --- | --- |

@@ -1,9 +1,10 @@
 export function isAmbiguousAgentWorkflowStartFailure(error: unknown): boolean {
   if (!error || typeof error !== "object") return false
   try {
-    if (!("code" in error) || !("details" in error)) return false
+    if (!("code" in error) || !("data" in error)) return false
+    // `startWorkflow()` returns WORKFLOW_PROVIDER_OPERATION_FAILED with the provider details in `data`.
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
-    const details = (error as { details?: unknown }).details
+    const details = (error as { data?: unknown }).data
     return (
       // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
       (error as { code?: unknown }).code === "WORKFLOW_PROVIDER_OPERATION_FAILED" &&

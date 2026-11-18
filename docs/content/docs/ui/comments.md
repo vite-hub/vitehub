@@ -99,7 +99,7 @@ CommentPanel
 └── CommentComposer (a comment on the whole page)
 ```
 
-Every part has a `data-slot`, as in shadcn/ui: `comment-layer`, `comment-pin`, `comment-thread`, `comment-reply`, `comment-composer`, `comment-mention`, `comment-list`, `comment-filters`, `comment-toolbar`, and `comment-panel`. The default styles sit in the `components` layer of `vite-hub/ui/styles.css`, so utility classes override them.
+Every part has a `data-slot`, as in shadcn/ui: `comment-layer`, `comment-pin`, `comment-thread`, `comment-reply`, `comment-composer`, `comment-selection-bar`, `comment-mention`, `comment-list`, `comment-filters`, `comment-toolbar`, and `comment-panel`. The default styles sit in the `components` layer of `vite-hub/ui/styles.css`, so utility classes override them.
 
 ## Build your own layout
 
@@ -406,6 +406,18 @@ A thread passes its size on to its messages, its reply box, and its edit box. Fo
 
 `data-size` is on `comment-thread`, `comment-reply`, and `comment-composer`, so a stylesheet can change one size only.
 
+## Selected text
+
+`CommentSelectionBar` is the bar that shows over selected text, as in Drop and the ViteHub pill. It has a Comment button, and a Suggest button with `suggest`. Your page places it, listens for `C` and `E`, and starts the comment. A press on the bar keeps the selection on the page.
+
+```vue
+<template>
+  <div v-if="selection" class="fixed -translate-x-1/2 -translate-y-full" :style="{ left: `${selection.x}px`, top: `${selection.y - 8}px` }">
+    <CommentSelectionBar suggest @comment="commentOnSelection()" @suggest="commentOnSelection(true)" />
+  </div>
+</template>
+```
+
 ## Anchors
 
 An anchor says where a comment sits. `createAnchor()` makes one from an element, a point, a selection, or `"page"`. `resolveAnchor()` finds it again.
@@ -422,6 +434,7 @@ Read more in the [`@vite-hub/comments` README](https://github.com/vite-hub/viteh
 - In `CommentPanel`, threads are buttons in a list. Back moves focus to the thread that was open. The Open and Resolved filters have `aria-pressed`.
 - Deleting the first message asks first, because it deletes the thread.
 - The toolbar is a `toolbar`. The comment button has `aria-pressed` and `aria-keyshortcuts="C"`.
+- The bar over selected text is a `group` named "Selected text". Its buttons have `aria-keyshortcuts`, `C` for Comment and `E` for Suggest.
 - Under `prefers-reduced-motion` the composer does not shake. Its border flashes. A pin that stops showing fades without shrinking.
 - A pin that stops showing is `inert` during its pop-out.
 
@@ -473,6 +486,24 @@ Renders a `button` with `data-slot="comment-pin"`, with the author's avatar and 
 | `select` | The pin was clicked. |
 | `hover` | The pointer or the focus came to the pin. |
 | `leave` | The pointer or the focus left the pin. |
+
+### CommentSelectionBar
+
+The bar over selected text. Renders a `div` with `data-slot="comment-selection-bar"`. Each button has `data-slot="comment-selection-bar-action"` and `data-action="comment"` or `data-action="suggest"`. Inside Nuxt UI's `UApp`, each button has a tooltip with its key. Elsewhere the button has a `title`.
+
+#### Props
+
+| Prop | Type | Default | Description |
+| --- | --- | --- | --- |
+| `suggest` | `boolean` | `false` | Show the Suggest button. |
+| `side` | `"top" \| "bottom"` | `"top"` | The side of the text that the bar is on. The bar grows from that side. |
+
+#### Events
+
+| Event | Description |
+| --- | --- |
+| `comment` | Comment was clicked. |
+| `suggest` | Suggest was clicked. |
 
 ### CommentThread
 
@@ -526,7 +557,7 @@ The component ref exposes `close()`. Call it when a parent dialog or panel wants
 
 ### CommentReply
 
-One message of a thread. The first message is the comment, the rest are replies. Its author can edit and delete it. Renders a `div` with `data-slot="comment-reply"`. The body is [Markdown](/docs/ui/markdown), with a `comment-mention` chip for each person in `message.mentions`. The edit box closes after `onEdit` succeeds. On failure, it stays open with the text and error.
+One message of a thread. The first message is the comment, the rest are replies. Its author can edit and delete it. Renders a `div` with `data-slot="comment-reply"`. Its time is a [Relative Time](/docs/ui/relative-time), as is the time of each row in a list. The body is [Markdown](/docs/ui/markdown), with a `comment-mention` chip for each person in `message.mentions`. The edit box closes after `onEdit` succeeds. On failure, it stays open with the text and error.
 
 Edit and Delete show when you give their handlers. An unchanged edit keeps its mention ids, even when a name is unknown. For changed text, pass mentioned people in `people` so the composer can check which names remain.
 
@@ -701,3 +732,4 @@ Open, Resolved, and Mine toggles. Renders a `div` with `data-slot="comment-filte
 - [Prompt Input](/docs/ui/prompt-input) is the composer's box.
 - [Attachment](/docs/ui/attachment) shows the files of a message.
 - [Markdown](/docs/ui/markdown) renders the messages.
+- [Relative Time](/docs/ui/relative-time) shows when each comment was written.

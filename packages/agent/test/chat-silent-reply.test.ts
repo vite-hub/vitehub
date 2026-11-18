@@ -74,7 +74,7 @@ function silentAgent(allowSilentReply: boolean) {
 
 async function webhook(handler: ReturnType<typeof createChannelWebhookRouteHandler>, messageId: number) {
   const tasks: Array<Promise<unknown>> = []
-  const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+  const response = await handler(new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
     body: JSON.stringify({ message: { chat, date: telegramDate, from: user, message_id: messageId, text: "@vitehub_test_bot thanks, Anna!" }, update_id: messageId }),
     method: "POST",
   }), "telegram", {

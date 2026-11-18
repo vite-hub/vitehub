@@ -100,8 +100,8 @@ describe("submitForm", () => {
   })
 
   it("builds the route below the app base", () => {
-    expect(formRoute("contact")).toBe("/api/_vitehub/forms/contact")
-    expect(formRoute("bug report", "/docs")).toBe("/docs/api/_vitehub/forms/bug%20report")
+    expect(formRoute("contact")).toBe("/_vitehub/forms/contact")
+    expect(formRoute("bug report", "/docs")).toBe("/docs/_vitehub/forms/bug%20report")
   })
 })
 
