@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { deriveViteHubSecret } from "@vite-hub/internal/secret"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -65,7 +65,7 @@ describe("root app secret", () => {
     roots.push(root)
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "seal-dev-app", type: "module" }))
     await mkdir(join(root, "node_modules", "@vite-hub"), { recursive: true })
-    await symlink(new URL("..", import.meta.url).pathname, join(root, "node_modules", "@vite-hub", "env"), "dir")
+    await symlink(fileURLToPath(new URL("..", import.meta.url)), join(root, "node_modules", "@vite-hub", "env"), "dir")
     await resolveConfig({ configFile: false, root, plugins: [hubEnv()] }, "serve")
     const secret = (await readFile(join(root, ".vitehub", "env", "secret"), "utf8")).trim()
     const generated = await import(pathToFileURL(join(root, ".vitehub", "env", "server.mjs")).href)

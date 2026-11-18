@@ -8,14 +8,14 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure the Vite Integration
 
-Turn on Queue with `queue: true`. The `host` picks the Queue Provider (the service that stores and delivers jobs).
+A file in `server/queues/` turns on Queue, so you do not add a `queue` option. Set `queue` to an object only to change the options below, or `queue: false` to keep Queue off. The `host` picks the Queue Provider (the service that stores and delivers jobs).
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'cloudflare', queue: true },
+  vitehub: { host: 'cloudflare' },
 })
 ```
 :::
@@ -27,7 +27,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'cloudflare', queue: true }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare' }), nitro()],
 })
 ```
 :::
@@ -38,7 +38,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'cloudflare', queue: true })],
+  plugins: [vitehub({ host: 'cloudflare' })],
 })
 ```
 :::

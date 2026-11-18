@@ -23,6 +23,8 @@ export const defaultAgentInvocationsMetadataContent: readonly string[] = [
   "input.data",
   "input.messages",
   "input.prompt",
+  // The message that started the run, kept whole when the history leaves older messages out.
+  "input.trigger.message",
   "message.content",
   // The values before and after a change the `page()` Capability made, for the Console and `vitehub agent invocations show`.
   "page.change.content",

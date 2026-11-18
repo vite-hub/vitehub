@@ -40,6 +40,8 @@ For [native durable definitions](/docs/workflows/configure#add-a-durable-vercel-
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
 ```
 
+ViteHub bundles the steps of the Workflow DevKit functions as it bundles the server. A step can import a `?markdown-template` file. A package that a step imports can load an optional peer that the app did not install, such as `@vite-hub/kv` in `@vite-hub/agent`: the build passes, and only the step that loads it fails.
+
 ### Upgrade the Vercel Workflow SDK
 
 ViteHub accepts `workflow` 5.2.3 or a later 5.x, and `@workflow/builders` 5.0.6 or a later 5.x. An exact version would make npm stop with `ERESOLVE` when the app or another package needs a newer 5.x.

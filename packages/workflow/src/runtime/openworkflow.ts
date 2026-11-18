@@ -1,9 +1,10 @@
 import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
 import { invariantError } from "@vite-hub/internal/invariant"
-import { readNonRetryableStepResult, runSerializedWorkflowHandler, toNonRetryableStepResult } from "./execute.ts"
+import { readNonRetryableStepResult, resolveWorkflowStepOptions, runSerializedWorkflowHandler, toDurationMilliseconds, toNonRetryableStepResult, withWorkflowStepTimeout } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"
 import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
 import { toWorkflowRunError } from "./run-error.ts"
+import { emitWorkflowFailed } from "./run-failed.ts"
 import { resolveOpenWorkflowStorage } from "../internal/openworkflow-storage.ts"
 
 import type { RetryPolicy } from "openworkflow"
@@ -34,6 +35,8 @@ let openWorkflowImporter = defaultImporter
 interface OpenWorkflowRuntime {
   backend: OpenWorkflowBackend
   client: OpenWorkflowClient
+  /** The registered ViteHub definitions, by name. */
+  definitions: Map<string, WorkflowDefinition>
   /** Returns the OpenWorkflow id of the first run of `name` that started with the id `key`. */
   findRunId: (name: string, key: string) => Promise<string | undefined>
   workflows: Map<string, OpenWorkflowRunnable>
@@ -248,10 +251,32 @@ async function withPostgresSetupLock<T>(postgres: PostgresModule, url: string, s
   }
 }
 
+/**
+ * The backend that the OpenWorkflow client and its workers use. OpenWorkflow retries a failed run by its retry policy, so
+ * only `failWorkflowRun()` knows when a run ends as `failed`. This wrapper sends `workflow.failed` then.
+ */
+function reportFailedRuns<TBackend extends OpenWorkflowBackend>(backend: TBackend, definitions: ReadonlyMap<string, WorkflowDefinition>): TBackend {
+  const failWorkflowRun: TBackend["failWorkflowRun"] = async (params) => {
+    const run = await backend.failWorkflowRun(params)
+    if (run.status === "failed") {
+      await emitWorkflowFailed(run.workflowName, run.idempotencyKey || run.id, run.error ?? params.error, definitions.get(run.workflowName))
+    }
+    return run
+  }
+  return new Proxy(backend, {
+    get(target, property) {
+      if (property === "failWorkflowRun") return failWorkflowRun
+      const value: unknown = Reflect.get(target, property)
+      return typeof value === "function" ? value.bind(target) : value
+    },
+  })
+}
+
 async function createOpenWorkflowRuntime(
   options: OpenWorkflowStorageConfig,
   importer: OpenWorkflowImporter,
 ): Promise<OpenWorkflowRuntime> {
+  const definitions = new Map<string, WorkflowDefinition>()
   const [{ OpenWorkflow }, backendModule] = await Promise.all([
     importOpenWorkflowModule<OpenWorkflowModule>("openworkflow", importer),
     options.backend === "sqlite"
@@ -279,12 +304,13 @@ async function createOpenWorkflowRuntime(
         ? await connect()
         : await withPostgresSetupLock(await importOpenWorkflowModule<PostgresModule>("postgres", importer), options.url, options.schema, connect)
     }
-    return { backend, client: new OpenWorkflow({ backend }) }
+    return { backend, client: new OpenWorkflow({ backend: reportFailedRuns(backend, definitions) }) }
   })
 
   return {
     backend,
     client,
+    definitions,
     findRunId: createRunIdLookup(backend, options),
     workflows: new Map(),
   }
@@ -362,17 +388,20 @@ export async function getOpenWorkflowRuntime(config: ResolvedWorkflowOptions): P
   return resolved
 }
 
-function toOpenWorkflowRetryPolicy(options: WorkflowStepOptions): Partial<RetryPolicy> | undefined {
-  const retries = options.retries
-  if (!retries) {
-    return undefined
-  }
-
+/**
+ * OpenWorkflow counts attempts, and `limit` counts the retries after the first attempt. OpenWorkflow caps each wait at
+ * `maximumInterval`, 100 seconds by default, so the cap is the longest wait that the policy asks for.
+ */
+function toOpenWorkflowRetryPolicy(name: string, options: WorkflowStepOptions): Partial<RetryPolicy> {
+  const { backoff, delay, limit } = resolveWorkflowStepOptions(name, options).retries
+  // SAFETY: `resolveWorkflowStepOptions` accepted `delay`, so it is a valid duration.
+  const initial = toDurationMilliseconds(delay)!
+  const coefficient = backoff === "exponential" ? 2 : 1
   return {
-    ...(retries.backoff ? { backoffCoefficient: retries.backoff === "exponential" ? 2 : 1 } : {}),
-    // SAFETY: ViteHub's duration input matches OpenWorkflow's accepted interval representation.
-    ...(retries.delay ? { initialInterval: retries.delay as RetryPolicy["initialInterval"] } : {}),
-    ...(typeof retries.limit === "number" ? { maximumAttempts: retries.limit } : {}),
+    backoffCoefficient: coefficient,
+    initialInterval: `${initial}ms`,
+    maximumAttempts: limit + 1,
+    maximumInterval: `${initial * coefficient ** Math.max(limit - 1, 0)}ms`,
   }
 }
 
@@ -380,12 +409,9 @@ function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProv
   return {
     // OpenWorkflow retries every error. A NonRetryableError ends the step with a result instead, and fails the run here.
     async do(name, options, run) {
-      const output = await step.run({
-        name,
-        ...(toOpenWorkflowRetryPolicy(options) ? { retryPolicy: toOpenWorkflowRetryPolicy(options) } : {}),
-      }, async () => {
+      const output = await step.run({ name, retryPolicy: toOpenWorkflowRetryPolicy(name, options) }, async () => {
         try {
-          return await run()
+          return await withWorkflowStepTimeout(name, options.timeout, run)()
         }
         catch (error) {
           const result = toNonRetryableStepResult(error)
@@ -415,6 +441,7 @@ export async function registerOpenWorkflowDefinition(
 
   // SAFETY: The registered ViteHub definition and OpenWorkflow runnable share this payload and result contract.
   const openWorkflowDefinition = definition as never
+  runtime.definitions.set(name, definition)
   const workflow = runtime.client.defineWorkflow({ name }, async ({ input, run, step }) => {
     const stored = await runtime.backend.getWorkflowRun({ workflowRunId: run.id })
     return await runSerializedWorkflowHandler({

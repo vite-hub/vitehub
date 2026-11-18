@@ -82,7 +82,7 @@ export interface ObservabilityOptions {
    */
   logs?: boolean | ObservabilityLogsOptions
   /**
-   * Send uncaught browser errors to `POST /api/_vitehub/browser-errors`. The server logs each one as an error on the
+   * Send uncaught browser errors to `POST /_vitehub/browser-errors`. The server logs each one as an error on the
    * request's Evlog event. Same origin only, 16 KiB at most, and 20 reports a minute for each address.
    */
   browserErrors?: boolean

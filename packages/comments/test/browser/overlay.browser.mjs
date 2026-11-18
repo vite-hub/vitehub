@@ -17,7 +17,7 @@ const evidence = process.env.COMMENTS_BROWSER_EVIDENCE
 const harness = fileURLToPath(new URL("../harness.ts", import.meta.url))
 const handlerFile = fileURLToPath(new URL("../../src/runtime/handler.ts", import.meta.url))
 
-/** Serves `/api/_vitehub/comments/**` from the real handler, with one signed-in person. */
+/** Serves `/_vitehub/comments/**` from the real handler, with one signed-in person. */
 function commentsApi() {
   let comments
   const files = new Map()
@@ -25,7 +25,7 @@ function commentsApi() {
     name: "comments-api",
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
-        if (!req.url.startsWith("/api/_vitehub/comments/")) return next()
+        if (!req.url.startsWith("/_vitehub/comments/")) return next()
         const [{ createComments }, { createCommentsHandler }, { H3 }] = await Promise.all([server.ssrLoadModule(harness), server.ssrLoadModule(handlerFile), import("h3")])
         comments ??= await createComments({
           storeAttachment: (file) => {
@@ -34,7 +34,7 @@ function commentsApi() {
           },
           readAttachment: key => files.has(key) ? new Blob([files.get(key).data], { type: files.get(key).type }) : null,
         })
-        const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, session: async () => ({ id: "u1", name: "Maxi" }) }))
+        const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, session: async () => ({ id: "u1", name: "Maxi" }) }))
         const chunks = []
         for await (const chunk of req) chunks.push(chunk)
         const response = await app.fetch(new Request(`http://127.0.0.1:${port}${req.url}`, { method: req.method, headers: req.headers, body: chunks.length ? Buffer.concat(chunks) : undefined }))

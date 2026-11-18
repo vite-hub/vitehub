@@ -15,8 +15,8 @@ In this tutorial, you build a Workflow with two steps that signs up a new user. 
 > [!NOTE] Before you start
 > Use the app from [Installation](/docs/getting-started/installation). Run every command from the app root. You need no account. With the `node` host, the dev server runs Workflows with [OpenWorkflow](/docs/workflows/hosts#run-workflows-on-node) and keeps each run in a SQLite file in `.vitehub/data`, so a run survives a restart.
 
-::tutorial-step{title="Install and enable Workflows"}
-## Install and enable Workflows
+::tutorial-step{title="Install"}
+## Install
 
 Add the Workflow package:
 
@@ -24,49 +24,12 @@ Add the Workflow package:
 pnpm add @vite-hub/workflow
 ```
 
-Add `workflow: true` to the ViteHub options of your app. Keep the other options of your app.
-
-:::tabs{sync="framework"}
-::::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: { workflow: true },
-})
-```
-::::
-
-::::tabs-item{label="Nitro"}
-```ts [vite.config.ts]
-import { nitro } from 'nitro/vite'
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ workflow: true }), nitro()],
-})
-```
-::::
-
-::::tabs-item{label="Vite"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ workflow: true })],
-})
-```
-::::
-:::
-
-
 ::
 
 ::tutorial-step{title="Define the Workflow steps"}
 ## Define the Workflow steps
 
-Create the folder `server/workflows/onboard-user`. The folder name is the name of the Workflow: `onboard-user`. Each file in it with a number in front is one step: `01.create-user` and `02.send-welcome`. Because each step is its own file, each step can be retried or replayed independently.
+Create the folder `server/workflows/onboard-user`. The folder name is the name of the Workflow: `onboard-user`. The `server/workflows` folder turns Workflows on, so you do not add a `workflow` option. Each file in it with a number in front is one step: `01.create-user` and `02.send-welcome`. Because each step is its own file, each step can be retried or replayed independently.
 
 First, create `index.ts`. It gets the input and calls the steps in order:
 
@@ -121,7 +84,9 @@ import { startWorkflow } from 'vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const payload = await readBody<{ email: string }>(event)
-  return startWorkflow('onboard-user', payload)
+  const [error, run] = await startWorkflow('onboard-user', payload)
+  if (error) throw error
+  return run
 })
 ```
 
