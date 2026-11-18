@@ -46,7 +46,7 @@ describe("Workflow registry", () => {
   }, 15_000)
 
   // A Workflow-only app does not install `@vite-hub/workspace`, so an import with no loaders breaks its build.
-  it("imports the Workspace runtime only when a Workspace dependency loader exists", () => {
+  it("imports the Workspace runtime only for the Shell loader", () => {
     const definitions = [{ handler: "/app/server/workflows/hello.ts", name: "hello", source: "server-workflows" as const }]
     const workspaceRuntime = "vite-hub/workspace/runtime"
 
@@ -58,9 +58,20 @@ describe("Workflow registry", () => {
       workspaceDependencies: { shellWorkspace: "vite-hub/shell/workspace" },
       workspaceRuntime,
     })
+    // `vitehub()` hands the Workflow the same loader object as the Agent, which can name Sandbox Task modules.
+    const frameworkLoaders: { sandboxTask: string, sandboxTaskRuntimeState: string, shellWorkspace?: string } = {
+      sandboxTask: "vite-hub/sandbox/task",
+      sandboxTaskRuntimeState: "/sandbox/dist/task/runtime/state.js",
+    }
+    const withSandboxTask = createWorkflowRegistryContents("/app/.vitehub/workflow/registry.mjs", definitions, {
+      workspaceDependencies: frameworkLoaders,
+      workspaceRuntime,
+    })
 
     expect(withoutLoaders).not.toContain(workspaceRuntime)
     expect(withoutLoaders).not.toContain("setWorkspaceDependencyRuntimeLoaders")
+    expect(withSandboxTask).not.toContain(workspaceRuntime)
+    expect(withSandboxTask).not.toContain("sandbox")
     expect(withShell).toContain(`import { setWorkspaceDependencyRuntimeLoaders } from ${JSON.stringify(workspaceRuntime)}`)
     expect(withShell).toContain("  shellWorkspace: () => import(\"vite-hub/shell/workspace\"),")
   })
@@ -97,7 +108,7 @@ describe("Workflow registry", () => {
       '    const cached = registryEntryCache.get("release")',
       "    if (cached) return cached",
       `    const index = await import(${JSON.stringify(pathToFileURL(handler).href)})`,
-      `    const steps = [{ name: "01.add.mjs", run: (await import(${JSON.stringify(pathToFileURL(step).href)})).default }]`,
+      `    const steps = [{ name: "01.add.mjs", ...await import(${JSON.stringify(pathToFileURL(step).href)}).then(step => ({ options: { retries: step.retries, timeout: step.timeout }, run: step.default })) }]`,
       '    const definition = index.default?.handler ? index.default : takeInlineWorkflowDefinitionForModule("release", index) || { handler: index.default }',
       "    const entry = {",
       "      ...definition,",

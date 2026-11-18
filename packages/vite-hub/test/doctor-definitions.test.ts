@@ -165,29 +165,30 @@ describe("vitehub/no-destructure-non-tuples", () => {
   it("reports tuple destructuring of values", async () => {
     expect(await codes(noDestructureNonTuples, {
       "server/api/a.ts": [
-        'import { startWorkflow, deferWorkflow } from "vite-hub/workflow"',
-        'import { runSandboxTask } from "vite-hub/sandbox/task"',
+        'import { deferWorkflow } from "vite-hub/workflow"',
+        'import { useQueue } from "vite-hub/queue"',
         "export async function run() {",
-        '  const [error, run] = await startWorkflow("onboard", {})',
-        '  const [failure, output] = await runSandboxTask("resize", {})',
+        '  const [error, queue] = await useQueue("welcome-email")',
         '  const [deferred] = await deferWorkflow("onboard", {})',
-        "  return { error, run, failure, output }",
+        "  return { error, queue }",
         "}",
       ].join("\n"),
     })).toEqual(["VHUB0018", "VHUB0018"])
   })
 
-  it("accepts direct results and the tuple form of runAgent", async () => {
+  it("accepts the tuple form of startWorkflow, runSandboxTask, and runAgent", async () => {
     expect(await codes(noDestructureNonTuples, {
       "server/api/a.ts": [
         'import { startWorkflow } from "vite-hub/workflow"',
+        'import { runSandboxTask } from "vite-hub/sandbox/task"',
         'import { runAgent } from "vite-hub/agent"',
         "export async function run(agent, options) {",
-        '  const run = await startWorkflow("onboard", {})',
+        '  const [startError, run] = await startWorkflow("onboard", {})',
+        '  const [taskError, output] = await runSandboxTask("resize", {})',
         '  const [error, answer] = await runAgent(agent, { prompt: "hi" })',
         '  const [failure, result] = await runAgent(agent, { prompt: "hi" }, { runtimeContext: options.runtimeContext })',
         '  const [unknown, value] = await runAgent(agent, { prompt: "hi" }, options)',
-        "  return { run, error, answer, failure, result, unknown, value }",
+        "  return { startError, run, taskError, output, error, answer, failure, result, unknown, value }",
         "}",
       ].join("\n"),
     })).toEqual([])
@@ -322,11 +323,11 @@ describe("second review regressions", () => {
     })).toEqual(["VHUB0021"])
   })
 
-  it("names the Schedule Run status for runSchedule()", async () => {
+  it("accepts the tuple form of runSchedule()", async () => {
     const result = await codes(noDestructureNonTuples, {
       "server/api/run.post.ts": 'import { runSchedule } from "vite-hub/schedule"\nexport default defineEventHandler(async () => { const [error, run] = await runSchedule("digest") })\n',
     })
-    expect(result).toEqual(["VHUB0018"])
+    expect(result).toEqual([])
   })
 })
 

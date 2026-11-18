@@ -380,6 +380,8 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
         'import { useChannel } from "vite-hub/channels/server"',
         'import { callMcpTool } from "vite-hub/agent/mcp"',
         'import { runAgent } from "vite-hub/agent"',
+        'import { cancelWorkflow, getWorkflowRun, resumeWorkflow, startWorkflow } from "vite-hub/workflow"',
+        'import { runSchedule } from "vite-hub/schedule"',
         "import support from \"../agents/support\"",
         "export async function send() {",
         '  const record = await blob.media.put("a.png", body)',
@@ -390,10 +392,15 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
         "  const receipt = await queue.send({})",
         '  const tool = await callMcpTool({ connection: "crm" }, "search", {})',
         '  const answer = await runAgent(support, { prompt: "hi" })',
-        "  return { record, sent, delivery, receipt, tool, answer }",
+        '  const run = await startWorkflow("onboard", {})',
+        '  await cancelWorkflow("onboard", "run-1")',
+        '  if ((await getWorkflowRun("onboard", "run-1")).status) return',
+        '  const signal = await resumeWorkflow("token", {})',
+        '  const report = await runSchedule("report")',
+        "  return { record, sent, delivery, receipt, tool, answer, run, signal, report }",
         "}",
       ].join("\n"),
-    })).toEqual(Array(7).fill("VHUB0003"))
+    })).toEqual(Array(12).fill("VHUB0003"))
   })
 
   it("reports tuples compared, iterated, interpolated, or returned from a route handler", async () => {

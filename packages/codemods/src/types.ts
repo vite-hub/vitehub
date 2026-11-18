@@ -44,9 +44,10 @@ export interface Codemod {
   description: string
   /** Positional arguments after the codemod name, for help output. */
   usage: string
+  /** Detect again against the scratch project if earlier steps changed it. */
+  detectAfterEdits?: boolean
   /** Tells whether the project uses what this codemod migrates. It must be cheap and must not throw for a project that does not use it. */
   detect: (context: CodemodContext) => Promise<Detection | undefined>
   /** Plans the edits. It must not write files; the runner writes them. */
   run: (context: CodemodContext) => Promise<CodemodResult>
 }
-

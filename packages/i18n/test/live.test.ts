@@ -39,8 +39,12 @@ function memoryWorkspace() {
           readFile: async path => files[path]!,
         }
       },
-      async commit({ ref, ifHead, changes }) {
-        if ((heads.get(ref) ?? null) !== ifHead) throw Object.assign(new Error("conflict"), { code: "WORKSPACE_CONFLICT" })
+      async commit({ ref, ifHead, onHeadConflict, changes }) {
+        if ((heads.get(ref) ?? null) !== ifHead) {
+          const conflict = Object.assign(new Error("conflict"), { code: "WORKSPACE_CONFLICT" })
+          onHeadConflict?.(conflict)
+          throw conflict
+        }
         const base = ifHead ? revisions.get(ifHead)! : {}
         const id = `${ref}-${revisions.size + 1}`
         const files = { ...base, ...changes.put }
@@ -255,7 +259,7 @@ describe("translations in a Workspace", () => {
     store.workspace.history.commit = async (options) => {
       // Another save lands between the head read and this commit.
       store.workspace.history.commit = commit
-      await commit({ ...options, message: "Other save" })
+      await commit({ ...options, onHeadConflict: undefined, message: "Other save" })
       return await commit(options)
     }
 
@@ -264,6 +268,20 @@ describe("translations in a Workspace", () => {
     expect(saved).toBeUndefined()
     expect(error).toMatchObject({ code: "I18N_SAVE_CONFLICT", status: 409, cause: expect.objectContaining({ code: "WORKSPACE_CONFLICT" }) })
     expect(toResponse(error).status).toBe(409)
+  })
+
+  it.each(["published", "draft"])("propagates a conflict on %s from a hook after the draft was committed", async (ref) => {
+    const { store } = setup()
+    const translations = useTranslations()
+    const commit = store.workspace.history.commit
+    const conflict = Object.assign(new Error(`${ref} moved`), { code: "WORKSPACE_CONFLICT", details: { ref, expected: null, actual: `${ref}-1` } })
+    store.workspace.history.commit = async (options) => {
+      await commit(options)
+      throw conflict
+    }
+
+    await expect(translations.save({ locale: "es", source: deploy.message, translation: "Publica tu agente" })).rejects.toBe(conflict)
+    expect((await translations.list("es", { ref: "draft" }))[1]?.[deploy.id]?.text).toBe("Publica tu agente")
   })
 
   it.each(["Publica tu agente", "Despliega tu agente"])("edits rejected text to %s before verification", async (translation) => {

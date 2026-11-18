@@ -54,7 +54,9 @@ import { startWorkflow } from 'vite-hub/workflow'
 // Start a run and return its id at once
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email: string }>(event)
-  return startWorkflow('onboard-user', body)
+  const [error, run] = await startWorkflow('onboard-user', body)
+  if (error) throw error
+  return run
 })
 ```
 
@@ -63,9 +65,11 @@ import { defineEventHandler, getRouterParam } from 'h3'
 import { getWorkflowRun } from 'vite-hub/workflow'
 
 // Read the status and result of one run
-export default defineEventHandler((event) => {
+export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
-  return getWorkflowRun('onboard-user', id)
+  const [error, run] = await getWorkflowRun('onboard-user', id)
+  if (error) throw error
+  return run
 })
 ```
 ::

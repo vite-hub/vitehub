@@ -40,11 +40,13 @@ Better Auth 1.7.7 has a last-login-method plugin but no local audit log. ViteHub
 
 ## Read events from code
 
-```ts [server/api/sign-ins.get.ts]
+This is the body of a handler. Run it only after checking that the caller may read audit events, for example with [`requireAbility()`](/docs/auth/abilities).
+
+```ts fragment
 import { aggregateAuthEvents, listAuthEvents } from 'vite-hub/auth/server'
 import { toResponse } from 'vite-hub/runtime'
 
-export default async () => {
+async function readSignIns() {
   const [error, page] = await listAuthEvents({
     type: 'user.signed_in',
     from: '2026-10-01T00:00:00.000Z',
