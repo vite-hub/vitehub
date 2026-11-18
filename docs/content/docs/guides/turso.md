@@ -26,7 +26,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-  	host: 'node',
   	database: {
   		connection: {
   			url: env({ source: env.source('TURSO_DATABASE_URL') }),
@@ -47,7 +46,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
 	plugins: [vitehub({
-		host: 'node',
 		database: {
 			connection: {
 				url: env({ source: env.source('TURSO_DATABASE_URL') }),
@@ -67,7 +65,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
 	plugins: [vitehub({
-		host: 'node',
 		database: {
 			connection: {
 				url: env({ source: env.source('TURSO_DATABASE_URL') }),

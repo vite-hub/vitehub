@@ -26,7 +26,7 @@ Turn on Agents and Realtime. This Node build keeps its rooms in memory, in one p
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', agent: true, realtime: { driver: 'memory' } },
+  vitehub: { agent: true, realtime: { driver: 'memory' } },
 })
 ```
 :::
@@ -39,7 +39,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ host: 'node', agent: true, realtime: { driver: 'memory' } }),
+    vitehub({ agent: true, realtime: { driver: 'memory' } }),
     nitro(),
   ],
 })
@@ -53,7 +53,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ host: 'node', agent: true, realtime: { driver: 'memory' } }),
+    vitehub({ agent: true, realtime: { driver: 'memory' } }),
   ],
 })
 ```
