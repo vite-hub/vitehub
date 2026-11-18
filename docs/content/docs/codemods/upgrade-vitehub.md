@@ -158,6 +158,8 @@ npx @vite-hub/codemods driver-key [dir] [--dry-run]
 | Database `driver: "d1"` | `"cloudflare"` |
 | Workspace Store `"cloudflare-artifacts"`, `"vercel-blob"` | `"cloudflare"`, `"vercel"` |
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
 ```diff [nuxt.config.ts]
  export default defineNuxtConfig({
    modules: ['vite-hub/nuxt'],
@@ -169,6 +171,46 @@ npx @vite-hub/codemods driver-key [dir] [--dry-run]
    },
  })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```diff [vite.config.ts]
+ import { defineConfig } from 'vite'
+ import { vitehub } from 'vite-hub'
+ import { nitro } from 'nitro/vite'
+
+ export default defineConfig({
+   plugins: [
+     vitehub({
+-      queue: { provider: 'cloudflare' },
+-      kv: { driver: 'cloudflare-kv-binding' },
++      queue: { driver: 'cloudflare' },
++      kv: { driver: 'cloudflare' },
+     }),
+     nitro(),
+   ],
+ })
+```
+:::
+
+:::tabs-item{label="Vite"}
+```diff [vite.config.ts]
+ import { defineConfig } from 'vite'
+ import { vitehub } from 'vite-hub'
+
+ export default defineConfig({
+   plugins: [
+     vitehub({
+-      queue: { provider: 'cloudflare' },
+-      kv: { driver: 'cloudflare-kv-binding' },
++      queue: { driver: 'cloudflare' },
++      kv: { driver: 'cloudflare' },
+     }),
+   ],
+ })
+```
+:::
+::
 
 It changes the options of `vitehub()`, the `vitehub` key of `nuxt.config` and `nitro.config`, the `hub*()` plugins, `createQueueClient()`, `createEmail()`, and `createBrowser()`. Workspace `store` objects change only in Workspace config, `defineWorkspace()`, `hubWorkspace()`, and the `workspace` option of `defineAgent()`. The report lists a driver value that is not a string literal. Options that a variable or a helper builds stay as they are, so search for `provider` and `authority` after the run.
 
