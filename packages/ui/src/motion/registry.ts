@@ -4,6 +4,8 @@ export const motionStateAttributes = [
   "aria-selected",
   "aria-pressed",
   "aria-expanded",
+  "aria-valuenow",
+  "aria-valuetext",
   "data-state",
   "data-checked",
   "data-open",
@@ -29,7 +31,10 @@ export interface MotionContentChange {
 
 /** What a press does next. The motion layer calls it until the pointer or the key goes up. */
 export interface MotionPress {
-  /** The pointer moved while it was down, such as on a slider thumb. Not called for a key press. */
+  /**
+   * The pointer moved while it was down, such as on a resize handle. Not called for a key press. A press with `move`
+   * is a drag: it goes on when the pointer leaves the element, until the pointer goes up.
+   */
   move?(event: PointerEvent): void;
   /** The pointer or the key went up, or the pointer left the element or was cancelled. */
   release(): void;
@@ -91,8 +96,11 @@ export function onMotionEffectsChange(listener: () => void): () => void {
   return () => changeListeners.delete(listener);
 }
 
-/** The CSS properties that the motion layer may write. */
-export type MotionStyleProperty = "scale" | "translate" | "rotate" | "filter" | "opacity";
+/**
+ * The CSS properties that the motion layer may write. `clip-path` hides the part of a tooltip that is still behind its
+ * trigger.
+ */
+export type MotionStyleProperty = "scale" | "translate" | "rotate" | "filter" | "opacity" | "clip-path";
 
 /** Writes motion properties inline. An empty string or `null` removes the property, so the stylesheet applies again. */
 export function writeMotionStyle(element: HTMLElement | SVGElement, values: Partial<Record<MotionStyleProperty, string | null>>): void {

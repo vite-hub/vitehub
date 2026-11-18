@@ -46,7 +46,8 @@ function begin(id: number | "key", event: PointerEvent | KeyboardEvent, path: Ev
     const press = effect.press(element, event);
     if (!press) continue;
     const item: { element: HTMLElement; press: MotionPress; leave?: () => void } = { element, press };
-    if (id !== "key") {
+    // A drag goes on outside the element, as a slider thumb or a resize handle stays behind the pointer at its limit.
+    if (id !== "key" && !press.move) {
       item.leave = () => end(id);
       element.addEventListener("pointerleave", item.leave, { once: true });
     }

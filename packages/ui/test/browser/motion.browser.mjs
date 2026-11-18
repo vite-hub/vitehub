@@ -45,9 +45,41 @@ async function open(query = "", options = {}) {
   const errors = []
   page.on("pageerror", error => errors.push(error.message))
   page.on("console", message => message.type() === "error" && errors.push(message.text()))
+  // The element that a press of `data-test=<id>` squashes: the icon of an icon-only control, or itself, also in the
+  // shadow root of the page.
+  await page.addInitScript(() => {
+    window.pressTarget = (id) => {
+      const element = document.querySelector(`[data-test="${id}"]`) ?? document.querySelector("motion-shadow-button")?.shadowRoot?.querySelector(`[data-test="${id}"]`)
+      return element.childElementCount === 1 && !element.textContent.trim() ? element.firstElementChild : element
+    }
+  })
   await page.goto(`${base}${query}`)
   await page.waitForFunction(() => window.ready, undefined, { timeout: 60_000 })
   return { context, errors, page }
+}
+
+// The checks wait for what the spring writes, never for a fixed time. On a busy machine a frame can take far more than
+// 16ms, and the layer moves each spring by at most 32ms of motion per frame, so wall-clock waits drift from the spring.
+
+/** Waits until the inline `scale` that the press writes on `data-test=<id>` passes `check`, a function of the number. */
+function waitForScale(page, testId, check) {
+  return page.waitForFunction(([id, source]) => {
+    const value = window.pressTarget(id).style.scale
+    return new Function("scale", `return (${source})(scale)`)(value === "" ? 1 : Number(value))
+  }, [testId, check.toString()], { timeout: 15_000 })
+}
+
+/** Waits until the press on `data-test=<id>` has settled and removed its `scale`. */
+function waitForRest(page, testId) {
+  return page.waitForFunction(id => window.pressTarget(id).style.scale === "", testId, { timeout: 15_000 })
+}
+
+/** Waits for `count` frames of the page, enough for any spring to write its first value. */
+function frames(page, count = 10) {
+  return page.evaluate(count => new Promise((resolve) => {
+    const next = left => left ? requestAnimationFrame(() => next(left - 1)) : resolve()
+    next(count)
+  }), count)
 }
 
 /** The computed `scale` of the element that a press of `test` squashes: the icon of an icon-only control, or itself. */
@@ -59,23 +91,32 @@ function scaleOf(page, testId) {
   })
 }
 
-/** Records the `scale` of the pressed element on every frame until `stop()`. */
+/**
+ * Records the `scale` of the pressed element on every frame until `stop()`: the computed number, and the inline value
+ * that the layer writes, which is empty only at rest. For each pointer down on it, it records the index of the next frame
+ * and the inline `scale` at that moment.
+ */
 async function sample(page, testId) {
-  await page.locator(`[data-test="${testId}"]`).evaluate((element) => {
-    const target = element.childElementCount === 1 && !element.textContent.trim() ? element.firstElementChild : element
+  await page.evaluate((id) => {
+    const target = window.pressTarget(id)
     const values = []
+    const inline = []
+    const downs = []
+    window.sampled = values
+    target.closest("[data-test]").addEventListener("pointerdown", () => downs.push({ index: values.length, scale: target.style.scale }))
     let running = true
     const read = () => {
       const value = getComputedStyle(target).scale
       values.push(value === "none" ? 1 : Number(value.split(" ")[0]))
+      inline.push(target.style.scale)
       if (running) requestAnimationFrame(read)
     }
     requestAnimationFrame(read)
     window.stopSample = () => {
       running = false
-      return values
+      return { downs, inline, values }
     }
-  })
+  }, testId)
   return { stop: () => page.evaluate(() => window.stopSample()) }
 }
 
@@ -85,34 +126,31 @@ async function pointerDown(page, testId) {
   await page.mouse.down()
 }
 
-/** The lowest `scale` while the pointer is down for 150ms, and the `scale` once the press has settled. */
+/** The `scale` once the pressed element has squashed, and the `scale` once the press has settled. */
 async function press(page, testId) {
   await pointerDown(page, testId)
-  await page.waitForTimeout(150)
+  await waitForScale(page, testId, scale => scale < 0.99)
   const down = await scaleOf(page, testId)
   await page.mouse.up()
-  await page.waitForFunction(id => {
-    const element = document.querySelector(`[data-test="${id}"]`) ?? document.querySelector("motion-shadow-button").shadowRoot.querySelector(`[data-test="${id}"]`)
-    const target = element.childElementCount === 1 && !element.textContent.trim() ? element.firstElementChild : element
-    return !target.style.scale
-  }, testId, { timeout: 5000 })
+  await waitForRest(page, testId)
   return { down, settled: await scaleOf(page, testId) }
 }
 
-const roles = ["button", "link", "tab", "radio", "menuitem", "menuitemradio", "menuitemcheckbox", "option", "switch", "checkbox"]
+// A switch grows its knob instead of a press. test/browser/motion-toggle.browser.mjs checks it.
+const roles = ["button", "link", "tab", "radio", "menuitem", "menuitemradio", "menuitemcheckbox", "option", "checkbox"]
 
 describe("press by role", async () => {
   test("a pressed UButton squashes, springs back past rest, and clears its scale", async () => {
     const { context, errors, page } = await open()
     const trace = await sample(page, "button")
     await pointerDown(page, "button")
-    await page.waitForTimeout(150)
+    // UButton sm is 28px high, so the spring settles at a 5% squash.
+    await page.waitForFunction(() => window.pressTarget("button").style.scale === "0.95", undefined, { timeout: 15_000 })
     await page.mouse.up()
-    await page.waitForFunction(() => !document.querySelector("[data-test=button]").style.scale, undefined, { timeout: 5000 })
-    await page.waitForTimeout(50)
-    const values = await trace.stop()
+    await waitForRest(page, "button")
+    await frames(page, 2)
+    const { values } = await trace.stop()
     const low = Math.min(...values)
-    // UButton sm is 28px high, so it squashes by 5%.
     assert.ok(low < 0.96 && low > 0.94, `the press squashes to about 0.95, not ${low}`)
     assert.ok(Math.max(...values) > 1.005, `the release passes rest, up to ${Math.max(...values)}`)
     assert.equal(values.at(-1), 1)
@@ -121,26 +159,50 @@ describe("press by role", async () => {
     await context.close()
   })
 
-  test("a fast second press continues from where the first one is, with no jump", async () => {
+  test("a second press during the spring-back continues from where the spring is, with no reset to rest", async () => {
     const { context, page } = await open()
+    // At ¼× the spring-back lasts about 3s, so each press lands inside it however slow the machine is. Each press waits
+    // for the state of the spring, not for a time.
+    await page.locator("[data-test=speed]").click()
+    await waitForRest(page, "speed")
     const trace = await sample(page, "button-outline")
-    for (let index = 0; index < 3; index++) {
-      await pointerDown(page, "button-outline")
-      await page.waitForTimeout(40)
-      await page.mouse.up()
-      await page.waitForTimeout(40)
-    }
-    await page.waitForTimeout(800)
-    const values = await trace.stop()
-    // A press that started again from rest would show 1 between the presses. The only 1s are before and after.
-    const first = values.findIndex(value => value !== 1)
-    const last = values.findLastIndex(value => value !== 1)
-    assert.ok(first >= 0 && Math.min(...values) < 0.98, "the presses squash")
-    assert.deepEqual(values.slice(first, last + 1).filter(value => value === 1), [])
-    // One frame moves at most 32ms of the spring, less than the full squash of 5%.
-    const steps = values.slice(1).map((value, index) => Math.abs(value - values[index]))
-    assert.ok(Math.max(...steps) < 0.04, `the largest step between two frames is ${Math.max(...steps)}`)
+    const latest = () => page.evaluate(() => window.sampled.at(-1))
+    await pointerDown(page, "button-outline")
+    await waitForScale(page, "button-outline", scale => scale < 0.97)
+    await page.mouse.up()
+    // The second press comes while the spring moves back toward rest.
+    const bottom = await latest()
+    await page.waitForFunction(low => window.sampled.at(-1) > low + 0.01 && window.sampled.at(-1) < 0.995, bottom, { timeout: 15_000 })
+    await page.mouse.down()
+    await waitForScale(page, "button-outline", scale => scale < 0.97)
+    await page.mouse.up()
+    // The third press comes while the spring passes rest.
+    await waitForScale(page, "button-outline", scale => scale > 1.002)
+    await page.mouse.down()
+    await waitForScale(page, "button-outline", scale => scale < 0.97)
+    await page.mouse.up()
+    await waitForRest(page, "button-outline")
+    await frames(page, 2)
+    const { downs, inline, values } = await trace.stop()
     await context.close()
+
+    assert.equal(downs.length, 3)
+    for (const [index, down] of downs.slice(1).entries()) {
+      // The spring was still moving when the press came, so this checks a press during the spring-back.
+      assert.notEqual(down.scale, "", `press ${index + 2} came while the spring moved`)
+      // The next frame goes on from the scale at the press, and does not start again from rest.
+      const next = values[down.index]
+      assert.ok(Math.abs(next - Number(down.scale)) < 0.01, `press ${index + 2}: ${down.scale} at the press, then ${next}`)
+    }
+    // A spring that went back to rest between the presses would have cleared its inline `scale`. The computed value can
+    // read 1 where the spring passes rest, so the check reads the inline value.
+    const first = inline.findIndex(value => value !== "")
+    const last = inline.findLastIndex(value => value !== "")
+    assert.ok(first >= 0 && first < downs[1].index && last >= downs[2].index, "the presses squash")
+    assert.deepEqual(inline.slice(first, last + 1).filter(value => value === "").length, 0)
+    // At ¼×, one frame moves at most 8ms of the spring, a small part of the 5% squash.
+    const steps = values.slice(1).map((value, index) => Math.abs(value - values[index]))
+    assert.ok(Math.max(...steps) < 0.015, `the largest step between two frames is ${Math.max(...steps)}`)
   })
 
   test("each Nuxt UI control and each role squashes", async () => {
@@ -151,27 +213,37 @@ describe("press by role", async () => {
       assert.ok(down < 0.99, `${id} squashes (${down})`)
       assert.equal(settled, 1, `${id} settles at rest`)
     }
-    for (const selector of ["button[role=tab]", "button[role=switch]", "button[role=checkbox]", "button[role=radio]"]) {
+    for (const selector of ["button[role=tab]", "button[role=checkbox]", "button[role=radio]"]) {
       const element = page.locator(selector).first()
       const box = await element.boundingBox()
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
       await page.mouse.down()
-      await page.waitForTimeout(150)
-      const scale = await element.evaluate(node => getComputedStyle(node).scale)
+      const squashed = await element.evaluate(node => new Promise((resolve) => {
+        let left = 120
+        const check = () => getComputedStyle(node).scale !== "none" ? resolve(true) : --left ? requestAnimationFrame(check) : resolve(false)
+        requestAnimationFrame(check)
+      }))
       await page.mouse.up()
-      assert.notEqual(scale, "none", `${selector} squashes`)
+      assert.ok(squashed, `${selector} squashes`)
+      await element.evaluate(node => new Promise((resolve) => {
+        const check = () => node.style.scale ? requestAnimationFrame(check) : resolve()
+        check()
+      }))
     }
     await context.close()
   })
 
   test("an icon-only button squashes its icon by 15%", async () => {
     const { context, page } = await open()
+    const trace = await sample(page, "button-icon")
     await pointerDown(page, "button-icon")
-    await page.waitForTimeout(150)
-    const icon = await scaleOf(page, "button-icon")
+    // The spring settles at a 15% squash of the icon.
+    await page.waitForFunction(() => window.pressTarget("button-icon").style.scale === "0.85", undefined, { timeout: 15_000 })
+    const { values } = await trace.stop()
+    const icon = Math.min(...values)
     const own = await page.locator("[data-test=button-icon]").evaluate(element => getComputedStyle(element).scale)
     await page.mouse.up()
-    assert.ok(icon < 0.87 && icon > 0.84, `the icon squashes to about 0.85, not ${icon}`)
+    assert.ok(icon <= 0.85 && icon > 0.83, `the icon squashes to about 0.85, not ${icon}`)
     assert.equal(own, "none")
     await context.close()
   })
@@ -181,7 +253,7 @@ describe("press by role", async () => {
     for (const key of ["Space", "Enter"]) {
       await page.locator("[data-test=plain-button]").focus()
       await page.keyboard.down(key)
-      await page.waitForTimeout(150)
+      await waitForScale(page, "plain-button", scale => scale < 0.99)
       const down = await scaleOf(page, "plain-button")
       await page.keyboard.up(key)
       assert.ok(down < 0.99, `${key} squashes (${down})`)
@@ -194,14 +266,14 @@ describe("press by role", async () => {
     const { context, page } = await open()
     for (const id of ["button-disabled", "plain-disabled", "aria-disabled", "opt-out", "own-press"]) {
       await pointerDown(page, id)
-      await page.waitForTimeout(150)
+      await frames(page)
       const down = await scaleOf(page, id)
       await page.mouse.up()
       assert.equal(down, 1, `${id} stays still`)
     }
     // A press on a span in a button squashes the button, not the span.
     await pointerDown(page, "inner-span")
-    await page.waitForTimeout(150)
+    await waitForScale(page, "not-a-control-parent", scale => scale < 0.99)
     assert.equal(await page.locator("[data-test=inner-span]").evaluate(node => getComputedStyle(node).scale), "none")
     assert.ok(await scaleOf(page, "not-a-control-parent") < 0.99)
     await page.mouse.up()
@@ -211,7 +283,7 @@ describe("press by role", async () => {
   test("reduced motion turns the press off, from the system setting and from forceReducedMotion", async () => {
     const system = await open("", { reducedMotion: "reduce" })
     await pointerDown(system.page, "button")
-    await system.page.waitForTimeout(150)
+    await frames(system.page)
     assert.equal(await scaleOf(system.page, "button"), 1)
     await system.page.mouse.up()
     // The layer follows a live change of the setting.
@@ -223,7 +295,7 @@ describe("press by role", async () => {
     const forced = await open()
     await forced.page.locator("[data-test=reduce]").click()
     await pointerDown(forced.page, "button")
-    await forced.page.waitForTimeout(150)
+    await frames(forced.page)
     assert.equal(await scaleOf(forced.page, "button"), 1)
     await forced.page.mouse.up()
     await forced.context.close()
@@ -235,7 +307,7 @@ describe("press by role", async () => {
     const box = await button.boundingBox()
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     await page.mouse.down()
-    await page.waitForTimeout(150)
+    await waitForScale(page, "shadow", scale => scale < 0.99)
     const down = await button.evaluate(node => getComputedStyle(node).scale)
     await page.mouse.up()
     assert.ok(Number(down) < 0.99, `the shadow button squashes (${down})`)
@@ -244,19 +316,35 @@ describe("press by role", async () => {
 
   test("the ¼× speed makes the press four times slower", async () => {
     const { context, page } = await open()
-    const time = async () => {
+    // Measures the time from the release to rest on the clock of the springs: each frame counts its time, up to 32ms,
+    // so a slow frame on a busy machine does not count as motion that the spring never made.
+    const timeToRest = async () => {
       await pointerDown(page, "button-outline")
-      await page.waitForTimeout(150)
-      const start = Date.now()
+      await page.waitForFunction(() => window.pressTarget("button-outline").style.scale === "0.95", undefined, { timeout: 15_000 })
+      await page.evaluate(() => {
+        window.restTime = new Promise((resolve) => {
+          addEventListener("pointerup", () => {
+            let total = 0
+            let last = performance.now()
+            const check = (time) => {
+              total += Math.min(32, time - last)
+              last = time
+              if (window.pressTarget("button-outline").style.scale) requestAnimationFrame(check)
+              else resolve(total)
+            }
+            requestAnimationFrame(check)
+          }, { capture: true, once: true })
+        })
+      })
       await page.mouse.up()
-      await page.waitForFunction(() => !document.querySelector("[data-test=button-outline]").style.scale, undefined, { timeout: 10_000 })
-      return Date.now() - start
+      return page.evaluate(() => window.restTime)
     }
-    const real = await time()
+    const real = await timeToRest()
     await page.locator("[data-test=speed]").click()
-    await page.waitForTimeout(400)
-    const slow = await time()
-    assert.ok(slow > real * 2.5, `¼× takes ${slow}ms, 1× takes ${real}ms`)
+    await waitForRest(page, "speed")
+    const slow = await timeToRest()
+    // The 1× press lasts about 30 frames, so one frame more or less at the start or the end moves the ratio by about 0.4.
+    assert.ok(slow / real > 3.2 && slow / real < 4.8, `¼× takes ${Math.round(slow)}ms, 1× takes ${Math.round(real)}ms`)
     await context.close()
   })
 
