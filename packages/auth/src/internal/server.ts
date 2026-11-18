@@ -322,7 +322,10 @@ async function startSignIn(
 ): Promise<Response> {
   const { session, setCookies } = await getAuthenticationSession(auth, { headers })
   const response = session
-    ? new Response(null, { headers: { location: signIn.callbackURL ?? "/" }, status: 302 })
+    ? new Response(null, {
+        headers: { location: (signIn.callbackURL ?? "/").replace(/[^\u0020-\u007E]+/gu, encodeURI) },
+        status: 302,
+      })
     : await createSignInResponse(auth, options, signIn, address)
   // The session cookies first: when they clear a stale session, the new OAuth state cookie must come after them.
   const sent = new Headers()

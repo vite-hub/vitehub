@@ -72,6 +72,15 @@ describe("GET <basePath>/sign-in", () => {
     expect(response.headers.get("location")).toBe("/%E6%97%A5%E6%9C%AC%E8%AA%9E?q=%C3%BC")
   })
 
+  it("encodes the configured callback URL for a signed-in visitor", async () => {
+    const cookie = await signUp()
+    const localized = defineFixedAuth({ ...options, access: { signIn: { provider: "github", callbackURL: "/日本語?q=%C3%BC" } } })
+    const response = await handleAuthRequest(localized, new Request(`${origin}/api/auth/sign-in`, { headers: { cookie } }))
+
+    expect(response.status).toBe(302)
+    expect(response.headers.get("location")).toBe("/%E6%97%A5%E6%9C%AC%E8%AA%9E?q=%C3%BC")
+  })
+
   it("puts the new OAuth state cookie after the cookies that clear a stale session", async () => {
     const stateCookies = defineFixedAuth({ ...options, account: { storeStateStrategy: "cookie" } })
     const cookie = await signUp()
