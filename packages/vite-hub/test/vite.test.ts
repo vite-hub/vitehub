@@ -903,6 +903,7 @@ describe("vitehub", () => {
         "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-redis-driver\.(?:ts|js)$/),
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-upstash-driver\.(?:ts|js)$/),
       },
+      requireKVPluginForProcessStores: true,
       runtime: { driver: "process" },
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, {
