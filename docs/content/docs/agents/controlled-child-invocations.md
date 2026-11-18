@@ -74,12 +74,13 @@ if (child.support.respond) {
 | Mode | Use it to | Support |
 | --- | --- | --- |
 | `'respond'` | Answer a pending provider approval or a `data-agent-input` question. | Inline provider runtimes, while the request is pending. |
-| `'steer'` | Add text to the active provider turn, as a string or a text-only `Message[]`. | When `child.support.steer` is `true`. |
+| `'steer'` | Add text to the active run, as a string or a text-only `Message[]`. A model Driver sends it as a user message at its next model step. A Provider Driver adds it to the active turn. | When `child.support.steer` is `true`. |
 | `'follow-up'` | Start another turn. | Not supported yet. |
 
 Steering returns:
 
-- `accepted` when the provider adds the input to the active turn.
+- `accepted` when the provider adds the input to the active turn, or when the next model step reads it.
+- `unavailable` when the run ends before it reads the input. A model run that is already writing its final answer ends this way.
 - `unsupported` when the provider cannot do it safely, for example for input with attachments.
 - `invalid-state` for an unclear submission or a cancel failure. Do not resend that input automatically.
 
