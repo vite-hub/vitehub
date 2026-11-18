@@ -5,6 +5,7 @@ import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setu
 import { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, resumeWorkflow, startWorkflow } from "../src/runtime/client.ts"
 import { runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
 import { setVercelWorkflowRuntimeLoader } from "../src/runtime/vercel.ts"
+import { unwrap } from "./unwrap.ts"
 
 const mode = enableViteHubTestMode()
 const handler = vi.fn()
@@ -25,9 +26,9 @@ afterAll(async () => {
 })
 
 it("records valid starts without a provider or handler, and reset empties the list", async () => {
-  const run = await startWorkflow("onboarding", { userId: 1 }, { id: "run-1" })
+  const run = await unwrap(startWorkflow("onboarding", { userId: 1 }, { id: "run-1" }))
   expect(run).toEqual({ id: "run-1", payload: { userId: 1 }, provider: "openworkflow", status: "queued" })
-  expect(await startWorkflow("onboarding", { userId: 2 }, { id: "run-1" })).toEqual(run)
+  expect(await unwrap(startWorkflow("onboarding", { userId: 2 }, { id: "run-1" }))).toEqual(run)
   const pending: Promise<unknown>[] = []
   const digest = createWorkflow<{ day: number }>("digest")
   await runWithWorkflowRuntimeEvent({ waitUntil: (promise: Promise<unknown>) => pending.push(promise) }, () => {
@@ -36,7 +37,7 @@ it("records valid starts without a provider or handler, and reset empties the li
     expect(pending).toHaveLength(2)
   })
   await Promise.all(pending)
-  await digest.start({ day: 2 })
+  await unwrap(digest.start({ day: 2 }))
 
   expect(mode.peek("workflow")).toMatchObject([
     { deferred: false, id: "run-1", payload: { userId: 1 }, workflow: "onboarding" },
@@ -44,9 +45,9 @@ it("records valid starts without a provider or handler, and reset empties the li
     { deferred: true, payload: { day: 3 }, workflow: "digest" },
     { deferred: false, payload: { day: 2 }, workflow: "digest" },
   ])
-  expect(await cancelWorkflow("onboarding", "run-1")).toMatchObject({ id: "run-1", status: "cancelled" })
-  expect(await getWorkflowRun("onboarding", "run-1")).toMatchObject({ status: "cancelled" })
-  expect(await getWorkflowRun("onboarding", "missing")).toEqual({ id: "missing", provider: "openworkflow", status: "unknown" })
+  expect(await unwrap(cancelWorkflow("onboarding", "run-1"))).toMatchObject({ id: "run-1", status: "cancelled" })
+  expect(await unwrap(getWorkflowRun("onboarding", "run-1"))).toMatchObject({ status: "cancelled" })
+  expect(await unwrap(getWorkflowRun("onboarding", "missing"))).toEqual({ id: "missing", provider: "openworkflow", status: "unknown" })
   expect(handler).not.toHaveBeenCalled()
 
   await mode.reset()
@@ -85,31 +86,31 @@ it("rejects unknown Definitions before starts and cancellations, and logs deferr
 
 it("preserves unsupported inline Vercel cancellation", async () => {
   setWorkflowRuntimeConfig({ driver: "vercel" })
-  const run = await startWorkflow("onboarding", {})
-  await expect(cancelWorkflow("onboarding", run.id)).rejects.toMatchObject({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "cancellation", provider: "vercel" } })
-  expect(await getWorkflowRun("onboarding", run.id)).toMatchObject({ status: "queued" })
+  const run = await unwrap(startWorkflow("onboarding", {}))
+  expect(await cancelWorkflow("onboarding", run.id)).toMatchObject([{ code: "WORKFLOW_OPERATION_UNSUPPORTED", data: { operation: "cancellation", provider: "vercel" } }, undefined])
+  expect(await unwrap(getWorkflowRun("onboarding", run.id))).toMatchObject({ status: "queued" })
 })
 
 it("captures Cloudflare cancellations", async () => {
   setWorkflowRuntimeConfig({ driver: "cloudflare" })
-  const run = await startWorkflow("onboarding", {})
-  expect(await cancelWorkflow("onboarding", run.id)).toMatchObject({ provider: "cloudflare", status: "cancelled" })
-  expect(await getWorkflowRun("onboarding", run.id)).toMatchObject({ status: "cancelled" })
+  const run = await unwrap(startWorkflow("onboarding", {}))
+  expect(await unwrap(cancelWorkflow("onboarding", run.id))).toMatchObject({ provider: "cloudflare", status: "cancelled" })
+  expect(await unwrap(getWorkflowRun("onboarding", run.id))).toMatchObject({ status: "cancelled" })
 })
 
 it("rejects caller run IDs for native Vercel Workflows but captures supported starts and cancellations", async () => {
   setWorkflowRuntimeConfig({ driver: "vercel" })
   setWorkflowRuntimeRegistry({ onboarding: async () => ({ handler, options: { native: handler } }) })
-  await expect(startWorkflow("onboarding", {}, { id: "custom" })).rejects.toMatchObject({ code: "WORKFLOW_RUN_ID_UNSUPPORTED" })
+  expect(await startWorkflow("onboarding", {}, { id: "custom" })).toMatchObject([{ code: "WORKFLOW_RUN_ID_UNSUPPORTED" }, undefined])
   expect(mode.peek("workflow")).toBeUndefined()
-  const run = await startWorkflow("onboarding", {})
-  expect(await cancelWorkflow("onboarding", run.id)).toMatchObject({ status: "cancelled" })
+  const run = await unwrap(startWorkflow("onboarding", {}))
+  expect(await unwrap(cancelWorkflow("onboarding", run.id))).toMatchObject({ status: "cancelled" })
 })
 
 it.each(["cloudflare", "openworkflow", "vercel"] as const)("rejects %s signals without loading a provider", async (provider) => {
   setWorkflowRuntimeConfig({ driver: provider })
   const loadProvider = vi.fn(async () => { throw new Error("provider must not load") })
   setVercelWorkflowRuntimeLoader(loadProvider)
-  await expect(resumeWorkflow("valid-hook-token", {})).rejects.toMatchObject({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "signals", provider } })
+  expect(await resumeWorkflow("valid-hook-token", {})).toMatchObject([{ code: "WORKFLOW_OPERATION_UNSUPPORTED", data: { operation: "signals", provider } }, undefined])
   expect(loadProvider).not.toHaveBeenCalled()
 })
