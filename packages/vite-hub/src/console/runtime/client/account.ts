@@ -119,7 +119,8 @@ export async function linkConsoleGitHub(callbackURL: string): Promise<void> {
   if (error) throw failure(error, "GitHub did not start.")
 }
 
-export async function signOutConsoleAccount(): Promise<void> {
+/** End the session of the Console server. `signOutConsole()` also deletes the stored answers and loads the page again. */
+export async function endConsoleSession(): Promise<void> {
   const { error } = await auth().signOut()
   if (error) throw failure(error, "Sign out failed.")
 }
