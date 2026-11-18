@@ -30,9 +30,13 @@ export interface McpToolResult {
 }
 
 /** The MCP result of a `ViteHubMcpTool` call: a text block, then one image block for each image. */
-export function mcpToolResult(result: ViteHubMcpToolResult): McpToolResult {
+export function mcpToolResult(result: ViteHubMcpToolResult) {
+  const content: ({ type: "text", text: string } | { type: "image", data: string, mimeType: string })[] = [{ type: "text", text: result.text }]
+  for (const image of result.images ?? []) {
+    content.push({ type: "image", data: image.data, mimeType: image.mimeType })
+  }
   return {
-    content: [{ type: "text", text: result.text }, ...(result.images ?? []).map(image => ({ type: "image", data: image.data, mimeType: image.mimeType }))],
+    content,
     ...(result.structured ? { structuredContent: result.structured } : {}),
     isError: result.isError === true,
   }

@@ -5,6 +5,7 @@ import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders, text } from "../identity.ts"
 import { runtimeOf } from "../installed.ts"
+import { commentsErrorDiagnostics } from "../operations-core/errors.ts"
 import { base64, readAttachment } from "../operations-core/service.ts"
 import { commentsPageScope, normalizeCommentPage } from "../page.ts"
 import { commentThreadSummary as summary, commentThreadsText, describeCommentThread as describeThread, hiddenThreadsNote } from "../thread-text.ts"
@@ -67,12 +68,24 @@ async function threadImages(comments: Comments, thread: CommentThread, user: Com
   const notes: string[] = []
   let bytes = 0
   for (const key of thread.messages.flatMap(message => message.attachments)) {
-    const [error, file] = await readAttachment(runtime, key, { thread, user }).then(file => [undefined, file] as const, (error: unknown) => [error, undefined] as const)
-    if (!file) notes.push(`Could not read ${key}: ${error instanceof Error ? error.message : String(error)}`)
-    else if (file.inline && bytes + file.size > maximumThreadImageBytes) notes.push(`Not shown: ${key}, because the images of one answer stay under ${maximumThreadImageBytes / 1024 / 1024} MB.`)
-    else if (file.inline) {
-      bytes += file.size
+    try {
+      const file = await readAttachment(runtime, key, { thread, user })
+      if (!file.inline) continue
+      if (bytes + file.size > maximumThreadImageBytes) {
+        notes.push(`Not shown: ${key}, because the images of one answer stay under ${maximumThreadImageBytes / 1024 / 1024} MB.`)
+        continue
+      }
       images.push({ data: base64(new Uint8Array(await file.data.arrayBuffer())), mimeType: file.type })
+      bytes += file.size
+    } catch (error) {
+      if (commentsErrorDiagnostics.COMMENTS_R0020.is(error)) {
+        notes.push(`Could not read ${key}: The file is missing or unavailable.`)
+      } else if (commentsErrorDiagnostics.COMMENTS_R0014.is(error) || commentsErrorDiagnostics.COMMENTS_R0021.is(error)) {
+        notes.push(`Could not read ${key}: The app has no attachment reader.`)
+      } else {
+        console.warn(`[vitehub] Comments could not read attachment ${JSON.stringify(key)}:`, error)
+        notes.push(`Could not read ${key}: The file could not be loaded.`)
+      }
     }
   }
   return { images, notes }
