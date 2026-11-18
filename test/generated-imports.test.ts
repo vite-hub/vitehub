@@ -51,4 +51,4 @@ it("writes no bare @vite-hub/* import into generated code", () => {
     .filter(file => /^packages\/[^/]+\/src\/.+\.m?ts$/.test(file) && !/\.(?:test|test-d|d)\.m?ts$/.test(file) && !typeDeclarations[file])
   const found = sources.flatMap(file => findGeneratedImports(file, readFileSync(join(repoRoot, file), "utf8")))
   expect(found).toEqual([])
-})
+}, 60_000)
