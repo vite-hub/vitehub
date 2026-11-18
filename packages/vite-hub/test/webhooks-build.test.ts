@@ -203,7 +203,7 @@ describe("Webhooks in a built Nitro 3 app", () => {
       await vi.waitFor(() => expect(received).toEqual([JSON.stringify({ comment: "on content" })]), { interval: 100, timeout: 15_000 })
       await vi.waitFor(async () => expect(await (await server.fetch("/deliveries")).json()).toEqual([expect.objectContaining({ state: "sent" })]), { interval: 100, timeout: 5_000 })
 
-      const form = await server.fetch("/api/_vitehub/forms/contact", { body: JSON.stringify({ message: "Hi" }), headers: { "content-type": "application/json", "referer": `http://127.0.0.1:${server.port}/` }, method: "POST" })
+      const form = await server.fetch("/_vitehub/forms/contact", { body: JSON.stringify({ message: "Hi" }), headers: { "content-type": "application/json", "referer": `http://127.0.0.1:${server.port}/` }, method: "POST" })
       expect(`${form.status} ${await form.text()}`).toMatch(/^201 /)
       expect(await (await server.fetch("/inbox")).json()).toEqual([expect.objectContaining({ data: { message: "Hi" } })])
     }
@@ -255,7 +255,7 @@ describe("Webhooks in a built Nitro 3 app", () => {
       await vi.waitFor(() => expect(received).toEqual([JSON.stringify({ comment: "on content" })]), { interval: 100, timeout: 15_000 })
       await vi.waitFor(async () => expect(await (await server.fetch("/deliveries")).json()).toEqual([expect.objectContaining({ state: "sent" })]), { interval: 100, timeout: 5_000 })
 
-      const form = await server.fetch("/api/_vitehub/forms/contact", { body: JSON.stringify({ message: "Hi" }), headers: { "content-type": "application/json", "referer": `http://127.0.0.1:${server.port}/` }, method: "POST" })
+      const form = await server.fetch("/_vitehub/forms/contact", { body: JSON.stringify({ message: "Hi" }), headers: { "content-type": "application/json", "referer": `http://127.0.0.1:${server.port}/` }, method: "POST" })
       expect(`${form.status} ${await form.text()}`).toMatch(/^201 /)
       expect(await (await server.fetch("/inbox")).json()).toEqual([expect.objectContaining({ data: { message: "Hi" } })])
     }

@@ -9,7 +9,7 @@ import { blobSizeToBytes } from "./size.ts"
 export const blobSignPurpose = "vitehub:blob:sign"
 
 /** The route that answers the links of `fs` stores. ViteHub mounts it only when a store uses the `fs` driver. */
-export const blobSignedRoute = "/_vitehub/blob/signed"
+export const blobSignedRoute = "/_vitehub/blob-signed"
 
 /** What a link binds. The URL carries each part, and the signature covers all of them. */
 export interface SignedFsLink {

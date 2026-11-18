@@ -227,7 +227,7 @@ function leaseHolder(error: unknown): string {
 }
 
 /**
- * The Comments API at `/api/_vitehub/comments/**`, as a Fetchable: mount it as a Nitro or H3 route, or call
+ * The Comments API at `/_vitehub/comments/**`, as a Fetchable: mount it as a Nitro or H3 route, or call
  * `fetch(request)`. The overlay calls it; every route checks the `authorize` policy of `defineComments()` for the user of
  * the request, and inline edits also check `content.can()`.
  */

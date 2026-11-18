@@ -146,7 +146,7 @@ describe("responsiveImage", () => {
     crops: { mobile: { aspect: "4:5" }, story: { aspect: "9:16", replacement: { height: 1920, width: 1080 } } },
     focal: { x: 0.7, y: 0.4 },
     height: 1500,
-    url: "/api/_vitehub/blob/hero.jpg",
+    url: "/_vitehub/blob/hero.jpg",
     width: 2400,
   }
 
@@ -159,8 +159,8 @@ describe("responsiveImage", () => {
       height: 1500,
       loading: "lazy",
       sizes: "(min-width: 1024px) 50vw, 100vw",
-      src: "/api/_vitehub/blob/hero.jpg?w=1080&fmt=webp",
-      srcset: [640, 750, 828, 1080, 1200, 1920, 2048, 2400].map(width => `/api/_vitehub/blob/hero.jpg?w=${width}&fmt=webp ${width}w`).join(", "),
+      src: "/_vitehub/blob/hero.jpg?w=1080&fmt=webp",
+      srcset: [640, 750, 828, 1080, 1200, 1920, 2048, 2400].map(width => `/_vitehub/blob/hero.jpg?w=${width}&fmt=webp ${width}w`).join(", "),
       style: "object-position: 70% 40%; background-color: #336699",
       width: 2400,
     })
@@ -176,10 +176,10 @@ describe("responsiveImage", () => {
       widths: [640, 1080],
     })
     expect(image.sources).toEqual([
-      { height: 1920, media: "(max-width: 480px)", sizes: "100vw", srcset: "/api/_vitehub/blob/hero.jpg?w=640&fmt=avif&q=60&crop=story 640w, /api/_vitehub/blob/hero.jpg?w=1080&fmt=avif&q=60&crop=story 1080w", type: "image/avif", width: 1080 },
-      { height: 1500, media: "(max-width: 768px)", sizes: "100vw", srcset: "/api/_vitehub/blob/hero.jpg?w=640&fmt=avif&q=60&crop=mobile 640w, /api/_vitehub/blob/hero.jpg?w=1080&fmt=avif&q=60&crop=mobile 1080w, /api/_vitehub/blob/hero.jpg?w=1200&fmt=avif&q=60&crop=mobile 1200w", type: "image/avif", width: 1200 },
+      { height: 1920, media: "(max-width: 480px)", sizes: "100vw", srcset: "/_vitehub/blob/hero.jpg?w=640&fmt=avif&q=60&crop=story 640w, /_vitehub/blob/hero.jpg?w=1080&fmt=avif&q=60&crop=story 1080w", type: "image/avif", width: 1080 },
+      { height: 1500, media: "(max-width: 768px)", sizes: "100vw", srcset: "/_vitehub/blob/hero.jpg?w=640&fmt=avif&q=60&crop=mobile 640w, /_vitehub/blob/hero.jpg?w=1080&fmt=avif&q=60&crop=mobile 1080w, /_vitehub/blob/hero.jpg?w=1200&fmt=avif&q=60&crop=mobile 1200w", type: "image/avif", width: 1200 },
     ])
-    expect(image.img).toMatchObject({ fetchpriority: "high", loading: "eager", src: "/api/_vitehub/blob/hero.jpg?w=1080&fmt=avif&q=60" })
+    expect(image.img).toMatchObject({ fetchpriority: "high", loading: "eager", src: "/_vitehub/blob/hero.jpg?w=1080&fmt=avif&q=60" })
   })
 
   it("keeps GIF and SVG originals and requires a URL", () => {
