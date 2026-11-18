@@ -34,7 +34,8 @@ export function validateAgentStaticRoute(route: string, handlers: readonly { rou
     throw agentDiagnostics.AGENT_ROUTE_NOT_STATIC({ label })
   }
   const target = normalized.split("/")
-  const namespaceDepth = namespace && normalized.startsWith(`${normalizeAgentRoute(namespace).replace(/\/$/, "")}/`) ? normalizeAgentRoute(namespace).replace(/\/$/, "").split("/").length : 0
+  const reserved = namespace && normalizeAgentRoute(namespace).replace(/\/$/, "")
+  const namespaceDepth = reserved && (normalized === reserved || normalized.startsWith(`${reserved}/`)) ? reserved.split("/").length : 0
   const conflict = handlers.find(({ route: handler, middleware }) => {
     if (middleware) return false
     const parts = (normalizeAgentRoute(handler).replace(/\/$/, "") || "/").split("/")

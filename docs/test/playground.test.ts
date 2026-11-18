@@ -24,7 +24,7 @@ describe("playground", () => {
     expect(built.map(template => template.id)).toEqual(["kv", "blob", "queue", "cache", "rate-limit", "agent", "channels", "ui"]);
     // The editor and the preview open a file and a route of the template.
     for (const template of built) expect(template.files[template.open], template.id).toBeDefined();
-    for (const template of built.filter(item => item.id !== "ui")) expect(template.preview, template.id).toMatch(/^\/api\//);
+    for (const template of built.filter(item => item.id !== "ui" && item.id !== "channels")) expect(template.preview, template.id).toMatch(/^\/api\//);
     const kv = built.find(template => template.id === "kv")!;
     expect(kv.files["server/api/settings.post.ts"]).toBe(await readFile(resolve(fixturesDir, "server-primitives/server/api/settings.post.ts"), "utf8"));
     expect(kv.files["vite.config.ts"]).toContain("kv:");

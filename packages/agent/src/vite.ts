@@ -3300,7 +3300,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           if (typeof target?.agent !== "string" || !target.agent.trim() || typeof target?.webhook !== "string" || !target.webhook.trim()) {
             throw agentDiagnostics.AGENT_WEBHOOK_ALIAS_TARGET_INVALID()
           }
-          const route = validateAgentStaticRoute(path, [...routes, ...nitroHandlers, ...devNitroHandlers], "webhook alias")
+          const route = validateAgentStaticRoute(path, [...routes, ...nitroHandlers, ...devNitroHandlers], "webhook alias", "/_vitehub/channels")
           nitroHandlers.push({ handler: join(generatedRoot, generatedAgentWebhookRouteHandler), route })
         }
       }
@@ -3312,7 +3312,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           ...routes,
           ...nitroHandlers.filter(handler => handler.handler !== join(generatedRoot, generatedAgentPreparationHandler)),
           ...devNitroHandlers,
-        ])
+        ], "readiness", agentReadyRoute)
       }
       if (devNitroHandlers.length) {
         const existing = Array.isArray(nitro.handlers) ? nitro.handlers : []

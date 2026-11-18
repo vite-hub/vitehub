@@ -42,6 +42,8 @@ interface SyncPageStore {
 interface SyncStoreOptions {
   /** The Sync route, such as `/_vitehub/sync/todos`. */
   url: string
+  /** The key for storage and coordination, independent of the request URL. */
+  id?: string
   /** The subset of the store. Its rows and its outbox are stored apart from the other subsets. */
   where?: SyncValues
   /** The optimistic functions of actions, by name. */
@@ -182,7 +184,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   const where = options.where ?? {}
   const subset = whereKey(where)
   // The name of the stored copy and of the locks. A subset has its own.
-  const id = subset ? `${url}?${subset}` : url
+  const id = options.id ?? (subset ? `${url}?${subset}` : url)
   const listeners = new Set<() => void>()
   const pending = new Map<string, PendingWrite[]>()
   const failureCache = new WeakMap<SyncQueuedWrite, SyncFailure>()

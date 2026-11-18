@@ -18,6 +18,31 @@ const consoleRuntime = resolve(packageRoot, "src/console/runtime")
 
 type NitroEntry = { baseURL?: string, dir?: string, handler?: string, method?: string | string[], middleware?: boolean, route?: string }
 
+describe("generated Agent routes with the Console fallback", () => {
+  it.each(["serve", "build"] as const)("registers standalone Channels and readiness during %s", async (command) => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ name: "agent-console-routes", private: true, type: "module" }),
+      "server/channels/intake.ts": "import { defineChannel, webhook } from 'vite-hub/channels'\nexport default defineChannel({ adapter: webhook({ secret: false }) })\n",
+      "server/agents/support.ts": "import { defineAgent } from 'vite-hub/agent'\nexport default defineAgent({ driver: { run: () => 'ok' } })\n",
+    })
+    const resolved = await resolveConfig({
+      configFile: false,
+      logLevel: "silent",
+      plugins: vitehub({
+        agent: { preparation: { workspace: "docs" } },
+        channels: true,
+        host: "node",
+        ...(command === "build" ? { console: true } : {}),
+      }),
+      root,
+    }, command, command === "build" ? "production" : "development")
+    const nitro: { handlers?: NitroEntry[] } = Object(Reflect.get(resolved, "nitro"))
+    expect(nitro.handlers?.map(handler => handler.route)).toEqual(expect.arrayContaining([
+      "/_vitehub/**", "/_vitehub/rpc", "/_vitehub/channels/intake", "/_vitehub/ready",
+    ]))
+  })
+})
+
 /** A path that reads the same on every machine: `console/`, `app/`, or `@vite-hub/<package>/`. */
 function owner(root: string, path: string): string {
   if (path.startsWith(`${consoleRuntime}/`)) return `console/${relative(consoleRuntime, path)}`
