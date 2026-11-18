@@ -11,9 +11,10 @@ import { loadCloudflarePlaywright as unconfiguredCloudflarePlaywright } from "..
 import type { BrowserClient } from "../src/types.ts"
 
 const runtimeConfig = vi.hoisted(() => ({ binding: "BROWSER", driver: "cloudflare" as string | undefined, engine: "chromium" }))
+const availability = vi.hoisted(() => ({ available: true, host: "node", reason: "Browser is disabled.", fix: "Enable Browser on Cloudflare." }))
 const browserRegistry = vi.hoisted(() => Object.create(null) as Record<string, unknown>)
 vi.mock("#vitehub/browser/runtime", () => ({ default: runtimeConfig, loadCloudflarePlaywright: undefined }))
-vi.mock("#vitehub/browser/availability", () => ({ default: { available: true } }))
+vi.mock("#vitehub/browser/availability", () => ({ default: availability }))
 vi.mock("#vitehub/browser/registry", () => ({ default: browserRegistry }))
 
 const runtime = globalThis as typeof globalThis & { __env__?: Record<string, unknown> }
@@ -23,6 +24,7 @@ afterEach(() => {
   for (const key of Object.keys(browserRegistry)) delete browserRegistry[key]
   Object.setPrototypeOf(browserRegistry, null)
   runtimeConfig.driver = "cloudflare"
+  availability.available = true
 })
 
 describe("Browser Definitions", () => {
@@ -63,11 +65,26 @@ describe("Browser Definitions", () => {
   })
 
   it("throws BROWSER_UNAVAILABLE in a build without a Browser provider", async () => {
+    availability.available = false
     runtimeConfig.driver = undefined
-    browserRegistry.page = { default: defineBrowser(async (_input, { browser }) => { await browser.open() }) }
 
     const name: string = "page"
-    await expect(runBrowser(name)).rejects.toMatchObject({ code: "BROWSER_UNAVAILABLE" })
+    await expect(runBrowser(name)).rejects.toMatchObject({
+      code: "BROWSER_UNAVAILABLE",
+      details: { host: "node", fix: availability.fix },
+    })
+  })
+
+  it("returns BROWSER_RUN_FAILED when a Definition loader rejects", async () => {
+    const cause = new Error("module initialization failed")
+    browserRegistry.page = async () => { throw cause }
+
+    const name: string = "page"
+    const [error, data] = await runBrowser(name)
+    expect(data).toBeUndefined()
+    expect(error).toMatchObject({ code: "BROWSER_RUN_FAILED" })
+    expect(error?.cause).toBe(cause)
+    expect(toResponse(error).status).toBe(500)
   })
 
   it("does not treat inherited registry properties as Browser Definitions", async () => {

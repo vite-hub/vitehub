@@ -20,7 +20,7 @@ With the `vite-hub` package, import the same runtime APIs from `vite-hub/sandbox
 
 ## Run a Sandbox Task
 
-`runSandboxTask(name, payload, options?)` takes its payload and result types from the default function and returns `[error, data]`. `data` is the value that the function returned, such as a JSON value or a native `Response`. The payload is required when the registered handler requires it. Handlers with an optional payload or no parameters can be invoked without a payload. A zero-argument function accepts an `unknown` payload.
+`runSandboxTask(name, payload, options?)` takes its payload and result types from the default function and returns `[error, data]`. `data` is the decoded result. Objects with `toJSON()` use the serialized shape: a `Date` becomes an ISO string, or `null` if invalid. A native `Response` is reconstructed as a `Response`. The payload is required when the registered handler requires it. Handlers with an optional payload or no parameters can be invoked without a payload. A zero-argument function accepts an `unknown` payload.
 
 ```ts [server/api/release-notes-json.post.ts]
 import { defineEventHandler } from 'h3'

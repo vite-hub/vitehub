@@ -10,8 +10,8 @@ import type {
 } from './registry-types'
 
 /**
- * Run a Sandbox Task by its name. `data` is the value that the handler returned, such as a JSON value or a native
- * `Response`. A failed run returns `SANDBOX_TASK_RUN_FAILED`, and `toResponse(error)` answers with its status.
+ * Run a Sandbox Task by its name. `data` is the decoded handler result, such as a JSON value or a native `Response`.
+ * A failed run returns `SANDBOX_TASK_RUN_FAILED`, and `toResponse(error)` answers with its status.
  */
 export function runSandboxTask<const TName extends string>(
   name: TName,

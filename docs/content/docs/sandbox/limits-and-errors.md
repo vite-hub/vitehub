@@ -38,7 +38,7 @@ If execution and cleanup both fail, `error.cause` keeps the first error code and
 
 ## Error responses
 
-A failed `runSandboxTask()` returns `SANDBOX_TASK_RUN_FAILED`. `error.data` has the task `name` and the `code` of the failure, such as `SANDBOX_TASK_HANDLER_ERROR` or `SANDBOX_TASK_TIMEOUT`. `error.status` is 504 for a timeout, 404 for a name that is not found, 400 for invalid input, and 500 for other failures.
+A failed `runSandboxTask()` returns `SANDBOX_TASK_RUN_FAILED`. `error.data` has the task `name` and the `code` of the failure, such as `SANDBOX_TASK_HANDLER_ERROR` or `SANDBOX_TASK_TIMEOUT`. `error.status` is 504 for a timeout and defaults to 500 for other failures, including an unknown task name or validation that throws inside a handler.
 
 `return toResponse(error)` sends only `code`, `why`, and `fix`, with that status. `error.cause` has the message and every detail, such as `stack`, `stdout`, `stderr`, and `exitCode`. These fields can hold source paths, environment values, or user data from the Sandbox process. Log `error.cause` on the server. Do not send it to the client.
 

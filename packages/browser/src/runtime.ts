@@ -192,10 +192,7 @@ function isBrowserDefinition(value: unknown): value is BrowserDefinition {
     && typeof (value as { run?: unknown }).run === "function"
 }
 
-async function resolveBrowserDefinition(name: string): Promise<BrowserDefinition | undefined> {
-  const entry = Object.hasOwn(browserRegistry, name) ? browserRegistry[name] : undefined
-  if (!entry) return undefined
-  const loaded = typeof entry === "function" ? await entry() : entry
+function readBrowserDefinition(name: string, loaded: unknown): BrowserDefinition {
   const definition = loaded
     && (typeof loaded === "object" || typeof loaded === "function")
     && "default" in loaded
@@ -245,7 +242,7 @@ export async function executeBrowserDefinition<TInput, TResult>(
 
 /**
  * Run a Browser Definition by its name. `data` is the value that the handler returned, such as a string or a `Response`.
- * An unknown name returns `BROWSER_DEFINITION_NOT_FOUND`, and a failed handler or provider returns `BROWSER_RUN_FAILED`.
+ * An unknown name returns `BROWSER_DEFINITION_NOT_FOUND`; an import, handler, or provider failure returns `BROWSER_RUN_FAILED`.
  * A build without Browser and a file that does not default-export `defineBrowser()` throw.
  */
 export function runBrowser<const TName extends BrowserDefinitionName>(
@@ -257,8 +254,19 @@ export function runBrowser<TName extends string>(
   input?: unknown,
 ): Promise<Result<unknown, BrowserRunErrorCode>>
 export async function runBrowser(name: string, input?: unknown): Promise<Result<unknown, BrowserRunErrorCode>> {
-  const definition = await resolveBrowserDefinition(name)
-  if (!definition) return [browserRunErrors.BROWSER_DEFINITION_NOT_FOUND({ name }), undefined]
+  if (!isBrowserAvailable()) throw browserUnavailableError()
+  const entry = Object.hasOwn(browserRegistry, name) ? browserRegistry[name] : undefined
+  if (!entry) return [browserRunErrors.BROWSER_DEFINITION_NOT_FOUND({ name }), undefined]
+
+  let loaded: unknown
+  try {
+    loaded = typeof entry === "function" ? await entry() : entry
+  }
+  catch (cause) {
+    return [browserRunErrors.BROWSER_RUN_FAILED({ name, cause }), undefined]
+  }
+
+  const definition = readBrowserDefinition(name, loaded)
   try {
     return [undefined, await executeBrowserDefinition(definition, input)]
   }

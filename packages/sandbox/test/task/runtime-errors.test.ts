@@ -98,6 +98,14 @@ async function failedRun(payload?: unknown) {
 }
 
 describe("Sandbox Task error preservation", () => {
+  it("defaults to HTTP 500 for an unknown task in an enabled registry", async () => {
+    const [error, data] = await runSandboxTaskRuntime("unknown")
+
+    expect(data).toBeUndefined()
+    expect(error?.data).toEqual({ name: "unknown", code: "SANDBOX_TASK_R0053" })
+    expect(toResponse(error).status).toBe(500)
+  })
+
   it("keeps the startup diagnostic and its nested cause on the real runner", async () => {
     const original = providerError()
     providerMocks.open.mockRejectedValue(original)

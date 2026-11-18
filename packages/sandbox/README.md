@@ -411,7 +411,7 @@ export default async function releaseNotes(payload: ReleaseNotesPayload = {}) {
 }
 ```
 
-Invoke the discovered name from server code. `runSandboxTask()` returns `[error, data]` and infers its payload and result from the Definition. `data` is the value that the handler returned. A registered handler with a required payload requires that argument at invocation; optional and zero-argument handlers can be invoked without it. The handler's context defaults to `{}` when omitted:
+Invoke the discovered name from server code. `runSandboxTask()` returns `[error, data]` and infers its payload and decoded result from the Definition. For example, a `Date` result becomes an ISO string or `null`. A registered handler with a required payload requires that argument at invocation; optional and zero-argument handlers can be invoked without it. The handler's context defaults to `{}` when omitted:
 
 ```ts
 // src/server.ts

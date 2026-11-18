@@ -25,6 +25,15 @@ declare module "#vitehub-sandbox-task-registry" {
       payload: { value: string } | undefined
       result: string
     }
+    "serialized-entry": {
+      payload: unknown
+      result: {
+        date: Date
+        custom: { toJSON(): { date: Date } }
+        response: Response
+        binary: [Blob, Uint8Array, Buffer]
+      }
+    }
   }
 }
 
@@ -100,7 +109,20 @@ describe("types", () => {
     expectTypeOf(runSandboxTask("unknown-package-entry", { anything: true })).resolves.toEqualTypeOf<SandboxTaskRunResult<string>>()
 
     const [error, result] = await runSandboxTask("package-entry", { value: "ok" })
-    if (!error) expectTypeOf(result).toEqualTypeOf<{ length: number }>()
+    if (error) expectTypeOf(error.data).toEqualTypeOf<{ name: string; code: string }>()
+    else expectTypeOf(result).toEqualTypeOf<{ length: number }>()
+  })
+
+  it("infers the decoded Sandbox result", async () => {
+    const [error, result] = await runSandboxTask("serialized-entry")
+    if (!error) {
+      expectTypeOf(result).toEqualTypeOf<{
+        date: string | null
+        custom: { date: string | null }
+        response: Response
+        binary: [Blob, Uint8Array, Buffer]
+      }>()
+    }
   })
 
   it("returns a Vite plugin", () => {

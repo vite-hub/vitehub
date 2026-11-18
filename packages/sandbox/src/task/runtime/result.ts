@@ -13,7 +13,7 @@ export const sandboxTaskRunErrors = /*#__PURE__*/ defineErrors({
   },
 })
 
-/** HTTP status of a failed run: 504 for a timeout, 404 for an unknown task, 400 for invalid input, else 500. */
+/** Preserve an explicit HTTP status or map the underlying diagnostic code. */
 function statusFor(error: ViteHubError<`SANDBOX_TASK_${string}`>) {
   const status = error.details?.httpStatus
   if (Number.isInteger(status) && Number(status) >= 400 && Number(status) <= 599)
