@@ -1,7 +1,7 @@
 import { gatewayDiagnostics } from "./diagnostics.ts"
 
 import type { AskAnswers, AskEntry, AskQuestion, AskQuestions } from "./ask.ts"
-import type { AiGatewayUsage } from "./types.ts"
+import type { AiGatewayAskResult, AiGatewayUsage } from "./types.ts"
 import type { IfQuestion, Question as JevQuestion, Questions as JevQuestions, SwitchQuestion } from "advocaat"
 
 type Advocaat = typeof import("advocaat")
@@ -421,7 +421,7 @@ function jevQuestionBatches(state: AdvocaatEntry, wire: Record<string, AdvocaatQ
 }
 
 /** Runs independent keyed questions in bounded Jev requests; empty questions require no credentials or API call. */
-export async function askJev<const Q extends AskQuestions>(context: JevRequestContext, state: unknown, questions: Q): Promise<AskAnswers<Q>> {
+export async function askJev<const Q extends AskQuestions>(context: JevRequestContext, state: unknown, questions: Q): Promise<AiGatewayAskResult<Q>> {
   if (!isObject(questions) || Array.isArray(questions)) {
     throw gatewayDiagnostics.GATEWAYS_R0007({ message: "[vitehub] Jev questions must be an object of questions built with ask." })
   }
@@ -431,7 +431,7 @@ export async function askJev<const Q extends AskQuestions>(context: JevRequestCo
   }))
   if (!Object.keys(wire).length) {
     // SAFETY: An empty validated question map has no answers and matches AskAnswers<Q>.
-    return {} as AskAnswers<Q>
+    return [undefined, {} as AskAnswers<Q>]
   }
   const entry = toEntry(state)
   const batches = jevQuestionBatches(entry, wire)
@@ -463,9 +463,11 @@ export async function askJev<const Q extends AskQuestions>(context: JevRequestCo
     }
     catch (error) {
       await observed.failed(error)
+      // A rejected key and a provider that keeps failing are results. Other errors are bugs or bad input, so they throw.
+      if (gatewayDiagnostics.GATEWAYS_R0008.is(error) || gatewayDiagnostics.GATEWAYS_R0009.is(error)) return [error, undefined]
       throw error
     }
   }
   // SAFETY: Each requested key has an SDK answer; choice distributions are validated and score legends restore public criteria.
-  return Object.fromEntries(Object.entries(output)) as AskAnswers<Q>
+  return [undefined, Object.fromEntries(Object.entries(output)) as AskAnswers<Q>]
 }

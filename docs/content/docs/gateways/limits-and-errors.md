@@ -47,11 +47,11 @@ A Jev question that the `ask` builders do not make, or one that is too large.
 
 ### GATEWAYS_R0008
 
-The provider rejected the key with 401 or 403. `status` is 503, with `providerStatus` and `requestId`. The `fix` names the variable to rotate.
+The provider rejected the key with 401 or 403. `gateway.ask()` returns it as `[error, undefined]`. `status` is 503, with `providerStatus` and `requestId`. The `fix` names the variable to rotate.
 
 ### GATEWAYS_R0009
 
-The provider still failed after three attempts. `status` is 502, with `providerStatus` and `requestId`.
+The provider still failed after three attempts. `gateway.ask()` returns it as `[error, undefined]`. `status` is 502, with `providerStatus` and `requestId`.
 
 ### GATEWAYS_R0010
 

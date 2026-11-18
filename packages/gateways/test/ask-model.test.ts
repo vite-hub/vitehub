@@ -29,7 +29,7 @@ describe("askWithModel()", () => {
       urgent: { chance: 0.2 },
     })
     const usage: unknown[] = []
-    const answers = await askWithModel(mock).ask("BAR PEPE 12.50 EUR", {
+    const [error, answers] = await askWithModel(mock).ask("BAR PEPE 12.50 EUR", {
       category: ask.choice("Which category fits this bank transaction?", { eatingOut: "Restaurants and cafes.", groceries: "Food shopping.", other: null }),
       recurring: ask.if("Is it a recurring payment?", { threshold: 0.6 }),
       risk: ask.score("How risky is it?", ["None", "Some", "High"]),
@@ -37,6 +37,8 @@ describe("askWithModel()", () => {
       urgent: ask.chance("Is it urgent?"),
     }, { onUsage: entry => usage.push(entry) })
 
+    expect(error).toBeUndefined()
+    if (!answers) throw error
     expect(calls).toHaveLength(1)
     expect(answers.category).toEqual({ choice: "eatingOut", confidence: expect.closeTo(0.7, 5), probabilities: { eatingOut: 0.8, groceries: expect.closeTo(0.1, 5), other: expect.closeTo(0.1, 5) }, type: "choice" })
     expect(answers.recurring).toBe(true)
@@ -53,8 +55,8 @@ describe("askWithModel()", () => {
 
   it("never ranks the chosen option below the others", async () => {
     const { mock } = model({ team: { choice: "billing", confidence: 0.1 } })
-    const { team } = await askWithModel(mock).ask("Invoice 42", { team: ask.choice("Which team?", ["billing", "support"]) })
-    expect(team).toMatchObject({ choice: "billing", confidence: 0, probabilities: { billing: 0.5, support: 0.5 } })
+    const [, answers] = await askWithModel(mock).ask("Invoice 42", { team: ask.choice("Which team?", ["billing", "support"]) })
+    expect(answers?.team).toMatchObject({ choice: "billing", confidence: 0, probabilities: { billing: 0.5, support: 0.5 } })
   })
 
   it("rejects an answer that is not an option", async () => {
@@ -62,9 +64,20 @@ describe("askWithModel()", () => {
     await expect(askWithModel(mock).ask("Invoice 42", { team: ask.choice("Which team?", ["billing", "support"]) })).rejects.toMatchObject({ code: "GATEWAYS_R0012" })
   })
 
+  it("returns GATEWAYS_ASK_MODEL_FAILED when the model request fails", async () => {
+    const failure = Object.assign(new Error("Too Many Requests"), { statusCode: 429 })
+    const mock = new MockLanguageModelV3({ doGenerate: async () => { throw failure } })
+
+    const [error, answers] = await askWithModel(mock).ask("Invoice 42", { team: ask.choice("Which team?", ["billing", "support"]) })
+
+    expect(answers).toBeUndefined()
+    expect(error).toMatchObject({ code: "GATEWAYS_ASK_MODEL_FAILED" })
+    expect(error?.message).toContain("HTTP 429")
+  })
+
   it("sends no request without questions", async () => {
     const { calls, mock } = model({})
-    await expect(askWithModel(mock).ask("Invoice 42", {})).resolves.toEqual({})
+    await expect(askWithModel(mock).ask("Invoice 42", {})).resolves.toEqual([undefined, {}])
     expect(calls).toHaveLength(0)
   })
 })
