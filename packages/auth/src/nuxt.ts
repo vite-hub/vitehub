@@ -241,11 +241,13 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     const extractionKeys = nuxt.options.experimental.extraPageMetaExtractionKeys ??= []
     if (!extractionKeys.includes("auth")) extractionKeys.push("auth")
     let pages: readonly NuxtPageLike[] = []
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- `NuxtLike` types only the hook that every caller passes; Nuxt calls `pages:resolved` with the handler shape below, and nuxt.test.ts and page-guard-cache.test.ts check it.
     ;(nuxt.hook as unknown as (name: "pages:resolved", handler: (resolved: NuxtPageLike[]) => void) => void)("pages:resolved", (resolved) => {
       pages = resolved
     })
     // Nitro calls `build:config` after every `nitro:build:before` hook and before it bundles the server, so the check
     // reads the final route rules and pages. With `ssr: false`, the server renders no page, so no page guard runs there.
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- `NuxtLike` types only the hook that every caller passes; Nuxt calls `nitro:init` with the handler shape below, and nuxt.test.ts and page-guard-cache.test.ts check it.
     ;(nuxt.hook as unknown as (name: "nitro:init", handler: (nitro: NitroBuild) => void) => void)("nitro:init", (nitro) => {
       nitro.hooks.hook("build:config", () => nuxt.options.ssr === false ? undefined : assertNoCachedPageGuards(pages, nitro.options.routeRules, { sensitive: nuxt.options.router?.options?.sensitive }))
     })
