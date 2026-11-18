@@ -4,10 +4,12 @@ import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders, text } from "../identity.ts"
+import { runtimeOf } from "../installed.ts"
+import { base64, readAttachment } from "../operations-core/service.ts"
 import { commentsPageScope, normalizeCommentPage } from "../page.ts"
 import { commentThreadSummary as summary, commentThreadsText, describeCommentThread as describeThread, hiddenThreadsNote } from "../thread-text.ts"
 
-import type { ViteHubMcpTool, ViteHubMcpToolContext, ViteHubMcpToolResult } from "@vite-hub/internal/runtime/mcp-tools"
+import type { ViteHubMcpImage, ViteHubMcpTool, ViteHubMcpToolContext, ViteHubMcpToolResult } from "@vite-hub/internal/runtime/mcp-tools"
 import type { Comments } from "../index.ts"
 import type { CommentAction, CommentListCursor, CommentsRequestEvent, CommentsUser, CommentThread } from "../types.ts"
 import type { CommentsIdentity } from "./session.ts"
@@ -49,6 +51,31 @@ type ToolGrant = ReturnType<typeof toolGrant.issue>
 function spend(grant: ToolGrant, action: CommentAction, threadId: string): void {
   const allowed = toolGrant.consume(grant)
   invariant(allowed.action === action && allowed.threadId === threadId, "each Comments tool spends the grant that it issued for the same action and thread")
+}
+
+/** The bytes of images that one `comments_get_thread` answer carries, before Base64. */
+const maximumThreadImageBytes = 4 * 1024 * 1024
+
+/**
+ * The image attachments of a thread, in message order, for a reader who may read it, until they reach
+ * `maximumThreadImageBytes`. `notes` says which files the Agent does not see, and why.
+ */
+async function threadImages(comments: Comments, thread: CommentThread, user: CommentsUser | null): Promise<{ images: ViteHubMcpImage[], notes: string[] }> {
+  const runtime = await runtimeOf(comments)
+  invariant(runtime, "comments.get found the thread, so Comments has a runtime")
+  const images: ViteHubMcpImage[] = []
+  const notes: string[] = []
+  let bytes = 0
+  for (const key of thread.messages.flatMap(message => message.attachments)) {
+    const [error, file] = await readAttachment(runtime, key, { thread, user }).then(file => [undefined, file] as const, (error: unknown) => [error, undefined] as const)
+    if (!file) notes.push(`Could not read ${key}: ${error instanceof Error ? error.message : String(error)}`)
+    else if (file.inline && bytes + file.size > maximumThreadImageBytes) notes.push(`Not shown: ${key}, because the images of one answer stay under ${maximumThreadImageBytes / 1024 / 1024} MB.`)
+    else if (file.inline) {
+      bytes += file.size
+      images.push({ data: base64(new Uint8Array(await file.data.arrayBuffer())), mimeType: file.type })
+    }
+  }
+  return { images, notes }
 }
 
 /**
@@ -135,7 +162,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsMcpToolsOp
     {
       name: "comments_get_thread",
       title: "Read a ViteHub Comments thread",
-      description: "ViteHub Comments: read one thread that people left with the Comments toolbar: its page, the element and Vue components with their source files, the browser and build, and every comment with its time. Use it to find the code to change.",
+      description: "ViteHub Comments: read one thread that people left with the Comments toolbar: its page, the element and Vue components with their source files, the browser and build, every comment with its time, and the images attached to it. Use it to find the code to change.",
       section: "comments",
       annotations: { readOnlyHint: true },
       inputSchema: { type: "object", properties: { id: { type: "string", description: "The thread id." } }, required: ["id"], additionalProperties: false },
@@ -144,7 +171,8 @@ export function commentsMcpTools(comments: Comments, options: CommentsMcpToolsOp
         const found = await threadFor(input, identity, "read")
         if (!("thread" in found)) return found
         const { thread } = found
-        return { text: describeThread(thread), structured: { thread: { ...thread } } }
+        const { images, notes } = await threadImages(comments, thread, identity.user)
+        return { text: [describeThread(thread), ...notes].join("\n"), ...(images.length ? { images } : {}), structured: { thread: { ...thread } } }
       },
     },
     {

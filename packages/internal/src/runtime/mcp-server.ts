@@ -1,6 +1,8 @@
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 import { forwardedRequestOrigin } from "./request-origin.ts"
 
+import type { ViteHubMcpToolResult } from "./mcp-tools.ts"
+
 /**
  * The MCP server of ViteHub: the Console MCP at `/_vitehub/mcp` and the app MCP of `vite-hub/mcp` answer through it.
  * It has no MCP library and no session.
@@ -25,6 +27,15 @@ export interface McpToolResult {
   isError: boolean
   /** Data for the client and its UI that the model does not read. */
   _meta?: McpMeta
+}
+
+/** The MCP result of a `ViteHubMcpTool` call: a text block, then one image block for each image. */
+export function mcpToolResult(result: ViteHubMcpToolResult): McpToolResult {
+  return {
+    content: [{ type: "text", text: result.text }, ...(result.images ?? []).map(image => ({ type: "image", data: image.data, mimeType: image.mimeType }))],
+    ...(result.structured ? { structuredContent: result.structured } : {}),
+    isError: result.isError === true,
+  }
 }
 
 /** The MCP tool annotations that clients read before a call. */

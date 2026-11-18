@@ -8,7 +8,7 @@ import { commentThreadSummary, commentThreadsText, describeCommentThread, hidden
 import { commentsErrorDiagnostics } from "./errors.ts"
 import { isPagePath, pagePathOf } from "./path.ts"
 import { commentsRuntime } from "./server.ts"
-import { attachmentThread, can, createThread, deniedError, earlierThread, editMessage, fail, maximumAttachmentBytes, maximumAttachments, maximumCommentBodyLength, maximumMentions, personOf, readAttachment, replyToThread, requestIdSchema, retried, storeAttachment, suggest } from "./service.ts"
+import { attachmentThread, base64, can, createThread, deniedError, earlierThread, editMessage, fail, maximumAttachmentBytes, maximumAttachments, maximumCommentBodyLength, maximumMentions, personOf, readAttachment, replyToThread, requestIdSchema, retried, storeAttachment, suggest } from "./service.ts"
 
 import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
 import type { CommentAction, CommentsPolicyGate, CommentsUser } from "./define.ts"
@@ -397,12 +397,6 @@ export const commentActions = {
     const thread = await attachmentThread(who.runtime, input.key, candidate => permitted(who, "read", { thread: candidate }))
     return readAttachment(who.runtime, input.key, { thread, user: who.user })
   },
-}
-
-function base64(bytes: Uint8Array): string {
-  let binary = ""
-  for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
-  return btoa(binary)
 }
 
 const list = defineOperation({
