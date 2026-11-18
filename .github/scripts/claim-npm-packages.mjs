@@ -63,10 +63,18 @@ function trustConfigs(name) {
   return parsed.flat()
 }
 
-/** The release job runs in the `npm-release` environment. A configuration without an environment also accepts it. */
+/**
+ * The release job runs `npm publish` in the `npm-release` environment. A configuration without an environment also
+ * accepts it. `createPackage` is the publish permission; a configuration with only `createStagedPackage` cannot publish.
+ */
 function publishesFromRelease(config) {
   return config.type === "github" && config.file === trust.file && config.repository === trust.repository
     && (config.environment == null || config.environment === trust.environment)
+    && (config.permissions ?? []).includes("createPackage")
+}
+
+function describeConfig(config) {
+  return `${config.file} in ${config.environment ?? "any environment"} (${(config.permissions ?? []).join(", ") || "no permissions"})`
 }
 
 function npm(npmArgs, options = {}) {
@@ -126,6 +134,7 @@ function linkTrustedPublisher(name) {
     "--repository", trust.repository,
     "--environment", trust.environment,
     "--allow-publish",
+    "--allow-stage-publish",
     "--yes",
     ...(dryRun ? ["--dry-run"] : []),
   ])
@@ -157,7 +166,7 @@ else {
   }
 }
 for (const { pkg, stale } of untrusted) {
-  console.log(`${pkg.name}: ${stale.length ? `links only ${stale.map(config => `${config.file} in ${config.environment ?? "any environment"}`).join(", ")}` : "no trusted publisher"}`)
+  console.log(`${pkg.name}: ${stale.length ? `links only ${stale.map(describeConfig).join(", ")}` : "no trusted publisher"}`)
 }
 for (const [index, { pkg, stale }] of untrusted.entries()) {
   // npm asks for at most one `npm trust` call every 2 seconds.
