@@ -33,6 +33,8 @@ Help lists the **namespaces**, the command groups, of the packages your app turn
 `decisions` and `sandbox` do not load the project config, and `sandbox` also runs in a deployed container without Vite. `@vite-hub/cli` is the runner behind the `vitehub` binary and has no binary of its own.
 ::
 
+`vitehub database --help` and `vitehub database <feature> --help` print the help without loading the project config, so they answer at once in a Nuxt app.
+
 The [command reference](/docs/cli/reference) has the full help output and every command with its owner package.
 
 ## Find a command
@@ -42,7 +44,7 @@ The [command reference](/docs/cli/reference) has the full help output and every 
 | [Project](/docs/cli/project) | `init`, `catalog`, `status`, `add`, `remove`, and the dev Setup endpoints. |
 | [Link and deploy](/docs/cli/deploy) | `link`, `unlink`, `deploy`, `deployments`. |
 | [Blob, KV, Rate Limit](/docs/cli/storage) | `blob`, `kv`, `rate-limit`. |
-| [Database](/docs/cli/database) | `database generate`, `migrate`, `up`, `export`, `seed`, `tables`, `rows`. |
+| [Database](/docs/cli/database) | `database generate`, `migrate`, `up`, `export`, `sql`, `drop`, `reset`, `tables`, `rows`, and `vitehub seed`. |
 | [Content and Workspace](/docs/cli/content) | `content`, `i18n`, `workspace`, `pull`, `push`, `hooks`, `resolve`. |
 | [Tasks, Schedules, Workflows](/docs/cli/jobs) | `task`, `schedule`, `workflow`. |
 | [Env and Email](/docs/cli/env) | `env`, `secret`, `email`. |

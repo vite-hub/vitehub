@@ -44,7 +44,9 @@ export type OptionalOwnerPackage
     | "@vite-hub/sandbox"
     | "@vite-hub/schedule"
     | "@vite-hub/shell"
+    | "@vite-hub/sync"
     | "@vite-hub/ui"
+    | "@vite-hub/webhooks"
     | "@vite-hub/workflow"
     | "@vite-hub/workspace"
 
@@ -93,7 +95,11 @@ export const optionalFeaturePackages = {
   "sandboxTask": features.sandboxTask.packages,
   "schedule": features.schedule.packages,
   "shell": ["@vite-hub/shell"],
+  // `server/sync/` turns Sync on, and its change log goes to the Database.
+  "sync": ["@vite-hub/sync"],
   "ui": ["@vite-hub/ui"],
+  // `server/webhooks/` turns Webhooks on. It needs `queue` and `database`.
+  "webhooks": ["@vite-hub/webhooks"],
   // An Agent turns Workflow on unless the app sets `workflow: false`.
   "workflow": features.workflow.packages,
   "workspace": features.workspace.packages,
@@ -148,7 +154,8 @@ function resolvesPackage(packageName: string): boolean {
     // file system root, and most owner packages are missing in a typical app.
     if (error instanceof Error && "code" in error && error.code === "ERR_MODULE_NOT_FOUND") return false
   }
-  // Some packages, such as drizzle-orm, do not export their manifest, so also try the package entry.
+  // Some packages, such as drizzle-orm, do not export their manifest, so also try the package entry
+  // (drizzle-orm: https://github.com/drizzle-team/drizzle-orm/issues/6695).
   try {
     import.meta.resolve(packageName)
     return true

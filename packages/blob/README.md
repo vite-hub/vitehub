@@ -146,6 +146,8 @@ Blob stores binary objects and small object metadata. Keep catalogs, indexes, pe
 
 Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings fail if they cannot decode the cursor.
 
+A Netlify Blobs listing makes one request for each page and returns the pathname, ETag, size, and upload time of each file, without its content type or custom metadata. Call `blob.head()` for those.
+
 With `folded: true`, files-sdk drivers (S3 and S3-compatible stores, R2, GCS, and Azure) ask the provider for the folders, so each page is one provider request. A page then holds at most `limit` blobs and folders together.
 
 With a partial prefix such as `docs/re`, a native page can be empty while `hasMore` is true. Continue with the returned cursor to reach the matching entries.
@@ -349,6 +351,8 @@ blob: {
 ## CLI
 
 `hubBlob()` contributes the `vitehub blob` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `head <pathname>`, `get <pathname> [--output <file>]`, `put <pathname> <file> [--content-type]`, `delete <pathname>`, `media <pathname>`, and `variants <pathname>`. Each command accepts `--store <name>` and `--json`. Write commands print what they changed. The `created` and `deleted` labels are best-effort metadata observations before each mutation. They can be stale with eventual consistency or concurrent writers. Deletion is unconditional and can remove an object replaced concurrently. There is no `sign` command.
+
+`vitehub seed` uploads each file in `server/seed/blob/` to the default store, at its path in the folder.
 
 Each command runs a `blob.*` operation of the app through the Console RPC, on the dev server or, with `--url`, on a deployed app. `get` and `put` carry the file as base64 JSON, so they accept files up to 8 MiB. The Console Blob page uploads and deletes objects with the same operations.
 

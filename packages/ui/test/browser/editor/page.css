@@ -1,0 +1,11 @@
+main {
+  display: grid;
+  gap: 48px;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 48px 96px;
+}
+
+section { display: grid; gap: 12px; }
+output { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; }
+.ProseMirror { min-height: 120px; outline: 1px dashed #8884; padding: 8px; }

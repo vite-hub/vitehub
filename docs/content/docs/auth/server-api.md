@@ -70,7 +70,15 @@ const { loggedIn, user, signOut } = useUserSession()
 - Nuxt opens `redirectTo` with `navigateTo()`. A plain Vue app loads it with `location.assign()`.
 - Without `redirectTo`, in Nuxt, a page with `definePageMeta({ auth: 'user' })` sends the visitor to its login page, as the page guard does. Other pages stay open.
 - Better Auth gets the other options, such as `fetchOptions`, and `signOut()` returns its result. When the sign-out fails, the session and the page stay.
-- When Better Auth sends the visitor to the provider's sign-out page, such as with OpenID Connect logout, `signOut()` opens no other page. Better Auth's `callbackURL` option sets the page after that.
+- When the server answers with the provider's sign-out page, such as with OpenID Connect logout, `signOut()` opens that page in place of `redirectTo`, but only an `http:` or `https:` page. Better Auth's `callbackURL` option sets the page after that. With `disableRedirect: true`, `signOut()` returns that page in `data.url` and opens `redirectTo`.
+
+To forget data of the person after a sign-out, register a listener with `onSignOut()`. `signOut()` calls it in the browser after the server ended the session, waits for it, and then opens the next page or the provider's sign-out page. It returns a function that stops the listener. With [Sync](/docs/sync/vue#accounts-and-sign-out) in Nuxt, ViteHub adds `onSignOut(() => clearSync())` for you.
+
+```ts [src/main.ts] fragment
+import { onSignOut } from 'vite-hub/auth/vue'
+
+onSignOut(() => localStorage.removeItem('drafts'))
+```
 
 To sign out from a link or from server code, call `signOut(event)` from `vite-hub/auth/server`. It ends the session and returns the response that clears the session cookies:
 
@@ -170,11 +178,8 @@ export default defineHandler(async (event) => {
 | `getAuth()` | Returns the discovered Better Auth instance. |
 | `useAuth(event)` | Returns the Better Auth instance of the app's Auth Definition for a request event or a Web `Request`. |
 | `handleAuth(input)` | Handles an Auth HTTP request. `input` is a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 2 event in a ViteHub app. Auth reads the client address and the Cloudflare bindings from the Standard Context of the Request. A Request that Nitro did not create gets one that reads srvx `ip` and `runtime.cloudflare`. |
-| `handleAuthRequest(definition, input, event?)` | Handles an Auth request for an explicit Auth Definition. |
 | `signOut(event, { redirectTo }?)` | Ends the session of the request. Returns a `303` redirect to `redirectTo`, or `204`, with the cookies that clear the session. |
-| `toAuthRequest(input)` | Returns a Web `Request` itself, or `event['~standard'].req` of a request event. |
 | `createAuthHandler(definition)` | Creates a handler called as `handler(request, { clientAddress }?)`. Manual hosts pass the peer address for rate limiting and session IPs. |
-| `createAuthAccessHandler(routes, definition?)` | Creates a handler that matches route metadata, checks the session, and runs every matching authorization rule. |
 | `withAuth(handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when a session exists. Else it returns JSON `401` with the code `SIGNED_OUT`, or the sign-in redirect for an HTML request. |
 | `withAuthorization(authorize, handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when allowed. Else it returns JSON `401` (`SIGNED_OUT`) without a session, `403` (`FORBIDDEN`) when `authorize` returns `false`, or the callback's `Response`. |
 | `withAnonymousAuthorization(authorize, handler, definition?)` | Like `withAuthorization()`, but a signed-out caller also reaches `authorize`, with `session` and `user` set to `null`. `false` returns JSON `401` (`SIGNED_OUT`) for a signed-out caller and `403` (`FORBIDDEN`) for a signed-in one. |
@@ -184,7 +189,7 @@ export default defineHandler(async (event) => {
 | `can(event, name, ...args)` | Returns `true` when the ability allows the caller, else `false`. |
 | `checkAuthMember(userId, event?)` | Checks [`VITEHUB_MEMBERS`](/docs/auth/configure#choose-who-can-sign-in) for a user without a session. See [Check a member without a session](#check-a-member-without-a-session). |
 
-`useAuth()`, `auth`, `getAuth()`, and `assertAuthOrigin()` return the instance typed from your Auth Definition, with the endpoints and fields of its plugins. The Vite plugin registers the type of `server/auth.ts` in `.vitehub/types/auth.d.ts`, so `useAuth(event).api.listUsers` type-checks when the definition uses the `admin()` plugin, without a cast. For another definition, `getAuthForDefinition(definition)` infers the type from its argument, and `AuthFor<typeof definition>` from `vite-hub/auth` names it.
+`useAuth()`, `auth`, and `getAuth()` return the instance typed from your Auth Definition, with the endpoints and fields of its plugins. The Vite plugin registers the type of `server/auth.ts` in `.vitehub/types/auth.d.ts`, so `useAuth(event).api.listUsers` type-checks when the definition uses the `admin()` plugin, without a cast. `AuthFor<typeof definition>` from `vite-hub/auth` names the instance type of another definition.
 
 The `authorization` argument and the `requireAuth()` result are a frozen `{ request, session, user }` object. Only the guards create it. A caller cannot pass its own value to the returned handler.
 
@@ -269,27 +274,29 @@ Add `authorize` when a session alone is not enough. ViteHub calls it only after 
 | A `Response` | That response, as-is. |
 
 ```ts [server/auth.ts]
+import { admin } from 'better-auth/plugins'
 import { defineAuth } from 'vite-hub/auth'
 import { authDatabase } from 'vite-hub/auth/database'
 
 export default defineAuth({
   database: authDatabase(),
+  plugins: [admin()],
   access: {
     routes: [
       {
-        route: '/_vitehub/**',
-        authorize: ({ user }) => user.isAdmin === true,
+        route: '/api/admin/**',
+        authorize: ({ user }) => user.role === 'admin',
       },
     ],
   },
 })
 ```
 
-The callback receives the signed-in `user`, `session`, `request`, and `event`: the input of the guard. For access routes and in a Nitro route it is the H3 event, so `event.context` and functions that take the event, such as `useAuth(event)`, work in the callback. `withAuthorization()` types `event` as the input of the handler it returns, and a direct Fetchable call passes the Request. ViteHub defines no admin role, so check your own roles or permissions here.
+The callback receives the signed-in `user`, `session`, `request`, and `event`: the input of the guard. For access routes and in a Nitro route it is the H3 event, so `event.context` and functions that take the event, such as `useAuth(event)`, work in the callback. `withAuthorization()` types `event` as the input of the handler it returns, and a direct Fetchable call passes the Request. ViteHub defines no roles. The example reads the `role` that Better Auth's `admin()` plugin stores. Check your own roles or permissions here.
 
 The same callback protects [Blob serve routes](/docs/blob/configure#protect-served-objects) and [Collections](/docs/source/server-api#protect-a-collection). Their generated routes wrap the read with `withAuthorization(authorize, handler)`. Unlike `withAuth()`, it never redirects to sign-in, so image and fetch requests get a status code.
 
-The generated access middleware checks each request that an access route matches. A route ending in `/**` matches its base path and descendants. Exact routes match only that path. A route has no other pattern syntax: `*`, `:name`, `(`, `{`, and `?`, also when percent-encoded, and `.` or `..` segments fail with `AUTH_C0063`. A `GET` route also guards `HEAD`. The middleware reads the path as the Nitro router does, so `/api/billing/` and `/api/%62illing` match `/api/billing`. All matching rules apply. Unmatched requests do not load the Auth Definition or session.
+The generated access middleware checks each request that an access route matches. A route ending in `/**` matches its base path and descendants. Exact routes match only that path. A route has no other pattern syntax: `*`, `:name`, `(`, `{`, and `?`, also when percent-encoded, and `.` or `..` segments fail with `AUTH_C0068`. A `GET` route also guards `HEAD`. The middleware reads the path as the Nitro router does, so `/api/billing/` and `/api/%62illing` match `/api/billing`. All matching rules apply. Unmatched requests do not load the Auth Definition or session.
 
 The [Console](/docs/console/access#who-can-call-the-endpoint) endpoint does not use these access routes. It takes only signed requests and one-time links.
 

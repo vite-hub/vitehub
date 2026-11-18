@@ -191,7 +191,7 @@ Comments needs no email permission. When GitHub hides a person's email, Comments
 
 ### Comments through the Console
 
-Comment operations from the [Console](/docs/console), the CLI, and the [ViteHub MCP](/docs/console/mcp) need Console access to the **Comments** section. In an app without `identify`, the Console caller is the author, and `authorize` runs after the Console check. With `identify`, the Console has no say: see [Use your own login](#use-your-own-login).
+Comment operations from the [Console](/docs/console), the CLI, and the [ViteHub MCP](/docs/console/mcp) need Console access to the **Comments** section. In an app without `identify`, the Console caller is the author, and `authorize` runs after the Console check. With `identify`, `authorize` decides, and it gets `console: true` for these calls: see [Use your own login](#use-your-own-login).
 
 The overlay on the app's pages does not read Console access. On pages, people get in through `identify`, through ViteHub Auth with `authorize`, or through [Sign in with GitHub](#sign-in-with-github), which an app with the Console also gets.
 
@@ -261,6 +261,13 @@ export const comments = defineComments({
 
 The user needs a string `id`. Comments shows `name`, else `email`, else "Someone", and a string `image`. `identify` also sets the person in the presence room, so nobody can pose as someone else.
 
+A call from the Console, the CLI, or the ViteHub MCP passed the Console's check of the Comments section, and `authorize` gets `console: true`. Such a call usually has no app user, so allow it in the policy, or the Console and Agents see no threads:
+
+```ts [server/comments.ts] fragment
+// Console callers, and the app's editors on the page.
+authorize: ({ console, user }) => console === true || user?.role === 'editor',
+```
+
 ### Let guests comment
 
 Return `true` for `user: null` to let people without an account comment. The overlay asks for a display name once, keeps it in `localStorage`, and shows it with "(guest)".
@@ -279,6 +286,20 @@ The server does not verify a guest name or ID. They are display data, never proo
 ::
 
 A guest id starts with `guest:`, so it never matches a signed-in person's id. Guests cannot delete messages or threads, even when the policy allows `delete`, and nobody can mention a guest. To delete your messages, sign in, or ask a signed-in moderator with `delete`.
+
+Set `rateLimit` to stop one guest from flooding a page. Each new thread, reply, and upload of a guest counts against the address of the request. Signed-in people and Agents are not limited.
+
+```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+
+export const comments = defineComments({
+  authorize: ({ user, action }) => action !== 'resolve' || user?.role === 'editor',
+  // Each guest address may write 5 times a minute.
+  rateLimit: { limit: 5, window: '1m' },
+})
+```
+
+A write over the limit fails with [`COMMENTS_GUEST_RATE_LIMITED`](/docs/comments/diagnostics/comments_guest_rate_limited), HTTP status 429, and a `retry-after` header. Each server process counts in its own memory. When Rate Limit counts in a shared KV store (`vitehub({ rateLimit: true, kv })` on Node), Comments counts there too, under the Rate Limit name `comments`, so all your Node instances share one budget. Behind a reverse proxy, the address is the proxy's, so all guests share one budget.
 
 ### Roles from Site access
 
@@ -629,6 +650,50 @@ The Comments toolbar is one segment of the ViteHub tools pill at the bottom of t
 
 The Comments segment works like the one in Drop. **Comments** shows the number of open threads. For people who may comment, it turns comment mode on and then says **Click anywhere**. Beside it, **Whole page** starts a comment on the page itself, **All comments** opens the list of the page's threads, and **×** turns comment mode off. For people who may only read, **Comments** opens the list.
 
+With [presence](/docs/comments/hosts#in-a-vitehub-app), the segment also shows the faces of the other people on the page. Each person shows once. When a person has the page open in several tabs, their face says so, such as "Grace Hopper · 2 tabs". You never see your own face. When your app shows its own list of people, turn the faces and cursors off. Threads still update live:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    comments: { overlay: { presence: false } },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ comments: { overlay: { presence: false } } }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ comments: { overlay: { presence: false } } }),
+  ],
+})
+```
+:::
+
+::
+
 | Key | Action |
 | --- | --- |
 | <kbd>C</kbd> | Turn comment mode on or off, as **Comments** does. While it is on, a click anywhere starts a thread, and the segment shows **Whole page**, **All comments**, and **×**. |
@@ -775,7 +840,7 @@ The Comments section of the [Console](/docs/console) lists the 500 threads with 
 
 ## Fix comments with an Agent
 
-Connect the Agent to the [ViteHub MCP](/docs/console/mcp) of the Console. It runs the Comments operations of your app, such as `comments.threads` and `comments.reply`: it lists open threads, reads their page context and source files, changes the code, then replies and resolves. It acts as you, and `authorize` applies to each call.
+Connect the Agent to the [ViteHub MCP](/docs/console/mcp) of the Console. It runs the Comments operations of your app, such as `comments.threads` and `comments.reply`: it lists open threads, reads their page context and source files, changes the code, then replies and resolves. It acts as you, and `authorize` applies to each call. The `page` filter takes a path such as `/pricing` or a full URL of the page. When `authorize` hides threads, the list says how many and why, and `hidden` counts them.
 
 Your own MCP server can register the same tools. `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them, each with a JSON Schema and a `call(input, { user })` function.
 

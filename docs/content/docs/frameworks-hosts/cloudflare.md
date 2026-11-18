@@ -22,10 +22,25 @@ host-neutral. Cloudflare details stay in the config and generated output.
 | Workflow | Cloudflare Workflows |
 | Workspace | `memory` Store unless you select Cloudflare Artifacts |
 | Browser and `email: true` | Browser Run and Cloudflare Email. Both require this host. |
+| Workers Logs | `observability: { enabled: true }` in `wrangler.json` |
 
 The app name comes from `vitehub({ name })`, then `WRANGLER_CI_OVERRIDE_NAME`
 in Workers Builds, then the `package.json` name. It is also the Worker name
 unless `nitro.cloudflare.wrangler.name` is set.
+
+## Workers Logs
+
+Cloudflare keeps no Worker logs unless `wrangler.json` turns on
+`observability`. ViteHub turns it on in the generated `wrangler.json`, so
+`console.log` output and request logs show in the Cloudflare dashboard after
+the first deploy.
+
+To turn it off, or to set a sampling rate, put your own `observability` in
+the project `wrangler.json`. ViteHub then leaves the key as you wrote it.
+
+```json [wrangler.json]
+{ "observability": { "enabled": false } }
+```
 
 ## Cloudflare boundaries
 

@@ -4,6 +4,7 @@ import { createConfiguredDatabase } from "#vitehub/database/definition-runtime"
 import type { AnyRelations } from "drizzle-orm"
 import type { ResolvedDrizzleDatabaseConfig, RuntimeDrizzleDatabase } from "../types.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
+import { fallbackDatabasesMarker, sharedRuntimeKey } from "./shared-runtime.ts"
 
 interface RuntimeDatabaseModule {
   config?: ResolvedDrizzleDatabaseConfig
@@ -67,10 +68,18 @@ function resolveDatabases() {
 
 let runtimeDatabases: ReturnType<typeof resolveDatabases> | undefined
 
+// In `vite dev`, Vite loads this package with the app's Databases, and Node loads a second copy for the packages that
+// it loads itself, such as Agent. That copy has no Databases, so it uses the ones of the Vite copy.
+const isFallback = Object.hasOwn(databaseEntries, fallbackDatabasesMarker)
+if (!isFallback) Reflect.set(globalThis, sharedRuntimeKey, getRuntimeDatabases)
+
 /**
  * The runtime databases, resolved on first use. Database Definitions import this package, and the generated registry
  * imports the Definitions, so the module must not read the registry while it loads.
  */
 export function getRuntimeDatabases(): ReturnType<typeof resolveDatabases> {
+  const shared: unknown = isFallback ? Reflect.get(globalThis, sharedRuntimeKey) : undefined
+  // SAFETY: Only a copy of this module sets the shared key, to its own getRuntimeDatabases().
+  if (typeof shared === "function") return (shared as typeof getRuntimeDatabases)()
   return runtimeDatabases ??= resolveDatabases()
 }

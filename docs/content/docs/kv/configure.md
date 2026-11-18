@@ -181,6 +181,31 @@ Upstash credentials in development can come from Vite's `.env` files for the cur
 
 An explicit `driver` is honored in development as before: an `upstash` store uses Upstash and prints the notice. Only inference and the Cloudflare fallback depend on `remote`. Builds ignore `remote`, so the build output does not change. `remote: true` with `fs-lite` or `deno-kv`, `remote: false` with `upstash`, and `remote: true` in development without a hosted store fail with [`KV_REMOTE_CONFLICT`](/docs/kv/limits-and-errors#kv_remote_conflict).
 
+## Seed values
+
+A seed file holds a starting value, such as the default tasks of a demo. Put one JSON file for each key in `server/seed/kv/`:
+
+```json [server/seed/kv/habits.json]
+[
+  { "title": "Water the plants", "done": false },
+  { "title": "Call the supplier", "done": true }
+]
+```
+
+Start `vite dev`, then write the files to the default store:
+
+```bash [Terminal]
+pnpm vitehub seed kv
+```
+
+```txt [Output]
+Created key habits in store default (object).
+```
+
+The key is the path without its extension, so `server/seed/kv/settings/theme.json` is the key `settings/theme`. A `.json` file is a JSON value. Any other file, such as `welcome.txt`, is a string. Files that start with `.` are skipped. The command writes each value again on every run, so it replaces a value that the app changed.
+
+Without `--remote`, `vitehub seed` writes the stores of the running dev server. With `--remote`, it writes the deployed app at `--url`, or at `vitehub({ publicUrl })`, like `vitehub kv set --url`. Only the default store has seed files. `pnpm vitehub seed` also runs the [Database](/docs/database/configure#seed-data) and [Blob](/docs/blob/configure#seed-files) seeds.
+
 ## Nitro cache in KV
 
 Nitro keeps entries from `defineCachedFunction()`, `defineCachedEventHandler()`, and route rule caches in its `cache` storage. By default, that is memory in each server instance. Set `cache: { driver: 'kv' }` to keep them in the default KV store:

@@ -90,10 +90,10 @@ header .status.typing { color: var(--link); }
 .user .meta { color: var(--out-meta); }
 .checks { margin-left: 3px; letter-spacing: -5px; padding-right: 5px; font-size: 13px; }
 form { position: relative; z-index: 1; flex: none; display: flex; align-items: flex-end; gap: 8px; width: 100%; max-width: 760px; margin: 0 auto; padding: 0 16px 16px; }
-.box { position: relative; flex: 1; display: flex; align-items: flex-end; min-height: 54px; padding: 7px 4px; border-radius: 16px 16px 0 16px; background: var(--side); box-shadow: 0 1px 2px rgba(16, 35, 47, .15); }
+.box { position: relative; flex: 1; min-width: 0; display: flex; align-items: flex-end; min-height: 54px; padding: 7px 4px; border-radius: 16px 16px 0 16px; background: var(--side); box-shadow: 0 1px 2px rgba(16, 35, 47, .15); }
 .box:focus-within { box-shadow: 0 0 0 2px var(--accent), 0 1px 2px rgba(16, 35, 47, .15); }
 .box::after { content: ""; position: absolute; right: -8.6px; bottom: 0; width: 9px; height: 17px; background: radial-gradient(ellipse 9px 17px at 100% 0, transparent 97%, var(--side) 100%); }
-textarea { flex: 1; min-width: 0; resize: none; border: 0; outline: none; background: none; color: var(--text); font: inherit; font-size: 16px; line-height: 22px; padding: 9px 4px; height: 40px; max-height: 160px; }
+textarea { flex: 1; min-width: 0; resize: none; border: 0; outline: none; background: none; color: var(--text); font: inherit; font-size: 16px; line-height: 22px; padding: 9px 4px; min-height: 40px; max-height: 160px; }
 textarea::placeholder { color: var(--muted); }
 .send { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--side); color: var(--accent); box-shadow: 0 1px 2px rgba(16, 35, 47, .15); }
 .send svg { width: 26px; height: 26px; fill: currentColor; }

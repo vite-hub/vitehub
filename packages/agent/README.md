@@ -29,7 +29,7 @@ Add the AI SDK model provider you pass to `model`.
 The `codexDriver()` and `claudeCodeDriver()` drivers use ViteHub's pinned T3 provider runtime. Install only the provider packages an Agent uses:
 
 ```sh
-pnpm add @openai/codex@0.149.1
+pnpm add @openai/codex@0.169.0
 pnpm add @anthropic-ai/claude-agent-sdk@0.3.321
 ```
 
@@ -804,7 +804,8 @@ export default await createProcessAgentHost({
 ```
 
 Use the host's `capacity`, `invocations`, and `providerSessionStorePath` in the
-Agent Definition. `host.health()` reports provider availability and stale records.
+Agent Definition. `host.deleteProviderSession(threadId)` deletes the stored
+provider sessions of one run thread when no run continues it. `host.health()` reports provider availability and stale records.
 `host.wake()` requests discovery after work completes. `host.start()` is idempotent;
 `host.close()` stops admission and waits for tracked work.
 

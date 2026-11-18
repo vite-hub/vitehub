@@ -8,6 +8,7 @@ import { resolveGitHubWorkspaceRoot, splitGitHubRepository } from "../src/provid
 import { workspaceRevisionMaterializer } from "../src/storage/materialization.ts";
 
 import type { WorkspaceRevisionMaterializerCarrier } from "../src/storage/materialization.ts";
+import type { WorkspaceDefinition } from "../src/core/types.ts";
 
 const requests: Array<{ body?: Record<string, unknown>; headers: Headers; method: string; operation?: string; path: string; rawPath: string }> = []
 let fake: ReturnType<typeof createFakeGitHub>
@@ -590,6 +591,25 @@ describe("GitHub workspace store", () => {
       mediaType: "text/markdown",
       metadata: { source: "agent" },
     });
+  });
+
+  // Source materialization clears its recovery record with setMeta(key, undefined). The Store committed that as an empty
+  // file, and the next getMeta() of the key failed with "Unexpected end of JSON input".
+  it("removes metadata set to undefined and reads an empty metadata file as absent", async () => {
+    seedRemote(".vitehub/workspaces/docs/.vitehub/meta/legacy.json", "");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const options = { driver: "github" as const, repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" };
+    const store = createGitHubWorkspaceStore(options, "docs");
+    await expect(store.getMeta!("legacy")).resolves.toBeUndefined();
+
+    await store.setMeta!("recovery", { digest: "abc" });
+    await store.snapshot({ name: "save recovery" });
+    await store.setMeta!("recovery", undefined);
+    await expect(store.getMeta!("recovery")).resolves.toBeUndefined();
+    await store.snapshot({ name: "clear recovery" });
+    expect(fake.tree("main").map(entry => entry.path)).not.toContain(".vitehub/workspaces/docs/.vitehub/meta/recovery.json");
+
+    await expect(createGitHubWorkspaceStore(options, "docs").getMeta!("recovery")).resolves.toBeUndefined();
   });
 
   it("commits metadata-only updates and removes their sidecars", async () => {
@@ -1236,32 +1256,281 @@ describe("GitHub workspace store", () => {
     ]));
   });
 
-  it("fails dirty snapshots when the branch moved after load", async () => {
+  it("commits a second writer's snapshot after another writer moved the branch", async () => {
+    seedRemote(".vitehub/workspaces/docs/index.md", "# Index\n");
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
-    const store = createGitHubWorkspaceStore(
-      {
-        driver: "github",
-        repository: "onmax/repo",
-        root: ".vitehub/workspaces/<workspace>",
-        token: "token",
-      },
-      "docs",
-    );
+    const options = {
+      driver: "github" as const,
+      repository: "onmax/repo",
+      root: ".vitehub/workspaces/<workspace>",
+      token: "token",
+    };
+    // Two isolates, each with its own cached Store for one Workspace Definition.
+    const first = createGitHubWorkspaceStore(options, "docs");
+    const second = createGitHubWorkspaceStore(options, "docs");
+    await first.list();
+    await second.list();
 
-    await store.writeFile("README.md", { path: "README.md", content: "# Docs\n" });
-    refSha = "other-commit";
+    await first.writeFile("first.md", { path: "first.md", content: "first\n" });
+    await first.snapshot({ name: "first" });
+    await second.writeFile("second.md", { path: "second.md", content: "second\n" });
+    const snapshot = await second.snapshot({ name: "second" });
 
-    await expect(store.snapshot({ name: "conflict" })).rejects.toThrow(
-      "GitHub Workspace Store conflict",
-    );
-    expect(
-      requests.filter((request) =>
-        (request.method !== "GET" && request.operation !== "RepositoryId")
-      ),
-    ).toEqual([]);
+    expect(snapshot.id).toBe(fake.head("main"));
+    expect(fake.tree("main").map(entry => entry.path).sort()).toEqual([
+      ".vitehub/workspaces/docs/first.md",
+      ".vitehub/workspaces/docs/index.md",
+      ".vitehub/workspaces/docs/second.md",
+    ]);
+    await expect(second.readFile("first.md")).resolves.toMatchObject({ content: textBytes("first\n") });
+    await second.writeFile("second.md", { path: "second.md", content: "second edit\n" });
+    expect((await second.snapshot({ name: "second edit" })).id).toBe(fake.head("main"));
   });
 
-  it("maps a GitHub non-fast-forward update (409) to a structured conflict", async () => {
+  it("drops the staged writes of a failed request from the cached Store", async () => {
+    seedRemote(".vitehub/workspaces/docs/index.md", "# Index\n");
+    const { createWorkspace } = await import("../src/core/workspace.ts");
+    const { runWorkspaceRequest } = await import("../src/core/request-scope.ts");
+    const definition: WorkspaceDefinition = {
+      name: "docs",
+      store: { driver: "github", repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
+    };
+
+    // The first request writes, then fails before its snapshot.
+    await expect(runWorkspaceRequest(async () => {
+      await createWorkspace(definition).writeFile("draft.md", "half done\n");
+      throw new Error("The form is not valid.");
+    })).rejects.toThrow("The form is not valid.");
+    await runWorkspaceRequest(async () => {
+      const workspace = createWorkspace(definition);
+      await expect(workspace.exists("draft.md")).resolves.toBe(false);
+      await workspace.writeFile("saved.md", "saved\n");
+      await workspace.snapshot({ name: "save" });
+    });
+
+    expect(fake.tree("main").map(entry => entry.path).sort()).toEqual([
+      ".vitehub/workspaces/docs/index.md",
+      ".vitehub/workspaces/docs/saved.md",
+    ]);
+  });
+
+  it("drops the staged writes of a failed Schedule or Queue run from the cached Store", async () => {
+    seedRemote(".vitehub/workspaces/docs/index.md", "# Index\n");
+    const { createWorkspace } = await import("../src/core/workspace.ts");
+    const { runInRunScopes } = await import("@vite-hub/runtime/internal/run-scope");
+    const definition: WorkspaceDefinition = {
+      name: "docs",
+      store: { driver: "github", repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
+    };
+
+    // Schedule and Queue run each handler this way. This run mirrors a record, then fails before its snapshot.
+    await expect(runInRunScopes(async () => {
+      await createWorkspace(definition).writeFile("mirror/record.md", "half synced\n");
+      throw new Error("Airtable answered 429.");
+    })).rejects.toThrow("Airtable answered 429.");
+    await runInRunScopes(async () => {
+      const workspace = createWorkspace(definition);
+      await expect(workspace.exists("mirror/record.md")).resolves.toBe(false);
+      await workspace.writeFile("saved.md", "saved\n");
+      await workspace.snapshot({ name: "sync" });
+    });
+
+    expect(fake.tree("main").map(entry => entry.path).sort()).toEqual([
+      ".vitehub/workspaces/docs/index.md",
+      ".vitehub/workspaces/docs/saved.md",
+    ]);
+  });
+
+  it.each(["static", "stored"] as const)("drops writes after %s Schedule deferred work fails or outlives a throwing handler", async (mode) => {
+    seedRemote(".vitehub/workspaces/docs/index.md", "# Index\n");
+    const { createWorkspace } = await import("../src/core/workspace.ts");
+    const { executeStaticSchedule: executeStatic } = await import("../../schedule/src/runtime/static.ts");
+    const { executeStaticSchedule: executeStored } = await import("../../schedule/src/runtime.ts");
+    const definition: WorkspaceDefinition = {
+      name: "docs",
+      store: { driver: "github", repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
+    };
+    for (const handlerThrows of [false, true]) {
+      const options = {
+        cron: "0 9 * * *",
+        name: `mirror-${handlerThrows}`,
+        scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+        definition: {
+          cron: "0 9 * * *",
+          async handler({ waitUntil }: { waitUntil: (promise: PromiseLike<unknown>) => void }) {
+            await createWorkspace(definition).writeFile("mirror/record.md", "half synced\n");
+            waitUntil(new Promise<void>(resolve => setTimeout(resolve, 10)).then(async () => {
+              await createWorkspace(definition).writeFile("mirror/deferred.md", "deferred\n");
+              throw new Error("Deferred sync failed.");
+            }));
+            if (handlerThrows) throw new Error("Handler failed.");
+          },
+        },
+      };
+      const execute = mode === "static" ? executeStatic : executeStored;
+      await expect(execute(options)).rejects.toThrow(handlerThrows ? "Handler failed." : "Deferred sync failed.");
+      const workspace = createWorkspace(definition);
+      await expect(workspace.exists("mirror/record.md")).resolves.toBe(false);
+      await expect(workspace.exists("mirror/deferred.md")).resolves.toBe(false);
+      await workspace.snapshot({ name: "next sync" });
+    }
+    expect(fake.tree("main").map(entry => entry.path)).toEqual([".vitehub/workspaces/docs/index.md"]);
+  });
+
+  it("drops a Queue job's staged writes when its HTTP response requests a retry", async () => {
+    seedRemote(".vitehub/workspaces/docs/index.md", "# Index\n");
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { createWorkspace } = await import("../src/core/workspace.ts");
+    const { createLocalQueueEngine } = await import("../../queue/src/providers/local.ts");
+    const definition: WorkspaceDefinition = {
+      name: "docs",
+      store: { driver: "github", repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
+    };
+    const base = await mkdtemp(join(tmpdir(), "workspace-failed-queue-"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const engine = createLocalQueueEngine({
+      base,
+      load: async () => ({ handler: async () => {
+        await createWorkspace(definition).writeFile("mirror/record.md", "half synced\n");
+        return new Response(null, { status: 503 });
+      } }),
+      missing: () => new Error("Missing queue"),
+      retryDelayMs: () => 60_000,
+    });
+    try {
+      await engine.enqueue("mirror", [{ id: "failed-sync", payload: {} }]);
+      await vi.waitFor(async () => {
+        expect((await engine.jobs())[0]).toMatchObject({ attempts: 1, state: "pending", error: expect.anything() });
+        expect((await engine.status()).queues.mirror?.running).toBe(0);
+      });
+      const workspace = createWorkspace(definition);
+      await expect(workspace.exists("mirror/record.md")).resolves.toBe(false);
+      await workspace.snapshot({ name: "next sync" });
+      expect(fake.tree("main").map(entry => entry.path)).toEqual([".vitehub/workspaces/docs/index.md"]);
+    }
+    finally {
+      engine.close();
+      await rm(base, { force: true, recursive: true });
+    }
+  });
+
+  it("drops a failed request's writes for a Workspace that outlives the request and for direct Store writes", async () => {
+    seedRemote(".vitehub/workspaces/docs/index.md", "# Index\n");
+    const { createWorkspace } = await import("../src/core/workspace.ts");
+    const { runWorkspaceRequest } = await import("../src/core/request-scope.ts");
+    const { getCachedWorkspaceStore } = await import("../src/core/workspace-cache.ts");
+    const definition: WorkspaceDefinition = {
+      name: "docs",
+      store: { driver: "github", repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
+    };
+    // A module-level Workspace serves every request.
+    const workspace = createWorkspace(definition);
+    // Source materialization and sync write to the Store without the Workspace methods.
+    const store = getCachedWorkspaceStore(definition, () => { throw new Error("The Workspace created the Store.") });
+
+    await expect(runWorkspaceRequest(async () => {
+      await workspace.writeFile("draft.md", "half done\n");
+      await store.writeFile("source.md", { path: "source.md", content: "from a Source\n" });
+      throw new Error("failed");
+    })).rejects.toThrow("failed");
+    await runWorkspaceRequest(async () => {
+      await expect(workspace.exists("draft.md")).resolves.toBe(false);
+      await workspace.writeFile("saved.md", "saved\n");
+      await workspace.snapshot({ name: "save" });
+    });
+
+    expect(fake.tree("main").map(entry => entry.path).sort()).toEqual([
+      ".vitehub/workspaces/docs/index.md",
+      ".vitehub/workspaces/docs/saved.md",
+    ]);
+  });
+
+  it("keeps staged writes that another request also made when a request fails", async () => {
+    seedRemote(".vitehub/workspaces/docs/index.md", "# Index\n");
+    const { createWorkspace } = await import("../src/core/workspace.ts");
+    const { runWorkspaceRequest } = await import("../src/core/request-scope.ts");
+    const definition: WorkspaceDefinition = {
+      name: "docs",
+      store: { driver: "github", repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" },
+    };
+    let release!: () => void;
+    const written = new Promise<void>(resolve => { release = resolve; });
+    // Two requests that overlap share the Store, so the failed one cannot drop writes that the other one still needs.
+    const other = runWorkspaceRequest(async () => {
+      await createWorkspace(definition).writeFile("other.md", "other\n");
+      release();
+      await new Promise(resolve => setTimeout(resolve, 20));
+      await createWorkspace(definition).snapshot({ name: "other" });
+    });
+    await expect(runWorkspaceRequest(async () => {
+      await written;
+      await createWorkspace(definition).writeFile("draft.md", "half done\n");
+      throw new Error("failed");
+    })).rejects.toThrow("failed");
+    await other;
+
+    expect(fake.tree("main").map(entry => entry.path)).toContain(".vitehub/workspaces/docs/other.md");
+  });
+
+  it("reads commits from other writers once the loaded head is older than the head cache time", async () => {
+    seedRemote(".vitehub/workspaces/docs/page.md", "# Base\n");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const { githubHeadCacheMs } = await import("../src/providers/github/history.ts");
+    const store = createGitHubWorkspaceStore({
+      driver: "github",
+      repository: "onmax/repo",
+      root: ".vitehub/workspaces/<workspace>",
+      token: "token",
+    }, "docs");
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    await expect(store.readFile("page.md")).resolves.toMatchObject({ content: textBytes("# Base\n") });
+
+    fake.commit("main", { ".vitehub/workspaces/docs/page.md": "# Remote\n" });
+    const before = requests.length;
+    await expect(store.readFile("page.md")).resolves.toMatchObject({ content: textBytes("# Base\n") });
+    expect(requests.length).toBe(before);
+
+    now += githubHeadCacheMs + 1;
+    await expect(store.readFile("page.md")).resolves.toMatchObject({ content: textBytes("# Remote\n") });
+    await store.writeFile("other.md", { path: "other.md", content: "other\n" });
+    expect((await store.snapshot({ name: "after refresh" })).id).toBe(fake.head("main"));
+    vi.restoreAllMocks();
+  });
+
+  it("names the paths that changed on both sides and recovers after taking the remote version", async () => {
+    seedRemote(".vitehub/workspaces/docs/page.md", "# Base\n");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const options = {
+      driver: "github" as const,
+      repository: "onmax/repo",
+      root: ".vitehub/workspaces/<workspace>",
+      token: "token",
+    };
+    const first = createGitHubWorkspaceStore(options, "docs");
+    const second = createGitHubWorkspaceStore(options, "docs");
+    await first.list();
+    await second.list();
+
+    await first.writeFile("page.md", { path: "page.md", content: "# First\n" });
+    await first.snapshot({ name: "first" });
+    await second.writeFile("page.md", { path: "page.md", content: "# Second\n" });
+    await second.writeFile("other.md", { path: "other.md", content: "other\n" });
+    const error = await second.snapshot({ name: "second" }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ code: "WORKSPACE_CONFLICT", details: { paths: ["page.md"] } });
+    await second.rebase?.({ takeRemote: (error as { details: { paths: string[] } }).details.paths });
+    await second.snapshot({ name: "second" });
+    await expect(second.readFile("page.md")).resolves.toMatchObject({ content: textBytes("# First\n") });
+    expect(fake.tree("main")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ".vitehub/workspaces/docs/other.md", sha: textSha("other\n") }),
+      expect.objectContaining({ path: ".vitehub/workspaces/docs/page.md", sha: textSha("# First\n") }),
+    ]));
+  });
+
+  it("retries once when the branch moves while the commit is sent", async () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
       {
@@ -1277,14 +1546,12 @@ describe("GitHub workspace store", () => {
     mainRefUpdateStatus = 409;
     mainRefUpdateMessage = undefined;
 
-    await expect(store.snapshot({ name: "raced conflict" })).rejects.toMatchObject({
-      code: "WORKSPACE_CONFLICT",
-      details: {
-        branch: "main",
-        expectedHead: fakeSha("base-sha"),
-        repository: "onmax/repo",
-      },
-    });
+    // The branch moves once while the commit is sent; the Store replays its change on the new head.
+    expect((await store.snapshot({ name: "raced conflict" })).id).toBe(fake.head("main"));
+    expect(fake.commits.get(fake.head("main")!)?.parents).toEqual([fakeSha("remote-move")]);
+    expect(fake.tree("main")).toEqual([
+      expect.objectContaining({ path: ".vitehub/workspaces/docs/README.md", sha: textSha("# Docs\n") }),
+    ]);
   });
 
   it("preserves a generic GitHub 422 ref-update failure", async () => {

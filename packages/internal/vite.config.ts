@@ -83,6 +83,7 @@ export default defineConfig({
       "src/runtime/cloudflare-env.ts",
       "src/runtime/cloudflare-env-lookup.ts",
       "src/runtime/sqlite-wasm.ts",
+      "src/runtime/client-rate-limit.ts",
       "src/runtime/cloudflare-hosted.ts",
       "src/runtime/mcp-server.ts",
       "src/runtime/mcp-tools.ts",

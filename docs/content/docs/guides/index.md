@@ -41,6 +41,7 @@ solves one deployment or provider task.
 - [Run browser operations on Cloudflare](/docs/guides/cloudflare-browser).
 - [Compare AI sandbox providers](/docs/guides/sandbox-providers).
 - [Choose Queue, Workflow, or Schedule](/docs/guides/background-jobs).
+- [Run work one at a time with locks and leases](/docs/guides/run-one-at-a-time).
 - [Use Vercel Queues](/docs/guides/vercel-queues).
 - [Use Cloudflare Queues](/docs/guides/cloudflare-queues).
 - [Use Vercel Cron Jobs](/docs/guides/vercel-cron-jobs).

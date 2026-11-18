@@ -29,6 +29,19 @@ describe("pingDatabaseEntries()", () => {
     expect(execute).toHaveBeenCalledOnce()
     expect(log).toHaveBeenCalledWith("[vitehub] Database \"archive\" did not answer SELECT 1.", failure)
   })
+
+  it("counts a Database that does not answer within the timeout as failed", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {})
+    const hanging = new Promise<never>(() => {})
+
+    const result = await pingDatabaseEntries({
+      default: { db: { execute: vi.fn(async () => []) } },
+      replica: { db: { execute: vi.fn(() => hanging) } },
+    }, ["default", "replica"], 20)
+
+    expect(result).toEqual({ default: true, replica: false })
+    expect(log).toHaveBeenCalledWith("[vitehub] Database \"replica\" did not answer SELECT 1.", new Error("No answer within 20 ms."))
+  })
 })
 
 it("pings only the configured Databases of a hosted runtime module", async () => {

@@ -183,7 +183,46 @@ export default defineQueue<{ reportId: string }>(async (job) => {
 | Option | Type | Provider | Description |
 | --- | --- | --- | --- |
 | `cache` | `boolean` | All | Overrides QueueClient caching for this queue. |
-| `concurrency` | `number` | Cloudflare | Batch delivery concurrency. Default `1`. Rounded down to an integer, at least `1`. |
+| `concurrency` | `number` | Cloudflare, Local, Postgres | How many jobs of this queue run at the same time: in one batch on Cloudflare, in one server process on local and postgres. Default `1`. Rounded down to an integer, at least `1`. |
 | `onError` | `(error, message, batch) => 'ack' \| 'retry' \| { retry: { delaySeconds?: number } } \| void` | Cloudflare | Handles delivery errors. See [Handle failures](/docs/queue/server-api#handle-failures). |
 | `callbackOptions` | `{ retry?: VercelQueueRetryHandler, visibilityTimeoutSeconds?: number }` | Vercel | Callback options for `@vercel/queue` for this queue. |
 | `onDispatchError` | `(error, context) => unknown \| Promise<unknown>` | All | Handles dispatch errors from `deferQueue()`, not delivery errors. |
+
+## Contribute Queues from a package
+
+A package can add a queue from its Vite plugin, so apps do not write `server/queues/<name>.ts`. Add `vitehub.queues` to the plugin:
+
+```ts [my-package/vite.ts] fragment
+import { fileURLToPath } from 'node:url'
+import type { Plugin } from 'vite'
+import type { QueueContributingPlugin } from '@vite-hub/queue/vite'
+
+export function myPackage(): Plugin & QueueContributingPlugin {
+  return {
+    name: 'my-package/vite',
+    vitehub: {
+      queues: [{
+        name: 'my-package-deliveries',
+        definition: { module: fileURLToPath(new URL('./deliver.js', import.meta.url)) },
+        reason: 'Delivers webhooks after their delay.',
+      }],
+    },
+  }
+}
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `name` | `string` | Queue name for `sendQueue()` and provider output. Letters, numbers, `.`, `_`, `-`, and `/`. |
+| `definition.module` | `string` | Absolute file path or `file:` URL of a module with `export default defineQueue(...)`. |
+| `definition.export` | `string` | Must be `default`. Default `default`. |
+| `reason` | `string` | Optional. Why the package adds it. Shown by `vitehub inspect definitions` and the Console. |
+
+`vitehub.queues` accepts an array or a factory, which can be async and gets `{ root, projectRoot, serverDirs }`. A package queue works like a `server/queues/` file on every host: it gets the generated types, a Cloudflare binding and consumer, a Vercel consumer route, provisioning, and the local or postgres worker on Node.
+
+Build errors:
+
+- `QUEUE_DEFINITION_DUPLICATE`: the name is already used by a file or another plugin. The message names both.
+- `QUEUE_CONTRIBUTION_INVALID`: the entry is invalid, or the module does not exist.
+
+`collectQueueContributions(plugins, context)` from `@vite-hub/queue/vite` returns the checked list for other build steps.

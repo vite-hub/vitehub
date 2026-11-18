@@ -15,6 +15,29 @@ import { vitehub } from "../src/index.ts"
 
 
 describe("built-in host integration", () => {
+  // The host checks run before the owners read their options. A host without the service, such as Rate Limit on Vercel
+  // or Sandbox on Node, stopped with INTERNAL_R0002 and hid the rename.
+  it.each(["cloudflare", "node", "vercel"] as const)("rejects old provider keys before %s driver inference", async (host) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-old-provider-"))
+    onTestFinished(() => rm(root, { force: true, maxRetries: 5, recursive: true }))
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "old-provider-test", type: "module" }))
+    for (const feature of ["queue", "rateLimit", "sandboxTask"] as const) {
+      const options = { host, env: false, blob: false, workflow: false, queue: false, rateLimit: false }
+      // SAFETY: An app config without types still passes the former key.
+      expect(() => vitehub({ ...options, [feature]: { provider: "vercel" } } as never))
+        .toThrow(expect.objectContaining({ code: "VITE_HUB_RENAMED_PROVIDER_KEY", fix: expect.stringContaining(`${feature}: { driver: "vercel" }`) }))
+      if (host === "node") continue
+      for (const command of ["build", "serve"] as const) {
+        await expect(resolveConfig({
+          configFile: false,
+          root,
+          // SAFETY: An app config without types still passes the former key next to `driver`.
+          plugins: [vitehub({ ...options, [feature]: { provider: "vercel", driver: feature === "rateLimit" && host === "vercel" ? "memory" : host } } as never)],
+        }, command)).resolves.toBeTruthy()
+      }
+    }
+  }, 30_000)
+
   it.each([undefined, "custom-output"])(
     "inspects deployment output from a separate Nitro root with output %s",
     async (outputDir) => {
@@ -68,7 +91,8 @@ describe("built-in host integration", () => {
     vi.stubEnv("VITEST", undefined)
     onTestFinished(() => { vi.unstubAllEnvs() })
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-"))
-    onTestFinished(() => rm(root, { force: true, recursive: true }))
+    // Vite rejects at the first failed configResolved hook while the other hooks still write type files, so retry.
+    onTestFinished(() => rm(root, { force: true, maxRetries: 5, recursive: true }))
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "labeller.ts"), "export default {}\n")
     const resolve = () => resolveConfig({
@@ -96,7 +120,8 @@ describe("built-in host integration", () => {
     vi.stubEnv("VITEST", vitest)
     onTestFinished(() => { vi.unstubAllEnvs() })
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-test-"))
-    onTestFinished(() => rm(root, { force: true, recursive: true }))
+    // Vite rejects at the first failed configResolved hook while the other hooks still write type files, so retry.
+    onTestFinished(() => rm(root, { force: true, maxRetries: 5, recursive: true }))
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "labeller.ts"), "export default {}\n")
     const config = resolveConfig({
