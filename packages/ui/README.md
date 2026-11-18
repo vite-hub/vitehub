@@ -297,7 +297,9 @@ Every control moves the same way, from what a person does with it, not from code
 ```ts
 import { installMotion } from "@vite-hub/ui/motion";
 
-const uninstall = installMotion(shadowRoot);
+const host = document.createElement("div");
+document.body.append(host);
+const uninstall = installMotion(host.attachShadow({ mode: "open" }));
 ```
 
 The entry also has the spring engine (`createSpring`, `springs.snappy`, `springs.soft`), reduced motion (`prefersReducedMotion`, `onReducedMotionChange`, `forceReducedMotion`), `setMotionSlowFactor(4)` to watch an effect at ¼×, and `defineMotionEffect` to add an effect for a role. The motion page in `test/browser/motion/` renders every role; `pnpm --filter @vite-hub/ui test:motion` checks it in Chromium, and `MOTION_RECORD=<dir>` records each press at ¼×.
