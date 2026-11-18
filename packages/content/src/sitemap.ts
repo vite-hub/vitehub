@@ -12,7 +12,7 @@ import type { ContentCollectionsRuntime } from "./collections-runtime.ts"
 import type { ContentDocumentMarkdownPage, ContentDocumentUrl } from "./documents.ts"
 import type { ContentMcpOptions } from "./mcp.ts"
 import type { ContentSourceSeo } from "./content-source.ts"
-import type { ContentLlmsSection } from "./llms.ts"
+import type { ContentLlmsPage, ContentLlmsSection, ContentLlmsSectionsContext } from "./llms.ts"
 
 /** `defineContent({ seo })`: site-wide SEO routes generated from routable collections. */
 export interface DefineContentSeoOptions {
@@ -85,8 +85,24 @@ export interface DefineContentLlmsOptions {
   description?: string
   /** Text under the summary, such as rules for agents. The `llms-full.txt` link keeps the summary only. */
   details?: string
-  /** More sections, after the `llms-full.txt` link and before the sections of pages. */
-  sections?: readonly ContentLlmsSection[]
+  /**
+   * More sections of `llms.txt`, after the `llms-full.txt` links and before the sections of pages. A function builds
+   * them from the pages of the file, such as a list of the outside sources that the pages link to.
+   */
+  sections?: readonly ContentLlmsSection[] | ((context: ContentLlmsSectionsContext) => readonly ContentLlmsSection[] | Promise<readonly ContentLlmsSection[]>)
+  /**
+   * The order of the pages in the llms files, such as the order of the app's navigation. Sections follow their first
+   * page. Defaults to the order of the collections, and URL order in each section.
+   */
+  sort?: (left: ContentLlmsPage, right: ContentLlmsPage) => number
+  /** Response headers of the three files, such as `{ "x-robots-tag": "noindex" }` for a site that search engines must not list. */
+  headers?: Record<string, string>
+  /**
+   * `title`, `description`, and `details` of the `llms-full.txt` of a translated locale, such as
+   * `{ es: { description: "Guía para los invitados." } }`. A collection with `locales` serves its source locale in
+   * `/llms-full.txt` and each other locale in `/<locale>/llms-full.txt`.
+   */
+  locales?: Record<string, { title?: string, description?: string, details?: string }>
 }
 
 export interface ContentSitemapEntry {
@@ -122,14 +138,31 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
   const { site, sitemap, robots, markdown, rss, mcp, llms, dateLeases } = options as Record<string, unknown>
   if (site !== undefined) siteOrigin(site, invalid)
   if (llms !== undefined && llms !== true && llms !== false) {
-    if (llms === null || Object(llms) !== llms || Array.isArray(llms)) throw invalid("llms must be true, false, or { title, description, details, sections }.")
-    for (const key of ["title", "description", "details"]) {
-      const value: unknown = Reflect.get(llms, key)
-      if (value !== undefined && String(value) !== value) throw invalid(`llms.${key} must be text.`)
+    if (llms === null || Object(llms) !== llms || Array.isArray(llms)) throw invalid("llms must be true, false, or { title, description, details, sections, sort, headers, locales }.")
+    const texts = (value: object, path: string) => {
+      for (const key of ["title", "description", "details"]) {
+        const text: unknown = Reflect.get(value, key)
+        if (text !== undefined && String(text) !== text) throw invalid(`${path}.${key} must be text.`)
+      }
     }
+    texts(llms, "llms")
     const sections: unknown = Reflect.get(llms, "sections")
-    if (sections !== undefined && (!Array.isArray(sections) || !sections.every(isLlmsSection))) {
-      throw invalid("llms.sections must be a list of { title, description?, links: [{ title, href, description? }] }.")
+    if (sections !== undefined && typeof sections !== "function" && (!Array.isArray(sections) || !sections.every(isLlmsSection))) {
+      throw invalid("llms.sections must be a list of { title, description?, links: [{ title, href, description? }] }, or a function that returns one.")
+    }
+    const sort: unknown = Reflect.get(llms, "sort")
+    if (sort !== undefined && typeof sort !== "function") throw invalid("llms.sort must be a function that compares two pages, such as (left, right) => left.path.localeCompare(right.path).")
+    const headers: unknown = Reflect.get(llms, "headers")
+    if (headers !== undefined && (headers === null || Object(headers) !== headers || Array.isArray(headers) || !Object.values(headers).every(isText))) {
+      throw invalid("llms.headers must be an object of header names and text values, such as { \"x-robots-tag\": \"noindex\" }.")
+    }
+    const locales: unknown = Reflect.get(llms, "locales")
+    if (locales !== undefined) {
+      if (locales === null || Object(locales) !== locales || Array.isArray(locales)) throw invalid("llms.locales must be an object by locale, such as { es: { description } }.")
+      for (const [locale, value] of Object.entries(locales)) {
+        if (value === null || Object(value) !== value || Array.isArray(value)) throw invalid(`llms.locales.${locale} must be { title, description, details }.`)
+        texts(value, `llms.locales.${locale}`)
+      }
     }
   }
   if (sitemap !== undefined && sitemap !== true && sitemap !== false) throw invalid("sitemap must be true or false.")

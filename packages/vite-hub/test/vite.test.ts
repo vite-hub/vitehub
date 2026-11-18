@@ -725,6 +725,7 @@ describe("vitehub", () => {
       "vite-hub/dependencies",
       "vite-hub/error-log",
       "@vite-hub/env/vite",
+      "vite-hub/stale-chunk-reload",
       "vite-hub/operations",
       "@vite-hub/connections/types-cleanup",
       "@vite-hub/email/optional-peer-resolver",
@@ -732,8 +733,10 @@ describe("vitehub", () => {
       "@vite-hub/source/vite",
       "@vite-hub/content/vite",
       "@vite-hub/forms/vite",
+      "@vite-hub/sync/vite",
       "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
+      "@vite-hub/webhooks/vite",
       "vite-hub/optional-owner-imports",
       "vite-hub/task",
       "vite-hub/skills",
@@ -775,9 +778,11 @@ describe("vitehub", () => {
       "vite-hub/unavailable-services",
       "vite-hub/cloudflare-sh-syntax",
       "vite-hub/cloudflare-pkce-challenge",
+      "vite-hub/cloudflare-redirects-file",
       "vite-hub/dependencies",
       "vite-hub/error-log",
       "@vite-hub/env/vite",
+      "vite-hub/stale-chunk-reload",
       "vite-hub/setup-dev",
       "vite-hub/operations",
       "vite-hub/console",
@@ -798,8 +803,10 @@ describe("vitehub", () => {
       "@vite-hub/source/vite",
       "@vite-hub/content/vite",
       "@vite-hub/forms/vite",
+      "@vite-hub/sync/vite",
       "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
+      "@vite-hub/webhooks/vite",
       "vite-hub/optional-owner-imports",
       "vite-hub/task",
       "vite-hub/skills",
@@ -878,7 +885,7 @@ describe("vitehub", () => {
       providerImportSpecifier: "vite-hub/sandbox/task",
     })
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith({
-      databaseImport: "@vite-hub/database/runtime/registry",
+      databaseImport: "@vite-hub/database",
       importBase: "vite-hub/schedule",
       providerImportAliases: {
         "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-redis-driver\.(?:ts|js)$/),
@@ -995,6 +1002,18 @@ describe("vitehub", () => {
     }
     finally {
       ownerModules.formsVite = forms
+    }
+  })
+
+  it("checks Sync entries when only the Sync owner is absent", () => {
+    expect(ownerModules.formsVite).toBeDefined()
+    const sync = ownerModules.syncVite
+    try {
+      ownerModules.syncVite = undefined
+      expect(pluginNames(vitehub({ database: false, host: "node" }))).toContain("vite-hub/optional-owner-entries")
+    }
+    finally {
+      ownerModules.syncVite = sync
     }
   })
 
@@ -2380,7 +2399,7 @@ describe("vitehub", () => {
   })
 
   it("rejects unsupported capabilities and conflicting target selection", async () => {
-    expect(() => vitehub({ host: "deno", schedule: true })).toThrow("cannot provide Schedule")
+    expect(() => vitehub({ host: "deno", schedule: true })).not.toThrow()
     expect(() => vitehub({ host: "deno", agent: { runtime: "deno" } })).toThrow("cannot deploy the Agent Deno runtime")
 
     // SAFETY: The explicit Deno preset installs the named deployment plugin.

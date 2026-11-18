@@ -129,7 +129,7 @@ The server logs the directory and this durability once when it starts. `vitehub 
 
 ## Run jobs on several Node servers
 
-The postgres driver keeps the jobs in the `vitehub_queue_jobs` table, and every server process of the app takes due jobs from it. Install `postgres` (postgres.js). The jobs use the postgres.js client of the Default Database, so they connect as the Database does, whatever variable or URL its Definition reads. `QUEUE_POSTGRES_URL` on the server overrides it. An explicit `provider: "postgres"` without a Postgres Default Database needs `QUEUE_POSTGRES_URL`.
+The postgres driver keeps the jobs in the `vitehub_queue_jobs` table, and every server process of the app takes due jobs from it. Install `postgres` (postgres.js). The jobs use the postgres.js client of the Default Database, so they connect as the Database does, whatever variable or URL its Definition reads. `QUEUE_POSTGRES_URL` on the server overrides it. An explicit `driver: "postgres"` without a Postgres Default Database needs `QUEUE_POSTGRES_URL`.
 
 ```ts
 // vite.config.ts
@@ -208,6 +208,32 @@ Providers, the local one included, can retry failed delivery, so handlers must t
 On Cloudflare, successful handlers acknowledge the message. Failed handlers retry by default unless the error is a Queue error that a retry cannot fix or `onError` returns an explicit acknowledge or retry action. On Vercel, `callbackOptions.retry` can return an explicit directive; returning nothing preserves provider behavior. Application error codes do not choose retry policy.
 
 `sendQueue()`, `dynamicQueue.send()`, `send()`, and `sendBatch()` return `[error, data]`. `error.code` is `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE`, or `QUEUE_UNSUPPORTED_OPTION`, and each error has `why`, `fix`, `docs`, and `cause`. Configuration errors, for example an unknown Queue name or a missing Cloudflare binding, throw. `JSON.stringify(error)` and Queue delivery reports omit `cause`, so keep credentials and provider responses there. Throw `ViteHubError` from a handler for an application code. See the [Queue error reference](https://vitehub.dev/docs/queue/limits-and-errors) for each code and the retry policy.
+
+## Add a Queue from another plugin
+
+A package can add a Queue Definition from its Vite plugin, so the app needs no file in `server/queues/`. Put the entry in `vitehub.queues`:
+
+```ts
+import { fileURLToPath } from "node:url"
+
+import type { Plugin } from "vite"
+import type { QueueContributingPlugin } from "@vite-hub/queue/vite"
+
+export function webhooks(): Plugin & QueueContributingPlugin {
+  return {
+    name: "@acme/webhooks",
+    vitehub: {
+      queues: [{
+        name: "acme-webhooks",
+        definition: { module: fileURLToPath(new URL("./deliver.js", import.meta.url)) },
+        reason: "Delivers webhooks after their delay.",
+      }],
+    },
+  }
+}
+```
+
+`definition.module` is an absolute path or `file:` URL of a module with `export default defineQueue(...)`. `vitehub.queues` can also be a function that gets `{ root, projectRoot, serverDirs }` and returns the list. Queue treats the entry like a discovered file: it goes in the registry and the generated types, and gets its Cloudflare binding, Vercel consumer route, provisioning, and inspection. `vitehub inspect` shows the plugin and the reason. A name that a file or another plugin also uses fails with `QUEUE_DEFINITION_DUPLICATE`, and an invalid entry fails with `QUEUE_CONTRIBUTION_INVALID`.
 
 ## Public imports
 

@@ -13,6 +13,10 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   codes: {
     // Event, password, and sign-out errors. The event store, the events route, the password verifier, and `signOut()`
     // throw them.
+    AUTH_EVENT_CALLBACK_FAILED: {
+      why: ({ type }: { type: string }) => `\`events.onEvent\` failed for the ${JSON.stringify(type)} auth event. Auth kept the change and the stored event.`,
+      fix: "Read `error.cause` for the error of your callback. Catch errors inside `events.onEvent`, and retry the outside call there if it can fail.",
+    },
     AUTH_EVENT_QUERY_INVALID: {
       why: ({ problem }: { problem: "order" | "window" }) => problem === "order"
         ? "Auth event from must be before to."
@@ -35,7 +39,7 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     // Test errors. `signIn()` of `@vite-hub/auth/test` throws them.
     AUTH_TEST_SIGN_IN_STATELESS: {
       why: "`signIn()` writes the user and the session to the Auth database, and a Definition with the `stateless()` preset has none.",
-      fix: "Test the routes of a `stateless()` Definition through its social sign-in flow, or give the test app `database: authDatabase()` with `import { authDatabase } from '@vite-hub/auth/database'`.",
+      fix: "Test the routes of a `stateless()` Definition through its social sign-in flow, or give the test app `database: authDatabase()` with `import { authDatabase } from 'vite-hub/auth/database'`.",
     },
 
     // Published numbered errors.
@@ -52,10 +56,10 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_C0010: withFix("Write each entry of `access.routes` inline as a route string or an object, for example `'/admin/**'` or `{ route: '/api/admin/**', method: 'POST' }`."),
     AUTH_C0011: withFix("Add `route` to the route object, for example `{ route: '/admin/**', authorize: isAdmin }`."),
     AUTH_C0012: withFix("Write `access.routes` as an array literal in `defineAuth()`, for example `access: { routes: ['/admin/**'] }`. The Vite plugin reads it at build time."),
-    AUTH_C0014: withFix("Set `database: authDatabase()` with `import { authDatabase } from '@vite-hub/auth/database'`, or `authDatabase('auth')` for the Named Database `auth`. Return another Better Auth adapter from the Definition callback. Set `database: \"memory\"` to keep sessions in the memory of one server process."),
+    AUTH_C0014: withFix("Set `database: authDatabase()` with `import { authDatabase } from 'vite-hub/auth/database'`, or `authDatabase('auth')` for the Named Database `auth`. Return another Better Auth adapter from the Definition callback. Set `database: \"memory\"` to keep sessions in the memory of one server process."),
     AUTH_C0017: withFix("Remove `secondaryStorage` from the static options. Return a Better Auth `secondaryStorage` adapter, an object with `get`, `set`, and `delete`, from the Definition callback."),
     AUTH_C0019: withFix("Pass an object literal to `defineAuth()` in `server/auth.ts`, or a callback that returns one, for example `export default defineAuth({ basePath: '/auth' })`. Do not pass a variable."),
-    AUTH_C0021: withFix("Set `database: authDatabase()` with `import { authDatabase } from '@vite-hub/auth/database'`, or `authDatabase('auth')` for the Named Database `auth`. Return another Better Auth adapter from the Definition callback. Set `database: \"memory\"` to keep sessions in the memory of one server process."),
+    AUTH_C0021: withFix("Set `database: authDatabase()` with `import { authDatabase } from 'vite-hub/auth/database'`, or `authDatabase('auth')` for the Named Database `auth`. Return another Better Auth adapter from the Definition callback. Set `database: \"memory\"` to keep sessions in the memory of one server process."),
     AUTH_C0024: withFix("Remove `secondaryStorage` from the static options. Return a Better Auth `secondaryStorage` adapter, an object with `get`, `set`, and `delete`, from the Definition callback."),
     AUTH_C0026: withFix("Set the option to a non-empty string, for example `provider: 'github'` or `method: 'GET'`."),
     AUTH_C0027: withFix("Start the path with `/`, for example `/admin/**` or `/auth`."),
@@ -74,14 +78,14 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_C0040: withFix("Set `basePath` to a string that starts with `/`, for example `basePath: '/auth'`."),
     AUTH_C0041: withFix("Set `session.onRefresh` to a function, for example `onRefresh: async ({ session }) => {}`, or remove it."),
     AUTH_C0042: withFix("Set `database: authDatabase()` or return a Better Auth `database` or `secondaryStorage` adapter. Or remove `session.onRefresh`."),
-    AUTH_C0043: withFix("Import the preset and call it, for example `preset: stateless()` with `import { stateless } from '@vite-hub/auth/presets'`."),
+    AUTH_C0043: withFix("Import the preset and call it, for example `preset: stateless()` with `import { stateless } from 'vite-hub/auth/presets'`."),
     AUTH_C0044: withFix("Remove the option from the Auth Definition, or remove `preset: stateless()` and configure a Better Auth database."),
     AUTH_C0045: withFix("Remove the option from the Auth Definition, or remove `preset: stateless()` and configure a Better Auth database."),
     AUTH_C0046: withFix("Remove `emailAndPassword` and use `socialProviders`, or remove `preset: stateless()` and configure a Better Auth database."),
     AUTH_C0047: withFix("Remove the plugin that the message names, or remove `preset: stateless()` and configure a Better Auth database."),
     AUTH_C0048: withFix("Remove the option that the message names. Pass `maxAge` to `stateless()` to change the session lifetime, for example `stateless({ maxAge: '12h' })`."),
     AUTH_C0049: withFix("Pass a positive whole number of seconds or a duration, for example `stateless({ maxAge: '7d' })` or `stateless({ maxAge: 3600 })`."),
-    AUTH_C0050: withFix("Set `events: { store: createDatabaseAuthEventStore({ db }) }`, or `events: false` to disable the log. `events.authorize` must be a function."),
+    AUTH_C0050: withFix("Set `events: { store: createDatabaseAuthEventStore({ db }) }`, or `events: false` to disable the log. `events.authorize` and `events.onEvent` must be functions."),
     AUTH_C0051: withFix("Add `admin()` from `better-auth/plugins` to the `plugins` of `defineAuth()`, or unset the variable that the message names."),
     AUTH_C0052: withFix("Pass the Database name as one string literal, for example `authDatabase('content')`, or no argument for the `default` Database."),
     AUTH_C0053: withFix("Remove `advanced.database.generateId`, or set it to a function that returns strings. Use another Better Auth adapter for numeric or UUID IDs."),
@@ -95,9 +99,9 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_R0003: withFix("Keep one of `server/auth.ts` and `server.auth.ts` and delete the others that the message lists. For Nuxt layers, add `server/auth.ts` to the app to select the Definition."),
     AUTH_R0004: withFix("Pass a non-empty `message` of at most 16,384 characters to `authenticated()`, or remove `message`."),
     AUTH_C0060: withFix("Keep one abilities file at `shared/abilities.ts`. Remove the other files listed in the message, or add the app file to replace layer rules."),
-    AUTH_C0061: withFix("Return `database: authDatabase()` with `import { authDatabase } from '@vite-hub/auth/database'`, or `authDatabase('auth')` for the Named Database `auth`. Or return another Better Auth adapter."),
+    AUTH_C0061: withFix("Return `database: authDatabase()` with `import { authDatabase } from 'vite-hub/auth/database'`, or `authDatabase('auth')` for the Named Database `auth`. Or return another Better Auth adapter."),
     AUTH_C0062: withFix("Return a Better Auth `secondaryStorage` adapter, an object with `get`, `set`, and `delete`, or remove `secondaryStorage`."),
-    AUTH_C0063: withFix("Set `database: authDatabase()` with `import { authDatabase } from '@vite-hub/auth/database'` to keep users in the app Database. Use `preset: stateless()` for social sign-in without a database. Set `database: \"memory\"` only when one server process may keep users until it restarts."),
+    AUTH_C0063: withFix("Set `database: authDatabase()` with `import { authDatabase } from 'vite-hub/auth/database'` to keep users in the app Database. Use `preset: stateless()` for social sign-in without a database. Set `database: \"memory\"` only when one server process may keep users until it restarts."),
     AUTH_C0064: withFix("Write `access.public` as an inline array of route strings, for example `public: ['/', '/login', '/api/health']`. The Vite plugin reads it at build time."),
     AUTH_C0065: withFix("Set `access.policy` to an object with an `allow` function, for example `policy: { allow: ({ user }) => user.emailVerified === true, recheck: 300_000 }`. `recheck` is a number of milliseconds, 0 or more."),
     AUTH_C0066: withFix("Return `database: authDatabase()` or another Better Auth adapter, or a `secondaryStorage` adapter. `access.policy` ends sessions, so Auth must store them."),

@@ -28,7 +28,7 @@ import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, hasR
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectMigrateOnStartDatabases, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
 import { installMigrateOnDeploy, type MigrateOnDeployNitro } from "./internal/migrate-on-deploy.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
-import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
+import { assertDatabaseOptionsDriver, resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { hubDatabase as hubDatabaseVite } from "./vite.ts"
 import { isAbsolute } from "pathe"
 
@@ -636,10 +636,12 @@ function resolveDatabaseNuxtOptions(
   if (options === false || inlineOptions === false) {
     return false
   }
-  return {
+  const resolved = {
     ...(isRecord(options) ? options : {}),
     ...(isRecord(inlineOptions) ? inlineOptions : {}),
   } as ResolvedDatabaseNuxtIntegrationOptions
+  assertDatabaseOptionsDriver(resolved)
+  return resolved
 }
 
 function resolveDatabaseViteOptions(options: ResolvedDatabaseNuxtIntegrationOptions, serverDirs?: string[]): DatabaseOptions | undefined {
@@ -788,14 +790,15 @@ function resolveNitroHostingProvider(config: Record<string, unknown>, nuxtOption
 }
 
 async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, root: string) {
+  const file = resolve(root, generatedNitroDatabaseMiddleware)
   const kit = createNitroServerKit(config)
   // No route: Nitro runs route-less middleware for every request.
-  kit.addHandler({ handler: generatedNitroDatabaseMiddleware, middleware: true }, "start")
+  kit.addHandler({ handler: file, middleware: true }, "start")
   config.handlers = kit.config.handlers
   const rollupConfig = isRecord(config.rollupConfig) ? { ...config.rollupConfig } : {}
   rollupConfig.external = mergeNitroExternal(rollupConfig.external, "cloudflare:workers")
   config.rollupConfig = rollupConfig
-  await writeFileIfChanged(resolve(root, generatedNitroDatabaseMiddleware), [
+  await writeFileIfChanged(file, [
     "import { env as vitehubEnv } from 'cloudflare:workers'",
     "import { getRequestCloudflareEnv, runWithActiveCloudflareEnv, runWithDatabaseRequest, setActiveCloudflareEnv } from '@vite-hub/database/runtime/state'",
     "",
@@ -827,10 +830,11 @@ async function installNitroRequestStats(config: Record<string, unknown>, root: s
     if (!flags.includes("nodejs_als")) flags.push("nodejs_als")
     wrangler.compatibility_flags = flags
   }
+  const file = resolve(root, generatedNitroRequestStatsMiddleware)
   const kit = createNitroServerKit(config)
-  kit.addHandler({ handler: generatedNitroRequestStatsMiddleware, middleware: true }, "start")
+  kit.addHandler({ handler: file, middleware: true }, "start")
   config.handlers = kit.config.handlers
-  await writeFileIfChanged(resolve(root, generatedNitroRequestStatsMiddleware), [
+  await writeFileIfChanged(file, [
     `import { runWithDatabaseRequestStats } from ${JSON.stringify(resolveRuntimeModule(resolve(databaseRuntimeDir, "../.."), "runtime/request-stats"))}`,
     "",
     "export default (event: unknown, next: () => unknown) => runWithDatabaseRequestStats(event, next)",

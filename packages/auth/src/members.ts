@@ -37,7 +37,7 @@ const memberErrors = /*#__PURE__*/ defineErrors({
     },
     AUTH_MEMBERS_SESSION_STORE_REQUIRED: {
       why: "`VITEHUB_MEMBERS` is set, but Auth has no Better Auth `database` or `secondaryStorage` adapter. Auth cannot end the session of a person who leaves the list when the session lives only in a cookie.",
-      fix: "Set `database: authDatabase()` with `import { authDatabase } from '@vite-hub/auth/database'`, or return another Better Auth adapter. Or unset `VITEHUB_MEMBERS`.",
+      fix: "Set `database: authDatabase()` with `import { authDatabase } from 'vite-hub/auth/database'`, or return another Better Auth adapter. Or unset `VITEHUB_MEMBERS`.",
     },
 
     // Runtime error. A refused sign-up or sign-in answers `403` with this code. An OAuth sign-in redirects with `?error=AUTH_NOT_MEMBER`.

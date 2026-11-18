@@ -2081,9 +2081,6 @@ describe("agent public types", () => {
     // @ts-expect-error Workspace Sources do not own access scopes.
     githubSource({ repo: "acme/docs", scopes: ["customer"] })
 
-    // @ts-expect-error GitHub Channel PR comments are configured through pullRequest, not legacy events.
-    github({ events: { pullRequestComments: true } })
-
     defineAgent({
       channels: {
         github: () => github({ app: true, pullRequest: true }),

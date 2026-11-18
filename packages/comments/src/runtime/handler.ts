@@ -60,6 +60,8 @@ export interface CommentsHandlerOptions extends CommentsSessionOptions {
   content?: { runtime: CommentsContent, parseField: (value: string) => CommentsContentField | undefined }
   /** Whether the page presence rooms run, because the host has a Realtime authority. */
   realtime: boolean
+  /** `false` hides the overlay's faces and cursors, for an app that shows its own presence. Threads still update live. */
+  presence?: false
   /** The commit and branch of this build. New threads keep them in `context.build`. */
   build?: NonNullable<CommentContext["build"]>
   /**
@@ -135,7 +137,8 @@ function diagnosticResponse(error: unknown): Response {
   const status = Reflect.get(Object(error), "status")
   if (!(error instanceof Error) || typeof code !== "string" || !code.startsWith("COMMENTS_") || typeof status !== "number") throw error
   const fix = Reflect.get(error, "fix")
-  return json({ error: { code, why: Reflect.get(error, "why") ?? error.message, ...(typeof fix === "string" ? { fix } : {}) } }, { status })
+  const retryAfter = Reflect.get(error, "retryAfter")
+  return json({ error: { code, why: Reflect.get(error, "why") ?? error.message, ...(typeof fix === "string" ? { fix } : {}) } }, { status, ...(typeof retryAfter === "number" ? { headers: { "retry-after": String(Math.ceil(retryAfter)) } } : {}) })
 }
 
 /** The REST code of a diagnostic of the comment actions. Codes without one, such as `COMMENTS_R0019`, stay as they are. */
@@ -319,6 +322,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
         ...(signIn ? { signIn } : {}),
         ...(signOut ? { signOut } : {}),
         realtime: options.realtime,
+        ...(options.presence === false ? { presence: false } : {}),
         content: Boolean(options.content),
         ...(subject ? { subject } : {}),
         ...(revision === undefined ? {} : { revision }),

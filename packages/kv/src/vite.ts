@@ -452,7 +452,7 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
       cli: async () => {
         const { createKVCliContributor } = await import(/* @vite-ignore */ "./cli.js")
         return {
-          ...createKVCliContributor(),
+          ...createKVCliContributor({ projectRoot: () => projectRoot }),
           provision: [createKVCloudflareProvisionStep(() => options)],
         } satisfies ViteHubCliContributor
       },

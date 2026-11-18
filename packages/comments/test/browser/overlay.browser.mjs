@@ -34,7 +34,7 @@ function commentsApi() {
           },
           readAttachment: key => files.has(key) ? new Blob([files.get(key).data], { type: files.get(key).type }) : null,
         })
-        const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, session: () => ({ id: "u1", name: "Maxi" }) }))
+        const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, session: async () => ({ id: "u1", name: "Maxi" }) }))
         const chunks = []
         for await (const chunk of req) chunks.push(chunk)
         const response = await app.fetch(new Request(`http://127.0.0.1:${port}${req.url}`, { method: req.method, headers: req.headers, body: chunks.length ? Buffer.concat(chunks) : undefined }))
@@ -210,24 +210,24 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.ok(threads.some(thread => thread.anchor.kind === "area"))
   })
 
-  await t.test("an area is a soft line, and its thread opens in Drop's small card behind a round face", async () => {
+  await t.test("an area is a soft grey line, and its thread opens in Drop's small card behind a round face", async () => {
     await page.keyboard.press("Escape")
     await page.mouse.move(5, 5)
-    // Once no thread is open or hovered, its area is a 1px line with no fill. The fill fades out in 120ms.
+    // Once no thread is open or hovered, its area is a 1px line with no fill.
     await page.waitForFunction(() => {
       const area = document.querySelector("vitehub-comment-areas").shadowRoot.querySelector("[data-slot='comment-mark-area']")
       const style = getComputedStyle(area)
       return area.dataset.status === "open" && style.borderTopWidth === "1px" && style.backgroundColor === "rgba(0, 0, 0, 0)"
     }, undefined, { timeout: 5000 })
-    // The line is the comment blue, as in Drop, not grey or black.
-    const [red, green, blue] = await page.evaluate(() => {
+    // The line is a soft neutral tint of the ink, not the comment blue, so a page with many areas stays calm.
+    const [red, green, blue, alpha] = await page.evaluate(() => {
       const color = getComputedStyle(document.querySelector("vitehub-comment-areas").shadowRoot.querySelector("[data-slot='comment-mark-area']")).borderTopColor
       const context = Object.assign(document.createElement("canvas"), { width: 1, height: 1 }).getContext("2d")
       context.fillStyle = color
       context.fillRect(0, 0, 1, 1)
       return [...context.getImageData(0, 0, 1, 1).data]
     })
-    assert.ok(blue > red + 60 && blue > green, `the area line is rgb(${red}, ${green}, ${blue})`)
+    assert.ok(Math.max(red, green, blue) - Math.min(red, green, blue) <= 4 && alpha > 20 && alpha < 90, `the area line is rgba(${red}, ${green}, ${blue}, ${alpha})`)
     const pin = page.locator("vitehub-comments [data-slot='comment-layer-item'][data-kind='area'] [data-slot='comment-pin']")
     const corners = await pin.evaluate(element => [element, element.querySelector("[data-slot='avatar-stack-item']")].map(node => getComputedStyle(node).borderRadius))
     assert.deepEqual(corners, ["14px", "14px"])
@@ -235,6 +235,12 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     const thread = page.locator("vitehub-comments [data-slot='comment-layer-popover'] [data-slot='comment-thread']")
     await thread.waitFor({ timeout: 5000 })
     assert.equal(await thread.getAttribute("data-size"), "sm")
+    // Drop's card: 340px, and the one small corner is the one nearest the pin. offsetWidth ignores the pop-in scale.
+    const card = await thread.evaluate((element) => {
+      const style = getComputedStyle(element.parentElement)
+      return { corners: [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius].sort(), width: element.parentElement.offsetWidth }
+    })
+    assert.deepEqual(card, { corners: ["16px", "16px", "16px", "6px"], width: 340 })
     await page.keyboard.press("Escape")
   })
 

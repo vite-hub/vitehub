@@ -285,12 +285,12 @@ export default defineContent({
 | `seo` option | Description |
 | --- | --- |
 | `markdown` | `true` serves each page as Markdown at its URL plus `.md`, such as `/blog/hello.md`, and `/index.md` for `/`. The page URL also returns Markdown when the request sends `Accept: text/markdown` before `text/html`. `{ prefix: '/raw' }` also serves each copy below that folder, such as `/raw/blog/hello.md`, and the llms files link there. `{ pages: true }` also gives [every other app page](#app-pages-as-markdown) a copy, converted from its HTML. |
-| `llms` | `true`, or `{ title, description, details, sections }`, serves `/llms.txt`, `/llms-full.txt`, and `/sitemap.md`. It also turns on `markdown`, because their links point at the `.md` copies. The title defaults to the host name. `details` is text under the description, such as rules for agents. `sections` adds sections of links, `[{ title, description?, links: [{ title, href, description? }] }]`, before the sections of pages. |
+| `llms` | `true`, or `{ title, description, details, sections, sort, headers, locales }`, serves `/llms.txt`, `/llms-full.txt`, and `/sitemap.md`. It also turns on `markdown`, because their links point at the `.md` copies. The title defaults to the host name. `details` is text under the description, such as rules for agents. `sections` adds sections of links, `[{ title, description?, links: [{ title, href, description? }] }]`, before the sections of pages, or is a function that builds them from `{ pages, markdown(page) }`. `sort(left, right)` puts the pages in the order of your app. `headers` adds response headers to the three files. `locales` sets the `title`, `description`, and `details` of each translated `llms-full.txt`, such as `{ es: { description: 'Guía para los invitados.' } }`. |
 
 The copy starts with the document title, unless the body has its own heading, and its description as a quote. Root-relative links become absolute.
 
 - `/llms.txt` follows the [llms.txt](https://llmstxt.org) format: the title, the description as a quote, the details, a link to `/llms-full.txt`, then one section per collection or Source, named by its `label`, with a link to the `.md` copy of each page and its description. Link titles are escaped, so a `]` in a title does not break the link.
-- `/llms-full.txt` starts with the same title, description, and details, then has the copy of every page, home page first. Each page starts with `URL:` and its page URL, so an agent can cite it, and a `---` line separates the pages.
+- `/llms-full.txt` starts with the same title, description, and details, then has the copy of every page, home page first. Each page starts with `URL:` and its page URL, so an agent can cite it, and a `---` line separates the pages. A collection with `locales` keeps its source locale here, and each other locale in `/<locale>/llms-full.txt`, such as `/es/llms-full.txt`. `/llms.txt` links every one of these files.
 - `/sitemap.md` lists every page, grouped by the first segment of its URL.
 
 They list the same Markdown pages as the sitemap: published documents with a URL, and the Markdown files of Sources with a `url`, without `seo.noindex` or a `seo.canonical` that points elsewhere. Drafts and JSON and YAML documents are not listed. A `noindex` page still has its `.md` copy.
@@ -351,7 +351,7 @@ export default defineContent({
 
 The function gets `{ id, path, locale, data, body, title, description, site }` of the published document. `title` and `description` come from its `seo()` field, else from its fields. Return a string, or `{ markdown, footer }`: only the `.md` copy ends with `footer`, and `llms-full.txt` and `get-page` leave it out. Return `null` for a page without a copy. Content uses the result as it is, so make links absolute yourself if agents need them. The `.md` copy, the `Accept: text/markdown` answer, `llms-full.txt`, and the MCP `get-page` tool all use it. A Source takes the same function in `contentSource(input, { markdown })`, with the whole file as `text`.
 
-To keep the copies and the llms files out of search results, such as for an unlisted site, add an `X-Robots-Tag` header with [route rules](https://nuxt.com/docs/guide/concepts/rendering#route-rules): `routeRules: { '/raw/**': { headers: { 'x-robots-tag': 'noindex' } } }`.
+To keep the copies and the llms files out of search results, such as for an unlisted site, set `llms: { headers: { 'x-robots-tag': 'noindex' } }`, and add the same header to the copies with [route rules](https://nuxt.com/docs/guide/concepts/rendering#route-rules): `routeRules: { '/raw/**': { headers: { 'x-robots-tag': 'noindex' } } }`.
 
 A `site` with a path, such as `https://example.com/docs` for an app mounted there, keeps the path in every URL that these files and the MCP server write.
 
@@ -384,13 +384,14 @@ import content from '../content'
 export async function checkAgentFiles() {
   await content.llms()                           // llms.txt
   await content.llms({ file: 'llms-full.txt' })
+  await content.llms({ file: 'llms-full.txt', locale: 'es' })
   await content.llms({ file: 'sitemap.md' })
   await content.markdown('/blog/hello.md')       // the copy, or null
   await content.hasMarkdown('/blog/hello.md')    // true when the copy exists
 }
 ```
 
-ViteHub generates these routes from `server/content.ts` like the sitemap, when `seo` sets `markdown` or `llms` to anything but literal `false`. The Markdown copies are middleware, because no route pattern matches a URL plus `.md`. The middleware loads when the server starts, so it can see a missing page, but it loads `server/content.ts` only on the first request that asks for Markdown or gets an HTML page. In another server, mount `defineContentLlmsHandler(content)` at the three paths and `defineContentMarkdownHandler(content)` as middleware.
+ViteHub generates these routes from `server/content.ts` like the sitemap, when `seo` sets `markdown` or `llms` to anything but literal `false`. The Markdown copies are middleware, because no route pattern matches a URL plus `.md`. The middleware loads when the server starts, so it can see a missing page, but it loads `server/content.ts` only on the first request that asks for Markdown or gets an HTML page. In another server, mount `defineContentLlmsHandler(content)` at the three paths and at `/:locale/llms-full.txt` and `defineContentMarkdownHandler(content)` as middleware.
 
 ## Console
 

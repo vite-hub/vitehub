@@ -5,6 +5,7 @@ import { assertWorkspaceDigest, workspaceConflict, workspaceError } from "../../
 import { copyJsonFileMetadata } from "../../core/file-metadata.ts"
 import { contentToBytes, isExcludedWorkspacePath, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
 import { createWorkspaceGlobMatcher } from "../../core/glob.ts"
+import { workspaceStoreDiscard } from "../../storage/discard.ts"
 import { MemoryFS } from "../../storage/memory-fs.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts"
 
@@ -160,6 +161,19 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   #token: { expiresAt: number, value: string } | undefined
 
   constructor(private options: CloudflareArtifactsWorkspaceStoreOptions, private workspaceName: string) {}
+
+  /** Drops the staged writes. The next call clones the branch again, as the first call does. */
+  async [workspaceStoreDiscard](): Promise<void> {
+    await this.#mutate(async () => {
+      // A read that already waited for the checkout keeps it. The next load replaces it.
+      this.#files = new Map()
+      this.#head = undefined
+      this.#pendingCommit = undefined
+      this.#ready = undefined
+      this.#staged = false
+      this.#stagedMeta = new Map()
+    })
+  }
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
     const normalized = normalizeSafeWorkspacePath(path)
@@ -386,7 +400,10 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
           await this.#writeFileMetadata()
         }
       }
-      for (const [path, bytes] of previous.stagedMeta) await this.#fs!.promises.writeFile(path, bytes)
+      for (const [path, bytes] of previous.stagedMeta) {
+        if (bytes.byteLength) await this.#fs!.promises.writeFile(path, bytes)
+        else this.#fs!.deleteTree(path)
+      }
       this.#stagedMeta = new Map(previous.stagedMeta)
       this.#staged = replayed > 0 || previous.stagedMeta.size > 0
     }
@@ -419,7 +436,8 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
 
     if (changed || (!this.#head && !this.#pendingCommit)) {
       this.#pendingCommit = await git.commit({
-        author: { email: "workspace@vitehub.dev", name: "ViteHub Workspace" },
+        author: options.author ?? { email: "workspace@vitehub.dev", name: "ViteHub Workspace" },
+        committer: { email: "workspace@vitehub.dev", name: "ViteHub Workspace" },
         dir,
         fs: this.#fs! as never,
         message: options.name || "Update workspace",
@@ -478,8 +496,10 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     await this.#ensure()
     return await this.#mutate(async () => {
       const content = await this.#fs!.promises.readFile(path).catch(() => undefined)
-      if (!content) return undefined
-      return JSON.parse(new TextDecoder().decode(contentToBytes(content as Uint8Array)))
+      const bytes = content === undefined ? undefined : contentToBytes(content as Uint8Array)
+      // Earlier versions wrote `undefined` as an empty file.
+      if (!bytes?.byteLength) return undefined
+      return JSON.parse(new TextDecoder().decode(bytes))
     })
   }
 
@@ -487,8 +507,10 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     const path = this.#metaAbsolute(key)
     await this.#ensure()
     await this.#mutate(async () => {
-      const bytes = contentToBytes(JSON.stringify(value))
-      await this.#fs!.promises.writeFile(path, bytes)
+      // `undefined` removes the key, as JSON has no value for it. The staged empty bytes replay the removal.
+      const bytes = value === undefined ? new Uint8Array() : contentToBytes(JSON.stringify(value))
+      if (bytes.byteLength) await this.#fs!.promises.writeFile(path, bytes)
+      else this.#fs!.deleteTree(path)
       this.#stagedMeta.set(path, bytes)
       this.#staged = true
     })

@@ -194,6 +194,36 @@ describe("vitehub database up", () => {
     expect(converted.stdout).toContain("[vitehub] Database \"default\": the snapshots record 1 unique index of `.unique()` columns as UNIQUE constraints")
   }, 120_000)
 
+  it("repairs folders that drizzle-kit up converted before ViteHub recorded the constraints, so generate keeps the tables", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    await cp(join(import.meta.dirname, "fixtures/drizzle-kit-0x-unique"), migrationsDir, { recursive: true })
+    await writeFile(join(project.rootDir, "schema.ts"), [
+      "import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'",
+      "export const members = sqliteTable('members', { id: integer('id').primaryKey(), email: text('email').notNull().unique(), slug: text('slug').notNull() }, table => [uniqueIndex('members_slug_idx').on(table.slug)])",
+      "",
+    ].join("\n"))
+    // An older ViteHub, or `drizzle-kit up` alone, converted the folder and kept `members_email_unique` as an index.
+    const kit = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.cjs")
+    await expect(realSpawn(process.execPath, [kit, "up", "--dialect", "sqlite", "--out", migrationsDir], { cwd: project.rootDir })).resolves.toEqual({ exitCode: 0 })
+    await expect(project.run("up")).resolves.toMatchObject({ exitCode: 0, stdout: expect.stringContaining("already uses the layout of Drizzle Kit 1.0") })
+    const tags = await migrationTags(migrationsDir)
+
+    const generated = await project.run("generate")
+    expect(generated).toMatchObject({ exitCode: 0 })
+    // Without the repair, Drizzle Kit writes a migration that rebuilds `members` with `email` UNIQUE.
+    await expect(migrationTags(migrationsDir)).resolves.toEqual(tags)
+    expect(generated.stdout).toContain("[vitehub] Database \"default\": the snapshots record 1 unique index of `.unique()` columns as UNIQUE constraints")
+    const snapshot = JSON.parse(await readFile(join(migrationsDir, tags[0]!, "snapshot.json"), "utf8")) as { ddl: { entityType: string, name: string }[] }
+    expect(snapshot.ddl.filter(entity => entity.entityType === "indexes").map(entity => entity.name)).toEqual(["members_slug_idx"])
+
+    // The repair runs once: the next generate finds no index of a `.unique()` column.
+    const again = await project.run("generate")
+    expect(again).toMatchObject({ exitCode: 0 })
+    expect(again.stdout).not.toContain("unique index")
+    await expect(migrationTags(migrationsDir)).resolves.toEqual(tags)
+  }, 120_000)
+
   it("asks for drizzle-kit 1.0 when the project has drizzle-kit 0.x", async () => {
     const project = await createProject()
     await cp(drizzleKit0xFixture, project.database.migrationsDir, { recursive: true })

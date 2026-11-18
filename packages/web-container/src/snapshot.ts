@@ -65,6 +65,8 @@ export class SnapshotLockfileMismatchError extends Error {
  * Native binaries are left out: the install uses `--cpu=wasm32`, swaps packages for their wasm builds, and adds the
  * wasm binding of rolldown. Install scripts do not run. Source maps are dropped.
  * The snapshot cannot hold symlinks or executable bits, so it lists them, and `bootWebContainer` restores them.
+ * It is encoded with msgpack directly: @webcontainer/snapshot runs out of memory on large trees
+ * (https://github.com/stackblitz/webcontainer-core/issues/2187).
  * Creation requires a POSIX host (Linux, macOS, or WSL); Windows npm shims cannot be restored as POSIX bin links.
  */
 export async function createNodeModulesSnapshot(options: CreateNodeModulesSnapshotOptions): Promise<NodeModulesSnapshot> {

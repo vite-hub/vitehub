@@ -7,6 +7,7 @@ import { callOperationRpc, operationRpcPath } from "@vite-hub/internal/operation
 
 import { consoleErrorDiagnostics } from "../../src/error-diagnostics.ts"
 import { forwardProjectRequest } from "../../src/forward.ts"
+import { consumeForwardBudget, forwardBudget } from "../../src/forward-budget.ts"
 import { consoleCallerOf, consoleCallerUser, type ConsoleCallOptions } from "../../src/caller.ts"
 import { consoleApiKeyOf, createConsoleApiKey, defaultApiKeyDays, maxApiKeyDays, verifyConsoleApiKey } from "../../src/api-keys.ts"
 import { createConsoleProjectStore, listConsoleProjects, scopeConsoleProjectStore } from "../../src/projects.ts"
@@ -26,9 +27,19 @@ export function consoleProblem(status: number, code: string, message: string): R
 }
 
 /** A problem from the Console catalog (src/error-diagnostics.ts): the code, `why` as the message, `fix`, and `docs`. */
-export function consoleDiagnosticProblem(status: number, diagnostic: Diagnostic<unknown>): Response {
+export function consoleDiagnosticProblem(status: number, diagnostic: Diagnostic<unknown>, headers: Record<string, string> = {}): Response {
   const { code, docs, fix, why } = diagnostic
-  return Response.json({ code, docs, fix, message: why, ok: false, status }, { headers: { "cache-control": "no-store" }, status })
+  return Response.json({ code, docs, fix, message: why, ok: false, status }, { headers: { "cache-control": "no-store", ...headers }, status })
+}
+
+/**
+ * Count one signed call of the caller to a project. Over the budget, it returns the `CONSOLE_FORWARD_RATE_LIMITED`
+ * diagnostic and the seconds until the next call can go.
+ */
+export async function spendForwardBudget(caller: ConsoleTeamCaller, id: string): Promise<{ diagnostic: Diagnostic<unknown>, retryAfter: number } | undefined> {
+  const retryAfter = await consumeForwardBudget(useDatabase("default").db, caller.user.id, id)
+  if (retryAfter === undefined) return undefined
+  return { diagnostic: consoleErrorDiagnostics.CONSOLE_FORWARD_RATE_LIMITED({ limit: forwardBudget.limit, retryAfter }), retryAfter }
 }
 
 export function consoleJson(value: unknown, status = 200): Response {
@@ -242,6 +253,11 @@ export async function callProjectOperation(caller: ConsoleTeamCaller, id: string
 async function signedProjectCall(caller: ConsoleTeamCaller, id: string, operation: string, input: unknown, options: ConsoleCallOptions = {}): Promise<ProjectOperationResult | undefined> {
   const target = await caller.projects.target(id)
   if (!target) return undefined
+  const spent = await spendForwardBudget(caller, id)
+  if (spent) {
+    const { code, fix, why } = spent.diagnostic
+    return { error: { code, fix, message: why }, ok: false, status: 429 }
+  }
   const outcome = await callOperationRpc(operation, input, async (body) => {
     const call = new Request("https://console.invalid/", { body, headers: { "content-type": "application/json", "x-vitehub-console": "1" }, method: "POST" })
     // The forwarder signs the exact body that birpc wrote, so the signature covers this call.

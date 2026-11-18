@@ -335,7 +335,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     return (await retryTransient(() => provider.request<unknown>("GET", `/repos/${repository}/pulls/${number}`, { signal }), signal)).data;
   }
 
-  /** Pull requests by head or base branch. forges `threads.list()` cannot filter by branch. */
+  /** Pull requests by head or base branch. forges `threads.list()` cannot filter by branch (https://github.com/danielroe/forges/issues/299). */
   async function readPulls(repository: string, query: { state: "open" | "all"; base?: string; head?: string; limit: number }, signal?: AbortSignal): Promise<unknown[]> {
     const { provider } = await forge(repository, signal);
     const pulls: unknown[] = [];
@@ -451,7 +451,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     try {
       const live = await readPull(repository, number, signal);
       if (!allowed(live) || !hasRuntimeType(live.node_id, "string")) return false;
-      // forges has no ready-for-review operation, and GitHub's REST API cannot clear the draft flag.
+      // forges has no ready-for-review operation (https://github.com/danielroe/forges/issues/300), and GitHub's REST API
+      // cannot clear the draft flag.
       const { provider } = await forge(repository, signal);
       const query = "mutation BabysitterMarkDraftReady($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{isDraft}}}";
       const response = (await provider.request<unknown>("POST", "/graphql", { body: { query, operationName: "BabysitterMarkDraftReady", variables: { id: live.node_id } }, signal })).data;
@@ -574,7 +575,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (!runs.length) return false;
     try {
       const { provider } = await forge(repository, signal);
-      // forges CI is read-only, so it cannot rerun a workflow run.
+      // forges can rerun only the failed jobs of a run, not the whole run (https://github.com/danielroe/forges/issues/301).
       for (const runId of runs) await provider.request("POST", `/repos/${repository}/actions/runs/${runId}/rerun`, { signal });
     } catch (error) {
       await noteForgeQuota(error, "rerun");
@@ -1701,6 +1702,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         let pushedAt: ReturnType<typeof setTimeout> | undefined;
         schedulerEvent("babysitter.owner.started", { maxOwners: ownerLimit, ...owner });
         const passController = new AbortController();
+        let evidenceChanged: DOMException | undefined;
         const passSignal = AbortSignal.any([
           AbortSignal.timeout(60 * 60 * 1000),
           passController.signal,
@@ -2253,9 +2255,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 if (current.generation !== inboxClaim.generation
                   && !((selfHead || repairOperation.getStore()) && repairEvidenceKey(current) === repairEvidenceKey(inboxClaim.snapshot, current))) {
                   // Every later write would be refused too, so end the pass and let the claim requeue.
-                  const changed = new DOMException("Pull request evidence changed.", "AbortError");
+                  const changed = evidenceChanged ??= new DOMException("Pull request evidence changed.", "AbortError");
                   schedulerEvent("babysitter.pass.evidence_changed", { ...owner, head_sha: pullRequest.headRefOid, observed_head: observedHead });
-                  passController.abort(changed);
+                  // End the pass on the next turn of the event loop. Ending it now closes the tool server before it
+                  // sends this refusal, and the Agent gets a dropped connection instead of the reason.
+                  setTimeout(() => passController.abort(changed), 0);
                   throw changed;
                 }
                 return current;
@@ -2820,6 +2824,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                       schedule: { ...schedule, runId },
                     },
                   );
+                  // The provider can finish before deferred cancellation runs. Never accept
+                  // its normal result after a write has refused changed evidence.
+                  if (evidenceChanged) throw evidenceChanged;
                   // Provider retry and abort handling read the original failure.
                   if (error) throw error.cause ?? error;
                   return result.output;
