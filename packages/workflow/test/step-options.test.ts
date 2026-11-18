@@ -125,6 +125,27 @@ describe("OpenWorkflow (SQLite)", () => {
     await expect(getWorkflowRun("report", started.id)).resolves.toMatchObject({ error: { message: "GitHub is down" }, status: "failed" })
   })
 
+  it.each([0, 1])("enforces explicit step timeouts with %i retries", async (limit) => {
+    setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      report: async () => ({
+        default: {
+          options: { rootStep: false },
+          handler: async (_payload, context) => await context.step!.do!("slow", { retries: { delay: 0, limit }, timeout: 20 }, async () => {
+            attempts.push("slow")
+            await delay(120)
+            return "done"
+          }),
+        },
+      }),
+    })
+    const started = await startWorkflow("report")
+    for (let tickCount = 0; tickCount < 4; tickCount++) await tick()
+
+    expect(attempts).toHaveLength(limit + 1)
+    await expect(getWorkflowRun("report", started.id)).resolves.toMatchObject({ error: { name: "WORKFLOW_STEP_TIMEOUT" }, status: "failed" })
+  })
+
   it("fails an attempt at its timeout", async () => {
     setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     setWorkflowRuntimeRegistry({ report: async () => ({ default: folderWorkflow({ retries: { limit: 0 }, timeout: 20 }, waitForAbort) }) })

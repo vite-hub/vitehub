@@ -93,6 +93,20 @@ export async function runWorkflowStepAttempt<TResult>(
   }
 }
 
+const timedAttempts = new WeakSet<() => unknown>()
+
+/** Adds a timeout once, including when a provider receives an already wrapped folder step. */
+export function withWorkflowStepTimeout<TResult>(
+  name: string,
+  timeout: WorkflowDuration | undefined,
+  run: () => TResult | Promise<TResult>,
+): () => TResult | Promise<TResult> {
+  if (timeout === undefined || timedAttempts.has(run)) return run
+  const attempt = () => runWorkflowStepAttempt(name, timeout, run)
+  timedAttempts.add(attempt)
+  return attempt
+}
+
 export async function runProviderStep<TResult>(
   step: WorkflowProviderContext["step"],
   name: string,
@@ -102,9 +116,8 @@ export async function runProviderStep<TResult>(
   const resolved = resolveWorkflowStepOptions(name, options)
   // The provider runs this function for each attempt. Cloudflare also enforces `timeout` itself; elsewhere only this
   // timer does. An inline run does not retry, and it keeps the time limit too.
-  const attempt = resolved.timeout === undefined
-    ? () => run({ signal: new AbortController().signal })
-    : () => runWorkflowStepAttempt(name, resolved.timeout, run)
+  const attempt = () => runWorkflowStepAttempt(name, resolved.timeout, run)
+  timedAttempts.add(attempt)
   if (typeof step?.do === "function") {
     return await step.do(name, resolved, attempt)
   }

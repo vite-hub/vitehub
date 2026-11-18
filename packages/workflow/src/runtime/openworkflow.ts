@@ -1,6 +1,6 @@
 import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
 import { invariantError } from "@vite-hub/internal/invariant"
-import { readNonRetryableStepResult, resolveWorkflowStepOptions, runSerializedWorkflowHandler, toDurationMilliseconds, toNonRetryableStepResult } from "./execute.ts"
+import { readNonRetryableStepResult, resolveWorkflowStepOptions, runSerializedWorkflowHandler, toDurationMilliseconds, toNonRetryableStepResult, withWorkflowStepTimeout } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"
 import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
 import { toWorkflowRunError } from "./run-error.ts"
@@ -385,7 +385,7 @@ function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProv
     async do(name, options, run) {
       const output = await step.run({ name, retryPolicy: toOpenWorkflowRetryPolicy(name, options) }, async () => {
         try {
-          return await run()
+          return await withWorkflowStepTimeout(name, options.timeout, run)()
         }
         catch (error) {
           const result = toNonRetryableStepResult(error)
