@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
 import { deleteUnusedMcpClients, mcpOAuth, serveMcpOAuthDiscovery, verifyMcpRequest } from "../src/mcp.ts"
-import { createAuthForRequest } from "../src/internal/server.ts"
+import { createAuthForRequest, requireCaller } from "../src/internal/server.ts"
 
 import type { AuthAccessPolicy } from "../src/index.ts"
 import type { McpOAuthAuth, McpOAuthOptions } from "../src/mcp.ts"
@@ -40,7 +40,7 @@ async function setup(options: Partial<McpOAuthOptions> = {}, rateLimit = false, 
   await (await instance.$context).runMigrations()
   const call = (path: string, init: RequestInit = {}) => instance.handler(new Request(`${app}/api/auth${path}`, init))
   const post = (path: string, body: unknown, headers: Record<string, string> = {}) => call(path, { body: JSON.stringify(body), headers: { "content-type": "application/json", origin: app, ...headers }, method: "POST" })
-  return { auth, call, database, post }
+  return { auth, call, database, definition, post }
 }
 
 type Setup = Awaited<ReturnType<typeof setup>>
@@ -122,6 +122,7 @@ describe("mcpOAuth", () => {
     expect(other?.code).toBe("AUTH_MCP_TOKEN_INVALID")
     expect((await verifyMcpRequest(mcpRequest(accessToken, `${app}/api/drops`), { auth: auth.auth, resource: `${app}/other` }))[0]?.code).toBe("AUTH_MCP_TOKEN_INVALID")
     expect((await verifyMcpRequest(mcpRequest(accessToken, `${app}/api/drops`), { auth: auth.auth, resource }))[0]).toBeUndefined()
+    expect((await verifyMcpRequest(mcpRequest(accessToken, `${app}/api/drops`), { auth: auth.auth, resource: [`${app}/other`, resource] }))[0]).toBeUndefined()
     // The user is read again on each request, so a deleted person loses access while the token is unexpired.
     auth.database.prepare("delete from session").run()
     auth.database.prepare("delete from account").run()
@@ -283,5 +284,65 @@ describe("deleteUnusedMcpClients", () => {
     expect(await deleteUnusedMcpClients({ auth: auth.auth })).toEqual([undefined, { deleted: 1 }])
     const names = auth.database.prepare("select name from oauthClient order by name").all() as Array<{ name: string }>
     expect(names.map(row => row.name)).toEqual(["Claude Code", "Fresh"])
+  })
+})
+
+describe("requireCaller", () => {
+  const apiRequest = (headers: Record<string, string>) => new Request(`${app}/api/notes`, { headers, method: "DELETE" })
+
+  it("returns a person with a session as a browser caller", async () => {
+    const auth = await setup()
+    const { cookie } = await signInAgent(auth)
+
+    const [error, caller] = await requireCaller(apiRequest({ cookie }), auth.definition)
+
+    expect(error).toBeUndefined()
+    expect(caller).toMatchObject({ kind: "browser", session: { userId: caller?.user.id }, user: { email: "ada@example.com" } })
+    expect(Object.isFrozen(caller)).toBe(true)
+  })
+
+  it("returns an MCP access token as an agent caller on any route of the app", async () => {
+    const auth = await setup()
+    const { accessToken, clientId } = await signInAgent(auth)
+
+    const [error, caller] = await requireCaller(apiRequest({ authorization: `Bearer ${accessToken}` }), auth.definition)
+
+    expect(error).toBeUndefined()
+    expect(caller).toEqual({
+      client: { id: clientId, name: "Claude Code" },
+      kind: "agent",
+      scopes: ["openid", "profile", "email", "offline_access"],
+      user: expect.objectContaining({ email: "ada@example.com" }),
+    })
+  })
+
+  it("returns AUTH_SIGNED_OUT without a session or a token, and AUTH_MCP_TOKEN_INVALID for a bad token", async () => {
+    const auth = await setup()
+    const { accessToken, cookie } = await signInAgent(auth)
+
+    expect((await requireCaller(apiRequest({}), auth.definition))[0]?.code).toBe("AUTH_SIGNED_OUT")
+    // A bearer token is checked as a token, and the cookie next to it does not count.
+    const [invalid] = await requireCaller(apiRequest({ authorization: `Bearer ${accessToken.slice(0, -4)}AAAA`, cookie }), auth.definition)
+    expect(invalid?.code).toBe("AUTH_MCP_TOKEN_INVALID")
+    // A token of another origin is not a token of this app.
+    const other = new Request("https://other.example.com/api/notes", { headers: { authorization: `Bearer ${accessToken}` } })
+    expect((await requireCaller(other, auth.definition))[0]?.code).toBe("AUTH_MCP_TOKEN_INVALID")
+  })
+
+  it("reads each request once", async () => {
+    const auth = await setup()
+    const request = apiRequest({})
+    expect(requireCaller(request, auth.definition)).toBe(requireCaller(request, auth.definition))
+  })
+
+  it("reads only the session when the Auth has no mcpOAuth()", async () => {
+    const database = new DatabaseSync(":memory:")
+    databases.push(database)
+    const definition = defineAuth(() => ({ baseURL: app, database, secret: "test-secret-at-least-32-bytes-long" }))
+    await (await createAuthForRequest(definition, new Request(app)).$context).runMigrations()
+
+    const [error] = await requireCaller(apiRequest({ authorization: "Bearer not-an-mcp-token" }), definition)
+
+    expect(error?.code).toBe("AUTH_SIGNED_OUT")
   })
 })

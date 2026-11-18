@@ -56,6 +56,9 @@ import { findAccessPolicyPlugin } from "../access-policy.ts"
 import { notMemberError } from "../members.ts"
 import type { AuthMemberErrorCode } from "../members.ts"
 import type { Result } from "@vite-hub/runtime"
+import { signedOutError } from "../caller.ts"
+import type { AuthCaller, AuthCallerErrorCode } from "../caller.ts"
+import type { McpOAuthAuth } from "../mcp-token.ts"
 
 export { createBetterAuthOptions, getAuthForDefinition } from "../auth-instance.ts"
 export { resetAuth } from "../runtime-state.ts"
@@ -908,6 +911,63 @@ export function requireAuthorization<TInput extends AuthRequestInput>(
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
   return requireCheck(event, checkAuthorizeRequest(event, authorize, definition ?? resolveDefaultDefinition()))
+}
+
+// One answer per request and Definition, so middleware and the handler share it.
+const callerReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<Result<AuthCaller, AuthCallerErrorCode>>>>()
+
+/**
+ * Return who calls: a person with an Auth Session (`kind: "browser"`), or an Agent with an MCP access token of
+ * `mcpOAuth()` (`kind: "agent"`), checked like `verifyMcpRequest()` for any `mcpOAuth()` resource of the origin.
+ * Returns `AUTH_SIGNED_OUT` without either, and `AUTH_MCP_TOKEN_INVALID` for a bearer token that fails a check.
+ * `requireAuth()` stays session-only.
+ *
+ * ```ts [server/api/notes.delete.ts]
+ * export default defineHandler(async (event) => {
+ *   const [error, caller] = await requireCaller(event)
+ *   if (error) throw new HTTPError({ status: 401, message: error.why })
+ *   if (caller.kind !== "browser") throw new HTTPError({ status: 403, message: "Only the person can delete notes." })
+ *   return deleteNotes(caller.user.id)
+ * })
+ * ```
+ */
+export function requireCaller(event: AuthRequestInput, definition: AuthDefinition = resolveDefaultDefinition()): Promise<Result<AuthCaller, AuthCallerErrorCode>> {
+  const request = unwrapAuthRequest(event)
+  let reads = callerReads.get(request)
+  if (!reads) callerReads.set(request, reads = new WeakMap())
+  let read = reads.get(definition)
+  if (!read) {
+    read = readCaller(event, definition)
+    // A failed read is not kept, so a later call reads again.
+    read.catch(() => reads.delete(definition))
+    reads.set(definition, read)
+  }
+  return read
+}
+
+async function readCaller(event: AuthRequestInput, definition: AuthDefinition): Promise<Result<AuthCaller, AuthCallerErrorCode>> {
+  const request = unwrapAuthRequest(event)
+  const token = /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1]
+  if (token) {
+    const auth = authForRequest(request, authRequestEvent(event), definition)
+    // Without `mcpOAuth()`, a bearer token is Better Auth's, such as a session token of `bearer()`.
+    if ((await auth.$context).options.plugins?.some(plugin => plugin.id === "oauth-provider")) {
+      // Loaded only for a bearer token, so apps without MCP clients do not bundle the token check.
+      const { verifyAppAccessToken } = await import("../mcp-token.ts")
+      // SAFETY: The app's Better Auth with `mcpOAuth()` has every member that McpOAuthAuth names.
+      const [error, caller] = await verifyAppAccessToken(token, request, auth as unknown as McpOAuthAuth)
+      if (error) return [error, undefined]
+      return [undefined, Object.freeze({
+        client: { id: caller.clientId, name: caller.clientName },
+        kind: "agent",
+        scopes: caller.scopes,
+        user: caller.user,
+      })]
+    }
+  }
+  const { session } = await readRequestSession(event, definition)
+  if (!session) return [signedOutError(), undefined]
+  return [undefined, Object.freeze({ kind: "browser", session: session.session, user: session.user })]
 }
 
 // One session read per request, however many abilities the handler checks.

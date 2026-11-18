@@ -579,7 +579,7 @@ It reads only the request URL and headers, so a Fetchable route's Request, H3's 
 - The OAuth client, which must still exist and be enabled.
 - The session, when the token names one in `sid`. It must still exist and be unexpired, so sign-out ends access. A token with the `offline_access` scope skips this: the person allowed access while signed out, and the client keeps it until its refresh token expires or the client is disabled or deleted.
 
-A token opens only the resource at the request's origin and path. To accept it on other routes, such as the app API, pass `resource`. Errors are `AUTH_MCP_TOKEN_MISSING` and `AUTH_MCP_TOKEN_INVALID`. See [Limits and errors](/docs/auth/limits-and-errors#auth_mcp_token_missing).
+A token opens only the resource at the request's origin and path. To accept it on the app API too, call [`requireCaller(event)`](/docs/auth/server-api#tell-a-person-from-an-agent) there: it accepts a session or a token. `resource` takes one resource or a list. Errors are `AUTH_MCP_TOKEN_MISSING` and `AUTH_MCP_TOKEN_INVALID`. See [Limits and errors](/docs/auth/limits-and-errors#auth_mcp_token_missing).
 
 ### Delete abandoned registrations
 
