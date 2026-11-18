@@ -59,7 +59,7 @@ const { loggedIn, user, signOut } = useUserSession()
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', auth: true },
+  vitehub: { auth: true },
 })
 ```
 :::
@@ -71,7 +71,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ host: 'node', auth: true }),
+    vitehub({ auth: true }),
     nitro(),
   ],
 })
@@ -84,7 +84,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ host: 'node', auth: true }),
+    vitehub({ auth: true }),
   ],
 })
 ```
