@@ -18,7 +18,7 @@ import type { Adapter, ChatInstance, WebhookOptions } from "chat"
 vi.setConfig({ testTimeout: 30_000 })
 
 const indexKey = "chat:support:telegram:vitehub:interrupted-chat"
-const webhookUrl = "https://example.com/api/_vitehub/agents/support/webhooks/telegram"
+const webhookUrl = "https://example.com/_vitehub/agents/support/webhooks/telegram"
 
 /** A Telegram-shaped adapter that processes each message in the background, like a deployed webhook. */
 function telegramAdapter() {

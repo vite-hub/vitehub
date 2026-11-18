@@ -10,7 +10,7 @@ export const commentsPageScope = "site"
 export const commentsRealtimeDefinition = "comments"
 
 /** The route prefix of the Comments API, below the app base. */
-export const commentsRoute = "/api/_vitehub/comments"
+export const commentsRoute = "/_vitehub/comments"
 
 /** Mount Comments under the application path, ignoring Vite asset URLs such as a CDN origin. */
 export function mountedCommentsRoute(base = "/"): string {

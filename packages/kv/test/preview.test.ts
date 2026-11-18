@@ -1,3 +1,5 @@
+import vm from "node:vm"
+
 import { expect, it } from "vitest"
 
 import { previewKVValue } from "../src/runtime/preview.ts"
@@ -26,4 +28,10 @@ it("keeps circular references read-only", () => {
 
 it("keeps truncated previews read-only", () => {
   expect(previewKVValue("a".repeat(256 * 1024 + 1))).toMatchObject({ editable: false, truncated: true })
+})
+
+it("previews byte arrays from another JavaScript realm as bytes", () => {
+  const value = vm.runInNewContext("new Uint8Array([0, 127, 255])")
+  expect(value).not.toBeInstanceOf(Uint8Array)
+  expect(previewKVValue(value)).toEqual({ editable: false, format: "text", type: "bytes", value: "007fff" })
 })
