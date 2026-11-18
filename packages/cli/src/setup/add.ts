@@ -65,7 +65,7 @@ const usage = "vitehub add <feature...> [--name <definition>] [--option <key=val
  */
 const optionChoices: Partial<Record<string, { values: readonly [string, ...string[]], requires?: FeatureId }>> = {
   "cache.driver": { requires: "kv", values: ["kv"] },
-  "email.driver": { values: ["resend"] },
+  "email.driver": { values: ["resend", "log"] },
   "kv.driver": { values: ["upstash"] },
   "realtime.driver": { values: ["memory"] },
   "sandboxTask.driver": { values: ["vercel"] },
@@ -286,7 +286,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const current = project.config?.ok ? project.config.site.keys[id] : undefined
     const driver = args.options[id]?.driver ?? (current?.kind === "literal" && isRecord(current.value) ? current.value.driver : undefined)
     if (id === "email" && driver === "cloudflare" && host !== "cloudflare") {
-      throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The cloudflare driver requires Cloudflare. Choose email.driver=resend on this host.", feature: id, host }), setupExitCodes.conflict)
+      throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The cloudflare driver requires Cloudflare. Choose email.driver=resend, or email.driver=log to print each message and send nothing.", feature: id, host }), setupExitCodes.conflict)
     }
     if (support.level === "unsupported") {
       throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: support.detail, feature: id, host }), setupExitCodes.conflict)

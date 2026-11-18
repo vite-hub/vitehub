@@ -12,6 +12,7 @@ import {
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { readColocatedAgentInstructions } from "./colocated-agent-instructions.ts"
 import { readColocatedAgentSkills } from "./colocated-agent-skills.ts"
+import { setViteHubDevResponseHeaders } from "@vite-hub/internal/dev-endpoint"
 import { isRecord } from "@vite-hub/internal/object"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
@@ -171,7 +172,7 @@ export function createViteAgentDiscoveryContext(identity: AgentHostIdentity): Vi
 
 export async function writeViteResponse(res: ServerResponse, response: Response): Promise<void> {
   res.statusCode = response.status
-  for (const [name, value] of response.headers) res.setHeader(name, value)
+  setViteHubDevResponseHeaders(res, response.headers)
   if (!response.body) {
     res.end()
     return

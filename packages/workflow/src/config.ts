@@ -158,6 +158,10 @@ function resolveDriver(options: Record<string, unknown>, hosting: string, inline
   }
   const driver = options.driver
 
+  // Without `driver`, Workflow picks the host's driver, so the former `provider` key would be ignored silently.
+  if (driver === undefined && Object.hasOwn(options, "provider")) {
+    throw workflowErrorDiagnostics.WORKFLOW_RENAMED_PROVIDER_KEY({ value: JSON.stringify(options.provider) ?? String(options.provider) })
+  }
   if (typeof driver === "string" && !knownDrivers.has(driver)) {
     throw workflowErrorDiagnostics.WORKFLOW_C0009({ message: `Unknown \`workflow.driver\`: ${JSON.stringify(driver)}. Expected "cloudflare", "openworkflow", or "vercel".` })
   }

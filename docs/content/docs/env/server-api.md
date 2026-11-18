@@ -10,7 +10,7 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `env` from `vite-hub/env` or `@vite-hub/env/vite` | Declare values and sources. `env.boolean()`, `env.number()`, and `env.enum()` declare typed values. |
+| `env` from `vite-hub/env` or `@vite-hub/env/vite` | Declare values and sources. `env.boolean()`, `env.number()`, `env.enum()`, `env.list()`, and `env.json()` declare typed values. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Read Env failures by `ENV_*` code. |
 | `hubEnv` from `@vite-hub/env/vite` | Add the Vite plugin. |
 | `defineEnvProvider` from `vite-hub/env` | Define a read-only provider for outside Env storage. |
@@ -60,18 +60,22 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { env, hubEnv } from '@vite-hub/env/vite'
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [hubEnv({
-    public: {
-      appName: env({ default: 'Acme', mode: 'build' }),
-    },
-    server: {
-      github: {
-        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
       },
     },
   }), nitro()],
@@ -81,17 +85,21 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
-import { env, hubEnv } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [hubEnv({
-    public: {
-      appName: env({ default: 'Acme', mode: 'build' }),
-    },
-    server: {
-      github: {
-        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
       },
     },
   })],
@@ -274,14 +282,12 @@ This GitHub token lets the app fetch Sources. It is not the model or shell crede
 
 `describeServerEnv()` lists declarations without reading values or calling provider `read()`. Each entry has the path, the [variable names](/docs/env/configure#variable-names) an env declaration reads in read order, source kind, provider alias, secret and required flags, whether a default exists, and the value type, such as `boolean` or `"draft" | "send"`. It leaves out defaults, provider keys, and provider module paths. `inspectServerEnv()` entries also report `via` and `conflict`; see [Variable names](/docs/env/configure#variable-names).
 
-The Console Env section shows this metadata behind Console access. Host variables stay read-only. Env management (masked previews, replacement, activity, and grants) needed the Console that the app served, which is removed.
+The Console Env section shows this metadata behind Console access. Host variables stay read-only.
 
 `inspectServerEnv()` loads providers the same way. It reports only paths, variable names, the variable `name` that supplied an env value, source kinds, provider aliases, masking, required flags, and a status: `available`, `defaulted`, `missing`, `invalid`, or `error`. It never returns values, hashes, lengths, provider keys, or provider errors. Paths match `describeServerEnv()`. `isBlockingServerEnvEntry()` returns `true` when an entry makes `loadServerEnv()` fail: a missing required value, an invalid value, or a failed provider.
 
 From the terminal, run `vitehub env inspect` or `vitehub env check`. `env check` exits with `1` for any blocking entry, so CI can run it before a release. Both load the stage's Vite env files and never print values. See [CLI](/docs/development/cli#inspect-server-env) for options.
 
 To check a running app, such as a deployment, call the `env.inspect` [operation](/docs/development/operations) on its signed RPC endpoint: `vitehub env status --url <app URL>`. It needs the `env` Console section and returns the same entries with `secret`, `blocking`, an overall `ok`, and the `host` that the app runs on, never values. The Console Env section runs it when it opens, for an app in the app's Console and for each linked app in a hosted Console. It shows each entry's host variable names, the name that supplied the value, its status, and a fix for blocking values, such as `vitehub env push --host cloudflare` for a missing variable. An Agent connected to the ViteHub MCP of a Console calls `read_operation` with `env.inspect`.
-
-To check a running app, such as a deployment, call the `env.inspect` [operation](/docs/development/operations) on its signed RPC endpoint: `vitehub env status --url <app URL>`. It needs the `env` Console section and returns the same entries with `secret`, `blocking`, and an overall `ok`, never values.
 
 Provider reads are read-only and get the caller's abort signal. [Env Bridge](/docs/env/bridge) adds safe replacement, scoped access, and stored activity for managed credentials. Env adds no watches, leases, or caches between requests. A provider must not import the generated Server Env module. Use the `env` snapshot that `read()` gets for its first credential.

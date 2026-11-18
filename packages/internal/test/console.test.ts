@@ -81,6 +81,15 @@ describe("Console section contributions", () => {
     expect(describeViteHubConsoleRuntimeReader(auth)).toBeUndefined()
   })
 
+  it("describes a Webhooks section without build-time data", async () => {
+    const webhooks: ViteHubConsoleSectionContribution = {
+      id: "webhooks", label: "Webhooks", icon: "i-vitehub-webhooks", description: "Operate webhooks.",
+      view: { kind: "webhooks", notice: "The list comes from the webhooks.* operations." },
+    }
+    expect(describeViteHubConsoleSection(webhooks).view).toEqual({ kind: "webhooks", notice: "The list comes from the webhooks.* operations." })
+    await expect(readViteHubConsoleSection(webhooks, undefined)).resolves.toEqual({ kind: "webhooks" })
+  })
+
   it("rejects ids that are not route segments", () => {
     expect(() => describeViteHubConsoleSection({ ...table, id: "Widget Runs" })).toThrow(expect.objectContaining({ code: "INTERNAL_INVARIANT_FAILED" }))
   })

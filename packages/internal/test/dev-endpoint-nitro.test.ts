@@ -61,7 +61,7 @@ function guarded(init: { body?: string, headers?: Record<string, string>, method
 async function call(middleware: Middleware, init: { body?: string, headers?: Record<string, string>, method: string }) {
   const done = new EventEmitter()
   const chunks: Buffer[] = []
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string | string[]> = {}
   const res = Object.assign(new Writable({
     write(chunk, _encoding, callback) {
       chunks.push(Buffer.from(chunk))
@@ -72,7 +72,7 @@ async function call(middleware: Middleware, init: { body?: string, headers?: Rec
       callback()
     },
   }), {
-    setHeader(name: string, value: string) {
+    setHeader(name: string, value: string | string[]) {
       headers[name] = value
     },
     statusCode: 200,
@@ -222,6 +222,15 @@ describe("Nitro dev forwarding", () => {
     registerViteHubNitroDevEndpoint(server, { ...guard, route, runtimeRoute })
     const result = await call(middlewares[0]!, { body: "{}", headers: json, method: "POST" })
     expect(result).toMatchObject({ body: "firstsecond", headers: { "content-type": "text/plain" }, status: 201 })
+  })
+
+  it("forwards every Set-Cookie value of the runtime response", async () => {
+    const cookies = ["session=abc; HttpOnly; Path=/", "vitehub_session=1; Path=/"]
+    const response = new Response("{}", { headers: [["set-cookie", cookies[0]!], ["set-cookie", cookies[1]!], ["content-type", "application/json"]] })
+    const { server, middlewares } = fakeServer({ nitro: { dispatchFetch: async () => response } })
+    registerViteHubNitroDevEndpoint(server, { ...guard, route, runtimeRoute })
+    const result = await call(middlewares[0]!, { body: "{}", headers: json, method: "POST" })
+    expect(result.headers).toMatchObject({ "content-type": "application/json", "set-cookie": cookies })
   })
 
   it("adds trusted runtime headers without forwarding incoming credentials", async () => {

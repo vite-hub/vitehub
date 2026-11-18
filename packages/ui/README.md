@@ -34,6 +34,8 @@ The parts `Message`, `Bubble`, `Marker`, `Trace`, and `Attachment` follow the [s
 
 The package currently declares `vue` and `ai` as required peers. Styled components also require `@nuxt/ui` and Tailwind CSS. The Vite integration requires `vite`; `@nuxt/ui` and `vite` are optional peers only so applications using another entry point do not have to install them.
 
+`RelativeTime` uses Nuxt UI tooltips when a Reka `TooltipProvider` is present, such as inside `UApp`. Otherwise it uses the native `title` attribute, including in apps that provide a Nuxt UI locale.
+
 ## Edit Markdown
 
 `MarkdownEditor` from `@vite-hub/ui/markdown-editor` edits Markdown with [comark-ui's editor](https://comark-ui.onmax.me/guide/editor/), a bubble toolbar, a "/" menu, and a drag handle: Nuxt UI's, or the ui-sdk ones of [the ui-sdk set](#the-ui-sdk-set). Bind the Markdown with `v-model`, or pass `editor` with a Tiptap editor the app made, such as a Realtime room's. A document that the editor can't save unchanged opens read-only.
@@ -205,7 +207,8 @@ async function render(files: PlaygroundFiles) {
 - `previewDocument(html, files)` wraps the HTML in the preview page, with your stylesheets, body class, and theme. The default is a plain white page. The preview runs scripts in a sandboxed frame with its own origin, so a shared link cannot reach your page.
 - `languages` are Shiki languages for the `language` of each pane. Shiki loads after the first render. Without `languages`, the panes are plain text.
 - `preset` is the id of the example that opens first. Copy link refuses links longer than `playgroundLinkLimit`; Download gives a zip of the files instead. Reset asks first, then goes back to the example.
-- A pane with `slot: "theme"` shows the `#theme` slot in place of the editor, with `{ pane, value, files, setFile }`. The `#toolbar` slot gets `{ files, preset, setFile }`, and the `#preset` slot gets `{ preset, active }` to draw each example.
+- A pane with `slot: "theme"` shows the `#theme` slot in place of the editor, with `{ pane, value, files, setFile }`. The `#toolbar` slot gets `{ files, preset, setFile }`, and the `#preset` slot gets `{ preset, active }` to draw each example. The `#group` slot gets `{ group, presets }` to draw the heading of a group of examples.
+- `@load` fires with `{ preset, files }` when files open from the hash or the opening example. `@preset-change` fires with the same payload when another example opens, from a click or a link.
 
 ## Nuxt
 

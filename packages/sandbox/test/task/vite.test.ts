@@ -166,6 +166,19 @@ describe("hubSandboxTask", () => {
     ])
   })
 
+  it("rejects the former provider key instead of picking the host driver", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandboxTask } = await import("../../src/task/vite.ts")
+    // SAFETY: An app config without types still passes the former key.
+    const plugin = hubSandboxTask({ provider: "vercel" } as never)
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>
+
+    await expect(configHook({ root: rootDir, plugins: [{ name: "nitro:main" }], nitro: { preset: "cloudflare-module" } }, { command: "build", mode: "production" })).rejects.toMatchObject({
+      code: "SANDBOX_TASK_RENAMED_PROVIDER_KEY",
+      fix: expect.stringContaining('`sandboxTask: { driver: "vercel" }`'),
+    })
+  })
+
   it("lists no host resources for the Vercel provider", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")

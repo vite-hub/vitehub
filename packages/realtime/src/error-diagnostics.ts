@@ -169,5 +169,9 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "Realtime production builds need one room driver, and ViteHub cannot select one for this deployment.",
       fix: "Deploy with a Cloudflare host to use Durable Objects, or with the Node host to share rooms through Postgres or Redis.",
     },
+    REALTIME_RENAMED_AUTHORITY_KEY: {
+      why: ({ value }: { value: string }) => `\`realtime.authority\` is ${value}. ViteHub renamed this key to \`driver\`, and it does not read \`authority\`, so Realtime would not use the driver you chose.`,
+      fix: ({ value }: { value: string }) => `Set \`realtime: { driver: ${value} }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
+    },
   },
 })

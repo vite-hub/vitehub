@@ -48,6 +48,10 @@ function resolveDriver(options: Record<string, unknown>, hosting: string, postgr
   const shared: QueueSharedOptions = typeof cache === "boolean" ? { cache } : {}
   const driver = readOwnOption(options, "driver")
 
+  // Without `driver`, Queue picks the host's driver, so the former `provider` key would be ignored silently.
+  if (driver === undefined && Object.hasOwn(options, "provider")) {
+    throw queueErrorDiagnostics.QUEUE_RENAMED_PROVIDER_KEY({ value: JSON.stringify(options.provider) ?? String(options.provider) })
+  }
   if (typeof driver === "string" && !knownDrivers.has(driver)) {
     throw queueErrorDiagnostics.QUEUE_INVALID_DRIVER({ driver })
   }

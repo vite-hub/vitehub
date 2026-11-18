@@ -70,14 +70,14 @@ export default defineConfig({
 Create `server/api/settings.put.ts`. This file is the route `PUT /api/settings`. It saves the theme that you send.
 
 ```ts [server/api/settings.put.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { kv } from 'vite-hub/kv'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ theme?: unknown }>(event)
   const theme = body?.theme
   if (theme !== 'system' && theme !== 'light' && theme !== 'dark') {
-    throw createError({ statusCode: 400, message: 'Use system, light, or dark for theme.' })
+    throw new HTTPError({ status: 400, message: 'Use system, light, or dark for theme.' })
   }
 
   const settings = { theme }
@@ -98,14 +98,14 @@ export default defineEventHandler(async (event) => {
 Create `server/api/settings.get.ts`. This route only reads the value.
 
 ```ts [server/api/settings.get.ts]
-import { createError, defineEventHandler } from 'h3'
+import { defineEventHandler, HTTPError } from 'h3'
 import { kv } from 'vite-hub/kv'
 
 export default defineEventHandler(async () => {
   const [error, settings] = await kv.get<{ theme: string }>('settings')
   if (error) throw error
   if (settings === null) {
-    throw createError({ statusCode: 404, message: 'Save a theme first.' })
+    throw new HTTPError({ status: 404, message: 'Save a theme first.' })
   }
   return { settings }
 })
