@@ -275,6 +275,12 @@ describe("select one of many", async () => {
       tab.querySelector("[data-slot=label]").textContent = "A much longer overview"
     })
     await page.setViewportSize({ width: 700, height: 900 })
+    // The motion layer can morph the new label letter by letter, and the tab grows with it for more than a second. Wait
+    // until the label holds plain text again, so that the last frame reads the layout at rest.
+    await page.waitForFunction(() => {
+      const label = document.querySelector("[data-test=tabs] [role=tab] [data-slot=label]")
+      return label?.childNodes.length === 1 && label.firstChild?.nodeType === Node.TEXT_NODE
+    }, undefined, { timeout: 10_000 })
     await page.waitForTimeout(300)
     const frames = (await trace.stop()).filter(Boolean)
     assert.ok(frames.every(frame => !frame.translate && !frame.scale), "nothing written while the layout changes")

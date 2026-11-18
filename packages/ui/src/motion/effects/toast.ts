@@ -203,6 +203,9 @@ export const toast: MotionEffect = {
     if (prefersReducedMotion()) {
       const fade = createSpring(0, () => write(element, item.x, item.y, fade));
       item.fade = fade;
+      // Write the start at once, as `item.y.set()` does below. A spring writes nothing until its first frame, so until
+      // then the toast has no opacity of its own and looks settled at full opacity to anything that reads it.
+      fade.set(0);
       fade.to(1, { tween: crossfade });
     }
     else {
