@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Disclosure motion page</title>
+  </head>
+  <body>
+    <main id="app">
+      <section class="row">
+        <!-- As the Console's "Show data table": Tailwind's `group-open:rotate-90` sets the `rotate` property. -->
+        <details id="details" class="disclosure">
+          <summary data-test="summary"><svg class="chevron" data-test="details-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>Show data table</summary>
+          <p>Day, sign-ins, sign-ups.</p>
+        </details>
+        <!-- As the Console's error Details button: the stylesheet turns the chevron with `transform`. -->
+        <button id="expand" type="button" aria-expanded="false" aria-controls="expand-body" data-test="expand"><svg class="chevron" data-test="expand-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>Details</button>
+        <pre id="expand-body" hidden>{ "code": "VH_E1" }</pre>
+        <details id="off" class="disclosure" data-motion="none">
+          <summary data-test="off-summary"><svg class="chevron" data-test="off-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>Turned off</summary>
+          <p>No motion.</p>
+        </details>
+      </section>
+      <!-- As the Console sidebar: a rail that opens to show its labels, and the page next to it makes room. -->
+      <section class="shell">
+        <nav id="panel" class="panel" data-motion-panel data-test="panel"><span class="label">Overview</span></nav>
+        <div class="page" data-test="page">Page</div>
+      </section>
+      <button id="toggle-panel" type="button" data-test="toggle-panel">Toggle panel</button>
+      <div class="filters" role="radiogroup" aria-label="Filter comments" data-test="filters">
+        <button type="button" role="radio" aria-checked="true" data-test="open">Open</button>
+        <button type="button" role="radio" aria-checked="false" data-test="resolved">Resolved</button>
+      </div>
+    </main>
+    <script type="module" src="./disclosure.ts"></script>
+  </body>
+</html>

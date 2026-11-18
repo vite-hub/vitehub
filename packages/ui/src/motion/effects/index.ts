@@ -1,8 +1,10 @@
 import type { MotionEffect } from "../registry.ts";
 import { check } from "./check.ts";
+import { disclosure } from "./disclosure.ts";
 import { divider } from "./divider.ts";
 import { jelly } from "./jelly.ts";
 import { buttonIcon, label } from "./label.ts";
+import { panel } from "./panel.ts";
 import { press } from "./press.ts";
 import { select } from "./select.ts";
 import { slider } from "./slider.ts";
@@ -23,4 +25,6 @@ export const builtInEffects: MotionEffect[] = [
   divider,
   label,
   buttonIcon,
+  disclosure,
+  panel,
 ];
