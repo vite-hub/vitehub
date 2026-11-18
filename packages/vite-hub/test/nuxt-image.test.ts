@@ -7,7 +7,7 @@ const { getImage } = blobImageProvider()
 
 describe("Nuxt Image application mount", () => {
   it.each([
-    [{ access: "public" }, "/portal/api/_vitehub/blob"],
+    [{ access: "public" }, "/portal/_vitehub/blob"],
     [{ access: "public", route: "/media/" }, "/portal/media"],
     [{ access: "public", publicBaseUrl: "https://cdn.example/", route: "/media/" }, "https://cdn.example/media"],
     [{ access: "public", publicBaseUrl: "/cdn/", route: "/media/" }, "/cdn/media"],

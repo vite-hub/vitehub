@@ -19,7 +19,7 @@ describe("built Comments overlay", () => {
     expect(socket.searchParams.get("clientId")).toMatch(/^\d+$/)
     socket.searchParams.delete("clientId")
     expect([socket.href]).toEqual([
-      `wss://site.test${base}/api/_vitehub/realtime/comments/${commentRoom("/articles/example")}?page=%2Farticles%2Fexample`,
+      `wss://site.test${base}/_vitehub/realtime/comments/${commentRoom("/articles/example")}?page=%2Farticles%2Fexample`,
     ])
   })
 })

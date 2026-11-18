@@ -31,6 +31,6 @@ async function statusHandler(event: ConsoleRequestEvent): Promise<{ agents: Agen
 /** The status of the Agents, for the `status.get` operation. */
 export const readConsoleStatus: ConsoleAccessRoute<typeof statusHandler> = withConsoleAccess(statusHandler, { section: "agents" })
 
-/** `GET <base>/api/_vitehub/console/status` */
+/** `GET <base>/_vitehub/console/status` */
 const consoleStatusRoute: ConsoleRoute = consoleRoute(readConsoleStatus)
 export default consoleStatusRoute

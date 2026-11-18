@@ -26,9 +26,9 @@ export default defineWebhook({
 | `url` | required | The name of the server variable that holds the receiver URL. It must be an `http` or `https` URL. |
 | `secret` | required | The name of the server variable that holds the signing secret. |
 | `signature` | `'github'` | `'github'` sends `x-hub-signature-256: sha256=<hex>`. `'stripe'` sends `stripe-signature: t=<time>,v1=<hex>`. Both are HMAC-SHA256. |
-| `debounce` | none | Wait this long after the last send, then deliver once. A duration such as `'30 minutes'`, `'10s'`, or `'1h'`, or a number of milliseconds. At most 24 hours. Without it, each send is delivered at once. |
+| `debounce` | none | Wait this long after the last send, then deliver once. A duration such as `'30m'`, `'10s'`, or `'1 day'`. At most 24 hours. Without it, each send is delivered at once. |
 
-A wrong option throws [`WEBHOOKS_DEFINITION_INVALID`](/docs/webhooks/diagnostics/webhooks_definition_invalid) when the server loads the file. A debounce over 24 hours throws [`WEBHOOKS_DEBOUNCE_TOO_LONG`](/docs/webhooks/diagnostics/webhooks_debounce_too_long).
+A wrong option throws [`WEBHOOKS_DEFINITION_INVALID`](/docs/webhooks/diagnostics/webhooks_definition_invalid) when the server loads the file, and a `debounce` that is not a duration, such as a number, throws [`RUNTIME_DURATION_INVALID`](/docs/development/diagnostics/runtime_duration_invalid). A debounce over 24 hours throws [`WEBHOOKS_DEBOUNCE_TOO_LONG`](/docs/webhooks/diagnostics/webhooks_debounce_too_long).
 
 ## URL and secret
 

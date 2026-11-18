@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { clearSync, createSync } from "../src/client.ts"
+import * as indexeddb from "../src/client/indexeddb.ts"
+import { createMemoryStorage, type SyncMeta } from "../src/client/storage.ts"
+import { syncRoute } from "../src/protocol.ts"
 import { createFakeSyncServer } from "./client-fake-server.ts"
 import { until } from "./client-harness.ts"
 
@@ -29,7 +32,7 @@ describe("createSync in the browser", () => {
     }, "/docs/")
     await store.refresh()
     expect(store.getState()).toMatchObject({ status: "ready", persisted: false, rows: [{ id: "a" }] })
-    expect(urls[0]).toBe("/docs/api/_vitehub/sync/todos")
+    expect(urls[0]).toBe("/docs/_vitehub/sync/todos")
   })
 
   it("shares one store for one name, until the last user destroys it", async () => {
@@ -159,5 +162,45 @@ describe("createSync in the browser", () => {
     server.user = "bob"
     await store.refresh()
     expect(server.applied).toEqual([])
+  })
+
+  it("sends writes from pre-upgrade keys, including a subset the page never reopens", async () => {
+    const server = createFakeSyncServer()
+    server.live = false
+    const storage = createMemoryStorage()
+    const route = syncRoute("todos")
+    const baseURL = "/docs"
+    const fetch: typeof globalThis.fetch = (input, init) => server.fetch(String(input).slice(baseURL.length), init)
+    for (const listId of ["open", "closed"]) {
+      const where = JSON.stringify({ listId })
+      const pull = await server.fetch(`${route}?where=${encodeURIComponent(where)}`)
+      const meta: SyncMeta = await pull.json()
+      await storage.write(`/docs/api/_vitehub/sync/todos?${where}`, {
+        meta,
+        add: [{ id: listId, key: listId, account: meta.account, op: "insert", value: { id: listId, title: listId } }],
+      })
+    }
+    vi.stubGlobal("indexedDB", {})
+    const indexedDBStorage = vi.spyOn(indexeddb, "createIndexedDBStorage").mockReturnValue(storage)
+    try {
+      server.offline = true
+      const store = createSync("todos", { baseURL, fetch, interval: false, where: { listId: "open" } })
+      stores.push(store)
+      await store.refresh()
+      expect(store.getState()).toMatchObject({ queued: 1, rows: [{ id: "open" }] })
+      server.offline = false
+      window.dispatchEvent(new Event("online"))
+      await store.refresh()
+      await vi.waitFor(async () => expect(await storage.queuedIds()).toEqual([]))
+      window.dispatchEvent(new Event("online"))
+      await store.refresh()
+      expect(await storage.queuedIds()).toEqual([])
+      expect(server.applied.map(mutation => mutation.id).sort()).toEqual(["closed", "open"])
+      expect(server.requests.filter(request => request.method === "POST" && request.body).map(request => request.url.pathname)).toEqual([route, route])
+    }
+    finally {
+      indexedDBStorage.mockRestore()
+      vi.unstubAllGlobals()
+    }
   })
 })

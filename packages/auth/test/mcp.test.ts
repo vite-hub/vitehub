@@ -91,7 +91,7 @@ describe("mcpOAuth", () => {
 
   it("refuses the token of a person that `access.policy` no longer allows", async () => {
     let member = true
-    const auth = await setup({}, false, { allow: () => member, recheck: 0 })
+    const auth = await setup({}, false, { allow: () => member, recheck: "0s" })
     const { accessToken } = await signInAgent(auth)
     expect((await verifyMcpRequest(mcpRequest(accessToken), { auth: auth.auth }))[0]).toBeUndefined()
 

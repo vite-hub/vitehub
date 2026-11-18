@@ -329,13 +329,13 @@ describe("Rate Limit declarations", () => {
     expect(extractRateLimitDeclarations("default-parameter.ts", source)).toMatchObject([{ name: "default-parameter" }])
   })
 
-  it("deduplicates identical IDs and policies", async () => {
+  it("deduplicates policies with equivalent windows", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-declarations-"))
     roots.push(root)
     await mkdir(join(root, "server", "api"), { recursive: true })
     const declaration = 'import { requireRateLimit } from "vite-hub/rate-limit"\nrequireRateLimit(event, "uploads", { limit: 1, window: "1m" })\n'
     await writeFile(join(root, "server", "api", "first.ts"), declaration)
-    await writeFile(join(root, "server", "api", "second.ts"), declaration)
+    await writeFile(join(root, "server", "api", "second.ts"), declaration.replace('"1m"', '"1 minute"'))
 
     expect(discoverRateLimitDeclarations({ rootDir: root })).toHaveLength(1)
   })
