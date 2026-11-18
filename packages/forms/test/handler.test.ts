@@ -153,7 +153,7 @@ describe("handleFormRequest", () => {
     const store = createMemoryFormsStore()
     const key = "0b5c2a8e-1d4f-4e7a-9c3b-2f6d8e1a7b90"
     // Another instance stored the message between the lookup and the insert of this one.
-    const racing = { ...store, get: async () => undefined }
+    const racing = { ...store, get: vi.fn(store.get).mockResolvedValueOnce(undefined) }
     await store.insert({ id: key, form: "contact", data: { email: "ada@example.com", message: "Hello" }, page: null, anchor: null, user: null, status: "open", createdAt: 1, updatedAt: 1 })
     const response = await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hello" }, { headers: { "idempotency-key": key } }), { ...all, store: racing })
     expect(response.status).toBe(201)

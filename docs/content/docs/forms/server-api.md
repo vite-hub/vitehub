@@ -45,12 +45,14 @@ The route takes JSON, URL-encoded, or multipart bodies. Two fields are not form 
 | `400 { message, issues }` | A JSON response: the body does not match the schema. Each issue has `message` and `path`. `400 { message }` when the `Idempotency-Key` is not a UUID. |
 | `401`, `403` | A JSON response: `authorize` refused. A rejected `Origin` always gets `403` JSON. Requests without `Origin` may pass. |
 | `413`, `415`, `429` | A JSON response: too large, not a form body, or over the rate limit. An unsupported content type always gets `415` JSON. |
-| `409` | A JSON response: a request with the same `Idempotency-Key` still runs in this server process. Try again in a moment. |
+| `409` | A JSON response: the store holds a reservation for the `Idempotency-Key` but has no completed submission. Try again in a moment. |
 | `422` | A JSON response: the `Idempotency-Key` belongs to a stored message with other values, or of another form. |
 
 ### Retries
 
-A retry after a network error must not store the message twice. `submitForm()`, `useFormAction()`, `AutoForm`, and `useFormSubmit()` send an `Idempotency-Key` header: a UUID for each message. After a failure, a retry with the same values sends the same key. The route stores the message with the key as its id. A second request with that key gets the same `201 { id }`, and `onSubmit` and the email do not run again. While the first request still runs, a second one gets `409`. Two server instances that get the key at the same moment can both run `onSubmit`, but the store keeps one message and sends one email. A form with `store: false` keeps no message, so it cannot find a retry.
+A retry after a network error must not store the message twice. `submitForm()`, `useFormAction()`, `AutoForm`, and `useFormSubmit()` send an `Idempotency-Key` header: a UUID for each message. After a failure, a retry with the same values sends the same key. The route stores the message with the key as its id. A second request with that key gets the same `201 { id }`, and `onSubmit` and the email do not run again.
+
+The store reserves the key before running `onSubmit`, even when requests go to different servers that share the store. A retry gets `409` until the reservation becomes a submission. If the hook returns a `Response` or throws, Forms releases the key without saving the submission. If a server stops before it can finish or release a database reservation, the key stays reserved rather than risking running the hook twice. The reservation does not appear in the inbox. A form with `store: false` does not reserve keys or deduplicate retries.
 
 Pass `idempotencyKey` to `submitForm()` to choose the key, such as one key for each time a dialog opens.
 
