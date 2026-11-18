@@ -16,8 +16,8 @@ In this tutorial, you list Markdown files from a local folder. Then you write a 
 > [!NOTE] Before you start
 > Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need no account and no API key. The files are saved on your computer. Before you deploy, read [Hosts](/docs/workspace/hosts) to choose storage.
 
-::tutorial-step{title="Install and configure"}
-## Install and configure
+::tutorial-step{title="Install"}
+## Install
 
 Install the Workspace package:
 
@@ -25,49 +25,12 @@ Install the Workspace package:
 pnpm add @vite-hub/workspace valibot
 ```
 
-Add `workspace: true` to the ViteHub options of your app. Keep the other options of your app.
-
-:::tabs{sync="framework"}
-::::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: { workspace: true },
-})
-```
-::::
-
-::::tabs-item{label="Nitro"}
-```ts [vite.config.ts]
-import { nitro } from 'nitro/vite'
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ workspace: true }), nitro()],
-})
-```
-::::
-
-::::tabs-item{label="Vite"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ workspace: true })],
-})
-```
-::::
-:::
-
-
 ::
 
 ::tutorial-step{title="Define the Workspace"}
 ## Define the Workspace
 
-Create `server/workspaces/docs.ts`. The file name is the name of the Workspace: `docs`.
+Create `server/workspaces/docs.ts`. The file name is the name of the Workspace: `docs`. This file turns Workspace on, so you do not add a `workspace` option.
 
 ```ts [server/workspaces/docs.ts]
 import { defineWorkspace, glob } from 'vite-hub/workspace'

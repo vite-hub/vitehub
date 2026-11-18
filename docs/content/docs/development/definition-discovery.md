@@ -21,6 +21,33 @@ src/triager.agent.ts          -> triager
 
 Each package documents its paths and file suffixes. Put the Definition in one of those paths instead of adding another name in application code.
 
+## A Definition file turns its feature on
+
+A Definition file in the server directory turns its feature on. You do not add a key to the ViteHub options.
+
+| File | Feature |
+| --- | --- |
+| `server/agents/` | Agent |
+| `server/auth.ts` | Auth |
+| `server/browsers/` | Browser |
+| `server/channels/` | Channels |
+| `server/connections/` | Connections |
+| `server/queues/` | Queue |
+| `server/realtime/` | Realtime |
+| `server/schedules/` | Schedule |
+| `server/workflows/` | Workflow |
+| `server/workspaces/` | Workspace |
+
+A folder counts when it has at least one source file. In Nuxt, the server directories of the layers count too.
+
+- Set the key to `false` to keep the feature off, for example `queue: false`. ViteHub then loads no code and adds no routes for it.
+- Set the key to an object only to change options, for example `queue: { driver: 'memory' }`.
+- Features without Definition files, such as `kv`, `blob`, `database`, `email`, and `mcp`, still need their key.
+- A Definition with a file suffix, such as `src/welcome-email.queue.ts`, does not turn its feature on. Set the key for it.
+- When you add an owner plugin, such as `hubQueue()`, next to `vitehub()`, set `queue: false` in `vitehub()`, so the feature loads one time.
+
+When the package of the feature is not installed, the build fails with [`VITE_HUB_DEFINITION_PACKAGE_MISSING`](/docs/development/diagnostics/vite_hub_definition_package_missing). The message shows the `pnpm add` command.
+
 ## The integration finds the file
 
 The package integration scans the project during development and build. It prepares the routes, imports, bindings, or metadata that the package needs.
