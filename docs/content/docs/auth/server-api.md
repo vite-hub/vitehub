@@ -90,8 +90,8 @@ When `access.signIn` is set, the Auth route also answers two `GET` paths below t
 ```
 
 - `/api/auth/sign-in` starts the `access.signIn` sign-in and comes back to `redirect`. Without `redirect`, it comes back to `access.signIn.callbackURL`, or `/`. A visitor who is signed in goes to `redirect` at once.
-- `/api/auth/sign-out` ends the session and goes to `redirect`, or `/`. It refuses a request from another site with `403`, so a link on another site cannot sign out your visitors. The browser's `Sec-Fetch-Site` header tells where the request comes from.
-- `redirect` must be a path of the app, such as `/docs?tab=api`. A full URL, `//host`, or `/\host` gets `400`.
+- `/api/auth/sign-out` ends the session and goes to `redirect`, or `/`. It refuses a request from another site with `403`, so a link on another site cannot sign out your visitors. The browser's `Sec-Fetch-Site` header tells where the request comes from. A prefetch or prerender of the link also gets `403`, so the session ends only on a click.
+- `redirect` must be a path of the app, such as `/docs?tab=api`. A full URL, `//host`, or `/\host` gets `400`. Below Nuxt's `app.baseURL`, such as `/app/`, `redirect=/docs` opens `/app/docs`, the same path that the page guard sends.
 - The paths are below the Auth Base Path and Nuxt's `app.baseURL`, so they never collide with a page of the app. The Nuxt page guard sends a visitor to the login page with `?redirect=<the page>`, so a login page can pass it on to `/api/auth/sign-in`.
 - Without `access.signIn`, Better Auth answers these paths with `404`.
 

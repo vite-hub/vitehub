@@ -269,7 +269,7 @@ export function handleAuthRequest(
   const address = eventClientAddress(event)
   const resolved = resolveAuthOptions(definition, { request, event, env: envResolverFor(definition) })
   const auth = requestProvider(definition, resolved)
-  return runWithAuthEvent(event, () => handleSignInRoute(auth, resolved.options, request)
+  return runWithAuthEvent(event, () => handleSignInRoute(auth, resolved.options, request, address)
     ?? auth.handler(setRequestClientAddress(toRequest(request), address)))
 }
 
@@ -281,6 +281,7 @@ function handleSignInRoute(
   auth: ViteHubAuth,
   options: AuthRuntimeOptions & Record<string, unknown>,
   request: AuthRequest,
+  address: string | undefined,
 ): Promise<Response> | undefined {
   const signIn = (options as { access?: AuthAccessConfiguration }).access?.signIn
   if (!signIn || request.method !== "GET") return
@@ -289,8 +290,10 @@ function handleSignInRoute(
   const path = canonicalAccessPath(url.pathname)
   if (path !== `${basePath}/sign-in` && path !== `${basePath}/sign-out`) return
   const headers = new Headers(headersInit(request.headers))
-  const redirect = url.searchParams.get("redirect") ?? undefined
-  if (redirect !== undefined && !isAppPath(redirect)) {
+  const query = url.searchParams.get("redirect")
+  // Like the Nuxt page guard's `?redirect=`, the path is below `app.baseURL`.
+  const redirect = query === null ? undefined : appPath(query)
+  if (redirect === null) {
     return Promise.resolve(textResponse("The redirect must be a path of this site, such as /docs.", 400))
   }
   if (path === `${basePath}/sign-out`) {
@@ -299,9 +302,14 @@ function handleSignInRoute(
     if (site !== null && site !== "same-origin" && site !== "none") {
       return Promise.resolve(textResponse("A sign-out from another site is not allowed.", 403))
     }
-    return endSession(auth, headers, redirect ?? "/")
+    // A browser that prefetches or prerenders a sign-out link must not end the session before a click.
+    if (/prefetch/i.test(`${headers.get("sec-purpose") ?? ""} ${headers.get("purpose") ?? ""}`)) {
+      return Promise.resolve(textResponse("A prefetch does not sign out.", 403))
+    }
+    return endSession(auth, headers, resolveAuthMountPath(redirect ?? "/"))
   }
-  return startSignIn(auth, options, headers, { ...signIn, ...(redirect === undefined ? {} : { callbackURL: redirect }) })
+  const callbackURL = redirect === undefined ? {} : { callbackURL: resolveAuthMountPath(redirect) }
+  return startSignIn(auth, options, headers, { ...signIn, ...callbackURL }, address)
 }
 
 async function startSignIn(
@@ -309,13 +317,19 @@ async function startSignIn(
   options: AuthRuntimeOptions & Record<string, unknown>,
   headers: Headers,
   signIn: AuthSignInConfiguration,
+  address: string | undefined,
 ): Promise<Response> {
   const { session, setCookies } = await getAuthenticationSession(auth, { headers })
   const response = session
     ? new Response(null, { headers: { location: signIn.callbackURL ?? "/" }, status: 302 })
-    : await createSignInResponse(auth, options, signIn)
-  const sent = new Headers(response.headers)
+    : await createSignInResponse(auth, options, signIn, address)
+  // The session cookies first: when they clear a stale session, the new OAuth state cookie must come after them.
+  const sent = new Headers()
   for (const cookie of setCookies) sent.append("set-cookie", cookie)
+  response.headers.forEach((value, name) => {
+    if (name !== "set-cookie") sent.set(name, value)
+  })
+  for (const cookie of readSetCookies(response.headers)) sent.append("set-cookie", cookie)
   sent.set("cache-control", "no-store")
   return new Response(response.body, { headers: sent, status: response.status, statusText: response.statusText })
 }
@@ -324,11 +338,16 @@ function textResponse(text: string, status: number): Response {
   return new Response(text, { headers: { "cache-control": "no-store", "content-type": "text/plain; charset=utf-8" }, status })
 }
 
-/** A path of this app, such as `/docs?tab=a`. `//host` and `/\\host` open another site, so they are not paths. */
-function isAppPath(value: string): boolean {
+/**
+ * A path of this app, such as `/docs?tab=a`, URL-encoded for a `Location` header, or `null` for another value.
+ * `//host` and `/\\host` open another site, so they are not paths.
+ */
+function appPath(value: string): string | null {
   // URL parsing removes tabs and line breaks, which can turn an app path into an external URL.
   // eslint-disable-next-line no-control-regex
-  return value.startsWith("/") && !/^\/[/\\]/.test(value) && !/[\u0000-\u001F\u007F]/.test(value)
+  if (!value.startsWith("/") || /^\/[/\\]/.test(value) || /[\u0000-\u001F\u007F]/.test(value)) return null
+  const url = new URL(value, "http://app.invalid")
+  return `${url.pathname}${url.search}${url.hash}`
 }
 
 /** Return a Web Request itself, or the request in the Standard Context of a request event. */
@@ -405,10 +424,12 @@ export interface AuthSignOutOptions {
  */
 export async function signOut(input: AuthRequestInput, options: AuthSignOutOptions = {}): Promise<Response> {
   const { redirectTo } = options
-  if (redirectTo !== undefined && !isAppPath(redirectTo)) {
+  if (redirectTo === undefined) return await endSession(useAuth(input), unwrapAuthRequest(input).headers, undefined)
+  const location = appPath(redirectTo)
+  if (location === null) {
     throw authErrorDiagnostics.AUTH_SIGN_OUT_REDIRECT_INVALID({ redirectTo })
   }
-  return await endSession(useAuth(input), unwrapAuthRequest(input).headers, redirectTo)
+  return await endSession(useAuth(input), unwrapAuthRequest(input).headers, location)
 }
 
 async function endSession(auth: Pick<ViteHubAuth, "api">, requestHeaders: AuthRequest["headers"], redirectTo: string | undefined): Promise<Response> {
@@ -485,11 +506,13 @@ async function createSignInResponse(
   auth: ViteHubAuth,
   options: AuthRuntimeOptions & Record<string, unknown>,
   signIn: AuthSignInConfiguration,
+  address?: string,
 ): Promise<Response> {
   // SAFETY: The request resolver supplies baseURL from the runtime configuration or request origin.
   const origin = new URL(options.baseURL as string).origin
   const basePath = resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined))
-  const response = await auth.handler(new Request(`${origin}${basePath}/sign-in/social`, {
+  // Better Auth limits sign-ins per client address, so the request carries the address that the host reports.
+  const response = await auth.handler(setRequestClientAddress(new Request(`${origin}${basePath}/sign-in/social`, {
     body: JSON.stringify({
       callbackURL: signIn.callbackURL,
       errorCallbackURL: signIn.errorCallbackURL,
@@ -503,7 +526,7 @@ async function createSignInResponse(
       "origin": origin,
     },
     method: "POST",
-  }))
+  }), address))
 
   if (!response.ok) return response
 
@@ -812,7 +835,7 @@ async function checkAuthRequest(
 
   const signIn = (options as { access?: AuthAccessConfiguration }).access?.signIn
   return reject(signIn
-    ? await createSignInResponse(auth, options, { ...signIn, ...signInURLs })
+    ? await createSignInResponse(auth, options, { ...signIn, ...signInURLs }, eventClientAddress(event))
     : createRefusalResponse("SIGNED_OUT"))
 }
 
