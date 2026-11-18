@@ -1,3 +1,5 @@
+import { iconShape } from "../effects/icon-shape.ts";
+import type { IconShape } from "../effects/icon-shape.ts";
 import { writeMotionStyle } from "../registry.ts";
 import { motionSkipped, reduced } from "./frame.ts";
 import { cubicBezier, easeIn, easeOut, tween } from "./tween.ts";
@@ -39,6 +41,8 @@ interface IconState {
   shown: number;
   fade?: Tween;
   leaving: boolean;
+  /** The shapes of a stroke that draws in, put back when the draw ends or stops. */
+  stroke?: IconShape;
 }
 
 const states = new WeakMap<Element, IconState>();
@@ -56,16 +60,21 @@ function styled(icon: Element): icon is HTMLElement | SVGElement {
   return icon instanceof HTMLElement || icon instanceof SVGElement;
 }
 
-const strokeParts = "path, line, polyline, polygon, circle, ellipse, rect";
-
-/** The parts of an SVG icon that a draw reveals, or none when the icon is not an SVG with strokes. */
-function strokes(icon: Element): SVGGeometryElement[] {
+/**
+ * The shapes of an SVG icon that a draw reveals, through the same shape editor as the check and jelly effects, or
+ * undefined when the icon is not an SVG with strokes.
+ */
+function strokes(icon: Element): { shape: IconShape; parts: SVGGeometryElement[] } | undefined {
   const svg = icon instanceof SVGSVGElement ? icon : icon.querySelector("svg");
-  if (!svg) return [];
-  return [...svg.querySelectorAll<SVGGeometryElement>(strokeParts)].filter(part => getComputedStyle(part).stroke !== "none");
+  const shape = svg ? iconShape(svg) : undefined;
+  const parts = shape?.shapes.filter(part => getComputedStyle(part).stroke !== "none") ?? [];
+  return shape && parts.length ? { shape, parts } : undefined;
 }
 
 function clear(icon: Element): void {
+  const state = states.get(icon);
+  state?.stroke?.restore();
+  if (state) state.stroke = undefined;
   if (styled(icon)) writeMotionStyle(icon, { opacity: null, filter: null, scale: null, translate: null });
 }
 
@@ -99,17 +108,14 @@ function come(icon: Element, kind: IconEnter, reducedMotion: boolean, from: numb
     icon.removeAttribute("aria-hidden");
   }
   state.leaving = false;
-  const parts = kind === "draw" && !reducedMotion ? strokes(icon) : [];
-  const effective: IconEnter = kind === "draw" && !parts.length ? "blur" : kind;
+  // A draw that an earlier swap started puts its stroke back first, so the new draw keeps the icon's own values.
+  state.stroke?.restore();
+  const stroke = kind === "draw" && !reducedMotion ? strokes(icon) : undefined;
+  state.stroke = stroke?.shape;
   const finish = () => {
     state.fade = undefined;
     state.shown = 1;
     clear(icon);
-    for (const part of parts) {
-      part.removeAttribute("pathLength");
-      part.style.removeProperty("stroke-dasharray");
-      part.style.removeProperty("stroke-dashoffset");
-    }
   };
   if (reducedMotion) {
     state.fade = tween(from, 1, { duration: crossfade, ease: easeOut }, (value) => {
@@ -118,21 +124,26 @@ function come(icon: Element, kind: IconEnter, reducedMotion: boolean, from: numb
     }, finish);
     return;
   }
-  if (effective === "draw") {
+  if (stroke) {
     // The stroke draws in. The icon shows at once, so a spinner keeps its turn.
+    const { shape, parts } = stroke;
     for (const part of parts) {
-      part.setAttribute("pathLength", "1");
-      part.style.strokeDasharray = "1";
-      part.style.strokeDashoffset = "1";
+      shape.set(part, "pathLength", "1");
+      shape.set(part, "stroke-dasharray", "1");
+      shape.set(part, "stroke-dashoffset", "1");
     }
+    shape.commit();
     if (styled(icon)) writeMotionStyle(icon, { opacity: null, filter: null, scale: null, translate: null });
     const spins = icon.matches(".animate-spin") || !!icon.querySelector(".animate-spin");
     state.shown = 1;
     state.fade = tween(1, 0, { duration: spins ? draw.spinner : draw.duration, delay: draw.delay, ease: draw.ease }, (value) => {
-      for (const part of parts) part.style.strokeDashoffset = String(value);
+      for (const part of parts) shape.set(part, "stroke-dashoffset", String(value));
+      shape.commit();
     }, finish);
     return;
   }
+  // An icon with no stroke to draw blurs in.
+  const effective = kind === "draw" ? "blur" : kind;
   if (effective === "blur") {
     state.fade = tween(from, 1, { duration: enterBlur.duration, delay: from ? 0 : enterBlur.delay, ease: enterBlur.ease }, (value) => {
       state.shown = Math.min(1, value);
@@ -182,8 +193,8 @@ export function swapIcon(container: HTMLElement, icon: Element, options: SwapIco
       remove(old);
     }
     states.get(icon)?.fade?.stop();
-    states.delete(icon);
     clear(icon);
+    states.delete(icon);
     return;
   }
   // A first icon with no old one to replace shows as it is, and the icon that shows already stays.

@@ -3,6 +3,7 @@ import { writeMotionStyle } from "../registry.ts";
 import { prefersReducedMotion } from "../reduced-motion.ts";
 import { createSpring } from "../spring.ts";
 import type { Spring } from "../spring.ts";
+import { createGhost } from "./ghost.ts";
 import { findIcons, iconShape } from "./icon-shape.ts";
 import type { IconShape } from "./icon-shape.ts";
 
@@ -42,12 +43,11 @@ function childOf(element: HTMLElement, node: Element): Element {
 function keepGhost(check: Check): void {
   const { indicator } = check;
   if (check.drawn.target || check.ghost || !indicator || indicator.isConnected) return;
-  const ghost = indicator.cloneNode(true) as Element;
-  ghost.setAttribute("aria-hidden", "true");
-  styleable(ghost)?.style.setProperty("pointer-events", "none");
-  check.element.append(ghost);
+  const source = styleable(indicator);
+  if (!source) return;
+  const ghost = createGhost(source, check.element, null);
   check.ghost = ghost;
-  bind(check, findIcons(ghost)[0], styleable(ghost));
+  bind(check, findIcons(ghost)[0], ghost);
 }
 
 function draw(check: Check, value: number): void {
