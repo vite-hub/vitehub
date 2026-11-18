@@ -5,7 +5,7 @@ export type KVDriver = "cloudflare" | "database" | "deno-kv" | "fs-lite" | "redi
 
 /**
  * The atomic operations of each driver. A store returns `KV_UNSUPPORTED_OPERATION` for an atomic operation that its
- * driver does not list. `get`, `set`, `del`, `has`, `keys`, `list`, and `clear` work on every driver.
+ * driver does not list. `get`, `set`, `delete`, `has`, `keys`, `list`, and `clear` work on every driver.
  */
 export interface KVDriverAtomicOperations {
   "cloudflare": never
