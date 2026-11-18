@@ -40,6 +40,8 @@ type CollectionAction = Exclude<ContentAction, "read">
 import type { AnyContentCollection, ContentDocument, ContentDocumentStatus, ContentDocumentSummary, ContentListOptions, ContentPage } from "../collections-types.ts"
 import type { ContentDocumentSchedule, ContentSchedule } from "../schedules.ts"
 import type { ContentDocumentSessions, ContentSession } from "../sessions.ts"
+import { contentErrorDiagnostics } from "../error-diagnostics.ts"
+import { contentDefinitionErrorCodes, contentInputErrorCodes } from "../input-errors.ts"
 import { contentLive } from "../live.ts"
 import { contentPreviewFrameParameter } from "../preview.ts"
 
@@ -71,7 +73,7 @@ function isContentRuntime(value: unknown): value is ContentRuntime {
 }
 
 function contentRuntime(value: unknown): ContentRuntime {
-  if (!isContentRuntime(value)) throw new TypeError("[vitehub] server/content.ts must default-export the defineContent() runtime.")
+  if (!isContentRuntime(value)) throw contentErrorDiagnostics.CONTENT_RUNTIME_EXPORT_INVALID()
   return value
 }
 
@@ -161,7 +163,7 @@ function translate(error: unknown): never {
     throw failure(409, "CONTENT_LEASE_HELD", `${name} is editing this document.`, { holder: view })
   }
   // Input diagnostics, such as a bad id or a stale cursor, describe the request rather than the server.
-  if (String(code) === code && /^(?:CONTENT|SOURCE)_R\d+$/.test(code)) throw failure(400, code, message)
+  if (String(code) === code && (/^(?:CONTENT|SOURCE)_R\d+$/.test(code) || contentInputErrorCodes.has(code) || contentDefinitionErrorCodes.has(code))) throw failure(400, code, message)
   throw error
 }
 

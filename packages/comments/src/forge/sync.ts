@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNotNull, isNull, like } from "drizzle-orm"
 
 import { commentForge } from "../operations-core/database.ts"
-import { createGitHubClient, GitHubRequestError } from "./github.ts"
+import { createGitHubClient, gitHubFailureStatus } from "./github.ts"
 import { commentMarker, renderComment, renderSummary, summaryMarker } from "./render.ts"
 import { recentGitHubToken } from "./tokens.ts"
 
@@ -54,7 +54,8 @@ function linkOf(thread: CommentThread, byId: ReadonlyMap<string, LinkRow>): Comm
 }
 
 function authorizationFailed(error: unknown): boolean {
-  return error instanceof GitHubRequestError && (error.status === 401 || error.status === 403 || error.status === 404)
+  const status = gitHubFailureStatus(error)
+  return status === 401 || status === 403 || status === 404
 }
 
 /** Runs tasks with the same key one after another, so two syncs of a thread or a pull request never interleave. */

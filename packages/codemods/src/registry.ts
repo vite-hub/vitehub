@@ -9,6 +9,7 @@ import { oneEntryImports } from "./one-entry-imports/index.ts"
 import { queueWorkflowVerbs } from "./queue-workflow-verbs/index.ts"
 import { renamedApis } from "./renamed-apis/index.ts"
 import { resend } from "./resend/index.ts"
+import { resultTuples } from "./result-tuples/index.ts"
 import { runtimeContracts } from "./runtime-contracts/index.ts"
 import { shellDriver } from "./shell-driver/index.ts"
 import { t3Env } from "./t3-env/index.ts"
@@ -29,6 +30,7 @@ export const codemods: readonly Codemod[] = [
   resend,
   rootAccessors,
   queueWorkflowVerbs,
+  resultTuples,
   nuxtCron,
   runtimeContracts,
   defineForms,
@@ -45,7 +47,8 @@ export const codemods: readonly Codemod[] = [
  * each one sees the edits of the ones before it. Config codemods run first: `vitehub-options` moves top-level feature
  * keys into `vitehub()`, where `agent-surface` then renames the Agent driver keys. `define-forms` moves the Database
  * files before the import codemods rewrite them. `root-accessors` moves `#vitehub/env/server` to `vite-hub/env` before
- * `one-entry-imports` joins the `vite-hub/env/*` imports with it. The codemods that move an app from another module, such
+ * `one-entry-imports` joins the `vite-hub/env/*` imports with it. `result-tuples` runs after `queue-workflow-verbs`, so it
+ * also reads the calls that `queue-workflow-verbs` renamed. The codemods that move an app from another module, such
  * as NuxtHub, are not upgrades, so only `npx @vite-hub/codemods` runs them.
  */
 export const upgradeCodemods: readonly Codemod[] = [
@@ -55,6 +58,7 @@ export const upgradeCodemods: readonly Codemod[] = [
   rootAccessors,
   oneEntryImports,
   queueWorkflowVerbs,
+  resultTuples,
   agentSurface,
   driverKey,
   renamedApis,

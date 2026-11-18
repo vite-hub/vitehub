@@ -5,7 +5,7 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: INTERNAL_B0002 to INTERNAL_B0014, INTERNAL_B0023, INTERNAL_B0024, INTERNAL_B0030, INTERNAL_B0034, INTERNAL_B0036 to INTERNAL_B0038, INTERNAL_B0041, INTERNAL_B0042, INTERNAL_B0044, INTERNAL_B0045, and INTERNAL_R0003.
+// Retired codes. Do not reuse them: INTERNAL_B0002 to INTERNAL_B0014, INTERNAL_B0023, INTERNAL_B0024, INTERNAL_B0030, INTERNAL_B0033, INTERNAL_B0034, INTERNAL_B0036 to INTERNAL_B0038, INTERNAL_B0041, INTERNAL_B0042, INTERNAL_B0044, INTERNAL_B0045, and INTERNAL_R0003.
 export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/development/diagnostics",
   codes: {
@@ -51,7 +51,6 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     INTERNAL_B0029: { ...dynamicError, fix: "Stop the other builds that write the same Deno output folder, delete the `.vitehub-lock` folder next to that output folder, such as `.output.vitehub-lock`, then build again." },
     INTERNAL_B0031: { ...dynamicError, fix: "Import `./schedule/deno-cron.mjs` at the top level of the project-root `main.ts`, for example with `await import(new URL(\"./schedule/deno-cron.mjs\", import.meta.url).href)` outside any condition." },
     INTERNAL_B0032: { ...dynamicError, fix: "Import `./server/index.mjs` at the top level of the project-root `main.ts`, for example with `await import(new URL(\"./server/index.mjs\", import.meta.url).href)` outside any condition." },
-    INTERNAL_B0033: { ...dynamicError, fix: "Add a `main.ts` file at the project root that imports `./schedule/deno-cron.mjs` and then `./server/index.mjs`, or remove the Schedules from `server/schedules/`." },
     INTERNAL_B0035: { ...dynamicError, fix: "Delete the provider output folder that holds the file that the message names, such as `dist/<app>` for Cloudflare, and build again." },
     INTERNAL_B0039: { ...dynamicError, fix: "Fix the build error that ViteHub showed before this one. ViteHub stops writing the provider output when another part of the build fails." },
     INTERNAL_B0040: { ...dynamicError, fix: "Remove the custom Nitro `output.serverDir`, so that the Nitro preset of the host writes the server entry that the message names." },

@@ -49,7 +49,7 @@ console.log(error.toJSON())
 | `AUTH_C0062` | A callback returns `secondaryStorage: true` or `{ store }`. Return a Better Auth `secondaryStorage` adapter. |
 | `AUTH_C0063` | A production build or server has an Auth Definition without `database` or `preset`. Set `database: authDatabase()`, use `preset: stateless()`, or set `database: "memory"` to keep users in one process. |
 | `AUTH_C0064` | `access.public` is not an inline array of route strings that start with `/`. |
-| `AUTH_C0065` | `access.policy` has no `allow` function, or `recheck` is not a number of milliseconds, 0 or more. |
+| `AUTH_C0065` | `access.policy` has no `allow` function. A `recheck` that is not a duration such as `'5m'` fails with `RUNTIME_DURATION_INVALID`. |
 | `AUTH_C0066` | `access.policy` is set, but Better Auth has no `database` or `secondaryStorage` adapter, so it cannot end a session. |
 | `AUTH_C0067` | `forwardAuth()` has no `header` or no `verify` function. |
 | `AUTH_C0068` | An `access.routes` entry uses route pattern syntax, such as `/api/users/:id`, `/api/admin/*`, or the encoded `/api/users/%3Aid`, or a `.` or `..` segment, such as `/api/x/../billing`. Access routes match literal paths. Use a final `/**`, such as `/api/users/**`, and check the parameter in the handler. |

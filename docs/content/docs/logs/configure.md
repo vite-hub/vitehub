@@ -32,7 +32,7 @@ An error in the browser does not reach your server logs. Set `browserErrors: tru
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', observability: { browserErrors: true } },
+  vitehub: { observability: { browserErrors: true } },
 })
 ```
 :::
@@ -44,7 +44,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ host: 'node', observability: { browserErrors: true } }),
+    vitehub({ observability: { browserErrors: true } }),
     nitro(),
   ],
 })
@@ -56,7 +56,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', observability: { browserErrors: true } })],
+  plugins: [vitehub({ observability: { browserErrors: true } })],
 })
 ```
 :::

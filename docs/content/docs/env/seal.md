@@ -15,7 +15,7 @@ import { seal, unseal } from 'vite-hub/env'
 const Upload = v.object({ userId: v.string() })
 
 export async function uploadUrl(userId: string) {
-  const ticket = await seal('my-app:upload', { userId }, { ttl: 900 })
+  const ticket = await seal('my-app:upload', { userId }, { ttl: '15m' })
   return `/api/uploads/${ticket}`
 }
 
@@ -27,7 +27,7 @@ export async function readTicket(ticket: string) {
 ```
 
 - **Purpose.** Each purpose has its own key, so a value sealed for `my-app:upload` does not open as `my-app:invite`. Name the purpose after its owner and its use. ViteHub reserves the `vitehub:` prefix.
-- **`ttl`.** Seconds until the value expires. Without `ttl`, the value does not expire.
+- **`ttl`.** How long until the value expires: a duration such as `'15m'`, or a number of seconds. Without `ttl`, the value does not expire.
 - **Value.** Any JSON value. Pass a [Standard Schema](https://standardschema.dev), such as a Valibot or Zod schema, as `schema` to check the value and get its type. Without `schema`, the value is `unknown`.
 - **Key.** Each purpose key comes from the [app secret](/docs/env/app-secret), `VITEHUB_SECRET`, with `deriveSecret('vitehub:seal:<purpose>')`. You do not write or store a key.
 - **Hosts.** Web Crypto (AES-GCM) does the work, so a value sealed on Node opens on Cloudflare Workers, and the other way round. On Cloudflare, pass `{ event }` so that ViteHub reads `VITEHUB_SECRET` from the bindings of that request.
@@ -56,7 +56,7 @@ export default defineEventHandler(async (event) => {
   }
   const page = issues.filter(issue => issue.id > after).slice(0, 20)
   const last = page.at(-1)
-  const next = last ? await seal('my-app:issues-cursor', { after: last.id }, { event, ttl: 3600 }) : undefined
+  const next = last ? await seal('my-app:issues-cursor', { after: last.id }, { event, ttl: '1h' }) : undefined
   return { issues: page, next }
 })
 ```
@@ -102,7 +102,7 @@ import { defineEventHandler, getRouterParam, HTTPError } from 'h3'
 import { db } from 'vite-hub/database'
 import { unseal } from 'vite-hub/env'
 
-// Create the link elsewhere: await seal('my-app:share', { apiKey }, { uses: 1, ttl: 3600, db })
+// Create the link elsewhere: await seal('my-app:share', { apiKey }, { uses: 1, ttl: '1h', db })
 export default defineEventHandler(async (event) => {
   const [error, shared] = await unseal('my-app:share', getRouterParam(event, 'token')!, { db })
   if (error) throw new HTTPError({ status: 410, message: error.why })
@@ -141,7 +141,7 @@ Store the result in a `text` column. `secret` takes a string, a Secret Env value
 
 ## Expiry and rotation
 
-- A value with `ttl` stops opening after that many seconds and returns `ENV_SEAL_EXPIRED`. The expiry is inside the signed part, so a client cannot change it.
+- A value with `ttl` stops opening after that time and returns `ENV_SEAL_EXPIRED`. The expiry is inside the signed part, so a client cannot change it.
 - To rotate `VITEHUB_SECRET`, set the new secret in `VITEHUB_SECRET` and the old one in `VITEHUB_SECRET_PREVIOUS`. `seal()` uses only `VITEHUB_SECRET`. `unseal()` tries `VITEHUB_SECRET`, then each old secret, so open links, cursors, and cookies keep working. When the longest `ttl` has passed, remove `VITEHUB_SECRET_PREVIOUS`. It holds one secret, or a comma-separated list.
 - Without `VITEHUB_SECRET_PREVIOUS`, a value sealed with an old secret returns `ENV_SEAL_INVALID`.
 - A value sealed with `secret` does not read `VITEHUB_SECRET` or `VITEHUB_SECRET_PREVIOUS`. To change `secret`, pass `[newSecret, oldSecret]` to `seal()` and `unseal()`, read each stored value and seal it again, then remove the old secret.

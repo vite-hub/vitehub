@@ -16,12 +16,12 @@ The [runtime methods](/docs/comments/server-api#runtime-methods) return `[error,
 - `docs`: a link to the code in [Comments diagnostics](/docs/comments/diagnostics).
 
 ```ts [server/api/threads/[id].get.ts] fragment
-import { createError, defineEventHandler, getRouterParam } from 'h3'
+import { defineEventHandler, getRouterParam, HTTPError } from 'h3'
 import { comments } from '../../comments'
 
 export default defineEventHandler(async (event) => {
   const [error, thread] = await comments.get(getRouterParam(event, 'id')!)
-  if (error?.code === 'COMMENTS_NOT_FOUND') throw createError({ status: 404, message: error.why })
+  if (error?.code === 'COMMENTS_NOT_FOUND') throw new HTTPError({ status: 404, message: error.why })
   if (error) throw error
   return thread
 })

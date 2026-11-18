@@ -179,7 +179,7 @@ export default defineChannel({ adapter: teams() })
 
 | Adapter | Chat SDK adapter for sends | `thread` | `replace` |
 | --- | --- | --- | --- |
-| `teams()` | Built from `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and `TEAMS_API_URL`. Install `@chat-adapter/teams`. | Yes | Yes |
+| `teams()` | Built from `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and the optional `TEAMS_API_URL`. Install `@chat-adapter/teams`. | Yes | Yes |
 | `slack({ adapter })` | Required. Pass your adapter, such as `createSlackAdapter()` from `@chat-adapter/slack`. | Yes | Yes |
 | `discord()` | Built from `DISCORD_APPLICATION_ID`, `DISCORD_BOT_TOKEN`, and `DISCORD_PUBLIC_KEY`. Install `@chat-adapter/discord`. | No | Yes |
 | `telegram()` | Built from `TELEGRAM_BOT_TOKEN` and `TELEGRAM_API_BASE_URL`, or the `botToken` and `apiBaseUrl` options. | No | Yes |

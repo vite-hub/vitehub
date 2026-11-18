@@ -5,6 +5,7 @@ import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare
 import { createWorkflow, getWorkflowRun } from "../src/runtime/client.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 import { enterWorkflowRuntimeEvent, getWorkflowRunState, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { unwrap } from "./unwrap.ts"
 
 afterEach(() => resetWorkflowRuntime())
 
@@ -17,15 +18,15 @@ async function runOnCloudflare(name: string, handler: () => unknown) {
   setWorkflowRuntimeRegistry(registry)
   const binding = { createBatch: vi.fn(), get: async (id: string) => ({ id, status: async () => ({ status: "complete", output }) }) }
   enterWorkflowRuntimeEvent({ req: { runtime: { cloudflare: { env: { [getCloudflareWorkflowBindingName(name)]: binding } } } } })
-  return await getWorkflowRun(name, "cf-1")
+  return await unwrap(getWorkflowRun(name, "cf-1"))
 }
 
 async function runInline(name: string, handler: () => unknown) {
   setWorkflowRuntimeConfig({ driver: "vercel" })
   const workflow = createWorkflow(name, handler)
-  await workflow.start(undefined, { id: "inline-1" })
+  await unwrap(workflow.start(undefined, { id: "inline-1" }))
   await getWorkflowRunState(name, "inline-1")!.promise
-  return await workflow.getRun("inline-1")
+  return await unwrap(workflow.getRun("inline-1"))
 }
 
 describe.each([

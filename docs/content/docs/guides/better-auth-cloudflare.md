@@ -31,8 +31,8 @@ Do not deploy the default Auth setup without one of these. It keeps users and se
 ### Install the packages
 
 ```bash [Terminal]
-pnpm add vite-hub @vite-hub/auth @vite-hub/database better-auth drizzle-orm
-pnpm add -D drizzle-kit wrangler
+pnpm add vite-hub @vite-hub/auth @vite-hub/database better-auth drizzle-orm@1.0.0-rc.5
+pnpm add -D drizzle-kit@1.0.0-rc.5 wrangler
 ```
 
 ### Enable Auth and Database

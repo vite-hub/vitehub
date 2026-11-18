@@ -20,6 +20,7 @@ describe("server auth helpers", () => {
       basePath: "/auth/",
       baseURL: "https://example.com",
       database: runtimeDatabase as never,
+      route: false,
       secret: "runtime-secret",
       secondaryStorage: runtimeSecondaryStorage as never,
     }))

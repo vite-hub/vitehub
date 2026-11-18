@@ -22,7 +22,7 @@ Start from the app of [Installation](/docs/getting-started/installation). You ne
 ### Install the packages
 
 ```bash [Terminal]
-pnpm add @vite-hub/agent @openai/codex@0.149.1
+pnpm add @vite-hub/agent @openai/codex@0.169.0
 ```
 
 `@openai/codex` installs one native Codex package for your OS and CPU. Without it, ViteHub uses `codex` from the host `PATH`. ViteHub downloads nothing during the build or at startup.
@@ -35,7 +35,6 @@ pnpm add @vite-hub/agent @openai/codex@0.149.1
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     agent: true,
     workflow: false,
   },
@@ -51,7 +50,6 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     agent: true,
     workflow: false,
   }), nitro()],
@@ -66,7 +64,6 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     agent: true,
     workflow: false,
   })],
@@ -131,14 +128,14 @@ With neither a gateway nor `credentials`, Codex uses the host user's Codex Home.
 ### Call the Agent from a route
 
 ```ts [server/api/review.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { runAgent } from 'vite-hub/agent'
 import reviewer from '../agents/reviewer'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ prompt?: unknown }>(event)
   if (typeof body?.prompt !== 'string' || !body.prompt.trim()) {
-    throw createError({ statusCode: 400, message: 'Send a non-empty prompt.' })
+    throw new HTTPError({ status: 400, message: 'Send a non-empty prompt.' })
   }
 
   const [error, result] = await runAgent(reviewer, { prompt: body.prompt })
@@ -230,7 +227,7 @@ Every run is an Invocation. Read it from code, the CLI, or the Console:
 
 | Host | Support |
 | --- | --- |
-| Self-hosted Node.js on Linux or macOS, arm64 or x64 | Supported. Use `host: 'node'`. |
+| Self-hosted Node.js on Linux or macOS, arm64 or x64 | Supported. ViteHub builds for Node when it detects no other host. |
 | `vite dev` on Linux or macOS | Supported. |
 | Cloudflare Workers | Not supported. A Worker build with a provider Driver fails with `AGENT_B0019`. In dev, the Invocation fails with `AGENT_R0928`. |
 | Deno | Not supported. |

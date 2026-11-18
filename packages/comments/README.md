@@ -129,7 +129,7 @@ On a preview, `forge: { provider: "github" }` posts each thread to the pull requ
 | `@vite-hub/comments/anchor` | DOM anchoring: `createAnchor()`, `placeAnchor()`, `selectorOf()`, `labelOf()`. |
 | `@vite-hub/comments/database` | `commentsSchema`, the Drizzle tables, and `commentsTables`, the statements that create them. |
 | `@vite-hub/comments/realtime` | `commentsRealtime()`, the presence room Realtime Definition. |
-| `@vite-hub/comments/runtime` | `createCommentsHandler()` and `defineCommentsPlugin()` for a manual Nitro setup; `commentsMcpTools()` for an app's own MCP server. |
+| `@vite-hub/comments/runtime` | `createCommentsHandler()` and `defineCommentsPlugin()` for a manual Nitro setup; `commentsMcpTools()` and `mcpToolResult()` for an app's own MCP server. |
 | `@vite-hub/comments/vite` | `comments()`, the plugin for apps without `vite-hub`, and `hubComments()`, the integration that `vitehub()` adds. |
 | `@vite-hub/comments/runtime/connect` | `connectDatabase()` of `@vite-hub/database/connect`, for the files that `comments()` generates. `/node` also opens SQLite files. |
 
@@ -145,7 +145,7 @@ const handler = createCommentsHandler({ comments, realtime: false });
 const response = await handler.fetch(new Request("https://site.test/api/_vitehub/comments/threads?page=/"));
 ```
 
-`commentsMcpTools(comments)` returns tools with `call(input, { user })`, where your server authenticates `user` or passes `null` for an anonymous caller. With a request `event`, such as the Request or an H3 event, a configured Comments `identify` or session reader takes precedence over `user`. The `page` filter of `comments_list_threads` and of `comments.threads` takes a path such as `/pricing` or a full URL of the page. When `authorize` hides threads from the caller, the list says how many and why, and its structured output has a `hidden` count. See [Fix comments with an Agent](https://vitehub.dev/docs/comments/configure#fix-comments-with-an-agent).
+`commentsMcpTools(comments)` returns tools with `call(input, { user })`, where your server authenticates `user` or passes `null` for an anonymous caller. A call returns `{ text, images, structured, isError }`: `comments_get_thread` puts the image attachments of the thread in `images`, up to 4 MB. `mcpToolResult(result)` turns it into the MCP tool result, with one `image` block for each image. With a request `event`, such as the Request or an H3 event, a configured Comments `identify` or session reader takes precedence over `user`. The `page` filter of `comments_list_threads` and of `comments.threads` takes a path such as `/pricing` or a full URL of the page. When `authorize` hides threads from the caller, the list says how many and why, and its structured output has a `hidden` count. See [Fix comments with an Agent](https://vitehub.dev/docs/comments/configure#fix-comments-with-an-agent).
 
 ## Learn more
 

@@ -25,6 +25,7 @@ const ConsoleMcpClient = () => import("../components/console-mcp-client.vue");
 const ConsoleMcpCallback = () => import("../components/console-mcp-callback.vue");
 const ConsoleSkills = () => import("../components/console-skills.vue");
 const ConsoleSetup = () => import("../components/console-setup.vue");
+const ConsoleWebhooks = () => import("../components/console-webhooks.vue");
 import {
   consoleDatabasesSchemaPath,
   consoleDatabasesTablePath,
@@ -39,7 +40,7 @@ import { addViteHubIcons, deferLucideIcons } from "./icons";
 import { loadConsolePageTools } from "./page-tools";
 import { consoleProjectReady, openConsoleProject, openConsoleSite, startConsoleAccount, startConsoleProjects, useConsoleProjects } from "./project-session";
 import { memoryProjectStorage } from "./projects";
-import { consolePendingSectionRoute, consoleSectionsPath, createConsoleSectionLoader, loadConsoleNavigation, resolveConsoleSectionDeepLink, subscribeConsoleNavigation } from "./sections";
+import { consolePendingSectionRoute, consoleSectionsPath, createConsoleSectionLoader, isConsoleSectionRevoked, loadConsoleNavigation, resolveConsoleSectionDeepLink, subscribeConsoleNavigation } from "./sections";
 
 // The Console app marks its page `account`: people sign in, and the Console server signs and forwards the calls of
 // their team's projects. Otherwise the page and the app share one origin, as in the Console playground, and the Console
@@ -59,6 +60,8 @@ const appearance = startConsoleAppearance({
 
 /** @type {import("./account-views").ConsoleAccountViews} */
 const accountViews = {};
+// The app opened in the same task from the answers that the device kept from the last visit.
+let openedAtOnce = false;
 
 if (account) {
   // The Console server drew the first view of the visit from its path and cookies (`@vite-hub/console`, src/page.ts).
@@ -85,11 +88,12 @@ if (account) {
   ]);
   const projects = useConsoleProjects();
   // The app answers before the page renders, so the first paint changes once: to the app, or to the step it needs. A
-  // slow app gets 2.5 seconds. Then the page renders and says that the app is still opening.
-  // A `/_vitehub` link returns to the app as soon as it answers.
+  // slow app gets 2.5 seconds. Then the page renders and says that the app is still opening. With the answer that the
+  // device kept from the last visit, the app opens at once.
   if (projects.gate.value.kind === "site") void openConsoleSite();
   else if (projects.gate.value.kind === "opening") {
     const opening = openConsoleProject().catch(() => undefined);
+    openedAtOnce = projects.gate.value.kind === "ready";
     // While the app answers, the code of its first frame loads: the team menu and the app switcher of the rail, and the
     // Overview on the home path. The timer lets the request to the app go out first.
     setTimeout(() => {
@@ -97,7 +101,7 @@ if (account) {
       void import("../components/console-account-link.vue").catch(() => undefined);
       if (window.location.pathname === consoleBase) void ConsoleHome().catch(() => undefined);
     });
-    await Promise.race([opening, new Promise(resolve => setTimeout(resolve, 2_500))]);
+    await Promise.race([opening, consoleProjectReady(), new Promise(resolve => setTimeout(resolve, 2_500))]);
   }
   // The next visit to the home path draws the frame that this one shows: an open app, or the team sidebar.
   watch(() => projects.gate.value.kind, (kind) => {
@@ -376,14 +380,26 @@ const loadSections = createConsoleSectionLoader(sectionsBase);
 // The document editor loads Tiptap and the Comark kit, so it is a separate chunk.
 const ConsoleDocuments = () => import("../components/console-documents.vue");
 
-/** Adds one route for each installed section that an owner package contributes. */
+const contributedRoutes = new Map();
+let contributedNavigationVersion = 0;
+
+/** Replaces contributed routes and their descriptors with this visit's navigation. */
 function addContributedRoutes(navigation) {
+  const current = router.currentRoute.value;
+  const refresh = current.matched.some(route => contributedRoutes.has(route.name));
+  for (const remove of contributedRoutes.values()) remove();
+  contributedRoutes.clear();
+  contributedNavigationVersion++;
+  const addRoute = (route) => contributedRoutes.set(route.name, router.addRoute({
+    ...route,
+    meta: { ...route.meta, contributedNavigationVersion },
+  }));
   for (const section of navigation.sections) {
     const details = navigation.contributions[section];
     const name = consoleSectionRouteName(section);
     if (!details || router.hasRoute(name)) continue;
     if (details.view.kind === "auth-management") {
-      router.addRoute({
+      addRoute({
         component: ConsoleAuth,
         name,
         path: "/auth/:page(overview|users|sessions|organizations|agents|activity)?",
@@ -405,11 +421,11 @@ function addContributedRoutes(navigation) {
       // The main view and every page render the same component, so the section sidebar stays mounted between them.
       for (const route of describeConsoleSectionRoutes(details)) {
         if (route.redirect) {
-          router.addRoute({ name: route.name, path: route.path, redirect: route.redirect });
+          addRoute({ name: route.name, path: route.path, redirect: route.redirect });
           continue;
         }
         const page = details.pages?.find(entry => entry.id === route.page);
-        router.addRoute({
+        addRoute({
           component: ConsoleDocuments,
           name: route.name,
           path: route.path,
@@ -419,8 +435,18 @@ function addContributedRoutes(navigation) {
       }
       continue;
     }
-    if (details.view.kind === "operation-view") {
+    if (details.view.kind === "webhooks") {
       router.addRoute({
+        component: ConsoleWebhooks,
+        name,
+        path: `/${section}`,
+        meta: { consoleSection: section, title: `${details.label} · ViteHub Console` },
+        props: { definitionsBase: "/_vitehub/api/definitions", details, sectionsBase },
+      });
+      continue;
+    }
+    if (details.view.kind === "operation-view") {
+      addRoute({
         component: ConsoleOperationView,
         name,
         path: `/${section}`,
@@ -429,7 +455,7 @@ function addContributedRoutes(navigation) {
       });
       continue;
     }
-    router.addRoute({
+    addRoute({
       component: ConsoleDefinitions,
       name,
       path: `/${section}`,
@@ -448,8 +474,20 @@ function addContributedRoutes(navigation) {
       },
     });
   }
+  if (refresh) {
+    const next = router.resolve(current.fullPath);
+    const pageRemoved = current.meta.consolePage && next.meta.consolePage !== current.meta.consolePage;
+    void router.replace(next.matched.length && !pageRemoved
+      ? { path: current.path, query: current.query, hash: current.hash, force: true }
+      : { name: "vitehub-console", force: true });
+  }
 }
 subscribeConsoleNavigation(sectionsBase, addContributedRoutes);
+// An `account` Console opens with the navigation that the device kept. When the answer of this visit no longer has the
+// section of the page, the page goes to the Overview.
+subscribeConsoleNavigation(sectionsBase, (navigation) => {
+  if (isConsoleSectionRevoked(router.currentRoute.value.meta.consoleSection, navigation)) void router.replace({ name: "vitehub-console" });
+});
 
 router.beforeEach(async (to) => {
   // The first page waits until the project opens, so its requests go to the open project.
@@ -479,13 +517,17 @@ router.afterEach((to, _from, failure) => {
 });
 addViteHubIcons();
 deferLucideIcons();
-createApp(App, { sectionsBase })
+const app = createApp(App, { sectionsBase })
   .provide(consoleAppearanceKey, appearance)
   .provide(consoleAccountViewsKey, accountViews)
   .use(router)
   .use(ui, { router: () => router.currentRoute.value })
-  .use(createViteHubUI({ icons: vitehubTheme.icons }))
-  .mount("#app");
+  .use(createViteHubUI({ icons: vitehubTheme.icons }));
+// An app that opened from the device renders its first page in the first frame: the router loads the code of the page,
+// usually from the HTTP cache, before the mount. A page whose code takes more than 1 second mounts in the frame, which
+// says that the Console is opening.
+if (openedAtOnce) await Promise.race([router.isReady().catch(() => undefined), new Promise(resolve => setTimeout(resolve, 1_000))]);
+app.mount("#app");
 // The page tools, such as Comments on the Console's own pages, start after the mount, so their session check and code
 // do not delay the Console. The account page tells the server not to add them (hosted/account.html).
 if (account) void loadConsolePageTools(consoleBase, { search: window.location.search, cookie: document.cookie });

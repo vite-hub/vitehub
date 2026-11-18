@@ -119,13 +119,13 @@ export const forecast = defineChoices({
 Create `server/api/choices.post.ts`. It calls `resolve()` with the text that the person typed:
 
 ```ts [server/api/choices.post.ts]
-import { createError, defineEventHandler, readBody } from "h3"
+import { defineEventHandler, HTTPError, readBody } from "h3"
 import { forecast } from "../utils/forecast-choices"
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ text?: string }>(event)
   const [error, selection] = await forecast.resolve(body?.text ?? "")
-  if (error) throw createError({ statusCode: 422, message: error.message })
+  if (error) throw new HTTPError({ status: 422, message: error.message })
   return selection
 })
 ```
@@ -193,7 +193,7 @@ In Vite, add the Vue plugin. Nuxt includes Vue:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: "node" },
+  vitehub: {},
 })
 ```
 ::::
@@ -206,7 +206,7 @@ import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [vue(), vitehub({ host: "node" }), nitro()],
+  plugins: [vue(), vitehub(), nitro()],
 })
 ```
 ::::
@@ -218,7 +218,7 @@ import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [vue(), vitehub({ host: "node" })],
+  plugins: [vue(), vitehub()],
 })
 ```
 ::::
