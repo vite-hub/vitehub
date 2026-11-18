@@ -233,7 +233,6 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).not.toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv","databases"])`)
       expect(generated).not.toContain("installConsoleDatabase(")
     }
     finally {

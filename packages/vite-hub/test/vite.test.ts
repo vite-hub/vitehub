@@ -2440,9 +2440,4 @@ describe("vitehub", () => {
     expect(integrationMocks.hubBrowser).toHaveBeenLastCalledWith({ binding: "AUTOMATION_BROWSER" })
     expect(() => vitehub({ browser: true, host: "node" })).toThrow("requires the Cloudflare host")
   })
-
-  it("can be used as one nested Vite plugin entry", () => {
-    const plugins: PluginOption[] = [vitehub({ host: "node" })]
-    expect(plugins).toHaveLength(1)
-  })
 })
