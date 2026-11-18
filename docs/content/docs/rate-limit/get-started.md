@@ -31,7 +31,7 @@ Add `rateLimit: true` to the ViteHub options in `nuxt.config.ts` or `vite.config
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', rateLimit: true },
+  vitehub: { rateLimit: true },
 })
 ```
 ::::
@@ -43,7 +43,7 @@ import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', rateLimit: true }), nitro()],
+  plugins: [vitehub({ rateLimit: true }), nitro()],
 })
 ```
 ::::
@@ -54,7 +54,7 @@ import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', rateLimit: true })],
+  plugins: [vitehub({ rateLimit: true })],
 })
 ```
 ::::

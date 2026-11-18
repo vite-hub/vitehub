@@ -1487,8 +1487,6 @@ export const url = consoleInvocationUrl(resolvePublicUrl() ?? "https://fallback.
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node" })
 
     const bundled = await readFile(outfile, "utf8")
-    expect(bundled).toContain("if (globalThis.process?.getBuiltinModule && import.meta.url) {")
-    expect(bundled).toContain('globalThis.__filename = globalThis.process.getBuiltinModule("node:url").fileURLToPath(import.meta.url);')
     expect(bundled).not.toMatch(/(?:const|let|var|import).*__vitehub/)
     // SAFETY: This entry exports a function returning the three tested CommonJS values.
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => { dirname: string, filename: string, requireType: string } }

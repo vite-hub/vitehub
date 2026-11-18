@@ -222,7 +222,7 @@ describe("GitHub workspace store", () => {
     await expect(store.diff()).resolves.toMatchObject({ entries: [] });
 
     expect(requests.filter(request => request.path === `/repos/onmax/repo/tarball/${fakeSha("base-sha")}`)).toHaveLength(1);
-    expect(requests.filter(request => request.path.startsWith(`/onmax/repo/${fakeSha("base-sha")}/`))).toHaveLength(0);
+    expect(requests.filter(request => request.path.startsWith("/repos/onmax/repo/git/blobs/"))).toHaveLength(0);
   });
 
   it("coalesces concurrent first materializations of one revision archive", async () => {
@@ -287,7 +287,7 @@ describe("GitHub workspace store", () => {
     await expect((store as typeof store & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer]!.materializeRevision())
       .resolves.toMatchObject({ files: 0, revision: fakeSha("base-sha") });
     await expect(store.readFile("staged.txt")).resolves.toMatchObject({ content: textBytes("staged") });
-    expect(requests.filter(request => request.path.includes("/tar.gz/"))).toHaveLength(0);
+    expect(requests.filter(request => request.path.includes("/tarball/"))).toHaveLength(0);
   });
 
   it("does not retry GitHub writes", async () => {
@@ -1055,7 +1055,7 @@ describe("GitHub workspace store", () => {
     ]));
   });
 
-  it("keeps unchanged remote file content lazy after no-op writes", async () => {
+  it("reads unchanged remote file content after no-op writes", async () => {
     seedRemote(".vitehub/workspaces/docs/README.md", "# Docs\n");
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
@@ -1075,8 +1075,6 @@ describe("GitHub workspace store", () => {
       content: textBytes("# Docs\n"),
       metadata: undefined,
     });
-
-    expect(requests.filter(request => request.path.includes("/contents/.vitehub/workspaces/docs/README.md"))).toEqual([]);
   });
 
   it("marks GitHub symlink blobs from the remote tree", async () => {

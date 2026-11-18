@@ -19,7 +19,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: {
       // Safe to show in the browser
       public: {
@@ -49,7 +48,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       // Safe to show in the browser
       public: {
@@ -78,7 +76,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       // Safe to show in the browser
       public: {
