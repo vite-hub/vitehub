@@ -270,7 +270,7 @@ describe("hubWorkspace contributions", () => {
     const userConfig = { nitro: {}, plugins: [[owner as Plugin]], root }
 
     await config(userConfig, { command: "serve", mode: "development" })
-    expect(userConfig.nitro).toMatchObject({ plugins: [".vitehub/nitro/workspace/plugin.ts"] })
+    expect(userConfig.nitro).toMatchObject({ plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")] })
     const registrySource = await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")
     expect(registrySource).toContain("import(\"content-owner/workspace\")")
 
@@ -310,7 +310,7 @@ describe("hubWorkspace contributions", () => {
       viteRoot: root,
     })
 
-    expect(nitro).toMatchObject({ plugins: [".vitehub/nitro/workspace/plugin.ts"] })
+    expect(nitro).toMatchObject({ plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")] })
     const { default: registry }: { default: Record<string, () => Promise<{ default: { label: string } }>> } = await import(pathToFileURL(join(root, ".vitehub", "nitro", "workspace", "registry.js")).href)
     expect(Object.keys(registry)).toEqual(["content"])
     await expect(registry.content!()).resolves.toEqual({ default: { label: "package content" } })

@@ -841,7 +841,7 @@ describe("content capability with the Actor of a chat", () => {
       invoker: signedIn,
     })
     // SAFETY: The generated route accepts every Agent Definition that defineAgent() returns.
-    const response = await createChannelChatRouteHandler(agent as never)(new Request("https://example.com/api/_vitehub/agents/editor/chat", {
+    const response = await createChannelChatRouteHandler(agent as never)(new Request("https://example.com/_vitehub/agents/editor/chat", {
       body: JSON.stringify({ messages: [{ id: "message-1", parts: [{ text: "Draft a post.", type: "text" }], role: "user" }] }),
       headers,
       method: "POST",

@@ -13,7 +13,7 @@ icon: i-lucide-refresh-cw
   import { defineSync } from 'vite-hub/sync'
   import { todos } from '../databases/default'
 
-  // One file is one synced table, at /api/_vitehub/sync/todos
+  // One file is one synced table, at /_vitehub/sync/todos
   export default defineSync({
     table: todos,
     where: ({ user }) => user ? { ownerId: user.id } : false,

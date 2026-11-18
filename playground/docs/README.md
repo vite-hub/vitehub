@@ -17,7 +17,7 @@ corepack pnpm dev
 Open <http://127.0.0.1:4731/docs/getting-started/install>, select **Ask** (or press `⌘I`), and ask "How do I install Lumen?". Without a ChatGPT grant, the panel shows **Connect ChatGPT** and the sign-in command. The same request from a terminal:
 
 ```sh
-curl -s -X POST http://127.0.0.1:4731/api/_vitehub/agents/docs/chat \
+curl -s -X POST http://127.0.0.1:4731/_vitehub/agents/docs/chat \
   -H 'content-type: application/json' \
   --data '{"id":"t1","page":"/docs/getting-started/install","messages":[{"id":"m1","role":"user","parts":[{"type":"text","text":"How do I install Lumen?"}]}]}'
 ```

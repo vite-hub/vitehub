@@ -52,7 +52,7 @@ export default defineAgent({
 
 The Agent answers the messages of each Channel that it lists. A Channel sends its messages to one Agent, so two Agents cannot list the same name. ViteHub reads the names from the Agent file, so write them as string literals. A Channel that adds an Agent Workspace, such as `github({ pullRequest: { workspace: true } })`, goes inline instead: `channels: { github: github({ pullRequest: { workspace: true } }) }`. Code that builds an Agent outside `server/agents`, such as a test, also passes its Channels inline, by name.
 
-The server bundle contains only the adapters that you import, so an Agent with only `webChat()` does not ship the Discord or Teams adapters. Every Channel also answers webhooks at `/api/_vitehub/channels/<name>`.
+The server bundle contains only the adapters that you import, so an Agent with only `webChat()` does not ship the Discord or Teams adapters. Every Channel also answers webhooks at `/_vitehub/channels/<name>`.
 
 Built-in adapters include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/docs/agents/forge-channels), [`gmail()`](/docs/agents/gmail), `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `channelAdapter(kind, options)` for a platform without a built-in adapter, such as your own Chat SDK adapter.
 
@@ -101,12 +101,12 @@ export default defineConfig({
 Each simulated Channel replaces its provider with the Chat SDK [web adapter](https://chat-sdk.dev/adapters/official/web). Its webhook route accepts an AI SDK chat request and streams the reply as an AI SDK UI message stream:
 
 ```sh
-curl -N http://localhost:3000/api/_vitehub/agents/support/webhooks/discord \
+curl -N http://localhost:3000/_vitehub/agents/support/webhooks/discord \
   -H 'content-type: application/json' \
   -d '{"id":"try-1","messages":[{"id":"m1","role":"user","parts":[{"type":"text","text":"Hello"}]}]}'
 ```
 
-Open the Channel's webhook URL in a browser, such as `http://localhost:3000/api/_vitehub/agents/support/webhooks/discord`, to chat with the Agent in a page that looks like the platform. The page is an unofficial simulator. It sends each message to the same route and shows the reply as it streams. Its top bar links the chat pages of the Agent's other simulated Channels.
+Open the Channel's webhook URL in a browser, such as `http://localhost:3000/_vitehub/agents/support/webhooks/discord`, to chat with the Agent in a page that looks like the platform. The page is an unofficial simulator. It sends each message to the same route and shows the reply as it streams. Its top bar links the chat pages of the Agent's other simulated Channels.
 
 `pnpm vitehub channels list` marks each simulated Channel and prints the path of its chat page. The `channels.list` operation returns them as `simulated: true` and `simulator`. The Console Channels page marks them too, and shows the chat page of the selected one with an **Open chat** button.
 
@@ -249,7 +249,7 @@ The Console shows the call, such as `label(["Receipts"])`. This text is Invocati
 
 ## Webhook paths
 
-Set `webhooks.path` to choose the webhook URL. On Nitro hosts, it is served next to `/api/_vitehub/agents/:agent/webhooks/:webhook` with the same handler, authentication, HEAD probe, and history export. Other routes keep their request body.
+Set `webhooks.path` to choose the webhook URL. On Nitro hosts, it is served next to `/_vitehub/agents/:agent/webhooks/:webhook` with the same handler, authentication, HEAD probe, and history export. Other routes keep their request body.
 
 - When Agents share a path, each Agent's `publicUrl` host selects by request host.
 - `agent.routes.aliases[path]` set to `{ agent, webhook }` picks the owner yourself.
@@ -258,7 +258,7 @@ Set `webhooks.path` to choose the webhook URL. On Nitro hosts, it is served next
 
 ### Give a Channel its own route
 
-A Channel with the `webhook()` or `stripe()` adapter from `vite-hub/channels` does not need an Agent. Put it in `server/channels/<name>.ts` and ViteHub serves `/api/_vitehub/channels/<name>`, plus the adapter's `path` and `aliases`. A trigger selects the Agent that runs with a [task](/docs/agents/triggers):
+A Channel with the `webhook()` or `stripe()` adapter from `vite-hub/channels` does not need an Agent. Put it in `server/channels/<name>.ts` and ViteHub serves `/_vitehub/channels/<name>`, plus the adapter's `path` and `aliases`. A trigger selects the Agent that runs with a [task](/docs/agents/triggers):
 
 ```ts [server/channels/tickets/index.ts] fragment
 import { defineChannelTrigger } from 'vite-hub/agent/channels'
@@ -285,7 +285,7 @@ export default defineChannel({
 
 - The Channel name comes from the file, or from the folder of an `index` module. In a folder with an `index` module, the other files, such as `events.ts`, are helpers.
 - ViteHub reads `path` and `aliases` from the source without running the module. Use string literals, or `const` values in the same module that hold them. Any other value fails the build with `AGENT_B0024`.
-- When an Agent lists the Channel, that Agent serves its routes. Otherwise the route also answers at `/api/_vitehub/agents/channel-<name>/webhooks/<name>`. `channel-<name>` is the host that owns the Channel's webhook State and queue. It is not an Agent Definition, so it cannot have the name of one.
+- When an Agent lists the Channel, that Agent serves its routes. Otherwise the route also answers at `/_vitehub/agents/channel-<name>/webhooks/<name>`. `channel-<name>` is the host that owns the Channel's webhook State and queue. It is not an Agent Definition, so it cannot have the name of one.
 - Channels that receive webhooks without an Agent need a Nitro host. Restart the development server after you add or remove one.
 
 A task's `agent` can be a definition or a resolver that returns a definition or its default-export module. Use a lazy import as above when the target Agent lists this Channel. ViteHub resolves it before binding the task callbacks and stores the resolved Agent name with queued deliveries. Keep static imports of the owning Agent out of the Channel and its helpers. ViteHub reports cycles through local imports at build time.
@@ -1026,7 +1026,7 @@ export default defineAgent({
 
 ## Connect a web chat
 
-`webChat()` adds a chat route at `/api/_vitehub/agents/[agent]/chat`. Set `route: false` to keep the Agent off this shared route. Turn on Agents in the config:
+`webChat()` adds a chat route at `/_vitehub/agents/[agent]/chat`. Set `route: false` to keep the Agent off this shared route. Turn on Agents in the config:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}

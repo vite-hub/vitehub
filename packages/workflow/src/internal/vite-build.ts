@@ -22,10 +22,11 @@ import type { Plugin } from "esbuild"
 
 import { normalizeWorkflowOptions } from "../config.ts"
 import { discoverWorkflowDefinitions } from "../discovery.ts"
+import { readWorkflowStepOptions } from "./step-options.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName, getLegacyCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
 import { generatedNativeEntryKey, workflowStartAtKey } from "../runtime/delay.ts"
 
-import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowOptions, WorkflowDriver } from "../types.ts"
+import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowOptions, WorkflowDriver, WorkflowStepOptions } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputOptions, ProviderDeploymentOutputWriter, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
 import type { Plugin as VitePlugin } from "vite"
@@ -1012,19 +1013,38 @@ function getGeneratedVercelWorkflowExport(definition: DiscoveredWorkflowDefiniti
 /** `@workflow/core` keeps the `sleep()` implementation of the Workflow VM on `globalThis` under this registered symbol. */
 export const vercelWorkflowSleepSymbol = "WORKFLOW_SLEEP"
 
-function createVercelNativeWorkflowContents(
+/**
+ * The Workflow VM does not load the step files, so the step options are literals here. Workflow DevKit reads
+ * `maxRetries` from the step function. It has no step timeout, so the step body runs each attempt with the ViteHub
+ * timer, which it imports only inside the step.
+ */
+function renderVercelNativeStep(name: string, implementation: string, step: string, options: WorkflowStepOptions): string {
+  const body = options.timeout === undefined
+    ? `  return await ${implementation}(input, { signal: new AbortController().signal })`
+    : [
+        `  const { runWorkflowStepAttempt } = await import(${JSON.stringify(workflowRuntimeModule("execute"))})`,
+        `  return await runWorkflowStepAttempt(${JSON.stringify(step)}, ${JSON.stringify(options.timeout)}, context => ${implementation}(input, context))`,
+      ].join("\n")
+  return [
+    `async function ${name}(input) {\n  "use step"\n${body}\n}`,
+    ...(options.retries?.limit === undefined ? [] : [`${name}.maxRetries = ${options.retries.limit}`]),
+  ].join("\n")
+}
+
+async function createVercelNativeWorkflowContents(
   definition: DiscoveredWorkflowDefinition,
-): string {
+): Promise<string> {
   const imports: string[] = []
   const workflows: string[] = []
   const workflowExport = getGeneratedVercelWorkflowExport(definition)
   const steps = definition.steps
   if (!workflowExport || !steps) return ""
+  const stepOptions = await Promise.all(steps.map(readWorkflowStepOptions))
   const stepNames = steps.map((step, index) => {
     const implementation = `${workflowExport}Step${index}Implementation`
     const name = `${workflowExport}Step${index}`
     imports.push(`import ${implementation} from ${JSON.stringify(step)}`)
-    workflows.push(`async function ${name}(input) {\n  "use step"\n  return await ${implementation}(input)\n}`)
+    workflows.push(renderVercelNativeStep(name, implementation, `${definition.name}/${relative(definition.handler, step)}`, stepOptions[index]!))
     return name
   })
   // Workflow DevKit `start()` has no delay, so a delayed run sleeps until its start time before the first step. Every
@@ -1052,7 +1072,7 @@ function renderWorkflowRegistryEntry(
   const workflowDirectory = /\.(?:c|m)?[jt]s$/i.test(definition.handler) ? dirname(definition.handler) : definition.handler
   const stepImports = definition.steps.map((step) => {
     const stepName = relative(workflowDirectory, step)
-    return `{ name: ${JSON.stringify(stepName)}, run: (await ${renderRegistryImport(registryFile, step)}).default }`
+    return `{ name: ${JSON.stringify(stepName)}, ...await ${renderRegistryImport(registryFile, step)}.then(step => ({ options: { retries: step.retries, timeout: step.timeout }, run: step.default })) }`
   })
 
   const hasIndex = /\.(?:c|m)?[jt]s$/i.test(definition.handler)
@@ -1326,8 +1346,13 @@ export async function writeProviderEntries(
   if (nativeDefinitions.length) await mkdir(vercelNativeDir, { recursive: true })
   await Promise.all(nativeDefinitions.map(async definition => {
     const nativeFile = vercelNativeFiles[definition.name]
-    await writeFile(nativeFile, createVercelNativeWorkflowContents(definition), "utf8")
+    await writeFile(nativeFile, await createVercelNativeWorkflowContents(definition), "utf8")
   }))
+  // A step file of a folder with `index.ts` gets no native step, so the build checks its options here.
+  await Promise.all(definitions
+    .filter(definition => !getGeneratedVercelWorkflowExport(definition))
+    .flatMap(definition => definition.steps ?? [])
+    .map(async step => await readWorkflowStepOptions(step)))
   const registryRuntimeFile = resolve(generatedDir, generatedRegistryRuntimeFileName)
   const agentModules = importBases.agent ?? (providerDefinitions.some(definition => definition.source === "agent-workflow")
     ? await installedAgentWorkflowModules(rootDir)
@@ -1643,6 +1668,19 @@ async function updateVercelWorkflowFunctionOwnership(rootDir: string, activeServ
   await Promise.all(removedFunctionRoots.map(functionRoot => rm(functionRoot, { force: true, recursive: true })))
 }
 
+/** Workflow DevKit retries a step after about one second, so a Vercel native step cannot set `delay` or `backoff`. */
+export async function assertVercelStepRetries(definitions: DiscoveredWorkflowDefinition[]): Promise<void> {
+  for (const definition of definitions) {
+    if (!getGeneratedVercelWorkflowExport(definition)) continue
+    for (const step of definition.steps ?? []) {
+      const { retries } = await readWorkflowStepOptions(step)
+      if (retries?.delay !== undefined || retries?.backoff !== undefined) {
+        throw workflowErrorDiagnostics.WORKFLOW_STEP_RETRY_DELAY_UNSUPPORTED({ file: step })
+      }
+    }
+  }
+}
+
 async function generateProviderOutputsWithinLock(
   options: GenerateProviderOutputsOptions,
   writeProviderDeploymentOutputs: (options: ProviderDeploymentOutputOptions) => Promise<void>,
@@ -1655,6 +1693,7 @@ async function generateProviderOutputsWithinLock(
   }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry, options.definitionRootDir)
   const { cloudflare: cloudflareWorkflowConfig, vercel: vercelWorkflowConfig } = resolveWorkflowProviderOutputs(options.workflow, options.hosting, options.inline)
   const vercelWorkflow = Boolean(vercelWorkflowConfig && vercelWorkflowConfig.driver === "vercel")
+  if (vercelWorkflow) await assertVercelStepRetries(artifacts.providerDefinitions)
   const workflowTransformPlugin = vercelWorkflow && !options.nitroServer
     ? await createVercelWorkflowTransformPlugin(options.rootDir)
     : undefined

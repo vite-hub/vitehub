@@ -248,7 +248,7 @@ export interface AgentChannelWebhookRouteHandler {
    * Builds what the first delivery would otherwise build: the trigger registrations, the webhook secrets,
    * the connected and migrated webhook State, and its queue backend ID. Call it at startup so that the first
    * delivery does not wait for this work. The generated webhook queue plugin calls it, and
-   * `/api/_vitehub/ready` answers 503 until it finishes. It rejects with the error that the first delivery
+   * `/_vitehub/ready` answers 503 until it finishes. It rejects with the error that the first delivery
    * would get, for example when a secret resolver or the State connection fails.
    */
   warm(options?: AgentChannelWebhookRouteOptions): Promise<void>

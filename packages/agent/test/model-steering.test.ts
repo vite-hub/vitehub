@@ -214,7 +214,7 @@ describe("model Driver steering", () => {
     }))
     const tasks: Array<Promise<unknown>> = []
 
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+    const response = await handler(new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
       body: JSON.stringify({ message: { chat: { id: 456, type: "private" }, date: telegramDate, from: maxi, message_id: 8_601, text: "Why is the connector down?" }, update_id: 8_601 }),
       method: "POST",
     }), "telegram", { agentName: "support", waitUntil: task => tasks.push(Promise.resolve(task)) })

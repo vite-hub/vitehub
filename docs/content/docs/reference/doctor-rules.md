@@ -160,6 +160,8 @@ The rule checks these calls:
 - every async method of the `kv` and `blob` Runtime Helpers, of stores from `.store(name)`, and of `blob.media`
 - `email.send()` from `vite-hub/email`
 - `sendQueue()`, `dynamicQueue.send()`, and `send()` and `sendBatch()` of a client from `useQueue()`
+- `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, and `resumeWorkflow()` from `vite-hub/workflow`
+- `runSchedule()` from `vite-hub/schedule`
 - `send()` of a Channel from `useChannel()` or `createChannel()`
 - `callMcpTool()` from `vite-hub/agent/mcp`
 - `enqueueChannelTask()` and `cancelChannelTask()` from `vite-hub/agent/server`
@@ -708,22 +710,21 @@ The rule does not check test files.
 
 Code destructures `[error, value]` from an API that returns no tuple:
 
-- `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, and `useQueue()` return the value and throw on failure.
+- `useQueue()` returns the client and throws on failure.
 - `deferWorkflow()` returns `void` and logs start failures.
-- `runSchedule()` returns a Schedule Run record. A failed handler resolves with `status: "failed"`.
 - `runSandboxTask()` and `runBrowser()` return a Web `Response`, which is not iterable.
 
-```ts [server/api/onboard.post.ts] fragment
-import { startWorkflow } from 'vite-hub/workflow'
+```ts [server/api/welcome.post.ts] fragment
+import { useQueue } from 'vite-hub/queue'
 
 // Invalid
-const [error, run] = await startWorkflow('onboard-user', body)
+const [error, queue] = await useQueue('welcome-email')
 
 // Valid
-const run = await startWorkflow('onboard-user', body)
+const queue = await useQueue('welcome-email')
 ```
 
-The rule skips `runAgent()` and `streamAgent()`, because they return error/result tuples.
+The rule skips the calls that return `[error, value]`, such as `startWorkflow()`, `runSchedule()`, `runAgent()`, and `streamAgent()`.
 
 ## VHUB0019
 
