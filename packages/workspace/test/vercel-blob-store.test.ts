@@ -560,6 +560,9 @@ describe("Vercel Blob workspace store", () => {
       expect.objectContaining({ path: "docs/readme.md", type: "modified" }),
     ])
     expect(await store.getMeta!("loader")).toEqual({ digest: "abc" })
+    // `undefined` removes the key. Uploading it failed, as `JSON.stringify(undefined)` is no body.
+    await store.setMeta!("loader", undefined)
+    expect(await store.getMeta!("loader")).toBeUndefined()
 
     await store.rm("docs/readme.md")
     expect(await store.stat("docs/readme.md")).toBeUndefined()

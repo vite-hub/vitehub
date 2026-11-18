@@ -1,3 +1,4 @@
+import { injectTooltipProviderContext } from "reka-ui";
 import { type Component, defineAsyncComponent, getCurrentInstance, inject, type InjectionKey } from "vue";
 
 /** The Nuxt UI components that the styled parts render. */
@@ -14,7 +15,8 @@ export type ViteHubUIComponentName =
   | "UIcon"
   | "UInput"
   | "UModal"
-  | "UTabs";
+  | "UTabs"
+  | "UTooltip";
 
 /** Components that replace the Nuxt UI ones in the parts, by name. Give them to `createViteHubUI({ components })`. */
 export type ViteHubUIComponents = Partial<Record<ViteHubUIComponentName, Component>>;
@@ -40,6 +42,7 @@ const bundled: Record<ViteHubUIComponentName, Component> = {
   UInput: defineAsyncComponent(() => import("@nuxt/ui/components/Input.vue")),
   UModal: defineAsyncComponent(() => import("@nuxt/ui/components/Modal.vue")),
   UTabs: defineAsyncComponent(() => import("@nuxt/ui/components/Tabs.vue")),
+  UTooltip: defineAsyncComponent(() => import("@nuxt/ui/components/Tooltip.vue")),
 };
 
 /**
@@ -49,4 +52,14 @@ const bundled: Record<ViteHubUIComponentName, Component> = {
  */
 export function useUIComponent(name: ViteHubUIComponentName): Component {
   return inject(uiComponentsKey, undefined)?.[name] ?? getCurrentInstance()?.appContext.components[name] ?? bundled[name];
+}
+
+/**
+ * The tooltip that a part renders: the one given to `createViteHubUI({ components })` or registered globally, else
+ * Nuxt UI's own inside `UApp`, which provides what it needs and lets the tooltips of a list share their open delay.
+ * Outside `UApp` there is none, and the part uses the `title` attribute. Call it in `setup()`.
+ */
+export function useTooltipComponent(): Component | undefined {
+  const own = inject(uiComponentsKey, undefined)?.UTooltip ?? getCurrentInstance()?.appContext.components.UTooltip;
+  return own ?? (!injectTooltipProviderContext(null) ? undefined : bundled.UTooltip);
 }

@@ -1,8 +1,8 @@
 import type { CommentThread } from "@vite-hub/comments/client";
 import { h, type VNodeChild } from "vue";
 import { AvatarStack } from "../components/avatar-stack.ts";
+import { RelativeTime } from "../components/relative-time.ts";
 import { plainText, writerName, writerPerson } from "./comment-person.ts";
-import type { RelativeTimeFormat } from "./relative-time.ts";
 
 /** The start of a thread as plain text: its first message, else the text that it is about. */
 export function threadPreview(thread: CommentThread): string {
@@ -23,7 +23,7 @@ export interface ThreadRowOptions {
 }
 
 /** The inside of one row of a thread list: its number, author, start, and facts. `CommentList` and `CommentPanel` use it. */
-export function threadRow(thread: CommentThread, time: RelativeTimeFormat, options: ThreadRowOptions = {}) {
+export function threadRow(thread: CommentThread, options: ThreadRowOptions = {}) {
   const replies = thread.messages.length - 1;
   return [
     h("span", { "data-slot": "comment-list-number" }, String(thread.n)),
@@ -32,7 +32,7 @@ export function threadRow(thread: CommentThread, time: RelativeTimeFormat, optio
       h("span", { "data-slot": "comment-list-text" }, options.preview ?? threadPreview(thread)),
       h("span", { "data-slot": "comment-list-meta" }, [
         h("span", writerName(thread)),
-        h("span", time(thread.updatedAt).text),
+        h(RelativeTime, { at: thread.updatedAt }),
         replies > 0 ? h("span", `${replies} ${replies === 1 ? "reply" : "replies"}`) : null,
         thread.status === "resolved" ? h("span", "Resolved") : null,
         options.detached ? h("span", { "data-slot": "comment-list-detached" }, "Detached") : null,
