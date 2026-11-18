@@ -259,7 +259,8 @@ describe("toResponse with a ResultError", () => {
     const diagnostic = new Diagnostic({ code: "EXAMPLE_DIAGNOSTIC", why: "An ordinary diagnostic.", data: { count: 2 } })
     const response = toResponse(diagnostic)
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ code: "EXAMPLE_DIAGNOSTIC", data: { count: 2 } })
+    // A plain Nostics diagnostic keeps its own serializer, which names the code `name`.
+    expect(await response.json()).toMatchObject({ name: "EXAMPLE_DIAGNOSTIC", data: { count: 2 } })
 
     const result = toResponse(toResultError(diagnostic))
     expect(result.status).toBe(500)
