@@ -1,15 +1,16 @@
-result-tuples: read 6 Workflow call(s) as `[error, data]` in 4 file(s)
+result-tuples: read 7 Workflow or Schedule call(s) as `[error, data]` in 5 file(s)
 Dry run: no files were written.
 
-Files to change (4):
+Files to change (5):
   server/api/onboard.post.ts
   server/api/runs/[id].delete.ts
   server/api/runs/[id].get.ts
+  server/api/schedules/run.post.ts
   server/utils/reminders.ts
 
 Manual follow-ups (2):
-  1. server/utils/reminders.ts:13 `reminders.start()` returns `[error, data]` now. It no longer throws when the Workflow provider fails, an option is not supported, or the input is not valid. Read the error first: `const [error, data] = await reminders.start(...)`, then `if (error) throw error`.
-  2. server/utils/reminders.ts:17 `reminders.start()` returns `[error, data]` now. It no longer throws when the Workflow provider fails, an option is not supported, or the input is not valid. Read the error first: `const [error, data] = await reminders.start(...)`, then `if (error) throw error`.
+  1. server/utils/reminders.ts:13 `reminders.start()` returns `[error, data]` now. It no longer throws on a runtime failure, such as a provider or store failure or an input that is not valid. Read the error first: `const [error, data] = await reminders.start(...)`, then `if (error) throw error`.
+  2. server/utils/reminders.ts:17 `reminders.start()` returns `[error, data]` now. It no longer throws on a runtime failure, such as a provider or store failure or an input that is not valid. Read the error first: `const [error, data] = await reminders.start(...)`, then `if (error) throw error`.
 
 Notes:
   - Each rewritten call throws its error, as the call did before. Return the error to the client, or handle it, where that is better.

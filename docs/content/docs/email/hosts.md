@@ -110,7 +110,7 @@ pnpm vitehub email preview welcome --data '{"user":{"name":"Ada"}}'
 
 ## Requirements
 
-- `vite-hub/email` needs Node.js 22.22 or later. The standalone `@vite-hub/email` package needs Node.js 22.18 or later.
+- `vite-hub/email` and the standalone `@vite-hub/email` package need Node.js 24.15 or later.
 - Provider config needs Vite 8 or later. `createEmail()` clients do not need Vite.
 - Runtime support comes from the built-in or custom driver you pick.
 

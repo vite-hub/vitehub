@@ -56,7 +56,7 @@ If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages f
 
 A build with an enabled feature whose package is missing fails with the `pnpm add` command to run. When an installed package is outside the range that `vite-hub` supports, the build continues and warns with the `pnpm add` command that installs a supported version. Vercel Workflow requires `@vercel/functions` for all definitions; add `workflow` and `@workflow/builders` for native durable definitions. See the [Workflow hosts guide](https://vitehub.dev/docs/workflows/hosts) for installation. Other provider SDKs, such as `@vercel/sandbox` for Sandbox Tasks, stay with their feature guides.
 
-You need Node.js 22.22 or newer, Vite 8 or newer, and an ESM package with `"type": "module"` or a `vite.config.mts` file. Hosted primitives and model providers can also require credentials, network access, and billed accounts. Their feature guides list those requirements before the first provider call.
+You need Node.js 24.15 or newer, Vite 8 or newer, and an ESM package with `"type": "module"` or a `vite.config.mts` file. Hosted primitives and model providers can also require credentials, network access, and billed accounts. Their feature guides list those requirements before the first provider call.
 
 ## Configure ViteHub
 
@@ -146,6 +146,8 @@ Nuxt's Cloudflare preset enables Nitro deployment configuration by default and
 writes `.output/server/wrangler.json`. Set `nitro.cloudflare.deployConfig: false`
 only when you manage that configuration yourself. `vitehub deploy` uploads the Worker secrets with each new version.
 See [Upload secrets with the version](https://vitehub.dev/docs/frameworks-hosts/cloudflare#upload-secrets-with-the-version).
+With `cloudflare: { vars: true }`, the build writes the non-secret Server Env values it finds to the Worker's `vars`.
+See [Worker vars from Server Env](https://vitehub.dev/docs/frameworks-hosts/cloudflare#worker-vars-from-server-env).
 
 A successful build proves that ViteHub discovered the configured definitions and wrote the selected output. It does not prove that remote resources exist, credentials are valid, deployment succeeded, or a hosted provider completed a live operation. Follow the selected [host guide](https://vitehub.dev/docs/frameworks-hosts) for provisioning, environment variables, deployment commands, and current proof.
 

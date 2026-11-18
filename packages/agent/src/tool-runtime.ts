@@ -259,12 +259,12 @@ export function withJsonCompatibleToolOutputs<TTools extends AgentToolSet>(tools
 
   // SAFETY: Each key and definition is preserved; execute retains its call signature while normalizing the output.
   return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
-    if (!tool || typeof tool !== "object" || typeof (tool as { execute?: unknown }).execute !== "function") {
+    if (!tool || typeof tool !== "object" || typeof tool.execute !== "function") {
       return [name, tool]
     }
 
-    const execute = (tool as { execute: (...args: unknown[]) => unknown }).execute
-    const wrappedExecute = async (input: unknown, ...args: unknown[]) => toJsonCompatibleValue(await execute.call(tool, input, ...args))
+    const execute = tool.execute
+    const wrappedExecute = async (input: unknown, ...args: unknown[]) => toJsonCompatibleValue(await Reflect.apply(execute, tool, [input, ...args]))
     approvalPreservingExecutorOwners.set(wrappedExecute, agentToolPolicyOwners.get(tool) ?? null)
     return [name, copyToolWithOverrides(tool, { execute: wrappedExecute })]
   })) as TTools
@@ -387,14 +387,14 @@ export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: T
 
   // SAFETY: Every tool key and field is preserved; execute forwards its arguments and returns the original output.
   return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
-    if (!tool || typeof tool !== "object" || typeof (tool as { execute?: unknown }).execute !== "function") {
+    if (!tool || typeof tool !== "object" || typeof tool.execute !== "function") {
       return [name, tool]
     }
     if (name === "materialize_sources") {
       return [name, tool]
     }
 
-    const execute = (tool as { execute: (...args: unknown[]) => unknown }).execute
+    const execute = tool.execute
     const wrappedExecute = async (input: unknown, ...args: unknown[]) => {
         const toolCall: AgentToolStepItem = {
           input,
@@ -406,7 +406,7 @@ export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: T
         try {
           const execution = args[0] as { abortSignal?: AbortSignal } | undefined
           execution?.abortSignal?.throwIfAborted()
-          const output = await execute.call(tool, input, ...args)
+          const output = await Reflect.apply(execute, tool, [input, ...args])
           await reportToolStep({ toolResults: [{ ...toolCall, output }] })
           return output
         }

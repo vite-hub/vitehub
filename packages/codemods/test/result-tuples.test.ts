@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -12,7 +12,7 @@ import { resultTuples } from "../src/result-tuples/index.ts"
 const fixture = fileURLToPath(new URL("./fixtures/result-tuples/", import.meta.url))
 
 describe("result-tuples", () => {
-  it("reads the Workflow calls as Results and reports the calls it cannot change", async () => {
+  it("reads the Workflow and Schedule calls as Results and reports the calls it cannot change", async () => {
     const input = join(fixture, "input")
     const run = await runCodemod("result-tuples", { cwd: input, dryRun: true })
     for (const edit of run.result.edits) {
@@ -31,11 +31,36 @@ describe("result-tuples", () => {
     expect(names.indexOf("result-tuples")).toBeGreaterThan(names.indexOf("queue-workflow-verbs"))
   })
 
+  it("leaves app-provided runSchedule helpers alone", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-result-tuples-schedule-"))
+    try {
+      const route = join(cwd, "server/api/run.post.ts")
+      const source = `import * as helpers from '../utils/runSchedule'
+export async function run() {
+  const first = await runSchedule('sync')
+  const second = await helpers.runSchedule('sync')
+  return [first.id, second.id]
+}
+`
+      await mkdir(join(cwd, "server/api"), { recursive: true })
+      await mkdir(join(cwd, "server/utils"))
+      await writeFile(join(cwd, "package.json"), '{"dependencies":{"vite-hub":"latest"}}')
+      await writeFile(join(cwd, "server/utils/runSchedule.ts"), "export function runSchedule(id: string) { return { id } }\n")
+      await writeFile(route, source)
+      await expect(resultTuples.detect({ cwd })).resolves.toBeUndefined()
+      await runMigration({ cwd, codemods: upgradeCodemods })
+      expect(await readFile(route, "utf8")).toBe(source)
+    }
+    finally {
+      await rm(cwd, { force: true, recursive: true })
+    }
+  })
+
   it("detects an app with a call to rewrite, and changes nothing the second time", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "vitehub-result-tuples-"))
     try {
       await cp(join(fixture, "input"), cwd, { recursive: true })
-      await expect(resultTuples.detect({ cwd })).resolves.toMatchObject({ reason: expect.stringContaining("reads a Workflow call") })
+      await expect(resultTuples.detect({ cwd })).resolves.toMatchObject({ reason: expect.stringContaining("reads a Workflow or Schedule call") })
       await runCodemod("result-tuples", { cwd })
       const again = await runCodemod("result-tuples", { cwd, dryRun: true })
       expect(again.result.edits).toEqual([])
