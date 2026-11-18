@@ -359,14 +359,14 @@ export async function recentPublishes() {
 ### Access
 
 ```ts [server/api/posts/publish.post.ts]
-import { createError, defineEventHandler } from 'h3'
+import { defineEventHandler, HTTPError } from 'h3'
 import { withAuth } from 'vite-hub/auth/server'
 import content from '../../content'
 
 export default defineEventHandler(
   withAuth(async (event, { user }) => {
     if (!await content.can({ user, collection: 'posts', action: 'publish' }))
-      throw createError({ statusCode: 403 })
+      throw new HTTPError({ status: 403 })
     return await content.publish({ collection: 'posts' })
   }),
 )
