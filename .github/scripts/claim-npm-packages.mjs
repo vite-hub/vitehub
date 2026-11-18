@@ -30,8 +30,19 @@ const only = args.filter(arg => !arg.startsWith("--"))
 const repoRoot = resolve(import.meta.dirname, "../..")
 
 function npmOutput(npmArgs) {
-  const result = spawnSync("npm", npmArgs, { encoding: "utf8", stdio: ["inherit", "pipe", "inherit"] })
-  if (result.status !== 0) throw new Error(`npm ${npmArgs.join(" ")} failed with exit code ${result.status}`)
+  const capture = () => spawnSync("npm", npmArgs, { encoding: "utf8", stdio: ["inherit", "pipe", "pipe"] })
+  let result = capture()
+  if (result.status !== 0 && /EOTP|one-time password|authenticat/i.test(`${result.stdout}${result.stderr}`)) {
+    // npm prints its sign-in link on stdout, which this function captures. Run the command in the terminal once, so the
+    // link shows and "skip for the next 5 minutes" covers the reads after it.
+    console.log(`npm asks for two-factor authentication. Sign in and choose "skip for the next 5 minutes".`)
+    npm(npmArgs.filter(arg => arg !== "--json"))
+    result = capture()
+  }
+  if (result.status !== 0) {
+    process.stderr.write(result.stderr)
+    throw new Error(`npm ${npmArgs.join(" ")} failed with exit code ${result.status}`)
+  }
   return result.stdout
 }
 
