@@ -31,7 +31,7 @@ vi.mock("#vitehub/env/server", async () => {
   return { useServerEnv: () => getActiveCloudflareEnv() ?? {} }
 })
 
-const audience = "https://mail.example.com/api/_vitehub/agents/labeller/webhooks/gmail"
+const audience = "https://mail.example.com/_vitehub/agents/labeller/webhooks/gmail"
 const serviceAccount = "gmail-push@example.iam.gserviceaccount.com"
 const subscription = "projects/example/subscriptions/gmail-push"
 const topic = "projects/example/topics/gmail"

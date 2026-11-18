@@ -21,6 +21,7 @@ export default defineWebhook({
 | `secret` | The name of the server variable that holds the signing secret. |
 | `signature` | `"github"` (default) sends `x-hub-signature-256: sha256=<hex>`. `"stripe"` sends `stripe-signature: t=<time>,v1=<hex>`. `verifyWebhook()` from `@vite-hub/env` checks both. |
 | `debounce` | Optional. Waits this long after the last send, then delivers once. A duration such as `"30 minutes"` or `"10s"`, at most 24 hours, the longest delay of Cloudflare Queues. |
+| `events` | Optional. Events that ViteHub sends by itself: `"invocation.failed"`, `"workflow.failed"`, and `"schedule.failed"`. See [Failure alerts](#failure-alerts). |
 
 The file name is the webhook name: lowercase letters, digits, and dashes. The app needs `queue` and `database` in `vitehub()`, with a SQLite Default Database such as libSQL or D1. Without them, the build fails with `WEBHOOKS_QUEUE_OFF` or `WEBHOOKS_DATABASE_OFF`. Run `vitehub database generate` and `vitehub database migrate` to add the table.
 
@@ -51,6 +52,23 @@ The receiver gets a `POST` with the JSON body and these headers:
 | `x-vitehub-event` | The `event` of the last send |
 | `x-vitehub-delivery` | The delivery id. It stays the same for every retry, so the receiver can drop a duplicate. |
 | `x-vitehub-events` | How many sends the debounce collapsed into this delivery |
+
+## Failure alerts
+
+A webhook that lists `events` gets each failed run without a `sendWebhook()` call:
+
+```ts [server/webhooks/alerts.ts]
+import { defineWebhook } from "@vite-hub/webhooks"
+
+export default defineWebhook({
+  url: "ALERTS_WEBHOOK_URL",
+  secret: "ALERTS_WEBHOOK_SECRET",
+  events: ["invocation.failed", "workflow.failed", "schedule.failed"],
+  debounce: "10 minutes",
+})
+```
+
+Agent, Workflow, and Schedule send the event when a run fails with no retry left. The body has the `event`, the Agent, Workflow, or Schedule name, the run or Invocation id, `error: { message, code? }`, `failedAt`, and `text`, one line that a Slack incoming webhook shows as the message. With `debounce`, failures of the same Agent, Workflow, or Schedule collapse into one delivery. The run must execute in a process that loads the app's Webhooks. Standalone cron entries, including Vercel and Netlify cron functions, and Vercel Workflow DevKit (`native`) runs do not send these events.
 
 ## How a delivery works
 

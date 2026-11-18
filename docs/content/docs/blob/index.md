@@ -133,8 +133,16 @@ export default defineEventHandler(async () => {
   `useUpload()` sends the files from an input to your upload route.
   :::
 
+  :::product-feature-item{title="Uploads straight to storage" icon="i-lucide-cloud-upload" to="/docs/blob/server-api#direct-uploads"}
+  With `direct: true`, the browser sends the file to R2, S3, or Vercel Blob, past the host's request size limit.
+  :::
+
   :::product-feature-item{title="Large files in parts" icon="i-lucide-layers" to="/docs/blob/server-api#multipart-uploads"}
   Send a big file in parts. The server joins them at the end.
+  :::
+
+  :::product-feature-item{title="Copy a file" icon="i-lucide-copy" to="/docs/blob/server-api#copy-a-file"}
+  `blob.copy()` copies a file with its content type and metadata, on the server where the provider can.
   :::
 
   :::product-feature-item{title="Links that expire" icon="i-lucide-link" to="/docs/blob/server-api#signed-requests"}
@@ -154,6 +162,8 @@ export default defineEventHandler(async () => {
 Use Blob for binary objects such as uploads, generated files, images, and exports. Turn Blob on with `vitehub add blob`, and pass `--option blob.driver=<driver>` where the host needs an explicit driver. Use the same Blob handle in application code when moving between local and hosted storage.
 
 Keep object keys and authorization in application code. `serve` needs `access: "public"`, which sends every object of the served store to anyone, or `authorize: true`, which requires an authenticated session. `put()` has no per-object `access`. Treat filesystem Blob storage as one-host storage.
+
+Accept uploads with `blob.handleUpload(event, { ensure })` and authorize the request in the route first. For files larger than the host's request body limit, such as 4.5 MB on Vercel, pass `direct: true` to `handleUpload()` and to `useUpload()`, so the browser sends the file straight to storage. Direct uploads need `VITEHUB_SECRET`, and on R2, S3, GCS, or Azure a bucket CORS rule that allows `PUT` from the app origin; Netlify Blobs falls back to a form upload. Copy a file with `blob.copy(from, to)`; it returns `BLOB_CONFLICT` when `to` exists, unless you pass `{ overwrite: true }`. To move a file, delete the source after the copy.
 
 Prove upload, read, list, and delete with the selected driver. For hosted output, inspect the generated binding and verify access rules with a real request.
 ::

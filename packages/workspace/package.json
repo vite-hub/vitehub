@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/workspace",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Agent-oriented filesystem state and Vite integration for ViteHub.",
   "keywords": [
     "ai-agents",
@@ -203,6 +203,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

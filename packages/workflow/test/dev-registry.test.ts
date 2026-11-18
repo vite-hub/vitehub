@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { build } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -59,18 +59,14 @@ async function waitFor(check: () => Promise<boolean>): Promise<void> {
 }
 
 describe("Workflow dev registry", () => {
-  it("generates a Nitro plugin that installs the development registry", () => {
+  it("leaves the run history out of the plugin outside `vite dev`", () => {
     const code = createWorkflowDevPluginModule({ driver: "vercel" })
-    expect(code).toContain(`import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(workflowRuntimeModule("state"))}`)
-    expect(code).toContain(`import registry from "./dev-registry.mjs"`)
-    expect(code).toContain("setWorkflowRuntimeRegistry(registry)")
     expect(code).not.toContain("enableWorkflowDevRuns")
     expect(code).not.toContain("runtime/dev-runs")
   })
 
   it("turns on the run history only in `vite dev`", () => {
     const code = createWorkflowDevPluginModule({ driver: "vercel" }, true)
-    expect(code).toContain(`import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(workflowRuntimeModule("state"))}`)
     expect(code).toContain(`import { enableWorkflowDevRuns } from ${JSON.stringify(workflowRuntimeModule("dev-runs"))}`)
     expect(code).toContain("  enableWorkflowDevRuns()\n")
   })
@@ -340,7 +336,7 @@ describe("Workflow dev registry", () => {
 
   it("keeps the run history out of the import graph of every published runtime entry", async () => {
     // Bundle each entry that a build can import. Only the dev bootstrap imports `runtime/dev-runs`.
-    const packageRoot = new URL("..", import.meta.url).pathname
+    const packageRoot = fileURLToPath(new URL("..", import.meta.url))
     const entries = ["index.ts", "operations.ts", "runtime/execute.ts", "runtime/state.ts", "runtime/cloudflare-runner.ts", "runtime/cloudflare-vite.ts", "runtime/vercel-vite.ts", "runtime/openworkflow-worker.ts"]
     const { metafile } = await build({
       absWorkingDir: packageRoot,

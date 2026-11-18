@@ -273,8 +273,8 @@ async function connectAs(person: string, options: { prompt?: "login", user?: str
   return completed.value
 }
 
-function install(kv = false, host: "node" | "cloudflare" = "node"): void {
-  installConsoleSections("mcp-client-test", resolveConsoleSectionIds({ console: { auth: false, mcpClient: true }, kv, host }))
+function install(kv = false): void {
+  installConsoleSections("mcp-client-test", resolveConsoleSectionIds({ console: { auth: false, mcpClient: true }, kv }))
   installConsoleOperations([{ operations: consoleMcpClientOperations, plugin: "vite-hub" }])
 }
 
@@ -283,7 +283,7 @@ describe("MCP client section", () => {
     expect(isConsoleMcpClientEnabled({ auth: false, mcpClient: true })).toBe(true)
     expect(isConsoleMcpClientEnabled({ auth: "app" })).toBe(false)
     expect(resolveConsoleSectionIds({ console: { auth: false, mcpClient: true } })).toEqual(["mcp-client"])
-    expect(resolveConsoleSectionIds({ agent: true, console: { auth: false, mcpClient: true }, workflow: false })).toEqual(["agents", "skills", "usage", "channels", "mcp-client"])
+    expect(resolveConsoleSectionIds({ agent: true, console: { auth: false, mcpClient: true } })).toEqual(["agents", "skills", "usage", "channels", "mcp-client"])
     expect(resolveConsoleSectionIds({ console: { auth: false } })).toEqual([])
   })
 
@@ -624,7 +624,7 @@ describe("MCP client section", () => {
   })
 
   it.each(["node", "cloudflare"] as const)("requires KV before accessing sealed MCP records on %s", async (preset) => {
-    install(false, preset)
+    install()
     const key = Buffer.alloc(32, 7).toString("base64")
     if (preset === "node") process.env.VITEHUB_CONSOLE_MCP_KEY = key
     const reads = vi.spyOn(kv, "keys")

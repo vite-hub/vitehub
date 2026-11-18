@@ -135,7 +135,7 @@ describe("requestRealtimeRoom()", () => {
     const pending = requestRealtimeRoom("docs", "page-1", {}, { wait: 0 })
     await settle()
     // crossws restores the peer with a bare GET of its first URL and asks the app for hooks again.
-    const restored = await server.handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page-1")) as Response & { crossws?: { message(peer: object, message: { uint8Array(): Uint8Array }): void } }
+    const restored = await server.handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page-1")) as Response & { crossws?: { message(peer: object, message: { uint8Array(): Uint8Array }): void } }
     const request = page.requests.at(-1)!
     restored.crossws!.message(page.peer, { uint8Array: () => encodeRealtimeRequestFrame({ kind: "answer", id: request.id, ok: true, body: "after hibernation" }) })
     await expect(pending).resolves.toEqual([undefined, "after hibernation"])

@@ -182,7 +182,7 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     await chatInPreview(page, /Slack simulator/, "Hello from Slack");
     await shot(page, "desktop-channels");
     // Another Channel is another path on the same Agent.
-    await page.getByLabel("Preview path").fill("/api/_vitehub/agents/support/webhooks/discord");
+    await page.getByLabel("Preview path").fill("/_vitehub/agents/support/webhooks/discord");
     await page.getByLabel("Preview path").press("Enter");
     await chatInPreview(page, /Discord simulator/, "Hello from Discord");
 

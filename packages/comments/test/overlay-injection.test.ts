@@ -6,12 +6,12 @@ import { injectLoader, loaderTag, loaderUrl, mountPath, renderOverlayMiddleware,
 const assets = { dir: "/dist/comments-overlay", loader: "loader.abc123.js", overlay: "overlay.def456.js" }
 const inertMarkup = [
   '<svg><![CDATA[</body>]]></svg>',
-  '<svg><![CDATA[> </body><script src="/_vitehub/comments/loader.old.js"></script>]]></svg>',
+  '<svg><![CDATA[> </body><script src="/_vitehub/comments/assets/loader.old.js"></script>]]></svg>',
   '<math><![CDATA[> </html>]]></math>',
   `<svg><![CDATA[${"x".repeat(5_000)} </body>]]></svg>`,
-  '<template><script src="/_vitehub/comments/loader.old.js"></script></template>',
-  '<template><template><p>Nested</p></template><script src=/_vitehub/comments/loader.old.js></script></template>',
-  '<script data-example=" src=\'/_vitehub/comments/loader.old.js\' "></script>',
+  '<template><script src="/_vitehub/comments/assets/loader.old.js"></script></template>',
+  '<template><template><p>Nested</p></template><script src=/_vitehub/comments/assets/loader.old.js></script></template>',
+  '<script data-example=" src=\'/_vitehub/comments/assets/loader.old.js\' "></script>',
 ]
 
 describe("the overlay loader tag", () => {
@@ -22,12 +22,12 @@ describe("the overlay loader tag", () => {
     expect(mountPath("/portal/")).toBe("/portal")
     expect(mountPath("https://cdn.example.com/app/")).toBe("/app")
     expect(mountPath("//evil.example.com/")).toBe("")
-    expect(loaderUrl("", assets)).toBe("/_vitehub/comments/loader.abc123.js?f=overlay.def456.js")
-    expect(loaderUrl("", assets, { edit: true })).toBe("/_vitehub/comments/loader.abc123.js?f=overlay.def456.js&e=1")
-    expect(loaderUrl("", assets, { session: "marker" })).toBe("/_vitehub/comments/loader.abc123.js?f=overlay.def456.js&s=marker")
-    expect(loaderUrl("", assets, { session: "always" })).toBe("/_vitehub/comments/loader.abc123.js?f=overlay.def456.js&s=always")
+    expect(loaderUrl("", assets)).toBe("/_vitehub/comments/assets/loader.abc123.js?f=overlay.def456.js")
+    expect(loaderUrl("", assets, { edit: true })).toBe("/_vitehub/comments/assets/loader.abc123.js?f=overlay.def456.js&e=1")
+    expect(loaderUrl("", assets, { session: "marker" })).toBe("/_vitehub/comments/assets/loader.abc123.js?f=overlay.def456.js&s=marker")
+    expect(loaderUrl("", assets, { session: "always" })).toBe("/_vitehub/comments/assets/loader.abc123.js?f=overlay.def456.js&s=always")
     const filtered = loaderUrl("/portal", assets, { exclude: ["/admin/**"], paths: ["/docs/**"] })
-    expect(filtered.startsWith("/portal/_vitehub/comments/loader.abc123.js?f=overlay.def456.js&o=")).toBe(true)
+    expect(filtered.startsWith("/portal/_vitehub/comments/assets/loader.abc123.js?f=overlay.def456.js&o=")).toBe(true)
     expect(JSON.parse(decodeURIComponent(filtered.split("&o=")[1]!))).toEqual({ exclude: ["/admin/**"], paths: ["/docs/**"] })
     expect(loaderTag(filtered)).toBe(`<script type="module" src="${filtered.replaceAll("&", "&amp;")}"></script>`)
     expect(loaderTag("/x.js", "abc+/=-_")).toBe(`<script type="module" nonce="abc+/=-_" src="/x.js"></script>`)
@@ -45,11 +45,11 @@ describe("the overlay loader tag", () => {
     expect(injectLoader("<p>fragment</p>", tag)).toBe("<p>fragment</p>")
     expect(injectLoader("{\"json\": true}", tag)).toBe("{\"json\": true}")
     // A mention of the file in text is not a loader tag.
-    const mention = "<body><p>See /_vitehub/comments/loader.abc123.js</p></body>"
+    const mention = "<body><p>See /_vitehub/comments/assets/loader.abc123.js</p></body>"
     expect(injectLoader(mention, tag)).toContain(tag)
-    const comment = "<body><!-- /_vitehub/comments/loader.abc123.js --></body>"
+    const comment = "<body><!-- /_vitehub/comments/assets/loader.abc123.js --></body>"
     expect(injectLoader(comment, tag)).toContain(tag)
-    expect(injectLoader(`<body><script src='/portal/_vitehub/comments/loader.zzz.js?f=overlay.q.js'></script></body>`, tag)).not.toContain(tag)
+    expect(injectLoader(`<body><script src='/portal/_vitehub/comments/assets/loader.zzz.js?f=overlay.q.js'></script></body>`, tag)).not.toContain(tag)
   })
 
   it("reads the nonce that the policy allows for scripts", () => {
@@ -70,7 +70,7 @@ describe("the overlay loader tag", () => {
       '<!-- </body> -->',
       '<textarea></html></textarea>',
       '<div title="</body>">Hi</div>',
-      '<!-- <script src="/_vitehub/comments/loader.old.js"></script> -->',
+      '<!-- <script src="/_vitehub/comments/assets/loader.old.js"></script> -->',
       ...inertMarkup,
     ]) {
       expect(injectLoader(`<body>${inner}</body>`, tag)).toBe(`<body>${inner}${tag}</body>`)
@@ -79,7 +79,7 @@ describe("the overlay loader tag", () => {
   })
 
   it("recognizes an existing loader with an unquoted src", () => {
-    const source = '<body><script src=/_vitehub/comments/loader.old.js></script></body>'
+    const source = '<body><script src=/_vitehub/comments/assets/loader.old.js></script></body>'
     expect(injectLoader(source, loaderTag(loaderUrl("", assets)))).toBe(source)
   })
 })
@@ -174,7 +174,7 @@ describe("the Nitro middleware", () => {
       expect(await inject(event(), async () => source)).toBe(expected)
       expect((await run(inject, html(stream([...source])))).text).toBe(expected)
     }
-    const source = '<body><script src=/_vitehub/comments/loader.old.js></script></body>'
+    const source = '<body><script src=/_vitehub/comments/assets/loader.old.js></script></body>'
     expect(await inject(event(), async () => source)).toBe(source)
     expect((await run(inject, html(stream([...source])))).text).toBe(source)
   })
@@ -241,7 +241,7 @@ describe("the Nitro middleware", () => {
 
   it("does not add a second loader, and skips other methods, the Console, and anything that is not a page", async () => {
     const inject = await middleware()
-    const tagged = `<html><body><script type="module" src="/_vitehub/comments/loader.old.js?f=overlay.old.js"></script></body></html>`
+    const tagged = `<html><body><script type="module" src="/_vitehub/comments/assets/loader.old.js?f=overlay.old.js"></script></body></html>`
     expect((await run(inject, html(stream([tagged.slice(0, 40), tagged.slice(40)])))).text).toBe(tagged)
     expect((await run(inject, html(tagged))).text).toBe(tagged)
     for (const [path, method] of [["/", "POST"], ["/_vitehub/content", "GET"], ["/_vitehub", "GET"]] as const) {

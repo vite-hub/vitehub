@@ -72,7 +72,7 @@ const { loggedIn, user, signOut } = useUserSession()
 - Better Auth gets the other options, such as `fetchOptions`, and `signOut()` returns its result. When the sign-out fails, the session and the page stay.
 - When the server answers with the provider's sign-out page, such as with OpenID Connect logout, `signOut()` opens that page in place of `redirectTo`, but only an `http:` or `https:` page. Better Auth's `callbackURL` option sets the page after that. With `disableRedirect: true`, `signOut()` returns that page in `data.url` and opens `redirectTo`.
 
-To forget data of the person after a sign-out, register a listener with `onSignOut()`. `signOut()` calls it in the browser after the server ended the session, waits for it, and then opens the next page or the provider's sign-out page. It returns a function that stops the listener. With [Sync](/docs/sync/vue#accounts-and-sign-out) in Nuxt, ViteHub adds `onSignOut(() => clearSync())` for you.
+To forget data of the person after a sign-out, register a listener with `onSignOut()`. `signOut()` calls it in the browser after the server ended the session, waits for it, and then opens the next page or the provider's sign-out page. It returns a function that stops the listener. With [Device](/docs/device/browser-api#nuxt) in Nuxt, ViteHub adds `onSignOut(() => setDeviceAccount(null))` for you. With [Sync](/docs/sync/vue#accounts-and-sign-out) in Nuxt, it also adds `onSignOut(() => clearSync())`.
 
 ```ts [src/main.ts] fragment
 import { onSignOut } from 'vite-hub/auth/vue'
@@ -323,7 +323,7 @@ export default defineAuth({
 
 ### Decide who can stay signed in
 
-`access.policy` decides in code who can use the app. For a list of accounts, emails, domains, or GitHub organizations, set [`VITEHUB_MEMBERS`](/docs/auth/configure#choose-who-can-sign-in) instead. Auth calls `allow` when it creates a session, so a refused person cannot sign in. It calls `allow` again when `recheck` milliseconds have passed for a session, on the next Better Auth request with that session cookie. Every guard and every `getSession()` call is such a request.
+`access.policy` decides in code who can use the app. For a list of accounts, emails, domains, or GitHub organizations, set [`VITEHUB_MEMBERS`](/docs/auth/configure#choose-who-can-sign-in) instead. Auth calls `allow` when it creates a session, so a refused person cannot sign in. It calls `allow` again when the `recheck` time has passed for a session, on the next Better Auth request with that session cookie. Every guard and every `getSession()` call is such a request.
 
 ```ts [server/auth.ts]
 import { checkGitHubOrgMember, defineAuth } from 'vite-hub/auth'
@@ -340,7 +340,7 @@ export default defineAuth({
         if (error?.code === 'AUTH_GITHUB_UNAVAILABLE') throw error
         return !error
       },
-      recheck: 300_000,
+      recheck: '5m',
     },
   },
 })
@@ -348,13 +348,13 @@ export default defineAuth({
 
 | `allow` | Result |
 | --- | --- |
-| Returns `true` | The person signs in, or the session continues. Auth keeps the answer for `recheck` milliseconds. |
+| Returns `true` | The person signs in, or the session continues. Auth keeps the answer for the `recheck` time. |
 | Returns another value | Auth refuses the sign-in, or deletes the session and its cookies. The request continues signed out, so a guard answers `401`. |
 | Throws | The request fails. The session stays, and Auth asks again on the next request. |
 
 - `allow` gets the `user` and `accessToken(providerId)`, which returns the access token of the user's account with that provider, or `null`.
 - Use [`checkGitHubOrgMember()`](#github-organization-membership), which tells a refusal from a GitHub outage. `isGitHubOrgMember()` returns `false` for both, so a recheck while GitHub is down ends every session.
-- `recheck` defaults to `300000`, five minutes. With `0`, Auth asks on each request. The answers are in memory, so each server process or Worker isolate keeps its own.
+- `recheck` is a duration such as `'30s'` or `'5m'`. The default is `'5m'`. With `'0s'`, Auth asks on each request. A number fails with `RUNTIME_DURATION_INVALID`. The answers are in memory, so each server process or Worker isolate keeps its own.
 - [`verifyMcpRequest()`](/docs/auth/configure#check-the-token-of-an-mcp-request) also asks `allow`, so an MCP client loses access with its person.
 - The policy needs stored sessions: a Better Auth `database` or `secondaryStorage` adapter. With `stateless()`, Auth fails with `AUTH_C0066`.
 - Define `allow` outside the Definition callback. A new function on each call builds a new Better Auth instance on each request.

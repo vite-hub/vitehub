@@ -1,4 +1,4 @@
-import { CommentLayer, CommentPanel } from "@vite-hub/ui/comments"
+import { CommentLayer, CommentPanel, CommentSelectionBar } from "@vite-hub/ui/comments"
 import { useComments } from "@vite-hub/ui/headless"
 import { registerStandaloneUI, UButton } from "@vite-hub/ui/standalone/nuxt-ui"
 import standaloneCss from "@vite-hub/ui/standalone/styles.css?inline"
@@ -757,10 +757,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
             const below = bar.top < (touch ? 102 : 56) || (touch && under <= innerHeight - 46)
             const top = below ? Math.min(under, innerHeight - 46) : bar.top - (touch ? 64 : 8)
             nodes.push(h("div", {
-              class: "selection-bar",
+              class: "selection",
               "data-below": below ? "true" : undefined,
-              role: "group",
-              "aria-label": "Selected text",
               style: { left: `${Math.min(Math.max(64, bar.left), innerWidth - 64)}px`, top: `${top}px` },
               // A press here must not take the selection away from the page, nor hide the bar before the click.
               onPointerdown: (event: PointerEvent) => {
@@ -773,8 +771,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
                   trackSelection()
                 }, 300), { capture: true, once: true })
               },
-              onMousedown: (event: MouseEvent) => event.preventDefault(),
-            }, h("button", { type: "button", "aria-keyshortcuts": "C", title: "Comment on the selected text (C)", onClick: () => commentOnSelection(barRange) }, [commentIcon(), "Comment"])))
+            }, h(CommentSelectionBar, { side: below ? "bottom" : "top", onComment: () => commentOnSelection(barRange) })))
           }
           if (panelTarget.value && !resolving.value) {
             nodes.push(h(Teleport, { to: panelTarget.value }, h(CommentPanel, {

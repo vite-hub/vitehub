@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/i18n",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Write messages in your language in Vue templates, scripts, and server code. ViteHub compiles them to message IDs, keeps one translation record per message, and picks the locale of each request.",
   "keywords": [
     "gettext",
@@ -118,6 +118,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

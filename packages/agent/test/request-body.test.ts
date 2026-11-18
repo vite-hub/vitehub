@@ -44,7 +44,7 @@ describe("Agent inbound request bodies", () => {
     )
     // SAFETY: Each matrix value is a supported route runtime option shape accepted by the cross-host route contract.
     const options = { agentName: "support", maxBodyBytes: body.length - 1, ...runtimeOptions } as never
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+    const response = await handler(new Request("https://example.com/_vitehub/agents/support/chat", {
       body,
       headers: { "content-length": String(body.length), "content-type": "application/json" },
       method: "POST",
@@ -140,7 +140,7 @@ describe("Agent inbound request bodies", () => {
     )
     // SAFETY: This test supplies the one runtime option consumed before Agent invocation.
     const options = { maxBodyBytes: 100 } as never
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+    const response = await handler(new Request("https://example.com/_vitehub/agents/support/chat", {
       body: "{not-json",
       method: "POST",
     }), options)

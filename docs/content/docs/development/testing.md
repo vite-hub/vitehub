@@ -57,7 +57,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', database: true, email: { driver: 'resend' }, kv: true, queue: true })],
+  plugins: [vitehub({ database: true, email: { driver: 'resend' }, kv: true, queue: true })],
   test: { environment: 'node' },
 })
 ```
@@ -78,7 +78,7 @@ Import the test functions from `node:test` in place of `vitest`, and start Node 
 
 `vite-hub/test/register` starts one Vite server of your app in `test` mode with its `vite.config.ts`, or with the Vite options of its `nuxt.config.ts`, as Vitest does. Node then loads the modules that `vitehub()` generates, such as the Database schema and Server Env, from that server. It also resolves app imports without extensions, such as `import { users } from '../databases/default/schema'`. The test processes that `node --test` starts share the server.
 
-Node 22.18 or newer runs TypeScript test files without a flag. Nuxt auto-imports are not available in a test: import `h3`, `vite-hub/*`, and your own server files by path.
+Node 24.15 or newer runs TypeScript test files without a flag. Nuxt auto-imports are not available in a test: import `h3`, `vite-hub/*`, and your own server files by path.
 
 `reset()` is a plain function, so the same setup works with any runner that has a `beforeEach` hook.
 
@@ -198,4 +198,4 @@ The Channel adapter still calls the provider API for replies and files, so stub 
 
 `vite-hub/test` loads no Primitive. Each Primitive switches to its test backend only when your code calls it, so a test pays only for the features that the app uses. Only a test that calls `signIn()` loads `@vite-hub/auth`.
 
-Queue and Workflow still check enabled configuration, discovered Definitions, and provider operation support before recording work. Deferred Queue dispatch and Workflow starts keep the host's `waitUntil()` behavior; wait for that work before reading `jobs` or `workflows`. Workflow signals are not supported by the test backend: `resumeWorkflow()` rejects with `WORKFLOW_OPERATION_UNSUPPORTED` and calls no provider.
+Queue and Workflow still check enabled configuration, discovered Definitions, and provider operation support before recording work. Deferred Queue dispatch and Workflow starts keep the host's `waitUntil()` behavior; wait for that work before reading `jobs` or `workflows`. Workflow signals are not supported by the test backend: `resumeWorkflow()` returns the error `WORKFLOW_OPERATION_UNSUPPORTED` and calls no provider.

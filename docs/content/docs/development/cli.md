@@ -290,7 +290,7 @@ pnpm vitehub add email --option email.driver=resend --yes --json
 - `--name <name>` creates a starter Definition, such as `server/queues/<name>.ts`, for each feature that has Definitions: Agent, Database, Queue, Realtime, Schedule, and Workflow. In Nuxt, it uses the application server directory when literal `rootDir` and `serverDir` options make that directory known; unresolved directories require creating the Definition by hand. It never overwrites a file.
 - `--option key=value` sets an option of the feature, such as `--option email.driver=resend`. With one feature, the feature name is optional. Dotted keys make nested objects.
 
-The command sets `<feature>: true`, or the object from `--option`. A feature that is already on gives no change, so a second run prints `"status": "unchanged"`. Features that an added feature turns on, such as Workflow for Agent, are listed in `implied`; the config names them when you supply their provider options. When an added feature requires Database, the command explicitly enables it if it was disabled. For example, on Netlify or Deno, `add comments` requires `--option database.connection.url=libsql://your-host` before writing the config.
+The command sets `<feature>: true`, or the object from `--option`. With `--name`, the starter Definition turns the feature on, so the command sets no `<feature>: true`. A feature that is already on gives no change, so a second run prints `"status": "unchanged"`. Features that an added feature turns on, such as Workflow for Agent, are listed in `implied`; the config names them when you supply their provider options. When an added feature requires Database, the command explicitly enables it if it was disabled. For example, on Netlify or Deno, `add comments` requires `--option database.connection.url=libsql://your-host` before writing the config.
 
 The host decides what `add` accepts. A feature that the host does not support exits with `3`. A host that needs an explicit provider, such as Email on Vercel, exits with `2` and lists the option in `missing` with its `choices`. For Email, the choices are `resend` and `log`. `log` prints each message to the server log and sends nothing, for a build without an Email provider. When ViteHub can choose the values, `rerun` is a command that succeeds as it is, including any provider prerequisites. Node Schedules require `--option schedule.runtime.driver=process`, or `--option schedule.providerOutput=false` when you will wake them yourself.
 
@@ -647,7 +647,7 @@ After the upload, deploy requests each path on the deployed URL. A path must ans
 ```txt [vitehub deploy]
 Deployed my-app to cloudflare: https://my-app.example.workers.dev
 Version: 6b1f2c84-0d3e-4a52-9a77-3c1e5f0b2d19
-Checked /api/_vitehub/health: 200
+Checked /_vitehub/health: 200
 Checked /: 200
 Checked /api/products: 200
 ```
@@ -671,7 +671,7 @@ Deploy reads the deployment that serves production before it uploads, with the c
   "host": "cloudflare",
   "url": "https://my-app.example.workers.dev",
   "checks": [
-    { "path": "/api/_vitehub/health", "url": "https://my-app.example.workers.dev/api/_vitehub/health", "ok": false, "status": 503 }
+    { "path": "/_vitehub/health", "url": "https://my-app.example.workers.dev/_vitehub/health", "ok": false, "status": 503 }
   ],
   "rollback": {
     "previous": { "deploymentId": "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e", "version": "bcf48806-b317-4351-9ee7-36e7d557d4de" },
@@ -1215,7 +1215,7 @@ pnpm vitehub inspect routes --json
 ```txt [Output]
 METHOD  PATH                      OWNER           HANDLER
 *       /**                       queue           .vitehub/nitro/queue/middleware.ts  (middleware)
-*       /_vitehub/blob/signed/**  @vite-hub/blob  @vite-hub/blob/dist/runtime/signed.js
+*       /_vitehub/blob-signed/**  @vite-hub/blob  @vite-hub/blob/dist/runtime/signed.js
 ```
 
 Packages contribute inspection through `vitehub.inspect` on their Vite plugin. The owner package defines the summary; the CLI and the Console only render it. A package lists its host resources with `resources()`.
@@ -1253,7 +1253,7 @@ Telegram's `getWebhookInfo` returns the URL and delivery errors, but not the sec
 
 ## Export a Channel conversation
 
-When the app has the Channel operations, `vitehub channels list` lists Channels and their retention, `channels threads` lists a Channel's threads, and `channels conversation` reads one thread's messages in order. `vitehub channels status <agent> <channel>` shows sync health and skipped messages of a [Gmail Channel](/docs/agents/gmail#failed-messages).
+When the app has the Channel operations, `vitehub channels list` lists Channels and their retention, `channels threads` lists a Channel's threads, and `channels conversation` reads one thread's messages in order. `vitehub channels status <agent> <channel>` shows sync health and skipped messages of a [Gmail Channel](/docs/agents/gmail#failed-messages). `vitehub channels deliveries <agent> <channel>` lists the newest messages a Channel received, with the run each one reached or [why it started none](/docs/agents/channels#why-a-message-started-no-work).
 
 `conversations export` calls the `conversations.export` [operation](/docs/development/operations) on the dev server, or on the app at `--url` with the credentials of [Run any operation](#run-any-operation). It needs no webhook secret, only Console access to the `channels` section.
 

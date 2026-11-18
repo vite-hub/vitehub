@@ -33,7 +33,7 @@ describe("@vite-hub/source GitHub git materialization", () => {
     header.write("-1000", 124)
     header[156] = 48
 
-    expect(() => parseGitHubArchive(gzipSync(header))).toThrow("Invalid GitHub archive entry size")
+    expect(() => parseGitHubArchive(gzipSync(header))).toThrow(expect.objectContaining({ code: "SOURCE_GITHUB_ARCHIVE_INVALID" }))
   })
 
   it("rejects archive entries with truncated padding", () => {
@@ -43,7 +43,7 @@ describe("@vite-hub/source GitHub git materialization", () => {
     tar[156] = 48
     tar[512] = 97
 
-    expect(() => parseGitHubArchive(gzipSync(tar))).toThrow("Invalid GitHub archive entry size")
+    expect(() => parseGitHubArchive(gzipSync(tar))).toThrow(expect.objectContaining({ code: "SOURCE_GITHUB_ARCHIVE_INVALID" }))
     expect(parseGitHubArchive(gzipSync(Buffer.concat([tar, Buffer.alloc(511)])))).toEqual([
       { content: new Uint8Array([97]), path: "small.txt" },
     ])

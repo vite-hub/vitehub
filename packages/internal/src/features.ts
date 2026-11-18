@@ -68,13 +68,6 @@ export type HostSupport
 /** A feature that this feature turns on, unless the app sets the other feature to `false`. */
 export interface FeatureImplication {
   feature: FeatureId
-  /** Hosts where the implication does not apply. */
-  except?: readonly ViteHubHost[]
-  /**
-   * Hosts where the implied feature needs no provider option, because it runs inline in the request process. A
-   * restart loses its work. The feature still needs its option when the app turns it on itself.
-   */
-  inline?: readonly ViteHubHost[]
 }
 
 /** The starter Definition file that `vitehub add <feature> --name <name>` creates. */
@@ -105,7 +98,10 @@ export interface FeatureDefinition<TId extends FeatureId = FeatureId> {
   docs: `/docs/${string}`
   /** Whether the feature is unconditionally on when the app does not set its key. */
   enabledByDefault: boolean
-  /** File names in the configured server directories (default `server/`) that enable an unset feature. `false` disables discovery. */
+  /**
+   * Files and folders in the configured server directories (default `server/`) that turn on a feature whose key is
+   * unset. A key of `false` keeps the feature off.
+   */
   enabledByDiscovery?: readonly string[]
   /** Packages that the app installs for this feature, in `pnpm add` order. */
   packages: readonly string[]
@@ -179,19 +175,20 @@ export default defineAgent({
 })
 `, { folder: "agent", suffix: "agent" }),
     docs: "/docs/agents",
+    enabledByDiscovery: ["agents"],
     hosts: {
       ...everywhere("nitro", "Nitro"),
       deno: native("nitro", "Nitro", "Agent routes run in the Nitro output. The Agent Deno runtime is not supported on this host."),
       netlify: native("nitro", "Nitro", "Agent HTTP routes run in generated functions. `agent.invocations` is not supported."),
     },
     id: "agent",
-    implies: [{ except: ["netlify"], feature: "workflow", inline: ["deno"] }],
     packages: ["@vite-hub/agent"],
     summary: "Agents in `server/agents/` with tools, Capabilities, channels, and invocations.",
     title: "Agent",
   }),
   auth: feature({
     docs: "/docs/auth",
+    enabledByDiscovery: sourceFiles("auth"),
     hosts: everywhere("better-auth", "Better Auth"),
     id: "auth",
     packages: ["@vite-hub/auth", "better-auth"],
@@ -217,6 +214,7 @@ export default defineAgent({
   }),
   browser: feature({
     docs: "/docs/browser",
+    enabledByDiscovery: ["browsers"],
     hosts: {
       cloudflare: native("cloudflare", "Browser Run", "Cloudflare Browser Run binding and provider output."),
       deno: unsupported("Browser Definitions do not have a Deno provider."),
@@ -248,6 +246,7 @@ export default defineAgent({
   }),
   channels: feature({
     docs: "/docs/channels",
+    enabledByDiscovery: ["channels"],
     hosts: everywhere("nitro", "Nitro"),
     id: "channels",
     packages: ["@vite-hub/channels"],
@@ -266,6 +265,7 @@ export default defineAgent({
   }),
   connections: feature({
     docs: "/docs/connections",
+    enabledByDiscovery: ["connections"],
     hosts: everywhere("database", "Database"),
     id: "connections",
     implies: [{ feature: "database" }],
@@ -326,11 +326,12 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
     hosts: {
       cloudflare: native("cloudflare", "Cloudflare Email", "The Cloudflare Email driver is the default. Resend is also supported."),
       deno: explicit("email.driver", "Resend", "Configure the built-in fetch-based Resend driver."),
-      dev: explicit("email.driver", "Resend", "Configure the built-in Resend driver for local delivery."),
+      dev: native("log", "Log", "`email: true` keeps each message in the development outbox and sends nothing. Set `email.driver` for a production build.", "process-local"),
       netlify: explicit("email.driver", "Resend", "Configure the built-in Resend driver."),
       node: explicit("email.driver", "Resend / custom", "Configure Resend or provide a custom ViteHub Email driver."),
       vercel: explicit("email.driver", "Resend", "Configure the built-in Resend driver."),
     },
+    developmentOverrides: ["deno", "netlify", "vercel"],
     id: "email",
     packages: ["@vite-hub/email"],
     summary: "Send email from server code and Agents, with a development outbox.",
@@ -392,6 +393,7 @@ export default defineQueue<{ id: string }>(async ({ payload }) => {
 })
 `, { suffix: "queue" }),
     docs: "/docs/queue",
+    enabledByDiscovery: ["queues"],
     hosts: {
       cloudflare: native("cloudflare", "Queues", "Cloudflare Queues bindings and consumers."),
       deno: unsupported("No Deno Queue driver is provided."),
@@ -434,6 +436,7 @@ export default defineRealtime({
 `),
     developmentOverrides: ["cloudflare", "deno", "netlify", "vercel"],
     docs: "/docs/realtime",
+    enabledByDiscovery: ["realtime"],
     hosts: {
       cloudflare: native("cloudflare", "Durable Objects", "Cloudflare Durable Objects run the production rooms."),
       deno: unsupported("Realtime has no distributed Deno driver, and process memory is rejected for the Deno host."),
@@ -476,12 +479,13 @@ export default defineSchedule({
 `, { suffix: "schedule" }),
     developmentOverrides: ["cloudflare", "netlify", "vercel"],
     docs: "/docs/schedule",
+    enabledByDiscovery: ["schedules"],
     hosts: {
       cloudflare: native("cloudflare", "Cron triggers", "Cloudflare scheduled events and Nitro Provider Wake."),
       deno: native("deno", "Deno.cron", "`Deno.cron` output that the generated `.output/main.ts` loads before the Nitro server."),
       dev: native("local", "Local / process", "Local development runner and the explicit process runtime.", "single-host"),
       netlify: native("netlify", "Scheduled fn", "One generated Netlify scheduled function per static Schedule."),
-      node: native("process", "process", "Process runtime for one long-lived process or replica. A build needs `schedule: { runtime: { driver: \"process\" } }`, or `providerOutput: false` to wake Schedules yourself.", "single-host"),
+      node: native("process", "process", "Process runtime for one long-lived process or replica. `schedule: true` uses it. Set `providerOutput: false` to wake Schedules yourself.", "single-host"),
       vercel: native("vercel", "Vercel Cron", "Vercel Cron Jobs provider output."),
     },
     id: "schedule",
@@ -497,9 +501,10 @@ export default defineWorkflow(${JSON.stringify(name)}, async (payload: { id: str
 })
 `, { folder: "index", suffix: "workflow" }),
     docs: "/docs/workflows",
+    enabledByDiscovery: ["workflows"],
     hosts: {
       cloudflare: native("cloudflare", "CF Workflows", "Cloudflare Workflows provider."),
-      deno: explicit("workflow.driver", "OpenWorkflow", "Set `workflow.driver` to \"openworkflow\" with `workflow.postgres.url`, and start its worker. A build without a driver fails. Workflow that only the Agent turns on runs inline in the request process, so a restart loses the run."),
+      deno: explicit("workflow.driver", "OpenWorkflow", "Set `workflow.driver` to \"openworkflow\" with `workflow.postgres.url`, and start its worker. A build without a driver fails."),
       dev: native("openworkflow", "OpenWorkflow", "The Node host runs OpenWorkflow and its worker in the dev server, on .vitehub/data/openworkflow.sqlite.db. workflow.remote lets it use the Postgres Default Database or OPENWORKFLOW_POSTGRES_URL."),
       netlify: explicit("workflow.driver", "OpenWorkflow", "Use OpenWorkflow explicitly. No Netlify-native Workflow driver is provided."),
       node: {
@@ -519,6 +524,7 @@ export default defineWorkflow(${JSON.stringify(name)}, async (payload: { id: str
   workspace: feature({
     developmentOverrides: ["cloudflare", "deno", "netlify", "vercel"],
     docs: "/docs/workspace",
+    enabledByDiscovery: ["workspaces"],
     hosts: {
       cloudflare: native("memory", "Artifacts / GitHub", "Memory by default, or Cloudflare Artifacts beta and GitHub for durable state.", "process-local"),
       deno: explicit("workspace.store", "GitHub", "Select the GitHub Workspace Store explicitly for durable state."),
@@ -591,24 +597,19 @@ export function featureSupport(id: FeatureId, host: FeatureHost, appHost?: ViteH
   return definition.hosts[appHost === "node" || definition.developmentOverrides?.includes(appHost) ? "dev" : appHost]
 }
 
-/** True when one of the `enabled` features turns `id` on, and `id` then runs inline on `host` without a provider option. */
-export function impliedInline(id: FeatureId, enabled: readonly FeatureId[], host: ViteHubHost): boolean {
-  return enabled.some(source => features[source].implies.some(implication => implication.feature === id && implication.inline?.includes(host)))
-}
-
 /**
- * The features that `enabled` turn on through implications on `host`, without the ones already in `enabled`.
+ * The features that `enabled` turn on through implications, without the ones already in `enabled`.
  * This follows implications transitively.
  * `disabled` lists features that the app sets to `false`; an implication never turns them on.
  */
-export function impliedFeatures(enabled: readonly FeatureId[], host: ViteHubHost, disabled: readonly FeatureId[] = []): FeatureId[] {
+export function impliedFeatures(enabled: readonly FeatureId[], disabled: readonly FeatureId[] = []): FeatureId[] {
   const on = new Set(enabled)
   const implied: FeatureId[] = []
   const pending = [...enabled]
   while (pending.length) {
     const id = pending.shift()!
     for (const implication of features[id].implies) {
-      if (implication.except?.includes(host) || on.has(implication.feature) || disabled.includes(implication.feature)) continue
+      if (on.has(implication.feature) || disabled.includes(implication.feature)) continue
       on.add(implication.feature)
       implied.push(implication.feature)
       pending.push(implication.feature)

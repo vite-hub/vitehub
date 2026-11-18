@@ -800,7 +800,7 @@ async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, 
   config.rollupConfig = rollupConfig
   await writeFileIfChanged(file, [
     "import { env as vitehubEnv } from 'cloudflare:workers'",
-    "import { getRequestCloudflareEnv, runWithActiveCloudflareEnv, runWithDatabaseRequest, setActiveCloudflareEnv } from '@vite-hub/database/runtime/state'",
+    `import { getRequestCloudflareEnv, runWithActiveCloudflareEnv, runWithDatabaseRequest, setActiveCloudflareEnv } from ${JSON.stringify(resolveRuntimeModule(resolve(databaseRuntimeDir, "../.."), "runtime/state"))}`,
     "",
     "const nativeEnv = (globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ ?? vitehubEnv",
     "",

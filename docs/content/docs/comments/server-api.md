@@ -254,7 +254,7 @@ The Console shows the context in each thread's fields. `describeCommentContext(c
 
 ## HTTP routes
 
-The overlay and [`createRestTransport()`](#rest-transport) call the Comments API at `/api/_vitehub/comments`. Responses are JSON, `{ data }` or `{ error }`, with `cache-control: private, no-store`. `error` has `code`, `why`, `fix`, and `docs`. Threads and messages use the [types above](#threads-and-messages), and a thread adds `can: { comment, resolve, delete }` for the reader. Routes that return threads or messages also send `people`, the mentioned people with names.
+The overlay and [`createRestTransport()`](#rest-transport) call the Comments API at `/_vitehub/comments`. Responses are JSON, `{ data }` or `{ error }`, with `cache-control: private, no-store`. `error` has `code`, `why`, `fix`, and `docs`. Threads and messages use the [types above](#threads-and-messages), and a thread adds `can: { comment, resolve, delete }` for the reader. Routes that return threads or messages also send `people`, the mentioned people with names.
 
 The routes run the same actions and checks as the [comment operations](/docs/comments/operations/server-api), for the request's user. They need no Console access, so guests and `identify` users, such as share link readers, can use them. They serve threads on every subject `authorize` lets the reader see, not only `page`.
 
@@ -296,7 +296,7 @@ The server sets a message's author from the request's user. A guest sends its id
 | `501` | `COMMENTS_R0014`, `COMMENTS_R0021`: no place to store or read attachments |
 | `503` | `COMMENTS_NOT_INSTALLED`, `COMMENTS_R0019` |
 
-The overlay script is a static file at `/api/_vitehub/comments/assets/overlay.js`.
+The overlay script is a static file at `/_vitehub/comments/assets/overlay.js`.
 
 ### REST transport
 
@@ -325,7 +325,7 @@ const src = transport.attachmentUrl(thread.messages[0].attachments[0])
 | `credentials` | `same-origin` | Sends the session cookie. |
 | `fetch` | `globalThis.fetch` | For tests or a server. |
 
-A failed request throws `CommentsRestError` with the response's `code`, `why`, `fix`, and `status`. `commentAttachmentUrl(key, base?)` builds the same URL as `transport.attachmentUrl()`. The overlay uses the same code.
+A failed request throws a diagnostic with the response's `code`, `fix`, and `status`. Its `message` is the `why`. `commentAttachmentUrl(key, base?)` builds the same URL as `transport.attachmentUrl()`. The overlay uses the same code.
 
 ## Content field addresses
 
@@ -335,7 +335,7 @@ Content owns the address format, `<collection>[:<id>]#<field.path>`. Comments on
 | --- | --- |
 | `contentField(collection, field)` | Returns `{ 'data-content-field': 'about#hero.title' }` for a singleton. |
 | `contentField(collection, id, field)` | Returns `{ 'data-content-field': 'customers:acme#name' }` for a document in a `documents()` collection. |
-| `formatContentField({ collection, id?, field })` | Returns the address string. Throws a `TypeError` for a collection name, id, or field path the format cannot hold. |
+| `formatContentField({ collection, id?, field })` | Returns the address string. Throws [`CONTENT_FIELD_ADDRESS_INVALID`](/docs/content/diagnostics/content_field_address_invalid) for a collection name, id, or field path the format cannot hold. |
 | `parseContentField(value)` | Returns `{ collection, id?, field }`, or `undefined` for any other string. |
 
 Field paths use dots between keys, such as `hero.title` or `cards.0.title`. An id cannot contain `#`. See [Mark Content fields](/docs/comments/configure#mark-content-fields).
@@ -352,7 +352,7 @@ The server sets each person in the room from `identify` or the Auth session, and
 
 With `server/comments.ts` or `comments()`, the integration writes these build files. Do not import them.
 
-- `.vitehub/nitro/comments/handler.mjs` serves `/api/_vitehub/comments/**`.
+- `.vitehub/nitro/comments/handler.mjs` serves `/_vitehub/comments/**`.
 - `.vitehub/nitro/comments/plugin.mjs` installs Comments with its Database at server start. It registers the overlay and sign-in prompt as the `comments` page tool.
 - `.vitehub/nitro/comments/page-session.mjs` serves `GET /_vitehub/page/session`.
 - `definition.mjs`, only from `comments()` without `server/comments.ts`, exports `defineComments()` with no options.

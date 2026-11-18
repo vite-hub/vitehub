@@ -150,6 +150,8 @@ async function requiredPeerSpecs() {
     ...browserCatalog,
     ...chatCatalog,
     ...await catalogDependencySpecs("nuxt", ["nuxt"]),
+    // Content and Realtime take the app's Tiptap and Yjs as peers, so the app has one copy of each.
+    ...await catalogDependencySpecs("realtime", ["@tiptap/core", "@tiptap/extension-blockquote", "@tiptap/extension-code", "@tiptap/extension-document", "@tiptap/extension-image", "@tiptap/extension-list", "@tiptap/extension-table", "@tiptap/markdown", "@tiptap/pm", "@tiptap/starter-kit", "yjs"]),
     ...await catalogDependencySpecs("runtime", ["zod"]),
     ...vercelCatalog,
     ...workflowCatalog,

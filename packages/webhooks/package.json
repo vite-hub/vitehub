@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/webhooks",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Send ViteHub events to an outside URL: signed, retried, and debounced on every host.",
   "keywords": [
     "debounce",
@@ -88,6 +88,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

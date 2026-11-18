@@ -1,6 +1,6 @@
 import type { HostRequestEvent, ViteHubContext } from "@vite-hub/runtime/internal/h3"
 import type { H3Event } from "h3"
-import type { AccessAuthorize, AnonymousAccessAuthorize, Result } from "@vite-hub/runtime"
+import type { AccessAuthorize, AnonymousAccessAuthorize, Duration, Result } from "@vite-hub/runtime"
 
 import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, MediaRecord, MediaUpdate, MediaVariantEntry } from "./media/types.ts"
 
@@ -54,26 +54,53 @@ export interface BlobPutOptions {
   prefix?: string
 }
 
+/**
+ * A condition of one `put()`. The store checks it and writes in one step, so a write from another process between your
+ * read and your write makes the `put()` fail with `BLOB_CONFLICT` and keeps the other write.
+ */
+export type BlobPutCondition =
+  | {
+    /** Write only when the stored object still has this `httpEtag`, from `head()`, `put()`, or `list()` of the same store. */
+    ifMatch?: string
+    overwrite?: true
+  }
+  | {
+    ifMatch?: never
+    /** `false` writes only when no object exists at the pathname. Defaults to `true`. */
+    overwrite: false
+  }
+
+/** The condition of `put()` as a driver gets it. */
+export type BlobDriverPutCondition = { type: "create" } | { type: "replace", etag: string }
+
 export type BlobPutBody = string | ReadableStream<unknown> | ArrayBuffer | ArrayBufferView | Blob
 
 export type BlobOperation = "copy" | "delete" | "get" | "head" | "list" | "media" | "multipart" | "put" | "serve" | "sign" | "upload"
 /**
- * `BLOB_CONFLICT` reports a copy or a media move onto an existing object, or the removal of a non-empty folder.
+ * `BLOB_CONFLICT` reports a copy or a media move onto an existing object, the removal of a non-empty folder, or a
+ * `put()` whose `ifMatch` or `overwrite: false` condition does not hold.
  * `BLOB_INVALID_CURSOR` reports a list `cursor` that no `list()` result of the store returned.
  * `BLOB_PATHNAME_TOO_LONG` reports a pathname above the host limit, such as 1024 bytes on Cloudflare R2.
  */
 export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_INVALID_CURSOR" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG"
 
+/**
+ * Options of `blob.sign()`. `expiresIn` is how long the link works: a whole number of seconds, or a duration such as
+ * `"15m"`.
+ */
 export type BlobSignOptions =
-  | { expiresIn: number, method: "GET" }
+  | { expiresIn: number | Duration, method: "GET" }
   | {
     contentType?: string
     createOnly?: boolean
-    expiresIn: number
+    expiresIn: number | Duration
     /** The largest body that the upload accepts, such as `"8MB"`. Only the `fs` and `vercel` drivers bind it. */
     maxSize?: BlobSize
     method: "PUT"
   }
+
+/** What a driver's `sign()` gets: `expiresIn` is always whole seconds. */
+export type BlobDriverSignOptions = BlobSignOptions & { expiresIn: number }
 
 export interface BlobSignedRequest {
   headers: Record<string, string>
@@ -146,9 +173,14 @@ export interface BlobDriverAdapter<TOptions> {
   head(pathname: string): Promise<BlobObject | null>
   list(options?: BlobListOptions): Promise<BlobListResult>
   put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobObject>
+  /**
+   * Write only when `condition` holds, checked and written in one step. Returns `null` when it does not hold. Without
+   * it, a conditional `put()` fails with `BLOB_PUT_CONDITION_UNSUPPORTED`.
+   */
+  putIf?(pathname: string, body: BlobPutBody, options: BlobPutOptions, condition: BlobDriverPutCondition): Promise<BlobObject | null>
   resumeMultipartUpload?(pathname: string, uploadId: string): Promise<BlobDriverMultipartUpload>
   /** `store` names the Blob Store, for a driver that signs links to the app itself. */
-  sign?(pathname: string, options: BlobSignOptions, context: { store: string }): Promise<BlobSignedRequest>
+  sign?(pathname: string, options: BlobDriverSignOptions, context: { store: string }): Promise<BlobSignedRequest>
 }
 
 /**
@@ -402,7 +434,12 @@ export interface BlobStorage {
   handleUpload(event: BlobUploadEvent, options: BlobUploadOptions): Promise<Result<BlobObject[] | BlobDirectUploadStep, BlobErrorCode>>
   head(pathname: string): Promise<Result<BlobObject | null, BlobErrorCode>>
   list(options?: BlobListOptions): Promise<Result<BlobListResult, BlobErrorCode>>
-  put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<Result<BlobObject, BlobErrorCode>>
+  /**
+   * Write an object. With `ifMatch` or `overwrite: false`, the write happens only when the condition holds, and
+   * otherwise returns `BLOB_CONFLICT`. Every driver checks the condition in the provider, except `fs`, which checks it
+   * in the process: two processes that write one `fs` store can still overwrite each other.
+   */
+  put(pathname: string, body: BlobPutBody, options?: BlobPutOptions & BlobPutCondition): Promise<Result<BlobObject, BlobErrorCode>>
   /** Continue a multipart upload in a later request. */
   resumeMultipartUpload(pathname: string, uploadId: string): Promise<Result<BlobMultipartUpload, BlobErrorCode>>
   sign(pathname: string, options: BlobSignOptions): Promise<Result<BlobSignedRequest, BlobErrorCode>>
@@ -476,7 +513,7 @@ export interface FsBlobStoreConfig {
   remote?: boolean
   /**
    * Origin of the links that `sign()` returns, such as `https://app.example`. Add the base URL of the app when it has
-   * one, such as `https://app.example/app`. Without it, the links start with `/_vitehub/blob/signed/`.
+   * one, such as `https://app.example/app`. Without it, the links start with `/_vitehub/blob-signed/`.
    */
   urlBaseUrl?: string
 }
