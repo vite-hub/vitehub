@@ -1,5 +1,6 @@
 import { computed, defineComponent, h, type PropType } from "vue";
 import { initials } from "../internal/format.ts";
+import { RollNumber } from "./motion.ts";
 
 // Named after the presence stacks of Liveblocks, Kibo UI, and Supabase UI, which all call it `AvatarStack`.
 // `max` counts the "+N" item, as in Liveblocks.
@@ -71,7 +72,7 @@ export const AvatarStack = defineComponent({
             ? h(
                 "span",
                 { "aria-hidden": "true", "data-slot": "avatar-stack-count", title: hidden.value.map(person => person.name).join(", ") },
-                `+${hidden.value.length}`,
+                ["+", h(RollNumber, { value: hidden.value.length })],
               )
             : null,
         ],

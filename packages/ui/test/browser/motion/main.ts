@@ -7,19 +7,28 @@ import "@fontsource-variable/geist";
 import UButton from "@nuxt/ui/components/Button.vue";
 import UCheckbox from "@nuxt/ui/components/Checkbox.vue";
 import URadioGroup from "@nuxt/ui/components/RadioGroup.vue";
+import USlider from "@nuxt/ui/components/Slider.vue";
+import USplitter from "@nuxt/ui/components/Splitter.vue";
 import USwitch from "@nuxt/ui/components/Switch.vue";
 import UTabs from "@nuxt/ui/components/Tabs.vue";
+import { Slider as SdkSlider, SliderControl, SliderIndicator, SliderThumb, SliderTrack } from "@ui-sdk/vue/slider";
 import { createApp, h, ref } from "vue";
 import type { VNode } from "vue";
 
 import { createViteHubUI } from "../../../src/config.ts";
 import { forceReducedMotion, getMotionSlowFactor, prefersReducedMotion, setMotionSlowFactor } from "../../../src/motion.ts";
 import "./styles.css";
+import { textRows } from "./text.ts";
 
 const today = new URLSearchParams(location.search).get("mode") === "today";
 // The press of `vitehubTheme.button` before the motion layer.
 const todayPress = "transition-[color,background-color,box-shadow,transform] duration-150 ease-out motion-safe:active:not-disabled:scale-[.97]";
 const buttonClass = today ? todayPress : undefined;
+// The thumb of USwitch before the motion layer: a CSS transition on its translate, and one size.
+const todayThumb = "transition-transform duration-200 ease-out data-[state=unchecked]:scale-100";
+const switchUI = today ? { thumb: todayThumb } : undefined;
+// The UTabs indicator transition of Nuxt UI's theme before the motion layer.
+const todayIndicator = "transition-[translate,width] duration-200 ease-out";
 
 addCollection(lucide);
 
@@ -29,8 +38,40 @@ const tab = ref("overview");
 const on = ref(false);
 const checked = ref(false);
 const plan = ref("free");
+const live = ref(false);
+const mixed = ref<boolean | "indeterminate">("indeterminate");
+const plainOn = ref(false);
+const saved = ref(false);
+const starred = ref(false);
+const pinned = ref(false);
+const cssSaved = ref(false);
+const view = ref("grid");
+const offOn = ref(false);
+const offChecked = ref(false);
+const offSaved = ref(false);
+const plainTab = ref("Overview");
+const segment = ref("Preview");
+const offTab = ref("One");
+const hovered = ref<string | null>(null);
 
 const plainRoles = ["button", "link", "tab", "radio", "menuitem", "menuitemradio", "menuitemcheckbox", "option", "switch", "checkbox"];
+
+// A plain group with no indicator, keyboard included: the selected item draws its own look, and the select effect
+// moves a copy of it.
+function plainGroup(testId: string, role: "tablist" | "radiogroup", items: string[], model: { value: string }): VNode {
+  const itemRole = role === "tablist" ? "tab" : "radio";
+  const attribute = role === "tablist" ? "aria-selected" : "aria-checked";
+  const pick = (item: string, focus = false) => {
+    model.value = item;
+    if (focus) requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-test=${testId}] [data-item="${item}"]`)?.focus());
+  };
+  return h("div", { "class": "plain-group", role, "aria-label": testId, "data-test": testId, "onKeydown": (event: KeyboardEvent) => {
+    const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    pick(items[(items.indexOf(model.value) + step + items.length) % items.length]!, true);
+  } }, items.map(item => h("button", { "type": "button", "role": itemRole, "data-item": item, [attribute]: String(model.value === item), "tabindex": model.value === item ? 0 : -1, "onClick": () => pick(item) }, item)));
+}
 
 function row(title: string, children: VNode[]): VNode {
   return h("section", { class: "row" }, [h("h2", title), ...children]);
@@ -45,6 +86,114 @@ class ShadowButton extends HTMLElement {
   }
 }
 customElements.define("motion-shadow-button", ShadowButton);
+
+// Drag a value: sliders and dividers. The plain ones follow the prototype: a slider whose thumb has the role, and a
+// panel edge that resizes a 120px to 220px panel.
+const volume = ref(40);
+const sdkVolume = ref(40);
+const plainVolume = ref(40);
+const filesWidth = ref(150);
+
+function setPlainVolume(value: number): void {
+  plainVolume.value = Math.round(Math.max(0, Math.min(100, value)));
+}
+
+function at(event: PointerEvent): void {
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  setPlainVolume((event.clientX - rect.left) / rect.width * 100);
+}
+
+function plainSlider(): VNode {
+  return h("div", {
+    "class": "plain-slider",
+    "data-test": "plain-slider",
+    onPointerdown(event: PointerEvent) {
+      (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+      at(event);
+    },
+    onPointermove(event: PointerEvent) {
+      if ((event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) at(event);
+    },
+  }, [
+    h("div", { "class": "plain-slider-range", "data-slot": "range", "style": { width: `${plainVolume.value}%` } }),
+    h("div", {
+      "class": "plain-slider-thumb",
+      "role": "slider",
+      "tabindex": 0,
+      "aria-label": "Plain volume",
+      "aria-valuemin": 0,
+      "aria-valuemax": 100,
+      "aria-valuenow": plainVolume.value,
+      "style": { left: `${plainVolume.value}%` },
+      onKeydown(event: KeyboardEvent) {
+        const step = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[event.key];
+        if (!step) return;
+        event.preventDefault();
+        setPlainVolume(plainVolume.value + step * (event.shiftKey ? 10 : 1));
+      },
+    }),
+  ]);
+}
+
+let start: { x: number; width: number } | undefined;
+
+function plainPanels(): VNode {
+  return h("div", { "class": "plain-panels", "data-test": "panels" }, [
+    h("div", { "class": "plain-pane", "data-test": "files", "style": { width: `${filesWidth.value}px` } }, "Files"),
+    h("div", {
+      "class": "plain-edge",
+      "data-test": "resize",
+      "role": "separator",
+      "tabindex": 0,
+      "aria-label": "Resize files",
+      "aria-orientation": "vertical",
+      "aria-valuenow": filesWidth.value,
+      "aria-valuemin": 120,
+      "aria-valuemax": 220,
+      onPointerdown(event: PointerEvent) {
+        (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+        start = { x: event.clientX, width: filesWidth.value };
+      },
+      onPointermove(event: PointerEvent) {
+        if (!start) return;
+        filesWidth.value = Math.max(120, Math.min(220, start.width + event.clientX - start.x));
+      },
+      onPointerup() {
+        start = undefined;
+      },
+    }),
+    h("div", { class: "plain-pane plain-pane-main" }, "Document"),
+  ]);
+}
+
+function dragRows(): VNode[] {
+  // A handle with a line of its own, as the Console session trace draws in its `USplitter`.
+  const line = () => h("span", { class: "pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-(--ui-border) group-hover:bg-(--ui-border-accented)" });
+  return [
+    row("USlider, ui-sdk slider, plain slider", [
+      h(USlider, { "data-test": "slider", "class": "w-80", "aria-label": "Volume", "modelValue": volume.value, "onUpdate:modelValue": (value: number | number[] | undefined) => (volume.value = Number(value)) }),
+      h(SdkSlider, { "data-test": "sdk-slider", "class": "sdk-slider", "modelValue": sdkVolume.value, "onUpdate:modelValue": (value: number | number[]) => (sdkVolume.value = Number(value)) }, () => [
+        h(SliderControl, { class: "sdk-slider-control" }, () => [
+          h(SliderTrack, { class: "sdk-slider-track" }, () => [
+            h(SliderIndicator, { class: "sdk-slider-range" }),
+            h(SliderThumb, { "class": "sdk-slider-thumb", "aria-label": "Kit volume" }),
+          ]),
+        ]),
+      ]),
+      plainSlider(),
+    ]),
+    row("USplitter, a plain resize handle", [
+      h("div", { class: "splitter-frame" }, [
+        h(USplitter, { "data-test": "splitter", "items": [{ id: "files", slot: "files", defaultSize: 30, minSize: 20, maxSize: 40 }, { id: "doc", slot: "doc", defaultSize: 70 }] }, {
+          "files": () => h("div", { class: "plain-pane" }, "Files"),
+          "doc": () => h("div", { class: "plain-pane plain-pane-main" }, "Document"),
+          "resize-handle": line,
+        }),
+      ]),
+      plainPanels(),
+    ]),
+  ];
+}
 
 const app = createApp({
   render: () => h("main", { class: "page" }, [
@@ -67,12 +216,22 @@ const app = createApp({
       h(UButton, { "data-test": "button-link", to: "#link", variant: "link", label: "A link", class: buttonClass }),
     ]),
     row("UTabs", [
-      h(UTabs, { "data-test": "tabs", "modelValue": tab.value, "onUpdate:modelValue": (value: string | number) => (tab.value = String(value)), content: false, items: [{ label: "Overview", value: "overview" }, { label: "Logs", value: "logs" }, { label: "Settings", value: "settings" }] }),
+      h(UTabs, { "data-test": "tabs", "ui": today ? { indicator: todayIndicator } : undefined, "modelValue": tab.value, "onUpdate:modelValue": (value: string | number) => (tab.value = String(value)), content: false, items: [{ label: "Overview", value: "overview" }, { label: "Logs", value: "logs" }, { label: "Settings", value: "settings" }] }),
     ]),
     row("USwitch, UCheckbox, URadioGroup", [
-      h(USwitch, { "data-test": "switch", "modelValue": on.value, "onUpdate:modelValue": (value: boolean) => (on.value = value), label: "Live" }),
+      h(USwitch, { "data-test": "switch", "modelValue": on.value, "onUpdate:modelValue": (value: boolean) => (on.value = value), label: "Live", ui: switchUI }),
       h(UCheckbox, { "data-test": "checkbox", "modelValue": checked.value, "onUpdate:modelValue": (value: boolean | "indeterminate") => (checked.value = value === true), label: "Notify me" }),
       h(URadioGroup, { "data-test": "radio", "modelValue": plan.value, "onUpdate:modelValue": (value: string) => (plan.value = value), orientation: "horizontal", items: [{ label: "Free", value: "free" }, { label: "Pro", value: "pro" }] }),
+    ]),
+    row("Select one of many", [
+      plainGroup("plain-tabs", "tablist", ["Overview", "Deployments", "Logs"], plainTab),
+      plainGroup("plain-segment", "radiogroup", ["Preview", "Code"], segment),
+      h("div", { "data-motion": "none" }, [plainGroup("select-off", "tablist", ["One", "Two"], offTab)]),
+      h("ul", { "class": "hover-grid", "data-motion-select": "", "data-test": "hover-grid", "onPointerleave": () => (hovered.value = null) }, ["Blob", "Queue", "Agent"].map(name =>
+        h("li", { "data-item": name, "data-state": hovered.value === name ? "active" : undefined, "onPointerenter": () => (hovered.value = name) }, [
+          hovered.value === name ? h("span", { "class": "hover-mark", "data-motion-indicator": "", "aria-hidden": "true" }) : null,
+          name,
+        ]))),
     ]),
     row("Plain elements by role", [
       h("button", { "class": "plain", "data-test": "plain-button" }, "button"),
@@ -87,7 +246,39 @@ const app = createApp({
       h("button", { "class": "plain own-press", "data-test": "own-press" }, "own scale transition"),
       h("button", { "class": "plain", "data-test": "not-a-control-parent" }, [h("span", { "data-test": "inner-span" }, "span in a button")]),
     ]),
+    ...textRows(row),
     row("Shadow DOM", [h("motion-shadow-button", { "data-test": "shadow-host" })]),
+    row("Toggle: switch", [
+      h(USwitch, { "data-test": "switch-xl", "modelValue": live.value, "onUpdate:modelValue": (value: boolean) => (live.value = value), label: "Email on deploy", size: "xl", ui: switchUI }),
+      h(USwitch, { "data-test": "switch-disabled", "modelValue": false, disabled: true, label: "Disabled" }),
+      h("div", { "class": "plain-switch", "role": "switch", "tabindex": 0, "aria-checked": String(plainOn.value), "aria-label": "Plain switch", "data-test": "plain-switch", "onClick": () => (plainOn.value = !plainOn.value), "onKeydown": (event: KeyboardEvent) => {
+        if (event.key !== " ") return;
+        event.preventDefault();
+        plainOn.value = !plainOn.value;
+      } }, [h("span", { class: "plain-knob" })]),
+    ]),
+    row("Toggle: checkbox", [
+      h(UCheckbox, { "data-test": "checkbox-mixed", "modelValue": mixed.value, "onUpdate:modelValue": (value: boolean | "indeterminate") => (mixed.value = value), label: "Every file" }),
+      h("button", { "class": "plain", "data-test": "set-mixed", "onClick": () => (mixed.value = "indeterminate") }, "Set mixed"),
+      h("button", { "class": "plain", "data-test": "set-unchecked", "onClick": () => (mixed.value = false) }, "Clear"),
+    ]),
+    row("Toggle: pressed icon", [
+      h(UButton, { "data-test": "bookmark", "variant": "ghost", "icon": "i-lucide-bookmark", "aria-label": "Save", "aria-pressed": saved.value, "class": buttonClass, "onClick": () => (saved.value = !saved.value) }),
+      h(UButton, { "data-test": "star", "variant": "outline", "icon": "i-lucide-star", "label": starred.value ? "Starred" : "Star", "aria-pressed": starred.value, "class": buttonClass, "onClick": () => (starred.value = !starred.value) }),
+      h(UButton, { "data-test": "pin", "variant": "ghost", "icon": "i-lucide-pin", "aria-label": "Pin", "aria-pressed": pinned.value, "class": buttonClass, "onClick": () => (pinned.value = !pinned.value) }),
+      // An Iconify CSS icon, as `@nuxt/icon` renders one in CSS mode: a span that draws `--svg` as a mask.
+      h("button", { "class": "plain", "data-test": "css-bookmark", "aria-label": "Save", "aria-pressed": String(cssSaved.value), "onClick": () => (cssSaved.value = !cssSaved.value) }, [h("span", { class: "iconify css-bookmark" })]),
+      // A segmented control: a choice of one of many, not a toggle. Its icons do not wobble.
+      h("div", { class: "segments" }, ["grid", "list"].map(value => h(UButton, { "data-test": `view-${value}`, "variant": "ghost", "icon": value === "grid" ? "i-lucide-layout-grid" : "i-lucide-list", "aria-label": value, "aria-pressed": view.value === value, "onClick": () => (view.value = value) }))),
+    ]),
+    row("Toggle with data-motion=none", [
+      h("div", { "class": "row", "data-motion": "none" }, [
+        h(USwitch, { "data-test": "off-switch", "modelValue": offOn.value, "onUpdate:modelValue": (value: boolean) => (offOn.value = value), label: "No motion" }),
+        h(UCheckbox, { "data-test": "off-checkbox", "modelValue": offChecked.value, "onUpdate:modelValue": (value: boolean | "indeterminate") => (offChecked.value = value === true), label: "No motion" }),
+        h(UButton, { "data-test": "off-bookmark", "variant": "ghost", "icon": "i-lucide-bookmark", "aria-label": "Save", "aria-pressed": offSaved.value, "onClick": () => (offSaved.value = !offSaved.value) }),
+      ]),
+    ]),
+    ...dragRows(),
   ]),
 });
 const { default: ui } = await import("@nuxt/ui/vue-plugin");

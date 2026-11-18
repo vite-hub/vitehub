@@ -5,6 +5,7 @@
 /* The classes of `vitehubTheme`, which theme.css reads from its built copy, and the "today" press of main.ts. */
 @source "../../../src/theme.ts";
 @source "./main.ts";
+@source "./text.ts";
 
 body {
   margin: 0;
@@ -54,4 +55,215 @@ summary.plain {
 /* A hand-written press of the allowlist: it keeps its own until its wave moves it onto the layer. */
 .own-press {
   transition: scale 150ms ease-out;
+}
+
+/* A switch made by hand: its knob moves with `translate` when it is on, with no transition. */
+.plain-switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--ui-bg-accented);
+  cursor: pointer;
+}
+
+.plain-switch[aria-checked="true"] {
+  background: var(--ui-bg-inverted);
+}
+
+.plain-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--ui-bg);
+}
+
+.plain-switch[aria-checked="true"] .plain-knob {
+  translate: 16px 0;
+}
+
+/* A pressed bookmark or star fills, as in the prototype. */
+[aria-pressed="true"] :is(svg, .iconify) path {
+  fill: currentColor;
+}
+
+.iconify.css-bookmark {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  background-color: currentColor;
+  mask-image: var(--svg);
+  mask-repeat: no-repeat;
+  mask-size: 100% 100%;
+  --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'%3E%3Cpath fill='none' stroke='black' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m19 21l-7-4l-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z'/%3E%3C/svg%3E");
+}
+
+.segments {
+  display: inline-flex;
+  gap: 2px;
+}
+
+/* A segmented group with no indicator: a muted track, and a raised look on the selected item. */
+.plain-group {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--ui-bg-elevated);
+}
+
+.plain-group > button {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--ui-text-muted);
+  font: 500 12px/1 var(--font-sans, sans-serif);
+  transition: color 150ms ease, background-color 150ms ease;
+}
+
+.plain-group > [aria-selected="true"], .plain-group > [aria-checked="true"] {
+  background: var(--ui-bg);
+  box-shadow: 0 0 0 1px var(--ui-border);
+  color: var(--ui-text-highlighted);
+}
+
+/* A grid that marks the hovered item, as the docs landing does: each item renders the mark while it is active. */
+.hover-grid {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hover-grid > li {
+  position: relative;
+  padding: 8px 16px;
+  font: 500 12px/1 var(--font-sans, sans-serif);
+}
+
+.hover-mark {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--ui-text-highlighted);
+  pointer-events: none;
+}
+
+/* Drag a value: the sliders and panels of main.ts, sized like the prototype's. */
+.sdk-slider,
+.plain-slider {
+  width: 320px;
+}
+
+.sdk-slider-control {
+  display: flex;
+  align-items: center;
+  height: 20px;
+}
+
+.sdk-slider-track {
+  position: relative;
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--ui-bg-accented);
+}
+
+.sdk-slider-range {
+  position: absolute;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--ui-bg-inverted);
+}
+
+.sdk-slider-thumb {
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-radius: 8px;
+  background: var(--ui-bg-inverted);
+}
+
+.plain-slider {
+  position: relative;
+  height: 32px;
+  touch-action: none;
+}
+
+.plain-slider::before {
+  content: "";
+  position: absolute;
+  inset: 15px 0 auto;
+  height: 2px;
+  background: var(--ui-border-accented);
+}
+
+.plain-slider-range {
+  position: absolute;
+  top: 14px;
+  left: 0;
+  height: 4px;
+  background: var(--ui-text-highlighted);
+}
+
+.plain-slider-thumb {
+  position: absolute;
+  top: 8px;
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;
+  border-radius: 8px;
+  background: var(--ui-text-highlighted);
+}
+
+.splitter-frame,
+.plain-panels {
+  display: flex;
+  width: 560px;
+  height: 200px;
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.splitter-frame > * {
+  flex: 1;
+}
+
+.plain-panels {
+  position: relative;
+}
+
+.plain-pane {
+  flex: none;
+  height: 100%;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--ui-text-dimmed);
+}
+
+.plain-pane-main {
+  flex: 1;
+  background: var(--ui-bg-elevated);
+}
+
+/* A 1px edge in the border color with a 14px hit area, as the prototype's panel edge. */
+.plain-edge {
+  position: relative;
+  flex: none;
+  width: 1px;
+  background: var(--ui-border-accented);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.plain-edge::after {
+  content: "";
+  position: absolute;
+  inset: 0 -7px;
 }
