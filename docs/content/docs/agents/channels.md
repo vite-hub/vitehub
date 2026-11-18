@@ -1173,7 +1173,7 @@ Each field reads its canonical name first (`VITEHUB_` plus the path in upper sna
 
 See [Server Env variable names](/docs/env/configure).
 
-`teams()` always builds its adapter from `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and `TEAMS_API_URL` in `env.server.teams`, so it needs no credential options. Pass `adapter` options such as `userName` or `appType`, or your own adapter or factory. Install `@chat-adapter/teams`.
+`teams()` always builds its adapter from `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and `TEAMS_API_URL` in `env.server.teams`, so it needs no credential options. `TEAMS_API_URL` is optional: without it, each reply goes to the service URL of its conversation. Set it only to send every call to a gateway or an emulator. Pass `adapter` options such as `userName` or `appType`, or your own adapter or factory. Install `@chat-adapter/teams`.
 
 ```ts [server/agents/support.ts] fragment
 teams({ adapter: { userName: 'Support' } })
