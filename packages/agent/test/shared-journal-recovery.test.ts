@@ -214,8 +214,9 @@ describe("recovery at boot on processes that share one journal and one State", (
     const id = await agentInvocationId("stopped-turn", "support")
     const getSummary = restarted.store.getSummary
     vi.spyOn(restarted.store, "getSummary").mockImplementation(async (summaryId: string) => {
-      if (summaryId === id) throw new Error("journal unavailable")
-      return await getSummary(summaryId)
+      const summary = await getSummary(summaryId)
+      if (summaryId === id && summary?.status === "failed") throw new Error("journal unavailable")
+      return summary
     })
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined)
     restarted.boot()
@@ -233,11 +234,13 @@ describe("recovery at boot on processes that share one journal and one State", (
     const prompts: string[] = []
     const restarted = await startProcess(files, prompts, { storeTimeoutMs: 100 })
     const id = await agentInvocationId("stalled-turn", "support")
-    // Stall only the Chat probe: the preceding Invocation recovery must finish normally.
+    // Stall only the Chat probe, after Invocation recovery marks the record failed.
     if (operation === "getSummary") {
       const getSummary = restarted.store.getSummary
-      vi.spyOn(restarted.store, "getSummary").mockImplementation(summaryId => summaryId === id
-        ? new Promise<never>(() => {}) : getSummary(summaryId))
+      vi.spyOn(restarted.store, "getSummary").mockImplementation(async (summaryId) => {
+        const summary = await getSummary(summaryId)
+        return summaryId === id && summary?.status === "failed" ? new Promise<never>(() => {}) : summary
+      })
     }
     else if (operation === "claim") {
       const claim = restarted.store.claim
