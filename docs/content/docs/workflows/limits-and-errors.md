@@ -36,7 +36,9 @@ When a provider call fails, `startWorkflow()`, `getWorkflowRun()`, `cancelWorkfl
 | `provider`, `operation` | The provider and the call, for example `cloudflare` and `create`. |
 | `status` | The HTTP status of the provider, when it sent one. |
 | `reason` | The provider error name and the first line of its message, at most 200 characters. ViteHub removes URLs, file paths, and credentials. |
-| `acknowledgement` | `rejected`: the provider refused the call, so nothing started. `unknown`: the call can have reached the provider. Check the run before you start it again. |
+| `acknowledgement` | `rejected`: the provider refused the call, so nothing started. `unknown`: the call may have reached the provider. |
+
+If the outcome of a start is unknown and you supplied a run `id`, check that ID with `getWorkflowRun()` and reuse the same ID if you retry. If you do not know the original ID, verify whether the run started before trying again. A new ID does not identify the original run.
 
 In development, the server log also shows the full provider error.
 

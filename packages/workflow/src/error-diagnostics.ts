@@ -19,7 +19,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKFLOW_PROVIDER_OPERATION_FAILED: {
       why: ({ operation, provider, reason }: WorkflowProviderFailure): string => `The ${provider} Workflow provider failed during ${operation}.${reason ? ` ${reason}` : ""}`,
       fix: ({ acknowledgement }: WorkflowProviderFailure): string => acknowledgement === "unknown"
-        ? "The call can have reached the provider. Read the run with `getWorkflowRun()` before you start it again, or pass a run `id` so that a retry does not start a second run. Read `error.cause` for the provider error."
+        ? "The call may have reached the provider. If the original start supplied a run `id`, check that ID with `getWorkflowRun()` and reuse the same ID if you retry. If you do not know the original ID, verify whether the run started before trying again. Read `error.cause` for the provider error."
         : "Read `error.cause` for the provider error. Retry when the provider is available again.",
       data: ({ acknowledgement, operation, provider, reason, status }: WorkflowProviderFailure): WorkflowProviderFailure => ({ acknowledgement, operation, provider, reason, status }),
     },
