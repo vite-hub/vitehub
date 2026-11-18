@@ -1,7 +1,17 @@
+import { runFailedEventNames } from "@vite-hub/runtime/internal/run-failed"
+
 import { webhooksErrors } from "./errors.ts"
+
+import type { RunFailedEventName } from "@vite-hub/runtime/internal/run-failed"
 
 /** How a delivery is signed. Both use HMAC-SHA256 of the raw body with the secret. */
 export type WebhookSignature = "github" | "stripe"
+
+/**
+ * An event that ViteHub sends by itself, with no `sendWebhook()` call: an Agent Invocation, a Workflow run, or a Schedule
+ * run that ended in failure with no retry left.
+ */
+export type WebhookEvent = RunFailedEventName
 
 /** What `defineWebhook()` accepts. */
 export interface WebhookOptions {
@@ -23,6 +33,11 @@ export interface WebhookOptions {
    * hours. Without it, each send is delivered at once.
    */
   debounce?: string | number
+  /**
+   * Events that ViteHub sends to this webhook by itself: `"invocation.failed"`, `"workflow.failed"`, and
+   * `"schedule.failed"`. Each is sent once, when the run ends in failure with no retry left.
+   */
+  events?: readonly WebhookEvent[]
 }
 
 /** A webhook of `server/webhooks/<name>.ts`. */
@@ -32,6 +47,8 @@ export interface WebhookDefinition {
   readonly signature: WebhookSignature
   /** The debounce in milliseconds. `0` delivers each send at once. */
   readonly debounceMs: number
+  /** The events that ViteHub sends to this webhook by itself. */
+  readonly events: readonly WebhookEvent[]
 }
 
 const definitionBrand = Symbol.for("vitehub.webhooks.definition")
@@ -67,13 +84,18 @@ function parseDuration(value: string | number): number | undefined {
 
 const variableName = /^[A-Z_][A-Z0-9_]*$/i
 
+function isWebhookEvent(value: unknown): value is WebhookEvent {
+  return runFailedEventNames.some(name => name === value)
+}
+
 function invalid(message: string): Error {
   return webhooksErrors.WEBHOOKS_DEFINITION_INVALID({ message: `[vitehub] ${message}` })
 }
 
 /**
  * Defines a webhook: where ViteHub sends events, how it signs them, and how long it waits to collapse them. Default-export
- * it from `server/webhooks/<name>.ts`, then call `sendWebhook("<name>", body)` from server code.
+ * it from `server/webhooks/<name>.ts`, then call `sendWebhook("<name>", body)` from server code, or list `events` that
+ * ViteHub sends by itself.
  *
  * ```ts [server/webhooks/t3.ts]
  * import { defineWebhook } from "@vite-hub/webhooks"
@@ -97,7 +119,15 @@ export function defineWebhook(options: WebhookOptions): WebhookDefinition {
   const debounceMs = options.debounce === undefined ? 0 : parseDuration(options.debounce)
   if (debounceMs === undefined) throw invalid(`\`debounce\` must be a duration such as "30 minutes" or "10s", not ${JSON.stringify(options.debounce)}.`)
   if (debounceMs > maxDebounceMs) throw webhooksErrors.WEBHOOKS_DEBOUNCE_TOO_LONG({ debounce: JSON.stringify(options.debounce) })
-  return Object.defineProperty({ url: options.url, secret: options.secret, signature, debounceMs }, definitionBrand, { value: true })
+  const listed: unknown = options.events ?? []
+  if (!Array.isArray(listed)) throw invalid(`\`events\` must be a list such as ["workflow.failed"], not ${JSON.stringify(listed)}.`)
+  const items: readonly unknown[] = listed
+  const events = new Set<WebhookEvent>()
+  for (const event of items) {
+    if (!isWebhookEvent(event)) throw invalid(`\`events\` lists ${JSON.stringify(event)}. Use ${runFailedEventNames.map(name => JSON.stringify(name)).join(", ")}.`)
+    events.add(event)
+  }
+  return Object.defineProperty({ url: options.url, secret: options.secret, signature, debounceMs, events: [...events] }, definitionBrand, { value: true })
 }
 
 export function isWebhookDefinition(value: unknown): value is WebhookDefinition {

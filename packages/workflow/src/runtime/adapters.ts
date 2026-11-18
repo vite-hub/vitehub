@@ -11,6 +11,7 @@ import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { cancelOpenWorkflowRun, getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
 import { runWorkflowProviderOperation } from "./provider-operation.ts"
+import { emitWorkflowFailed } from "./run-failed.ts"
 import { toWorkflowRunError } from "./run-error.ts"
 import { getInlineWorkflowDefinitions, getWorkflowRunState, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
 import { cancelVercelWorkflow, inspectVercelWorkflowRun, resumeVercelWorkflowSignal, startVercelWorkflow } from "./vercel.ts"
@@ -430,8 +431,10 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
         })
         // SAFETY: Workflow provider normalization establishes the asserted run contract.
         .then(result => ({ result, status: "completed" as const }))
-        // SAFETY: Workflow provider normalization establishes the asserted run contract.
-        .catch(error => ({ error, status: "failed" as const }))
+        .catch(async (error: unknown) => {
+          await emitWorkflowFailed(name, id, error, definition)
+          return { error, status: "failed" as const }
+        })
       const runState = setWorkflowRun(name, id, run, payload, true)
       runState.startAt = startAt
       const waitUntil = resolveWaitUntil(event)

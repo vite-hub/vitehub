@@ -2,12 +2,16 @@ import { rm } from "node:fs/promises"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
+
 import {
   createMemoryAgentInvocationStore,
   failInterruptedAgentInvocations,
   readAgentInvocationWorkload,
   summarizeAgentInvocationWorkload,
 } from "../src/server.ts"
+
+import type { RunFailedEvent } from "@vite-hub/runtime/internal/run-failed"
 
 const temporaryDirectories = new Set<string>()
 
@@ -33,15 +37,25 @@ describe("Agent Invocation host recovery", () => {
     create("new-running", "running", "2026-08-30T12:00:00.000Z")
     create("completed", "completed", "2026-08-30T09:00:00.000Z")
 
-    await expect(failInterruptedAgentInvocations(store, {
-      before: Date.parse("2026-08-30T11:00:00.000Z"),
-      recover: () => true,
-    })).resolves.toBe(1)
+    const failures: RunFailedEvent[] = []
+    const stop = onRunFailed((event) => {
+      failures.push(event)
+    })
+    try {
+      await expect(failInterruptedAgentInvocations(store, {
+        before: Date.parse("2026-08-30T11:00:00.000Z"),
+        recover: () => true,
+      })).resolves.toBe(1)
+    }
+    finally {
+      stop()
+    }
     await expect(Promise.resolve(store.get("old-pending"))).resolves.toMatchObject({
       error: { message: "The host stopped before this Agent Invocation finished." },
       status: "failed",
     })
     await expect(Promise.resolve(store.get("new-running"))).resolves.toMatchObject({ status: "running" })
+    expect(failures).toEqual([{ event: "invocation.failed", agent: null, invocationId: "old-pending", error: { message: "The host stopped before this Agent Invocation finished." }, failedAt: expect.any(String) }])
   })
 
   it("scopes shared-store recovery to the owning process host", async () => {
