@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs"
 import { basename, dirname, relative, resolve } from "node:path"
 
+import { transformWithOxc } from "vite"
+
 import {
   createDirectoryDefinitionSource,
   discoverDefinitions,
@@ -455,23 +457,31 @@ function discoverFolderAgentDefinitions(scanDirs: string[]): DiscoveredAgentDefi
 
 /**
  * Throws when an Agent file that discovery found has no runtime default export. The host imports that default, and a
- * file without one, such as a folder of helpers under `server/agents/`, would crash the generated routes. A CommonJS
- * file, with no `import` or `export` statement, is not read: `module.exports` is its default.
+ * file without one, such as a folder of helpers under `server/agents/`, would crash the generated routes.
  */
-export function assertAgentDefaultExport(definition: Pick<DiscoveredAgentDefinition, "handler" | "name">): void {
+export async function assertAgentDefaultExport(definition: Pick<DiscoveredAgentDefinition, "handler" | "name">): Promise<void> {
   const file = definition.handler
   if (/\.c[jt]s$/i.test(file)) return
   const source = readFileSync(file, "utf8")
-  const { program } = scanModule(source, file)
-  if (!program.body.some(statement => statement.type === "ImportDeclaration" || statement.type.startsWith("Export"))) return
-  // `exportNames()` leaves out `export type` and `export default interface`, but not a local type exported as default.
-  const typeNames = new Set(program.body.flatMap((statement) => {
-    const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
-    return declaration?.type === "TSInterfaceDeclaration" || declaration?.type === "TSTypeAliasDeclaration" ? [declaration.id.name] : []
-  }))
-  const typeDefault = program.body.some(statement => statement.type === "ExportNamedDeclaration" && !statement.source
-    && statement.specifiers.some(specifier => exportName(specifier.exported) === "default" && specifier.local.type === "Identifier" && typeNames.has(specifier.local.name)))
-  if (exportNames(source, file).includes("default") && !typeDefault) return
+  if (exportNames(source, file).includes("default")) {
+    if (!/\.(?:m)?ts$/i.test(file)) return
+    const { code } = await transformWithOxc(source, file, { sourcemap: false })
+    if (exportNames(code, file).includes("default")) return
+  }
+  if (!/\.m[jt]s$/i.test(file)) {
+    const { program } = scanModule(source, file)
+    if (!program.body.some(statement => statement.type === "ImportDeclaration" || statement.type.startsWith("Export"))) {
+      let commonJs = false
+      walk(program, (node) => {
+        if (commonJs) return false
+        if (node.type !== "MemberExpression" || node.object.type !== "Identifier") return
+        commonJs = node.object.name === "exports" || (node.object.name === "module"
+          && ((!node.computed && node.property.type === "Identifier" && node.property.name === "exports")
+            || (node.computed && node.property.type === "Literal" && node.property.value === "exports")))
+      })
+      if (commonJs) return
+    }
+  }
   throw agentDiagnostics.AGENT_DEFINITION_EXPORT_MISSING({ file, name: definition.name })
 }
 

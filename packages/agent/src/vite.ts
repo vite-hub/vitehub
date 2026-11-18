@@ -2813,7 +2813,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       : []
     // Before the registry and routes import a file that exports no Agent. Discovery itself still lists the file, so
     // inventory callers such as Vite Doctor can report it.
-    for (const definition of registryDefinitions) assertAgentDefaultExport(definition)
+    for (const definition of registryDefinitions) await assertAgentDefaultExport(definition)
     await writeAgentRuntimeRegistry(generatedRoot, registryDefinitions, {
       agentHost: Boolean(normalized && hasHostedAgents && normalized.runtime !== "deno"),
     })

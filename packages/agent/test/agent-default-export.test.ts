@@ -4,8 +4,8 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { assertAgentDefaultExport, discoverAgentDefinitions } from "../src/discovery.ts"
-import { hubAgent } from "../src/vite.ts"
+import { assertAgentDefaultExport } from "../src/discovery.ts"
+import { hubAgent, listAgentDefinitionFiles } from "../src/vite.ts"
 
 const roots: string[] = []
 
@@ -23,40 +23,45 @@ async function agentFile(name: string, source: string): Promise<string> {
 
 describe("Agent default exports", () => {
   it.each([
+    ["no imports or exports", "agent.ts", "async function runSummaryAgent() {}\n"],
+    ["no exports in an explicit ES module", "agent.mjs", "function summary() {}\n"],
     ["only named exports", "agent.ts", "export async function runSummaryAgent() {}\n"],
     ["a default interface", "agent.ts", "export default interface Summary { title: string }\n"],
     ["a type-only default", "agent.ts", "type Summary = { title: string }\nexport type { Summary as default }\n"],
+    ["an inline type-only default", "agent.ts", "type Summary = { title: string }\nexport { type Summary as default }\n"],
     ["a local interface as default", "agent.ts", "interface Summary { title: string }\nexport { Summary as default }\n"],
+    ["a local type in a default expression", "agent.ts", "interface Summary { title: string }\nexport default Summary\n"],
     ["only imports", "agent.ts", 'import "./setup"\n'],
   ])("names a file with %s", async (_label, name, source) => {
     const handler = await agentFile(name, source)
 
-    expect(() => assertAgentDefaultExport({ handler, name: "summary" })).toThrow(expect.objectContaining({
+    await expect(assertAgentDefaultExport({ handler, name: "summary" })).rejects.toMatchObject({
       code: "AGENT_DEFINITION_EXPORT_MISSING",
       message: expect.stringContaining(`Agent "summary" has no default export in ${handler}`),
-    }))
+    })
   })
 
   it.each([
     ["export default", "agent.ts", "export default defineAgent({ driver: { model } })\n"],
     ["an export clause", "agent.ts", "const agent = defineAgent({ driver: { model } })\nexport { agent as default }\n"],
+    ["a value that shares a name with a type", "agent.ts", "interface Agent {}\nconst Agent = {}\nexport { Agent as default }\n"],
     ["a re-exported default", "agent.ts", 'export { default } from "./definition"\n'],
     ["module.exports in .js", "agent.js", "module.exports = defineAgent({ driver: { model } })\n"],
     ["module.exports in .cts", "agent.cts", "module.exports = defineAgent({ driver: { model } })\n"],
   ])("accepts %s", async (_label, name, source) => {
     const handler = await agentFile(name, source)
 
-    expect(() => assertAgentDefaultExport({ handler, name: "support" })).not.toThrow()
+    await expect(assertAgentDefaultExport({ handler, name: "support" })).resolves.toBeUndefined()
   })
 
   it("stops the build for an Agent folder of helpers, and discovery still lists it", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-default-export-build-"))
     roots.push(root)
     await mkdir(join(root, "server", "agents", "summary"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "summary", "agent.ts"), "export async function runSummaryAgent() {}\n", "utf8")
+    await writeFile(join(root, "server", "agents", "summary", "agent.ts"), "async function runSummaryAgent() {}\n", "utf8")
     await writeFile(join(root, "server", "agents", "summary", "instructions.md"), "Summarize the call.\n", "utf8")
 
-    expect(discoverAgentDefinitions({ mode: "server-agents", scanDirs: [join(root, "server")] })).toEqual([
+    expect(listAgentDefinitionFiles(root)).toEqual([
       expect.objectContaining({ name: "summary" }),
     ])
     const plugin = hubAgent({ providers: { state: { driver: "memory" } } })
