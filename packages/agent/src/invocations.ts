@@ -1121,6 +1121,7 @@ function boundedInputMessages(
 ): { messages: unknown[], omitted: number, truncated: boolean } {
   const budget: ObservationBudget = {
     items: MAX_INPUT_MESSAGE_ITEMS,
+    collectionItems: MAX_INPUT_MESSAGE_ITEMS,
     maxDepth: MAX_INPUT_MESSAGE_DEPTH,
     stringLength: maxStringLength * INPUT_MESSAGES_STRING_LENGTH_FACTOR,
     truncated: false,
@@ -1167,6 +1168,7 @@ function boundedObservationAttributeValue(
     // The message that started the run is stored whole, apart from the history and the other attributes.
     const triggerBudget: ObservationBudget = {
       items: MAX_INPUT_MESSAGE_ITEMS,
+      collectionItems: MAX_INPUT_MESSAGE_ITEMS,
       maxDepth: MAX_INPUT_MESSAGE_DEPTH,
       stringLength: maxStringLength,
       truncated: false,

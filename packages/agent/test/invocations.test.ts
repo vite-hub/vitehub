@@ -2093,7 +2093,7 @@ describe("Agent Invocations", () => {
     })
 
     it.each([
-      ["item count", (index: number) => teamsMessage(index, `Message ${index}: why does b11b lead time change?`, 32)],
+      ["item count", (index: number) => teamsMessage(index, `Message ${index}: why does b11b lead time change?`, 33)],
       ["string length", (index: number) => teamsMessage(index, `Message ${index}: ${"forecast ".repeat(1_000)}`)],
     ])("keeps the newest messages and the whole trigger under %s pressure", async (_pressure, create) => {
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore(), metadataContent: defaultAgentInvocationsMetadataContent })
@@ -2112,6 +2112,7 @@ describe("Agent Invocations", () => {
       expect(kept).toHaveLength(50 - Number(omitted))
       expect(kept.map(message => message.id)).toEqual(messages.slice(Number(omitted)).map(message => message.id))
       expect(kept.at(-1)).toMatchObject({ id: "msg-50", parts: [{ data: { modelText: header(50) } }, { text: messages[49]!.parts[1]!.text }] })
+      expect(kept.at(-1)).toEqual(messages[49])
       expect(kept[0]).toMatchObject({ parts: [{ data: { modelText: header(Number(omitted) + 1) } }, { type: "text" }] })
       expect(start?.attributes?.["input.trigger.message"]).toEqual(messages[49])
       expect(start?.attributes?.["vitehub.observation.truncatedAttributes"]).toEqual(["input.messages"])

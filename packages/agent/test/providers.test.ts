@@ -6358,6 +6358,7 @@ describe("server helpers", () => {
     const isSubscribed = state.isSubscribed.bind(state)
     state.isSubscribed = async (threadId) => {
       await handlersMayRun.promise
+      if (threadId.endsWith(":804")) throw new Error("Subscription read failed")
       return await isSubscribed(threadId)
     }
     const adapter = createTestChatAdapter({ deferMessageProcessing: true, isDM: false })
@@ -6387,6 +6388,7 @@ describe("server helpers", () => {
         await handler(request(3401, { chat: 802, isMention: true }), "telegram", options),
         await handler(request(3402, { chat: 803, isMention: false }), "telegram", options),
         await handler(request(3403), "telegram", options),
+        await handler(request(3404, { chat: 804, isMention: true }), "telegram", options),
       ]) expect(response.status).toBe(200)
       const acknowledged = await deliveries()
       expect(acknowledged["3401"]).toMatchObject({ status: "acknowledged" })
@@ -6404,6 +6406,7 @@ describe("server helpers", () => {
       expect(accepted).toContain("invocation.started")
       expect(settled["3402"]).toMatchObject({ status: "rejected", events: expect.arrayContaining([expect.objectContaining({ reason: "not-addressed", type: "rejected" })]) })
       expect(settled["3403"]).toMatchObject({ status: "rejected", events: expect.arrayContaining([expect.objectContaining({ reason: "unhandled", type: "rejected" })]) })
+      expect(settled["3404"]).toMatchObject({ status: "failed", events: expect.arrayContaining([expect.objectContaining({ error: "Subscription read failed", type: "failed" })]) })
     } finally {
       handlersMayRun.resolve()
       await Promise.allSettled(tasks)
@@ -16334,7 +16337,7 @@ describe("server helpers", () => {
       }
       return await dequeue(queue)
     })
-    const adapter = createTestChatAdapter()
+    const adapter = createTestChatAdapter({ deferMessageProcessing: true })
     let releasePending!: () => void
     let pending: Promise<void> | undefined = new Promise<void>((resolve) => {
       releasePending = resolve
@@ -16389,6 +16392,12 @@ describe("server helpers", () => {
       releasePending()
       await vi.waitFor(() => expect(inputs).toHaveLength(2), { timeout: 5_000 })
       expect(inputs[1]?.messages?.map((message) => message.id).sort()).toEqual(["91142", "91143"])
+      await vi.waitFor(async () => {
+        const deliveries = await handler.deliveries(chatWebhookRequest(91_143), "telegram", runtime)
+        expect(deliveries).toHaveLength(4)
+        expect(deliveries.every(delivery => delivery.invocationId && ["completed", "failed"].includes(delivery.status))).toBe(true)
+        expect(new Set(deliveries.map(delivery => delivery.invocationId)).size).toBe(2)
+      })
     } finally {
       pending = undefined
       releasePending()
@@ -19691,21 +19700,35 @@ describe("server helpers", () => {
     { outcome: "accepted", reason: undefined, result: "accepted" },
     { outcome: "deferred", reason: "unsupported", result: "unsupported" },
     { outcome: "failed", reason: "invalid-state", result: "invalid-state" },
+    { outcome: "failed", reason: "Driver rejected input", result: "throw" },
   ] as const)("records a $outcome steer attempt on the running Invocation", async ({ outcome, reason, result }) => {
     const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
     const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
     const state = createLibsqlAgentState({ url: ":memory:" })
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const released = deferred<void>()
+    const observationStarted = deferred<void>()
+    const writeObservation = deferred<void>()
+    const appendObservation = invocations.appendObservation.bind(invocations)
+    vi.spyOn(invocations, "appendObservation").mockImplementation(async (...args) => {
+      if (args[1].name === "agent.input.steer") {
+        observationStarted.resolve()
+        await writeObservation.promise
+      }
+      return await appendObservation(...args)
+    })
     let runs = 0
     // The Driver records nothing about the steer input, so the record comes from the route.
-    const sendInput = vi.fn(async () => result)
+    const sendInput = vi.fn(async () => {
+      if (result === "throw") throw new Error(reason)
+      return result
+    })
     const handler = createChannelWebhookRouteHandler(defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
           // SAFETY: This fixture constructs the Chat adapter contract for the test.
           adapter: () => createTestChatAdapter() as never,
-          messages: { concurrency: "steer", delivery: "manual", durable: false, state },
+          messages: { concurrency: "steer", delivery: "manual", durable: false, state, timeout: 500 },
         }),
       },
       driver: {
@@ -19724,7 +19747,8 @@ describe("server helpers", () => {
       },
       invocations,
     }) as never)
-    const context = { agentIdentity: { name: "calories" } }
+    const tasks: Promise<unknown>[] = []
+    const context = { agentIdentity: { name: "calories" }, waitUntil: (task: Promise<unknown>) => { tasks.push(task) } }
     const request = (messageId: number, text?: string) => {
       const value = chatWebhookRequest(messageId, 456, text)
       value.headers.set("x-vitehub-delivery-id", String(messageId))
@@ -19735,10 +19759,22 @@ describe("server helpers", () => {
       await state.connect()
       pending.push(handler(request(91_200), "telegram", context))
       await vi.waitFor(() => expect(runs).toBe(1))
-      pending.push(handler(request(91_201, "Use the k8s values"), "telegram", context))
-      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledOnce())
+      const followUpResponse = handler(request(91_201, "Use the k8s values"), "telegram", context)
+      pending.push(followUpResponse)
+      const response = result === "throw" ? expect(followUpResponse).rejects.toThrow(reason) : expect(followUpResponse).resolves.toMatchObject({ status: 200 })
+      void response.catch(() => undefined)
+      await observationStarted.promise
+      if (result !== "unsupported") await response
       released.resolve()
-      await Promise.all(pending)
+      await response
+      await pending[0]
+      if (result === "accepted") {
+        const delivery = (await handler.deliveries(request(91_201), "telegram", context)).find(item => item.sourceId === "91201")
+        expect(delivery).toMatchObject({ invocationId: expect.any(String), status: "completed" })
+        expect(delivery?.events.some(event => event.type === "failed")).toBe(false)
+      }
+      writeObservation.resolve()
+      while (tasks.length) await Promise.all(tasks.splice(0))
       const records = await Promise.all((await invocations.list()).invocations.map(async summary => await invocations.get(summary.id)))
       const target = records.find(record => record?.observations.some(item => item.attributes?.["channel.delivery.source.id"] === "91200"))
       const steers = records.flatMap(record => record?.observations.filter(item => item.name === "agent.input.steer") ?? [])
@@ -19757,7 +19793,9 @@ describe("server helpers", () => {
       expect(steers[0]?.attributes?.["channel.delivery.id"]).toBe(followUp?.id)
     } finally {
       released.resolve()
+      writeObservation.resolve()
       await Promise.allSettled(pending)
+      await Promise.allSettled(tasks)
       await state.disconnect()
     }
   })
