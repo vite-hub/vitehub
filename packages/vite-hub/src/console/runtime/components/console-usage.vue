@@ -318,6 +318,8 @@ function previousRuns() {
 }
 
 let request: AbortController | undefined;
+// True while `summary` holds the numbers of the last period or filter and the new ones load.
+let keptSummary = false;
 
 // The range picker offers the common views. A link can still ask for 24 hours or 90 days.
 const windowOptions: Array<{ label: string; value: UsageWindow }> = [
@@ -458,12 +460,18 @@ async function loadPage(page: { cursor: string | undefined; previous: Array<stri
     );
     if (request !== controller) return;
     summary.value = result;
+    keptSummary = false;
     runCursor.value = page.cursor;
     previousCursors.value = page.previous;
     error.value = undefined;
   } catch (value) {
     if (value instanceof Object && "name" in value && value.name === "AbortError") return;
-    if (request === controller) error.value = value;
+    if (request === controller) {
+      error.value = value;
+      // The numbers of another period must not stay next to the error.
+      if (keptSummary) summary.value = undefined;
+      keptSummary = false;
+    }
   } finally {
     if (request === controller) {
       request = undefined;
@@ -486,10 +494,13 @@ async function loadStatus(): Promise<void> {
 }
 watch(
   [() => props.base, window, agent, status, search],
-  () => {
+  ([base], previous) => {
     runCursor.value = undefined;
     previousCursors.value = [];
-    summary.value = undefined;
+    // Another period or filter keeps the numbers on the page until the new ones arrive, so the headline stays and its
+    // digits roll to the new totals. Another usage endpoint starts empty.
+    if (base === previous?.[0]) keptSummary = Boolean(summary.value);
+    else summary.value = undefined;
     void load();
   },
   { immediate: true },
