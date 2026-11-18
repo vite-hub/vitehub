@@ -36,12 +36,12 @@ export default defineConfig({
         command: "node packages/database/test/e2e.mjs",
         dependsOn: ["@vite-hub/database#build"],
       },
-      // Keeps only the rules that catch unsound type evidence. It checks the
-      // lines changed since VITE_DOCTOR_SINCE, so it needs no baseline.
+      // doctor.config.json selects the rules. Doctor reports only the lines
+      // changed since the merge base with VITE_DOCTOR_SINCE, so it needs no baseline.
       "doctor:typescript": {
         cache: false,
         command:
-          'node node_modules/vite-doctor/dist/cli.mjs . --extends vite-doctor/typescript/strict --rules typescript/boundaries/no-unvalidated-deserialization,typescript/evidence/no-caller-chosen-result-type,typescript/evidence/no-chained-type-assertions,typescript/evidence/no-widen-then-assert --since "${VITE_DOCTOR_SINCE:-HEAD^}" --no-cache --max-warnings 0',
+          'node node_modules/vite-doctor/dist/cli.mjs . --since "${VITE_DOCTOR_SINCE:-origin/main}" --no-cache --max-warnings 0',
       },
       "docs:build": {
         cache: false,

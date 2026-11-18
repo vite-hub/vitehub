@@ -25,6 +25,7 @@ const ConsoleMcpClient = () => import("../components/console-mcp-client.vue");
 const ConsoleMcpCallback = () => import("../components/console-mcp-callback.vue");
 const ConsoleSkills = () => import("../components/console-skills.vue");
 const ConsoleSetup = () => import("../components/console-setup.vue");
+const ConsoleWebhooks = () => import("../components/console-webhooks.vue");
 import {
   consoleDatabasesSchemaPath,
   consoleDatabasesTablePath,
@@ -36,6 +37,7 @@ import App from "./app.vue";
 import { consoleAccountViewsKey } from "./account-views";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
+import { loadConsolePageTools } from "./page-tools";
 import { consoleProjectReady, openConsoleProject, openConsoleSite, startConsoleAccount, startConsoleProjects, useConsoleProjects } from "./project-session";
 import { memoryProjectStorage } from "./projects";
 import { consolePendingSectionRoute, consoleSectionsPath, createConsoleSectionLoader, loadConsoleNavigation, resolveConsoleSectionDeepLink, subscribeConsoleNavigation } from "./sections";
@@ -418,6 +420,16 @@ function addContributedRoutes(navigation) {
       }
       continue;
     }
+    if (details.view.kind === "webhooks") {
+      router.addRoute({
+        component: ConsoleWebhooks,
+        name,
+        path: `/${section}`,
+        meta: { consoleSection: section, title: `${details.label} · ViteHub Console` },
+        props: { definitionsBase: "/_vitehub/api/definitions", details, sectionsBase },
+      });
+      continue;
+    }
     if (details.view.kind === "operation-view") {
       router.addRoute({
         component: ConsoleOperationView,
@@ -485,6 +497,9 @@ createApp(App, { sectionsBase })
   .use(ui, { router: () => router.currentRoute.value })
   .use(createViteHubUI({ icons: vitehubTheme.icons }))
   .mount("#app");
+// The page tools, such as Comments on the Console's own pages, start after the mount, so their session check and code
+// do not delay the Console. The account page tells the server not to add them (hosted/account.html).
+if (account) void loadConsolePageTools(consoleBase, { search: window.location.search, cookie: document.cookie });
 
 // Only the same-origin parent can navigate this editor; Vue Router runs its save/leave guards.
 if (window.parent !== window) {

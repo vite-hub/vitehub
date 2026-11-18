@@ -6,6 +6,7 @@ import { resolveDocsTheme } from "../utils/docs-theme"
  * The `ui` prop of a Nuxt UI component in the shell, with the design's classes for the same slots in front. In an app
  * with its own `app.vue`, `<UTheme>` gives the docs components the design, but a component's own `ui` prop replaces a
  * `<UTheme>` slot instead of adding to it. In a docs site the design is in the app config, and this returns `ui` as is.
+ * Remove when ViteHub moves to Nuxt UI v5, where `<UTheme>` merges `ui` (https://github.com/nuxt/ui/pull/7050).
  */
 export function withDocsTheme<T extends Record<string, string | undefined>>(component: string, ui: T): T {
   if (!theme.ui[component]) return ui

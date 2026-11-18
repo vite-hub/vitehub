@@ -3,4 +3,4 @@ description: "Fix DATABASE_DROP_NOT_CONFIRMED in ViteHub. Confirm the database r
 seo.title: "DATABASE_DROP_NOT_CONFIRMED: confirm reset"
 ---
 
-`vitehub database drop` was not confirmed. On a terminal, answer `y`. Without a terminal, such as in CI, add `--force`. Nothing was dropped.
+`vitehub database drop` or `vitehub database reset` was not confirmed. On a terminal, answer `y`. Without a terminal, such as in CI, add `--force`. Nothing was dropped.

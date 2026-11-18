@@ -143,6 +143,10 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "A custom `queue.binding` works with one Queue Definition only, and this app has more.",
       fix: "Remove `queue.binding`, so that each Queue Definition gets its own generated binding.",
     },
+    QUEUE_CONTRIBUTION_INVALID: {
+      why: ({ message }: { message: string }) => message,
+      fix: "Correct the `vitehub.queues` entry of the plugin that the message names. Give it a `name` and `definition: { module }`, where `module` is the absolute path or `file:` URL of a file with `export default defineQueue(...)`.",
+    },
     QUEUE_CRYPTO_UNAVAILABLE: {
       why: "Cloudflare queue names for long Queue Definition names need the `node:crypto` module, and this runtime does not have it.",
       fix: "Enable the `nodejs_compat` compatibility flag, or use a shorter Queue Definition name.",
@@ -150,6 +154,10 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     QUEUE_DEFINITIONS_CHANGED: {
       why: ({ context }: { context: string }) => `The ${context} Queue Definitions changed after Vite resolved the config.`,
       fix: "Generate Queue Definition files before the Vite config resolves, then build again.",
+    },
+    QUEUE_DEFINITION_DUPLICATE: {
+      why: ({ message }: { message: string }) => message,
+      fix: "Rename or remove one of the two Queue Definitions that the message lists. Each Queue name must have one file or one plugin contribution.",
     },
     QUEUE_INVALID_CONFIG: {
       why: "`queue` must be a plain object or `false`.",
@@ -182,6 +190,10 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     QUEUE_PROVISION_FAILED: {
       why: "Cloudflare returned an invalid queue list during provisioning.",
       fix: "Run `vitehub provision run --host cloudflare --dry-run` again, and check the Cloudflare token permissions.",
+    },
+    QUEUE_RENAMED_PROVIDER_KEY: {
+      why: ({ value }: { value: string }) => `\`queue.provider\` is ${value}. ViteHub renamed this key to \`driver\`, and it does not read \`provider\`, so Queue would not use the driver you chose.`,
+      fix: ({ value }: { value: string }) => `Set \`queue: { driver: ${value} }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
     },
   },
 })

@@ -35,7 +35,7 @@ A URL, Cloudflare account ID, or AI Gateway ID is missing or not valid, or the g
 
 ### GATEWAYS_R0005
 
-`ask()` was called on a gateway that only routes model requests.
+`gateway.ask()` was called on a gateway that only routes model requests.
 
 ### GATEWAYS_R0006
 
@@ -59,7 +59,7 @@ The provider still failed after three attempts. `status` is 502, with `providerS
 
 ### GATEWAYS_R0011
 
-`askWithModel()` needs the `ai` package. Install it with `pnpm add ai`.
+`ask(prompt, { model, schema })` and `askWithModel()` need the `ai` package. Install it with `pnpm add ai`.
 
 ### GATEWAYS_R0012
 

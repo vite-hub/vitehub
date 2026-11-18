@@ -103,6 +103,19 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Fix the conflict in `vitehub.lock`, or delete the entry and pull again.",
     },
 
+    // Config errors. The Vite plugin and the runtime throw them because the `store` option must change.
+    WORKSPACE_RENAMED_STORE_PROVIDER_KEY: {
+      why: ({ provider }: { driver: string, provider: string }) => `The Workspace \`store\` sets \`provider: ${provider}\`. ViteHub renamed this key to \`driver\`, and it does not read \`provider\`, so the Store would not be the one you chose.`,
+      fix: ({ driver }: { driver: string, provider: string }) => `Set \`store: { driver: ${driver} }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
+    },
+    WORKSPACE_UNKNOWN_STORE_DRIVER: {
+      why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
+        ? `The Workspace \`store.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`
+        : `The Workspace \`store.driver\` ${driver} is not a Workspace Store driver.`,
+      fix: ({ renamed }: { driver: string, renamed?: string }) => renamed
+        ? `Set \`store: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
+        : "Set `store.driver` to \"local\", \"memory\", \"github\", \"cloudflare\", or \"vercel\", or pass a Store object.",
+    },
     // Registry errors. The generated Workspace registry loads each Definition module when the app first uses it.
     WORKSPACE_REGISTRY_LOAD_FAILED: {
       why: ({ reason, workspace }: { reason: string, workspace: string }) => `The module of Workspace "${workspace}" did not load: ${reason}`,
@@ -148,7 +161,7 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_R0023: withFix("Set `maxBytes` to a number of bytes or to a string such as `\"512kb\"` or `\"10mb\"`."),
     WORKSPACE_R0024: withFix("Give each Workspace plugin a non-empty string `id`, for example `{ id: \"my-plugin\", rules }`."),
     WORKSPACE_R0025: withFix("Declare the target as a `fetch()` Source in the Workspace Definition, and make the Source visible in the Workspace scope."),
-    WORKSPACE_R0026: withFix("Use a Store that supports rebase: `github` or `cloudflare-artifacts`. Or do not call `rebase()` on this Workspace."),
+    WORKSPACE_R0026: withFix("Use a Store that supports rebase: `github` or `cloudflare`. Or do not call `rebase()` on this Workspace."),
     WORKSPACE_R0027: withFix("Set another `binding` in the Workspace `store` options, or set `namespace` to the namespace that Wrangler config already has for that binding."),
     WORKSPACE_R0028: withFix("The client closed the Workspace Dev connection before the command finished. Run the command again and keep the connection open."),
     WORKSPACE_R0029: withFix("Give each Cloudflare Artifacts namespace its own `binding` in the Workspace `store` options."),

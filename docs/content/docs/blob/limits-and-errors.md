@@ -47,7 +47,7 @@ On Vercel, a request body above 4.5 MB gets `413 FUNCTION_PAYLOAD_TOO_LARGE` bef
 
 ### BLOB_NOT_FOUND
 
-The file does not exist. The error has `statusCode: 404`, but H3 answers the status of a thrown error only for its own `HTTPError`, so a route that rethrows it answers `500`. Map the code in the route: `if (error?.code === 'BLOB_NOT_FOUND') throw createError({ statusCode: 404 })`.
+The file does not exist. The error has `statusCode: 404`, but H3 answers the status of a thrown error only for its own `HTTPError`, so a route that rethrows it answers `500`. Map the code in the route: `if (error?.code === 'BLOB_NOT_FOUND') throw new HTTPError({ status: 404 })`.
 
 ### BLOB_OPERATION_FAILED
 
