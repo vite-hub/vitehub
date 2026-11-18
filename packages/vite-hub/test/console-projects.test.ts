@@ -147,11 +147,11 @@ describe("project.get probe", () => {
     expect(consoleProjectBuildOf({ commit: { message: "no sha" }, time: "2026-11-14T10:00:00.000Z" })).toEqual({ time: "2026-11-14T10:00:00.000Z" })
   })
 
-  it("keeps the build of a connected app from the check of the Console server", async () => {
+  it("keeps the name and build of a connected app from the check of the Console server", async () => {
     const build = { commit: { sha: "4f9c2e1" }, time: "2026-11-14T10:00:00.000Z" }
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ answer: { ...projectGet.value, build }, linked: true, status: 200 })))
     const { checkConsoleAccountProject } = await import("../src/console/runtime/client/account.ts")
-    expect(await checkConsoleAccountProject("p-1")).toEqual({ build, code: 200, status: "connected" })
+    expect(await checkConsoleAccountProject("p-1")).toEqual({ build, code: 200, name: "Shop", status: "connected" })
   })
 
   it("reads a refused signature by its code, and any other 401 as a refused signature", async () => {
@@ -396,6 +396,34 @@ describe("account Console", () => {
     const transport = await import("../src/console/runtime/client/project.ts")
     expect(transport.consoleProject()).toMatchObject({ origin: "", base: "/p/p-1", remote: true })
     expect(transport.isRemoteProject()).toBe(true)
+  })
+
+  it("names an app by the label of its link before the name that the app reports", async () => {
+    const { module, state } = await account(json(200, { ok: true, value: { protocol: 1, name: "vitehub-docs", operations: [], sections: [] } }))
+    await module.openConsoleProject()
+    expect(state.info.value?.name).toBe("vitehub-docs")
+    expect(module.consoleProjectDisplayName(linked)).toBe("Docs")
+    expect(module.consoleOpenProjectName("vitehub-docs")).toBe("Docs")
+    const { useConsoleApp } = await import("../src/console/runtime/client/app-identity.ts")
+    expect(useConsoleApp().value.name).toBe("Docs")
+    // Without a label, the reported name, then the host.
+    expect(module.consoleProjectDisplayName({ ...linked, label: null })).toBe("vitehub-docs")
+    expect(module.consoleProjectDisplayName({ id: "p-2", label: null, url: "https://other.example.com" })).toBe("other.example.com")
+  })
+
+  it("renames an app", async () => {
+    // An earlier test mocks the account module without this call.
+    vi.doUnmock("../src/console/runtime/client/account.ts")
+    const fetch = vi.fn(json(200, { project: { ...linked, label: "Handbook" } }))
+    const { module } = await account(fetch)
+    await module.renameAccountProject(linked.id, "  Handbook ")
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe("/api/projects/p-1")
+    expect(init.method).toBe("PATCH")
+    expect(JSON.parse(String(init.body))).toEqual({ label: "Handbook" })
+    // An empty name removes the label.
+    await module.renameAccountProject(linked.id, " ")
+    expect(JSON.parse(String((fetch.mock.calls[1] as unknown as [string, RequestInit])[1].body))).toEqual({ label: null })
   })
 
   it("keeps media links on the app while forwarding data requests", async () => {

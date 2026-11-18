@@ -673,7 +673,8 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     return await this.#mutate(async () => {
       await this.#ensure({ refresh: true });
       const file = await this.#readWorkspaceFile(this.#metaPath(key));
-      if (!file) return undefined;
+      // Earlier versions wrote `undefined` as an empty file.
+      if (!file?.bytes.byteLength) return undefined;
       return JSON.parse(new TextDecoder().decode(file.bytes));
     });
   }
@@ -681,9 +682,13 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   async setMeta(key: string, value: unknown): Promise<void> {
     await this.#mutate(async () => {
       const path = this.#metaPath(key);
-      const content = JSON.stringify(value);
-      const bytes = new TextEncoder().encode(content);
       await this.#ensure({ refresh: "expired" });
+      // `undefined` removes the key, as JSON has no value for it.
+      if (value === undefined) {
+        if (this.#files.delete(path)) this.#dirty = true;
+        return;
+      }
+      const bytes = new TextEncoder().encode(JSON.stringify(value));
       this.#files.set(path, {
         bytes,
         gitSha: await gitBlobSha(bytes),
