@@ -3,7 +3,7 @@ import { runWithActiveCloudflareEnv, type CloudflareWorkerEnv } from "@vite-hub/
 import { createWorkflowError } from "../errors.ts"
 
 import { fromCloudflareStartParams } from "./delay.ts"
-import { runSerializedWorkflowHandler } from "./execute.ts"
+import { resolveWorkflowStepOptions, runSerializedWorkflowHandler } from "./execute.ts"
 import { loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry, WorkflowProviderStep, WorkflowStepOptions } from "../types.ts"
@@ -50,7 +50,8 @@ function wrapCloudflareWorkflowStep(
   // is a remote call that sends the stub away and disposes it.
   return {
     async do<TResult>(name: string, options: WorkflowStepOptions, run: () => TResult | Promise<TResult>): Promise<TResult> {
-      return await step.do!(name, options, async () => await runWithActiveCloudflareEnv(env, async () => await runWithWorkflowRuntimeEvent(runtimeEvent(), async () => {
+      // Cloudflare reads `retries` and `timeout` as they are. ViteHub fills in its default retries, not Cloudflare's.
+      return await step.do!(name, resolveWorkflowStepOptions(name, options), async () => await runWithActiveCloudflareEnv(env, async () => await runWithWorkflowRuntimeEvent(runtimeEvent(), async () => {
         try {
           return await run()
         }
