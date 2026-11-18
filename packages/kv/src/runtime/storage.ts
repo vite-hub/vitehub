@@ -13,6 +13,7 @@ import type { KVDatabasesLoader } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { kvStoreWithMode } from "../store-mode.ts"
 import { createKVLock } from "./lock.ts"
+import { ttlSeconds } from "./ttl.ts"
 
 const storagePromises = new Map<string, Promise<RuntimeStorage>>()
 let disposal: Promise<void> | undefined
@@ -132,9 +133,9 @@ function readSetTTL(operation: "set" | "setIfAbsent" | "setMany", options: KVSet
   for (const option of Object.keys(options)) {
     if (option !== "ttl") throw kvErrorDiagnostics.KV_INVALID_OPTION({ operation, option })
   }
-  const ttl: unknown = options.ttl
-  if (ttl === undefined) return
-  if (typeof ttl !== "number" || !Number.isFinite(ttl) || ttl <= 0 || !Number.isSafeInteger(Math.ceil(ttl))) throw kvErrorDiagnostics.KV_INVALID_TTL()
+  if (options.ttl === undefined) return
+  const ttl = ttlSeconds(options.ttl)
+  if (ttl === undefined) throw kvErrorDiagnostics.KV_INVALID_TTL()
   return ttl
 }
 
@@ -160,8 +161,9 @@ function createKVStorage(name = "default"): KVStorage {
     async increment(key, ttl) {
       return runKVOperation("increment", name, async (storage) => {
         if (!storage.incrementItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "increment", store: name })
-        if (!Number.isFinite(ttl) || ttl <= 0 || !Number.isSafeInteger(Math.ceil(ttl))) throw kvErrorDiagnostics.KV_INVALID_TTL()
-        return storage.incrementItem(key, ttl)
+        const seconds = ttlSeconds(ttl)
+        if (seconds === undefined) throw kvErrorDiagnostics.KV_INVALID_TTL()
+        return storage.incrementItem(key, seconds)
       }, ["KV_INVALID_TTL", "KV_UNSUPPORTED_OPERATION"])
     },
     async keys(base, options) { return runKVOperation("keys", name, storage => storage.getKeys(base, options)) },

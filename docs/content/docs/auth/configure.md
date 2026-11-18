@@ -193,7 +193,7 @@ export default defineAuth(({ env, requestOrigin }) => ({
 }))
 ```
 
-With `vite-hub`, import it from `vite-hub/auth/presets`. `maxAge` is the session lifetime, in seconds or as `'30m'`, `'12h'`, `'7d'`, or `'2w'`. The default is 7 days. The preset sets these Better Auth options:
+With `vite-hub`, import it from `vite-hub/auth/presets`. `maxAge` is the session lifetime: a number of seconds, or a duration such as `'30m'`, `'12h'`, `'7 days'`, or `'2w'`. The default is 7 days. The preset sets these Better Auth options:
 
 | Better Auth option | Value |
 | --- | --- |

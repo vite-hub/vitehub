@@ -334,11 +334,12 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
     hosts: {
       cloudflare: native("cloudflare", "Cloudflare Email", "The Cloudflare Email driver is the default. Resend is also supported."),
       deno: explicit("email.driver", "Resend", "Configure the built-in fetch-based Resend driver."),
-      dev: explicit("email.driver", "Resend", "Configure the built-in Resend driver for local delivery."),
+      dev: native("log", "Log", "`email: true` keeps each message in the development outbox and sends nothing. Set `email.driver` for a production build.", "process-local"),
       netlify: explicit("email.driver", "Resend", "Configure the built-in Resend driver."),
       node: explicit("email.driver", "Resend / custom", "Configure Resend or provide a custom ViteHub Email driver."),
       vercel: explicit("email.driver", "Resend", "Configure the built-in Resend driver."),
     },
+    developmentOverrides: ["deno", "netlify", "vercel"],
     id: "email",
     packages: ["@vite-hub/email"],
     summary: "Send email from server code and Agents, with a development outbox.",

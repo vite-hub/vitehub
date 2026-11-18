@@ -21,13 +21,13 @@ import { collectDeploymentEnv, describeDeploymentPlanOutput, finalizeDeploymentP
 import type { DeploymentDeployManifest, DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
-import { createNoExternalAddition, getDeploymentHost, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_HOST, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, getDeploymentHost, isProductionBuild, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_HOST, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import { findProviderHostConflict, hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import { formatDiagnostic } from "nostics"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
-import { assertFeatureSupported, assertHostService } from "./internal/feature-support.ts"
+import { assertEmailBuildDriver, assertFeatureSupported, assertHostService, defaultEmailDriver } from "./internal/feature-support.ts"
 import type { HostSelectedService } from "./internal/feature-support.ts"
 import { assertFeaturePackages, forgetPackageChecks, hostFeaturePackages, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
@@ -42,7 +42,7 @@ import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { vitestInlinePlugin } from "./vitest-inline.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
-import { healthVitePlugin, type HealthOptions } from "./health-vite.ts"
+import { defaultHealthRoute, healthVitePlugin, type HealthOptions } from "./health-vite.ts"
 import { resolveDeployManifest, writeIndexNowKeyFile, type DeployOptions } from "./deploy-options.ts"
 import { viteHubSeoPlugin, type SeoOptions } from "./seo/vite.ts"
 import { requestPolicyVitePlugin, type SameOriginWritesOptions } from "./request-policy-vite.ts"
@@ -59,6 +59,7 @@ import { operationsCheckPlugin } from "./operations-check.ts"
 import { setupDevPlugin } from "./setup-dev.ts"
 import { consoleDeploymentEnv, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { cloudflareExportConditions, type ViteHubHost } from "./deployment.ts"
+import { writeDockerfile, type DockerfileBuild } from "./dockerfile.ts"
 import { resolveSystemdUnit, systemdUnitName, writeSystemdUnit, type SystemdOptions } from "./systemd.ts"
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
 import { addCloudflareVars, cloudflareServerEnvVars } from "./cloudflare-vars.ts"
@@ -580,7 +581,7 @@ export interface ViteHubOptions {
    */
   env?: false | EnvOptions
   /**
-   * A health route for load balancers and container health checks, at `/api/_vitehub/health` unless `route` moves it.
+   * A health route for load balancers and container health checks, at `/_vitehub/health` unless `route` moves it.
    * It answers `{ ok, version, commit, vitehub }` and checks each Database, KV store, and Blob store of the app in `checks`. It
    * answers 503 when one fails, and never shows error text.
    */
@@ -633,6 +634,14 @@ export interface ViteHubOptions {
   systemd?: boolean | SystemdOptions
   /** Cloudflare Worker build options. */
   cloudflare?: CloudflareOptions
+  /**
+   * A Dockerfile for the server, written to `.output/Dockerfile` by production builds on the `node` host. On by default.
+   * Build the image with `docker build -t <name> .output`. It runs `node .output/server/index.mjs` as the `node` user in
+   * `/app`, mounts volumes for `/app/.vitehub` and a separate `dataDir`, stops on SIGTERM, and checks the `health`
+   * route over HTTP when it is on. With native packages, build the app in the same Linux Node image that will run it.
+   * `false` writes no Dockerfile. Other hosts ignore it.
+   */
+  docker?: boolean
   /**
    * Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or
    * Vercel Sandbox. `true` uses the Sandbox of the host. An object sets the driver options, such as
@@ -846,6 +855,7 @@ function deploymentNitroModule(
   isDeployCommandOwned: () => boolean,
   resolvedBuildConfig: () => ResolvedBuildConfig,
   systemd: { drainMs: number, name: string, options: SystemdOptions } | undefined,
+  docker: DockerfileBuild | undefined,
   envPlugin: () => EnvVitePlugin | undefined,
   contributedEnv: () => readonly DeploymentEnvEntry[],
   envDir: () => string | false | undefined,
@@ -857,6 +867,7 @@ function deploymentNitroModule(
       hook: ((name: "compiled", callback: () => Promise<void>) => void)
         & ((name: "build:config", callback: (nitro: unknown, config: { rolldown?: BundlerConfig, rollup?: BundlerConfig }) => void) => void)
     }
+    logger: { warn(message: string): void }
     options: { cloudflare?: { deployConfig?: boolean }, commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
   }) => {
     if (hostFromNitroPreset(nitro.options.preset) !== plan.host) return
@@ -902,6 +913,7 @@ function deploymentNitroModule(
         })
         await writeSystemdUnit(outputDir, systemd.name, unit)
       }
+      if (docker) await writeDockerfile(docker, { logger: nitro.logger, outputDir, serverDir: nitro.options.output.serverDir })
     })
   }
 }
@@ -1065,6 +1077,7 @@ function deploymentPlugins(
         order: "post",
         handler(config, environment) {
           const building = environment.command === "build"
+          if (isProductionBuild(config, environment)) assertEmailBuildDriver(plan.host, options.email)
           Reflect.set(config, VITEHUB_DEPLOYMENT_HOST, plan.host)
           for (const service of requestedServices) assertHostService(plan, service)
           // The dev server keeps manual runs working without a wake owner.
@@ -1195,6 +1208,14 @@ function deploymentPlugins(
             const systemd = plan.host === "node" && systemdOptions
               ? { drainMs: agentDrainMs(options.agent), name: systemdUnitName(systemdOptions, name), options: systemdOptions }
               : undefined
+            const docker = plan.host === "node" && options.docker !== false
+              ? {
+                  ...(options.dataDir ? { dataDir: options.dataDir } : {}),
+                  drainMs: agentDrainMs(options.agent),
+                  ...(options.health ? { healthRoute: options.health === true ? defaultHealthRoute : options.health.route ?? defaultHealthRoute } : {}),
+                  name,
+                }
+              : undefined
             const viteRoot = resolve(config.root ?? process.cwd())
             const cloudflareVars = () => {
               const envPlugin = deploymentEnvPlugin.current
@@ -1210,7 +1231,7 @@ function deploymentPlugins(
               const publicAssets = Array.isArray(nitro.publicAssets) ? nitro.publicAssets : []
               nitro.publicAssets = [...publicAssets.filter(asset => cloneRecord(asset).dir !== dir), { baseURL: "/", dir, maxAge: 3600 }]
             }
-            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current, systemd, () => deploymentEnvPlugin.current, contributedEnv, () => resolvedEnvDir, deploy, cloudflareVars)
+            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current, systemd, docker, () => deploymentEnvPlugin.current, contributedEnv, () => resolvedEnvDir, deploy, cloudflareVars)
             resolvedBuildConfigs.set(module, buildConfigRef)
             nitro.modules = [
               module,
@@ -1473,7 +1494,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     }
   }
   assertFeatureSupported("browser", plan.host, options)
-  assertFeatureSupported("email", plan.host, options)
   const sandboxTaskDriver = resolveSandboxTaskDriver(options.sandboxTask, plan)
   const sandboxTaskEnabled = sandboxTaskDriver !== undefined
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
@@ -1751,9 +1771,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(afterApplicationConfig(requireOptionalOwner(blobVite, "blob").hubBlob(configuredBlob, { importBase: "vite-hub/blob", presetDriver: blob => Boolean(blob && hostBlobConfigs.has(blob)) })))
   }
   if (options.email) {
-    const emailOptions = options.email === true
-      ? { driver: "cloudflare" as const }
-      : options.email
+    // `email: true` uses the host provider, or `log` in `vite dev` on a host without one.
+    const emailOptions = options.email === true ? { driver: defaultEmailDriver(plan.host) } : options.email
     plugins.push(requireOptionalOwner(emailVite, "email").hubEmail({
       ...emailOptions,
       hosting: plan.nitroPreset,

@@ -74,7 +74,7 @@ This changes the default of a Node build with a Postgres Database from `fs-lite`
 
 `fs-lite` writes each key as one file in `base`. The file name starts with `key-`, followed by the key with `%` and `:` escaped as in a URL, so `signups` and `signups:reset-at` are the files `key-signups` and `key-signups%3Areset-at`. This prefix keeps application keys separate from migration metadata and temporary files. Most file systems limit a file name to 255 bytes, so an escaped key longer than 251 bytes fails with `KV_OPERATION_FAILED`. Earlier versions wrote `a:b` as the file `a/b`. The store moves those files to their new names when it opens the folder and preserves literal `%` characters in old key names. It keeps a hidden layout record and metadata folder in `base`. The migration lock stays in that folder, so only `base` needs write access. Stop all processes that use the store before moving it. Copies and backups must preserve hidden files and hard links. Use GNU `cp -a` and verify the copied layout record before opening the copy; see [Move an fs-lite store](https://vitehub.dev/docs/kv/configure#move-an-fs-lite-store). Ordinary `cp -R` breaks the layout identity and can make existing keys inaccessible.
 
-`kv.set(key, value, { ttl: seconds })` expires a value on every driver. Omitting `ttl` keeps the value until it is deleted or replaced. `ttl` is the only option; other options return `KV_INVALID_OPTION`. Cloudflare KV keeps a value at least 60 seconds. `fs-lite` keeps the expiry time of each key in its metadata folder and treats an expired key as missing. Initialization failures do not disable a store for the life of the process. The next operation can retry initialization.
+`kv.set(key, value, { ttl })` expires a value on every driver. `ttl` is a duration such as `"1h"`, or a number of seconds. Omitting `ttl` keeps the value until it is deleted or replaced. `ttl` is the only option; other options return `KV_INVALID_OPTION`. Cloudflare KV keeps a value at least 60 seconds. `fs-lite` keeps the expiry time of each key in its metadata folder and treats an expired key as missing. Initialization failures do not disable a store for the life of the process. The next operation can retry initialization.
 
 ## Development stays local
 
@@ -115,12 +115,12 @@ KV operations return `[error, value]`. `error.code` is one of the codes of the m
 `kv.lock(key, { ttl, wait })` gives a lock that one runner holds at a time across the processes that share a store. `run(fn)` takes the lock, calls `fn`, and releases the lock, also when `fn` throws:
 
 ```ts fragment
-const [error, result] = await kv.lock("cron:daily", { ttl: 60 }).run(() => sendDailyReport())
+const [error, result] = await kv.lock("cron:daily", { ttl: "1m" }).run(() => sendDailyReport())
 if (error) throw error
 if (!result.acquired) return // Another runner holds the lock.
 ```
 
-`ttl` (seconds) is required, so a crashed runner never keeps the lock. `wait` (seconds) polls with backoff until the lock is free. Each lock writes a random owner token with `setIfAbsent()` and frees it with `deleteIfEquals()`, so a runner whose lock expired cannot delete the next runner's lock. `acquire()` returns a `release()` function for code that does not fit in one callback. KV does not renew a lock: when the work runs longer than `ttl`, another runner can take it.
+`ttl` (a duration or seconds) is required, so a crashed runner never keeps the lock. `wait` (seconds) polls with backoff until the lock is free. Each lock writes a random owner token with `setIfAbsent()` and frees it with `deleteIfEquals()`, so a runner whose lock expired cannot delete the next runner's lock. `acquire()` returns a `release()` function for code that does not fit in one callback. KV does not renew a lock: when the work runs longer than `ttl`, another runner can take it.
 
 Only the drivers in `KVDriversWith<"deleteIfEquals">` (`redis`, `database`, `upstash`) support locks. Deno KV, Cloudflare KV, and `fs-lite` return `KV_UNSUPPORTED_OPERATION` without calling `fn`. App tests use `fs-lite`, so they return this code too.
 

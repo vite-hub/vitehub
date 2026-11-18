@@ -97,6 +97,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "`deploy.indexNow` sends the URLs of the public site to IndexNow, and the build does not know that site: `publicUrl` is not a string.",
       fix: "Set `vitehub({ publicUrl: \"https://shop.example.com\" })` to the origin of the public site, or remove `deploy.indexNow`.",
     },
+    VITE_HUB_DOCKERFILE_NATIVE_PACKAGES_NOT_LINUX: {
+      why: ({ os, packages }: { os: string, packages: string }) => `The build ran on ${os}, so these native packages in \`.output\` hold ${os} code: ${packages}. The Linux image of \`.output/Dockerfile\` cannot load them.`,
+      fix: "Install dependencies and build the app in the Linux Node image for the target CPU. Use that same base for the generated Dockerfile with `docker build --build-arg VITEHUB_NODE_IMAGE=<image>`. Or set `docker: false` in `vitehub()` and use a Dockerfile with compatible build and runtime stages.",
+    },
     VITE_HUB_HOST_PROVIDER_CONFLICT: {
       why: ({ detected, host, variable }: { detected: string, host: string, variable: string }) => `\`vitehub({ host: "${host}" })\` builds ${host} output, but \`${variable}\` is set, so this build runs on the ${detected} host, which cannot run ${host} output.`,
       fix: ({ host }: { host: string }) => `Remove \`host\` from \`vitehub()\` to build for the host that the environment names. To build ${host} output on purpose, set \`VITEHUB_HOST=${host}\`.`,
@@ -443,7 +447,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0089: {
       ...dynamicError,
-      fix: "Choose an Email driver for this host, such as `email: { driver: \"resend\" }` in `vitehub()`, or set `host: \"cloudflare\"`.",
+      fix: "Set `driver` for the production build, such as `email: { driver: \"resend\" }` in `vitehub()`. Use `driver: \"log\"` to send no email, or build for `host: \"cloudflare\"`.",
     },
     VITE_HUB_B0008: {
       ...dynamicError,

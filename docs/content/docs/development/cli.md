@@ -646,7 +646,7 @@ After the upload, deploy requests each path on the deployed URL. A path must ans
 ```txt [vitehub deploy]
 Deployed my-app to cloudflare: https://my-app.example.workers.dev
 Version: 6b1f2c84-0d3e-4a52-9a77-3c1e5f0b2d19
-Checked /api/_vitehub/health: 200
+Checked /_vitehub/health: 200
 Checked /: 200
 Checked /api/products: 200
 ```
@@ -670,7 +670,7 @@ Deploy reads the deployment that serves production before it uploads, with the c
   "host": "cloudflare",
   "url": "https://my-app.example.workers.dev",
   "checks": [
-    { "path": "/api/_vitehub/health", "url": "https://my-app.example.workers.dev/api/_vitehub/health", "ok": false, "status": 503 }
+    { "path": "/_vitehub/health", "url": "https://my-app.example.workers.dev/_vitehub/health", "ok": false, "status": 503 }
   ],
   "rollback": {
     "previous": { "deploymentId": "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e", "version": "bcf48806-b317-4351-9ee7-36e7d557d4de" },
@@ -1214,7 +1214,7 @@ pnpm vitehub inspect routes --json
 ```txt [Output]
 METHOD  PATH                      OWNER           HANDLER
 *       /**                       queue           .vitehub/nitro/queue/middleware.ts  (middleware)
-*       /_vitehub/blob/signed/**  @vite-hub/blob  @vite-hub/blob/dist/runtime/signed.js
+*       /_vitehub/blob-signed/**  @vite-hub/blob  @vite-hub/blob/dist/runtime/signed.js
 ```
 
 Packages contribute inspection through `vitehub.inspect` on their Vite plugin. The owner package defines the summary; the CLI and the Console only render it. A package lists its host resources with `resources()`.
@@ -1252,7 +1252,7 @@ Telegram's `getWebhookInfo` returns the URL and delivery errors, but not the sec
 
 ## Export a Channel conversation
 
-When the app has the Channel operations, `vitehub channels list` lists Channels and their retention, `channels threads` lists a Channel's threads, and `channels conversation` reads one thread's messages in order. `vitehub channels status <agent> <channel>` shows sync health and skipped messages of a [Gmail Channel](/docs/agents/gmail#failed-messages).
+When the app has the Channel operations, `vitehub channels list` lists Channels and their retention, `channels threads` lists a Channel's threads, and `channels conversation` reads one thread's messages in order. `vitehub channels status <agent> <channel>` shows sync health and skipped messages of a [Gmail Channel](/docs/agents/gmail#failed-messages). `vitehub channels deliveries <agent> <channel>` lists the newest messages a Channel received, with the run each one reached or [why it started none](/docs/agents/channels#why-a-message-started-no-work).
 
 `conversations export` calls the `conversations.export` [operation](/docs/development/operations) on the dev server, or on the app at `--url` with the credentials of [Run any operation](#run-any-operation). It needs no webhook secret, only Console access to the `channels` section.
 

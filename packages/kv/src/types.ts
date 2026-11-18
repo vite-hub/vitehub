@@ -1,4 +1,4 @@
-import type { Result } from "@vite-hub/runtime"
+import type { Duration, Result } from "@vite-hub/runtime"
 import type { GetItemType, GetItemTypeMap } from "unstorage"
 
 export type KVDriver = "cloudflare" | "database" | "deno-kv" | "fs-lite" | "redis" | "upstash"
@@ -211,17 +211,21 @@ type KVValue<T, K> = K extends KVGetType ? KVGetTypeMap[K] : T
 
 /** Options of `kv.set()`, `kv.setMany()`, and `kv.setIfAbsent()`. Other fields return `KV_INVALID_OPTION`. */
 export interface KVSetOptions {
-  /** Seconds until the key expires, a positive number. Every driver expires the key. Cloudflare KV keeps it at least 60 seconds. */
-  ttl?: number
+  /**
+   * How long until the key expires: a number of seconds, or a duration such as `"1h"` or `"7 days"`. Every driver
+   * expires the key. Cloudflare KV keeps it at least 60 seconds.
+   */
+  ttl?: number | Duration
 }
 
 /** Options of `kv.lock()`. */
 export interface KVLockOptions {
   /**
-   * Seconds until the lock expires, so a crashed holder never keeps it. Pick a value longer than the work.
-   * KV does not renew a lock: when the work runs longer than `ttl`, another runner can take the lock.
+   * How long until the lock expires, so a crashed holder never keeps it: a number of seconds, or a duration such as
+   * `"30s"`. Pick a value longer than the work. KV does not renew a lock: when the work runs longer than `ttl`, another
+   * runner can take the lock.
    */
-  ttl: number
+  ttl: number | Duration
   /** Seconds to wait for a held lock, polling with backoff. Default `0`: return `{ acquired: false }` at once. */
   wait?: number
 }
@@ -305,10 +309,11 @@ export interface KVStorage {
   getAndDelete<T = unknown, K extends "text" | undefined = undefined>(key: string, options?: { type?: K }): Promise<Result<KVValue<T, K> | null, "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
   has(key: string, options?: unknown): Promise<Result<boolean, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
   /**
-   * Atomically increments a counter. The TTL is applied only when the counter is created.
+   * Atomically increments a counter. The TTL, a number of seconds or a duration such as `"1m"`, is applied only when
+   * the counter is created.
    * The drivers in {@link KVDriversWith}`<"increment">` support it. The others return `KV_UNSUPPORTED_OPERATION`.
    */
-  increment(key: string, ttl: number): Promise<Result<number, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
+  increment(key: string, ttl: number | Duration): Promise<Result<number, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
   keys(base?: string, options?: unknown): Promise<Result<string[], "KV_OPERATION_FAILED">>
   list(options: KVListOptions): Promise<Result<KVListPage, "KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_OPERATION_FAILED">>
   /**
@@ -319,7 +324,8 @@ export interface KVStorage {
    */
   lock(key: string, options: KVLockOptions): KVLock
   /**
-   * Writes a value. `{ ttl }` expires it after that many seconds; without `ttl`, the value stays until you delete or replace it.
+   * Writes a value. `{ ttl }` expires it after a number of seconds or a duration such as `"1h"`; without `ttl`, the
+   * value stays until you delete or replace it.
    * Cloudflare KV stores return `KV_KEY_TOO_LONG` and `KV_VALUE_TOO_LARGE` before a write that Cloudflare rejects.
    */
   set<T = unknown>(key: string, value: T, options?: KVSetOptions): Promise<Result<void, "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED" | "KV_VALUE_TOO_LARGE">>

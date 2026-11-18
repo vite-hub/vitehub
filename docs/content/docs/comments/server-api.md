@@ -254,7 +254,7 @@ The Console shows the context in each thread's fields. `describeCommentContext(c
 
 ## HTTP routes
 
-The overlay and [`createRestTransport()`](#rest-transport) call the Comments API at `/api/_vitehub/comments`. Responses are JSON, `{ data }` or `{ error }`, with `cache-control: private, no-store`. `error` has `code`, `why`, `fix`, and `docs`. Threads and messages use the [types above](#threads-and-messages), and a thread adds `can: { comment, resolve, delete }` for the reader. Routes that return threads or messages also send `people`, the mentioned people with names.
+The overlay and [`createRestTransport()`](#rest-transport) call the Comments API at `/_vitehub/comments`. Responses are JSON, `{ data }` or `{ error }`, with `cache-control: private, no-store`. `error` has `code`, `why`, `fix`, and `docs`. Threads and messages use the [types above](#threads-and-messages), and a thread adds `can: { comment, resolve, delete }` for the reader. Routes that return threads or messages also send `people`, the mentioned people with names.
 
 The routes run the same actions and checks as the [comment operations](/docs/comments/operations/server-api), for the request's user. They need no Console access, so guests and `identify` users, such as share link readers, can use them. They serve threads on every subject `authorize` lets the reader see, not only `page`.
 
@@ -296,7 +296,7 @@ The server sets a message's author from the request's user. A guest sends its id
 | `501` | `COMMENTS_R0014`, `COMMENTS_R0021`: no place to store or read attachments |
 | `503` | `COMMENTS_NOT_INSTALLED`, `COMMENTS_R0019` |
 
-The overlay script is a static file at `/api/_vitehub/comments/assets/overlay.js`.
+The overlay script is a static file at `/_vitehub/comments/assets/overlay.js`.
 
 ### REST transport
 
@@ -352,7 +352,7 @@ The server sets each person in the room from `identify` or the Auth session, and
 
 With `server/comments.ts` or `comments()`, the integration writes these build files. Do not import them.
 
-- `.vitehub/nitro/comments/handler.mjs` serves `/api/_vitehub/comments/**`.
+- `.vitehub/nitro/comments/handler.mjs` serves `/_vitehub/comments/**`.
 - `.vitehub/nitro/comments/plugin.mjs` installs Comments with its Database at server start. It registers the overlay and sign-in prompt as the `comments` page tool.
 - `.vitehub/nitro/comments/page-session.mjs` serves `GET /_vitehub/page/session`.
 - `definition.mjs`, only from `comments()` without `server/comments.ts`, exports `defineComments()` with no options.
