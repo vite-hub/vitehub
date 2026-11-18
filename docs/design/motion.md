@@ -44,6 +44,15 @@ When a component does something that is not in this list, add the interaction an
 
 1. **From the motion layer, by role.** `installMotion()` from `@vite-hub/ui/motion` attaches press, toggle, select, drag, and appear motion to elements by their role: `button`, `link`, `tab`, `radio`, `menuitem`, `option`, `switch`, `checkbox`, `slider`, `separator`, and `tooltip`. `createViteHubUI()` installs it in the browser, and the Nuxt module does it through the same plugin, so every app that uses `@vite-hub/ui` has it. Nuxt UI, kit, and our own components already render those roles, so they move with no code of their own. A new component gets the same motion when it uses the right element or role, which it must do anyway for keyboard and screen reader users.
 2. **From a helper, for what only the component knows.** A label that changes, a count, progress, a list that changes, and a delete that can be undone are events of the component, not of an element. Call the helper for each: the label morph, the digit roll, the progress bar, the list mover, and hold to delete, all from `@vite-hub/ui`.
+
+   | Event | Vue part (`@vite-hub/ui`) | Helper (`@vite-hub/ui/motion`, no Vue) |
+   | --- | --- | --- |
+   | Items are added, removed, or reordered | `MotionList` in place of `<TransitionGroup>`, with `origin` for a duplicate and `target` for where a removed item goes | `createMotionList(container)`: call `measure()` before the change and `play({ origin, target })` after it |
+   | Work runs | `Progress` with `value` (0 to 1, or `null` for the wave) and `done` | `createProgress(host)`: `set(value)`, `done()`, `reset()` |
+   | Files are dragged in | `DropField`, a label around a file input, which emits `files` | `createDropField(field, { onFiles, surface })` |
+   | A delete that can be undone | `HoldToDelete` with `commit`, which emits `delete` and `undo` | `createHoldToDelete(button, { commit, onDelete, onUndo, item })` |
+
+   `MotionList` and `Progress` take the numbers of the prototype: a new item moves out of its origin on a (380, 26) spring, a removed item folds on (260, 28), and neighbors move on `snappy`. Hold to delete runs `commit` only when the Undo window has passed. When its part unmounts or the page closes during that window, it commits: the person deleted the item and did not undo it. Use it only where the real delete can wait, such as a delete in the browser. A delete that the server must do at once keeps its confirm.
 3. **Never by hand.** Do not write a local spring, a `setTimeout` letter loop, a `requestAnimationFrame` loop, or a CSS `transition`, `animation`, or `@keyframes` that imitates one of these effects. `test/design-rules.test.ts` fails on them outside the motion layer.
 
 A surface that draws its own motion, such as a hero figure or a canvas, sets `data-motion="none"` on its root. The motion layer then skips that element and everything inside it. A plain TypeScript surface, such as the page pill, imports `installMotion` from `@vite-hub/ui/motion` (it has no Vue) and passes its shadow root, so the layer also sees the state attributes inside it.

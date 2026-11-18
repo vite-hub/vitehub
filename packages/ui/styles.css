@@ -1859,6 +1859,86 @@
     }
   }
 
+  /* Progress: the bar and the check of the progress helper of @vite-hub/ui/motion. The bar takes the text color. */
+  [data-slot="progress"] {
+    align-items: center;
+    color: var(--vh-highlighted);
+    display: flex;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  /* DropField: a label around a file input, with the dot grid of the drop field helper behind its text. */
+  [data-slot="drop-field"] {
+    --vh-drop-dot: var(--vh-highlighted);
+    align-content: center;
+    background: var(--vh-bg);
+    border: 1px solid var(--vh-border-accented);
+    border-radius: var(--vh-radius);
+    color: var(--vh-highlighted);
+    cursor: pointer;
+    display: grid;
+    gap: 0.125rem;
+    justify-items: center;
+    min-height: 10rem;
+    overflow: hidden;
+    padding: 1rem;
+    text-align: center;
+  }
+
+  [data-slot="drop-field"][data-disabled] {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  [data-slot="drop-field-input"] {
+    clip-path: inset(50%);
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
+  }
+
+  [data-slot="drop-field-label"] {
+    font-size: 0.8125rem;
+    font-weight: 500;
+  }
+
+  [data-slot="drop-field-description"] {
+    color: var(--vh-dimmed);
+    font-size: 0.75rem;
+  }
+
+  /* HoldToDelete: an outline button whose border turns to the error color as the hold fills it. */
+  [data-slot="hold-to-delete"] {
+    align-items: center;
+    background: var(--vh-bg);
+    border: 1px solid color-mix(in oklch, var(--vh-error) calc(var(--vh-hold, 0) * 100%), var(--vh-border-accented));
+    border-radius: calc(var(--vh-radius) * 0.75);
+    color: var(--vh-highlighted);
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 0.75rem;
+    font-weight: 500;
+    gap: 0.375rem;
+    height: 1.75rem;
+    justify-content: flex-start;
+    overflow: visible;
+    padding: 0 0.625rem;
+  }
+
+  [data-slot="hold-to-delete"][data-state="undo"] {
+    border-color: color-mix(in oklch, var(--vh-error) 40%, var(--vh-border-accented));
+  }
+
+  [data-slot="hold-to-delete"][data-icon-only]:not([data-state="undo"]) {
+    border-color: transparent;
+    justify-content: center;
+    padding: 0;
+    width: 1.75rem;
+  }
+
   /* Status: a 6px dot in the brighter status color and a label. A colored label uses the darker text shade of theme.css. */
   [data-slot="status"] {
     align-items: center;
