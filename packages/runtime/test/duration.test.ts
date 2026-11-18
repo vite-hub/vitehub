@@ -25,7 +25,7 @@ describe("parseDuration()", () => {
     expect(parseDuration(" 2 Hours " as never)).toBe(7_200_000)
   })
 
-  it.each(["-1s", "soon", "10", "1 month", "", "1e3s", `${"9".repeat(400)}s`])("rejects %j with RUNTIME_DURATION_INVALID", (value) => {
+  it.each(["-1s", "soon", "10", "1 month", "1 constructor", "", "1e3s", `${"9".repeat(400)}s`])("rejects %j with RUNTIME_DURATION_INVALID", (value) => {
     expect(() => parseDuration(value as never)).toThrow(expect.objectContaining({ code: "RUNTIME_DURATION_INVALID" }))
   })
 

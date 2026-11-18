@@ -85,8 +85,9 @@ function toMilliseconds(amount: string, size: number, round?: "ceil"): number {
  * ```
  */
 export function parseDuration(value: Duration, option?: string, round?: "ceil"): number {
-  const [, amount, unit] = (typeof value === "string" ? pattern.exec(value.trim()) : null) ?? []
-  const size = unit === undefined ? undefined : units[unit.toLowerCase()]
+  const [, amount, suffix] = (typeof value === "string" ? pattern.exec(value.trim()) : null) ?? []
+  const unit = suffix?.toLowerCase()
+  const size = unit !== undefined && Object.hasOwn(units, unit) ? units[unit] : undefined
   const milliseconds = amount === undefined || size === undefined ? Number.NaN : toMilliseconds(amount, size, round)
   if (Number.isFinite(milliseconds)) return milliseconds
   const received: unknown = value
