@@ -4,10 +4,11 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { createBuilder, resolveConfig } from "vite"
+import { createBuilder, createServer, resolveConfig } from "vite"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { getDeploymentHost, VITEHUB_ENV_SERVER, VITEHUB_FEATURES } from "@vite-hub/internal/build/vite"
+import { createSetupSession } from "@vite-hub/cli/setup"
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
 import { env, hubEnv } from "@vite-hub/env/vite"
 import type { EnvRuntimeConfigOptions } from "@vite-hub/env"
@@ -87,51 +88,77 @@ describe("built-in host integration", () => {
     expect((config as typeof config & { nitro?: { preset?: string } }).nitro?.preset).toBeTruthy()
   })
 
-  it.each([undefined, true, false] as const)("checks server/agents against agent %s", async (agent) => {
-    vi.stubEnv("VITEST", undefined)
-    onTestFinished(() => { vi.unstubAllEnvs() })
+  it.each([undefined, true, false] as const)("turns Agents on from server/agents with agent %s", async (agent) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-"))
-    // Vite rejects at the first failed configResolved hook while the other hooks still write type files, so retry.
     onTestFinished(() => rm(root, { force: true, maxRetries: 5, recursive: true }))
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "labeller.ts"), "export default {}\n")
-    const resolve = () => resolveConfig({
+    // `vitehub()` looks for Definition files in the project of the working directory.
+    vi.spyOn(process, "cwd").mockReturnValue(root)
+    onTestFinished(() => { vi.restoreAllMocks() })
+    const config = await resolveConfig({
+      configFile: false,
       root,
       plugins: [vitehub({ host: "cloudflare", blob: false, env: false, queue: false, rateLimit: false, workflow: false, ...(agent === undefined ? {} : { agent }) })],
     }, "build")
-    if (agent === undefined) {
-      // An app that adds hubAgent() itself is not missing the option.
-      await expect(resolveConfig({
-        root,
-        plugins: [vitehub({ host: "cloudflare", blob: false, env: false, queue: false, rateLimit: false, workflow: false }), Promise.resolve({ name: "@vite-hub/agent/vite" })],
-      }, "build")).resolves.toBeTruthy()
-    }
-    if (agent === undefined) await expect(resolve()).rejects.toMatchObject({ code: "VITE_HUB_AGENT_OPTION_MISSING", message: expect.stringContaining("server/agents/labeller.ts defines an Agent") })
-    else await expect(resolve()).resolves.toBeTruthy()
+    expect(config.plugins.some(plugin => plugin.name === "@vite-hub/agent/vite")).toBe(agent !== false)
   })
 
-  it.each([
-    { vitest: undefined, command: "build", mode: "production" },
-    { vitest: undefined, command: "build", mode: "test" },
-    { vitest: undefined, command: "serve", mode: "test" },
-    { vitest: "true", command: "serve", mode: "test" },
-    { vitest: "true", command: "serve", mode: "integration" },
-  ] as const)("checks missing agent with Vitest=$vitest, command=$command, mode=$mode", async ({ vitest, command, mode }) => {
-    vi.stubEnv("VITEST", vitest)
-    onTestFinished(() => { vi.unstubAllEnvs() })
-    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-test-"))
+  it("fails when the Vite root has Definition files that the working directory does not have", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-root-"))
     // Vite rejects at the first failed configResolved hook while the other hooks still write type files, so retry.
     onTestFinished(() => rm(root, { force: true, maxRetries: 5, recursive: true }))
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "labeller.ts"), "export default {}\n")
-    const config = resolveConfig({
+    await expect(resolveConfig({
       configFile: false,
-      mode,
       root,
       plugins: [vitehub({ host: "node", blob: false, env: false, queue: false, rateLimit: false, workflow: false })],
-    }, command)
-    if (vitest) await expect(config).resolves.toBeTruthy()
-    else await expect(config).rejects.toMatchObject({ code: "VITE_HUB_AGENT_OPTION_MISSING" })
+    }, "build")).rejects.toMatchObject({ code: "VITE_HUB_DEFINITION_ROOT_MISMATCH" })
+  })
+
+  it("reports a root mismatch before validating a Browser Definition from the working directory", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-browser-cwd-"))
+    const root = await mkdtemp(join(tmpdir(), "vitehub-browser-root-"))
+    await mkdir(join(cwd, "server/browsers"), { recursive: true })
+    await writeFile(join(cwd, "server/browsers/main.ts"), "export default {}\n")
+    const workingDirectory = vi.spyOn(process, "cwd").mockReturnValue(cwd)
+    onTestFinished(async () => {
+      workingDirectory.mockRestore()
+      await Promise.all([cwd, root].map(path => rm(path, { force: true, recursive: true })))
+    })
+    const plugins = vitehub({ host: "node" })
+    await expect(resolveConfig({ configFile: false, root, plugins }, "build")).rejects.toMatchObject({ code: "VITE_HUB_DEFINITION_ROOT_MISMATCH" })
+    await expect(resolveConfig({ configFile: false, root: cwd, plugins }, "build")).rejects.toMatchObject({ code: "VITE_HUB_R0088" })
+  })
+
+  it("requires a restart when Setup adds or removes the only Queue Definition", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-restart-"))
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(root)
+    onTestFinished(async () => {
+      cwd.mockRestore()
+      await rm(root, { force: true, maxRetries: 5, recursive: true })
+    })
+    const source = 'import { vitehub } from "vite-hub"\nexport default { plugins: [vitehub()] }\n'
+    await writeFile(join(root, "vite.config.ts"), source)
+    const start = () => createServer({ configFile: false, root, plugins: [vitehub()], server: { middlewareMode: true, watch: null, ws: false } })
+    const session = createSetupSession({ env: {}, root, run: async () => ({ exitCode: 0 }) })
+    for (const action of ["add", "remove"] as const) {
+      const server = await start()
+      try {
+        const includesQueue = () => server.config.plugins.some(plugin => plugin.name === "@vite-hub/queue/vite")
+        expect(includesQueue()).toBe(action === "remove")
+        const plan = await session.plan({ action, features: ["queue"], ...(action === "add" ? { install: false, name: "jobs" } : { uninstall: false }) })
+        expect(plan.body).toMatchObject({ restart: false, restartRequired: true, status: "planned" })
+        const applied = await session.apply(plan.body.planId)
+        expect(applied.body).toMatchObject({ restart: false, restartRequired: true, status: "applied" })
+        expect(includesQueue()).toBe(action === "remove")
+        expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(source)
+      }
+      finally {
+        await server.close()
+      }
+    }
   })
 
   it("applies deployment-owned Nitro configuration only during build", async () => {
@@ -877,7 +904,7 @@ describe("built-in host integration", () => {
       const builder = await createBuilder({
         logLevel: "silent",
         root,
-        plugins: [vitehub({ agent: true, host: "cloudflare", workflow: false }), nitro() as never],
+        plugins: [vitehub({ agent: true, host: "cloudflare" }), nitro() as never],
       })
       await builder.buildApp()
 
@@ -910,7 +937,7 @@ describe("built-in host integration", () => {
       const builder = await createBuilder({
         logLevel: "silent",
         root,
-        plugins: [vitehub({ agent: true, host: "cloudflare", workflow: false }), nitro() as never],
+        plugins: [vitehub({ agent: true, host: "cloudflare" }), nitro() as never],
       })
 
       await expect(builder.buildApp()).rejects.toThrow(/AGENT_B0019[\s\S]*cannot run in a Cloudflare Worker/)
@@ -978,6 +1005,81 @@ describe("built-in host integration", () => {
       await rm(root, { force: true, recursive: true })
     }
   }, 30_000)
+
+  it.each([true, undefined])("writes non-secret Server Env from the build environment to Worker vars with cloudflare.vars %s", async (vars) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cloudflare-vars-build-"))
+    try {
+      await mkdir(join(root, "server", "routes"), { recursive: true })
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "index.html"), "<main>ok</main>\n")
+      await writeFile(join(root, "server", "routes", "index.ts"), "export default () => 'ok'\n")
+      await writeFile(join(root, ".env"), [
+        "EXECUTOR_URL=https://executor.example.com",
+        "EXECUTOR_API_KEY=sk-not-a-var",
+        "VITEHUB_GMAIL_ACCOUNT=acc_canonical",
+        "GMAIL_ACCOUNT=acc_conventional",
+        "DRY_RUN=false",
+        "PUBSUB_TOPIC=",
+        "VITEHUB_PAYMENT_LINK=https://pay.example.com/from-env",
+        "VITEHUB_EXECUTOR_API_KEY=sk-not-a-var-either",
+        "VITEHUB_PUBLIC_EXECUTOR_LABEL=public-label",
+        "",
+      ].join("\n"))
+      await writeFile(join(root, ".env.development"), "LOG_LEVEL=debug\n")
+      await writeFile(join(root, "wrangler.json"), JSON.stringify({
+        vars: { PAYMENT_LINK: "https://pay.example.com/from-wrangler" },
+        env: { staging: { vars: { DRY_RUN: "true" } }, production: { vars: { PAYMENT_LINK: "https://pay.example.com/production" } } },
+      }))
+      const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
+      const builder = await createBuilder({
+        logLevel: "silent",
+        root,
+        plugins: [vitehub({
+          host: "cloudflare",
+          ...(vars ? { cloudflare: { vars } } : {}),
+          env: {
+            server: {
+              executor: {
+                url: env({ source: env.source("EXECUTOR_URL") }),
+                apiKey: env({ secret: true, source: env.source("EXECUTOR_API_KEY") }),
+              },
+              gmailAccount: env(),
+              dryRun: env.boolean({ default: true, source: env.source("DRY_RUN") }),
+              pubsubTopic: env({ optional: true, source: env.source("PUBSUB_TOPIC") }),
+              logLevel: env({ default: "info", source: env.source("LOG_LEVEL") }),
+              paymentLink: env({ source: env.source("PAYMENT_LINK") }),
+              paymentLinkAlias: env({ source: env.source("VITEHUB_PAYMENT_LINK", { canonical: false }) }),
+              executorKeyAlias: env({ source: env.source("EXECUTOR_API_KEY") }),
+              canonicalKeyAlias: env({ source: env.source("VITEHUB_EXECUTOR_API_KEY") }),
+              publicExecutorLabel: env({ source: env.source("EXECUTOR_API_KEY") }),
+            },
+          },
+        }), nitro() as never],
+      } as Parameters<typeof createBuilder>[0])
+      await builder.buildApp()
+
+      const wrangler: unknown = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8"))
+      if (!vars) {
+        expect(wrangler).toMatchObject({ vars: { PAYMENT_LINK: "https://pay.example.com/from-wrangler" } })
+        expect(wrangler).not.toHaveProperty("vars.EXECUTOR_URL")
+        return
+      }
+      const generated = {
+        EXECUTOR_URL: "https://executor.example.com",
+        // Server Env reads the canonical name first, so the Worker gets the same value under the same name.
+        VITEHUB_GMAIL_ACCOUNT: "acc_canonical",
+        DRY_RUN: "false",
+        VITEHUB_PUBLIC_EXECUTOR_LABEL: "public-label",
+      }
+      expect(wrangler).toHaveProperty("vars", { ...generated, PAYMENT_LINK: "https://pay.example.com/from-wrangler" })
+      // Named environments do not inherit vars, and keep their own.
+      expect(wrangler).toHaveProperty("env.staging.vars", { ...generated, DRY_RUN: "true", VITEHUB_PAYMENT_LINK: "https://pay.example.com/from-env" })
+      expect(wrangler).toHaveProperty("env.production.vars", { ...generated, PAYMENT_LINK: "https://pay.example.com/production" })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 60_000)
 
   it.each([undefined, "APP_", false] as const)("uses exact Wrangler requirements with prefix %s", async (prefix) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-secret-aliases-"))

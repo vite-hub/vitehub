@@ -49,7 +49,7 @@ describe("media records on the fs driver", () => {
     directory = await mkdtemp(join(tmpdir(), "vitehub-blob-media-"))
     storage = createBlobStorage(createDriver({ base: directory, driver: "fs" }), "default", {
       images: createSharpImageTransformer(sharp as never),
-      url: pathname => `/api/_vitehub/blob/${pathname}`,
+      url: pathname => `/_vitehub/blob/${pathname}`,
     })
   })
 
@@ -70,7 +70,7 @@ describe("media records on the fs driver", () => {
       height: 800,
       pathname: "posts/cover.jpg",
       size: bytes.byteLength,
-      url: "/api/_vitehub/blob/posts/cover.jpg",
+      url: "/_vitehub/blob/posts/cover.jpg",
       width: 1200,
     })
     const sidecar = JSON.parse(await readFile(join(directory, "_vitehub/media/records/posts/cover.jpg.json"), "utf8"))
@@ -161,7 +161,7 @@ describe("media records on the fs driver", () => {
     const before = ok(await storage.media.get("old/hero.jpg"))!
 
     const moved = ok(await storage.media.move("old/hero.jpg", "new/hero.jpg"))
-    expect(moved).toMatchObject({ alt: "Hero", hash: before.hash, pathname: "new/hero.jpg", url: "/api/_vitehub/blob/new/hero.jpg" })
+    expect(moved).toMatchObject({ alt: "Hero", hash: before.hash, pathname: "new/hero.jpg", url: "/_vitehub/blob/new/hero.jpg" })
     expect(moved.crops!.mobile!.replacement!.pathname).not.toBe(before.crops!.mobile!.replacement!.pathname)
     expect(ok(await storage.get(moved.crops!.mobile!.replacement!.pathname))).not.toBeNull()
     expect(ok(await storage.get(before.crops!.mobile!.replacement!.pathname))).toBeNull()

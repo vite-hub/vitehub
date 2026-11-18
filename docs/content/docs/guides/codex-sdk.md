@@ -17,7 +17,7 @@ ViteHub does not use `@openai/codex-sdk`. `codexDriver()` starts the Codex CLI f
 
 ## Set up Codex
 
-Start from the app of [Installation](/docs/getting-started/installation). You need Node.js 22.22 or newer on Linux or macOS, pnpm, and an OpenAI API key or a ChatGPT plan.
+Start from the app of [Installation](/docs/getting-started/installation). You need Node.js 24.15 or newer on Linux or macOS, pnpm, and an OpenAI API key or a ChatGPT plan.
 
 ### Install the packages
 
@@ -36,7 +36,6 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     agent: true,
-    workflow: false,
   },
 })
 ```
@@ -51,7 +50,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     agent: true,
-    workflow: false,
   }), nitro()],
 })
 ```
@@ -65,14 +63,13 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     agent: true,
-    workflow: false,
   })],
 })
 ```
 :::
 ::
 
-`workflow: false` fits because the Agent finishes inside the HTTP request. Codex starts as a local process, so it needs a Node.js host. See [Where Codex can run](#where-codex-can-run).
+The Agent runs inline and finishes inside the HTTP request. Codex starts as a local process, so it needs a Node.js host. See [Where Codex can run](#where-codex-can-run).
 
 ### Define the Agent
 

@@ -35,7 +35,7 @@ export interface StripeEvent<TObject = Record<string, unknown>> {
 export interface StripeAdapterOptions {
   /** The endpoint's signing secret (`whsec_...`). Defaults to the `STRIPE_WEBHOOK_SECRET` environment variable. */
   secret?: ChannelWebhookSecret
-  /** Another route next to `/api/_vitehub/channels/<name>`. A string literal. */
+  /** Another route next to `/_vitehub/channels/<name>`. A string literal. */
   path?: string
   /** The old webhook State and queue scope to keep when this Channel moves. */
   stateScope?: WebhookAdapterOptions<StripeEvent>["stateScope"]

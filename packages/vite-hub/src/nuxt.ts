@@ -33,6 +33,7 @@ import { resolveSandboxTaskDriver, viteHubPlugins, type ViteHubOptions } from ".
 import { installBrowserErrorsNuxt } from "./browser-errors-vite.ts"
 import { installStaleChunkReloadNuxt, staleChunkReloadPluginName } from "./stale-chunk-reload.ts"
 import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
+import { resolveDefinitionFeatures } from "./internal/definition-features.ts"
 import { disabledKVConfigModule, disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { consoleDevAccessNotice } from "./console/dev-access-notice.ts"
 import { importOptionalOwner, isPackageInstalled, requireOptionalOwner, startPackageChecks } from "./internal/optional-owners.ts"
@@ -669,9 +670,9 @@ function flattenPlugins(options: readonly unknown[]): Plugin[] {
 }
 
 function filterPluginOptions(
-  options: readonly unknown[],
+  options: readonly PluginOption[],
   keep: (plugin: Plugin) => boolean,
-): unknown[] {
+): PluginOption[] {
   return options.flatMap((option) => {
     if (Array.isArray(option)) {
       const nested = filterPluginOptions(option, keep)
@@ -742,7 +743,7 @@ function installVitePluginNitroModules(config: Record<string, unknown>, plugins:
   }
 }
 
-function withoutDeploymentOutput(options: readonly unknown[]): unknown[] {
+function withoutDeploymentOutput(options: readonly PluginOption[]): PluginOption[] {
   return options.flatMap((option) => {
     if (Array.isArray(option)) return [withoutDeploymentOutput(option)]
     if (option && typeof option === "object" && "name" in option && option.name === "vite-hub/deployment-output") {
@@ -810,7 +811,7 @@ async function applyNitroConfig(
   // Filter command-only plugins from both lists without re-evaluating Vite's functional `apply` selection.
   const applies = (plugin: Plugin) => typeof plugin.apply !== "string" || plugin.apply === environment.command
   plugins = plugins.filter(applies)
-  config.plugins = filterPluginOptions(config.plugins ?? [], applies) as PluginOption[]
+  config.plugins = filterPluginOptions(config.plugins ?? [], applies)
   const restoreReplayOwnership = () => {
     config[VITEHUB_GENERATED_ROOT] = generatedRoot
     config[VITEHUB_NITRO_CONFIG_CONTEXT] = true
@@ -892,8 +893,8 @@ async function applyNitroConfig(
   if (!nuxt.options.dev && !nuxt.options._prepare) {
     const rateLimit = plugins.find(plugin => plugin.name === "@vite-hub/rate-limit/vite")
     // SAFETY: The canonical Rate Limit owner exposes validation for Nitro-only builds.
-    const api = rateLimit?.api as { validateNitroBuild?: (config: ResolvedConfig) => void } | undefined
-    api?.validateNitroBuild?.(asReplayResolvedConfig(Object.assign({}, config, { command: environment.command })))
+    const api = rateLimit?.api as { validateNitroBuild?: (config: ResolvedConfig) => Promise<void> } | undefined
+    await api?.validateNitroBuild?.(asReplayResolvedConfig(Object.assign({}, config, { command: environment.command })))
   }
 
   if (config.nitro) {
@@ -1010,12 +1011,14 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const moduleOptions = { ...configuredModuleOptions, host: resolveNuxtBuildHost(configuredModuleOptions.host, nuxt.options.nitro) }
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)
-  // The `cms` preset turns on Workspace, Database, and Blob. Nuxt knows the root here, so resolve it once.
-  const options = markCmsPresetFeaturesResolved(withConnectionsDatabase(withDataDir(resolveCmsPresetFeatures(withComments({
+  const discoveryProject = { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }
+  // Definition files, such as `server/auth.ts`, turn their features on, and the `cms` preset turns on Workspace,
+  // Database, and Blob. Nuxt knows the root here, so resolve them once.
+  const options = markCmsPresetFeaturesResolved(withConnectionsDatabase(withDataDir(resolveCmsPresetFeatures(withComments(resolveDefinitionFeatures({
     ...moduleOptions,
     // `vitehub()` reads `false` as "off" and unset as "development operation RPC only".
     console: moduleOptions.console === false ? false : resolveConsoleOptions(moduleOptions.console),
-  } as ViteHubOptions), { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }))))
+  } as ViteHubOptions, discoveryProject)), discoveryProject))))
   const consoleOptions = resolveConsoleOptions(options.console)
   const plan = resolveDeploymentPlan(moduleOptions.host)
   // Explicit Database roots are relative to Nuxt's rootDir; automatic discovery uses the ViteHub project root.
@@ -1114,7 +1117,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     env: options.env !== false,
     blob: consoleBlobEnabled,
     kv: effectiveKV,
-    host: plan.host,
     queue: effectiveQueue,
     sandboxTask: resolveSandboxTaskDriver(options.sandboxTask, plan) !== undefined,
   })
@@ -1146,8 +1148,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     queue: effectiveQueue && plan.services.queue.supported,
     sandboxTask: resolveSandboxTaskDriver(options.sandboxTask, plan) !== undefined,
     seo: Boolean(options.seo?.sitemap),
-    // Match the Workflow owner's implicit enablement through Agent, including the Netlify exception.
-    workflow: options.workflow !== false && Boolean(options.workflow || (options.agent && plan.host !== "netlify")),
+    workflow: Boolean(options.workflow),
   })
   let consoleHasPrimaryAuth = false;
   let consoleAccess: ConsoleAccessBuild | undefined
@@ -1416,12 +1417,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   viteConfig[VITEHUB_APP_BASE_URL] = nuxt.options.app?.baseURL || "/"
   const viteServerDirs = resolveNuxtServerDirs(nuxt.options)
   if (viteServerDirs) viteConfig[VITEHUB_SERVER_DIRS] = viteServerDirs
-  const installedVitePlugins: unknown = [
+  nuxt.options.vite.plugins = [
     ...plugins.map(plugin => existingPluginsByName.get(plugin.name) || plugin),
     ...filterPluginOptions(existing, plugin => !plugins.some(candidate => candidate.name === plugin.name)),
   ]
-  // SAFETY: Both arrays contain Vite plugins normalized or preserved by this integration.
-  nuxt.options.vite.plugins = installedVitePlugins as PluginOption[]
   const configuredEnvProjectRootOption = options.env && typeof options.env === "object"
     ? options.env.projectRoot
     : undefined
@@ -1498,7 +1497,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         database: getResolvedFeatureOptions(replayConfig, "database") ?? options.database,
         email: options.email,
         kv: resolvedKV,
-        host: plan.host,
         queue: effectiveQueue === false
           ? false
           : effectiveQueue === undefined

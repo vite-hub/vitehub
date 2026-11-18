@@ -62,6 +62,7 @@ function tupleCall(r: Resolver, call: { callee: unknown }): string | undefined {
   if (!reference) return
   if (reference.module === "queue" && reference.name === "sendQueue" && reference.path.length === 0) return "sendQueue()"
   if (reference.module === "queue" && reference.name === "dynamicQueue" && reference.path.join(".") === "send") return "dynamicQueue.send()"
+  if (reference.module === "schedule" && reference.name === "runSchedule" && reference.path.length === 0) return "runSchedule()"
   if (reference.module === "workflow" && ["startWorkflow", "getWorkflowRun", "cancelWorkflow", "resumeWorkflow"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`
   if (reference.module === "agent/mcp" && reference.name === "callMcpTool" && reference.path.length === 0) return "callMcpTool()"
   if (reference.module === "agent/server" && ["enqueueChannelTask", "cancelChannelTask"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`

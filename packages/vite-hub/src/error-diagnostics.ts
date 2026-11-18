@@ -69,10 +69,6 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "Nitro tasks are not enabled in this runtime.",
       fix: "Add a file to `server/tasks/` and build again. In Nuxt, use Nuxt's own task support.",
     },
-    VITE_HUB_AGENT_OPTION_MISSING: {
-      ...dynamicError,
-      fix: "Set `agent: true` in the ViteHub options to run the Agents. Set `agent: false` to keep them off on purpose.",
-    },
     VITE_HUB_CACHE_STALE_IF_ERROR_INVALID: {
       why: ({ value }: { value: string }) => `\`staleIfError\` is the number of seconds after \`maxAge\` during which a failed call returns the stored value, but it is ${value}.`,
       fix: "Pass a number of seconds that is 0 or more, such as `staleIfError: 86400` for one day. Remove `staleIfError` to return the error at once.",
@@ -85,6 +81,14 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Pass non-empty strings to `tags` and `invalidateTag()`, for example `[\"posts\", \"post:1\"]`.",
     },
+    VITE_HUB_DEFINITION_PACKAGE_MISSING: {
+      why: ({ definitions, packages }: { definitions: string, install: string, off: string, packages: string }) => `${definitions}, but the app does not have ${packages}.`,
+      fix: ({ install, off }: { definitions: string, install: string, off: string, packages: string }) => `Run \`pnpm add ${install}\` in your app. To keep the feature off, set ${off} in the ViteHub options.`,
+    },
+    VITE_HUB_DEFINITION_ROOT_MISMATCH: {
+      why: ({ keys, projectRoot, workingDirectory }: { keys: string, projectRoot: string, workingDirectory: string }) => `\`vitehub()\` turns features on from the Definition files of ${workingDirectory}, the project of the working directory, but the Vite root is in ${projectRoot}, which has other Definition files for ${keys}.`,
+      fix: ({ keys }: { keys: string, projectRoot: string, workingDirectory: string }) => `Run Vite from the project folder, or set ${keys} to \`true\` or \`false\` in the ViteHub options.`,
+    },
     VITE_HUB_DEPLOY_CHECK_INVALID: {
       why: ({ value }: { value: string }) => `A \`deploy.check\` path must be a path on the deployed site that starts with one \`/\`, such as \`/api/health\`, but it is ${value}.`,
       fix: "Write each `deploy.check` entry as a path that starts with `/`, without an origin and without spaces, such as `deploy: { check: [\"/\", \"/api/products\"] }`.",
@@ -92,6 +96,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_DEPLOY_INDEX_NOW_PUBLIC_URL_MISSING: {
       why: "`deploy.indexNow` sends the URLs of the public site to IndexNow, and the build does not know that site: `publicUrl` is not a string.",
       fix: "Set `vitehub({ publicUrl: \"https://shop.example.com\" })` to the origin of the public site, or remove `deploy.indexNow`.",
+    },
+    VITE_HUB_DOCKERFILE_NATIVE_PACKAGES_NOT_LINUX: {
+      why: ({ os, packages }: { os: string, packages: string }) => `The build ran on ${os}, so these native packages in \`.output\` hold ${os} code: ${packages}. The Linux image of \`.output/Dockerfile\` cannot load them.`,
+      fix: "Install dependencies and build the app in the Linux Node image for the target CPU. Use that same base for the generated Dockerfile with `docker build --build-arg VITEHUB_NODE_IMAGE=<image>`. Or set `docker: false` in `vitehub()` and use a Dockerfile with compatible build and runtime stages.",
     },
     VITE_HUB_HOST_PROVIDER_CONFLICT: {
       why: ({ detected, host, variable }: { detected: string, host: string, variable: string }) => `\`vitehub({ host: "${host}" })\` builds ${host} output, but \`${variable}\` is set, so this build runs on the ${detected} host, which cannot run ${host} output.`,
@@ -159,7 +167,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0137: {
       ...dynamicError,
-      fix: "Set `schedule: { runtime: { driver: \"process\" }, providerOutput: \"auto\" }` in `vitehub()` to run Schedules in the server process, or `schedule: { providerOutput: false }` to start them yourself.",
+      fix: "Remove `schedule.providerOutput` from `vitehub()` to run Schedules in the server process, or set `schedule: { providerOutput: false }` to start them yourself.",
     },
     VITE_HUB_R0141: {
       ...dynamicError,
@@ -439,7 +447,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0089: {
       ...dynamicError,
-      fix: "Choose an Email driver for this host, such as `email: { driver: \"resend\" }` in `vitehub()`, or set `host: \"cloudflare\"`.",
+      fix: "Set `driver` for the production build, such as `email: { driver: \"resend\" }` in `vitehub()`. Use `driver: \"log\"` to send no email, or build for `host: \"cloudflare\"`.",
     },
     VITE_HUB_B0008: {
       ...dynamicError,

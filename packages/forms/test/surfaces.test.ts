@@ -10,7 +10,7 @@ describe("a schema with no JSON Schema", () => {
 
   it("still validates a form-data post", async () => {
     const store = createMemoryFormsStore()
-    const response = await handleFormRequest("custom", defineForm({ schema: Custom }), new Request("https://site.test/api/_vitehub/forms/custom", {
+    const response = await handleFormRequest("custom", defineForm({ schema: Custom }), new Request("https://site.test/_vitehub/forms/custom", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
       body: "name=Ada",
