@@ -900,7 +900,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           } while (cursor && scanned < maximumActivityScanPerRef)
           return revisions
         }
-        const [draft, published] = limit
+        const [draft, published] = limit && names.size
           ? await Promise.all((["draft", "published"] as const).map(loadRevisions))
           : [[], []]
         const revisions = [...draft, ...published]
