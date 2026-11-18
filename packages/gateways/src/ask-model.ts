@@ -181,18 +181,22 @@ export interface AskSchema<TOutput = unknown> {
 /** The type of the data that a schema validates. */
 export type AskSchemaOutput<TSchema extends AskSchema> = NonNullable<TSchema["~standard"]["types"]>["output"]
 
-export interface AskOptions<TSchema extends AskSchema | undefined = undefined> {
+export type AskOptions<TSchema extends AskSchema | undefined = undefined> = {
   /** The model that answers: an AI SDK model, such as `languageModel(openrouter(), 'google/gemini-3-flash')`, or an AI SDK gateway model ID. */
   model: AskModel
-  /** The shape of the answer. The model must answer with JSON that this schema accepts. Without `schema`, `ask()` returns the answer as text. */
-  schema?: TSchema
   /** System instructions, such as the role of the model and the rules of the answer. */
   instructions?: string
   /** Receives the model, provider, and token counts of the request. */
   onUsage?: (usage: AiGatewayUsage) => void
   /** Cancels the request. */
   signal?: AbortSignal
-}
+} & (TSchema extends AskSchema ? {
+  /** The shape of the answer. The model must answer with JSON that this schema accepts. */
+  schema: TSchema
+} : {
+  /** Without `schema`, `ask()` returns the answer as text. */
+  schema?: undefined
+})
 
 /** Why `ask()` returned no data: the model request failed, or the answer did not match the schema or had no text. */
 export type AskError = Diagnostic<unknown, "GATEWAYS_ASK_MODEL_FAILED" | "GATEWAYS_ASK_OUTPUT_INVALID">
