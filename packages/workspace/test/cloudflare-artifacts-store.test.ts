@@ -875,7 +875,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const first = store.snapshot()
     await vi.waitFor(() => expect(gitMock.push).toHaveBeenCalledOnce())
     const second = store.snapshot()
-    await Promise.resolve()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(gitMock.statusMatrix).toHaveBeenCalledOnce()
     releasePush()
 
