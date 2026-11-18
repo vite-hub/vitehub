@@ -40,7 +40,6 @@ file that you create next, in `server/agents/`, turns Agents on.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: "node",
     workflow: false,
   },
 })
@@ -56,7 +55,6 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       workflow: false,
     }),
     nitro(),
@@ -73,7 +71,6 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       workflow: false,
     }),
   ],

@@ -51,6 +51,25 @@ describe("vitehub remove", () => {
     expect(existsSync(join(root, "server"))).toBe(false)
   })
 
+  it("keeps Workflow's opt-out when an Agent still implies it after deleting the starter", async () => {
+    const config = viteConfig('{ host: "cloudflare", agent: true }')
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": config })
+    const pm = fakePackageManager(root)
+    const added = await add(["workflow", "--name", "jobs"], root, pm.spawn)
+    expect(added.exitCode, added.stdout).toBe(0)
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(config)
+
+    const refused = await remove(["workflow", "--yes"], root, pm.spawn)
+    expect(refused.json).toMatchObject({ error: { code: "SETUP_FEATURE_IMPLIED" }, impliedBy: ["agent"] })
+    expect(existsSync(join(root, "server/workflows/jobs.ts"))).toBe(true)
+
+    const forced = await remove(["workflow", "--force", "--yes"], root, pm.spawn)
+    expect(forced.exitCode, forced.stdout).toBe(0)
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain("workflow: false")
+    expect(existsSync(join(root, "server/workflows/jobs.ts"))).toBe(false)
+    expect((await runSetup<SetupStatus>(["status", "--json"], root)).json.features).toContainEqual(expect.objectContaining({ id: "workflow", enabled: "off" }))
+  })
+
   it.each([
     ['rootDir: "app"', "app/server"],
     ['serverDir: "backend"', "backend"],

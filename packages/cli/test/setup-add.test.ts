@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { cp, readdir, readFile, writeFile } from "node:fs/promises"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -365,6 +366,21 @@ describe("vitehub add", () => {
     expect(result.json.error?.code).toBe("SETUP_SERVER_DIR_MANUAL")
     expect(await snapshot(root)).toEqual(before)
     expect((await add(["queue", "--no-install", "--yes"], root)).exitCode).toBe(0)
+  })
+
+  it("replaces an explicit opt-out when adding a Queue starter", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{ queue: false }") })
+    const result = await add(["queue", "--name", "jobs", "--yes", "--no-install"], root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain("queue: true")
+    expect(existsSync(join(root, "server/queues/jobs.ts"))).toBe(true)
+  })
+
+  it("requires a ViteHub call before adding a Queue starter", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": "export default { plugins: [] }\n" })
+    const result = await add(["queue", "--name", "jobs", "--yes", "--no-install"], root)
+    expect(result.json.error).toMatchObject({ code: "SETUP_CONFIG_MANUAL" })
+    expect(existsSync(join(root, "server/queues/jobs.ts"))).toBe(false)
   })
 
   it.each(fixtures)("adds each native feature to a copy of docs-hosts/%s once", async (fixture, host, configFile) => {

@@ -146,6 +146,7 @@ function optionPrerequisites(id: FeatureId, value: JsonValue | undefined, unknow
 export interface PlannedRemove {
   plan: SetupRemovePlan
   configFile?: { path: string, before: string, after: string }
+  restartRequired: boolean
   /** Starter Definitions to delete. */
   deletes: { path: string, content: string }[]
   uninstall: string[]
@@ -164,14 +165,19 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
 
   const keys = project.config?.ok ? project.config.site.keys : {}
   const before = project.configFile ? await readFile(join(project.root, project.configFile), "utf8") : ""
-  const simulate = (edits: readonly ConfigEdit[]): { code?: string, status: SetupStatus } => {
-    if (!edits.length) return { status }
+  const simulate = (edits: readonly ConfigEdit[], withoutDefinitions?: ReadonlySet<FeatureId>): { code?: string, status: SetupStatus } => {
+    if (!edits.length) return { status: withoutDefinitions ? setupStatus(project, env, withoutDefinitions) : status }
     if (!project.config?.ok || !project.configFile) throw manual(project.config && !project.config.ok ? project.config.reason : "no-vitehub")
     const result = editViteHubConfig(project.configFile, before, edits)
     if (!result.ok) throw manual(result.reason)
-    return { code: result.code, status: setupStatus({ ...project, config: locateViteHubConfig(project.configFile, result.code) }, env) }
+    return { code: result.code, status: setupStatus({ ...project, config: locateViteHubConfig(project.configFile, result.code) }, env, withoutDefinitions) }
   }
   const enabled = (state: SetupStatus, id: FeatureId) => state.features.find(item => item.id === id)!
+  const impliedRemoval = (state: SetupStatus, id: FeatureId) => {
+    const disabled = state.features.filter(item => item.enabled === "off" && item.reason === "config").map(item => item.id)
+    const by = state.features.filter(item => item.enabled === "on" && item.reason !== "implied" && impliedFeatures([item.id], host, disabled).includes(id)).map(item => item.id)
+    return setupFailure(cliErrorDiagnostics.SETUP_FEATURE_IMPLIED({ by: by.join(", "), feature: id }), setupExitCodes.conflict, { data: { impliedBy: by } })
+  }
 
   // First delete the keys, then write `false` for the features that stay on without a key.
   const edits = new Map<FeatureId, ConfigEdit>()
@@ -188,11 +194,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   for (const id of args.features) {
     const state = enabled(deleted, id)
     if (state.enabled === "off") continue
-    if (state.reason === "implied" && !args.force) {
-      const disabled = deleted.features.filter(item => item.enabled === "off" && item.reason === "config").map(item => item.id)
-      const by = deleted.features.filter(item => item.enabled === "on" && item.reason !== "implied" && impliedFeatures([item.id], host, disabled).includes(id)).map(item => item.id)
-      throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_IMPLIED({ by: by.join(", "), feature: id }), setupExitCodes.conflict, { data: { impliedBy: by } })
-    }
+    if (state.reason === "implied" && !args.force) throw impliedRemoval(deleted, id)
     if (state.reason === "default" && !features[id].enabledByDefault && state.enabled === "on") {
       // A discovered file, such as `server/comments.ts`, turns the feature on without a key. The starters of a
       // Definition folder go below, and its other files block there.
@@ -284,11 +286,19 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
     const used = [...new Set(blocking.map(item => item.feature))].join(", ")
     throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_IN_USE({ features: used, references: list }), setupExitCodes.conflict, { data: { references: blocking } })
   }
-  // When the starters are the only Definitions of a feature and they go, the feature is off without `<feature>: false`.
-  const emptied = args.keepFiles ? [] : [...discovered].filter(id => !blocking.some(item => item.feature === id))
-  const written = emptied.length
-    ? simulate([...edits].flatMap(([id, edit]) => !emptied.includes(id) ? [edit] : keys[id] ? [{ key: id, op: "delete" as const }] : []))
-    : after
+  const emptied = new Set(args.keepFiles ? [] : [...discovered].filter(id => !blocking.some(item => item.feature === id)))
+  const withoutKeys = (omit: ReadonlySet<FeatureId>) => [...edits].flatMap(([id, edit]) => !omit.has(id) ? [edit] : keys[id] ? [{ key: id, op: "delete" as const }] : [])
+  let written = after
+  if (emptied.size) {
+    const projected = simulate(withoutKeys(emptied), emptied)
+    const redundant = new Set<FeatureId>()
+    for (const id of emptied) {
+      const state = enabled(projected.status, id)
+      if (state.reason === "implied" && !args.force) throw impliedRemoval(projected.status, id)
+      if (state.enabled === "off") redundant.add(id)
+    }
+    written = simulate(withoutKeys(redundant), emptied)
+  }
 
   const prod: string[] = []
   const dev: string[] = []
@@ -319,7 +329,9 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   }
   for (const path of edited) kept.push({ path, reason: "edited" })
 
-  const nextSteps: string[] = []
+  const configPatch = written.code !== undefined && written.code !== before ? { after: written.code, before, path: project.configFile! } : undefined
+  const restartRequired = !configPatch && deletes.length > 0 && emptied.size > 0
+  const nextSteps: string[] = restartRequired ? ["Restart the dev server to load the new feature configuration."] : []
   if (command && !args.uninstall) nextSteps.push(`Uninstall the packages: ${command}`)
   if (edited.length) nextSteps.push(`${edited.join(", ")} stayed because ${edited.length === 1 ? "it differs" : "they differ"} from the starter. Delete or move ${edited.length === 1 ? "it" : "them"} by hand.`)
   const hosted = host === "node" ? [] : turnedOff.flatMap((id) => {
@@ -343,7 +355,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
     turnedOff,
     uninstall: { devPackages: dev, packages: prod, ...(command ? { command } : {}) },
   }
-  return { deletes, plan, uninstall, ...(written.code !== undefined && written.code !== before ? { configFile: { after: written.code, before, path: project.configFile! } } : {}) }
+  return { deletes, plan, restartRequired, uninstall, ...(configPatch ? { configFile: configPatch } : {}) }
 }
 
 /** Deletes `path` and then each folder that is empty after it, such as the `server/queues` that `add` created. */

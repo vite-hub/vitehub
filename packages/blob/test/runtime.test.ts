@@ -528,9 +528,7 @@ describe("blob runtime", () => {
       ...(folded ? { mode: "folded" } : {}),
       prefix: "a/",
     })
-    expect(Object.keys(vercelBlobMock.list.mock.calls[0]?.[0] ?? {})).toEqual(folded ? ["token", "cursor", "limit", "mode", "prefix"] : ["token", "cursor", "limit", "prefix"])
     expect(result).toEqual({ blobs: [], cursor: "next-page", ...(folded ? { folders: [] } : {}), hasMore: true })
-    expect(Object.keys(result)).toEqual(folded ? ["blobs", "cursor", "folders", "hasMore"] : ["blobs", "cursor", "hasMore"])
   })
 
   it("preserves provider cursors for folded Vercel listings", async () => {

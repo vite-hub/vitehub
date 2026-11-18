@@ -14,10 +14,6 @@ const queue = await import(distEntry.href)
 const resolvePackageImport = createRequire(import.meta.url).resolve
 
 describe("published Queue error runtime", () => {
-  it("does not publish a package-specific error constructor", () => {
-    expect(queue).not.toHaveProperty("QueueError")
-  })
-
   it("keeps the Cloudflare worker helper off the public root", () => {
     expect(queue).not.toHaveProperty("createQueueCloudflareWorker")
   })

@@ -727,13 +727,13 @@ describe("vitehub", () => {
       "vite-hub/deployment-host",
       "vite-hub/deployment-output",
       "vite-hub/public-url",
-      "vite-hub/agent-option-missing",
       "vite-hub/standard-context",
       "vite-hub/vitest-inline",
       "vite-hub/database-disabled",
       "vite-hub/unavailable-services",
       "vite-hub/dependencies",
       "vite-hub/error-log",
+      "vite-hub/request-policy",
       "@vite-hub/env/vite",
       "vite-hub/stale-chunk-reload",
       "vite-hub/operations",
@@ -756,6 +756,7 @@ describe("vitehub", () => {
       "vite-hub/types",
       "vite-hub/nitro-order",
       "vite-hub/nitro-order/run",
+      "vite-hub/definition-features-root",
     ])
 
     expect(pluginNames(vitehub({
@@ -791,6 +792,7 @@ describe("vitehub", () => {
       "vite-hub/cloudflare-redirects-file",
       "vite-hub/dependencies",
       "vite-hub/error-log",
+      "vite-hub/request-policy",
       "@vite-hub/env/vite",
       "vite-hub/stale-chunk-reload",
       "vite-hub/setup-dev",
@@ -824,6 +826,7 @@ describe("vitehub", () => {
       "vite-hub/types",
       "vite-hub/nitro-order",
       "vite-hub/nitro-order/run",
+      "vite-hub/definition-features-root",
     ])
     expect((vitehub({ host: "node" }).flat() as Plugin[]).filter(isIncludedNitroPlugin).map(plugin => plugin.name)).toContain("nitro:main")
     expect(pluginNames(vitehub({ host: "node", sandboxTask: false }))).not.toContain("@vite-hub/sandbox/task/vite")
@@ -1565,6 +1568,47 @@ describe("vitehub", () => {
         rollupConfig: { output: { chunkFileNames: "chunks/[name].mjs", entryFileNames: "index.mjs" } },
       })
     }
+  })
+
+  describe("host and provider variables", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs()
+      vi.restoreAllMocks()
+    })
+    const stubProvider = (name: string, value: string) => {
+      for (const host of ["VITEHUB_HOST", "NITRO_PRESET", "SERVER_PRESET", "WORKERS_CI", "NETLIFY", "NOW_BUILDER", "VERCEL", "VERCEL_ENV", "DENO_DEPLOY", "DENO_DEPLOYMENT_ID"]) vi.stubEnv(host, "")
+      vi.stubEnv(name, value)
+    }
+
+    it.each([
+      ["VERCEL", "1", "node"],
+      ["NETLIFY", "true", "node"],
+      ["WORKERS_CI", "1", "vercel"],
+      ["DENO_DEPLOYMENT_ID", "abc", "cloudflare"],
+    ] as const)("fails a production build when %s names another host than %s", async (name, value, host) => {
+      stubProvider(name, value)
+      await expect(applyDeploymentConfig({ host })).rejects.toMatchObject({
+        code: "VITE_HUB_HOST_PROVIDER_CONFLICT",
+        fix: expect.stringContaining(`VITEHUB_HOST=${host}`),
+      })
+    })
+
+    it("builds when the provider variable names the same host, or VITEHUB_HOST selects it", async () => {
+      stubProvider("VERCEL", "1")
+      await expect(applyDeploymentConfig({ host: "vercel" })).resolves.toBeDefined()
+      await expect(applyDeploymentConfig({})).resolves.toBeDefined()
+      vi.stubEnv("VITEHUB_HOST", "node")
+      await expect(applyDeploymentConfig({ host: "node" })).resolves.toBeDefined()
+    })
+
+    it("warns once in dev", async () => {
+      stubProvider("VERCEL", "1")
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+      const plugin = dependencyPluginByName(vitehub({ host: "node" }), "vite-hub/deployment-host")
+      for (let run = 0; run < 2; run++) await callHook(plugin.config, [{}, { command: "serve", mode: "development" }])
+      expect(warn).toHaveBeenCalledOnce()
+      expect(String(warn.mock.calls[0]![0])).toContain("VITE_HUB_HOST_PROVIDER_CONFLICT")
+    })
   })
 
   it.each([

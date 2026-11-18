@@ -31,7 +31,7 @@ Add `agent: true` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', agent: true },
+  vitehub: { agent: true },
 })
 ```
 ::::
@@ -43,7 +43,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', agent: true }), nitro()],
+  plugins: [vitehub({ agent: true }), nitro()],
 })
 ```
 ::::
@@ -54,7 +54,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', agent: true })],
+  plugins: [vitehub({ agent: true })],
 })
 ```
 ::::

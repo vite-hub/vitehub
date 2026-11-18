@@ -72,7 +72,7 @@ export function resolveDefinitionFeatures<T extends DefinitionFeatureOptions>(op
  * root only later. This plugin fails the build when the Vite root is another project with other Definition files, so a
  * feature is never on or off by mistake.
  */
-export function definitionFeaturesRootPlugin(options: DefinitionFeatureOptions, project: DefinitionProject): Plugin {
+export function definitionFeaturesRootPlugin(options: DefinitionFeatureOptions, project: DefinitionProject, validate?: () => void): Plugin {
   const guessed = [...discoverDefinitionFeatures(options, project).keys()]
   return {
     name: "vite-hub/definition-features-root",
@@ -81,15 +81,16 @@ export function definitionFeaturesRootPlugin(options: DefinitionFeatureOptions, 
       const viteConfig = config as typeof config & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[] }
       const projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(config.root)
       const serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
-      if (projectRoot === project.projectRoot && !serverDirs) return
-      const found = discoverDefinitionFeatures(options, { projectRoot, serverDirs })
-      const changed = definitionFeatureIds.filter(id => found.has(id) !== guessed.includes(id))
-      if (!changed.length) return
-      throw viteHubErrorDiagnostics.VITE_HUB_DEFINITION_ROOT_MISMATCH({
-        keys: changed.map(id => `\`${id}\``).join(", "),
-        projectRoot,
-        workingDirectory: project.projectRoot,
-      })
+      if (projectRoot !== project.projectRoot || serverDirs) {
+        const found = discoverDefinitionFeatures(options, { projectRoot, serverDirs })
+        const changed = definitionFeatureIds.filter(id => found.has(id) !== guessed.includes(id))
+        if (changed.length) throw viteHubErrorDiagnostics.VITE_HUB_DEFINITION_ROOT_MISMATCH({
+          keys: changed.map(id => `\`${id}\``).join(", "),
+          projectRoot,
+          workingDirectory: project.projectRoot,
+        })
+      }
+      validate?.()
     },
   }
 }

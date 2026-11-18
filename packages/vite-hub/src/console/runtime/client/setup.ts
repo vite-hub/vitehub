@@ -79,6 +79,7 @@ export interface SetupPlanDocument {
   planId?: string
   command?: string
   restart?: boolean
+  restartRequired?: boolean
   error?: SetupError
   missing?: readonly SetupMissing[]
   rerun?: string

@@ -4,10 +4,11 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { createBuilder, resolveConfig } from "vite"
+import { createBuilder, createServer, resolveConfig } from "vite"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { getDeploymentHost, VITEHUB_ENV_SERVER, VITEHUB_FEATURES } from "@vite-hub/internal/build/vite"
+import { createSetupSession } from "@vite-hub/cli/setup"
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
 import { env, hubEnv } from "@vite-hub/env/vite"
 import type { EnvRuntimeConfigOptions } from "@vite-hub/env"
@@ -114,6 +115,50 @@ describe("built-in host integration", () => {
       root,
       plugins: [vitehub({ host: "node", blob: false, env: false, queue: false, rateLimit: false, workflow: false })],
     }, "build")).rejects.toMatchObject({ code: "VITE_HUB_DEFINITION_ROOT_MISMATCH" })
+  })
+
+  it("reports a root mismatch before validating a Browser Definition from the working directory", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-browser-cwd-"))
+    const root = await mkdtemp(join(tmpdir(), "vitehub-browser-root-"))
+    await mkdir(join(cwd, "server/browsers"), { recursive: true })
+    await writeFile(join(cwd, "server/browsers/main.ts"), "export default {}\n")
+    const workingDirectory = vi.spyOn(process, "cwd").mockReturnValue(cwd)
+    onTestFinished(async () => {
+      workingDirectory.mockRestore()
+      await Promise.all([cwd, root].map(path => rm(path, { force: true, recursive: true })))
+    })
+    const plugins = vitehub({ host: "node" })
+    await expect(resolveConfig({ configFile: false, root, plugins }, "build")).rejects.toMatchObject({ code: "VITE_HUB_DEFINITION_ROOT_MISMATCH" })
+    await expect(resolveConfig({ configFile: false, root: cwd, plugins }, "build")).rejects.toMatchObject({ code: "VITE_HUB_R0088" })
+  })
+
+  it("requires a restart when Setup adds or removes the only Queue Definition", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-restart-"))
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(root)
+    onTestFinished(async () => {
+      cwd.mockRestore()
+      await rm(root, { force: true, maxRetries: 5, recursive: true })
+    })
+    const source = 'import { vitehub } from "vite-hub"\nexport default { plugins: [vitehub()] }\n'
+    await writeFile(join(root, "vite.config.ts"), source)
+    const start = () => createServer({ configFile: false, root, plugins: [vitehub()], server: { middlewareMode: true, watch: null, ws: false } })
+    const session = createSetupSession({ env: {}, root, run: async () => ({ exitCode: 0 }) })
+    for (const action of ["add", "remove"] as const) {
+      const server = await start()
+      try {
+        const includesQueue = () => server.config.plugins.some(plugin => plugin.name === "@vite-hub/queue/vite")
+        expect(includesQueue()).toBe(action === "remove")
+        const plan = await session.plan({ action, features: ["queue"], ...(action === "add" ? { install: false, name: "jobs" } : { uninstall: false }) })
+        expect(plan.body).toMatchObject({ restart: false, restartRequired: true, status: "planned" })
+        const applied = await session.apply(plan.body.planId)
+        expect(applied.body).toMatchObject({ restart: false, restartRequired: true, status: "applied" })
+        expect(includesQueue()).toBe(action === "remove")
+        expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(source)
+      }
+      finally {
+        await server.close()
+      }
+    }
   })
 
   it("applies deployment-owned Nitro configuration only during build", async () => {

@@ -48,7 +48,6 @@ on instance B then edit the same document and see each other.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     // `server/databases/default.ts` defines the Default Database with `dialect: 'postgresql'`
     database: true,
   },
@@ -65,7 +64,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       // `server/databases/default.ts` defines the Default Database with `dialect: 'postgresql'`
       database: true,
     }),
@@ -83,7 +81,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       // `server/databases/default.ts` defines the Default Database with `dialect: 'postgresql'`
       database: true,
     }),
