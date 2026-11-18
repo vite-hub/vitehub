@@ -8,7 +8,7 @@ import { canonicalAccessPath, resolveAuthMountPath } from "../application-path.t
 import { normalizeAuthBasePath } from "../shared.ts"
 import { authRequestEvent, unwrapAuthRequest } from "../request.ts"
 import { resolveAuthOptions } from "../runtime-options.ts"
-import { getAuthenticationSession, type AuthenticationSessionSnapshot } from "../session.ts"
+import { authenticationRefusalError, authenticationRefusalResponse, getAuthenticationSession, type AuthenticationRefusal, type AuthenticationSessionSnapshot } from "../session.ts"
 import { prepareSessionCookies, sendSessionCookies } from "../session-cookies.ts"
 import { getAuthRuntimeState } from "../runtime-state.ts"
 import { withSessionMarker } from "../session-marker.ts"
@@ -457,7 +457,7 @@ function wantsHtml(request: Pick<Request, "headers" | "method">): boolean {
 type AuthRefusalCode = "SIGNED_OUT" | "FORBIDDEN"
 
 // The inline guards read the code of a text refusal from here, so their HTTPError carries it too.
-const refusalCodes = new WeakMap<Response, AuthRefusalCode>()
+const refusalCodes = new WeakMap<Response, string>()
 
 function refusal(response: Response, code: AuthRefusalCode): Response {
   refusalCodes.set(response, code)
@@ -484,6 +484,13 @@ function createTextRefusalResponse(text: string, code: AuthRefusalCode): Respons
     status: 403,
     statusText: "Forbidden",
   }), code)
+}
+
+/** Better Auth's refusal of the credentials of the request, such as an invalid key of the API Key plugin. */
+function createProviderRefusalResponse(provider: AuthenticationRefusal): Response {
+  const response = authenticationRefusalResponse(provider)
+  if (provider.code) refusalCodes.set(response, provider.code)
+  return response
 }
 
 function createForbiddenResponse(request: Pick<Request, "headers" | "method">): Response {
@@ -548,13 +555,18 @@ async function createSignInResponse(
 
 // Every guard of one request shares one session lookup. Like reusableAccessChecks, the key is the Request of the
 // Standard Context, so H3 middleware, the Fetchable route, and handler guards of one request share it.
-const sessionReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<AuthenticationSessionSnapshot | null>>>()
+const sessionReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<RequestSessionRead>>>()
 
-async function readSession(input: AuthRequestInput, auth: ViteHubAuth, headers: Headers): Promise<AuthenticationSessionSnapshot | null> {
-  const { session, setCookies } = await getAuthenticationSession(auth, { headers })
+interface RequestSessionRead {
+  refusal?: AuthenticationRefusal
+  session: AuthenticationSessionSnapshot | null
+}
+
+async function readSession(input: AuthRequestInput, auth: ViteHubAuth, headers: Headers): Promise<RequestSessionRead> {
+  const { refusal, session, setCookies } = await getAuthenticationSession(auth, { headers })
   // Before any check, so a refusal or an error of an authorize callback sends the cookies too.
   prepareSessionCookies(input, setCookies)
-  return session
+  return { refusal, session }
 }
 
 async function readRequestSession(input: AuthRequestInput, definition: AuthDefinition) {
@@ -564,9 +576,10 @@ async function readRequestSession(input: AuthRequestInput, definition: AuthDefin
   const auth = requestProvider(definition, resolved)
   let reads = sessionReads.get(request)
   if (!reads) sessionReads.set(request, reads = new WeakMap())
-  let session = reads.get(definition)
-  if (!session) reads.set(definition, session = readSession(input, auth, request.headers))
-  return { auth, event, options: resolved.options, request, session: await session }
+  let read = reads.get(definition)
+  if (!read) reads.set(definition, read = readSession(input, auth, request.headers))
+  const { refusal, session } = await read
+  return { auth, event, options: resolved.options, refusal, request, session }
 }
 
 type AuthCheck =
@@ -801,7 +814,8 @@ async function checkAuthRequest(
   resolveIdentity?: AuthAccessIdentityResolver,
   signInURLs?: AuthSignInURLs,
 ): Promise<AuthCheck> {
-  const { auth, event, options, request, session } = await readRequestSession(input, definition)
+  const { auth, event, options, refusal: providerRefusal, request, session } = await readRequestSession(input, definition)
+  if (providerRefusal) return reject(createProviderRefusalResponse(providerRefusal))
   const identity = await resolveIdentity?.(toRequest(request), input, Boolean(session))
   if (isRuntimeResponse(identity)) return reject(identity)
   if (identity || session) {
@@ -849,7 +863,8 @@ async function checkAuthorizeRequest<TInput extends AuthRequestInput>(
   authorize: AccessAuthorizeOption<TInput & ViteHubContext>,
   definition: AuthDefinition,
 ): Promise<AuthCheck> {
-  const { request, session } = await readRequestSession(input, definition)
+  const { refusal: providerRefusal, request, session } = await readRequestSession(input, definition)
+  if (providerRefusal) return reject(createProviderRefusalResponse(providerRefusal))
   if (!session) return reject(createRefusalResponse("SIGNED_OUT"))
   const authorization: AuthAuthorization = Object.freeze({ request, session: session.session, user: session.user })
   if (authorize === true) return { authorization }
@@ -874,7 +889,8 @@ export function withAnonymousAuthorization<TInput extends AuthRequestInput, TRes
     throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAnonymousAuthorization() requires a handler function." })
   }
   return async (input) => {
-    const { request, session } = await readRequestSession(input, definition ?? resolveDefaultDefinition())
+    const { refusal: providerRefusal, request, session } = await readRequestSession(input, definition ?? resolveDefaultDefinition())
+    if (providerRefusal) return sendSessionCookies(input, createProviderRefusalResponse(providerRefusal))
     const authorization: AuthAuthorization | AuthAnonymousAuthorization = session
       ? Object.freeze({ request, session: session.session, user: session.user })
       : Object.freeze({ request, session: null, user: null })
@@ -1005,9 +1021,12 @@ const abilitySessions = new WeakMap<object, Promise<AuthAuthorization | AuthAnon
 function readAbilityAuthorization(input: AuthRequestInput): Promise<AuthAuthorization | AuthAnonymousAuthorization> {
   let pending = abilitySessions.get(input)
   if (!pending) {
-    pending = readRequestSession(input, resolveDefaultDefinition()).then(({ request, session }) => session
-      ? Object.freeze({ request, session: session.session, user: session.user })
-      : Object.freeze({ request, session: null, user: null }))
+    pending = readRequestSession(input, resolveDefaultDefinition()).then(({ refusal, request, session }) => {
+      if (refusal) throw authenticationRefusalError(refusal)
+      return session
+        ? Object.freeze({ request, session: session.session, user: session.user })
+        : Object.freeze({ request, session: null, user: null })
+    })
     // A failed read is not kept, so a later check reads again.
     pending.catch(() => abilitySessions.delete(input))
     abilitySessions.set(input, pending)
