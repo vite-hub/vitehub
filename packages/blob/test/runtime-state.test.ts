@@ -16,8 +16,8 @@ afterEach(() => setBlobRuntimeConfig(undefined))
 describe("served Blob URLs", () => {
   it("follow the serve route of the loaded Blob config without loading the runtime", () => {
     expect(servedBlobUrl("covers/a b.png")).toBeUndefined()
-    setBlobRuntimeConfig({ serve: { route: "/api/_vitehub/blob", store: "default" }, store: { driver: "fs", base: ".data" } })
-    expect(servedBlobUrl("covers/a b.png")).toBe("/api/_vitehub/blob/covers/a%20b.png")
+    setBlobRuntimeConfig({ serve: { route: "/_vitehub/blob", store: "default" }, store: { driver: "fs", base: ".data" } })
+    expect(servedBlobUrl("covers/a b.png")).toBe("/_vitehub/blob/covers/a%20b.png")
     expect(servedBlobUrl("covers/a.png", "media")).toBeUndefined()
     setBlobRuntimeConfig({ serve: { route: "/assets/", store: "media", publicBaseUrl: "https://cdn.example.com/" }, store: { driver: "fs", base: ".data" } })
     expect(servedBlobUrl("a.png", "media")).toBe("https://cdn.example.com/assets/a.png")

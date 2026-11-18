@@ -317,7 +317,7 @@ describe("useRealtimeTiptap", () => {
     await nextTick()
     await expect(realtime.history.checkpoint()).resolves.toMatchObject([undefined, { document: { body: "# Saved" } }])
     expect(fetch).toHaveBeenCalledOnce()
-    expect(fetch.mock.calls[0]![0]).toBe("/api/_vitehub/realtime/docs/second.md?history=checkpoint")
+    expect(fetch.mock.calls[0]![0]).toBe("/_vitehub/realtime/docs/second.md?history=checkpoint")
     scope.stop()
   })
 
@@ -547,10 +547,10 @@ describe("useRealtimeTiptap", () => {
     const realtime = scope.run(() => useRealtimeTiptap("docs", ref("guides/page.md")))!
 
     await expect(realtime.save()).resolves.toMatchObject([undefined, { digest: "saved", document: { body: "# Saved" } }])
-    expect(fetch.mock.calls[0]![0]).toBe("/api/_vitehub/realtime/docs/guides/page.md?document=save")
+    expect(fetch.mock.calls[0]![0]).toBe("/_vitehub/realtime/docs/guides/page.md?document=save")
     expect(realtime.saving.value).toBe(false)
     await expect(realtime.refresh()).resolves.toEqual([undefined, { digest: "saved", reseeded: false }])
-    expect(fetch.mock.calls[1]![0]).toBe("/api/_vitehub/realtime/docs/guides/page.md?document=refresh")
+    expect(fetch.mock.calls[1]![0]).toBe("/_vitehub/realtime/docs/guides/page.md?document=refresh")
     expect(fetch.mock.calls[1]![1].body).toBeUndefined()
     scope.stop()
   })

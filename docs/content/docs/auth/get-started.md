@@ -16,51 +16,14 @@ In this tutorial, you sign up a user with an email and a password. Then you use 
 >
 > This tutorial keeps users and sessions in memory. When the server restarts, they are gone. Before you use Auth in production, keep users in a database with [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database).
 
-::tutorial-step{title="Install and configure"}
-## Install and configure
+::tutorial-step{title="Install"}
+## Install
 
 Add Auth, Better Auth, and Drizzle to your app. Auth uses the `drizzle-orm` of your app, so the app has one copy:
 
 ```bash pm [commands/install]
 pnpm add @vite-hub/auth better-auth drizzle-orm@1.0.0-rc.5
 ```
-
-Add `auth: true` to the ViteHub options of your app. Keep the other options of your app.
-
-:::tabs{sync="framework"}
-::::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: { auth: true },
-})
-```
-::::
-
-::::tabs-item{label="Nitro"}
-```ts [vite.config.ts]
-import { nitro } from 'nitro/vite'
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ auth: true }), nitro()],
-})
-```
-::::
-
-::::tabs-item{label="Vite"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ auth: true })],
-})
-```
-::::
-:::
-
 
 ::
 
@@ -78,7 +41,7 @@ export default defineAuth({
 })
 ```
 
-- ViteHub finds this file. Better Auth then answers all requests to `/api/auth/**`.
+- This file turns Auth on. You do not add an `auth` option. Better Auth then answers all requests to `/api/auth/**`.
 - `emailAndPassword.enabled` turns on sign-up and sign-in with an email and a password. You do not write these routes yourself.
 
 ::

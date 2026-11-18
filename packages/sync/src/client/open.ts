@@ -18,6 +18,8 @@ import type { SyncActionsOf, SyncName, SyncRowOf, SyncSubsetOf } from "../types.
 
 declare const __VITEHUB_APP_BASE_URL__: string | undefined
 
+const storedRoutePrefix = "/api/_vitehub/sync"
+
 interface SharedStore {
   store: SyncStoreWithReset<SyncRow>
   users: number
@@ -74,12 +76,19 @@ async function sendStored(storage: SyncStorage): Promise<void> {
   const ids = await storage.queuedIds().catch(() => [])
   for (const id of ids) {
     if (shared.has(id) || [...draining.values()].includes(id)) continue
-    // The id is the route, and `?` with the subset as JSON when there is one. See `createSyncStore()`.
+    // The id keeps the original route and the subset, even when the HTTP route changes.
     const split = id.indexOf("?")
-    const url = split < 0 ? id : id.slice(0, split)
+    const storedRoute = split < 0 ? id : id.slice(0, split)
+    const nameStart = storedRoute.lastIndexOf("/")
+    const name = storedRoute.slice(nameStart + 1)
+    const prefix = storedRoute.slice(0, nameStart)
+    const url = prefix.endsWith(storedRoutePrefix)
+      ? `${prefix.slice(0, -storedRoutePrefix.length)}${syncLiveRoute}/${name}`
+      : storedRoute
     const where: unknown = split < 0 ? {} : JSON.parse(id.slice(split + 1))
-    const store = createSyncStore<SyncRow>(url.slice(url.lastIndexOf("/") + 1), {
+    const store = createSyncStore<SyncRow>(name, {
       url,
+      id,
       // SAFETY: `whereKey()` wrote the subset as a JSON object of column values.
       where: where as SyncValues,
       fetch: senders.get(storage)!,
@@ -130,10 +139,13 @@ function createIdleStore<TRow, TArgs>(): SyncStore<TRow, TArgs> {
 /** `createSync()` without the check of the `where` columns, for callers that checked them, such as `useSync()`. */
 function openSync<TName extends SyncName>(name: TName, options: SyncOptions<SyncRowOf<TName>, SyncActionsOf<TName>, SyncSubsetOf<TName>>): SyncStore<SyncRowOf<TName>, SyncActionsOf<TName>> {
   if (!isBrowser()) return createIdleStore()
-  const url = `${baseOf(options.baseURL)}${syncRoute(name)}`
+  const base = baseOf(options.baseURL)
+  const route = syncRoute(name)
+  const url = `${base}${route}`
+  const storedRoute = `${base}${storedRoutePrefix}${route.slice(syncLiveRoute.length)}`
   const where: Record<string, unknown> = { ...options.where }
   const subset = whereKey(where)
-  const sharedKey = subset ? `${url}?${subset}` : url
+  const sharedKey = subset ? `${storedRoute}?${subset}` : storedRoute
   // SAFETY: each optimistic function takes the arguments of its action, which arrive as the same JSON value.
   const actions = options.actions as Record<string, SyncOptimisticAction | undefined> | undefined
   let entry = shared.get(sharedKey)
@@ -143,6 +155,7 @@ function openSync<TName extends SyncName>(name: TName, options: SyncOptions<Sync
     entry = {
       store: createSyncStore<SyncRow>(name, {
         url,
+        id: sharedKey,
         where,
         ...(actions ? { actions } : {}),
         fetch,
