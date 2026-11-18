@@ -131,3 +131,19 @@ export const playgroundCommentsSection = {
     pagination: { limit: 200, cursor: { id: "id", updatedAt: "updatedAt" } },
   },
 } as const
+
+/**
+ * The Webhooks section of an app with `server/webhooks/`. The build adds it when the folder exists, so it is not in the
+ * list above. `packages/vite-hub/test/console-contributions.test.ts` keeps it equal to `webhooksConsoleSection`.
+ * `webhooks-fixture.ts` answers its operations.
+ */
+export const playgroundWebhooksSection = {
+  description: "See, test, flush, and redeliver the webhooks that the app sends.",
+  icon: "i-vitehub-webhooks",
+  id: "webhooks",
+  label: "Webhooks",
+  view: {
+    kind: "webhooks",
+    notice: "The list comes from the webhooks.* operations. The Console shows the names of the URL and secret variables and the URL host, never the full URL or the secret. `vitehub webhooks` and the webhooks MCP tools do the same.",
+  },
+} as const
