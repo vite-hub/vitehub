@@ -33,6 +33,7 @@ import { resolveSandboxTaskDriver, viteHubPlugins, type ViteHubOptions } from ".
 import { installBrowserErrorsNuxt } from "./browser-errors-vite.ts"
 import { installStaleChunkReloadNuxt, staleChunkReloadPluginName } from "./stale-chunk-reload.ts"
 import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
+import { resolveDefinitionFeatures } from "./internal/definition-features.ts"
 import { disabledKVConfigModule, disabledRedisDriver, disabledUpstashDriver, hasRedisStore, hasUpstashStore, redisDriverSpecifier, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { consoleDevAccessNotice } from "./console/dev-access-notice.ts"
 import { importOptionalOwner, isPackageInstalled, requireOptionalOwner, startPackageChecks } from "./internal/optional-owners.ts"
@@ -1010,12 +1011,14 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const moduleOptions = { ...configuredModuleOptions, host: resolveNuxtBuildHost(configuredModuleOptions.host, nuxt.options.nitro) }
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)
-  // The `cms` preset turns on Workspace, Database, and Blob. Nuxt knows the root here, so resolve it once.
-  const options = markCmsPresetFeaturesResolved(withConnectionsDatabase(withDataDir(resolveCmsPresetFeatures(withComments({
+  const discoveryProject = { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }
+  // Definition files, such as `server/auth.ts`, turn their features on, and the `cms` preset turns on Workspace,
+  // Database, and Blob. Nuxt knows the root here, so resolve them once.
+  const options = markCmsPresetFeaturesResolved(withConnectionsDatabase(withDataDir(resolveCmsPresetFeatures(withComments(resolveDefinitionFeatures({
     ...moduleOptions,
     // `vitehub()` reads `false` as "off" and unset as "development operation RPC only".
     console: moduleOptions.console === false ? false : resolveConsoleOptions(moduleOptions.console),
-  } as ViteHubOptions), { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }))))
+  } as ViteHubOptions, discoveryProject)), discoveryProject))))
   const consoleOptions = resolveConsoleOptions(options.console)
   const plan = resolveDeploymentPlan(moduleOptions.host)
   // Explicit Database roots are relative to Nuxt's rootDir; automatic discovery uses the ViteHub project root.

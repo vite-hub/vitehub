@@ -57,6 +57,8 @@ Without `--output`, the text goes to stdout without attachments, and a retention
 
 When the app has the Channel operations, `channels list` lists Channels and their retention, `channels threads` lists a Channel's threads, and `channels conversation` reads one thread's messages in order. `channels status <agent> <channel>` shows the sync health and skipped messages of a [Gmail Channel](/docs/agents/gmail#failed-messages).
 
+`vitehub channels deliveries <agent> <channel>` lists the newest messages a Channel received, with the run each one reached or [why it started none](/docs/agents/channels#why-a-message-started-no-work).
+
 ## Download Channel history
 
 `channels history` downloads a deployed conversation and its attachments with the stage's webhook secret, into the same archive as `conversations export --format json --output`.

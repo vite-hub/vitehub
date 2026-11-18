@@ -75,7 +75,7 @@ export default defineConfig({
 ::::
 :::
 
-- `schedule` turns on Schedule. A Node server has no cron of its own, so the `process` runtime checks for due schedules once a minute while the server runs.
+- `schedule` sets the options of Schedule. The schedule file that you create next turns Schedule on. A Node server has no cron of its own, so the `process` runtime checks for due schedules once a minute while the server runs.
 - `kv` gives Schedule a place to save each run. You read those runs in the last step.
 
 ::
@@ -168,7 +168,7 @@ To see the same runs in a page, with a button to run the schedule, open the app 
 You keep the schedule file. You change the `schedule` option for the host:
 
 - **Node or Docker**: keep `runtime: { driver: 'process' }`. The server process starts the schedule at 08:00 UTC. With more than one server process, add a Postgres or remote libSQL Database, and one process runs each occurrence. Without a Database, keep one process running. A stopped process runs nothing.
-- **Cloudflare, Vercel, or Netlify**: set the host of the host and `schedule: true`. The build then writes the cron settings of the host, and the host starts the schedule. Do not keep `runtime`. On Cloudflare and Netlify, keeping `runtime` makes the server process own the schedules and suppresses provider cron output. Vercel defaults to standalone cron output even when `runtime` is set.
+- **Cloudflare, Vercel, or Netlify**: set the host and remove the `schedule` option. The schedule file keeps Schedule on. The build then writes the cron settings of the host, and the host starts the schedule. Do not keep `runtime`. On Cloudflare and Netlify, keeping `runtime` makes the server process own the schedules and suppresses provider cron output. Vercel defaults to standalone cron output even when `runtime` is set.
 
 For example, on Vercel:
 
@@ -177,7 +177,7 @@ For example, on Vercel:
 ```ts [vercel/nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'vercel', schedule: true },
+  vitehub: { host: 'vercel' },
 })
 ```
 :::
@@ -189,7 +189,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'vercel', schedule: true }), nitro()],
+  plugins: [vitehub({ host: 'vercel' }), nitro()],
 })
 ```
 :::
@@ -200,13 +200,13 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'vercel', schedule: true })],
+  plugins: [vitehub({ host: 'vercel' })],
 })
 ```
 :::
 ::
 
-On the `deno` host, the same `schedule: true` registers each Schedule with `Deno.cron`. [Hosts](/docs/schedule/hosts) shows the output for each host.
+On the `deno` host, the same schedule file registers each Schedule with `Deno.cron`. [Hosts](/docs/schedule/hosts) shows the output for each host.
 
 ## Next steps
 

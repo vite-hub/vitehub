@@ -8,41 +8,7 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure the Vite Integration
 
-::tabs{sync="framework"}
-:::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: { workflow: true },
-})
-```
-:::
-
-:::tabs-item{label="Nitro"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ workflow: true }), nitro()],
-})
-```
-:::
-
-:::tabs-item{label="Vite"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ workflow: true })],
-})
-```
-:::
-::
-
-`workflow` takes `true` or an object with these options:
+A file or folder in `server/workflows/` turns on Workflows, so you do not add a `workflow` option. Set `workflow` to an object only to change these options, or `workflow: false` to keep Workflows off:
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
