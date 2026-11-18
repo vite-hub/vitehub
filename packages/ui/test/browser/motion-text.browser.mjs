@@ -8,7 +8,7 @@
 // ffmpeg.
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { mkdirSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { join } from "node:path"
 import { after, describe, test } from "node:test"
@@ -22,12 +22,28 @@ import { vitehubTheme } from "../../src/theme.ts"
 
 const nuxtUIRequire = createRequire(fileURLToPath(import.meta.resolve("@nuxt/ui/vite")))
 
-async function serve(root) {
+// The page of another checkout loads Nuxt UI and its Vue plugin from that checkout, so both see the same packages.
+async function serve(root, from) {
+  // The ESM entry of `name` (and `subpath`) as installed for `from`.
+  const entry = (name, subpath, dir) => {
+    const root = realpathSync(join(dir, "node_modules", name))
+    const exports = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).exports
+    const target = exports[subpath]
+    return join(root, typeof target === "string" ? target : target.import?.default ?? target.import ?? target.default)
+  }
+  const load = async (name, subpath) => {
+    if (!from) return name === "@nuxt/ui" ? nuxtUI : vue
+    return (await import(pathToFileURL(entry(name, subpath, from)).href)).default
+  }
+  const ui = await load("@nuxt/ui", "./vite")
+  const iconify = from ? createRequire(entry("@nuxt/ui", "./vite", from)).resolve("@iconify/vue") : nuxtUIRequire.resolve("@iconify/vue")
   const server = await createServer({
+    // The other checkout may share its node_modules, so its optimized dependencies go to a folder of their own.
+    ...from ? { cacheDir: join(root, ".vite-today") } : {},
     configFile: false,
     logLevel: "warn",
-    plugins: [vue(), nuxtUI({ autoImport: false, colorMode: false, components: false, dts: false, router: false, ui: vitehubTheme })],
-    resolve: { alias: [{ find: /^@iconify\/vue$/, replacement: nuxtUIRequire.resolve("@iconify/vue") }], dedupe: ["vue"] },
+    plugins: [(await load("@vitejs/plugin-vue", "."))(), ui({ autoImport: false, colorMode: false, components: false, dts: false, router: false, ui: vitehubTheme })],
+    resolve: { alias: [{ find: /^@iconify\/vue$/, replacement: iconify }], dedupe: ["vue"] },
     root,
     server: { host: "127.0.0.1", port: 0 },
   })
@@ -52,6 +68,14 @@ async function open(options = {}) {
   await page.goto(base)
   await page.waitForFunction(() => window.ready, undefined, { timeout: 60_000 })
   return { context, errors, page }
+}
+
+// The first visit can reload the page while Vite optimizes dependencies, so warm it up before the tests.
+{
+  const page = await browser.newPage()
+  await page.goto(base)
+  await page.waitForFunction(() => window.ready, undefined, { timeout: 180_000 })
+  await page.close()
 }
 
 /** Runs `read` on `selector` on every frame until `stop()`, and returns the values with their time in ms. */
@@ -324,7 +348,7 @@ if (recordDir) {
     ]
     let today
     if (process.env.MOTION_TODAY) {
-      today = await serve(process.env.MOTION_TODAY)
+      today = await serve(process.env.MOTION_TODAY, join(process.env.MOTION_TODAY, "../../.."))
       const url = today.resolvedUrls.local[0]
       subjects.push(
         { name: "publish-today", url, selector: "[data-test=publish]", hold: 4400, cssRate: true },
@@ -341,9 +365,13 @@ if (recordDir) {
       )
     }
     const summary = {}
-    for (const subject of subjects) summary[subject.name] = await record(subject)
+    try {
+      for (const subject of subjects) summary[subject.name] = await record(subject)
+    }
+    finally {
+      await today?.close()
+    }
     writeFileSync(join(recordDir, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`)
-    await today?.close()
   })
 }
 
@@ -353,7 +381,8 @@ async function record({ name, url, selector, click, hold, cssRate, prototype }) 
   const page = await context.newPage()
   await page.goto(url)
   if (!prototype) await page.waitForFunction(() => window.ready, undefined, { timeout: 60_000 })
-  await page.addStyleTag({ content: "body { transform: scale(2); transform-origin: 0 0 }" })
+  // Only the rows of this file, the last three of the motion page, so every subject is on screen without a scroll.
+  await page.addStyleTag({ content: `body { transform: scale(2); transform-origin: 0 0 }${prototype ? "" : " .page > section:not(:nth-last-child(-n+3)) { display: none }"}` })
   const element = page.locator(selector)
   // The body draws at twice its size, so scroll by its drawn box.
   await element.evaluate(node => node.scrollIntoView({ block: "center" }))
@@ -371,7 +400,8 @@ async function record({ name, url, selector, click, hold, cssRate, prototype }) 
     await cdp.send("Animation.setPlaybackRate", { playbackRate: 0.25 })
     await page.evaluate(() => document.querySelector("[data-test=speed]")?.click())
   }
-  else await page.locator("[data-test=speed]").click()
+  // The speed button is in a hidden row, so the page clicks it.
+  else await page.evaluate(() => document.querySelector("[data-test=speed]").click())
   await page.mouse.move(0, 0)
   await page.waitForTimeout(600)
   const box = await element.boundingBox()
