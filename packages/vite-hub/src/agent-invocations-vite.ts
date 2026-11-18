@@ -135,14 +135,14 @@ export async function writeAgentInvocationsNitroPlugin(options: AgentInvocations
 }
 
 /** The journal store for the durability report. A remote URL becomes `remote`, so no credential reaches the server bundle. */
-function journalDurabilityInput(setting: AgentInvocationsDefault | undefined, d1Binding: string | undefined): AgentInvocationsDurabilityInput | undefined {
+function journalDurabilityInput(setting: AgentInvocationsDefault | undefined, d1Binding: string | undefined, stateUrl: string | undefined): AgentInvocationsDurabilityInput | undefined {
   if (setting === false) return
   if (setting === "memory" || (typeof setting === "object" && setting.store === "memory")) return { store: "memory" }
   if (setting === "database") return { store: "database" }
   if (typeof setting === "object" && setting.store === "database") return { store: "database", ...(setting.database ? { database: setting.database } : {}) }
   if (d1Binding) return { store: "d1" }
   const databaseUrl = typeof setting === "object" && "databaseUrl" in setting && typeof setting.databaseUrl === "string" ? setting.databaseUrl : undefined
-  return { store: "file", ...(databaseUrl ? { url: sqliteUrlInput(databaseUrl) } : {}) }
+  return { store: "file", ...(databaseUrl ? { url: sqliteUrlInput(databaseUrl) } : stateUrl ? { stateUrl } : {}) }
 }
 
 /**
@@ -157,7 +157,7 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
     name: "vite-hub/agent-invocations",
     vitehub: {
       durability: () => {
-        const input = journalDurabilityInput(options.default, d1Binding)
+        const input = journalDurabilityInput(options.default, d1Binding, options.stateUrl)
         return input ? [{ export: "agentInvocationsDurability", input, module: resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability"), primitive: "agent-invocations" }] : []
       },
     },
