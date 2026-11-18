@@ -3110,7 +3110,7 @@ async function connectorKVSet(kv: ConnectorKV, key: string, value: ConnectorRece
 type ConnectorReceipt = { id: string } | { posted: true }
 
 function storedReceipt(value: Record<string, unknown> | undefined): ConnectorReceipt | undefined {
-  if (typeof value?.id === "string" && value.id) return { id: value.id }
+  if (typeof value?.id === "string") return postReceipt({ id: value.id })
   if (value?.posted === true) return { posted: true }
   return undefined
 }
@@ -3122,6 +3122,11 @@ function postReceipt(sent: { id?: string }): ConnectorReceipt {
 
 function sendResult(receipt: ConnectorReceipt): { id?: string } {
   return "id" in receipt ? { id: receipt.id } : {}
+}
+
+function requireReceiptId(receipt: ConnectorReceipt, label: string): string {
+  if ("id" in receipt) return receipt.id
+  throw agentDiagnostics.AGENT_CHANNEL_MESSAGE_ID_MISSING({ label, root: false })
 }
 
 /** What a Chat connector must know about one platform. Everything else uses the Chat SDK adapter API. */
@@ -3144,10 +3149,11 @@ interface ChatConnectorPlatform {
 
 /** Deletes the message stored under `receiptKey`, then its receipt. Without a stored receipt, it does nothing. */
 async function deleteConnectorReceipt(platform: ChatConnectorPlatform, adapter: Adapter, kv: ConnectorKV, receiptKey: string, threadId: string): Promise<void> {
-  const stored = await connectorKVGet(kv, receiptKey)
-  if (typeof stored?.id !== "string") return
+  const stored = storedReceipt(await connectorKVGet(kv, receiptKey))
+  if (!stored) return
+  const id = requireReceiptId(stored, platform.label)
   try {
-    await adapter.deleteMessage(threadId, stored.id)
+    await adapter.deleteMessage(threadId, id)
   }
   catch (error) {
     // The Chat SDK reports a missing resource as a ResourceNotFoundError with code NOT_FOUND.
@@ -3182,11 +3188,6 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
     }
     return adapter
   }
-  /** A message posted without an ID cannot be edited. */
-  const editableId = (receipt: ConnectorReceipt) => {
-    if ("id" in receipt) return receipt.id
-    throw agentDiagnostics.AGENT_CHANNEL_MESSAGE_ID_MISSING({ label, root: false })
-  }
   return {
     async send(message, { recipient, thread, idempotencyKey, update, replace }) {
       if (typeof recipient !== "string" || !recipient) throw agentDiagnostics.AGENT_CONNECTOR_RECIPIENT_MISSING({ label })
@@ -3210,7 +3211,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
         const receipt = await withConnectorLock(receiptKey, async () => {
           const stored = storedReceipt(await connectorKVGet(kv, receiptKey))
           if (stored) {
-            if (update) await chat.editMessage(await target(), editableId(stored), chatPostable(message))
+            if (update) await chat.editMessage(await target(), requireReceiptId(stored, label), chatPostable(message))
             return stored
           }
           const receipt = await post()
@@ -3246,7 +3247,7 @@ function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => May
         }
         if (stored) {
           // Inside a channel thread, edit a message through the root thread ID, also when the message is the root.
-          if (update && threadId) await chat.editMessage(threadId, editableId(stored), chatPostable(message))
+          if (update && threadId) await chat.editMessage(threadId, requireReceiptId(stored, label), chatPostable(message))
           return stored
         }
         if (!threadId) {

@@ -4233,8 +4233,8 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_CHANNEL_MESSAGE_ID_MISSING: {
       why: ({ label, root }: { label: string, root: boolean }) => root
         ? `[vitehub] ${label} did not return a root message ID, so replies cannot go under it.`
-        : `[vitehub] ${label} posted this message without returning its ID, so it cannot be edited.`,
-      fix: "Make the `postMessage()` and `postChannelMessage()` methods of the Chat adapter return the `id` of the message that the provider created. To change a message that was posted without an ID, post a new message.",
+        : `[vitehub] ${label} posted this message without returning its ID, so it cannot be edited or deleted.`,
+      fix: "Make the `postMessage()` and `postChannelMessage()` methods of the Chat adapter return the `id` of the message that the provider created. Edit or delete the original message in the chat client if needed.",
     },
     AGENT_CHANNEL_PULL_CURSOR_INVALID: {
       why: ({ key, cursor, next, kind }: { key: string, cursor: string | number, next: string | number | undefined, kind: "back" | "gap" | "repeated" | "stuck" }) => kind === "gap"
