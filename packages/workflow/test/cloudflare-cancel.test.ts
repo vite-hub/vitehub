@@ -4,6 +4,7 @@ import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare
 import { cancelWorkflow } from "../src/runtime/client.ts"
 import { runWorkflowOperation } from "../src/runtime/operations.ts"
 import { enterWorkflowRuntimeEvent, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { unwrap } from "./unwrap.ts"
 
 afterEach(() => {
   resetWorkflowRuntime()
@@ -34,7 +35,7 @@ function cloudflareBinding(statuses: Record<string, string>, options: { terminat
 it.each(["queued", "running", "waiting", "paused"])("terminates a %s run and reports it cancelled", async (status) => {
   const { terminate } = cloudflareBinding({ "checkout-1": status })
 
-  await expect(cancelWorkflow("checkout", "checkout-1")).resolves.toMatchObject({
+  await expect(unwrap(cancelWorkflow("checkout", "checkout-1"))).resolves.toMatchObject({
     id: "checkout-1",
     metadata: { status: "terminated" },
     provider: "cloudflare",
@@ -50,7 +51,7 @@ it.each([
 ])("returns a %s run unchanged without terminating it", async (status, expected) => {
   const { terminate } = cloudflareBinding({ "checkout-1": status })
 
-  await expect(cancelWorkflow("checkout", "checkout-1")).resolves.toMatchObject({ id: "checkout-1", status: expected })
+  await expect(unwrap(cancelWorkflow("checkout", "checkout-1"))).resolves.toMatchObject({ id: "checkout-1", status: expected })
   expect(terminate).not.toHaveBeenCalled()
 })
 
@@ -63,13 +64,13 @@ it("returns the finished run when it finishes before terminate() reaches it", as
     },
   })
 
-  await expect(cancelWorkflow("checkout", "checkout-1")).resolves.toMatchObject({ id: "checkout-1", status: "completed" })
+  await expect(unwrap(cancelWorkflow("checkout", "checkout-1"))).resolves.toMatchObject({ id: "checkout-1", status: "completed" })
 })
 
 it("reports a missing run as unknown, as the other providers do", async () => {
   const { terminate } = cloudflareBinding({})
 
-  await expect(cancelWorkflow("checkout", "missing")).resolves.toEqual({ id: "missing", provider: "cloudflare", status: "unknown" })
+  await expect(unwrap(cancelWorkflow("checkout", "missing"))).resolves.toEqual({ id: "missing", provider: "cloudflare", status: "unknown" })
   expect(terminate).not.toHaveBeenCalled()
 })
 
@@ -80,10 +81,10 @@ it("fails when terminate() fails on a run that still runs", async () => {
     },
   })
 
-  await expect(cancelWorkflow("checkout", "checkout-1")).rejects.toMatchObject({
+  expect(await cancelWorkflow("checkout", "checkout-1")).toMatchObject([{
     code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
-    details: { operation: "cancel", provider: "cloudflare" },
-  })
+    data: { operation: "cancel", provider: "cloudflare" },
+  }, undefined])
 })
 
 it("cancels through the workflow.cancel operation that `vitehub workflow cancel` calls", async () => {
@@ -99,8 +100,8 @@ it("reports inline cancellation as unsupported when the dev server has no bindin
   setWorkflowRuntimeConfig({ driver: "cloudflare" })
   setWorkflowRuntimeRegistry({ checkout: async () => ({ default: { handler: async () => ({ ok: true }) } }) })
 
-  await expect(cancelWorkflow("checkout", "checkout-1")).rejects.toMatchObject({
+  expect(await cancelWorkflow("checkout", "checkout-1")).toMatchObject([{
     code: "WORKFLOW_OPERATION_UNSUPPORTED",
-    details: { operation: "cancellation", provider: "cloudflare" },
-  })
+    data: { operation: "cancellation", provider: "cloudflare" },
+  }, undefined])
 })

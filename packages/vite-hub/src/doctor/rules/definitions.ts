@@ -230,7 +230,7 @@ function nonTupleResult(r: Resolver, call: unknown): { name: string, kind: "resp
   const reference = r.callee(call)
   if (!reference) return
   if (isExport(reference, ["sandbox/task"], "runSandboxTask") || isExport(reference, ["browser"], "runBrowser")) return { name: reference.name, kind: "response" }
-  if (isExport(reference, ["workflow"], ["startWorkflow", "deferWorkflow", "getWorkflowRun", "cancelWorkflow", "resumeWorkflow"])
+  if (isExport(reference, ["workflow"], "deferWorkflow")
     || isExport(reference, ["queue"], "useQueue")
     || isExport(reference, ["schedule"], "runSchedule")) return { name: reference.name, kind: "value" }
 }

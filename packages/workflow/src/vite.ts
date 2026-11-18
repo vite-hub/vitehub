@@ -120,8 +120,6 @@ interface InternalWorkflowModuleOptions {
    */
   includeUserAppEntry?: boolean | string
   workspaceDependencyRuntimeImports?: {
-    sandboxTask?: string
-    sandboxTaskRuntimeState?: string
     shellWorkspace?: string
   }
   workspaceRuntimeModule?: string
