@@ -3,6 +3,7 @@ import { defineDiagnostics } from "nostics"
 export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/content/diagnostics",
   codes: {
+    // Retired codes. Do not reuse them: CONTENT_R0006 and CONTENT_R0008.
     // Operation and schedule errors. The `content.*` operations and the schedule runner throw them.
     CONTENT_FORBIDDEN: {
       why: ({ action, target }: { action?: "edit" | "publish" | "read drafts of", target?: "collection" | "document" }) => action === undefined
@@ -32,16 +33,8 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Pass an id or path that exists in the collection or Source that the message names on that ref. The `list()` method of the collection shows its ids.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
-    CONTENT_R0006: {
-      fix: "Change the option that the message names in `defineContent()`, `contentSource()`, `seo()`, or the Content preset in `server/content.ts`, as the message says.",
-      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
-    },
     CONTENT_R0007: {
       fix: "Use the Blob + Database Store for the Workspace that the message names, because Content collections need its retained history.",
-      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
-    },
-    CONTENT_R0008: {
-      fix: "Change the argument of the Content call that the message names, such as `content.history()`, `content.preview.sign()`, or `content.sources.pin()`, as the message says.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     CONTENT_R0009: {
@@ -251,6 +244,275 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     CONTENT_R0079: {
       fix: "Set `previews: true` in `defineContent()`, with one `github()` Source, so the app serves `/pr/<number>/<path>`.",
       why: () => "[vitehub] content.sources.previewLinks() needs defineContent({ previews: true }): without it, the app serves no /pr/<number> URLs.",
+    },
+    // Named errors. Keep these codes in alphabetical order.
+    CONTENT_ACCESS_INVALID: {
+      fix: "Set `defineContent({ access: \"public\" })` to serve Content to everyone, or remove `access`.",
+      why: ({ access }: { access: unknown }) => `[vitehub] defineContent({ access }) must be "public" when it is set, received ${JSON.stringify(access)}.`,
+    },
+    CONTENT_AUTHORIZE_INVALID: {
+      fix: "Set `defineContent({ authorize })` to a function that gets `{ user, action }` and returns true to allow.",
+      why: () => "[vitehub] defineContent({ authorize }) must be a function.",
+    },
+    CONTENT_CACHE_KEY_UNKNOWN: {
+      why: ({ key }: { key: string }) => `Unknown content cache key ${JSON.stringify(key)}.`,
+      fix: "Pass `content.cache` a key that starts with the name of a Content source and a colon, such as `default:<path>`.",
+    },
+    CONTENT_CAN_INPUT_INVALID: {
+      fix: "Pass `content.can()` `{ action: \"read\" }` without `collection` or `id`, or `{ collection, action, id? }` with `read-draft`, `write`, or `publish`. Set `user` to the Auth user or null, and `actor` to an Agent Actor with an `id`.",
+      why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
+    },
+    CONTENT_COLLECTIONS_UNDEFINED: {
+      fix: "Add `workspace` and `collections` to `defineContent()` in `server/content.ts`, or add `extends: cms` from `vite-hub/cms`.",
+      why: ({ method }: { method?: string }) => method === undefined ? "[vitehub] This Content runtime has no collections. Add defineContent({ workspace, collections })." : `[vitehub] content.preview.${method}() needs document collections. Add defineContent({ workspace, collections }).`,
+    },
+    CONTENT_COLLECTIONS_WORKSPACE_MISSING: {
+      fix: "Add `extends: cms` from `vite-hub/cms` to `defineContent()`, or set `workspace` to the name of a Workspace with retained history.",
+      why: () => "[vitehub] defineContent({ collections }) requires extends: cms from vite-hub/cms, or workspace: the name of a Workspace with retained history.",
+    },
+    CONTENT_COLLECTION_DEFINITION_INVALID: {
+      fix: "Define the collection with `documents()` or `singleton()` from `@vite-hub/content/collections`.",
+      why: ({ name }: { name: string }) => `[vitehub] Content collection ${JSON.stringify(name)} must be defined with documents() or singleton() from @vite-hub/content/collections.`,
+    },
+    CONTENT_COLLECTION_NAME_TAKEN: {
+      fix: "Rename the collection in `defineContent({ collections })` or the Source in `defineContent({ sources })`, so no collection has the name of a Source.",
+      why: ({ name }: { name: string }) => `[vitehub] Content collection ${JSON.stringify(name)} has the same name as a Content source.`,
+    },
+    CONTENT_COLLECTION_PATHS_OVERLAP: {
+      fix: "Change the `path` globs of the two collections that the message names, so no file matches both.",
+      why: ({ name, path, other, otherPath }: { name: string, path: string, other: string, otherPath: string }) => `[vitehub] Content collection paths ${JSON.stringify(name)} (${path}) and ${JSON.stringify(other)} (${otherPath}) overlap.`,
+    },
+    CONTENT_COLLECTION_UNKNOWN: {
+      fix: "Pass the name of a collection from `defineContent({ collections })`, or add the collection there.",
+      why: ({ name }: { name: unknown }) => `[vitehub] Unknown Content collection ${JSON.stringify(name)}. Define it in defineContent({ collections }).`,
+    },
+    CONTENT_DIGEST_INVALID: {
+      fix: "Pass `ifDigest` and `ifPublishedDigest` as the `digest` string of an earlier read, or as null.",
+      why: ({ option }: { option: "ifDigest" | "ifPublishedDigest" }) => `[vitehub] Content ${option} must be a digest string or null.`,
+    },
+    CONTENT_DOCUMENTS_COMPONENTS_INVALID: {
+      fix: "Set `components` to a record keyed by lowercase Comark tags, such as `{ alert: { kind: \"block\", props: { type: { type: \"string\" } } } }`.",
+      why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
+    },
+    CONTENT_DOCUMENTS_FIELDS_INVALID: {
+      fix: "Set `fields` to a record of Standard Schema validators, such as `{ title: z.string() }`, and pass a validator to `optional()`.",
+      why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
+    },
+    CONTENT_DOCUMENTS_FIELD_RESERVED: {
+      fix: "Rename the `derivedFrom` field: a collection with `locales` keeps that key for the source of each translation.",
+      why: ({ path }: { path: string }) => `[vitehub] documents(${JSON.stringify(path)}) has locales, so derivedFrom is the reserved key where a translation records its source. Rename the field.`,
+    },
+    CONTENT_DOCUMENTS_LABEL_INVALID: {
+      fix: "Set `label` to a non-empty string, or to `{ singular, plural }` for `documents()`, and set `titleField` to the name of one of the fields.",
+      why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
+    },
+    CONTENT_DOCUMENTS_LOCALES_INVALID: {
+      fix: "Set `locales` to a list of different locale tags, such as `['en', 'es']`, and put `{locale}` once in each path as a whole folder before the first wildcard, such as `docs/{locale}/**/*.md`.",
+      why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
+    },
+    CONTENT_DOCUMENTS_OPTIONS_INVALID: {
+      fix: "Pass `{ path, fields }` to `documents()` or `singleton()`, with `search` as a list of field names and `editing` as `{ lease?: boolean }`.",
+      why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
+    },
+    CONTENT_DOCUMENTS_PATH_INVALID: {
+      fix: "Set the `documents()` path to relative globs with `*`, `**`, or `?` that end in one shared extension, such as `posts/**/*.md`, and the `singleton()` path to one file, such as `settings.json`.",
+      why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
+    },
+    CONTENT_DOCUMENTS_URL_INVALID: {
+      fix: "Set `url` to a pattern that starts with `/` and names only `:id`, `:locale`, and fields, such as `/blog/:id`, or to a function that returns such a path or null. Set `markdown` to a function, and only with `url`.",
+      why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
+    },
+    CONTENT_DOCUMENT_ID_INVALID: {
+      fix: "Pass a document id as a relative path without an extension, such as `hello` or `2026/hello`.",
+      why: ({ id }: { id: unknown }) => `[vitehub] Content document id must be a relative path such as "hello" or "2026/hello", received ${JSON.stringify(id)}.`,
+    },
+    CONTENT_DOCUMENT_OUTSIDE_COLLECTION: {
+      fix: "Pass an id that a `path` glob of the collection matches, or add a glob for it in `documents({ path })`.",
+      why: ({ id, collection, path }: { id: string, collection: string, path: string }) => `[vitehub] Content document ${JSON.stringify(id)} is outside collection ${JSON.stringify(collection)} (${path}).`,
+    },
+    CONTENT_EDITOR_FAILED: {
+      why: ({ command, code }: { command: string, code: number | null }) => `The editor \`${command}\` exited with code ${code}.`,
+      fix: "Set `$VISUAL` or `$EDITOR` to an editor command that waits until you close the file and then exits with code 0, such as `code --wait`. Or pass `--file <path>` to `vitehub content edit`.",
+    },
+    CONTENT_HISTORY_CURSOR_INVALID: {
+      fix: "Pass the `cursor` that the previous `content.history()` call returned, or no cursor for the first page.",
+      why: ({ cursor }: { cursor: string }) => `[vitehub] content.history() received the cursor ${JSON.stringify(cursor)}, which is not a cursor of a Source page. Pass the cursor of the previous call.`,
+    },
+    CONTENT_HISTORY_INPUT_INVALID: {
+      fix: "Call `content.history(path, { limit })` with an app path such as `/docs/guide`, an options object, and a whole `limit` from 1 to 100.",
+      why: ({ problem }: { problem: string }) => `[vitehub] content.history() ${problem}`,
+    },
+    CONTENT_LIVE_DOCUMENT_HELD: {
+      why: ({ holder }: { holder: string }) => `${holder} is editing this document alone. Live edits save once they stop or someone takes over.`,
+      fix: "Wait until the person that the message names stops editing, or take over their edit lease. Then open the live document again.",
+    },
+    CONTENT_LIVE_INVALID: {
+      fix: "Set `defineContent({ live })` to `\"auto\"` or `false`, or remove it.",
+      why: () => "[vitehub] defineContent({ live }) must be 'auto' or false.",
+    },
+    CONTENT_LIVE_ROOM_UNKNOWN: {
+      why: ({ documentId }: { documentId: string }) => `No Content Markdown document matches the live room ${JSON.stringify(documentId)}.`,
+      fix: "Join the live room of a Markdown document of a Content collection: `<collection>/<id>`, or the collection name of a singleton.",
+    },
+    CONTENT_LOCALE_UNKNOWN: {
+      fix: "Pass a locale from the `locales` of the collection, or no locale when the collection has none.",
+      why: ({ collection, locale, locales }: { collection: string, locale: unknown, locales: readonly string[] | undefined }) => locales === undefined ? `[vitehub] Content collection ${JSON.stringify(collection)} has no locales, so it takes no locale. Received ${JSON.stringify(locale)}.` : `[vitehub] Content collection ${JSON.stringify(collection)} has the locales ${JSON.stringify(locales)}, received ${JSON.stringify(locale)}.`,
+    },
+    CONTENT_PIN_SHA_INVALID: {
+      fix: "Pass a full 40-character commit SHA to `content.sources.pin()`. `content.history()` and GitHub show the SHA of each commit.",
+      why: ({ sha }: { sha: unknown }) => `[vitehub] content.sources.pin() needs a full 40-character commit SHA, received ${JSON.stringify(sha)}.`,
+    },
+    CONTENT_PLUGINS_PARSE_PLUGIN: {
+      fix: "Move the Comark parse plugin from `defineContent({ plugins })` to `defineContent({ markdown: { plugins } })`.",
+      why: ({ name }: { name: string | undefined }) => `[vitehub] ${JSON.stringify(name)} is a Comark parse plugin, and defineContent({ plugins }) takes only Comark Content plugins. Pass it in defineContent({ markdown: { plugins } }).`,
+    },
+    CONTENT_PRESET_CONFIGURE_INVALID: {
+      fix: "Return an options object from the `configure()` function of the Content preset, with `authorize` as a function when it is set.",
+      why: ({ preset, returned }: { preset: string, returned: string }) => `[vitehub] Content preset ${JSON.stringify(preset)} must return ${returned} from configure().`,
+    },
+    CONTENT_PRESET_INVALID: {
+      fix: "Set `defineContent({ extends })` to a Content preset, such as `cms` from `vite-hub/cms`, or to a tuple `[cms, { ... }]` whose second item is a plain object.",
+      why: ({ reason }: { reason: string }) => reason,
+    },
+    CONTENT_PRESET_OPTION_UNKNOWN: {
+      fix: "Remove the option that the message names from `extends: [preset, { ... }]`, or correct its spelling to an option that the preset declares.",
+      why: ({ reason }: { reason: string }) => reason,
+    },
+    CONTENT_PRESET_WORKSPACE_CONFLICT: {
+      fix: "Remove `workspace` from `defineContent()`, and name the Workspace in the preset options, such as `extends: [cms, { workspace: \"content\" }]`.",
+      why: () => "[vitehub] defineContent({ extends }) sets workspace. Remove workspace, or name the Workspace in the preset options.",
+    },
+    CONTENT_PREVIEW_ASYNC_CONTEXT_MISSING: {
+      fix: "Run Content on a host with `AsyncLocalStorage`. On Cloudflare Workers, add the `nodejs_als` compatibility flag to the Wrangler configuration.",
+      why: () => "[vitehub] Content preview needs an async request context (AsyncLocalStorage). On Cloudflare Workers, enable the nodejs_als compatibility flag.",
+    },
+    CONTENT_PREVIEW_DOCUMENT_INVALID: {
+      fix: "Pass `{ collection, id }` of the one document that the frame previews to `content.preview.sign()`, with a short collection name and id.",
+      why: ({ tooLong }: { tooLong: boolean }) => tooLong ? "[vitehub] content.preview.sign() received a collection and id that are too long." : "[vitehub] content.preview.sign() requires { collection, id }: the one document the frame previews.",
+    },
+    CONTENT_PREVIEW_EVENT_INVALID: {
+      fix: "Pass the H3 event of the route, or its `Request`, to the `content.preview` method.",
+      why: ({ method }: { method: string }) => `[vitehub] content.preview.${method}() requires an H3 event or a Request.`,
+    },
+    CONTENT_PREVIEW_MAX_AGE_INVALID: {
+      fix: "Pass `maxAge` as whole seconds from 60 to 86400, or omit it.",
+      why: ({ option, min, max }: { option: string, min: number, max: number }) => `[vitehub] ${option} must be whole seconds from ${min} to ${max}.`,
+    },
+    CONTENT_PREVIEW_NITRO_REQUIRED: {
+      fix: "Use `defineContentPreviewPlugin()` in a Nitro 3 app, such as Vite with Nitro or Nuxt 5. Elsewhere, wrap reads in `content.preview.run(event, callback)`.",
+      why: () => "[vitehub] defineContentPreviewPlugin() needs a Nitro 3 app.",
+    },
+    CONTENT_PREVIEW_PULL_INVALID: {
+      fix: "Pass the pull request number, a whole number from 1, to `content.sources.previewLinks()`.",
+      why: ({ pull }: { pull: unknown }) => `[vitehub] content.sources.previewLinks() needs a pull request number, received ${JSON.stringify(pull)}.`,
+    },
+    CONTENT_PUBLIC_SOURCE_UNDECIDED: {
+      fix: "Set `defineContent({ authorize })` to decide who reads, or `access: \"public\"` when the Content is public, or turn off the readers that the message names.",
+      why: ({ readers, names, route }: { readers: string, names: string, route: boolean }) => `[vitehub] ${readers} would serve the potentially token-backed Source ${names} to everyone, and a github() Source or an opaque registered name, reader, or factory can read a private repository with a token. Set authorize to decide who may read (it gets action: "read"), or access: "public" when the content is public (or pass a direct non-GitHub Source definition).${route ? " route: false removes /api/content/**." : ""}`,
+    },
+    CONTENT_PUBLISH_PR_UNSUPPORTED: {
+      fix: "Set `publish: \"pr\"` only for a Workspace on the GitHub store, such as `extends: [cms, { repo, publish: \"pr\" }]`, or remove it.",
+      why: ({ workspace }: { workspace: string }) => `[vitehub] publish: 'pr' needs a Workspace Store with pull requests, but Workspace ${JSON.stringify(workspace)} has none. Use the GitHub store.`,
+    },
+    CONTENT_READ_REF_CONFLICT: {
+      fix: "Pass `ref` or `revision` to the read, not both.",
+      why: ({ method }: { method: string }) => `[vitehub] Content ${method}() takes ref or revision, not both.`,
+    },
+    CONTENT_REF_INVALID: {
+      fix: "Pass `ref: \"draft\"` or `ref: \"published\"`, or omit `ref`.",
+      why: ({ ref }: { ref: unknown }) => `[vitehub] Content ref must be "draft" or "published", received ${JSON.stringify(ref)}.`,
+    },
+    CONTENT_RESOLVE_PATH_INVALID: {
+      fix: "Pass an app path as a string, such as `/blog/hello`, to `content.resolve()`.",
+      why: () => "[vitehub] Content resolve() requires an app path such as \"/blog/hello\".",
+    },
+    CONTENT_REVISIONS_LIMIT_INVALID: {
+      fix: "Pass `limit` as a whole number from 1 to 100 and `scanLimit` from 1 to 1,000 to `revisions()`, or omit them.",
+      why: ({ option }: { option: "limit" | "scanLimit" }) => option === "limit" ? "[vitehub] Content revisions() limit must be an integer from 1 to 100." : "[vitehub] Content revisions() scanLimit must be an integer from 1 to 1,000.",
+    },
+    CONTENT_REVISION_METADATA_INVALID: {
+      fix: "Pass `metadata` as a plain object, or omit it.",
+      why: () => "[vitehub] Content revision metadata must be an object.",
+    },
+    CONTENT_ROUTE_INVALID: {
+      fix: "Set `defineContent({ route })` to `true` or `false`. To serve Content to everyone, set `access: \"public\"`.",
+      why: ({ route }: { route: unknown }) => route === "public" ? '[vitehub] defineContent({ route: "public" }) is now defineContent({ access: "public" }). route only turns /api/content/** on or off.' : `[vitehub] defineContent({ route }) must be true or false, received ${JSON.stringify(route)}.`,
+    },
+    CONTENT_RUNTIME_EXPORT_INVALID: {
+      why: "[vitehub] server/content.ts must default-export the defineContent() runtime.",
+      fix: "Default-export the result of `defineContent({ ... })` from `server/content.ts`.",
+    },
+    CONTENT_SEO_FIELD_INVALID: {
+      fix: "Pass an options object to `seo()`, with `image` as a Standard Schema validator, such as `seo({ image: image() })`.",
+      why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
+    },
+    CONTENT_SEO_OPTIONS_INVALID: {
+      fix: "Change the `defineContent({ seo })` option that the message names to the shape that the message shows, such as `{ site: \"https://example.com\", sitemap: true }`.",
+      why: ({ problem }: { problem: string }) => `[vitehub] defineContent({ seo }) ${problem}`,
+    },
+    CONTENT_SESSION_KIND_INVALID: {
+      fix: "Pass `kind: \"edit\"` or `kind: \"live\"` to `content.sessions.acquire()`, and `kind: \"view\"` or `kind: \"edit\"` to `content.sessions.report()`.",
+      why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
+    },
+    CONTENT_SESSION_TOKEN_INVALID: {
+      fix: "Pass `session` as a token of 8 to 128 letters, digits, `-`, or `_`, such as `crypto.randomUUID()`, one for each tab or client.",
+      why: () => "[vitehub] content.sessions requires session: a token of 8 to 128 letters, digits, - or _, one per tab or client.",
+    },
+    CONTENT_SESSION_USER_INVALID: {
+      fix: "Pass `user` as `{ id, name?, image? }` with strings, and an `id` of 1 to 256 characters.",
+      why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
+    },
+    CONTENT_SINGLETON_ID_MISMATCH: {
+      fix: "Omit the id when you call a singleton method, or pass the id of the singleton.",
+      why: ({ name, id, path, received }: { name: string, id: string, path: string, received: unknown }) => `[vitehub] Content singleton ${JSON.stringify(name)} has the id ${JSON.stringify(id)} (${path}). Omit the id, or pass ${JSON.stringify(id)}; received ${JSON.stringify(received)}.`,
+    },
+    CONTENT_SITE_INVALID: {
+      fix: "Pass `site` as an absolute http or https URL, such as `https://example.com`.",
+      why: ({ site }: { site: unknown }) => `[vitehub] site must be an absolute http(s) URL such as https://example.com, received ${JSON.stringify(site)}.`,
+    },
+    CONTENT_SOURCE_CONFLICT: {
+      why: "Define either source or sources, not both.",
+      fix: "Keep `source` for one Content source, or move it into `sources` beside the others, in `defineContent()`.",
+    },
+    CONTENT_SOURCE_DIGEST_INVALID: {
+      fix: "Pass `sourceDigest` only when you save a translation with its `locale`, and set it to `source.digest` of the `get()` that you translated.",
+      why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
+    },
+    CONTENT_SOURCE_HEAD_UNVALIDATED: {
+      fix: "Run `vitehub content advance` or call `content.sources.advance()`. `content.sources.head()` shows a rejected commit and the reason.",
+      why: ({ source }: { source: string }) => `[vitehub] Content source ${JSON.stringify(source)} has no validated head. Resolve its GitHub commit, then call content.sources.advance().`,
+    },
+    CONTENT_SOURCE_MISSING: {
+      why: ({ name }: { name: string }) => `Content source ${JSON.stringify(name)} is missing.`,
+      fix: "Give the source that the message names a value in `defineContent({ sources })`, or remove its key.",
+    },
+    CONTENT_SOURCE_OPTIONS_INVALID: {
+      fix: "Pass `contentSource(input, { url })` a path that starts with `/`, such as `/:id`, or a function, with `label` as text and `seo` and `markdown` as functions. `label`, `seo`, and `markdown` need `url`.",
+      why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
+    },
+    CONTENT_SOURCE_REFS_UNSUPPORTED: {
+      fix: "Update `@vite-hub/source` to the version that `@vite-hub/content` depends on, such as with `pnpm update @vite-hub/source`.",
+      why: ({ source, action }: { source: string, action: "open" | "check" }) => `[vitehub] Content source ${JSON.stringify(source)} cannot ${action} refs. Update @vite-hub/source.`,
+    },
+    CONTENT_SOURCE_UNKNOWN: {
+      why: ({ name }: { name: string }) => `Unknown content source ${JSON.stringify(name)}.`,
+      fix: "Pass `content.from()` the name of a source that `defineContent({ sources })` declares, or `default` for `defineContent({ source })`.",
+    },
+    CONTENT_SOURCE_VIEWS_DISPOSED: {
+      fix: "Call `content.sources.at()` before `content.dispose()`, or create a new runtime with `defineContent()`.",
+      why: () => "[vitehub] Content source views have been disposed.",
+    },
+    CONTENT_SOURCE_WITHOUT_HEAD: {
+      fix: "Pass the name of a `github()` Source from `defineContent({ sources })`, or omit it for the `default` Source.",
+      why: ({ source, heads }: { source: string, heads: string }) => `[vitehub] Content source ${JSON.stringify(source)} has no head. Only github() Sources have one. Sources with a head: ${heads}.`,
+    },
+    CONTENT_WRITE_LEASE_INVALID: {
+      fix: "Pass `lease: \"override\"` to write over the edit lease of another tab, or omit `lease`.",
+      why: () => "[vitehub] Content write lease must be 'override' or omitted.",
+    },
+    CONTENT_WRITE_SESSION_INVALID: {
+      fix: "Pass `session` as the `content.sessions` token of the caller, or omit it.",
+      why: () => "[vitehub] Content write session must be the content.sessions token of the caller.",
     },
   },
 })

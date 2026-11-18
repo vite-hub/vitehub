@@ -119,7 +119,8 @@ export async function linkConsoleGitHub(callbackURL: string): Promise<void> {
   if (error) throw failure(error, "GitHub did not start.")
 }
 
-export async function signOutConsoleAccount(): Promise<void> {
+/** End the session of the Console server. `signOutConsole()` also deletes the stored answers and loads the page again. */
+export async function endConsoleSession(): Promise<void> {
   const { error } = await auth().signOut()
   if (error) throw failure(error, "Sign out failed.")
 }
@@ -303,6 +304,8 @@ export interface ConsoleAccountCheck {
   status: ConsoleAccountAppStatus
   /** The HTTP status of the app's answer. */
   code: number
+  /** The name that a connected app reports in `project.get`. */
+  name?: string
   /** The build that the connected app runs, from its `project.get` answer. */
   build?: ConsoleProjectBuild
 }
@@ -314,8 +317,9 @@ const variableProblems = new Set(["CONSOLE_KEY_NOT_CONFIGURED", "CONSOLE_KEY_UNK
 export async function checkConsoleAccountProject(id: string): Promise<ConsoleAccountCheck> {
   const result = await json<{ linked: boolean, status: number, answer?: unknown }>(`/api/projects/${encodeURIComponent(id)}/check`, { method: "POST" })
   if (result.linked) {
+    const name: unknown = result.answer instanceof Object ? Reflect.get(result.answer, "name") : undefined
     const build = consoleProjectBuildOf(result.answer instanceof Object ? Reflect.get(result.answer, "build") : undefined)
-    return { status: "connected", code: result.status, ...(build ? { build } : {}) }
+    return { status: "connected", code: result.status, ...(String(name) === name && name.trim() ? { name: name.trim() } : {}), ...(build ? { build } : {}) }
   }
   const answerCode: unknown = result.answer instanceof Object ? Reflect.get(result.answer, "code") : undefined
   const code = String(answerCode)
@@ -327,6 +331,13 @@ export async function checkConsoleAccountProject(id: string): Promise<ConsoleAcc
 /** Link an app to the active team. The answer names the variable and the public key to set on the app. */
 export async function linkConsoleAccountProject(url: string, label?: string): Promise<ConsoleAccountProject> {
   const { project } = await json<{ project: ConsoleAccountProject }>("/api/projects", { body: JSON.stringify({ url, ...(label ? { label } : {}) }), method: "POST" })
+  return project
+}
+
+/** Rename an app of the active team. An empty name removes the label, so the Console shows the name that the app reports. */
+export async function renameConsoleAccountProject(id: string, label: string): Promise<ConsoleAccountProject> {
+  const name = label.replace(/\s+/g, " ").trim()
+  const { project } = await json<{ project: ConsoleAccountProject }>(`/api/projects/${encodeURIComponent(id)}`, { body: JSON.stringify({ label: name || null }), method: "PATCH" })
   return project
 }
 

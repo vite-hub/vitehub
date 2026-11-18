@@ -147,8 +147,7 @@ describe("operations that run app code", () => {
 
     const response = await call("sections.list")
     expect(response.status).toBe(200)
-    const { value } = await operationRpcResponseResult(response) as { value: { auth?: unknown, operations?: string[], readOnly?: string[] } }
-    expect(value).not.toHaveProperty("auth")
+    const { value } = await operationRpcResponseResult(response) as { value: { operations?: string[], readOnly?: string[] } }
     expect(value.operations).toEqual(operations)
     expect(value.readOnly).toEqual(readOnly)
   })

@@ -4,6 +4,8 @@ import { createServer } from "node:http"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
+import { invariant } from "@vite-hub/internal/invariant"
+
 export interface ContentTypesWriterHost {
   options?: { dev?: boolean, runtimeConfig?: Record<string, unknown> }
   hooks: { hook(name: "close", callback: () => Promise<void>): void }
@@ -57,7 +59,7 @@ async function startWriter(host: ContentTypesWriterHost, plugin: string): Promis
     server.closeAllConnections()
   }))
   const address = server.address()
-  if (!address || typeof address === "string") throw new Error("Content types writer has no TCP address.")
+  invariant(address && typeof address !== "string", "the Content types writer listens on a TCP host and port, so it has a TCP address")
   host.options!.runtimeConfig ??= {}
   host.options!.runtimeConfig.vitehubContentTypesWriter = `http://127.0.0.1:${address.port}${path}`
 }

@@ -43,7 +43,6 @@ const setupCodes = [
   "VITE_HUB_R0083",
   "VITE_HUB_R0084",
   "VITE_HUB_R0085",
-  "VITE_HUB_R0086",
   "VITE_HUB_R0087",
   "VITE_HUB_R0088",
   "VITE_HUB_R0089",

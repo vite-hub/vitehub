@@ -13,7 +13,7 @@ icon: i-lucide-code-2
 | `vite-hub/docs/nuxt` | The Nuxt module for `modules`. Types: `DocsModuleOptions`, `DocsSiteOptions`, `DocsStartOptions`, `DocsCommentsOptions`, and `DocsPublicConfig`. |
 | `vite-hub/docs` | The frontmatter schema, the manifest types, and the navigation helpers. |
 | `@vite-hub/docs/navigation` | Only the navigation helpers. `vite-hub/docs` exports them too. |
-| `vite-hub/docs/server` | Read a content folder without Nuxt: `createDocsManifest()`, `DocsContentError`, `createDocsParser()`, `docsSearchSections()`, `toRawMarkdown()`, and `docsPageResponse()`. |
+| `vite-hub/docs/server` | Read a content folder without Nuxt: `createDocsManifest()`, `createDocsParser()`, `docsSearchSections()`, `toRawMarkdown()`, and `docsPageResponse()`. |
 | `vite-hub/docs/assistant` | `docsAssistant`, `docsRateLimit()`, `docsPageFromBody()`, and `docsPageContextKey`. It needs `@vite-hub/agent`. |
 
 Each `vite-hub/docs/*` path re-exports the same path of `@vite-hub/docs`. A site without `vite-hub` imports `@vite-hub/docs/*`, as [Use without ViteHub](/docs/docs-site#use-without-vitehub) shows.
@@ -44,8 +44,8 @@ Set these under `docs` in `nuxt.config.ts`. All are optional.
 | `icons` | `Partial<DocsIcons>` | Lucide fallbacks | Icons of the rail and the sidebar: `rail`, `sections`, `pages`, `aliases`, `family`, `page`, and `section`. See [Icons](/docs/docs-site/configure#icons). |
 | `mcp` | `{ name?, guide? }` or `false` | On, named after `site.name` | The MCP server at `/mcp`. `guide` is a page that explains how to connect it. |
 | `llms` | `{ details?, sections? }` | None | More text for `/llms.txt`: `details` under the site description, and `sections` of links, `[{ title, description?, links }]`, before the page sections. |
-| `linkChecker` | `false` | On | Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. A link to an exact `redirect` route rule passes here, the search check reports it, and the build stops with [`DocsRedirectError`](/docs/docs-site/limits-and-errors#docsredirecterror) when such a rule goes to no docs page or hides one. Set the app's own `linkChecker` options to change this. |
-| `seoAudit` | `"warn" \| "error" \| boolean` | `"warn"` | Checks every prerendered page as a site audit does. `"warn"` logs the problems, `"error"` or `true` stops the build with [`DocsSeoError`](/docs/docs-site/limits-and-errors#docsseoerror), and `false` turns the check off. Pages with `noindex` or a canonical link to another page are left out of the page checks. Every page must stay below 2 MB of HTML and must not link to a redirect page or to `/mcp`. |
+| `linkChecker` | `false` | On | Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. A link to an exact `redirect` route rule passes here, the search check reports it, and the build stops with [`DOCS_REDIRECTS_BROKEN`](/docs/docs-site/diagnostics/docs_redirects_broken) when such a rule goes to no docs page or hides one. Set the app's own `linkChecker` options to change this. |
+| `seoAudit` | `"warn" \| "error" \| boolean` | `"warn"` | Checks every prerendered page as a site audit does. `"warn"` logs the problems, `"error"` or `true` stops the build with [`DOCS_SEO_FAILED`](/docs/docs-site/diagnostics/docs_seo_failed), and `false` turns the check off. Pages with `noindex` or a canonical link to another page are left out of the page checks. Every page must stay below 2 MB of HTML and must not link to a redirect page or to `/mcp`. |
 | `ogImage` | `false \| { component? }` | On | Share images, rendered with `nuxt-og-image` while the build prerenders. `component` names the app's own template in `components/OgImage/`, which gets `title`, `description`, `site`, `section`, `logo`, and `host`. `false` turns them off. |
 | `assistant` | `boolean` or `{ agent? }` | `false` | The [docs assistant](/docs/docs-site/assistant). `true` uses the Agent named `docs`. |
 | `comments` | `boolean` or `{ database?, dialect?, overlay? }` | On with `vite-hub/nuxt` | [Comments](/docs/docs-site/configure#comments) on every page. The object goes to the `comments` option of `vite-hub/nuxt`. `false` sets `comments: false` there. |
@@ -129,7 +129,7 @@ The module writes its output to the Nuxt build folder:
 | `.nuxt/docs/raw/` | The agent copy of each page, as `/raw` serves it. |
 | `.nuxt/docs/components.mjs` | The Markdown blocks that pages can use, and their files. |
 
-To read the manifest without Nuxt, for example in a test, call `createDocsManifest()`. Like the build, it lists the pages and `.navigation.yml` files through ViteHub Content, and it rejects with `DocsContentError` on the first invalid file:
+To read the manifest without Nuxt, for example in a test, call `createDocsManifest()`. Like the build, it lists the pages and `.navigation.yml` files through ViteHub Content, and it rejects with `DOCS_CONTENT_INVALID` on the first invalid file:
 
 ```ts [scripts/docs-pages.ts]
 import { createDocsManifest } from 'vite-hub/docs/server'

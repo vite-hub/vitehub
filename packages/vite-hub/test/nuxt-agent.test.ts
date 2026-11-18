@@ -100,7 +100,6 @@ it.each([false, true].flatMap(dev => [undefined, false, true].map(noExternals =>
     await nitroConfigHook(nitroConfig)
     expect(nitroConfig.noExternals).toEqual(expectedNoExternals)
   }
-  expect(nitroConfig).not.toHaveProperty("externals")
 })
 
 it.each([

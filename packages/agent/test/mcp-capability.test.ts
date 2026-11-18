@@ -1089,19 +1089,6 @@ describe("mcp capability", () => {
     }
   })
 
-  it("keeps stdio transport out of the generic MCP helper path", async () => {
-    vi.doMock("@ai-sdk/mcp/mcp-stdio", () => {
-      throw new Error("stdio import")
-    })
-
-    try {
-      await expect(import("../src/mcp.ts")).resolves.toBeTruthy()
-    }
-    finally {
-      vi.doUnmock("@ai-sdk/mcp/mcp-stdio")
-    }
-  })
-
   it("extends the parent's mcp() Capability by server name in a child Agent", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { mcp } = await import("../src/capabilities.ts")

@@ -77,6 +77,7 @@ async function navigate(path: string, layout = "docs", isHydrating = false, owns
     exports,
     require: (id: string) => {
       if (id === "vue") return vue
+      if (id === "#docs/components") return { pageBlocks: [] }
       if (id === "#docs/navigation") return navigation
       if (id === "#docs/shell") return { ownsApp, articleLayout: ownsApp ? "default" : "docs-article" }
       throw new Error(`Unexpected component import: ${id}`)

@@ -55,8 +55,7 @@ const host = detectHost() ?? "node";
 
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
-  // The deno host rejects Schedule.
-  vitehub: { host, schedule: host !== "deno" },
+  vitehub: { host, schedule: true },
 });
 ```
 :::
@@ -70,8 +69,7 @@ import { nitro } from "nitro/vite";
 const host = detectHost() ?? "node";
 
 export default defineConfig({
-  // The deno host rejects Schedule.
-  plugins: [vitehub({ host, schedule: host !== "deno" }), nitro()],
+  plugins: [vitehub({ host, schedule: true }), nitro()],
 });
 ```
 :::
@@ -84,8 +82,7 @@ import { defineConfig } from "vite";
 const host = detectHost() ?? "node";
 
 export default defineConfig({
-  // The deno host rejects Schedule.
-  plugins: [vitehub({ host, schedule: host !== "deno" })],
+  plugins: [vitehub({ host, schedule: true })],
 });
 ```
 :::

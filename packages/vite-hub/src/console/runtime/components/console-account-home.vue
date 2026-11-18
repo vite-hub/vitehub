@@ -9,6 +9,7 @@ import type { ConsoleProjectBuild } from "../client/project-link";
 import { accountAppStatusLabels, loadConsoleTeam } from "../client/account";
 import { accountProjectPath, canManageConsoleProjects, consoleProjectDisplayName, linkAccountProject, openAccountProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
+import ConsoleAccountRename from "./console-account-rename.vue";
 import { useConsoleToast } from "../client/toast";
 import ConsoleAccountSnippet from "./console-account-snippet.vue";
 import ConsoleAccountUnlink from "./console-account-unlink.vue";
@@ -49,6 +50,20 @@ function askUnlink(app: ConsoleAccountProject): void {
   unlinkOpen.value = true;
 }
 
+// The app whose Rename dialog is open.
+const renaming = shallowRef<ConsoleAccountProject>();
+const renameOpen = ref(false);
+
+function askRename(app: ConsoleAccountProject): void {
+  renaming.value = app;
+  renameOpen.value = true;
+}
+
+/** The name that an app reports, which the Console shows when the link has no label. */
+function reportedName(app: ConsoleAccountProject): string {
+  return projects.names.value[app.id] || consoleProjectHost(app);
+}
+
 /**
  * The `/_vitehub` address of an app. It comes back here, and the Console sends the browser to the app signed in, with
  * the page tools. Anyone of the team can share it: it holds no secret.
@@ -68,7 +83,7 @@ async function copySiteEntry(app: ConsoleAccountProject): Promise<void> {
 
 function appActions(app: ConsoleAccountProject): DropdownMenuItem[][] {
   const copy: DropdownMenuItem = { icon: "i-lucide-copy", label: "Copy the /_vitehub link", onSelect: () => void copySiteEntry(app) };
-  return [[copy], ...(manage.value ? [[{ icon: "i-lucide-unlink", label: "Unlink app", color: "error" as const, onSelect: () => askUnlink(app) }]] : [])];
+  return [[copy], ...(manage.value ? [[{ icon: "i-lucide-pencil", label: "Rename app", onSelect: () => askRename(app) }], [{ icon: "i-lucide-unlink", label: "Unlink app", color: "error" as const, onSelect: () => askUnlink(app) }]] : [])];
 }
 
 const url = ref("");
@@ -195,6 +210,7 @@ async function link(): Promise<void> {
         </li>
       </ul>
       <ConsoleAccountUnlink v-if="unlinking" v-model:open="unlinkOpen" :project-id="unlinking.id" :name="name(unlinking)" />
+      <ConsoleAccountRename v-if="renaming" v-model:open="renameOpen" :project-id="renaming.id" :label="renaming.label" :reported="reportedName(renaming)" />
     </section>
 
     <section v-if="!setupDone" aria-label="Setup steps">
