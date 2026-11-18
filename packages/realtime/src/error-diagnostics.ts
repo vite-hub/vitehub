@@ -104,6 +104,10 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
 
     // Config errors. The server throws them, because the code or the deployment must change.
+    REALTIME_BLOB_ETAG_MISSING: {
+      why: ({ pathname }: { pathname: string }) => `The Blob store returned no \`httpEtag\` for ${pathname}, so \`blobDocument()\` cannot save the file only if it is unchanged.`,
+      fix: "Pass a ViteHub Blob store, such as `blob` from `vite-hub/blob`, whose `head()` returns `httpEtag` on every driver. A store of your own must return `httpEtag` from `head()` and accept `ifMatch` in `put()`.",
+    },
     REALTIME_INVALID_PERSISTENCE: {
       why: ({ name, reason }: { name: "debounce" | "maxWait", reason: "below-debounce" | "not-milliseconds" }) => reason === "below-debounce"
         ? "Realtime `persistence.maxWait` must be at least `persistence.debounce`."
@@ -123,7 +127,7 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
             ? "The Realtime definition sets `access` to a value other than \"public\"."
             : reason === "not-authorize"
               ? "The Realtime definition sets `authorize` to a value that is not `true` or a function."
-              : "The Realtime definition sets `origins()` with `authorize: true` and no `identify()`. The ViteHub Auth session is a cookie, so ViteHub accepts it only from the app's own origin.",
+              : "The Realtime definition sets `origins()` with `authorize: true` and no `identify()`. Only the Auth trusted-origin policy can allow a different origin to use the ViteHub Auth session.",
       fix: ({ reason }: { reason: RealtimeInvalidAccessReason }) => reason === "auth"
         ? "Replace `auth: true` with `authorize: true`. With an `authorize()` callback, remove `auth` and return `false` from the callback when `user` is `null`."
         : reason === "origins-without-identify"

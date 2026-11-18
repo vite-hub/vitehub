@@ -11,16 +11,10 @@ Set up an app with ViteHub and check that it answers a request. Every later tuto
 
 ## Prerequisites
 
-- Node.js 22.22 or newer on 22.x, 24.11 or newer on 24.x, or 26 or newer. Node.js 23, Node.js 24 before 24.11, and Node.js 25 are not supported.
+- Node.js 24.15 or newer. Nuxt 5 does not install on Node.js 25, so with Nuxt use 24.15 or newer on 24.x, or 26 or newer.
 - pnpm. The examples use pnpm. Use pnpm 11.5 or newer for the Nuxt 5 nightly alias; older versions can hang when they resolve it.
 - For Nuxt: an app on Nuxt 5, which uses Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`.
 - For Nitro: a Nitro 3 app that adds `nitro()` in `vite.config.ts`.
-
-::details{summary="Why Node.js 22.22?"}
-ViteHub uses Nitro, which needs Node.js 22.22. A package installed alone, without `vite-hub`, can need less: Queue needs 22.19, and most others 22.18.
-
-On Node.js 22, features that open a local SQLite file (a `file:` Database and Comments) print one harmless `ExperimentalWarning` for `node:sqlite`. Node.js 24 does not print it.
-::
 
 ## Set up the app
 
@@ -46,11 +40,11 @@ Add the module to `nuxt.config.ts` and put its options under `vitehub`. Keep you
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
-  vitehub: { host: "node" },
+  vitehub: {},
 })
 ```
 
-`host` tells ViteHub where the app runs. `node`, a Node.js server, fits your computer. Other hosts are `cloudflare`, `vercel`, `netlify`, and `deno`.
+ViteHub detects the host when the build runs on Cloudflare Workers Builds, Vercel, Netlify, or Deno Deploy. Elsewhere, such as on your computer, it builds for Node. See [Choose a host](/docs/frameworks-hosts#choose-a-host).
 
 Keep Nuxt's `tsconfig.json`; the module adds the ViteHub types to it. The [Nuxt guide](/docs/frameworks-hosts/nuxt) has more options.
 :::
@@ -70,11 +64,11 @@ import { nitro } from "nitro/vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [vitehub({ host: "node" }), nitro()],
+  plugins: [vitehub(), nitro()],
 })
 ```
 
-`host` tells ViteHub where the app runs. `node`, a Node.js server, fits your computer. Other hosts are `cloudflare`, `vercel`, `netlify`, and `deno`.
+ViteHub detects the host when the build runs on Cloudflare Workers Builds, Vercel, Netlify, or Deno Deploy. Elsewhere, such as on your computer, it builds for Node. See [Choose a host](/docs/frameworks-hosts#choose-a-host).
 
 The tutorials use port 3000, so set the `dev` script in `package.json` to `vite --port 3000 --strictPort`. Add `vite-hub/tsconfig` to `extends` in your `tsconfig.json`, then write the types once:
 
@@ -131,11 +125,11 @@ import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [vitehub({ host: "node" })],
+  plugins: [vitehub()],
 })
 ```
 
-`host` tells ViteHub where the app runs. `node`, a Node.js server, fits your computer. Other hosts are `cloudflare`, `vercel`, `netlify`, and `deno`.
+ViteHub detects the host when the build runs on Cloudflare Workers Builds, Vercel, Netlify, or Deno Deploy. Elsewhere, such as on your computer, it builds for Node. See [Choose a host](/docs/frameworks-hosts#choose-a-host).
 
 Create `tsconfig.json`, or add `vite-hub/tsconfig` to `extends` in yours. This gives your editor the types of the features you turn on.
 

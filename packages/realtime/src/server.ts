@@ -640,7 +640,8 @@ async function identify(request: Request, event: H3Event, definitionName: string
   // headers on a WebSocket handshake, so a cross-site page still cannot make its Origin match.
   // `origins` lets other origins in for definitions that read a credential the page sends.
   const foreign = !!origin && origin !== forwardedRequestOrigin(request)
-  if (foreign && !(await definition.origins?.({ definition: definitionName, event, origin, request }))) {
+  const readsCallbackSession = typeof definition.authorize === "function" && !definition.identify && !!origin && (!foreign || !definition.origins)
+  if (foreign && !readsCallbackSession && !(await definition.origins?.({ definition: definitionName, event, origin, request }))) {
     throw new HTTPError({ status: 403, message: "Realtime requests must come from the application origin." })
   }
   if (definition.identify) {
@@ -648,12 +649,9 @@ async function identify(request: Request, event: H3Event, definitionName: string
     if (definition.authorize === true && !user) throw new HTTPError({ status: 401 })
     return user
   }
-  // An `authorize()` callback gets the Auth session user of a browser request from the app's own origin. A page on
-  // another origin that `origins` let in must send its own credential: its handshake carries the session cookie too.
-  // A request without `Origin`, such as one from server code, is signed out.
   // A Definition with `scope: "user"` reads the Auth session when the app has one, and needs none.
   const readsSession = typeof definition.authorize === "function"
-    ? !!origin && !foreign
+    ? readsCallbackSession
     : definition.document === false && definition.scope === "user"
   if (!readsSession) return null
   let auth
@@ -661,7 +659,7 @@ async function identify(request: Request, event: H3Event, definitionName: string
     auth = await assertAuthOrigin(request, event)
   }
   catch (error) {
-    if (isMissingAuth(error)) return null
+    if (!foreign && isMissingAuth(error)) return null
     throw new HTTPError({ status: 403 })
   }
   const session = await auth.api.getSession({ headers: request.headers })

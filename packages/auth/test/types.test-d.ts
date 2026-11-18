@@ -151,8 +151,6 @@ describe("types", () => {
     expectTypeOf(guarded).toEqualTypeOf<(input: typeof event) => Promise<string | Response>>()
     withAuth((_input: typeof event, { session }) => session)
 
-    // @ts-expect-error The old guard returned `Response | undefined` and let the protected action run after a missed check.
-    void authServer.authorizeRequest
     // @ts-expect-error A guard needs the protected handler.
     withAuthorization(true)
     // @ts-expect-error `authorize` is `true` or a callback. `false` does not mean "public".
@@ -185,15 +183,11 @@ describe("types", () => {
     void requireAuth()
     // @ts-expect-error `authorize` is `true` or a callback. `false` does not mean "public".
     void requireAuthorization(event, false)
-    // @ts-expect-error Auth route middleware and its grant reader are gone. Call `requireAuth(event)` in the handler.
-    void authServer.getAuthorization
   })
 
   it("types useAuth() with the app's Auth instance", () => {
     expectTypeOf(useAuth(requestEvent(new Request("https://app.example.com/me")))).toEqualTypeOf<RegisteredAuth>()
     expectTypeOf(useAuth(new Request("https://app.example.com/me"))).toEqualTypeOf<RegisteredAuth>()
-    // @ts-expect-error `useAuth(event)` replaces it.
-    void authServer.getAuthForRequest
   })
 
   it("exposes the authenticated Agent Invoker helper", () => {
@@ -313,8 +307,9 @@ describe("types", () => {
     // @ts-expect-error a preset comes from a preset function.
     defineAuth({ preset: { name: "custom" } })
 
-    // @ts-expect-error maxAge is seconds or a duration with a unit.
     stateless({ maxAge: "7 days" })
+    // @ts-expect-error maxAge is seconds or a duration with a unit.
+    stateless({ maxAge: "7" })
   })
 });
 

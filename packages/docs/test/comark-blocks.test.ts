@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 import { createSSRApp, h, type Component } from "vue"
@@ -17,7 +18,7 @@ vi.mock("node:module", async (importOriginal) => {
       const require = original.createRequire(...args)
       const resolve = require.resolve.bind(require)
       require.resolve = Object.assign((id: string) => legacy.enabled && id === "comark-ui/vue"
-        ? new URL("./fixtures/comark-ui-legacy.mjs", import.meta.url).pathname
+        ? fileURLToPath(new URL("./fixtures/comark-ui-legacy.mjs", import.meta.url))
         : resolve(id), require.resolve)
       return require
     },

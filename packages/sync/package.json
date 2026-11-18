@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/sync",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local-first synced tables: the browser reads and writes a local copy, and the server stays the authority for every row.",
   "keywords": [
     "local-first",
@@ -106,6 +106,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

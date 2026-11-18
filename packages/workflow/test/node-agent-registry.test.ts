@@ -13,6 +13,7 @@ import { resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegis
 import { hubWorkflow } from "../src/vite.ts"
 
 import type { WorkflowDefinitionRegistry } from "../src/types.ts"
+import { unwrap } from "./unwrap.ts"
 
 let root: string | undefined
 
@@ -80,8 +81,8 @@ it.each(["build", "serve"] as const)("puts discovered Agent Workflows in the Nod
 
   setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
   setWorkflowRuntimeRegistry(registry)
-  const started = await startWorkflow("helper", { agentIdentity: { name: "helper" }, prompt: "hello" })
-  expect(await getWorkflowRun("helper", started.id)).toMatchObject({ status: "queued" })
+  const started = await unwrap(startWorkflow("helper", { agentIdentity: { name: "helper" }, prompt: "hello" }))
+  expect(await unwrap(getWorkflowRun("helper", started.id))).toMatchObject({ status: "queued" })
 
   const turns: unknown[] = []
   Reflect.set(globalThis, "__vitehubAgentTurns", turns)
@@ -89,7 +90,7 @@ it.each(["build", "serve"] as const)("puts discovered Agent Workflows in the Nod
   await worker.tick()
   await worker.stop()
 
-  expect(await getWorkflowRun("helper", started.id)).toMatchObject({ status: "completed" })
+  expect(await unwrap(getWorkflowRun("helper", started.id))).toMatchObject({ status: "completed" })
   expect(turns).toEqual([{ agent: "helper", identity: "helper", prompt: "hello" }])
 })
 

@@ -16,7 +16,7 @@ offline and needs no model account or credentials.
 ## Before you start
 
 Complete [Installation](/docs/getting-started/installation), check
-`/api/health`, and continue in that app with Node.js 22.22 or newer and pnpm.
+`/api/health`, and continue in that app with Node.js 24.15 or newer and pnpm.
 
 ::run-tutorial{to="/learn/first-agent"}
 ::
@@ -39,7 +39,6 @@ Agent finishes inside the HTTP request. Keep your other features.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: "node",
     agent: true,
     workflow: false,
   },
@@ -56,7 +55,6 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       agent: true,
       workflow: false,
     }),
@@ -74,7 +72,6 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       agent: true,
       workflow: false,
     }),

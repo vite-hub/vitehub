@@ -70,4 +70,35 @@ describe("access-spellings", () => {
     const { after } = await migrate({ "server/realtime/open.ts": source, "server/api/config.ts": "export default { auth: true, public: true }\n" })
     expect(after).toEqual({})
   })
+
+  it("reports legacy rules whose effective access cannot be preserved", async () => {
+    const { after, run } = await migrate({
+      "server/mcp/tools/default.ts": "const options = { public: false }; export default defineMcpTool({ public: true, ...options, handler: () => 'ok' })",
+      "server/mcp/prompts/computed.ts": "const key = 'public'; export default { public: true, [key]: false, handler: () => 'ok' }",
+      "server/mcp/resources/duplicate.ts": "export default { public: true, public: false, uri: 'test:resource', handler: () => 'ok' }",
+      "server/mcp/tools/mixed.ts": "export default { public: false, access: 'public', handler: () => 'ok' }",
+      "server/realtime/computed.ts": "const key = 'authorize'; export default defineRealtime({ auth: true, [key]: () => true, document: false })",
+      "server/realtime/composed.ts": "const options = { auth: true }; export default { ...options, auth: false, document: false }",
+    })
+    expect(after).toEqual({})
+    expect(run.result.followUps.map(item => item.file)).toEqual([
+      "server/mcp/prompts/computed.ts",
+      "server/mcp/resources/duplicate.ts",
+      "server/mcp/tools/default.ts",
+      "server/mcp/tools/mixed.ts",
+      "server/realtime/composed.ts",
+      "server/realtime/computed.ts",
+    ])
+  })
+
+  it("migrates wrapped definition literals and nested Realtime files", async () => {
+    const { after } = await migrate({
+      "server/realtime/notes/presence.ts": "export default { ['auth']: true, document: false } satisfies RealtimeDefinition",
+      "server/mcp/tools/search.ts": "export default defineMcpTool({ public: true, handler: () => 'ok' } as McpToolDefinition)",
+    })
+    expect(after).toEqual({
+      "server/realtime/notes/presence.ts": 'export default { ["authorize"]: true, document: false } satisfies RealtimeDefinition',
+      "server/mcp/tools/search.ts": 'export default defineMcpTool({ access: "public", handler: () => \'ok\' } as McpToolDefinition)',
+    })
+  })
 })

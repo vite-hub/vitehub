@@ -1,6 +1,6 @@
 import { expectTypeOf, it } from "vitest"
 import { defineWorkflow } from "../src/definition.ts"
-import type { WorkflowProviderContext, WorkflowStep } from "../src/types.ts"
+import type { WorkflowProviderContext, WorkflowStep, WorkflowStepContext } from "../src/types.ts"
 
 // The shape that `.vitehub/workflow.d.ts` declares for `server/workflows/onboard-user/`.
 declare module "../src/types.ts" {
@@ -63,4 +63,8 @@ it("does not give Vercel native entries a step runner", () => {
       return context.payload.email
     },
   })
+})
+
+it("calls a step that reads the step context with its input only", () => {
+  expectTypeOf<WorkflowStep<(input: { repo: string }, context: WorkflowStepContext) => string>>().parameters.toEqualTypeOf<[input: { repo: string }]>()
 })

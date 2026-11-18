@@ -43,7 +43,6 @@ Use the version that matches ViteHub's `chat` package. `pnpm why chat` shows it.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     agent: true,
     workflow: false,
   },
@@ -60,7 +59,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       agent: true,
       workflow: false,
     }),
@@ -78,7 +76,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       agent: true,
       workflow: false,
     }),
@@ -230,7 +227,7 @@ export default defineConfig({
 :::
 ::
 
-This adds `GET /api/_vitehub/agents/<agent>/discord/gateway`. In production it needs `VITEHUB_DISCORD_GATEWAY_SECRET` and an `Authorization: Bearer <secret>` header. Each call opens the Gateway for 9 minutes (or `VITEHUB_DISCORD_GATEWAY_DURATION_MS`) and forwards each event to the webhook route `/api/_vitehub/agents/<agent>/webhooks/discord`.
+This adds `GET /_vitehub/agents/<agent>/discord/gateway`. In production it needs `VITEHUB_DISCORD_GATEWAY_SECRET` and an `Authorization: Bearer <secret>` header. Each call opens the Gateway for 9 minutes (or `VITEHUB_DISCORD_GATEWAY_DURATION_MS`) and forwards each event to the webhook route `/_vitehub/agents/<agent>/webhooks/discord`.
 
 ViteHub does not call this route. Call it on a timer that overlaps the listener time, and the host must let the function run that long. Many serverless plans stop it sooner, and we have no deployed test of this path. For an always-online bot, use the `node` host. There, `routes.discordGateway` adds no route, because the server process owns the listener.
 

@@ -63,6 +63,7 @@ export interface McpToolDefinition<TInput extends McpToolInput | undefined = Mcp
    * with `MCP_R0001`.
    */
   access?: "public"
+  public?: never
   /**
    * The OAuth scopes that a signed-in caller needs, such as `["lessons:write"]`. `tools/list` shows them in
    * `securitySchemes`. With `auth: true`, a caller without them does not see the tool and a call answers `403` with an
@@ -173,6 +174,7 @@ export interface McpPromptDefinition<TInput extends McpPromptInput | undefined =
   input?: TInput
   /** `"public"` lets anyone get the prompt without sign-in, on `mcp.publicRoute` or with `mcp.auth: "optional"`. Then `caller` is `undefined`. */
   access?: "public"
+  public?: never
   /**
    * Makes the messages. A string becomes one user message. An array is the messages. An object with `messages` is the
    * MCP prompt result.
@@ -234,6 +236,7 @@ interface McpResourceFields {
   _meta?: McpMeta
   /** `"public"` lets anyone read the resource without sign-in, on `mcp.publicRoute` or with `mcp.auth: "optional"`. Then `caller` is `undefined`. */
   access?: "public"
+  public?: never
   /** Reads the resource. A string is text, and a `Uint8Array` is sent as base64 `blob`. */
   handler: (uri: string, context: McpResourceContext) => McpResourceValue | Promise<McpResourceValue>
 }

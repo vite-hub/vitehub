@@ -6,6 +6,7 @@ import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
 import { bindingResolver } from "../shared/binding-resolver.ts"
+import { unwrapExpression } from "../shared/nuxt-config.ts"
 
 import type { File, Identifier, ObjectExpression, ObjectProperty } from "@babel/types"
 import type { Node } from "@vite-hub/internal/ast"
@@ -21,7 +22,7 @@ const defines = new Map<string, { kind: Kind, sources: readonly string[] }>([
 
 /** Files whose default export is a definition, also as a plain object. */
 const definitionFiles: ReadonlyArray<readonly [RegExp, Kind]> = [
-  [/(?:^|\/)server\/realtime\/[^/]+$/, "realtime"],
+  [/(?:^|\/)server\/realtime\/.+$/, "realtime"],
   [/(?:^|\/)server\/mcp\/(?:tools|prompts|resources)\/.+$/, "mcp"],
 ]
 
@@ -57,11 +58,20 @@ function defineOf(program: File, resolve: (node: Identifier) => Identifier | und
   }
 }
 
-function property(object: ObjectExpression, name: string): ObjectProperty | undefined {
-  for (const entry of object.properties) {
-    if (entry.type === "ObjectProperty" && keyName(entry.key, entry.computed) === name) return entry
+function propertyName(entry: ObjectExpression["properties"][number]): string | undefined {
+  return entry.type === "SpreadElement" ? undefined : keyName(entry.key, entry.computed)
+}
+
+function readRule(context: FileContext, object: ObjectExpression, legacy: "auth" | "public", current: "authorize" | "access") {
+  const rules = object.properties.filter(entry => propertyName(entry) === legacy)
+  const [rule] = rules
+  if (!rule) return
+  if (rules.length !== 1 || rule.type !== "ObjectProperty" || object.properties.some(entry => propertyName(entry) === undefined)
+    || (legacy === "public" && object.properties.some(entry => propertyName(entry) === current))) {
+    context.followUps.push({ file: context.file, line: line(rule), message: `Check which access rule this definition uses after its properties are combined. Replace \`${legacy}\` by hand with \`${current}\` without changing who can use it.` })
+    return
   }
-  return undefined
+  return rule
 }
 
 /** Removes one property and the comma that separates it from its neighbor. */
@@ -71,13 +81,13 @@ function remove(context: FileContext, object: ObjectExpression, entry: ObjectPro
   const previous = object.properties[index - 1]
   if (next) context.output.remove(start(entry), start(next))
   else if (previous) context.output.remove(end(previous), end(entry))
-  else context.output.remove(start(entry), end(entry))
+  else context.output.remove(start(entry), end(object) - 1)
   context.changed++
 }
 
 /** `auth: true` becomes `authorize: true`. Next to `authorize()`, `auth: true` needs a person: the callback now also runs signed out. */
 function rewriteRealtime(context: FileContext, object: ObjectExpression) {
-  const auth = property(object, "auth")
+  const auth = readRule(context, object, "auth", "authorize")
   if (!auth) return
   const value = auth.value
   if (value.type === "BooleanLiteral" && !value.value) {
@@ -85,25 +95,24 @@ function rewriteRealtime(context: FileContext, object: ObjectExpression) {
     remove(context, object, auth)
     return
   }
-  const authorize = property(object, "authorize") ?? object.properties.find(entry => entry.type === "ObjectMethod" && keyName(entry.key, entry.computed) === "authorize")
-  const spread = object.properties.some(entry => entry.type === "SpreadElement")
-  if (value.type !== "BooleanLiteral" || authorize || spread) {
+  const authorize = object.properties.some(entry => propertyName(entry) === "authorize")
+  if (value.type !== "BooleanLiteral" || authorize || object.properties.some(entry => propertyName(entry) === "access")) {
     context.followUps.push({
       file: context.file,
       line: line(auth),
       message: authorize
         ? "Realtime replaced `auth: true` with `authorize: true`, and an `authorize()` callback now also runs for signed-out callers, with `user: null`. Remove `auth`, and return `false` from `authorize()` when `user` is `null`. Until then, the server rejects this definition with `REALTIME_INVALID_ACCESS`."
-        : "Realtime replaced `auth: true` with `authorize: true`. Set `authorize: true` in place of `auth` in this definition, unless the object it spreads sets `authorize()`: then remove `auth` and return `false` from `authorize()` when `user` is `null`.",
+        : "Realtime replaced `auth: true` with `authorize: true`. Check the effective access and set one of `authorize: true`, `authorize()`, or `access: \"public\"` in place of `auth`.",
     })
     return
   }
-  context.output.overwrite(start(auth.key), end(auth.key), "authorize")
+  context.output.overwrite(start(auth.key), end(auth.key), auth.computed ? `${context.quote}authorize${context.quote}` : "authorize")
   context.changed++
 }
 
 /** `public: true` becomes `access: "public"`, and `public: false` goes away. */
 function rewriteMcp(context: FileContext, object: ObjectExpression) {
-  const flag = property(object, "public")
+  const flag = readRule(context, object, "public", "access")
   if (!flag) return
   if (flag.value.type === "BooleanLiteral") {
     if (flag.value.value) {
@@ -119,9 +128,10 @@ function rewriteMcp(context: FileContext, object: ObjectExpression) {
 }
 
 function rewrite(context: FileContext, kind: Kind, node: Node | null | undefined) {
-  if (node?.type !== "ObjectExpression") return
-  if (kind === "realtime") rewriteRealtime(context, node)
-  else rewriteMcp(context, node)
+  const object = node && unwrapExpression(node)
+  if (object?.type !== "ObjectExpression") return
+  if (kind === "realtime") rewriteRealtime(context, object)
+  else rewriteMcp(context, object)
 }
 
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {

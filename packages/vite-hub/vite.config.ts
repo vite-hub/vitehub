@@ -64,7 +64,6 @@ const runtimeEntries = [
   "src/_internal/runtime/request-policy.ts",
   "src/_internal/runtime/security.ts",
   "src/internal/agent-invocations-libsql.ts",
-  "src/internal/database-runtime-state.ts",
   "src/internal/disabled-upstash-driver.ts",
   "src/internal/disabled-redis-driver.ts",
   // `vite-hub/test/register` loads these files by path: the module hooks and the worker of the Vite server.
@@ -121,6 +120,7 @@ const runtimeEntries = [
   "src/console/runtime/client/schedule-run.ts",
   "src/console/runtime/client/schema-form.ts",
   "src/console/runtime/client/site-access.ts",
+  "src/console/runtime/client/stored.ts",
   "src/console/runtime/client/toast.ts",
   "src/console/runtime/client/workflow.ts",
   "src/console/runtime/auth-operations.ts",
@@ -605,6 +605,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/schedule-run"];
           delete exports["./console/runtime/client/schema-form"];
           delete exports["./console/runtime/client/site-access"];
+          delete exports["./console/runtime/client/stored"];
           delete exports["./console/runtime/client/toast"];
           delete exports["./console/runtime/client/workflow"];
           delete exports["./console/runtime/auth-operations"];

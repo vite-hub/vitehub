@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, and `access-spellings`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, and `access-spellings`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -96,6 +96,26 @@ The codemod reads imports from `vite-hub/queue`, `vite-hub/workflow`, and their 
 - star and namespace re-exports, whose consumers need manual changes,
 - object keys and strings with an old name, for example in a `vi.mock()` factory,
 - Workflow handles that a file exports, because other files call their methods.
+
+## result-tuples
+
+`startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, and `runSchedule()` return `[error, data]` now, as `sendQueue()` does. They threw before. The `start()`, `getRun()`, and `cancel()` methods of a `createWorkflow()` handle changed in the same way. `result-tuples` reads each call as a Result that throws the error, so the code keeps its behavior:
+
+```bash [Terminal]
+npx @vite-hub/codemods result-tuples [dir] [--dry-run]
+```
+
+```diff [server/api/onboard.post.ts]
+ export default defineEventHandler(async (event) => {
+   const body = await readBody<{ email: string }>(event)
+-  const run = await startWorkflow('onboard-user', body)
++  const [runError, run] = await startWorkflow('onboard-user', body)
++  if (runError) throw runError
+   return { id: run.id }
+ })
+```
+
+`return startWorkflow(...)` in an async function and a call in an `if` test move to a `const` before the statement. The codemod reads imports from `vite-hub/workflow`, `vite-hub/schedule`, and their `@vite-hub/*` forms. In Nuxt's `server/` directory, it also reads Workflow auto-imports. It only rewrites `runSchedule()` with a Schedule import, so it leaves app auto-imports with the same name alone. The report lists the calls that it cannot change, such as a call in a function that is not `async`, a call without `await`, or a handle that another file creates.
 
 ## one-entry-imports
 
@@ -288,6 +308,8 @@ npx @vite-hub/codemods access-spellings [dir] [--dry-run]
  })
 ```
 
-The codemod also changes default-export objects in `server/realtime/` and `server/mcp/`, and `defineRealtime()` without an import, as Nuxt auto-imports it. An MCP server keeps its own `mcp.auth` option.
+The codemod also changes default-export objects in `server/realtime/` and `server/mcp/`, including nested definitions and object literals with `satisfies` or `as`. It recognizes `defineRealtime()` without an import, as Nuxt auto-imports it. An MCP server keeps its own `mcp.auth` option. If a spread, computed key, or competing rule makes the effective access unclear, the codemod leaves the definition unchanged and reports it for manual migration.
 
 A Realtime definition with both `auth: true` and `authorize()` stays as it is, and the report lists it. `authorize()` now also runs for signed-out callers, with `user: null`, so remove `auth` and return `false` when `user` is `null`. Until then, the server rejects the definition with [`REALTIME_INVALID_ACCESS`](/docs/realtime/limits-and-errors#realtime_invalid_access).
+
+If your browser app and Realtime API use different origins, keep the app origin in the Auth Definition's `trustedOrigins`. With no custom `identify()` or `origins()`, `authorize()` uses the same Auth origin check as `authorize: true`. Do not add `origins()` to pass the Auth session: an origin admitted by that hook does not get the session user.

@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 In this guide, you render a project name field with ui-sdk parts and the kit styles. Then an Agent renames the project on the open page.
 
-You need Node.js 22.22 or newer and pnpm. For Nuxt, you need Nuxt 5, which is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. To try the parts without an install, open the [Playground](/playground?template=ui).
+You need Node.js 24.15 or newer and pnpm. For Nuxt, you need Node.js 24.15 or newer on 24.x, or 26 or newer, and Nuxt 5, which is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. To try the parts without an install, open the [Playground](/playground?template=ui).
 
 ::tutorial-step{title="Install"}
 ## Install
@@ -146,7 +146,7 @@ Turn them on in `nuxt.config.ts` or `vite.config.ts`. This Node build keeps its 
  export default defineNuxtConfig({
    modules: ["@ui-sdk/vue/nuxt", "@vite-hub/kit/nuxt", "vite-hub/nuxt"],
    css: ["~/assets/css/main.css"],
-+  vitehub: { host: "node", agent: true, realtime: { driver: "memory" } },
++  vitehub: { agent: true, realtime: { driver: "memory" } },
  })
 ```
 ::::
@@ -155,7 +155,7 @@ Turn them on in `nuxt.config.ts` or `vite.config.ts`. This Node build keeps its 
 ```diff
  export default defineConfig({
 -  plugins: [vue(), vitehub()],
-+  plugins: [vue(), vitehub({ host: "node", agent: true, realtime: { driver: "memory" } })],
++  plugins: [vue(), vitehub({ agent: true, realtime: { driver: "memory" } })],
  })
 ```
 ::::

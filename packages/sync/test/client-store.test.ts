@@ -392,7 +392,7 @@ describe("accounts", () => {
     expect(h.server.applied).toEqual([])
     expect(store.getState()).toMatchObject({ queued: 0, failures: [], status: "ready" })
     expect(write.state).toBe("queued")
-    const stored = await h.storage.readQueue("/api/_vitehub/sync/todos")
+    const stored = await h.storage.readQueue("/_vitehub/sync/todos")
     expect(stored.writes).toMatchObject([{ id: expect.any(String), account: accountOf("ada"), op: "insert" }])
   })
 
@@ -951,7 +951,7 @@ describe("coalescing and pending", () => {
     await Promise.all([first, second])
     expect(h.server.rows.get("a")).toMatchObject({ title: "newer", done: true })
     expect(store.get("a")).toMatchObject({ title: "newer", done: true })
-    const stored = await h.storage.readQueue("/api/_vitehub/sync/todos")
+    const stored = await h.storage.readQueue("/_vitehub/sync/todos")
     expect(stored.writes).toEqual([])
   })
 
@@ -1445,7 +1445,7 @@ describe("persistence and tabs", () => {
     first.store.destroy()
     expect(await write).toMatchObject({ title: "Milk", ownerId: "ada" })
     expect(h.server.rows.get(write.key)).toMatchObject({ title: "Milk", ownerId: "ada" })
-    expect((await h.storage.readQueue("/api/_vitehub/sync/todos")).writes).toEqual([])
+    expect((await h.storage.readQueue("/_vitehub/sync/todos")).writes).toEqual([])
   })
 
   it("keeps sending the queue of a destroyed store until it is empty, as after a navigation while offline", async () => {
@@ -1460,7 +1460,7 @@ describe("persistence and tabs", () => {
     // The backoff timer of the failed push fires.
     browser.fire()
     expect(await write).toMatchObject({ title: "Milk", ownerId: "ada" })
-    expect((await h.storage.readQueue("/api/_vitehub/sync/todos")).writes).toEqual([])
+    expect((await h.storage.readQueue("/_vitehub/sync/todos")).writes).toEqual([])
     const requests = h.server.requests.length
     expect(browser.fire()).toEqual([])
     await new Promise(resolve => setTimeout(resolve, 5))

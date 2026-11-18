@@ -185,7 +185,7 @@ interface RealtimeDefinitionIdentity {
   identify?: (context: RealtimeRequestContext) => RealtimeUser | null | undefined | Promise<RealtimeUser | null | undefined>
   /**
    * Let a page on another origin connect, such as a script that sites load from the app. Return `true` to accept
-   * `origin`. Without it, only the app's own origin connects. The browser sends cookies with a cross-site handshake
+   * `origin`. Without it, only the app's own origin or an origin trusted by Auth connects. The browser sends cookies with a cross-site handshake
    * too, so `identify` and `authorize` must then trust only what the page sends on purpose, such as a ticket in
    * `params`, never the session cookie. `authorize: true` without `identify` rejects it: the Auth session is a cookie.
    */

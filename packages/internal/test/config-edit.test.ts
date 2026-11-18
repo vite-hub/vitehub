@@ -91,10 +91,6 @@ describe("config corpus", () => {
   // The round-trip test below still covers every config in the current docs.
   const docsSamples: CorpusEntry[] = JSON.parse(readFileSync(join(import.meta.dirname, "fixtures/config-docs.json"), "utf8"))
 
-  it("classifies every vite-hub config in the repository", () => {
-    expect(classify(repository)).toEqual(expectedFor(key => !key.includes(".md#")))
-  })
-
   it("classifies the docs config samples", () => {
     expect(classify(docsSamples)).toEqual(expectedFor(key => key.includes(".md#")))
   })

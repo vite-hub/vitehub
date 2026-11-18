@@ -1,6 +1,10 @@
+import { resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+
 import { describe, expect, it } from "vitest"
 
 import { agentInvocationsDurability, agentStateDurability } from "../src/durability.ts"
+import { resolveDefaultAgentInvocationsLocation } from "../src/invocations/default-core.ts"
 
 import type { Durability, DurabilityContext } from "@vite-hub/runtime/durability"
 
@@ -24,6 +28,23 @@ describe("agentInvocationsDurability", () => {
     expect(agentInvocationsDurability({ store: "file" }, context())).toMatchObject([{ store: "sqlite", scope: "host", reason: expect.stringContaining(".vitehub/data/agent-invocations.sqlite") }])
     expect(agentInvocationsDurability({ store: "file" }, context({ VITEHUB_AGENT_INVOCATIONS_DATABASE_URL: "libsql://journal.turso.io" }))).toMatchObject([{ scope: "shared" }])
     expect(agentInvocationsDurability({ store: "file", url: "remote" }, context())).toMatchObject([{ scope: "shared" }])
+  })
+
+  it("reports the file that the journal opens next to a file Agent State", async () => {
+    const stateUrl = "file:.vitehub/agent-state.db"
+    const cases: { env: Record<string, string>, file: string }[] = [
+      { env: {}, file: ".vitehub/agent-invocations.sqlite" },
+      { env: { VITEHUB_AGENT_STATE_URL: "file:///srv/data/state.db" }, file: "/srv/data/agent-invocations.sqlite" },
+      { env: { VITEHUB_AGENT_STATE_URL: "libsql://state.turso.io" }, file: ".vitehub/data/agent-invocations.sqlite" },
+    ]
+    for (const { env, file } of cases) {
+      const [report] = agentInvocationsDurability({ store: "file", stateUrl }, context(env))
+      const opened = await resolveDefaultAgentInvocationsLocation({ env, projectRoot: process.cwd(), stateUrl })
+      expect(report).toMatchObject({ store: "sqlite", scope: "host", reason: `The SQLite file ${file} on this host.` })
+      expect(fileURLToPath(opened.url)).toBe(resolve(process.cwd(), file))
+    }
+    expect(agentInvocationsDurability({ store: "file", stateUrl: "file::memory:" }, context())).toMatchObject([{ reason: expect.stringContaining(".vitehub/data/agent-invocations.sqlite") }])
+    expect(agentInvocationsDurability({ store: "file", stateUrl }, context({ VITEHUB_AGENT_INVOCATIONS_DATABASE_URL: "file:/var/journal.sqlite" }))).toMatchObject([{ reason: "The SQLite file /var/journal.sqlite on this host." }])
   })
 
   it("follows the Database of the database store", () => {

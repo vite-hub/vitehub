@@ -21,7 +21,7 @@ icon: i-lucide-users
 
 You will pin a comment, see a second browser's cursor, and edit a Content heading, then publish it from the Console.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite app with Vue and TypeScript. Run commands from its root. With a local SQLite Database and a memory room driver, you need no provider account.
+You need Node.js 24.15 or newer, pnpm, and a Vite app with Vue and TypeScript. Run commands from its root. With a local SQLite Database and a memory room driver, you need no provider account.
 
 ::warning
 This example lets anyone comment and edit, so keep it on your computer. [Decide who can comment](/docs/comments/configure#decide-who-can-comment) before you deploy.
@@ -43,7 +43,6 @@ The Database stores threads. Realtime shows who is on each page, with rooms in t
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     database: true,
     realtime: { driver: 'memory' },
   },
@@ -62,7 +61,6 @@ export default defineConfig({
   plugins: [
     vue(),
     vitehub({
-      host: 'node',
       database: true,
       realtime: { driver: 'memory' },
     }),
@@ -82,7 +80,6 @@ export default defineConfig({
   plugins: [
     vue(),
     vitehub({
-      host: 'node',
       database: true,
       realtime: { driver: 'memory' },
     }),

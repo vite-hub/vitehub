@@ -89,7 +89,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: {
       server: {
         codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
@@ -109,7 +108,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
@@ -128,7 +126,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
@@ -505,7 +502,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: {
       server: {
         labeller: { labels: env({ default: 'invoice,receipt,none' }) },
@@ -525,7 +521,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         labeller: { labels: env({ default: 'invoice,receipt,none' }) },
@@ -544,7 +539,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         labeller: { labels: env({ default: 'invoice,receipt,none' }) },

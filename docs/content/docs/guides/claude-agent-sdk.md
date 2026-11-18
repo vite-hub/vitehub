@@ -17,7 +17,7 @@ The SDK runs the Claude Code binary as a local process. A ViteHub Agent with `cl
 
 ## Set up the Claude Agent SDK
 
-Start from the app of [Installation](/docs/getting-started/installation). You need Node.js 22.22 or newer on Linux or macOS, pnpm, and an Anthropic API key (see the [Agent SDK quickstart](https://code.claude.com/docs/en/agent-sdk/quickstart)).
+Start from the app of [Installation](/docs/getting-started/installation). You need Node.js 24.15 or newer on Linux or macOS, pnpm, and an Anthropic API key (see the [Agent SDK quickstart](https://code.claude.com/docs/en/agent-sdk/quickstart)).
 
 ### Install the packages
 
@@ -35,7 +35,6 @@ The SDK installs one native Claude Code package for your OS and CPU. ViteHub use
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     agent: true,
     workflow: false,
   },
@@ -51,7 +50,6 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     agent: true,
     workflow: false,
   }), nitro()],
@@ -66,7 +64,6 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     agent: true,
     workflow: false,
   })],
@@ -220,7 +217,7 @@ Every run is an Invocation. Read it from code, the CLI, or the Console:
 
 | Host | Support |
 | --- | --- |
-| Self-hosted Node.js on Linux or macOS, arm64 or x64 | Supported. Use `host: 'node'`. |
+| Self-hosted Node.js on Linux or macOS, arm64 or x64 | Supported. ViteHub builds for Node when it detects no other host. |
 | `vite dev` on Linux or macOS | Supported. |
 | Cloudflare Workers | Not supported. A Worker build with a provider Driver fails with `AGENT_B0019`. In dev, the Invocation fails with `AGENT_R0928`. |
 | Deno | Not supported. |
