@@ -9310,7 +9310,7 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
       releaseRun()
       await vi.waitFor(async () => {
-        const completedRun = await getWorkflowRun("support-agent", "github:delivery-workflow")
+        const [, completedRun] = await getWorkflowRun("support-agent", "github:delivery-workflow")
         expect(completedRun).toMatchObject({
           result: "accepted github delivery",
           status: "completed",
@@ -16673,7 +16673,7 @@ describe("server helpers", () => {
       }
       const sideEffect = vi.fn(async () => "completed")
       // SAFETY: The test Agent fixture uses the normalized internal representation expected by the Workflow runner.
-      await expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect)).rejects.toThrow("Workflow provider operation failed")
+      await expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect)).rejects.toThrow("Workflow provider failed during create.")
       expect(sideEffect).not.toHaveBeenCalled()
       expect(await state.queueDepth(`${ownershipKey}:queue`)).toBe(0)
       expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(1)
@@ -16684,7 +16684,7 @@ describe("server helpers", () => {
       // SAFETY: The test Agent fixture uses the normalized internal representation expected by the Workflow runner.
       const recoveredAttempt = expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect))
       if (persistentOutage) {
-        await recoveredAttempt.rejects.toThrow("Workflow provider operation failed")
+        await recoveredAttempt.rejects.toThrow("Workflow provider failed during create.")
       } else {
         await recoveredAttempt.resolves.toBeUndefined()
       }
@@ -17438,7 +17438,7 @@ describe("server helpers", () => {
             | { message?: { settlementError?: string; settlementStatus?: string } }
             | null
           expect(failedPending?.message).toMatchObject({
-            settlementError: "Workflow provider operation failed.",
+            settlementError: expect.stringContaining("Workflow provider failed during create."),
             settlementStatus: "failed",
           })
           const sideEffect = vi.fn(async () => "must not run")
@@ -17612,7 +17612,7 @@ describe("server helpers", () => {
         | { message?: { settlementError?: string; settlementStatus?: string } }
         | null
       expect(pending?.message).toMatchObject({
-        settlementError: "Workflow provider operation failed.",
+        settlementError: expect.stringContaining("Workflow provider failed during create."),
         settlementStatus: "failed",
       })
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -18507,10 +18507,10 @@ describe("server helpers", () => {
       expect(successor?.events).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            error: "Workflow provider operation failed.",
+            error: expect.stringContaining("Workflow provider failed during create."),
             type: "invocation.failed",
           }),
-          expect.objectContaining({ error: "Workflow provider operation failed.", type: "failed" }),
+          expect.objectContaining({ error: expect.stringContaining("Workflow provider failed during create."), type: "failed" }),
         ]),
       )
       expect(errorFallbackText).toHaveBeenCalledOnce()
@@ -18945,7 +18945,7 @@ describe("server helpers", () => {
           },
           waitUntil: (task) => waitUntilTasks.push(task),
         }),
-      ).rejects.toThrow("Workflow provider operation failed")
+      ).rejects.toThrow("Workflow provider failed during create.")
 
       expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined, { initiatorUserId: "123", messageId: "91108" })
       await expect(

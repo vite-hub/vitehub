@@ -124,6 +124,7 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
   const supported = candidates.map(codemod => codemod.name)
   const warnings = await projectWarnings(cwd)
   const found = await detectCodemods(cwd, candidates)
+  const initialDetections = new Map(found.map(({ codemod, detection }) => [codemod, detection]))
   const steps: MigrationStep[] = []
   if (!found.length) {
     // A plain Vite or Node app has no nuxt.config. Still name a nuxt.config that does not parse, and a folder that is no app.
@@ -141,7 +142,11 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
     }
     // Messages name files in the scratch copy. Show the project paths instead.
     const unscratch = (text: string) => text.replaceAll(scratch, cwd)
-    for (const { codemod, detection } of found) {
+    for (const codemod of candidates) {
+      const detection = codemod.detectAfterEdits && touched.size
+        ? await codemod.detect({ cwd: scratch, dependencyRoot: cwd })
+        : initialDetections.get(codemod)
+      if (!detection) continue
       try {
         const planned = await codemod.run({ cwd: scratch, dependencyRoot: cwd })
         const result: CodemodResult = {
@@ -157,7 +162,7 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
           await applyEdit(scratch, edit)
           touched.add(edit.path)
         }
-        steps.push({ codemod, detection, result })
+        steps.push({ codemod, detection: { reason: unscratch(detection.reason) }, result })
       }
       catch (error) {
         if (!isCodemodError(error)) throw error
