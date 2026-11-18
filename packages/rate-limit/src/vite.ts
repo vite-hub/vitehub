@@ -20,7 +20,7 @@ import { createRateLimitCatalogDiscovery } from "./discovery.ts"
 import { inspectRateLimitDefinitions } from "./inspect.ts"
 import { writeRateLimitManifest } from "./internal/manifest.ts"
 import { resolveKVRateLimitDriver } from "./internal/kv-provider.ts"
-import { assertCloudflareRateLimitPolicies, createCloudflareRateLimitBindings } from "./internal/cloudflare-bindings.ts"
+import { assertCloudflareRateLimitPolicies, createCloudflareRateLimitBindings, usesCloudflareBinding } from "./internal/cloudflare-bindings.ts"
 
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
@@ -61,12 +61,16 @@ interface KVVitePlugin {
   api?: { getConfig?: () => { kv: false | { store: { driver: string } } } }
 }
 
-function effectiveDriver(driver: ResolvedRateLimitDriver, config: ResolvedConfig): ResolvedRateLimitDriver {
-  if (driver !== "kv") return driver
+/** The driver of the default KV store, or `undefined` when the app has no KV. */
+function kvStoreDriver(config: ResolvedConfig): string | undefined {
   // SAFETY: The plugin name identifies KV, which owns driver selection and this configuration API.
   const kvPlugin = config.plugins?.find(plugin => plugin.name === "@vite-hub/kv/vite") as KVVitePlugin | undefined
   const kv = kvPlugin?.api?.getConfig?.().kv
-  return resolveKVRateLimitDriver(kv ? kv.store.driver : undefined)
+  return kv ? kv.store.driver : undefined
+}
+
+function effectiveDriver(driver: ResolvedRateLimitDriver, config: ResolvedConfig): ResolvedRateLimitDriver {
+  return driver === "kv" ? resolveKVRateLimitDriver(kvStoreDriver(config)) : driver
 }
 
 function mergeNitroConfig(
@@ -97,7 +101,23 @@ function mergeNitroConfig(
   return composeNitroCloudflareProviderOutput(providerOutput, baseNitro, value)
 }
 
-function renderRuntimeInstaller(runtimeConfig: RateLimitRuntimeConfig, kvImport: string): string {
+/**
+ * `kvWindows`: on Cloudflare, a Rate Limit uses a window that the binding does not support, so it counts in KV.
+ */
+function renderRuntimeInstaller(runtimeConfig: RateLimitRuntimeConfig, kvImport: string, kvWindows: boolean): string {
+  if (runtimeConfig.driver === "cloudflare" && kvWindows) {
+    return [
+      "import { definePlugin } from 'nitro'",
+      `import { setRateLimitRuntimeConfig } from ${JSON.stringify(runtimeModule)}`,
+      `import { getKVStoreDriver, kv } from ${JSON.stringify(kvImport)}`,
+      "",
+      `const config = ${JSON.stringify(runtimeConfig)}`,
+      "export default definePlugin(() => {",
+      "  setRateLimitRuntimeConfig(config, { driver: () => getKVStoreDriver(), storage: kv, store: 'default' })",
+      "})",
+      "",
+    ].join("\n")
+  }
   if (runtimeConfig.driver !== "kv") {
     return [
       "import { definePlugin } from 'nitro'",
@@ -180,7 +200,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
   const refreshDeclarations = async (): Promise<void> => {
     if (!projectRoot || !resolved) return
     collectDeclarations()
-    if (checkCloudflarePolicies) assertCloudflareRateLimitPolicies(declarations)
+    if (checkCloudflarePolicies) assertCloudflareRateLimitPolicies(declarations, kvStoreDriver(resolved))
     await writeRateLimitManifest(projectRoot, declarations, effectiveDriver(driver, resolved))
   }
 
@@ -188,11 +208,14 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
   const assertBuildDriver = (): void => {
     if (!resolved || resolved.command !== "build") return
     const effective = effectiveDriver(driver, resolved)
+    if (effective === "cloudflare") {
+      assertCloudflareRateLimitPolicies(declarations, kvStoreDriver(resolved))
+      return
+    }
     if (effective !== "memory") return
     if (driver === "kv" && !(rateLimit as InternalRateLimitOptions).memoryFallback) {
-      const kvPlugin = resolved.plugins.find(plugin => plugin.name === "@vite-hub/kv/vite") as KVVitePlugin | undefined
-      const kv = kvPlugin?.api?.getConfig?.().kv
-      const store = kv ? `the default KV store uses ${kv.store.driver}, which has no shared atomic increment` : "the app has no KV store"
+      const kv = kvStoreDriver(resolved)
+      const store = kv ? `the default KV store uses ${kv}, which has no shared atomic increment` : "the app has no KV store"
       throw rateLimitErrorDiagnostics.RATE_LIMIT_KV_STORE_UNSUPPORTED({ message: `[vitehub] rateLimit.driver is "kv", but ${store}. Each server process would count in its own memory.` })
     }
     const strict = declarations.find(declaration => normalizeRateLimitPolicy(declaration.policy).enforcement === "strict")
@@ -282,7 +305,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       cloudflareBindings = nitroCloudflare && driver === "cloudflare"
       checkCloudflarePolicies = config.command === "serve" && buildTargetsCloudflare(config, rateLimit, configuredNitro)
       collectDeclarations()
-      if (checkCloudflarePolicies) assertCloudflareRateLimitPolicies(declarations)
+      if (checkCloudflarePolicies) assertCloudflareRateLimitPolicies(declarations, kvStoreDriver(config))
       ;(config as { nitro?: unknown }).nitro = mergeNitroConfig(
         config,
         configuredNitro,
@@ -297,7 +320,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       // `vite dev` runs one process, so memory counts are exact there.
       const memoryFallback = driver === "kv" && ((rateLimit as InternalRateLimitOptions).memoryFallback === true || config.command === "serve")
       const runtimeConfig: RateLimitRuntimeConfig = memoryFallback ? { memoryFallback, driver } : { driver }
-      await writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig, kvImport))
+      await writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig, kvImport, !declarations.every(usesCloudflareBinding)))
       // KV rereads Database's resolved definitions at buildStart; avoid warning before that choice is final.
       if (driver !== "kv") {
         assertBuildDriver()

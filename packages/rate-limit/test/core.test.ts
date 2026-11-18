@@ -398,6 +398,39 @@ describe("Rate Limit core", () => {
     await expect(limiter.peek({ key: "user" })).resolves.toMatchObject({ resetAt: 8.64e15, status: "known" })
   })
 
+  it("gives back one request of the current window in memory", async () => {
+    let now = 60_001
+    const limiter = createRateLimiter({ driver: memoryRateLimitDriver({ now: () => now }), limit: 2, window: "1m" })
+
+    await expect(limiter.refund({ key: "user" })).resolves.toEqual({ status: "refunded" })
+    await limiter.consume({ key: "user" })
+    await limiter.consume({ key: "user" })
+    await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: false })
+    await expect(limiter.refund({ key: "user" })).resolves.toEqual({ status: "refunded" })
+    await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true, remaining: 0, used: 2 })
+    // A refund in a new window has no request to give back.
+    now = 120_001
+    await limiter.refund({ key: "user" })
+    await expect(limiter.peek({ key: "user" })).resolves.toMatchObject({ used: 0 })
+  })
+
+  it("reports refund as unsupported for a driver without refund()", async () => {
+    const driver = memoryRateLimitDriver()
+    Object.assign(driver, { name: "custom", refund: undefined })
+    const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
+    await expect(limiter.refund({ key: "user" })).resolves.toEqual({ reason: "The \"custom\" Rate Limit driver cannot give back a request.", status: "unsupported" })
+    await expect(limiter.refund({ key: "" })).rejects.toMatchObject({ code: "RATE_LIMIT_R0038" })
+  })
+
+  it("rejects malformed custom refund outcomes and returns driver errors", async () => {
+    const driver = memoryRateLimitDriver()
+    Object.assign(driver, { refund: () => [undefined, 1] })
+    await expect(createRateLimiter({ driver, limit: 1, window: "1m" }).refund({ key: "user" })).rejects.toMatchObject({ code: "RATE_LIMIT_REFUND_RESULT_INVALID" })
+    const cause = new Error("offline")
+    Object.assign(driver, { refund: () => [cause, undefined] })
+    await expect(createRateLimiter({ driver, limit: 1, window: "1m" }).refund({ key: "user" })).resolves.toEqual({ cause, status: "unavailable" })
+  })
+
   it.each([undefined, null, [], Symbol("options")])("classifies malformed limiter options (%s)", (options) => {
     expect(() => createRateLimiter(options as never)).toThrow(expect.objectContaining({ code: "RATE_LIMIT_R0029" }))
   })

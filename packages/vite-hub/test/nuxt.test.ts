@@ -4348,7 +4348,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       ...names("vite-hub/env", "checkServiceToken", "requireServiceToken", "useServerEnv", "verifyWebhook"),
       ...names("vite-hub/kv", "kv"),
       ...names("vite-hub/queue", "defineQueue", "deferQueue", "useQueue", "sendQueue"),
-      ...names("vite-hub/rate-limit", "checkRateLimit", "peekRateLimit", "requireRateLimit", "resetRateLimit"),
+      ...names("vite-hub/rate-limit", "checkRateLimit", "peekRateLimit", "refundRateLimit", "requireRateLimit", "resetRateLimit"),
       ...names("vite-hub/schedule", "cancelSchedule", "getSchedule", "listSchedules", "startSchedule"),
     ])
   })

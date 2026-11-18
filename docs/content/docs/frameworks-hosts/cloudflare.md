@@ -230,7 +230,7 @@ export default defineConfig({
 })
 ```
 
-Cloudflare enforcement is best-effort, with 10-second or 60-second fixed windows. The build rejects `enforcement: 'strict'` and other periods rather than weaken a policy silently. Inspection reports per-location counters, unknown rejected-attempt behavior, and `availability: 'never'` for all quota metadata. The binding only allows or rejects.
+Cloudflare enforcement is best-effort, with 10-second or 60-second fixed windows. The build rejects `enforcement: 'strict'` on these windows rather than weaken a policy silently. A Rate Limit with another window counts in the default KV store, which needs a shared atomic `increment`, such as Upstash. See [Windows longer than one minute](/docs/rate-limit/hosts#windows-longer-than-one-minute). Inspection reports per-location counters, unknown rejected-attempt behavior, and `availability: 'never'` for all quota metadata. The binding only allows or rejects.
 
 The binding is request-scoped. If it is missing at runtime, the handle's `failure` policy decides whether to deny or allow the request. Rate Limiting bindings do not use Cloudflare KV and need no provisioning.
 

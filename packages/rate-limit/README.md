@@ -105,7 +105,7 @@ An allowed request continues. An exhausted budget throws an H3 `HTTPError` with 
 
 Local Vite development uses the process-local memory driver. `driver: "kv"` counts in the default KV store of `@vite-hub/kv` with one atomic `increment` for each request. The Nitro plugin asks KV at boot which driver the store uses: with `redis`, `database`, or `upstash`, every server process shares the counts. An explicit `driver: "kv"` on another driver, such as `fs-lite`, fails the build with `RATE_LIMIT_KV_STORE_UNSUPPORTED`; `vite dev` counts in memory. With ViteHub, a `node` build selects `kv` when KV is on, and `memory` otherwise; when ViteHub selected `kv` and the store cannot share counts, it counts in memory and prints a warning. A build that counts declared Rate Limits in memory prints a warning, and fails with `RATE_LIMIT_MEMORY_STRICT_UNSUPPORTED` for a Rate Limit with `enforcement: "strict"`. A Cloudflare Nitro preset selects Cloudflare Rate Limiting, and every deployed Worker and environment needs a unique namespace. ViteHub has no native Rate Limit driver for Vercel, Netlify, or Deno. Automatic driver selection fails for an unknown production host instead of falling back to unsafe per-instance memory. Select memory explicitly only for a known single-process deployment; otherwise supply a direct production driver. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before choosing a deployment target.
 
-Cloudflare enforcement is best-effort, location-scoped, and limited to `10s` and `1m` windows. It does not report portable remaining, reset, or retry metadata. A policy that requests strict enforcement or another window fails before deployment, and `vite dev` fails the same way when the build targets Cloudflare, although the dev server counts in memory. The [Cloudflare host guide](https://vitehub.dev/docs/frameworks-hosts/cloudflare#rate-limiting-bindings) covers generated bindings and deployment verification.
+Cloudflare enforcement is best-effort, location-scoped, and limited to `10s` and `1m` windows. It does not report portable remaining, reset, or retry metadata. A Rate Limit with another window counts in the default KV store, which needs a shared atomic `increment`, such as `kv: { driver: "upstash" }`; without one, the build fails with `RATE_LIMIT_R0016`. A `10s` or `1m` policy that requests strict enforcement fails with `RATE_LIMIT_R0015`. `vite dev` fails the same way when the build targets Cloudflare, although the dev server counts in memory. The [Cloudflare host guide](https://vitehub.dev/docs/frameworks-hosts/cloudflare#rate-limiting-bindings) covers generated bindings and deployment verification.
 
 ## Supply a direct driver
 
@@ -117,15 +117,17 @@ Drivers return a `Result`: `[undefined, result]` after consuming the counter, an
 
 The limiter exposes its resolved `policy` and the driver's declared `capabilities`, including enforcement, counter scope, rejected-attempt behavior, and supported windows. Inspect them when deciding whether a driver fits a deployment.
 
-## Read or reset a counter
+## Read, refund, or reset a counter
 
-`limiter.peek({ key })` reads the counter of a key without consuming a token. `limiter.reset({ key })` deletes the counter. A driver supports them through optional `peek(input)` and `reset(input)` methods. Like `consume()`, `peek()` returns `[undefined, value]` or `[error, undefined]`. The `reset()` method returns `[undefined, undefined]` or `[error, undefined]`. When the driver omits a method, the result has `status: "unsupported"` and a `reason`.
+`limiter.peek({ key })` reads the counter of a key without consuming a token. `limiter.refund({ key })` gives back one request in the current window, for example when the work that the request paid for failed. Refund only a request that was allowed. `limiter.reset({ key })` deletes the counter. A driver supports them through optional `peek(input)`, `refund(input)`, and `reset(input)` methods. Like `consume()`, `peek()` returns `[undefined, value]` or `[error, undefined]`. The `refund()` and `reset()` methods return `[undefined, undefined]` or `[error, undefined]`. When the driver omits a method, the result has `status: "unsupported"` and a `reason`.
 
-| Driver     | `peek()`                                                                  | `reset()`             |
-| ---------- | ------------------------------------------------------------------------- | --------------------- |
-| memory     | `used`, `remaining`, and `resetAt` in this process. `used: 0` when no counter exists. | Deletes the counter.  |
-| kv         | `used`, `remaining`, and `resetAt` of the current window, shared by every process. | Deletes the counter of the current window. |
-| cloudflare | `unsupported`. The binding exposes only `limit()`, which consumes a token. | `unsupported`.        |
+| Driver     | `peek()`                                                                  | `refund()` | `reset()`             |
+| ---------- | ------------------------------------------------------------------------- | ---------- | --------------------- |
+| memory     | `used`, `remaining`, and `resetAt` in this process. `used: 0` when no counter exists. | Removes one request from the counter. | Deletes the counter.  |
+| kv         | `used`, `remaining`, and `resetAt` of the current window, shared by every process. | Adds one to a second counter that `consume()` subtracts at the limit. | Deletes the counters of the current window. |
+| cloudflare | `unsupported`. The binding exposes only `limit()`, which consumes a token. | `unsupported`. | `unsupported`.        |
+
+For a managed guard, `refundRateLimit(event, id, options)` takes the same arguments as `checkRateLimit()` and returns `[error, result]`. The build discovers it like the other guards.
 
 For managed guards, `peekRateLimit(id, key)` and `resetRateLimit(id, key)` use the counters of `requireRateLimit()` in the current runtime. `vitehub rate-limit peek <id> <key>` and `vitehub rate-limit reset <id> <key>` (which asks on a terminal, or needs `--yes`) run the `rate-limit.peek` and `rate-limit.reset` operations of the running app, on the dev server or with `--url` on a deployed app that enables the Console. The Console **Rate Limits** page runs the same operations.
 
