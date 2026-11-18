@@ -1,6 +1,6 @@
-import { onEachFrame } from "./frames.ts";
 import { isMotionOff } from "./layer.ts";
 import { prefersReducedMotion } from "./reduced-motion.ts";
+import { onEachFrame } from "./spring.ts";
 
 // The numbers of the prototype's drop zone: a dot every 14px, 0.9px round at rest and 16% strong. A dot within 110px of
 // the file grows by up to 1.9px, gets up to 70% stronger, and leans up to 3px toward it. The pull follows the file at

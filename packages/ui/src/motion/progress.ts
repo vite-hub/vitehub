@@ -1,7 +1,7 @@
-import { cubicBezier, easeOut, onEachFrame, playTween } from "./frames.ts";
+import { cubicBezier, easeOut, playTween } from "./helpers/tween.ts";
 import { isMotionOff } from "./layer.ts";
 import { prefersReducedMotion } from "./reduced-motion.ts";
-import { createSpring, springs } from "./spring.ts";
+import { createSpring, onEachFrame, springs } from "./spring.ts";
 
 const svgNs = "http://www.w3.org/2000/svg";
 // The numbers of the prototype's upload: a 2px rail, a 4px bar, and a head 4px thicker over 10px at its end. The wave of

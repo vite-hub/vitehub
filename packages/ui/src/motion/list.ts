@@ -1,4 +1,4 @@
-import { cubicBezier, playTween } from "./frames.ts";
+import { cubicBezier, playTween } from "./helpers/tween.ts";
 import { isMotionOff } from "./layer.ts";
 import { prefersReducedMotion } from "./reduced-motion.ts";
 import { writeMotionStyle } from "./registry.ts";

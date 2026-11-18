@@ -1,4 +1,4 @@
-import { createSpring } from "../spring.ts";
+import { onEachFrame } from "../spring.ts";
 
 /** An easing curve: progress from 0 to 1 in, eased progress out. */
 export type Ease = (progress: number) => number;
@@ -37,30 +37,38 @@ export interface Tween {
 }
 
 /**
- * Moves a value from `from` to `to` on the shared frame loop of the motion layer, so ¼× slows it and it stops with the
- * other springs. `onFrame` gets the value on each frame, and `onDone` runs once at the end. The spring of the loop
- * tweens 0 to 1 with a cubic ease-out, so each frame first turns that value back into linear time.
+ * Moves a value from `from` to `to` on the shared frame loop of the motion layer, so ¼× slows it. `onFrame` gets the
+ * value on each frame, also `from` while the delay runs, and `onDone` runs once at the end.
  */
 export function tween(from: number, to: number, options: TweenOptions, onFrame: (value: number) => void, onDone?: () => void): Tween {
-  const delay = options.delay ?? 0;
-  const total = delay + options.duration;
+  const delay = (options.delay ?? 0) / 1000;
+  const duration = options.duration / 1000;
   const ease = options.ease ?? linear;
-  let done = false;
-  const spring = createSpring(0, (eased) => {
-    if (done) return;
-    const time = (1 - Math.cbrt(1 - Math.min(1, eased))) * total;
-    const progress = Math.min(1, Math.max(0, (time - delay) / options.duration));
+  let elapsed = 0;
+  const stop = onEachFrame((seconds) => {
+    elapsed += seconds;
+    const progress = duration > 0 ? Math.min(1, Math.max(0, (elapsed - delay) / duration)) : elapsed >= delay ? 1 : 0;
     onFrame(from + (to - from) * ease(progress));
-    if (eased >= 1) {
-      done = true;
-      onDone?.();
-    }
+    if (progress < 1) return true;
+    onDone?.();
+    return false;
   });
-  spring.to(1, { tween: total / 1000 });
+  return { stop };
+}
+
+/**
+ * Plays a timeline of `duration` seconds after `delay` seconds. `draw` gets the progress from 0 to 1 after `ease`. `done`
+ * resolves with `true` when it ends, or with `false` when `stop()` ended it first.
+ */
+export function playTween(duration: number, draw: (progress: number) => void, ease: Ease = linear, delay = 0): { done: Promise<boolean>; stop: () => void } {
+  let finish: (completed: boolean) => void = () => {};
+  const done = new Promise<boolean>(resolve => (finish = resolve));
+  const timeline = tween(0, 1, { duration: duration * 1000, delay: delay * 1000, ease }, draw, () => finish(true));
   return {
-    stop() {
-      done = true;
-      spring.stop();
+    done,
+    stop: () => {
+      timeline.stop();
+      finish(false);
     },
   };
 }

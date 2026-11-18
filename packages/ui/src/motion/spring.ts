@@ -52,7 +52,14 @@ interface SpringState {
   frame: SpringFrame;
 }
 
+/**
+ * Called on each frame with the motion time since the last frame, in seconds. It is at most 32ms, divided by the slow
+ * factor, so ¼× also slows it. Return `false` to stop.
+ */
+export type FrameStep = (seconds: number) => boolean | void;
+
 const live = new Set<SpringState>();
+const steps = new Set<FrameStep>();
 let frameId = 0;
 let lastTime = 0;
 let slowFactor = 1;
@@ -69,7 +76,7 @@ export function getMotionSlowFactor(): number {
   return slowFactor;
 }
 
-// One frame of every live spring. The time step is at most 32ms, so a tab that comes back does not throw a spring far
+// One frame of every live spring and every frame step. The time step is at most 32ms, so a tab that comes back does not throw a spring far
 // past its target. Each step runs in 6 parts, as the prototype does, so stiff springs stay stable.
 function frame(time: number): void {
   const step = Math.min(0.032, lastTime ? (time - lastTime) / 1000 : 0.016) / slowFactor;
@@ -97,7 +104,10 @@ function frame(time: number): void {
     }
     spring.frame(spring.value, spring.velocity);
   }
-  if (live.size) frameId = requestAnimationFrame(frame);
+  for (const run of steps) {
+    if (run(step) === false) steps.delete(run);
+  }
+  if (live.size || steps.size) frameId = requestAnimationFrame(frame);
   else {
     frameId = 0;
     lastTime = 0;
@@ -114,6 +124,18 @@ function settle(spring: SpringState): void {
 function start(spring: SpringState): void {
   live.add(spring);
   if (!frameId) frameId = requestAnimationFrame(frame);
+}
+
+/**
+ * Runs `step` on each frame of the loop of the springs until it returns `false` or the returned function stops it. It
+ * moves what is not a spring: a tween, the wave of a progress bar, the dots of a drop field, the fill of a hold.
+ */
+export function onEachFrame(step: FrameStep): () => void {
+  steps.add(step);
+  if (!frameId) frameId = requestAnimationFrame(frame);
+  return () => {
+    steps.delete(step);
+  };
 }
 
 /** Settles every spring at its target at once. The motion layer calls it when reduced motion turns on. */

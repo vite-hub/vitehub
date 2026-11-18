@@ -1,9 +1,9 @@
 import { announce } from "../internal/announce.ts";
-import { cubicBezier, onEachFrame, playTween } from "./frames.ts";
+import { cubicBezier, playTween } from "./helpers/tween.ts";
 import { isMotionOff } from "./layer.ts";
 import { prefersReducedMotion } from "./reduced-motion.ts";
 import { writeMotionStyle } from "./registry.ts";
-import { createSpring, getMotionSlowFactor } from "./spring.ts";
+import { createSpring, getMotionSlowFactor, onEachFrame } from "./spring.ts";
 
 const svgNs = "http://www.w3.org/2000/svg";
 // The numbers of the prototype's hold to delete. The fill takes 1.1s to fill and 0.35s to empty, and the lid opens by
