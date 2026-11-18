@@ -167,7 +167,7 @@ Vercel, Netlify, and Deno do not supply a scheduled timestamp to these entries. 
 
 ## Run schedules in the server process
 
-The generated Process Runtime runs each Static Schedule Definition on its cron inside the Node.js process. It records Schedule Runs in the default KV store configured by `hubKV()`. Use it on long-lived servers, one or more:
+The generated Process Runtime runs each Static Schedule Definition on its cron inside the Node.js process. It records Schedule Runs in the default KV store configured by `hubKV()`. Use it on long-lived servers, one or more. `vitehub({ host: "node", schedule: true })` turns it on for you. With `hubSchedule()` alone, set `runtime`:
 
 ```ts
 import { hubKV } from "@vite-hub/kv/vite";

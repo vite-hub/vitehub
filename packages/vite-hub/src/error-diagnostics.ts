@@ -167,7 +167,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0137: {
       ...dynamicError,
-      fix: "Set `schedule: { runtime: { driver: \"process\" }, providerOutput: \"auto\" }` in `vitehub()` to run Schedules in the server process, or `schedule: { providerOutput: false }` to start them yourself.",
+      fix: "Remove `schedule.providerOutput` from `vitehub()` to run Schedules in the server process, or set `schedule: { providerOutput: false }` to start them yourself.",
     },
     VITE_HUB_R0141: {
       ...dynamicError,

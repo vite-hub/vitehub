@@ -934,14 +934,21 @@ function agentDrainMs(agent: ViteHubOptions["agent"]): number {
   return typeof drainMs === "number" && Number.isFinite(drainMs) && drainMs >= 0 ? drainMs : 0
 }
 
-/** A Node server has no host cron. Its Schedules run only in the Process Runtime or when the app wakes them itself. */
+/**
+ * A Node server has no host cron, so its Schedules run in the Process Runtime unless the app sets `runtime` or chooses
+ * another `providerOutput` itself.
+ */
+function scheduleOptionsForHost(host: DeploymentPlan["host"], schedule: true | ScheduleOptions): ScheduleOptions {
+  const options = schedule === true ? {} : schedule
+  if (host !== "node" || options.runtime !== undefined || (options.providerOutput ?? "auto") !== "auto") return options
+  return { ...options, runtime: { driver: "process" } }
+}
+
+/** `nitro` and `standalone` hand the wake to the host cron, which a Node server does not have. */
 function assertNodeScheduleWake(schedule: ViteHubOptions["schedule"]): void {
-  if (!schedule) return
-  if (schedule !== true) {
-    if (schedule.providerOutput === false) return
-    if (schedule.runtime !== undefined && schedule.providerOutput !== "nitro" && schedule.providerOutput !== "standalone") return
-  }
-  throw viteHubErrorDiagnostics.VITE_HUB_R0137({ message: "[vitehub] The \"node\" host has no cron, so this build would never run its Schedules. Set schedule: { runtime: { driver: \"process\" }, providerOutput: \"auto\" } to run them in the server process, or schedule: { providerOutput: false } to wake them yourself." })
+  if (!schedule || schedule === true) return
+  if (schedule.providerOutput !== "nitro" && schedule.providerOutput !== "standalone") return
+  throw viteHubErrorDiagnostics.VITE_HUB_R0137({ message: `[vitehub] schedule.providerOutput "${schedule.providerOutput}" writes host cron output, but the "node" host has no cron, so this build would never run its Schedules. Remove providerOutput to run them in the server process, or set providerOutput: false to wake them yourself.` })
 }
 
 /**
@@ -1874,10 +1881,11 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(requireOptionalOwner(ownerModules.scheduleVite, "schedule").hubSchedule({
       // Vercel cron jobs and Deno.cron call entries outside the Nitro server.
       ...(plan.host === "vercel" || plan.host === "deno" ? { providerOutput: "standalone" as const } : {}),
-      ...(options.schedule === true ? {} : options.schedule),
+      ...scheduleOptionsForHost(plan.host, options.schedule),
       databaseImport: "vite-hub/database",
       importBase: "vite-hub/schedule",
       providerImportAliases,
+      requireKVPluginForProcessStores: true,
     } as ScheduleOptions))
   }
   if (workflowEnabled) {
