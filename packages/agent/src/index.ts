@@ -336,6 +336,7 @@ export type {
   AgentChannelDeliveryEventInput,
   AgentChannelDeliveryEventType,
   AgentChannelDeliveryInspection,
+  AgentChannelDeliveryRejection,
   AgentChannelDeliveryStatus,
   AgentCallSettingsInstrumentation,
   AgentCallSettingsInstrumentationContext,

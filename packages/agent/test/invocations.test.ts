@@ -13,6 +13,7 @@ import * as invocationModule from "../src/invocations.ts"
 import { applyAgentInvocationStoreUpdate, bindAgentInvocations, byteBoundedObservations, observationLimits } from "../src/invocations.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
+import { defaultAgentInvocationsMetadataContent } from "../src/invocations/default-core.ts"
 
 import type { AgentInvocationListOptions } from "../src/invocations.ts"
 import type { AgentInvocationStore } from "../src/server.ts"
@@ -2049,7 +2050,7 @@ describe("Agent Invocations", () => {
     })
   })
 
-  it.each(["input.messages", "input.prompt"])("preserves message structure when %s text exceeds the capture budget", async (key) => {
+  it.each(["input.messages", "input.prompt"])("keeps newer %s messages whole when an older message exceeds the string limit", async (key) => {
     const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime(`large-${key}`))
     if (!journal) throw new Error("Expected the invocation journal.")
@@ -2063,14 +2064,58 @@ describe("Agent Invocations", () => {
 
     const observation = (await invocations.getByRunId(`large-${key}`))?.observations.find(entry => entry.name === "agent.input")
     expect(observation?.attributes?.[key]).toEqual([
-      { id: "first", parts: [{ text: expect.stringMatching(/^x+$/), type: "text" }], role: "user" },
-      { content: "[truncated]", role: "assistant", id: "second" },
+      { id: "first", parts: [{ text: expect.stringMatching(/^x{65536}$/), type: "text" }], role: "user" },
+      { content: "second message", role: "assistant", id: "second" },
       { parts: [{ text: "", type: "text" }], role: "user", id: "third" },
     ])
-    expect(JSON.stringify(observation?.attributes?.[key]).length).toBeLessThan(66_000)
+    expect(observation?.attributes).not.toHaveProperty(`${key}.omitted`)
     expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
     expect(messages[0]?.parts?.[0]?.text).toHaveLength(100_000)
-    expect(messages[1]?.content).toBe("second message")
+  })
+
+  describe("Channel message history", () => {
+    const header = (index: number) => `[Tue 18 Nov 2026 10:${String(index).padStart(2, "0")} CET · msg 17634600${index} · from Ada Lovelace (id 29:1ada)]`
+    const teamsMessage = (index: number, text: string, mentions = 0) => ({
+      createdAt: `2026-11-18T09:${String(index).padStart(2, "0")}:00.000Z`,
+      id: `msg-${index}`,
+      metadata: {
+        chat: {
+          edited: false,
+          mentions: Array.from({ length: mentions }, (_, mention) => ({ aadObjectId: `aad-${mention}`, email: `person${mention}@quiver.dk`, id: `29:${mention}`, kind: "person", name: `Person ${mention}`, offset: mention, role: "member", team: "forecasting", tenant: "quiver", userPrincipalName: `person${mention}@quiver.dk` })),
+          threadId: "teams:19:forecasting@thread.tacv2",
+        },
+      },
+      parts: [
+        { data: { modelText: header(index) }, id: "message-header", type: "data-chat-message-header" },
+        { id: "text-0", text, type: "text" },
+      ],
+      role: index % 3 === 0 ? "assistant" : "user",
+    })
+
+    it.each([
+      ["item count", (index: number) => teamsMessage(index, `Message ${index}: why does b11b lead time change?`, 32)],
+      ["string length", (index: number) => teamsMessage(index, `Message ${index}: ${"forecast ".repeat(1_000)}`)],
+    ])("keeps the newest messages and the whole trigger under %s pressure", async (_pressure, create) => {
+      const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore(), metadataContent: defaultAgentInvocationsMetadataContent })
+      const messages = Array.from({ length: 50 }, (_, index) => create(index + 1))
+      messages[49]!.role = "user"
+      const agent = defineAgent({ driver: { run: () => "done" }, invocations, runtime: false })
+      const runId = `teams-history-${_pressure}`
+      await runAgentWithContext(agent, { ...runtime(runId), run: { messageId: "msg-50", runId } }, { messages: messages as never })
+
+      const start = (await invocations.getByRunId(runId))?.observations.find(entry => entry.name === "agent.invocation.start")
+      const kept = start?.attributes?.["input.messages"]
+      if (!Array.isArray(kept)) throw new Error("Expected the input messages.")
+      const omitted = start?.attributes?.["input.messages.omitted"]
+      expect(omitted).toBeGreaterThan(0)
+      expect(start?.attributes?.["input.messages.total"]).toBe(50)
+      expect(kept).toHaveLength(50 - Number(omitted))
+      expect(kept.map(message => message.id)).toEqual(messages.slice(Number(omitted)).map(message => message.id))
+      expect(kept.at(-1)).toMatchObject({ id: "msg-50", parts: [{ data: { modelText: header(50) } }, { text: messages[49]!.parts[1]!.text }] })
+      expect(kept[0]).toMatchObject({ parts: [{ data: { modelText: header(Number(omitted) + 1) } }, { type: "text" }] })
+      expect(start?.attributes?.["input.trigger.message"]).toEqual(messages[49])
+      expect(start?.attributes?.["vitehub.observation.truncatedAttributes"]).toEqual(["input.messages"])
+    })
   })
 
   it.each(["input.messages", "input.prompt"])("retains short %s messages unchanged", async (key) => {

@@ -481,7 +481,9 @@ Non-streaming chat replies answer the triggering message as a native reply when 
 
 Set `messages.allowSilentReply: true` together with `messages.loading` to give the Agent a `skip_reply` tool. A call finishes the Invocation without the final reply, removes the loading message, and records a skipped `chat.final-reply` delivery effect with the reason. Error replies and messages that the Agent already sent are still delivered.
 
-Chat Channels ignore messages from bot authors before `messages.filter` and record them as rejected deliveries. Set `messages.allowBots: true` on an Agent or a built-in Channel to admit other bots. The Agent's own messages are always ignored.
+Each chat message has a delivery record with a status. The webhook answer is `acknowledged`, because Chat handles the message after it. A message that starts no work ends `rejected` with a `reason`: `not-addressed`, `bot-author`, `unauthorized`, `empty`, `filtered`, an `edit-*` reason, or `unhandled`. `vitehub channels deliveries <agent> <channel>` lists them with the Invocation that each one started or steered. A follow-up that tries to steer an inline run adds an `agent.input.steer` observation to that run, with `input.steer.outcome` (`accepted`, `deferred`, or `failed`) and `input.steer.reason`.
+
+Chat Channels ignore messages from bot authors before `messages.filter` and record them as rejected deliveries with the reason `bot-author`. Set `messages.allowBots: true` on an Agent or a built-in Channel to admit other bots. The Agent's own messages are always ignored.
 
 With inline `messages.concurrency: "steer"`, only the same invoker steers the active Agent Invocation. Set `messages.steerFromParticipants: true` to let an admitted message from another human in the same thread steer it too. The Invocation keeps the first invoker. Durable Workflow delivery still queues messages from other invokers separately.
 

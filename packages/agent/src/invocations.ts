@@ -39,6 +39,12 @@ const MAX_USAGE_RECORD_CALLS = 4_096
 const MAX_OBSERVATION_DEPTH = 4
 const MAX_AGENT_CONFIGURATION_DEPTH = 64
 const MAX_OBSERVATION_VALUE_ITEMS = 256
+// A message history and the trigger message have their own budget, apart from the other attributes.
+const MAX_INPUT_MESSAGES = 256
+const MAX_INPUT_MESSAGE_ITEMS = 16_384
+// A history message, its parts, a part's data, and a data field such as the `modelText` of a Channel message header.
+const MAX_INPUT_MESSAGE_DEPTH = 8
+const INPUT_MESSAGES_STRING_LENGTH_FACTOR = 4
 const MAX_AGENT_CONFIGURATION_ITEMS = 32 * 1024
 const MAX_AGENT_CONFIGURATION_COLLECTION_ITEMS = 8 * 1024
 export { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE } from "./internal/invocation-observation-stream.ts"
@@ -760,8 +766,9 @@ function normalizedTimestamp(value: Date | string): string {
 }
 
 interface ObservationBudget {
-  deferredText?: Array<() => void>
   collectionItems?: number
+  /** Set when the item or string budget, not a per-value limit, cut a value. */
+  exhausted?: boolean
   items: number
   maxDepth?: number
   stringLength: number
@@ -913,6 +920,7 @@ function boundedObservationValue(
   }
   if (budget.items <= 0) {
     budget.truncated = true
+    budget.exhausted = true
     return "[truncated]"
   }
   budget.items--
@@ -921,12 +929,14 @@ function boundedObservationValue(
     return null
   }
   if (typeof value === "string") {
-    if (budget.stringLength <= 0) {
+    if (budget.stringLength <= 0 && value.length) {
       budget.truncated = true
+      budget.exhausted = true
       return "[truncated]"
     }
     const length = Math.min(value.length, maxStringLength, budget.stringLength)
     if (length < value.length) budget.truncated = true
+    if (budget.stringLength < Math.min(value.length, maxStringLength)) budget.exhausted = true
     budget.stringLength -= length
     return value.slice(0, length)
   }
@@ -948,6 +958,7 @@ function boundedObservationValue(
   if (isArray(value)) {
     const length = Math.min(value.length, collectionItems, budget.items)
     if (length < value.length) budget.truncated = true
+    if (budget.items < Math.min(value.length, collectionItems)) budget.exhausted = true
     return Array.from({ length }, (_, index) => {
       if (!Object.hasOwn(value, index)) {
         budget.truncated = true
@@ -1089,24 +1100,44 @@ function boundedObservationValue(
     .filter(([, child]) => child !== undefined)
   const length = Math.min(entries.length, collectionItems, budget.items)
   if (length < entries.length) budget.truncated = true
-  const result: Record<string, unknown> = Object.fromEntries(entries
+  if (budget.items < Math.min(entries.length, collectionItems)) budget.exhausted = true
+  return Object.fromEntries(entries
     .slice(0, length)
-    .flatMap(([key, child]) => {
+    .map(([key, child]) => {
       if (key.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
-      // Reserve message structure across the array before allocating text bodies.
-      if (budget.deferredText && (key === "text" || key === "content") && typeof child === "string" && budget.items > 0) {
-        budget.items--
-        budget.deferredText.push(() => {
-          const length = Math.min(child.length, maxStringLength, budget.stringLength)
-          if (length < child.length) budget.truncated = true
-          budget.stringLength -= length
-          result[key] = length || !child.length ? child.slice(0, length) : "[truncated]"
-        })
-        return [[key, ""]]
-      }
-      return [[boundedString(key), boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns)]]
+      return [boundedString(key), boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns)]
     }))
-  return result
+}
+
+/**
+ * Bounds a message history with its own budget, newest message first, so the messages next to the trigger survive.
+ * Each message is kept whole or left out together with every earlier message. The newest message is always kept,
+ * shortened when it alone fills the budget. `omitted` counts the earlier messages that were left out.
+ */
+function boundedInputMessages(
+  messages: readonly unknown[],
+  maxStringLength: number,
+  builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
+): { messages: unknown[], omitted: number, truncated: boolean } {
+  const budget: ObservationBudget = {
+    items: MAX_INPUT_MESSAGE_ITEMS,
+    maxDepth: MAX_INPUT_MESSAGE_DEPTH,
+    stringLength: maxStringLength * INPUT_MESSAGES_STRING_LENGTH_FACTOR,
+    truncated: false,
+  }
+  const kept: unknown[] = []
+  for (let index = messages.length - 1; index >= 0 && kept.length < MAX_INPUT_MESSAGES; index--) {
+    const trial: ObservationBudget = { ...budget, exhausted: false, truncated: false }
+    const message = Object.hasOwn(messages, index) ? messages[index] : undefined
+    const bounded = boundedObservationValue(message, trial, 1, maxStringLength, builtIns)
+    if (trial.exhausted && kept.length) break
+    kept.push(bounded)
+    budget.items = trial.items
+    budget.stringLength = trial.stringLength
+    budget.truncated ||= trial.truncated
+  }
+  const omitted = messages.length - kept.length
+  return { messages: kept.reverse(), omitted, truncated: budget.truncated || omitted > 0 }
 }
 
 function boundedObservationPayload(
@@ -1132,14 +1163,17 @@ function boundedObservationAttributeValue(
   maxStringLength: number,
   builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
 ): unknown {
-  if ((key === "input.messages" || key === "input.prompt") && Array.isArray(value)) {
-    const messageBudget: ObservationBudget & { deferredText: Array<() => void> } = { ...budget, deferredText: [] }
-    const messages = boundedObservationValue(value, messageBudget, 0, maxStringLength, builtIns)
-    for (const writeText of messageBudget.deferredText) writeText()
-    budget.items = messageBudget.items
-    budget.stringLength = messageBudget.stringLength
-    budget.truncated ||= messageBudget.truncated
-    return messages
+  if (key === "input.trigger.message") {
+    // The message that started the run is stored whole, apart from the history and the other attributes.
+    const triggerBudget: ObservationBudget = {
+      items: MAX_INPUT_MESSAGE_ITEMS,
+      maxDepth: MAX_INPUT_MESSAGE_DEPTH,
+      stringLength: maxStringLength,
+      truncated: false,
+    }
+    const message = boundedObservationValue(value, triggerBudget, 0, maxStringLength, builtIns)
+    budget.truncated ||= triggerBudget.truncated
+    return message
   }
   if (key === "message.content") {
     // Message chunks can fill the capture limit without consuming identity metadata space.
@@ -1267,25 +1301,24 @@ function boundedObservation(
     ? {
         ...Object.fromEntries(ordinaryAttributes
           .slice(0, ordinaryAttributeLimit)
-        .flatMap(([key, value]) => {
+        .flatMap(([key, value]): Array<[string, unknown]> => {
+          // Run IDs compose channel thread IDs. Keep them whole so the flag reports content loss, not identity length.
+          const maxStringLength = key === "vitehub.agent.configuration" || key === "agent.run.id" || isTraceContentAttributeKey(key) ? limits.maxStringLength : MAX_METADATA_STRING_LENGTH
+          if ((key === "input.messages" || key === "input.prompt") && Array.isArray(value)) {
+            const history = boundedInputMessages(value, maxStringLength, builtIns)
+            // Input histories often lose only hidden part data. Name that apart from message text.
+            if (history.truncated) truncatedAttributes.add(sameVisibleMessageText(value, history.messages) ? `${key}.parts` : key)
+            return [
+              [key, history.messages],
+              ...history.omitted ? [[`${key}.omitted`, history.omitted], [`${key}.total`, value.length]] satisfies Array<[string, number]> : [],
+            ]
+          }
           const truncatedBefore = budget.truncated
           budget.truncated = key.length > MAX_METADATA_STRING_LENGTH
-          const bounded = value === undefined ? undefined : boundedObservationAttributeValue(
-            key,
-            value,
-            budget,
-            // Run IDs compose channel thread IDs. Keep them whole so the flag reports content loss, not identity length.
-            key === "vitehub.agent.configuration" || key === "agent.run.id" || isTraceContentAttributeKey(key) ? limits.maxStringLength : MAX_METADATA_STRING_LENGTH,
-            builtIns,
-          )
-          if (budget.truncated) {
-            // Input histories often lose only hidden part data. Name that apart from message text.
-            const hiddenPartsOnly = (key === "input.messages" || key === "input.prompt")
-              && sameVisibleMessageText(value, bounded)
-            truncatedAttributes.add(hiddenPartsOnly ? `${key}.parts` : boundedString(key)!)
-          }
+          const bounded = value === undefined ? undefined : boundedObservationAttributeValue(key, value, budget, maxStringLength, builtIns)
+          if (budget.truncated) truncatedAttributes.add(boundedString(key)!)
           budget.truncated ||= truncatedBefore
-          return value === undefined ? [] : [[boundedString(key), bounded]]
+          return value === undefined ? [] : [[boundedString(key)!, bounded]]
         })),
         ...canonicalAttributes,
       }

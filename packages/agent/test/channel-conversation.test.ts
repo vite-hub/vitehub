@@ -272,6 +272,7 @@ const operations = {
   "channels.threads": agentChannelOperations[1],
   "channels.conversation": agentChannelOperations[2],
   "conversations.export": agentChannelOperations[3],
+  "channels.deliveries": agentChannelOperations[5],
 }
 type Operations = typeof operations
 type OperationInput<Name extends keyof Operations> = Parameters<Operations[Name]["run"]>[0]
@@ -301,7 +302,24 @@ describe("Channel conversation operations", () => {
       ["channels.conversation", "channels", "read"],
       ["conversations.export", "channels", "read"],
       ["channels.status", "channels", "read"],
+      ["channels.deliveries", "channels", "read"],
     ])
+  })
+
+  it("lists each delivery with the Invocation it started, or why it started none", async () => {
+    const chat = await fixture({ rejection: "filter" })
+    await chat.say(1, "ignored by the filter")
+    const rejected = await operation("channels.deliveries")({ agent: "support", channel: "telegram" })
+    expect(rejected.deliveries).toEqual([expect.objectContaining({ reason: "filtered", sourceId: "1", status: "rejected" })])
+    expect(rejected.deliveries[0]).not.toHaveProperty("invocationId")
+
+    const answered = await fixture()
+    await answered.say(2, "hello")
+    const [delivery] = (await operation("channels.deliveries")({ agent: "support", channel: "telegram" })).deliveries
+    expect(delivery).toMatchObject({ invocationId: expect.stringMatching(/^sha256_/), sourceId: "2", status: "completed" })
+    expect(await answered.invocationStore.get(delivery!.invocationId!)).toMatchObject({ status: "completed" })
+    await expect(operation("channels.deliveries", { conversations: "participant", surface: "agent" })({ agent: "support", channel: "telegram" }))
+      .rejects.toMatchObject({ code: "AGENT_CHANNELS_FORBIDDEN" })
   })
 
   it("lists the Channels with the provider and whether ViteHub keeps their transcripts", async () => {

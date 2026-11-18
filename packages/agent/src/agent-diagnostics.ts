@@ -4142,13 +4142,14 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Export without media, or read the conversation page by page with `vitehub channels conversation`.",
     },
     AGENT_CHANNELS_FORBIDDEN: {
-      why: ({ problem }: { problem: "conversations" | "identity" | "participant" | "status" }) => ({
+      why: ({ problem }: { problem: "conversations" | "deliveries" | "identity" | "participant" | "status" }) => ({
         conversations: "An Agent can read Channel conversations only when its operations() capability sets `conversations`.",
+        deliveries: "An Agent can read Channel deliveries only when its operations() capability sets `conversations: \"all\"`.",
         identity: "The Actor has no identity that can be matched to the people of this thread.",
         participant: "The Actor is not a participant of this thread.",
         status: "An Agent can read Channel status only when its operations() capability sets `conversations: \"all\"`.",
       })[problem],
-      fix: "Let the Agent read the threads that it takes part in with `operations({ conversations: \"participant\" })`, or every thread and the Channel status with `operations({ conversations: \"all\" })`.",
+      fix: "Let the Agent read the threads that it takes part in with `operations({ conversations: \"participant\" })`, or every thread, the Channel status, and the deliveries with `operations({ conversations: \"all\" })`.",
     },
     AGENT_CHANNELS_HOST_UNAVAILABLE: {
       why: ({ detail, read }: { detail?: string, read: "admission" | "durable" | "host" | "participants" | "state" | "transcripts" }) => ({

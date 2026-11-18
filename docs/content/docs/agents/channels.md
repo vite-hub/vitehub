@@ -149,7 +149,21 @@ teams({
 })
 ```
 
-An ignored bot message is recorded as a `rejected` delivery and never reaches `messages.filter`.
+An ignored bot message is recorded as a `rejected` delivery with the reason `bot-author` and never reaches `messages.filter`.
+
+### Why a message started no work
+
+Each message that a chat Channel receives has a delivery record. `vitehub channels deliveries <agent> <channel>` lists them. The webhook answer is `acknowledged`, because Chat handles the message after the answer. A message that starts no work ends `rejected` with a `reason`:
+
+| Reason | Message |
+| --- | --- |
+| `not-addressed` | A group message that does not mention the Agent, in a thread it does not follow |
+| `bot-author` | Another bot wrote it, and `messages.allowBots` is not set |
+| `unauthorized` | `access()` refused its author |
+| `empty` | It has no text or attachment |
+| `filtered` | `messages.filter` returned `false` |
+| `edit-without-mention`, `edit-already-mentioned`, `edit-in-direct-message` | An edit that does not add the first mention |
+| `unhandled` | Chat called no message handler, such as for an activity that is not a message |
 
 ## Steer with other participants
 
@@ -171,6 +185,7 @@ teams({
 - Only human authors in the same thread can steer, even when `lockScope` covers several threads.
 - The Invocation keeps the first invoker's identity and authority. The steering message is input only, and its header names its author.
 - If the Driver (the part that runs the Agent) cannot steer live, the message runs as its own Invocation afterwards, as for one invoker.
+- Each attempt adds an `agent.input.steer` observation to the running Invocation, with `input.steer.outcome` (`accepted`, `deferred`, or `failed`), `input.steer.reason`, `channel.delivery.id`, and `input.steer.messageId`.
 - This applies to inline steering. With durable Workflow delivery, another invoker's message still queues separately.
 
 ## Act on the Channel message in hooks
@@ -520,6 +535,7 @@ operations({ include: ['channels.*', 'conversations.export'], conversations: 'pa
 | `channels.conversation` | `agent`, `channel`, `thread`, `cursor?`, `limit?` | The messages in order, each with `role`, `author`, `text`, `attachments`, `at`, and `invocationId`, and the `messageCount`. |
 | `conversations.export` | `agent`, `channel`, `thread`, `format`, `media?` | `text` in `markdown` or `json`, and the attachment files when `media` is on. |
 | `channels.status` | `agent`, `channel` | Sync health of a cursor-reading Channel such as [Gmail](/docs/agents/gmail#failed-messages): `status`, `failures`, `error`, `syncedAt`, and `retrying` and `skipped` messages. Others answer `CHANNELS_NO_STATUS`. An Agent needs `conversations: 'all'`. |
+| `channels.deliveries` | `agent`, `channel`, `limit?` | The newest messages that the Channel received, each with `status`, `reason` or `error`, `events`, and the `invocationId` it started or steered. An Agent needs `conversations: 'all'`. |
 
 A `cursor` names the previous page's last item by id and time, so pages stay stable when messages arrive or the window moves.
 
@@ -528,6 +544,7 @@ pnpm vitehub channels list
 pnpm vitehub channels threads support telegram
 pnpm vitehub channels conversation support telegram telegram:456
 pnpm vitehub channels status labeller gmail
+pnpm vitehub channels deliveries support teams
 pnpm vitehub conversations export support telegram telegram:456 > chat.md
 pnpm vitehub conversations export support telegram telegram:456 --format json --output ./chat
 ```

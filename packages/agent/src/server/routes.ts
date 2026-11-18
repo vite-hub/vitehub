@@ -822,6 +822,72 @@ async function observeHandledChannelDeliveryResponse(response: Response, deliver
   )
 }
 
+/**
+ * Records the outcome of an acknowledged chat delivery that no message handler claimed once Chat finishes with it:
+ * Chat skipped it, such as an activity that is not a message or a message it already handled.
+ */
+async function settleUnclaimedChatDelivery(delivery: AgentChannelDeliveryTracker, tasks: readonly Promise<unknown>[]): Promise<void> {
+  const results = await Promise.allSettled(tasks)
+  if (delivery.claimed) return
+  const failure = results.find(result => result.status === "rejected")
+  await recordChannelDeliveryEvidence(delivery, failure
+    ? { error: channelDeliveryError(failure.reason), type: "failed" }
+    : { reason: "unhandled", type: "rejected" })
+}
+
+type ChatSteerOutcome = "accepted" | "deferred" | "failed"
+
+/** `deferred`: the run could not take the message, so the message waits for the run to end and starts the next one. */
+function chatSteerOutcome(result: "accepted" | "invalid-state" | "unavailable" | "unsupported"): { outcome: ChatSteerOutcome, reason?: string } {
+  if (result === "accepted") return { outcome: "accepted" }
+  return { outcome: result === "invalid-state" ? "failed" : "deferred", reason: result }
+}
+
+/**
+ * Appends one steer attempt to the Invocation that a chat message tried to reach, as `agent.input.steer`. The run
+ * shows each follow-up this way, also when its Driver records nothing.
+ */
+async function recordChatSteerAttempt(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  context: ViteAgentRouteRuntimeContext,
+  runId: string,
+  attempt: { deliveryId: string, messageId?: string, outcome: ChatSteerOutcome, reason?: string },
+): Promise<void> {
+  if (!isRecord(agent) || !agent.invocations) return
+  try {
+    // SAFETY: Agent Definitions own this field; the journal boundary validates it.
+    const invocations = agent.invocations as AgentInvocations
+    const id = await agentInvocationId(runId, routeAgentInvocationName(agent, context.agentIdentity))
+    await invocations.appendObservation(id, {
+      attributes: {
+        "channel.delivery.id": attempt.deliveryId,
+        ...(attempt.messageId ? { "input.steer.messageId": attempt.messageId } : {}),
+        "input.steer.outcome": attempt.outcome,
+        ...(attempt.reason ? { "input.steer.reason": attempt.reason } : {}),
+      },
+      name: "agent.input.steer",
+      type: "run",
+    }, { id: `steer:${attempt.deliveryId}:${attempt.outcome}` })
+  }
+  catch (error) {
+    console.error(JSON.stringify({
+      scope: "vitehub.channel.delivery",
+      event: "steer.record.failed",
+      deliveryId: attempt.deliveryId,
+      runId,
+      error: channelDeliveryError(error),
+    }))
+  }
+}
+
+/** Adds the Invocation that each delivery started or steered, from the run of its latest `invocation.started` event. */
+async function withDeliveryInvocationIds(deliveries: AgentChannelDeliveryInspection[], agentName: string | undefined): Promise<AgentChannelDeliveryInspection[]> {
+  return await Promise.all(deliveries.map(async (delivery) => {
+    const runId = delivery.events.findLast(event => event.type === "invocation.started" && event.runId)?.runId
+    return runId ? { ...delivery, invocationId: await agentInvocationId(runId, agentName) } : delivery
+  }))
+}
+
 function logChannelListener(event: string, provider: string, listenerId: string, extra: Record<string, unknown> = {}): void {
   console.info(JSON.stringify({ scope: "vitehub.channel.listener", event, provider, listenerId, ...extra }))
 }
@@ -5882,7 +5948,7 @@ async function admitChatSdkMessage(
 ) {
   // The Chat SDK skips the Agent's own messages. Other bots can loop with the Agent, so they need `allowBots`.
   if (message.author.isBot === true && options?.allowBots !== true) {
-    await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+    await recordChannelDeliveryEvidence(delivery, { reason: "bot-author", type: "rejected" })
     return
   }
   let input = createChatTriggerInput(
@@ -5910,7 +5976,7 @@ async function admitChatSdkMessage(
   )
   const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
   if (!invoker) {
-    await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+    await recordChannelDeliveryEvidence(delivery, { reason: "unauthorized", type: "rejected" })
     return
   }
   const parsedChannelContext = authorizationInput.context?.channel
@@ -5927,7 +5993,7 @@ async function admitChatSdkMessage(
   )
   const currentMessage = message.id ? messages.find((item) => item.id === message.id) : messages.at(-1)
   if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) {
-    await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+    await recordChannelDeliveryEvidence(delivery, { reason: "empty", type: "rejected" })
     return
   }
   const filter = options?.filter
@@ -5946,7 +6012,7 @@ async function admitChatSdkMessage(
         },
       }))
     ) {
-      await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+      await recordChannelDeliveryEvidence(delivery, { reason: "filtered", type: "rejected" })
       return
     }
   }
@@ -6423,7 +6489,10 @@ async function handleChatSdkMessage(
               : "unsupported" as const
           })
           active.steering = submitted.then(() => undefined, () => undefined)
+          const steerAttempt = { deliveryId: delivery.delivery.id, messageId: message.id }
+          void submitted.catch(async (error: unknown) => await recordChatSteerAttempt(agent, context, activeRunId, { ...steerAttempt, outcome: "failed", reason: channelDeliveryError(error) }))
           const submission = submitted.then(async (result) => {
+            await recordChatSteerAttempt(agent, context, activeRunId, { ...steerAttempt, ...chatSteerOutcome(result) })
             await timeoutEvidence
             if (result === "accepted") {
               await recordChannelDeliveryEvidence(delivery, { type: "accepted", runId: activeRunId })
@@ -6507,7 +6576,7 @@ async function handleChatSdkMessage(
         )
         currentMessage = message.id ? messages.find(item => item.id === message.id) : messages.at(-1)
         if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) {
-          await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+          await recordChannelDeliveryEvidence(delivery, { reason: "empty", type: "rejected" })
           return
         }
       }
@@ -7435,6 +7504,22 @@ async function serialMessageDeliveryKind(thread: Thread, message: ChatSdkMessage
   if (options?.replyToSubscribedThreads === true && !message.author.isBot && await thread.isSubscribed()) return "subscribed"
 }
 
+/** The delivery of one Chat message: the request's delivery, or the delivery of a message that Chat queued earlier. */
+async function chatMessageDelivery(
+  state: StateAdapter,
+  registration: AgentWebhookRegistrationDefinition,
+  message: ChatSdkMessage,
+  resolveRequestDelivery?: () => Promise<AgentChannelDeliveryTracker>,
+): Promise<AgentChannelDeliveryTracker | undefined> {
+  const requestDelivery = await resolveRequestDelivery?.()
+  const fingerprint = await agentChannelDeliveryPayloadFingerprint(message.raw).catch(() => undefined)
+  const messageId = agentChannelDeliverySourceValue(message.id)
+  const own = (fingerprint ? await resumeAgentChannelDeliveryPayload(state, chatRegistrationOrigin(registration), fingerprint) : undefined)
+    || (messageId ? await resumeAgentChannelDeliveryMessage(state, chatRegistrationOrigin(registration), message.threadId, messageId) : undefined)
+  if (requestDelivery && own?.delivery.id === requestDelivery.delivery.id) requestDelivery.claimed = true
+  return own ?? requestDelivery
+}
+
 async function handleChatSdkMessages(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   context: ViteAgentRouteRuntimeContext,
@@ -7494,7 +7579,7 @@ async function handleChatSdkMessages(
           }).catch(() => undefined)
           if (delivery) {
             delivery.claimed = true
-            await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+            await recordChannelDeliveryEvidence(delivery, { reason: "not-addressed", type: "rejected" })
           }
           continue
         }
@@ -7850,12 +7935,21 @@ async function createChannelChat(
       const delivery = await resolveDelivery?.()
       if (delivery) {
         delivery.claimed = true
-        await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+        const reason = chatThread.isDM ? "edit-in-direct-message" : message.isMention === true ? "edit-already-mentioned" : "edit-without-mention"
+        await recordChannelDeliveryEvidence(delivery, { reason, type: "rejected" })
       }
       return
     }
     // The original message already holds Chat's dedupe key.
     await chat.processMessage(adapter, chatThread.id, message, { deduplicate: false })
+  })
+  // Chat calls an unfiltered message handler for a message that does not mention the Agent, in a thread it does not
+  // follow. Record why that message started no work.
+  chat.onNewMessage(async (_chatThread, message) => {
+    const delivery = await chatMessageDelivery(state.state, registration, message, resolveDelivery)
+    if (!delivery) return
+    delivery.claimed = true
+    await recordChannelDeliveryEvidence(delivery, { reason: "not-addressed", type: "rejected" })
   })
 
   return chat
@@ -9184,7 +9278,10 @@ export function createChannelChatRouteHandler(
     const chatOptions = getChannelChatOptions(agent, routeOptions.channelId, getAgentChatOptions(agent)) || {}
     const { state } = await resolveChatState(chatOptions, context, registration, handlerOptions)
     await state.connect()
-    return await readAgentChannelDeliveries(state, handlerOptions.limit, `chat:${agentName}:${registration.provider}:`)
+    return await withDeliveryInvocationIds(
+      await readAgentChannelDeliveries(state, handlerOptions.limit, `chat:${agentName}:${registration.provider}:`),
+      routeAgentInvocationName(agent, context.agentIdentity),
+    )
   }
   return handler
 }
@@ -10236,7 +10333,13 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             resolveChannelDelivery,
           )
           webhookDeadlineAbort?.signal.throwIfAborted()
-          const response = await handler(request, { waitUntil: context.waitUntil })
+          const chatTasks: Promise<unknown>[] = []
+          const response = await handler(request, {
+            waitUntil: (task) => {
+              chatTasks.push(task)
+              context.waitUntil(task)
+            },
+          })
           if (response.status === 401 || response.status === 403) return response
           const channelDelivery = await resolveChannelDelivery()
           if (!channelDelivery.claimed && !channelDelivery.duplicate) {
@@ -10249,13 +10352,22 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                 .json()
                 .then((body) => isRecord(body) && body.ignored === true)
                 .catch(() => false))
-            await recordChannelDeliveryEvidence(channelDelivery, {
+            if (!response.ok) {
+              await recordChannelDeliveryEvidence(channelDelivery, { status: response.status, type: response.status >= 500 ? "failed" : "rejected" })
+            } else if (ignored) {
+              // Chat answered that it ignored the webhook, so no message handler runs.
+              await recordChannelDeliveryEvidence(channelDelivery, { reason: "unhandled", status: response.status, type: "rejected" })
+            } else if (queued) {
               // Chat SDK may evict or expire queued entries without exposing
               // their identity. Record transport acceptance until a drain
               // claims this delivery instead of promising durable queue custody.
-              type: response.ok ? (queued && !ignored ? "accepted" : "completed") : response.status >= 500 ? "failed" : "rejected",
-            })
-            if (queued && !ignored && response.ok) detachAgentChannelDelivery(channelDelivery)
+              await recordChannelDeliveryEvidence(channelDelivery, { type: "accepted" })
+              detachAgentChannelDelivery(channelDelivery)
+            } else {
+              // The answer only acknowledges the webhook. Chat handles the message after it, so the outcome comes later.
+              await recordChannelDeliveryEvidence(channelDelivery, { status: response.status, type: "acknowledged" })
+              context.waitUntil(settleUnclaimedChatDelivery(channelDelivery, chatTasks))
+            }
           }
           if (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent, registration.channelId)) {
             await context.flushWaitUntil?.()
@@ -10265,7 +10377,8 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           const response = toHttpErrorResponse(error)
           if (response?.status === 401 || response?.status === 403) return response
           const channelDelivery = await resolveChannelDelivery()
-          if (!channelDelivery.duplicate) await channelDelivery.event({ error: channelDeliveryError(error), type: "failed" })
+          // A handler that claimed the delivery recorded its own outcome. The error can come from another message of the batch.
+          if (!channelDelivery.duplicate && !channelDelivery.claimed) await channelDelivery.event({ error: channelDeliveryError(error), type: "failed" })
           if (response) return response
           throw error
         }
@@ -10440,9 +10553,12 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         }),
       )
     ).flat()
-    return [...new Map(inspections.map((delivery) => [delivery.id, delivery])).values()]
-      .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))
-      .slice(0, handlerOptions.limit ?? 100)
+    return await withDeliveryInvocationIds(
+      [...new Map(inspections.map((delivery) => [delivery.id, delivery])).values()]
+        .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))
+        .slice(0, handlerOptions.limit ?? 100),
+      routeAgentInvocationName(agent, context.agentIdentity),
+    )
   }
   handler.warm = async (handlerOptions = {}) => {
     const context = createRuntimeContext(
