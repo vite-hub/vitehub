@@ -11,7 +11,7 @@ Applications that install the `vite-hub` framework distribution can use `vite-hu
 
 ## Requirements
 
-- Node.js 22.18 or later.
+- Node.js 24.15 or later.
 - Vite 8 or later for provider configuration and generated runtime wiring.
 - The credentials required by your selected driver.
 
@@ -206,7 +206,7 @@ Pass this identity to each reader to inspect this application's configured Email
 
 ## Use another provider
 
-Set `driver` to `resend` or `cloudflare` and declare its options in `hubEmail({ driver, options })`. Set `driver` to `log` for a build without a provider: `email.send()` prints each message with `console.info` and sends nothing, and `email.canSend` is `false`. `email.canSend` is also `false` without Email, so the app can show a link on the page instead. Programmatic clients can implement the exported `EmailDriver` interface or import a built-in driver from `@vite-hub/email/drivers/*`.
+Set `driver` to `resend` or `cloudflare` and declare its options in `hubEmail({ driver, options })`. Set `driver` to `log` for a build without a provider: `email.send()` prints each message with `console.info` and sends nothing, and `email.canSend` is `false`. `email.canSend` is also `false` without Email, so the app can show a link on the page instead. Programmatic clients can implement the exported `EmailDriver` interface or import a built-in driver from `@vite-hub/email/drivers/*`. A driver's `send()` returns `[error, data]`, the same order as `email.send()`.
 
 `createEmail()` initializes a driver object once per client, shares pending initialization across concurrent sends, and retries after initialization fails. A driver factory resolves and initializes a driver for each send so request-scoped provider options stay current. The development outbox preserves these lifecycle rules.
 

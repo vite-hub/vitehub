@@ -317,8 +317,13 @@ function checkViteHubOptions(ctx: RuleContext, options: unknown, where: string) 
   if (!isNodeType(target, "ObjectExpression")) return
   for (const property of objectProperties(target)) {
     const name = propertyName(property)
+    if (name === "cloudflare") {
+      checkViteHubOptions(ctx, property.value, `${where}.cloudflare`)
+      continue
+    }
     let report: { why: string, fix: string } | undefined
-    const removed = name !== undefined && Object.hasOwn(removedViteHubOptions, name) ? removedViteHubOptions[name] : undefined
+    const key = name !== undefined && where.endsWith(".cloudflare") ? `cloudflare.${name}` : name
+    const removed = key !== undefined && Object.hasOwn(removedViteHubOptions, key) ? removedViteHubOptions[key] : undefined
     if (removed) {
       report = { why: `${removed.why} The build fails on this key.`, fix: removed.fix }
     }

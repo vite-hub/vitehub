@@ -19,6 +19,7 @@ import type { ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDefinition
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 const resultErrorCodes: ReadonlySet<string> = new Set<WorkflowResultErrorCode>([
+  "RUNTIME_DURATION_INVALID",
   "WORKFLOW_CLOUDFLARE_RUN_ID_INVALID",
   "WORKFLOW_OPERATION_UNSUPPORTED",
   "WORKFLOW_PROVIDER_OPERATION_FAILED",

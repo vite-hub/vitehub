@@ -1,4 +1,8 @@
+import { parseDuration } from "@vite-hub/runtime"
+
 import { webhooksErrors } from "./errors.ts"
+
+import type { Duration } from "@vite-hub/runtime"
 
 /** How a delivery is signed. Both use HMAC-SHA256 of the raw body with the secret. */
 export type WebhookSignature = "github" | "stripe"
@@ -18,11 +22,11 @@ export interface WebhookOptions {
    */
   signature?: WebhookSignature
   /**
-   * Wait this long after the last send before one delivery, such as `"30 minutes"`. Each send in the window replaces the
-   * body and restarts the wait. Sends with the same `key` collapse, and the key defaults to the webhook name. At most 24
-   * hours. Without it, each send is delivered at once.
+   * Wait this long after the last send before one delivery, such as `"30m"`. Each send in the window replaces the body
+   * and restarts the wait. Sends with the same `key` collapse, and the key defaults to the webhook name. At most `"1d"`.
+   * Without it, each send is delivered at once.
    */
-  debounce?: string | number
+  debounce?: Duration
 }
 
 /** A webhook of `server/webhooks/<name>.ts`. */
@@ -38,32 +42,6 @@ const definitionBrand = Symbol.for("vitehub.webhooks.definition")
 
 /** 24 hours: the longest delay of Cloudflare Queues, the shortest of every host. */
 export const maxDebounceMs = 24 * 60 * 60 * 1000
-
-const durationUnits: Record<string, number> = {
-  ms: 1,
-  millisecond: 1,
-  milliseconds: 1,
-  s: 1_000,
-  sec: 1_000,
-  second: 1_000,
-  seconds: 1_000,
-  m: 60_000,
-  min: 60_000,
-  mins: 60_000,
-  minute: 60_000,
-  minutes: 60_000,
-  h: 3_600_000,
-  hour: 3_600_000,
-  hours: 3_600_000,
-}
-
-/** Milliseconds of a duration such as `"30 minutes"`, `"10s"`, or a number of milliseconds. */
-function parseDuration(value: string | number): number | undefined {
-  if (typeof value === "number") return Number.isFinite(value) && value >= 0 ? value : undefined
-  const match = /^(\d+(?:\.\d+)?)\s*([a-z]+)$/i.exec(value.trim())
-  const unit = match && durationUnits[match[2]!.toLowerCase()]
-  return unit ? Number(match[1]) * unit : undefined
-}
 
 const variableName = /^[A-Z_][A-Z0-9_]*$/i
 
@@ -81,7 +59,7 @@ function invalid(message: string): Error {
  * export default defineWebhook({
  *   url: "T3_WEBHOOK_URL",
  *   secret: "T3_WEBHOOK_SECRET",
- *   debounce: "30 minutes",
+ *   debounce: "30m",
  * })
  * ```
  */
@@ -94,8 +72,7 @@ export function defineWebhook(options: WebhookOptions): WebhookDefinition {
   }
   const signature = options.signature ?? "github"
   if (signature !== "github" && signature !== "stripe") throw invalid(`\`signature\` must be "github" or "stripe", not ${JSON.stringify(signature)}.`)
-  const debounceMs = options.debounce === undefined ? 0 : parseDuration(options.debounce)
-  if (debounceMs === undefined) throw invalid(`\`debounce\` must be a duration such as "30 minutes" or "10s", not ${JSON.stringify(options.debounce)}.`)
+  const debounceMs = options.debounce === undefined ? 0 : parseDuration(options.debounce, "debounce")
   if (debounceMs > maxDebounceMs) throw webhooksErrors.WEBHOOKS_DEBOUNCE_TOO_LONG({ debounce: JSON.stringify(options.debounce) })
   return Object.defineProperty({ url: options.url, secret: options.secret, signature, debounceMs }, definitionBrand, { value: true })
 }
