@@ -78,7 +78,7 @@ import type { ResolvedAgentTriggerInvocation } from "../trigger-runtime.ts"
 import { agentHttpError, toHttpErrorResponse, type AgentHttpError } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
-import { chatMessageHeaderPartType, createChatMetadataEchoFilter, formatChatHeaderTime, formatChatMessageHeader, formatChatReplyLine, stripEchoedChatMessageMetadata } from "../internal/chat-message-header.ts"
+import { chatMessageHeaderPartType, createChatMetadataEchoFilter, isChatReplyPartType, formatChatHeaderTime, formatChatMessageHeader, formatChatReplyLine, stripEchoedChatMessageMetadata } from "../internal/chat-message-header.ts"
 import { chatFinalReplyContextKey, chatFinishDeliveryRegistrarKey, chatFinishDirectReplyTrace, chatFinishPrimaryReplyTrace } from "../internal/chat-finish-delivery.ts"
 import type { ChatFinalReplyMode, ChatFinishDeliveryCallback, ChatFinishDeliveryCapture, ChatFinishDeliveryRegistrar } from "../internal/chat-finish-delivery.ts"
 import { createAgentChatApprovalCustody, resolveAgentChatApprovalTtl, withAgentChatApprovalGrant } from "../internal/chat-approvals.ts"
@@ -96,7 +96,7 @@ import { createAgentWebhookQueue, hasAgentWebhookQueue, webhookQueueStopGraceMs 
 import { channelTaskDebounceKey, registerChannelTaskQueue } from "../channel-tasks.ts"
 import { channelHandlerTriggerName } from "../internal/channel-delivery-handlers.ts"
 import type { ChannelTaskQueue } from "../channel-tasks.ts"
-import { agentInvocationInputSupport, sendAgentInvocationInput, activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
+import { agentInvocationInputSupport, sendAgentInvocationInput, sendAgentInvocationInputResult, activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
 import { captureAgentInboundBody } from "./request-body.ts"
 import { keepStandardContext } from "../internal/webhook-request.ts"
 import { sendPreparedResponse } from "@vite-hub/runtime/internal/h3"
@@ -4859,7 +4859,7 @@ function chatPartId(part: UIMessageLikePart): string | undefined {
 
 function isChatReplyModelPart(part: UIMessageLikePart): boolean {
   const type = chatPartType(part)
-  return !!type && (type.startsWith("data-chat-reply-") || type === "data-chat-user-message-context")
+  return !!type && isChatReplyPartType(type)
 }
 
 function chatReplyLine(replyTo: ChatSdkMessage, timeZone: string, keptIds: Set<string>, shownIds: Set<string>): string {
@@ -4877,6 +4877,22 @@ function chatReplyLine(replyTo: ChatSdkMessage, timeZone: string, keptIds: Set<s
     quote,
     time: time === undefined ? undefined : formatChatHeaderTime(time, timeZone, true),
   })
+}
+
+/**
+ * Steering input reaches a run that has not seen this message's history window, so its reply
+ * line quotes the message it answers instead of pointing to it as shown above.
+ */
+function chatSteeringUiMessage(uiMessage: UIMessageLike, message: ChatSdkMessage, options: AgentChatOptions | undefined): UIMessageLike {
+  if (!message.replyTo || !Array.isArray(uiMessage.parts)) return uiMessage
+  const keptIds = new Set(uiMessage.parts.map(chatPartId).filter((id) => typeof id === "string"))
+  const replyLine = chatReplyLine(message.replyTo, chatHeaderTimeZone(options), keptIds, new Set())
+  return {
+    ...uiMessage,
+    parts: uiMessage.parts.map(part => chatPartType(part) === "data-chat-reply-context"
+      ? { ...part, data: { ...("data" in part && isRecord(part.data) ? part.data : {}), modelText: replyLine } }
+      : part),
+  }
 }
 
 /**
@@ -6373,6 +6389,13 @@ async function handleChatSdkMessage(
         ? maximumInvocationDeadline
         : Math.min(configuredWaitDeadline, maximumInvocationDeadline ?? Infinity)
       let waitedForActiveTurn = false
+      // Record each deferral once. The loop below polls while the active run gets ready.
+      let lastDeferral: string | undefined
+      const recordSteerDeferral = async (runId: string, reason: string) => {
+        if (lastDeferral === `${runId}:${reason}`) return
+        lastDeferral = `${runId}:${reason}`
+        await recordChannelDeliveryEvidence(delivery, { reason, runId, type: "steer.deferred" })
+      }
       while (!inlineTurn) {
         const active = inlineChatTurns.get(inlineKey)
         if (!active) {
@@ -6411,16 +6434,18 @@ async function handleChatSdkMessage(
         const steersActiveTurn = sameInlineInvoker(active.invoker, invoker) ||
           (options?.steerFromParticipants === true && active.threadId === thread.id && message.author.isBot !== true)
         if (active.runId && steersActiveTurn) {
-          const [steerMessage] = uiMessagesToAgentMessages([currentMessage])
+          const [steerMessage] = uiMessagesToAgentMessages([chatSteeringUiMessage(currentMessage, message, options)])
           const activeRunId = active.runId
           // Once submitted, only the Driver can determine whether input was accepted.
           let timeoutEvidence: Promise<void> | undefined
-          const submitted = (active.steering ?? Promise.resolve()).then(() => {
+          let deferralReason: string | undefined
+          const submitted = (active.steering ?? Promise.resolve()).then(async () => {
             if (!inlineKey || inlineChatTurns.get(inlineKey) !== active) return "unavailable" as const
             if (agentInvocationInputSupport(activeRunId).steer === false) return "unavailable" as const
-            return steerMessage
-              ? sendAgentInvocationInput(activeRunId, { message: steerMessage, messages: [steerMessage] }, { mode: "steer" })
-              : "unsupported" as const
+            if (!steerMessage) return "unsupported" as const
+            const { outcome, reason } = await sendAgentInvocationInputResult(activeRunId, { message: steerMessage, messages: [steerMessage] }, { mode: "steer" })
+            deferralReason = reason
+            return outcome
           })
           active.steering = submitted.then(() => undefined, () => undefined)
           const submission = submitted.then(async (result) => {
@@ -6470,6 +6495,7 @@ async function handleChatSdkMessage(
                 // Retain the claim on this turn so late duplicate continuations
                 // observe the same result even after the successor has finished.
                 fallback = (async () => {
+                  await recordSteerDeferral(activeRunId, deferralReason ?? result)
                   try {
                     await waitForInlineChatTurn(active, maximumInvocationDeadline)
                   } catch (error) {
@@ -6493,9 +6519,12 @@ async function handleChatSdkMessage(
             })
             return
           }
+          // The Driver did not take the input. Unsupported input runs after the active run; unavailable input tries again.
+          await recordSteerDeferral(activeRunId, deferralReason ?? outcome)
           if (outcome === "unsupported") await waitForInlineChatTurn(active, inlineWaitDeadline)
           else await pollInlineChatTurn(active, inlineWaitDeadline)
         } else {
+          if (active.runId) await recordSteerDeferral(active.runId, "not-invoker")
           await pollInlineChatTurn(active, inlineWaitDeadline)
         }
       }

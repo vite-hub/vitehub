@@ -170,7 +170,8 @@ teams({
 - The message must pass admission: groups still need a mention, and `messages.filter` and `access()` apply.
 - Only human authors in the same thread can steer, even when `lockScope` covers several threads.
 - The Invocation keeps the first invoker's identity and authority. The steering message is input only, and its header names its author.
-- If the Driver (the part that runs the Agent) cannot steer live, the message runs as its own Invocation afterwards, as for one invoker.
+- The Driver (the part that runs the Agent) adds the message to the active run as text: the header and reply lines, then the message. A reply line quotes the message it answers. Drivers steer with text only, so a message with an image, or with a file that stays an attachment, cannot steer. A text file that ViteHub reads into the message steers as text.
+- If the message cannot steer, it runs as its own Invocation afterwards, as for one invoker. Its Channel delivery record shows one `steer.deferred` event with the active run's `runId` and a `reason`, such as `attachments` (the message has an image or a file attachment) or `not-invoker` (only the invoker can steer).
 - This applies to inline steering. With durable Workflow delivery, another invoker's message still queues separately.
 
 ## Act on the Channel message in hooks

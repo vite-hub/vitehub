@@ -19213,6 +19213,7 @@ describe("server helpers", () => {
     })
     let remoteOwner: Awaited<ReturnType<typeof state.acquireLock>> = null
     let steeredPrompt: string | undefined
+    let firstRunId: string | undefined
     let releaseFirst!: () => void
     const firstReleased = new Promise<void>(resolve => { releaseFirst = resolve })
     const agent = defineAgent({
@@ -19230,6 +19231,7 @@ describe("server helpers", () => {
           const runId = ownedAgentInvocationControlId(context)
           if (!runId) throw new Error("Expected a Channel-owned invocation control ID")
           expect(runId).toBe(context.run?.runId)
+          firstRunId ??= runId
           const unregister = registerAgentInvocationInputHandler(runId, {
             async sendInput(input, options) {
               if (options.mode !== "steer") return "unsupported"
@@ -19402,6 +19404,8 @@ describe("server helpers", () => {
       expect(followUpDelivery?.events.filter(event => event.type === "completed" || event.type === "failed").map(event => event.type)).toEqual(timeoutAcceptance ? ["failed", outcome] : [outcome])
       expect(runs).toBe(lateResult ? 3 : 2)
       expect(steeredPrompt).toBe("hello")
+      // A late decline runs the follow-up after the active run, and the delivery record says why.
+      if (lateResult) expect(followUpDelivery?.events.filter(event => event.type === "steer.deferred").map(({ reason, runId }) => ({ reason, runId }))).toEqual([{ reason: lateResult, runId: firstRunId }])
     } finally {
       evidenceReleased.resolve()
       acceptance.resolve()
