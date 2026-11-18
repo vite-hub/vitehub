@@ -145,12 +145,12 @@ export interface AuthViteHubOptions {
   access?: AuthAccessConfiguration
   basePath?: string
   /**
-   * `authDatabase()` from `@vite-hub/auth/database` keeps users and sessions in the app Database. Return another Better
+   * `authDatabase()` from `vite-hub/auth/database` keeps users and sessions in the app Database. Return another Better
    * Auth adapter from the Definition callback. `"memory"` keeps them in the memory of one server process,
    * and a restart removes them. Without `database` or `preset`, Auth uses memory only on a development server.
    */
   database?: AuthAppDatabase | "memory"
-  /** A ViteHub Auth preset, such as `stateless()` from `@vite-hub/auth/presets`. ViteHub checks it against the other options. */
+  /** A ViteHub Auth preset, such as `stateless()` from `vite-hub/auth/presets`. ViteHub checks it against the other options. */
   preset?: AuthPreset
   route?: false
   /** Removed. Pass a callback that returns all options: `defineAuth(({ env }) => ({ ... }))`. */

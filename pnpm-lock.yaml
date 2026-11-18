@@ -1334,6 +1334,9 @@ importers:
       bun-types:
         specifier: ^1.4.3
         version: 1.4.3
+      drizzle-kit:
+        specifier: catalog:database
+        version: 1.0.0-rc.5(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@electric-sql/pglite@0.5.16)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7))
       drizzle-orm:
         specifier: catalog:database
         version: 1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@electric-sql/pglite@0.5.16)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)
@@ -3766,6 +3769,9 @@ importers:
 
   packages/ui:
     dependencies:
+      reka-ui:
+        specifier: catalog:ui
+        version: 2.11.0(vue@3.5.44(typescript@6.0.3))
       '@codemirror/autocomplete':
         specifier: 6.20.4
         version: 6.20.4
@@ -3959,9 +3965,6 @@ importers:
       publint:
         specifier: catalog:tooling
         version: 0.3.25
-      reka-ui:
-        specifier: catalog:ui
-        version: 2.11.0(vue@3.5.44(typescript@6.0.3))
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
@@ -4426,12 +4429,18 @@ importers:
 
   packages/webhooks:
     dependencies:
+      '@standard-schema/spec':
+        specifier: catalog:runtime
+        version: 1.1.0
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      valibot:
+        specifier: catalog:runtime
+        version: 1.5.0(typescript@6.0.3)
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'

@@ -880,7 +880,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // The `/raw/**` route goes to Nitro directly: nuxt-agent-discovery skips the prerender of raw copies that an app
       // route of Nuxt serves, and the build prerenders them.
       nitro.handlers = [...nitro.handlers ?? [], ...(["get", "head"] as const).map(method => ({ route: "/raw/**", method, handler: resolver.resolve("./runtime/server/raw.js") }))]
-      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile, "#docs/image-sizes": imageSizesFile, "#docs/agent": agentFile }
+      nitro.alias = {
+        ...nitro.alias,
+        "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile, "#docs/image-sizes": imageSizesFile, "#docs/agent": agentFile,
+        // nuxt-og-image replaces `bufferutil`, `utf-8-validate`, and other optional server packages with virtual modules
+        // that import `mocked-exports/proxy`. Nitro resolves that import from the app, and a pnpm app has no such
+        // dependency, so the build failed when a package such as `ws` imported one of them.
+        "mocked-exports/proxy": mockedExportsProxy(),
+      }
       // Pack production files into one module to stay below Cloudflare's module limit. Development imports each file
       // through Vite: Nitro server assets read the folders from disk, and the Cloudflare dev server runs in workerd.
       const stores = [...sourceDirs ? sourceDirs.map((dir, index) => ({ name: `docs-${index}`, dir })) : [{ name: "docs", dir: contentDir }], { name: "docs-agent", dir: agentDir }]
@@ -1015,6 +1022,11 @@ function importsNuxtUi(css: ReadonlyArray<string | { src?: string }>, alias: Rec
 /** A module that this package depends on, by file path, so Nuxt finds it and transpiles its runtime. */
 function dependency(name: string): string {
   return fileURLToPath(import.meta.resolve(name))
+}
+
+/** The ESM proxy of `mocked-exports`, from the copy that nuxt-og-image depends on. */
+function mockedExportsProxy(): string {
+  return createRequire(dependency("nuxt-og-image")).resolve("mocked-exports/proxy-mjs")
 }
 
 /** The file a CSS `@import "<name>"` loads: the package's `style` export. */

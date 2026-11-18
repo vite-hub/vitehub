@@ -111,6 +111,7 @@ const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupI
   channels: "ai",
   usage: "ai",
   "mcp-client": "ai",
+  webhooks: "runtime",
   workflows: "runtime",
   queues: "runtime",
   schedules: "runtime",

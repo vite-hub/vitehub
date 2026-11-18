@@ -186,7 +186,7 @@ The context of an action:
 Rules:
 
 - `args` come from the browser. Check them, such as with `v.parse()`.
-- Call `refuse(message)` to refuse the action. It needs no import. Do not import `createError` from `h3` for this: a pnpm app often cannot import `h3`, because it is not a direct dependency.
+- Call `refuse(message)` to refuse the action. It needs no import. Do not import `HTTPError` from `h3` for this: a pnpm app often cannot import `h3`, because it is not a direct dependency.
 - A thrown error refuses the action too, with `SYNC_ACTION_REFUSED`. The message of the error goes to the browser when it is a ViteHub error, an error with an HTTP `status` below 500, or a schema error with `issues` (such as from `v.parse()`). Any other error gives "The action failed.", and the server log gets the error and its stack.
 - One refused write, such as an insert into a team the caller is not in, refuses the whole action with the code of that write.
 - `write: false` does not stop actions. Without `write`, the writes of a visitor's action are refused with `SYNC_FORBIDDEN`, as browser writes are.
