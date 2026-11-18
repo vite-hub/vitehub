@@ -3495,7 +3495,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     // AGENT_B0007 through AGENT_B0015 are retired with the Eve extension adapter. Do not reuse them.
     AGENT_B0016: {
       ...dynamicError,
-      fix: "Put `[agent]` in the inspection route, such as `vitehub({ agent: { routes: { inspection: \"/api/_vitehub/agents/[agent]/inspection\" } } })`, or set `inspection: true` to use that default route.",
+      fix: "Put `[agent]` in the inspection route, such as `vitehub({ agent: { routes: { inspection: \"/_vitehub/agents/[agent]/inspection\" } } })`, or set `inspection: true` to use that default route.",
     },
     AGENT_B0017: dynamicError,
     // AGENT_B0018 is retired with the Eve extension adapter. Do not reuse it.
@@ -4986,8 +4986,8 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Pass `--table-prefix` with the `tablePrefix` that the app uses, or pass `--database` with the journal that the app writes.",
     },
     AGENT_INVOCATIONS_NODE_SQLITE_MISSING: {
-      why: "--database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 22.18 or newer, or pass --url.",
-      fix: "Run the command with Node.js 22.18 or newer, or pass `--url` with the app URL.",
+      why: "--database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 24.15 or newer, or pass --url.",
+      fix: "Run the command with Node.js 24.15 or newer, or pass `--url` with the app URL.",
     },
     AGENT_INVOCATIONS_PRUNE_CUTOFF_INVALID: {
       why: "--older-than must produce a cutoff within JavaScript's Date range.",

@@ -48,7 +48,7 @@ describe("Babysitter process host", () => {
 
 describe("Babysitter webhook intake", () => {
   const payload = JSON.stringify({ action: "opened", repository: { full_name: "acme/app" } })
-  const request = (secret: string) => new Request("https://example.test/api/_vitehub/agents/babysitter/webhooks/github", {
+  const request = (secret: string) => new Request("https://example.test/_vitehub/agents/babysitter/webhooks/github", {
     method: "POST",
     body: payload,
     headers: {

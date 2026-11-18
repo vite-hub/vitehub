@@ -347,7 +347,7 @@ const channelsDeliveries = defineOperation({
       if (!channels.some(entry => entry.id === input.channel)) {
         throw channelsFailure(agentDiagnostics.AGENT_CHANNELS_NOT_FOUND({ agent: JSON.stringify(input.agent), channel: JSON.stringify(input.channel), problem: "channel" }))
       }
-      const deliveries = await handler.deliveries(requestOf(context), input.channel, { ...options, limit: input.limit ?? defaultDeliveries })
+      const deliveries = await handler.deliveries(requestOf(context), undefined, { ...options, channelId: input.channel, limit: input.limit ?? defaultDeliveries })
       return { agent: input.agent, channel: input.channel, deliveries: deliveries.map(deliveryView) }
     }
     catch (error) {

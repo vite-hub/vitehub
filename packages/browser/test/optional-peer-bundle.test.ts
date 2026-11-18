@@ -3,6 +3,7 @@ import { promisify } from "node:util"
 import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { build } from "vite"
@@ -56,7 +57,7 @@ describe("Browser optional peer bundle", () => {
   })
 
   it("keeps page-session peers out of root entry points", async () => {
-    const builtEntry = new URL(`../${"dist"}/index.js`, import.meta.url).pathname
+    const builtEntry = fileURLToPath(new URL(`../${"dist"}/index.js`, import.meta.url))
     const output = await bundle(builtEntry)
 
     expect(output).not.toContain('import("@cloudflare/playwright")')

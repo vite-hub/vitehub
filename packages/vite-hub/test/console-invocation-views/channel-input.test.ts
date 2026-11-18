@@ -4,6 +4,7 @@ import { mount } from "@vue/test-utils";
 import { beforeAll, describe, expect, it } from "vitest";
 import { AgentInvocation } from "../../src/console/runtime/components/invocation/agent-invocation.ts";
 import { invocationActivities, invocationActivityTitle } from "../../src/console/runtime/components/invocation/internal/invocation-activity.ts";
+import { buildInvocationConversation } from "../../src/console/runtime/components/invocation/internal/invocation-conversation.ts";
 import type { AgentInvocationView } from "../../src/console/runtime/components/invocation/types.ts";
 import { event, invocation, message, messageBodies, openDetails, openWork, threadRows, workText } from "./fixtures.ts";
 import { loadMarkdown } from "./markdown.ts";
@@ -42,11 +43,19 @@ describe("Agent Invocation Channel input", () => {
     expect(prompt.get(".vh-invocation-message__body").text()).toBe("steer with the gergo message");
   });
 
-  it("shows the trigger when it is not the last message of the history", () => {
+  it.each([false, true])("shows the trigger before later inputs (with observed user message: %s)", (hasObservedUser) => {
     const trigger = teamsMessage(1, "Check the k8s values.");
-    const later = teamsMessage(2, "Also check b11b.");
-    const activities = invocationActivities(invocation([start([trigger, later], { "input.trigger.message": trigger })]));
-    expect(activities.filter(activity => activity.attributes["message.trigger"] === true).map(activity => activity.body)).toEqual(["Check the k8s values."]);
+    const later = teamsMessage(2, "Already checked.", "assistant");
+    const activities = invocationActivities(invocation([
+      start([trigger, later], { "input.trigger.message": trigger }),
+      ...(hasObservedUser ? [message("user", "Also check b11b.", { "message.id": "other" }, { sequence: 2 })] : []),
+    ]));
+    expect(buildInvocationConversation(activities)).toMatchObject({
+      kind: "conversation",
+      prompt: { body: "Check the k8s values." },
+      history: [],
+      answers: [],
+    });
   });
 
   it.each([1, 3])("does not treat a retained suffix as previous messages when the trigger was omitted (%i omitted)", (omitted) => {

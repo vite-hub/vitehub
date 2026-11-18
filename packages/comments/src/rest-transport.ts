@@ -27,7 +27,7 @@ export interface CommentsGuest {
 export interface RestTransportOptions {
   /**
    * The app origin and mount, such as `https://app.example.com` or `/portal`. The routes are
-   * `<base>/api/_vitehub/comments/**`. Default: the page origin.
+   * `<base>/_vitehub/comments/**`. Default: the page origin.
    */
   base?: string
   /**
@@ -59,13 +59,13 @@ export interface CommentsRestAnswer<T> {
 /** The request function of the Comments API that the overlay and `createRestTransport()` share. */
 export type CommentsRestRequest = <T>(path: string, init?: RequestInit) => Promise<CommentsRestAnswer<T>>
 
-/** The URL of an attachment key below the Comments API, such as `/api/_vitehub/comments/attachments/comments/<id>/shot.png`. */
+/** The URL of an attachment key below the Comments API, such as `/_vitehub/comments/attachments/comments/<id>/shot.png`. */
 export function commentAttachmentUrl(key: string, base = ""): string {
   return `${base.replace(/\/+$/, "")}${commentsRoute}/attachments/${key.split("/").map(part => encodeURIComponent(part)).join("/")}`
 }
 
 /**
- * Requests to the Comments API at `<base>/api/_vitehub/comments`, with the guest headers and the session cookie. A
+ * Requests to the Comments API at `<base>/_vitehub/comments`, with the guest headers and the session cookie. A
  * failure throws a diagnostic with the `code`, `why`, and `fix` of the error object of the answer, and its `status`.
  */
 export function createCommentsRestRequest(options: RestTransportOptions & { route?: string } = {}): CommentsRestRequest {
@@ -139,7 +139,7 @@ const thread = (id: string) => `/threads/${encodeURIComponent(id)}`
 const post = (body?: unknown): RequestInit => ({ method: "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
 
 /**
- * A transport over the Comments API at `<base>/api/_vitehub/comments`: the routes that the overlay uses. The server
+ * A transport over the Comments API at `<base>/_vitehub/comments`: the routes that the overlay uses. The server
  * runs the `authorize` policy of `server/comments.ts` for the user of the request: the app session, or a guest that
  * `guest` names. Guests and share-link readers can use it. It has no
  * `subscribe`: the client refreshes when the window gets focus.

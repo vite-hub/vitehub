@@ -73,6 +73,12 @@ const page = () => globalThis as unknown as Pick<Window, "document" | "history">
 
 const unmounts: Array<() => void> = []
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
+}
+
 const passthrough = defineComponent({ setup: (_props, { slots }) => () => h("div", [slots.default?.(), slots.right?.(), slots.body?.()]) })
 const button = defineComponent({
   props: { href: String, label: String, onClick: Function, target: String },
@@ -112,7 +118,7 @@ afterEach(() => {
 describe("Channels page", () => {
   it.each(["", "/portal"])("marks a simulated Channel and opens the Agent's chat page under mount '%s'", async mount => {
     page().history.replaceState({}, "", `${mount}/_vitehub/channels`)
-    const route = "/api/_vitehub/agents/support/webhooks/slack"
+    const route = "/_vitehub/agents/support/webhooks/slack"
     const channels = [
       { agent: "support", channel: "slack", conversations: true, provider: "slack", retention, simulated: true, simulator: route },
       { agent: "support", channel: "telegram", conversations: true, provider: "telegram", retention, simulated: false },
@@ -147,7 +153,7 @@ describe("Channels page", () => {
   })
 
   it("shows the simulated chat page edge to edge and keeps it while a thread is open", async () => {
-    const route = "/api/_vitehub/agents/support/webhooks/slack"
+    const route = "/_vitehub/agents/support/webhooks/slack"
     const channels = [{ agent: "support", channel: "slack", conversations: true, provider: "slack", retention, simulated: true, simulator: route }]
     const threads = vi.fn(async () => ({ threads: [{ invocationCount: 1, participants: ["learner"], thread: "slack:learner:1" }] }))
     mocks.request.mockImplementation(async (path: string) => path === "/api/c/channels" ? { channels } : path === "/api/c/channels/threads" ? await threads() : answers[path])
@@ -223,8 +229,8 @@ describe("Channels page", () => {
   })
 
   it("does not show deliveries from another selection while loading or after a late response", async () => {
-    const telegram = Promise.withResolvers<{ deliveries: { id: string; sourceId: string }[] }>()
-    const teams = Promise.withResolvers<{ deliveries: { id: string; sourceId: string }[] }>()
+    const telegram = deferred<{ deliveries: { id: string; sourceId: string }[] }>()
+    const teams = deferred<{ deliveries: { id: string; sourceId: string }[] }>()
     let telegramRequests = 0
     mocks.request.mockImplementation(async (path: string, options?: { query?: Record<string, string> }) => {
       if (path === "/api/c/channels") return { channels: [{ agent: "support", channel: "telegram" }, { agent: "billing", channel: "teams" }] }
@@ -236,7 +242,8 @@ describe("Channels page", () => {
       return answers[path]
     })
     const { host, router } = await mountPage({ agent: "support", channel: "telegram" }, ".vitehub-console__delivery")
-    host.querySelector("[aria-label='Refresh']")?.click()
+    const refresh = host.querySelector("[aria-label='Refresh']") as HTMLElement | null
+    refresh?.click()
     await vi.waitFor(() => expect(telegramRequests).toBe(2))
     expect(host.querySelector(".vitehub-console__delivery")?.textContent).toContain("Telegram original")
     await router.push({ path: "/channels", query: { agent: "billing", channel: "teams" } })

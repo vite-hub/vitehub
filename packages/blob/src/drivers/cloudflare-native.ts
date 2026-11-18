@@ -4,7 +4,7 @@ import { r2Credential, r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.t
 
 import { AwsClient } from "aws4fetch"
 
-import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobDriverStreamOptions, BlobListOptions, BlobListResult, BlobMultipartPart, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobDriverStreamOptions, BlobListOptions, BlobListResult, BlobMultipartPart, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobDriverSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import { bareETag } from "../internal/etag.ts"
 import isBlob from "../internal/is-blob.ts"
@@ -106,7 +106,7 @@ function encodePathname(pathname: string): string {
   return assertValidPathname(pathname).split("/").map(encodeURIComponent).join("/")
 }
 
-async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathname: string, signOptions: BlobSignOptions): Promise<BlobSignedRequest> {
+async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathname: string, signOptions: BlobDriverSignOptions): Promise<BlobSignedRequest> {
   if (signOptions.method === "PUT" && signOptions.maxSize !== undefined) {
     throw blobErrorDiagnostics.BLOB_R0025({ message: "Cloudflare R2 cannot bind `maxSize` to a signed request." })
   }

@@ -186,7 +186,7 @@ ViteHub handles stop signals only where the Nitro server does: the `node`, `node
 
 A fresh process builds trigger registrations, resolves webhook secrets, and connects and migrates Agent State on its first webhook delivery, which waits for it. Some providers do not wait long: GitHub closes the connection after 10 seconds and does not resend.
 
-With libSQL or SQLite Agent State, the generated webhook queue plugin calls `handler.warm()` for every Agent one second after startup, so Agent routes do not compile during the first requests. A request that loads the Agent routes, such as a webhook delivery or a ready-route call, starts warm-up at once. `/api/_vitehub/ready` reports the result:
+With libSQL or SQLite Agent State, the generated webhook queue plugin calls `handler.warm()` for every Agent one second after startup, so Agent routes do not compile during the first requests. A request that loads the Agent routes, such as a webhook delivery or a ready-route call, starts warm-up at once. `/_vitehub/ready` reports the result:
 
 | State | Status | Body |
 | --- | --- | --- |
@@ -201,7 +201,7 @@ Point a Kubernetes readiness probe at the route so the Service sends traffic onl
 ```yaml [deployment.yaml]
 readinessProbe:
   httpGet:
-    path: /api/_vitehub/ready
+    path: /_vitehub/ready
     port: 3000
   periodSeconds: 2
   failureThreshold: 1

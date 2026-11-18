@@ -529,6 +529,13 @@ export async function attachmentThread(runtime: CommentsRuntime, key: string, re
   throw fail(commentsErrorDiagnostics.COMMENTS_R0020({ key }), 404)
 }
 
+/** The Base64 text of the bytes of an attachment, for the operations and the MCP tools. */
+export function base64(bytes: Uint8Array): string {
+  let binary = ""
+  for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+  return btoa(binary)
+}
+
 /**
  * Reads the file of `key` with `readAttachment`, else from the Blob store, for a reader who may read `thread`. A
  * stored type that Comments does not attach, such as SVG from an app's own hook, answers as a download.

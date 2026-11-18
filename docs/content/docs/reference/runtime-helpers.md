@@ -36,3 +36,26 @@ The helper reads Runtime Context, so you never build provider objects.
 ## Check an import failure
 
 Check the import on the package page, the Vite plugin registration, and the generated types. See [Import paths](/docs/reference/import-paths) for path rules and [Provider Output](/docs/reference/provider-output) for generated files.
+
+## Write a time as a duration
+
+The options below read the same duration string: a number, an optional space, and a unit.
+
+```ts [server/api/session.post.ts] fragment
+await kv.set('session', session, { ttl: '1h' })
+await startWorkflow('reminder', payload, { delay: '3 days' })
+```
+
+| Unit | Long names |
+| --- | --- |
+| `ms` | `millisecond`, `milliseconds` |
+| `s` | `sec`, `secs`, `second`, `seconds` |
+| `m` | `min`, `mins`, `minute`, `minutes` |
+| `h` | `hr`, `hrs`, `hour`, `hours` |
+| `d` | `day`, `days` |
+| `w` | `week`, `weeks` |
+
+- A lifetime, such as KV and `seal()` `ttl`, Blob `sign({ expiresIn })`, and Auth `stateless({ maxAge })`, also takes a number. The number is seconds, so `{ ttl: 60 }` is one minute.
+- Workflow `delay`, Webhooks `debounce`, and Auth `recheck` do not take a bare number. A number fails with [`RUNTIME_DURATION_INVALID`](/docs/development/diagnostics/runtime_duration_invalid), and its fix shows the string to write. Workflow `delay` also takes a `Date`.
+- Rate Limit `window` requires a duration string. A non-string fails with `RATE_LIMIT_R0031` at runtime or `RATE_LIMIT_R0001` during discovery.
+- `parseDuration()` and the `Duration` type from `vite-hub/runtime` read the same strings, for your own options. `parseDuration('5m')` returns `300000` milliseconds.

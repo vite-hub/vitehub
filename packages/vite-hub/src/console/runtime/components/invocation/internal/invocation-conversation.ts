@@ -24,10 +24,11 @@ export function buildInvocationConversation(activities: readonly InvocationActiv
   const promptId = inputActivities[promptActivityIndex(inputActivities)]?.id;
   const orderedActivities = inputActivities.filter(activity => activity.kind !== "message" || isVisibleMessage(activity));
   const firstUser = promptActivityIndex(orderedActivities);
+  const prompt = orderedActivities[firstUser];
   const lastUser = orderedActivities.findLastIndex(activity => activity.kind === "message" && activity.role === "user");
   const lastAssistant = orderedActivities.findLastIndex((activity, index) => index > lastUser
     && activity.kind === "message" && activity.role === "assistant" && activity.attributes["message.phase"] !== "commentary"
-    && activity.attributes["message.origin"] !== "invocation-input");
+    && (prompt?.attributes["message.trigger"] !== true || activity.attributes["message.origin"] !== "invocation-input"));
   const tail = orderedActivities.slice(firstUser + 1);
   const finalBody = lastAssistant >= 0 ? orderedActivities[lastAssistant]!.body?.trim() : undefined;
   const answers = new Set(uniqueDeliveredAnswers(tail, new Set(finalBody ? [finalBody] : [])));
@@ -40,7 +41,6 @@ export function buildInvocationConversation(activities: readonly InvocationActiv
 
   const history = orderedActivities.slice(0, Math.max(firstUser, 0)).filter(isVisibleMessage);
   const workBeforePrompt = orderedActivities.slice(0, Math.max(firstUser, 0)).filter(activity => activity.kind !== "message");
-  const prompt = orderedActivities[firstUser];
   const hasLaterCommentary = lastAssistant >= 0 && orderedActivities.slice(lastAssistant + 1).some(activity =>
     activity.kind === "message" && activity.role === "assistant" && activity.attributes["message.phase"] === "commentary");
   if (hasLaterCommentary) {
@@ -98,6 +98,8 @@ function repeatsPrompt(activity: InvocationActivity, prompt: InvocationActivity 
 }
 
 function promptActivityIndex(activities: readonly InvocationActivity[]): number {
+  const triggerPrompt = activities.findIndex(activity => activity.attributes["message.trigger"] === true);
+  if (triggerPrompt >= 0) return triggerPrompt;
   for (let index = 0; index < activities.length; index += 1) {
     const activity = activities[index]!;
     if (activity.kind === "message"
@@ -105,9 +107,6 @@ function promptActivityIndex(activities: readonly InvocationActivity[]): number 
       && activity.name !== "agent.input.message"
       && activity.attributes["input.mode"] !== "steer") return index;
   }
-  // The input history marks the message that started the run. Older records have no mark: take their last user message.
-  const triggerPrompt = activities.findIndex(activity => activity.attributes["message.trigger"] === true);
-  if (triggerPrompt >= 0) return triggerPrompt;
   const inputPrompt = activities.findLastIndex(activity => activity.role === "user"
     && activity.attributes["message.origin"] === "invocation-input");
   if (inputPrompt >= 0) return inputPrompt;

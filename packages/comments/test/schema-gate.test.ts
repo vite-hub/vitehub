@@ -97,8 +97,8 @@ describe("a Database that the app migrates", () => {
     const comments = defineComments({ authorize: () => true })
     // SAFETY: the libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
     installComments(comments, { database: drizzle({ client }) as unknown as CommentsDatabase })
-    const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
-    const response = await app.fetch(new Request("http://site.test/api/_vitehub/comments/threads?page=/"))
+    const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
+    const response = await app.fetch(new Request("http://site.test/_vitehub/comments/threads?page=/"))
     expect(response.status).toBe(503)
     expect(await response.json()).toMatchObject({ error: { code: "COMMENTS_R0019", fix: expect.stringContaining("commentsMigrationSql") } })
     client.close()
