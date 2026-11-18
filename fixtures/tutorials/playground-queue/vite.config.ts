@@ -5,7 +5,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       host: "node",
-      queue: true,
     }),
   ],
 })

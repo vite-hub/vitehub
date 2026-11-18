@@ -36,7 +36,6 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     host: 'node',
-    connections: true,
     env: {
       server: {
         google: {
@@ -60,7 +59,6 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [vitehub({
     host: 'node',
-    connections: true,
     env: {
       server: {
         google: {
@@ -83,7 +81,6 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [vitehub({
     host: 'node',
-    connections: true,
     env: {
       server: {
         google: {
@@ -98,7 +95,7 @@ export default defineConfig({
 ::::
 :::
 
-- `connections: true` turns on Connections.
+- You do not add a `connections` option. The Connection file that you create later, in `server/connections/`, turns on Connections.
 - `env.server.google` reads your Google client ID and secret from environment variables. `secret: true` hides the value until your code calls `unseal()`.
 
 Connections encrypts what it stores with a key. Make a random key:

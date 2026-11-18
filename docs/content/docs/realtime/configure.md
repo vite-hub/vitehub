@@ -11,7 +11,7 @@ icon: i-lucide-sliders-horizontal
 A room driver holds a document's live Yjs state, and makes sure that every
 client of a document edits the same state. Set it with `realtime.driver`
 in the ViteHub options in `nuxt.config.ts` or `vite.config.ts`, as in
-[Get started](/docs/realtime/get-started#configure-realtime).
+[Get started](/docs/realtime/get-started#define-realtime).
 
 | Driver | Use |
 | --- | --- |
@@ -51,7 +51,6 @@ export default defineNuxtConfig({
     host: 'node',
     // `server/databases/default.ts` defines the Default Database with `dialect: 'postgresql'`
     database: true,
-    realtime: true,
   },
 })
 ```
@@ -69,7 +68,6 @@ export default defineConfig({
       host: 'node',
       // `server/databases/default.ts` defines the Default Database with `dialect: 'postgresql'`
       database: true,
-      realtime: true,
     }),
     nitro(),
   ],
@@ -88,7 +86,6 @@ export default defineConfig({
       host: 'node',
       // `server/databases/default.ts` defines the Default Database with `dialect: 'postgresql'`
       database: true,
-      realtime: true,
     }),
   ],
 })

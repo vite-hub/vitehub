@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs"
-
+import { hasDefinitionFiles } from "@vite-hub/internal/definition-catalog"
 import { hostFromNitroPreset, detectHost } from "@vite-hub/internal/deployment"
 import { featureHosts, featureIds, featurePackages, features, featureSupport, impliedFeatures, impliedInline } from "@vite-hub/internal/features"
 import { join } from "pathe"
@@ -85,7 +84,7 @@ function readEnabled(project: SetupProject, id: FeatureId): Enabled {
   const discovery = features[id].enabledByDiscovery
   const directories = project.serverDirs ?? (project.framework === "nuxt" ? undefined : [join(project.root, "server")])
   if (discovery && !directories) return { enabled: "unknown", reason: "default" }
-  const discovered = discovery?.some(file => directories?.some(directory => existsSync(join(directory, file))))
+  const discovered = discovery?.some(file => directories?.some(directory => hasDefinitionFiles(join(directory, file))))
   return { enabled: discovered ? "on" : "off", reason: "default" }
 }
 

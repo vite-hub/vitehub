@@ -143,7 +143,6 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     host: 'node',
-    connections: true,
     env: {
       server: {
         github: {
@@ -166,7 +165,6 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [vitehub({
     host: 'node',
-    connections: true,
     env: {
       server: {
         github: {
@@ -188,7 +186,6 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [vitehub({
     host: 'node',
-    connections: true,
     env: {
       server: {
         github: {

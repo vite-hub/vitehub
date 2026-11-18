@@ -3,7 +3,7 @@ import { readdir, readFile, rm, rmdir, writeFile } from "node:fs/promises"
 import process from "node:process"
 
 import { editViteHubConfig, locateViteHubConfig } from "@vite-hub/internal/config-edit"
-import { listMatchingFiles } from "@vite-hub/internal/definition-catalog"
+import { hasDefinitionFiles, listMatchingFiles } from "@vite-hub/internal/definition-catalog"
 import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { dirname, join, relative } from "pathe"
 
@@ -183,6 +183,8 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   const deleted = simulate([...edits.values()]).status
   const blocking: SetupReference[] = []
   const directories = project.serverDirs ?? []
+  // Features that only their Definition folder turns on.
+  const discovered = new Set<FeatureId>()
   for (const id of args.features) {
     const state = enabled(deleted, id)
     if (state.enabled === "off") continue
@@ -192,10 +194,14 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
       throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_IMPLIED({ by: by.join(", "), feature: id }), setupExitCodes.conflict, { data: { impliedBy: by } })
     }
     if (state.reason === "default" && !features[id].enabledByDefault && state.enabled === "on") {
-      // A discovered file, such as `server/comments.ts`, turns the feature on without a key.
-      for (const directory of directories) {
-        for (const name of features[id].enabledByDiscovery ?? []) {
-          if (existsSync(join(directory, name))) blocking.push({ feature: id, file: relative(project.root, join(directory, name)) })
+      // A discovered file, such as `server/comments.ts`, turns the feature on without a key. The starters of a
+      // Definition folder go below, and its other files block there.
+      if (features[id].definition) discovered.add(id)
+      else {
+        for (const directory of directories) {
+          for (const name of features[id].enabledByDiscovery ?? []) {
+            if (hasDefinitionFiles(join(directory, name))) blocking.push({ feature: id, file: relative(project.root, join(directory, name)) })
+          }
         }
       }
     }
@@ -217,7 +223,8 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
     return key?.kind === "literal" ? key.value : undefined
   }
   for (const id of turnedOff) {
-    const by = remaining.filter(dependent => optionPrerequisites(dependent, valueOf(afterKeys, dependent), enabled(after.status, dependent).enabled === "unknown").includes(id))
+    // Only a key that the CLI cannot read leaves the options unknown. A feature that is unknown through discovery has none.
+    const by = remaining.filter(dependent => optionPrerequisites(dependent, valueOf(afterKeys, dependent), enabled(after.status, dependent).enabled === "unknown" && enabled(after.status, dependent).reason === "config").includes(id))
     if (by.length) throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_REQUIRED({ by: by.join(", "), feature: id }), setupExitCodes.conflict, { data: { impliedBy: by } })
   }
   const packagesOf = (id: FeatureId, value: JsonValue | undefined, active = wasEnabled) => {
@@ -277,6 +284,11 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
     const used = [...new Set(blocking.map(item => item.feature))].join(", ")
     throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_IN_USE({ features: used, references: list }), setupExitCodes.conflict, { data: { references: blocking } })
   }
+  // When the starters are the only Definitions of a feature and they go, the feature is off without `<feature>: false`.
+  const emptied = args.keepFiles ? [] : [...discovered].filter(id => !blocking.some(item => item.feature === id))
+  const written = emptied.length
+    ? simulate([...edits].flatMap(([id, edit]) => !emptied.includes(id) ? [edit] : keys[id] ? [{ key: id, op: "delete" as const }] : []))
+    : after
 
   const prod: string[] = []
   const dev: string[] = []
@@ -292,8 +304,8 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   const command = uninstall.length ? [project.packageManager, ...uninstallArgs(project.packageManager, uninstall)].join(" ") : undefined
 
   const changes: SetupChange[] = []
-  if (after.code !== undefined && after.code !== before) {
-    changes.push({ after: after.code, before, diff: setupDiff(project.configFile!, before, after.code), kind: "patch", path: project.configFile! })
+  if (written.code !== undefined && written.code !== before) {
+    changes.push({ after: written.code, before, diff: setupDiff(project.configFile!, before, written.code), kind: "patch", path: project.configFile! })
   }
   const deletes: PlannedRemove["deletes"] = []
   const kept: SetupRemovePlan["kept"][number][] = []
@@ -331,7 +343,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
     turnedOff,
     uninstall: { devPackages: dev, packages: prod, ...(command ? { command } : {}) },
   }
-  return { deletes, plan, uninstall, ...(after.code !== undefined && after.code !== before ? { configFile: { after: after.code, before, path: project.configFile! } } : {}) }
+  return { deletes, plan, uninstall, ...(written.code !== undefined && written.code !== before ? { configFile: { after: written.code, before, path: project.configFile! } } : {}) }
 }
 
 /** Deletes `path` and then each folder that is empty after it, such as the `server/queues` that `add` created. */

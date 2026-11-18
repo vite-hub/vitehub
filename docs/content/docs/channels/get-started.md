@@ -24,14 +24,14 @@ Add Channels and the Agent and Workflow packages that receive webhooks:
 pnpm add @vite-hub/channels @vite-hub/agent @vite-hub/workflow
 ```
 
-Add `channels: true` and `agent: true` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other options of your app.
+Add `agent: true` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other options of your app.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', agent: true, channels: true },
+  vitehub: { host: 'node', agent: true },
 })
 ```
 ::::
@@ -43,7 +43,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', agent: true, channels: true }), nitro()],
+  plugins: [vitehub({ host: 'node', agent: true }), nitro()],
 })
 ```
 ::::
@@ -54,13 +54,13 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', agent: true, channels: true })],
+  plugins: [vitehub({ host: 'node', agent: true })],
 })
 ```
 ::::
 :::
 
-- `channels: true` finds Channel files in `server/channels`.
+- You do not add a `channels` option. The Channel files in `server/channels` turn on Channels.
 - `agent: true` serves the webhook route for Channels that receive messages.
 
 

@@ -105,7 +105,10 @@ export interface FeatureDefinition<TId extends FeatureId = FeatureId> {
   docs: `/docs/${string}`
   /** Whether the feature is unconditionally on when the app does not set its key. */
   enabledByDefault: boolean
-  /** File names in the configured server directories (default `server/`) that enable an unset feature. `false` disables discovery. */
+  /**
+   * Files and folders in the configured server directories (default `server/`) that turn on a feature whose key is
+   * unset. A key of `false` keeps the feature off.
+   */
   enabledByDiscovery?: readonly string[]
   /** Packages that the app installs for this feature, in `pnpm add` order. */
   packages: readonly string[]
@@ -179,6 +182,7 @@ export default defineAgent({
 })
 `, { folder: "agent", suffix: "agent" }),
     docs: "/docs/agents",
+    enabledByDiscovery: ["agents"],
     hosts: {
       ...everywhere("nitro", "Nitro"),
       deno: native("nitro", "Nitro", "Agent routes run in the Nitro output. The Agent Deno runtime is not supported on this host."),
@@ -192,6 +196,7 @@ export default defineAgent({
   }),
   auth: feature({
     docs: "/docs/auth",
+    enabledByDiscovery: sourceFiles("auth"),
     hosts: everywhere("better-auth", "Better Auth"),
     id: "auth",
     packages: ["@vite-hub/auth", "better-auth"],
@@ -217,6 +222,7 @@ export default defineAgent({
   }),
   browser: feature({
     docs: "/docs/browser",
+    enabledByDiscovery: ["browsers"],
     hosts: {
       cloudflare: native("cloudflare", "Browser Run", "Cloudflare Browser Run binding and provider output."),
       deno: unsupported("Browser Definitions do not have a Deno provider."),
@@ -248,6 +254,7 @@ export default defineAgent({
   }),
   channels: feature({
     docs: "/docs/channels",
+    enabledByDiscovery: ["channels"],
     hosts: everywhere("nitro", "Nitro"),
     id: "channels",
     packages: ["@vite-hub/channels"],
@@ -266,6 +273,7 @@ export default defineAgent({
   }),
   connections: feature({
     docs: "/docs/connections",
+    enabledByDiscovery: ["connections"],
     hosts: everywhere("database", "Database"),
     id: "connections",
     implies: [{ feature: "database" }],
@@ -392,6 +400,7 @@ export default defineQueue<{ id: string }>(async ({ payload }) => {
 })
 `, { suffix: "queue" }),
     docs: "/docs/queue",
+    enabledByDiscovery: ["queues"],
     hosts: {
       cloudflare: native("cloudflare", "Queues", "Cloudflare Queues bindings and consumers."),
       deno: unsupported("No Deno Queue driver is provided."),
@@ -434,6 +443,7 @@ export default defineRealtime({
 `),
     developmentOverrides: ["cloudflare", "deno", "netlify", "vercel"],
     docs: "/docs/realtime",
+    enabledByDiscovery: ["realtime"],
     hosts: {
       cloudflare: native("cloudflare", "Durable Objects", "Cloudflare Durable Objects run the production rooms."),
       deno: unsupported("Realtime has no distributed Deno driver, and process memory is rejected for the Deno host."),
@@ -476,6 +486,7 @@ export default defineSchedule({
 `, { suffix: "schedule" }),
     developmentOverrides: ["cloudflare", "netlify", "vercel"],
     docs: "/docs/schedule",
+    enabledByDiscovery: ["schedules"],
     hosts: {
       cloudflare: native("cloudflare", "Cron triggers", "Cloudflare scheduled events and Nitro Provider Wake."),
       deno: native("deno", "Deno.cron", "`Deno.cron` output that the generated `.output/main.ts` loads before the Nitro server."),
@@ -497,6 +508,7 @@ export default defineWorkflow(${JSON.stringify(name)}, async (payload: { id: str
 })
 `, { folder: "index", suffix: "workflow" }),
     docs: "/docs/workflows",
+    enabledByDiscovery: ["workflows"],
     hosts: {
       cloudflare: native("cloudflare", "CF Workflows", "Cloudflare Workflows provider."),
       deno: explicit("workflow.driver", "OpenWorkflow", "Set `workflow.driver` to \"openworkflow\" with `workflow.postgres.url`, and start its worker. A build without a driver fails. Workflow that only the Agent turns on runs inline in the request process, so a restart loses the run."),
@@ -519,6 +531,7 @@ export default defineWorkflow(${JSON.stringify(name)}, async (payload: { id: str
   workspace: feature({
     developmentOverrides: ["cloudflare", "deno", "netlify", "vercel"],
     docs: "/docs/workspace",
+    enabledByDiscovery: ["workspaces"],
     hosts: {
       cloudflare: native("memory", "Artifacts / GitHub", "Memory by default, or Cloudflare Artifacts beta and GitHub for durable state.", "process-local"),
       deno: explicit("workspace.store", "GitHub", "Select the GitHub Workspace Store explicitly for durable state."),

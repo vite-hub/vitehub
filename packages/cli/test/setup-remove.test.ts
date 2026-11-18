@@ -44,7 +44,8 @@ describe("vitehub remove", () => {
     expect(exitCode, JSON.stringify(json.error)).toBe(0)
     expect(loadConfig).not.toHaveBeenCalled()
     expect(json).toMatchObject({ features: ["schedule"], status: "applied", turnedOff: ["schedule"], uninstall: { command: "pnpm remove @vite-hub/schedule", packages: ["@vite-hub/schedule"] } })
-    expect(json.changes.map(change => [change.kind, change.path])).toEqual([["patch", "vite.config.ts"], ["delete", "server/schedules/nightly.ts"]])
+    // The starter turned Schedule on, so neither command touches the config.
+    expect(json.changes.map(change => [change.kind, change.path])).toEqual([["delete", "server/schedules/nightly.ts"]])
     expect(pm.calls.at(-1)).toEqual(["pnpm", "remove", "@vite-hub/schedule"])
     expect(await snapshot(root)).toEqual(original)
     expect(existsSync(join(root, "server"))).toBe(false)
@@ -594,7 +595,7 @@ describe("vitehub remove", () => {
     })
 
     const refused = await remove(["comments", "--dry-run"], root)
-    expect(refused.exitCode).toBe(3)
+    expect(refused.exitCode, JSON.stringify(refused.json.error)).toBe(3)
     expect(refused.json.references).toEqual([{ feature: "comments", file: "server/comments.ts" }])
 
     const forced = await remove(["comments", "--yes", "--force", "--no-uninstall"], root)

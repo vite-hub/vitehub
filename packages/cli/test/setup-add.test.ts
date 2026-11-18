@@ -675,6 +675,17 @@ describe("vitehub add", () => {
     expect(await readFile(join(root, "server/queues/welcome-email.ts"), "utf8")).toBe(`${starter}// edited\n`)
   })
 
+  it("writes no key when the starter Definition turns the feature on", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ host: "cloudflare" }') })
+
+    const { exitCode, json } = await add(["queue", "--name", "welcome-email", "--no-install", "--yes"], root)
+
+    expect(exitCode, JSON.stringify(json.error)).toBe(0)
+    expect(json.changes.map(change => change.path)).toEqual(["server/queues/welcome-email.ts"])
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(viteConfig('{ host: "cloudflare" }'))
+    expect((await runSetup<SetupStatus>(["status", "--json"], root)).json.features.find(item => item.id === "queue")).toMatchObject({ enabled: "on", reason: "default" })
+  })
+
   it("rejects --name for a feature without Definitions and an unsafe name", async () => {
     const root = await copyFixture("cloudflare")
 

@@ -87,51 +87,33 @@ describe("built-in host integration", () => {
     expect((config as typeof config & { nitro?: { preset?: string } }).nitro?.preset).toBeTruthy()
   })
 
-  it.each([undefined, true, false] as const)("checks server/agents against agent %s", async (agent) => {
-    vi.stubEnv("VITEST", undefined)
-    onTestFinished(() => { vi.unstubAllEnvs() })
+  it.each([undefined, true, false] as const)("turns Agents on from server/agents with agent %s", async (agent) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-"))
-    // Vite rejects at the first failed configResolved hook while the other hooks still write type files, so retry.
     onTestFinished(() => rm(root, { force: true, maxRetries: 5, recursive: true }))
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "labeller.ts"), "export default {}\n")
-    const resolve = () => resolveConfig({
+    // `vitehub()` looks for Definition files in the project of the working directory.
+    vi.spyOn(process, "cwd").mockReturnValue(root)
+    onTestFinished(() => { vi.restoreAllMocks() })
+    const config = await resolveConfig({
+      configFile: false,
       root,
       plugins: [vitehub({ host: "cloudflare", blob: false, env: false, queue: false, rateLimit: false, workflow: false, ...(agent === undefined ? {} : { agent }) })],
     }, "build")
-    if (agent === undefined) {
-      // An app that adds hubAgent() itself is not missing the option.
-      await expect(resolveConfig({
-        root,
-        plugins: [vitehub({ host: "cloudflare", blob: false, env: false, queue: false, rateLimit: false, workflow: false }), Promise.resolve({ name: "@vite-hub/agent/vite" })],
-      }, "build")).resolves.toBeTruthy()
-    }
-    if (agent === undefined) await expect(resolve()).rejects.toMatchObject({ code: "VITE_HUB_AGENT_OPTION_MISSING", message: expect.stringContaining("server/agents/labeller.ts defines an Agent") })
-    else await expect(resolve()).resolves.toBeTruthy()
+    expect(config.plugins.some(plugin => plugin.name === "@vite-hub/agent/vite")).toBe(agent !== false)
   })
 
-  it.each([
-    { vitest: undefined, command: "build", mode: "production" },
-    { vitest: undefined, command: "build", mode: "test" },
-    { vitest: undefined, command: "serve", mode: "test" },
-    { vitest: "true", command: "serve", mode: "test" },
-    { vitest: "true", command: "serve", mode: "integration" },
-  ] as const)("checks missing agent with Vitest=$vitest, command=$command, mode=$mode", async ({ vitest, command, mode }) => {
-    vi.stubEnv("VITEST", vitest)
-    onTestFinished(() => { vi.unstubAllEnvs() })
-    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-option-test-"))
+  it("fails when the Vite root has Definition files that the working directory does not have", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-root-"))
     // Vite rejects at the first failed configResolved hook while the other hooks still write type files, so retry.
     onTestFinished(() => rm(root, { force: true, maxRetries: 5, recursive: true }))
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "labeller.ts"), "export default {}\n")
-    const config = resolveConfig({
+    await expect(resolveConfig({
       configFile: false,
-      mode,
       root,
       plugins: [vitehub({ host: "node", blob: false, env: false, queue: false, rateLimit: false, workflow: false })],
-    }, command)
-    if (vitest) await expect(config).resolves.toBeTruthy()
-    else await expect(config).rejects.toMatchObject({ code: "VITE_HUB_AGENT_OPTION_MISSING" })
+    }, "build")).rejects.toMatchObject({ code: "VITE_HUB_DEFINITION_ROOT_MISMATCH" })
   })
 
   it("applies deployment-owned Nitro configuration only during build", async () => {

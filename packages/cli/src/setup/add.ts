@@ -406,6 +406,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   for (const id of new Set([...addedFeatures, ...inputFeatures.filter(id => args.options[id])])) {
     const next = nextValue(id, status, project, args.options[id])
     expression ||= next === "expression"
+    // The starter Definition turns the feature on, so `<feature>: true` would only repeat it.
+    if (next !== "expression" && next?.value === true && args.name !== undefined && args.features.includes(id) && features[id].definition && features[id].enabledByDiscovery) continue
     if (next !== undefined) edits.push({ key: id, op: "set", value: next === "expression" ? mergeValue(true, args.options[id])! : next.value })
   }
 
