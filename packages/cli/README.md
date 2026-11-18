@@ -18,7 +18,7 @@ pnpm vitehub --help
 
 `@vite-hub/cli` has no binary of its own. A custom entry calls `runViteHubCliEntrypoint()`, as the `vitehub` binary of `vite-hub` does. It requires Vite, and Nuxt when the project has a Nuxt config but no Vite config.
 
-`@vite-hub/cli` and `vite-hub` require Node.js 24.11 or newer.
+`@vite-hub/cli` and `vite-hub` require Node.js 24.15 or newer.
 
 Print the installed CLI version without loading project config:
 

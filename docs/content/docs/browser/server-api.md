@@ -21,7 +21,7 @@ Start with Browser Definitions, one file per browser task. Use Browser actions f
 | `playwright`, `cdp` from `vite-hub/browser/controllers/playwright` and `vite-hub/browser/controllers/cdp` | Attach Playwright or CDP to a low-level session. |
 | `hubBrowser` from `@vite-hub/browser/vite` | Add the Vite plugin without the `vite-hub` package. |
 
-Libraries and custom Vite setups import the same APIs from `@vite-hub/browser` and its subpaths. The package needs Node.js 24.11 or newer.
+Libraries and custom Vite setups import the same APIs from `@vite-hub/browser` and its subpaths. The package needs Node.js 24.15 or newer.
 
 ## Definition API
 

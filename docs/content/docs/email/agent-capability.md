@@ -104,7 +104,7 @@ Do not pass free model output into a trusted HTML fragment.
 
 ## Requirements
 
-- Node.js 24.11 or later.
+- Node.js 24.15 or later.
 - Vite 8 or later and one provider (`resend` or `cloudflare`).
 - The provider must allow the `from` address.
 - Generated Agent routes get the Email runtime (`email` from `vite-hub/email`) only while the Email Vite plugin is on.

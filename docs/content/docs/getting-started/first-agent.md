@@ -16,7 +16,7 @@ offline and needs no model account or credentials.
 ## Before you start
 
 Complete [Installation](/docs/getting-started/installation), check
-`/api/health`, and continue in that app with Node.js 24.11 or newer and pnpm.
+`/api/health`, and continue in that app with Node.js 24.15 or newer and pnpm.
 
 ::run-tutorial{to="/learn/first-agent"}
 ::

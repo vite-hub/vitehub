@@ -17,7 +17,7 @@ You start with an offline Driver, the part of the Agent that makes a fixed reply
 
 The [complete source](https://github.com/vite-hub/vitehub/tree/main/fixtures/tutorials/chat-app) has the app, a sample environment, and tests. It follows the finished app of the [Nuxt UI chat tutorial](https://ui.nuxt.com/blog/how-to-build-an-ai-chat) with the [ViteHub chat components](/docs/ui/blocks/chat-app).
 
-You need Node.js 24.11 or newer, Git, Corepack, and a writable directory. The first install and build take some time. Offline mode needs no account, key, or paid request. Model mode needs a Vercel AI Gateway account and key, a network, and a model the account can use.
+You need Node.js 24.15 or newer on 24.x, or 26 or newer, Git, Corepack, and a writable directory. The first install and build take some time. Offline mode needs no account, key, or paid request. Model mode needs a Vercel AI Gateway account and key, a network, and a model the account can use.
 
 ::warning
 Provider calls can cost money. Check model prices and set a provider budget before you use model mode.
@@ -74,7 +74,7 @@ The checkout has the finished files to read and edit. Paths start from `fixtures
     "typescript": "6.0.3",
     "vue-tsc": "3.3.12"
   },
-  "engines": { "node": ">=24.11.0" }
+  "engines": { "node": "^24.15.0 || >=26.0.0" }
 }
 ```
 
