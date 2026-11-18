@@ -405,6 +405,31 @@ export default {
     })
   })
 
+  it("resolves Nitro aliases, roots, and templates while preserving virtual handlers", async () => {
+    const rootDir = await createRoutesProject()
+    const configPath = join(rootDir, "vite.config.mjs")
+    await writeFile(configPath, `export default { nitro: {
+      rootDir: ${JSON.stringify(join(rootDir, "backend"))},
+      alias: { "#health": ${JSON.stringify(join(rootDir, "../packages/agent/dist/health.mjs"))} },
+      handlers: [
+        { handler: "#health", route: "/health" },
+        { handler: "handlers/status.ts", route: "/status" },
+        { handler: "{{ rootDir }}/handlers/template.ts", route: "/template" },
+        { handler: "#virtual-handler", route: "/virtual" },
+        { handler: "\\u0000virtual-handler", route: "/null-virtual" },
+      ],
+    } }`)
+    const result = await runRoutes(rootDir, ["--json"])
+    expect(result.exitCode).toBe(0)
+    expect(JSON.parse(result.stdout).routes).toEqual([
+      { handler: "@vite-hub/agent/dist/health.mjs", owner: "@vite-hub/agent", method: "*", route: "/health" },
+      { handler: "backend/handlers/status.ts", owner: "app", method: "*", route: "/status" },
+      { handler: "backend/handlers/template.ts", owner: "app", method: "*", route: "/template" },
+      { handler: "#virtual-handler", owner: "app", method: "*", route: "/virtual" },
+      { handler: "\u0000virtual-handler", owner: "app", method: "*", route: "/null-virtual" },
+    ])
+  })
+
   it("says so when no plugin adds a route", async () => {
     const rootDir = await createTempDir()
     const stdout = stream()

@@ -185,7 +185,17 @@ async function loadNuxtViteConfig(rootDir: string, command: "build" | "serve", m
     const config = await resolveConfig(inlineConfig, command, mode ?? (command === "build" ? "production" : "development"))
     return {
       // Vite plugins write their routes to the Vite config, Nuxt modules to `nitro.handlers` and `serverHandlers`.
-      nitro: { handlers: [...nitroHandlers(Reflect.get(config, "nitro")), ...nitroHandlers(nuxt.options.nitro), ...nuxt.options.serverHandlers] },
+      nitro: { handlers: [
+        ...resolveRouteHandlers({
+          ...Object(Reflect.get(config, "nitro")),
+          alias: { ...nuxt.options.alias, ...nuxt.options.nitro.alias, ...Reflect.get(Object(Reflect.get(config, "nitro")), "alias") },
+        }, config.root),
+        ...resolveRouteHandlers({
+          ...nuxt.options.nitro,
+          alias: { ...nuxt.options.alias, ...nuxt.options.nitro.alias },
+          handlers: [...nitroHandlers(nuxt.options.nitro), ...nuxt.options.serverHandlers],
+        }, nuxt.options.rootDir || rootDir),
+      ] },
       plugins: config.plugins,
       root: config.root,
     }
@@ -198,6 +208,36 @@ async function loadNuxtViteConfig(rootDir: string, command: "build" | "serve", m
 function nitroHandlers(nitro: unknown): unknown[] {
   const handlers: unknown = Reflect.get(Object(nitro), "handlers")
   return Array.isArray(handlers) ? handlers : []
+}
+
+// Match Nitro's path templates, longest-prefix aliases, and root-relative files.
+function resolveRouteHandlers(nitro: unknown, projectRoot: string): unknown[] {
+  const options = Object(nitro)
+  const rootDir = resolve(projectRoot, Reflect.get(options, "rootDir") || ".")
+  const pathOptions = {
+    ...options,
+    rootDir,
+    buildDir: resolve(rootDir, Reflect.get(options, "buildDir") || "."),
+  }
+  const aliases = Object.entries(Reflect.get(options, "alias") || {})
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    .sort(([a], [b]) => b.length - a.length)
+  return nitroHandlers(nitro).map((entry) => {
+    const handler: unknown = Reflect.get(Object(entry), "handler")
+    if (typeof handler !== "string") return entry
+    let file = handler.replace(/{{ ?([\w.]+) ?}}/g, (_, key: string) => {
+      const value = key.split(".").reduce<unknown>((object, part) => Reflect.get(Object(object), part), pathOptions)
+      return value ? String(value) : key
+    })
+    const visited = new Set<string>()
+    while (true) {
+      const alias = aliases.find(([key]) => file === key || file.startsWith(`${key}/`))
+      if (!alias || visited.has(alias[0])) break
+      visited.add(alias[0])
+      file = alias[1] + file.slice(alias[0].length)
+    }
+    return { ...Object(entry), handler: /^[#\u0000]/.test(file) ? file : resolve(rootDir, file) }
+  })
 }
 
 function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnOptions = {}) {
@@ -346,7 +386,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     const plugins = nuxtConfig?.plugins ?? config.plugins
     return {
       contribution: await collectViteHubCliContribution(plugins),
-      handlers: nitroHandlers(nuxtConfig ? nuxtConfig.nitro : config.nitro),
+      handlers: resolveRouteHandlers(nuxtConfig ? nuxtConfig.nitro : config.nitro, nuxtConfig?.root || config.root || cwd),
       operations: await loadCliOperations(plugins, stderr),
       plugins,
       rootDir: resolve(nuxtConfig?.root || config.root || cwd),

@@ -362,7 +362,7 @@ function readRoutes(rootDir: string, handlers: readonly unknown[]): RouteReport[
     const methods: unknown = Reflect.get(Object(entry), "method")
     const method = typeof methods === "string" ? methods.toUpperCase() : Array.isArray(methods) && methods.length ? methods.map(String).join(",").toUpperCase() : "*"
     const report: RouteReport = {
-      ...routeHandler(rootDir, resolve(rootDir, handler)),
+      ...(/^[#\u0000]/.test(handler) ? { handler, owner: "app" } : routeHandler(rootDir, resolve(rootDir, handler))),
       method,
       ...(middleware ? { middleware: true } : {}),
       route: typeof route === "string" && route ? route : "/**",
