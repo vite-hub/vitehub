@@ -259,12 +259,12 @@ export type ContentCollectionDefinition<TFields extends ContentFields = ContentF
 /** Check the fields and give plain Valibot schemas the JSON Schema they lack, so forms and tools see their shape. */
 function definitionFields<TFields extends ContentFields>(helper: string, path: string, fields: TFields): TFields {
   if (Object(fields) !== fields || Array.isArray(fields)) {
-    throw invalidDefinition(`${helper}(${JSON.stringify(path)}) requires fields: a record of Standard Schema validators.`)
+    throw contentErrorDiagnostics.CONTENT_DOCUMENTS_FIELDS_INVALID({ problem: `${helper}(${JSON.stringify(path)}) requires fields: a record of Standard Schema validators.` })
   }
   const checked: Record<string, ContentField> = {}
   for (const [name, field] of Object.entries(fields)) {
     if (!isStandardSchema(field)) {
-      throw invalidDefinition(`${helper}(${JSON.stringify(path)}) field ${JSON.stringify(name)} must be a Standard Schema validator, such as z.string() or v.string().`)
+      throw contentErrorDiagnostics.CONTENT_DOCUMENTS_FIELDS_INVALID({ problem: `${helper}(${JSON.stringify(path)}) field ${JSON.stringify(name)} must be a Standard Schema validator, such as z.string() or v.string().` })
     }
     checked[name] = withValibotJsonSchema(field)
   }
@@ -283,13 +283,13 @@ function definitionFields<TFields extends ContentFields>(helper: string, path: s
  * })
  */
 export function documents<const TFields extends ContentFields>(options: DocumentsOptions<TFields>): DocumentsDefinition<TFields> {
-  if (Object(options) !== options) throw invalidDefinition("documents() requires { path, fields }.")
+  if (Object(options) !== options) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_OPTIONS_INVALID({ problem: "documents() requires { path, fields }." })
   const globs = ([] as string[]).concat(options.path)
-  if (!globs.length || globs.some(glob => String(glob) !== glob || !glob)) throw invalidDefinition("documents() requires a path glob such as 'posts/**/*.md', or a list of them.")
-  if (new Set(globs).size !== globs.length) throw invalidDefinition(`documents() paths ${JSON.stringify(globs)} list a glob twice.`)
+  if (!globs.length || globs.some(glob => String(glob) !== glob || !glob)) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_PATH_INVALID({ problem: "documents() requires a path glob such as 'posts/**/*.md', or a list of them." })
+  if (new Set(globs).size !== globs.length) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_PATH_INVALID({ problem: `documents() paths ${JSON.stringify(globs)} list a glob twice.` })
   for (const glob of globs) {
     if (!/[*?]/.test(glob)) {
-      throw invalidDefinition(`documents() path ${JSON.stringify(glob)} has no wildcard. Use singleton({ path: ${JSON.stringify(glob)} }) for one document, or a glob such as 'posts/*.md'.`)
+      throw contentErrorDiagnostics.CONTENT_DOCUMENTS_PATH_INVALID({ problem: `documents() path ${JSON.stringify(glob)} has no wildcard. Use singleton({ path: ${JSON.stringify(glob)} }) for one document, or a glob such as 'posts/*.md'.` })
     }
   }
   const display = globs.join(", ")
@@ -298,10 +298,10 @@ export function documents<const TFields extends ContentFields>(options: Document
   const compiled = compileDocumentsPath(concrete)
   const fields = definitionFields("documents", display, options.fields)
   if (locales && Object.hasOwn(fields, "derivedFrom")) {
-    throw invalidDefinition(`documents(${JSON.stringify(display)}) has locales, so derivedFrom is the reserved key where a translation records its source. Rename the field.`)
+    throw contentErrorDiagnostics.CONTENT_DOCUMENTS_FIELD_RESERVED({ path: display })
   }
   if (options.search !== undefined && (!Array.isArray(options.search) || options.search.some(field => String(field) !== field))) {
-    throw invalidDefinition(`documents(${JSON.stringify(display)}) search must be a list of field names.`)
+    throw contentErrorDiagnostics.CONTENT_DOCUMENTS_OPTIONS_INVALID({ problem: `documents(${JSON.stringify(display)}) search must be a list of field names.` })
   }
   assertUrl("documents", display, options.url, options.fields, locales !== undefined)
   const definition: { -readonly [K in keyof DocumentsDefinition<TFields>]: DocumentsDefinition<TFields>[K] } = {
@@ -336,19 +336,19 @@ const localeTag = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/
 function localesOption(display: string, globs: readonly string[], value: unknown): readonly string[] | undefined {
   const where = `documents(${JSON.stringify(display)})`
   if (value === undefined) {
-    if (globs.some(glob => glob.includes("{locale}"))) throw invalidDefinition(`${where} path uses {locale}, so it needs locales, such as locales: ['en', 'es'].`)
+    if (globs.some(glob => glob.includes("{locale}"))) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_LOCALES_INVALID({ problem: `${where} path uses {locale}, so it needs locales, such as locales: ['en', 'es'].` })
     return
   }
   if (!Array.isArray(value) || !value.length || value.some(locale => String(locale) !== locale || !localeTag.test(locale))) {
-    throw invalidDefinition(`${where} locales must be a non-empty list of locale tags, such as ['en', 'es']. The first one is the source locale.`)
+    throw contentErrorDiagnostics.CONTENT_DOCUMENTS_LOCALES_INVALID({ problem: `${where} locales must be a non-empty list of locale tags, such as ['en', 'es']. The first one is the source locale.` })
   }
-  if (new Set(value).size !== value.length) throw invalidDefinition(`${where} locales ${JSON.stringify(value)} list a locale twice.`)
+  if (new Set(value).size !== value.length) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_LOCALES_INVALID({ problem: `${where} locales ${JSON.stringify(value)} list a locale twice.` })
   for (const glob of globs) {
     const segments = glob.replace(/^\.?\/+/, "").split("/")
     const at = segments.indexOf("{locale}")
     const wildcard = segments.findIndex(segment => /[*?]/.test(segment))
     if (at < 0 || segments.lastIndexOf("{locale}") !== at || at > wildcard || segments.some((segment, index) => index !== at && segment.includes("{locale}"))) {
-      throw invalidDefinition(`${where} path ${JSON.stringify(glob)} must have {locale} once, as a whole folder before the first wildcard, such as 'docs/{locale}/**/*.md'.`)
+      throw contentErrorDiagnostics.CONTENT_DOCUMENTS_LOCALES_INVALID({ problem: `${where} path ${JSON.stringify(glob)} must have {locale} once, as a whole folder before the first wildcard, such as 'docs/{locale}/**/*.md'.` })
     }
   }
   // Ids are the path below the folder that the globs share, so that folder must include the locale folder.
@@ -357,7 +357,7 @@ function localesOption(display: string, globs: readonly string[], value: unknown
     return segments.slice(0, segments.findIndex(segment => /[*?]/.test(segment))).join("/")
   })
   if (!commonBase(folders).split("/").includes("{locale}")) {
-    throw invalidDefinition(`${where} paths must share the folder that holds {locale}, such as 'docs/{locale}/guides/*.md' and 'docs/{locale}/blog/*.md', so a document keeps its id in every locale.`)
+    throw contentErrorDiagnostics.CONTENT_DOCUMENTS_LOCALES_INVALID({ problem: `${where} paths must share the folder that holds {locale}, such as 'docs/{locale}/guides/*.md' and 'docs/{locale}/blog/*.md', so a document keeps its id in every locale.` })
   }
   return Object.freeze([...value])
 }
@@ -374,13 +374,13 @@ function labelOption(helper: string, path: string, value: unknown, plural: boole
   const singular = plural && value !== null && Object(value) === value ? text(Reflect.get(Object(value), "singular")) : undefined
   const many = plural && value !== null && Object(value) === value ? text(Reflect.get(Object(value), "plural")) : undefined
   if (singular && many) return { singular, plural: many }
-  throw invalidDefinition(`${helper}(${JSON.stringify(path)}) label must be a non-empty string${plural ? " or { singular, plural }, such as { singular: 'Person', plural: 'People' }" : ""}.`)
+  throw contentErrorDiagnostics.CONTENT_DOCUMENTS_LABEL_INVALID({ problem: `${helper}(${JSON.stringify(path)}) label must be a non-empty string${plural ? " or { singular, plural }, such as { singular: 'Person', plural: 'People' }" : ""}.` })
 }
 
 function titleFieldOption(helper: string, path: string, value: unknown, fields: ContentFields): string | undefined {
   if (value === undefined) return
   if (String(value) !== value || !Object.hasOwn(fields, value)) {
-    throw invalidDefinition(`${helper}(${JSON.stringify(path)}) titleField must name one of its fields, such as 'title'.`)
+    throw contentErrorDiagnostics.CONTENT_DOCUMENTS_LABEL_INVALID({ problem: `${helper}(${JSON.stringify(path)}) titleField must name one of its fields, such as 'title'.` })
   }
   return value
 }
@@ -394,43 +394,43 @@ function isComponentPropType(value: unknown): value is DocumentComponentProp["ty
 
 function documentComponents(path: string, components: unknown): Record<string, DocumentComponent> {
   const where = `documents(${JSON.stringify(path)}) components`
-  if (Object(components) !== components || Array.isArray(components)) throw invalidDefinition(`${where} must be a record of component definitions keyed by tag, such as { alert: {} }.`)
+  if (Object(components) !== components || Array.isArray(components)) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_COMPONENTS_INVALID({ problem: `${where} must be a record of component definitions keyed by tag, such as { alert: {} }.` })
   const result: Record<string, DocumentComponent> = {}
   for (const [tag, value] of Object.entries(Object(components))) {
-    if (!componentTag.test(tag)) throw invalidDefinition(`${where}: ${JSON.stringify(tag)} must be a lowercase Comark tag, such as alert or call-out.`)
-    if (Object(value) !== value || Array.isArray(value)) throw invalidDefinition(`${where}.${tag} must be an object, such as { kind: 'block' }.`)
+    if (!componentTag.test(tag)) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_COMPONENTS_INVALID({ problem: `${where}: ${JSON.stringify(tag)} must be a lowercase Comark tag, such as alert or call-out.` })
+    if (Object(value) !== value || Array.isArray(value)) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_COMPONENTS_INVALID({ problem: `${where}.${tag} must be an object, such as { kind: 'block' }.` })
     const kind: unknown = Reflect.get(Object(value), "kind")
-    if (kind !== undefined && kind !== "block" && kind !== "inline") throw invalidDefinition(`${where}.${tag}.kind must be 'block' or 'inline'.`)
+    if (kind !== undefined && kind !== "block" && kind !== "inline") throw contentErrorDiagnostics.CONTENT_DOCUMENTS_COMPONENTS_INVALID({ problem: `${where}.${tag}.kind must be 'block' or 'inline'.` })
     const component: DocumentComponent = { kind: kind === "inline" ? "inline" : "block" }
     for (const key of ["label", "description"] as const) {
       const text: unknown = Reflect.get(Object(value), key)
       if (text === undefined) continue
-      if (String(text) !== text) throw invalidDefinition(`${where}.${tag}.${key} must be a string.`)
+      if (String(text) !== text) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_COMPONENTS_INVALID({ problem: `${where}.${tag}.${key} must be a string.` })
       component[key] = text
     }
     const props: unknown = Reflect.get(Object(value), "props")
     if (props !== undefined) {
-      if (Object(props) !== props || Array.isArray(props)) throw invalidDefinition(`${where}.${tag}.props must be a record such as { type: { type: 'string' } }.`)
+      if (Object(props) !== props || Array.isArray(props)) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_COMPONENTS_INVALID({ problem: `${where}.${tag}.props must be a record such as { type: { type: 'string' } }.` })
       component.props = {}
       for (const [name, prop] of Object.entries(Object(props))) {
         const type: unknown = Reflect.get(Object(prop), "type")
-        if (!isComponentPropType(type)) throw invalidDefinition(`${where}.${tag}.props.${name}.type must be string, number, boolean, json, image, or file.`)
+        if (!isComponentPropType(type)) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_COMPONENTS_INVALID({ problem: `${where}.${tag}.props.${name}.type must be string, number, boolean, json, image, or file.` })
         const fallback: unknown = Reflect.get(Object(prop), "default")
         const store: unknown = Reflect.get(Object(prop), "store")
         if (type === "image" || type === "file") {
           const entry: DocumentComponentMediaProp = { type }
           if (store !== undefined) {
-            if (String(store) !== store || !store) throw invalidDefinition(`${where}.${tag}.props.${name}.store must be a Blob Store name, such as 'media'.`)
+            if (String(store) !== store || !store) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_COMPONENTS_INVALID({ problem: `${where}.${tag}.props.${name}.store must be a Blob Store name, such as 'media'.` })
             entry.store = store
           }
           if (fallback !== undefined) {
-            if (String(fallback) !== fallback) throw invalidDefinition(`${where}.${tag}.props.${name}.default must be a string, such as a Blob pathname.`)
+            if (String(fallback) !== fallback) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_COMPONENTS_INVALID({ problem: `${where}.${tag}.props.${name}.default must be a string, such as a Blob pathname.` })
             entry.default = fallback
           }
           component.props[name] = entry
           continue
         }
-        if (store !== undefined) throw invalidDefinition(`${where}.${tag}.props.${name}.store needs type 'image' or 'file'.`)
+        if (store !== undefined) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_COMPONENTS_INVALID({ problem: `${where}.${tag}.props.${name}.store needs type 'image' or 'file'.` })
         const entry: DocumentComponentProp = { type }
         if (fallback !== undefined) entry.default = JSON.parse(JSON.stringify(fallback))
         component.props[name] = entry
@@ -452,8 +452,8 @@ function documentComponents(path: string, components: unknown): Record<string, D
  * })
  */
 export function singleton<const TFields extends ContentFields>(options: SingletonOptions<TFields>): SingletonDefinition<TFields> {
-  if (Object(options) !== options) throw invalidDefinition("singleton() requires { path, fields }.")
-  if (String(options.path) !== options.path || !options.path) throw invalidDefinition("singleton() requires a file path such as 'settings.json'.")
+  if (Object(options) !== options) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_OPTIONS_INVALID({ problem: "singleton() requires { path, fields }." })
+  if (String(options.path) !== options.path || !options.path) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_PATH_INVALID({ problem: "singleton() requires a file path such as 'settings.json'." })
   const compiled = compileSingletonPath(options.path)
   const fields = definitionFields("singleton", options.path, options.fields)
   assertUrl("singleton", options.path, options.url, options.fields)
@@ -480,7 +480,7 @@ function editingOptions(helper: string, path: string, editing: unknown): { reado
   if (editing === undefined) return Object.freeze({ lease: true })
   const lease: unknown = editing !== null && Object(editing) === editing && !Array.isArray(editing) ? Reflect.get(Object(editing), "lease") : null
   if (lease !== undefined && lease !== true && lease !== false) {
-    throw invalidDefinition(`${helper}(${JSON.stringify(path)}) editing must be { lease?: boolean }.`)
+    throw contentErrorDiagnostics.CONTENT_DOCUMENTS_OPTIONS_INVALID({ problem: `${helper}(${JSON.stringify(path)}) editing must be { lease?: boolean }.` })
   }
   return Object.freeze({ lease: lease !== false })
 }
@@ -488,8 +488,8 @@ function editingOptions(helper: string, path: string, editing: unknown): { reado
 /** Check the `markdown` option: a function, on a definition whose documents have pages. */
 function markdownOption<TOption>(helper: string, path: string, value: TOption | undefined, url: unknown): TOption | undefined {
   if (value === undefined) return
-  if (!(value instanceof Function)) throw invalidDefinition(`${helper}(${JSON.stringify(path)}) markdown must be a function that returns the Markdown copy of a page.`)
-  if (url === undefined) throw invalidDefinition(`${helper}(${JSON.stringify(path)}) markdown renders the copy of each page, so it needs a url, such as '/blog/:id'.`)
+  if (!(value instanceof Function)) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_URL_INVALID({ problem: `${helper}(${JSON.stringify(path)}) markdown must be a function that returns the Markdown copy of a page.` })
+  if (url === undefined) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_URL_INVALID({ problem: `${helper}(${JSON.stringify(path)}) markdown renders the copy of each page, so it needs a url, such as '/blog/:id'.` })
   return value
 }
 
@@ -498,12 +498,12 @@ const urlToken = /:([A-Za-z_$][\w$]*)/g
 function assertUrl(helper: string, path: string, url: unknown, fields: ContentFields, localized = false): void {
   if (url === undefined || url instanceof Function) return
   if (String(url) !== url || !url.startsWith("/") || url.startsWith("//")) {
-    throw invalidDefinition(`${helper}(${JSON.stringify(path)}) url must be a function or a path pattern that starts with /, such as '/blog/:id'.`)
+    throw contentErrorDiagnostics.CONTENT_DOCUMENTS_URL_INVALID({ problem: `${helper}(${JSON.stringify(path)}) url must be a function or a path pattern that starts with /, such as '/blog/:id'.` })
   }
   for (const [, name] of url.matchAll(urlToken)) {
     if (name === "locale" && localized) continue
     if (name !== "id" && !Object.hasOwn(fields, name!)) {
-      throw invalidDefinition(`${helper}(${JSON.stringify(path)}) url ${JSON.stringify(url)} uses :${name}, which is neither :id${localized ? ", :locale," : ""} nor a field.`)
+      throw contentErrorDiagnostics.CONTENT_DOCUMENTS_URL_INVALID({ problem: `${helper}(${JSON.stringify(path)}) url ${JSON.stringify(url)} uses :${name}, which is neither :id${localized ? ", :locale," : ""} nor a field.` })
     }
   }
 }
@@ -535,7 +535,7 @@ export function contentDocumentUrl(
     const result: unknown = url({ id: document.id, data: document.data, ...document.locale === undefined ? {} : { locale: document.locale }, ...document.key === undefined ? {} : { key: document.key } })
     if (result === null || result === undefined) return null
     if (String(result) !== result || !result.startsWith("/") || result.startsWith("//")) {
-      throw invalidDefinition(`Content url() must return a path that starts with /, or null, received ${JSON.stringify(result)} for ${JSON.stringify(document.id)}.`)
+      throw contentErrorDiagnostics.CONTENT_DOCUMENTS_URL_INVALID({ problem: `Content url() must return a path that starts with /, or null, received ${JSON.stringify(result)} for ${JSON.stringify(document.id)}.` })
     }
     return result
   }
@@ -577,7 +577,7 @@ export function documentsRuntimeOf(definition: ContentCollectionDefinition<any>)
 export function optional<TSchema extends StandardSchemaV1>(
   input: TSchema,
 ): StandardSchemaV1<StandardSchemaV1.InferInput<TSchema> | undefined, StandardSchemaV1.InferOutput<TSchema> | undefined> & StandardJSONSchemaV1 {
-  if (!isStandardSchema(input)) throw invalidDefinition("optional() requires a Standard Schema validator.")
+  if (!isStandardSchema(input)) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_FIELDS_INVALID({ problem: "optional() requires a Standard Schema validator." })
   const schema = withValibotJsonSchema(input)
   const inner = schema["~standard"]
   const project = (direction: "input" | "output") => (options: StandardJSONSchemaV1.Options) => standardJsonSchema(schema, direction, options.target, options.libraryOptions) ?? {}
@@ -589,10 +589,6 @@ export function optional<TSchema extends StandardSchemaV1>(
       jsonSchema: { input: project("input"), output: project("output") },
     },
   }
-}
-
-function invalidDefinition(message: string) {
-  return contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] ${message}` })
 }
 
 // Paths
@@ -626,7 +622,7 @@ export function contentFormatOf(extension: string): ContentFormat {
 function normalizeDefinitionPath(helper: string, path: string, example: string): string {
   const normalized = path.replace(/^\.?\/+/, "")
   if (/[{}[\]!()]/.test(normalized) || normalized.split("/").some(segment => !segment || segment === "." || segment === "..")) {
-    throw invalidDefinition(`${helper}() path ${JSON.stringify(path)} must be a relative ${helper === "singleton" ? "file path" : "glob using only *, **, and ?"}, such as '${example}'.`)
+    throw contentErrorDiagnostics.CONTENT_DOCUMENTS_PATH_INVALID({ problem: `${helper}() path ${JSON.stringify(path)} must be a relative ${helper === "singleton" ? "file path" : "glob using only *, **, and ?"}, such as '${example}'.` })
   }
   return normalized
 }
@@ -652,7 +648,7 @@ export function compileDocumentsPath(globs: string | readonly string[]): Compile
   const extension = compiled[0]!.extension
   const other = compiled.find(entry => entry.extension !== extension)
   if (other) {
-    throw invalidDefinition(`documents() paths ${JSON.stringify(list)} must share one extension, but ${JSON.stringify(compiled[0]!.glob)} ends with ${JSON.stringify(extension)} and ${JSON.stringify(other.glob)} with ${JSON.stringify(other.extension)}.`)
+    throw contentErrorDiagnostics.CONTENT_DOCUMENTS_PATH_INVALID({ problem: `documents() paths ${JSON.stringify(list)} must share one extension, but ${JSON.stringify(compiled[0]!.glob)} ends with ${JSON.stringify(extension)} and ${JSON.stringify(other.glob)} with ${JSON.stringify(other.extension)}.` })
   }
   const bases = compiled.map(entry => entry.base)
   return {
@@ -667,7 +663,7 @@ export function compileDocumentsPath(globs: string | readonly string[]): Compile
 function compileOneGlob(glob: string) {
   const normalized = normalizeDefinitionPath("documents", glob, "posts/**/*.md")
   const extension = /\*(\.[\w-]+)$/.exec(normalized)?.[1]
-  if (!extension) throw invalidDefinition(`documents() path ${JSON.stringify(glob)} must end with one extension, such as 'posts/**/*.md'.`)
+  if (!extension) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_PATH_INVALID({ problem: `documents() path ${JSON.stringify(glob)} must end with one extension, such as 'posts/**/*.md'.` })
   const segments = normalized.split("/")
   const firstWildcard = segments.findIndex(segment => /[*?]/.test(segment))
   const base = segments.slice(0, firstWildcard).map(segment => `${segment}/`).join("")
@@ -690,12 +686,12 @@ function compileOneGlob(glob: string) {
 export function compileSingletonPath(path: string): CompiledDocumentsPath & { path: string, id: string } {
   const normalized = normalizeDefinitionPath("singleton", path, "settings.json")
   if (/[*?]/.test(normalized)) {
-    throw invalidDefinition(`singleton() path ${JSON.stringify(path)} must name one file. Use documents({ path: ${JSON.stringify(path)} }) for a collection.`)
+    throw contentErrorDiagnostics.CONTENT_DOCUMENTS_PATH_INVALID({ problem: `singleton() path ${JSON.stringify(path)} must name one file. Use documents({ path: ${JSON.stringify(path)} }) for a collection.` })
   }
   const slash = normalized.lastIndexOf("/")
   const name = normalized.slice(slash + 1)
   const extension = /[^.](\.[\w-]+)$/.exec(name)?.[1]
-  if (!extension) throw invalidDefinition(`singleton() path ${JSON.stringify(path)} must end with an extension, such as 'settings.json' or 'pages/home.md'.`)
+  if (!extension) throw contentErrorDiagnostics.CONTENT_DOCUMENTS_PATH_INVALID({ problem: `singleton() path ${JSON.stringify(path)} must end with an extension, such as 'settings.json' or 'pages/home.md'.` })
   return {
     base: normalized.slice(0, slash + 1),
     bases: [normalized.slice(0, slash + 1)],

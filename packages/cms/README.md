@@ -70,6 +70,6 @@ export default defineAuth({ database: authDatabase(), plugins: [admin(cmsAccess)
 | --- | --- |
 | `CONTENT_B0001` | The build cannot read the preset selection, or an option is unknown or not valid. |
 | `CONTENT_B0002` | The app lacks something the preset needs: Workspace, Database, or Blob is off, the Database choice is ambiguous, or a named Database or Blob store does not exist. |
-| `CONTENT_R0006` | An option passed to `defineContent({ extends: [cms, { ... }] })` is not valid at runtime. |
+| `CONTENT_CMS_OPTION_INVALID` | An option passed to `defineContent({ extends: [cms, { ... }] })` is not valid at runtime. |
 
 See the [CMS docs](https://vitehub.dev/docs/cms).

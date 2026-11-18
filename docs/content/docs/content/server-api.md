@@ -189,7 +189,7 @@ A [`singleton()`](/docs/content/configure#singletons-and-data-files) has `kind: 
 | `settings.list(options?)` | A page with the document, if it exists on the ref. |
 | `settings.id`, `settings.path` | The document id (the file name without extension) and its Workspace path. |
 
-Each method also takes the id first, like a collection, so generic code need not branch: `settings.get('settings')` equals `settings.get()`. Any other id throws `CONTENT_R0008`. `publish({ expect })` entries for a singleton can omit `id`:
+Each method also takes the id first, like a collection, so generic code need not branch: `settings.get('settings')` equals `settings.get()`. Any other id throws `CONTENT_SINGLETON_ID_MISMATCH`. `publish({ expect })` entries for a singleton can omit `id`:
 
 ```ts [server/utils/settings.ts]
 import content from '../content'
@@ -378,7 +378,7 @@ export default defineEventHandler(
 await content.can({ user: authUser, actor, collection: 'posts', action: 'write', id: 'hello' })
 ```
 
-An unknown collection, a `user` that is not an object or `null`, or an `actor` without `id` throws `CONTENT_R0008`.
+An unknown collection throws `CONTENT_COLLECTION_UNKNOWN`. A `user` that is not an object or `null`, or an `actor` without `id`, throws `CONTENT_CAN_INPUT_INVALID`.
 
 ### Comark refs
 
