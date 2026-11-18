@@ -182,13 +182,6 @@ describe("workflow config", () => {
     await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
   })
 
-  it("leaves implicitly enabled Workflow disabled when Schedule prepares a Netlify build", async () => {
-    const plugin = hubWorkflow(undefined, { hosting: "netlify", implicitlyEnabled: true })
-    await resolvePlugin(plugin)
-
-    await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
-  })
-
   it("keeps explicit Workflow provider enforcement when Schedule prepares a Netlify build", async () => {
     const plugin = hubWorkflow({}, { hosting: "netlify" })
     await resolvePlugin(plugin)

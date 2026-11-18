@@ -7,7 +7,7 @@ navigation.group: Server work
 icon: i-simple-icons-vercel
 ---
 
-Set `host: 'vercel'` and `schedule: true` in `vitehub()`, then add a file in `server/schedules/` that exports `defineSchedule({ cron, handler })`. The build writes one `crons` entry and one Vercel Function per file. Vercel calls that function at the cron time, and it runs your handler. You do not edit `vercel.json`.
+Set `host: 'vercel'` in `vitehub()`, then add a file in `server/schedules/`, which turns Schedule on, that exports `defineSchedule({ cron, handler })`. The build writes one `crons` entry and one Vercel Function per file. Vercel calls that function at the cron time, and it runs your handler. You do not edit `vercel.json`.
 
 ## What Vercel Cron Jobs is
 
@@ -24,7 +24,7 @@ You write the cron expression and handler in one file. ViteHub writes the path, 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'vercel', schedule: true },
+  vitehub: { host: 'vercel' },
 })
 ```
 :::
@@ -36,7 +36,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'vercel', schedule: true }), nitro()],
+  plugins: [vitehub({ host: 'vercel' }), nitro()],
 })
 ```
 :::
@@ -47,7 +47,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'vercel', schedule: true })],
+  plugins: [vitehub({ host: 'vercel' })],
 })
 ```
 :::
@@ -160,6 +160,6 @@ The schedule file stays the same. Change the host, and the build writes the new 
 | Host | What runs the schedule |
 | --- | --- |
 | `cloudflare` | A Cloudflare Cron Trigger in the generated `wrangler.json`. |
-| `node` | The Process Runtime, with `schedule: { runtime: { driver: 'process' } }`. Use one long-lived process, and enable `kv` to keep Schedule Runs after restarts. |
+| `node` | The Process Runtime, with `schedule: true`. Use one long-lived process, and enable `kv` to keep Schedule Runs after restarts. |
 
 Cloudflare also reads cron in UTC only, and ViteHub handles `timeZone` there the same way. Read [Schedule hosts](/docs/schedule/hosts#provider-output) for each output.

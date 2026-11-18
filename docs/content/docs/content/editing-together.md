@@ -172,7 +172,6 @@ With Realtime, several people edit one Markdown document at the same time. Turn 
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     realtime: { driver: 'memory' },
   },
 })
@@ -188,7 +187,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       realtime: { driver: 'memory' },
     }),
     nitro(),
@@ -205,7 +203,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       realtime: { driver: 'memory' },
     }),
   ],
@@ -243,7 +240,7 @@ const realtime = useRealtimeTiptap('content', 'posts/hello', { editor })
 
 `contentRealtimeEditor()` adapts `createContentEditorCodec()` from `vite-hub/content/editor`. Content bundles Comark UI and installs its editor runtimes. Server and browser share one generic schema for components, named slots, task lists, tables, and media, with no node definitions per collection. Comark UI owns Markdown conversion and the loss check. A body the codec cannot keep opens read-only with a link to Source.
 
-`vite-hub/content/realtime` also exports `contentDocument(collection)`, one collection's Realtime document adapter. `contentRealtime(content, { identify, authorize, user })` defines the room yourself in `server/realtime/content.ts`, which replaces the generated one.
+`vite-hub/content/realtime` also exports `contentDocument(collection)`, one collection's Realtime document adapter. `contentRealtime(content, { identify, authorize, user })` defines the room yourself in `server/realtime/content.ts`, which replaces the generated one. Its `authorize` runs before `content.can()`. Only `true` lets the request continue. Any other result denies, `undefined` too.
 
 ## Limits
 

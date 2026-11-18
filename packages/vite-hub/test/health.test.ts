@@ -108,7 +108,7 @@ describe("health route", () => {
     await (healthVitePlugin({ route: "/api/health" }, targets).config as (config: object) => Promise<void>)(custom)
 
     const file = join(root, ".vitehub/nitro/health.mjs")
-    expect(config.nitro).toMatchObject({ handlers: [{ handler: file, route: "/api/_vitehub/health" }] })
+    expect(config.nitro).toMatchObject({ handlers: [{ handler: file, route: "/_vitehub/health" }] })
     expect(custom.nitro).toMatchObject({ handlers: [{ handler: file, route: "/api/health" }] })
     const source = await readFile(file, "utf8")
     expect(source).toContain(`const version = "1.4.0"`)

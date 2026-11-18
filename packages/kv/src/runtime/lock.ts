@@ -4,15 +4,12 @@ import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { kvResult } from "../errors.ts"
 import type { KVLock, KVLockAcquisition, KVLockErrorCode, KVLockOptions } from "../types.ts"
 import type { RuntimeStorage } from "./hosted-storage.ts"
+import { ttlSeconds } from "./ttl.ts"
 
 const firstRetryMs = 25
 const maxRetryMs = 500
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
-
-function validTtl(ttl: number): boolean {
-  return Number.isFinite(ttl) && ttl > 0 && Number.isSafeInteger(Math.ceil(ttl * 1000))
-}
 
 /**
  * A lock on `key` built on `setIfAbsent()` with a TTL and `deleteIfEquals()`. Each acquire writes a new random owner
@@ -20,9 +17,9 @@ function validTtl(ttl: number): boolean {
  */
 export function createKVLock(store: string, resolveStorage: () => Promise<RuntimeStorage>, key: string, options: KVLockOptions): KVLock {
   async function acquire(): Promise<Result<KVLockAcquisition, KVLockErrorCode>> {
-    const { ttl } = options
+    const ttl = ttlSeconds(options.ttl)
     const wait = options.wait ?? 0
-    if (!validTtl(ttl)) return [kvErrorDiagnostics.KV_INVALID_TTL(), undefined]
+    if (ttl === undefined) return [kvErrorDiagnostics.KV_INVALID_TTL(), undefined]
     if (!Number.isFinite(wait) || wait < 0) return [kvErrorDiagnostics.KV_INVALID_WAIT(), undefined]
     // Config errors, for example an unknown store, throw as they do for the other KV operations.
     const storage = await resolveStorage()

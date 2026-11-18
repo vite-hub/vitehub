@@ -42,8 +42,8 @@ it('serves the generated routes as Fetchable modules behind a base URL', async (
     const workspaceRoute = (await import(pathToFileURL(handlers[2]!.handler).href)).default
 
     const health = await healthRoute.fetch(new Request('https://example.test/api/health'))
-    const workspace = await workspaceRoute.fetch(new Request('https://example.test/base/api/_vitehub/console/invocations/run%201/workspace/?path=src/index.ts'))
-    const ambiguous = await workspaceRoute.fetch(new Request('https://example.test/api/_vitehub/console/invocations/run/workspace?path=a&path=b'))
+    const workspace = await workspaceRoute.fetch(new Request('https://example.test/base/_vitehub/console/invocations/run%201/workspace/?path=src/index.ts'))
+    const ambiguous = await workspaceRoute.fetch(new Request('https://example.test/_vitehub/console/invocations/run/workspace?path=a&path=b'))
 
     expect(await health.json()).toEqual({ status: 'ok' })
     expect(await workspace.json()).toEqual({ id: 'run%201', path: 'src/index.ts' })

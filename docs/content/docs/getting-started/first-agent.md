@@ -16,7 +16,7 @@ offline and needs no model account or credentials.
 ## Before you start
 
 Complete [Installation](/docs/getting-started/installation), check
-`/api/health`, and continue in that app with Node.js 22.22 or newer and pnpm.
+`/api/health`, and continue in that app with Node.js 24.15 or newer and pnpm.
 
 ::run-tutorial{to="/learn/first-agent"}
 ::
@@ -30,19 +30,13 @@ Install the Agent package:
 pnpm add @vite-hub/agent
 ```
 
-Add `agent: true` to the ViteHub options. Set `workflow: false`, because this
-Agent finishes inside the HTTP request. Keep your other features.
+The file you create next in `server/agents/` turns Agents on. You do not need to set `agent` or `workflow` for this inline Agent. Keep your other ViteHub options.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: {
-    host: "node",
-    agent: true,
-    workflow: false,
-  },
 })
 ```
 ::::
@@ -55,11 +49,7 @@ import { vitehub } from "vite-hub"
 
 export default defineConfig({
   plugins: [
-    vitehub({
-      host: "node",
-      agent: true,
-      workflow: false,
-    }),
+    vitehub(),
     nitro(),
   ],
 })
@@ -72,13 +62,7 @@ import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [
-    vitehub({
-      host: "node",
-      agent: true,
-      workflow: false,
-    }),
-  ],
+  plugins: [vitehub()],
 })
 ```
 ::::

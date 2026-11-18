@@ -282,23 +282,17 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         }
         body = JSON.stringify(payload(message));
       } catch (cause) {
-        if (isEmailProviderError(cause)) return { data: null, error: cause };
-        return {
-          data: null,
-          error: emailProviderError("resend", "INVALID_OPTIONS", "Resend payload is invalid.", {
-            cause,
-          }),
-        };
+        if (isEmailProviderError(cause)) return [cause, undefined];
+        return [emailProviderError("resend", "INVALID_OPTIONS", "Resend payload is invalid.", {
+          cause,
+        }), undefined];
       }
       let response: Response;
       if (context.signal?.aborted) {
-        return {
-          data: null,
-          error: emailProviderError("resend", "CANCELLED", "Resend request was cancelled.", {
-            cause: context.signal.reason,
-            retryable: false,
-          }),
-        };
+        return [emailProviderError("resend", "CANCELLED", "Resend request was cancelled.", {
+          cause: context.signal.reason,
+          retryable: false,
+        }), undefined];
       }
       const requestController = new AbortController();
       const abortRequest = () => requestController.abort(context.signal?.reason);
@@ -323,29 +317,20 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         clearTimeout(requestTimeout);
         context.signal?.removeEventListener("abort", abortRequest);
         if (requestTimedOut)
-          return {
-            data: null,
-            error: emailProviderError("resend", "TIMEOUT", "Resend request timed out.", {
-              cause,
-              retryable: idempotencyKey !== undefined,
-            }),
-          };
-        if (cancelled(context.signal, cause))
-          return {
-            data: null,
-            error: emailProviderError("resend", "CANCELLED", "Resend request was cancelled.", {
-              cause,
-              retryable: false,
-            }),
-          };
-        if (isEmailProviderError(cause)) return { data: null, error: cause };
-        return {
-          data: null,
-          error: emailProviderError("resend", "NETWORK", "Resend request failed.", {
+          return [emailProviderError("resend", "TIMEOUT", "Resend request timed out.", {
             cause,
             retryable: idempotencyKey !== undefined,
-          }),
-        };
+          }), undefined];
+        if (cancelled(context.signal, cause))
+          return [emailProviderError("resend", "CANCELLED", "Resend request was cancelled.", {
+            cause,
+            retryable: false,
+          }), undefined];
+        if (isEmailProviderError(cause)) return [cause, undefined];
+        return [emailProviderError("resend", "NETWORK", "Resend request failed.", {
+          cause,
+          retryable: idempotencyKey !== undefined,
+        }), undefined];
       }
       clearTimeout(requestTimeout);
       let text: string;
@@ -357,27 +342,18 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         );
       } catch (cause) {
         if (cancelled(context.signal, cause))
-          return {
-            data: null,
-            error: emailProviderError("resend", "CANCELLED", "Resend response was cancelled.", {
-              cause,
-              retryable: false,
-            }),
-          };
-        if (!response.ok) {
-          return {
-            data: null,
-            error: responseError(response, idempotencyKey, cause),
-          };
-        }
-        if (isEmailProviderError(cause)) return { data: null, error: cause };
-        return {
-          data: null,
-          error: emailProviderError("resend", "NETWORK", "Resend response failed.", {
+          return [emailProviderError("resend", "CANCELLED", "Resend response was cancelled.", {
             cause,
-            retryable: idempotencyKey !== undefined,
-          }),
-        };
+            retryable: false,
+          }), undefined];
+        if (!response.ok) {
+          return [responseError(response, idempotencyKey, cause), undefined];
+        }
+        if (isEmailProviderError(cause)) return [cause, undefined];
+        return [emailProviderError("resend", "NETWORK", "Resend response failed.", {
+          cause,
+          retryable: idempotencyKey !== undefined,
+        }), undefined];
       } finally {
         context.signal?.removeEventListener("abort", abortRequest);
       }
@@ -387,20 +363,11 @@ export default function resendEmailDriver(options: ResendEmailDriverOptions): Em
         responseBody = isRecord(parsed) ? parsed : {};
       } catch {}
       if (!response.ok) {
-        return {
-          data: null,
-          error: responseError(response, idempotencyKey, responseBody, responseBody.message),
-        };
+        return [responseError(response, idempotencyKey, responseBody, responseBody.message), undefined];
       }
       return isString(responseBody.id) && responseBody.id.trim() !== ""
-        ? {
-            data: { at: new Date(), driver: "resend", id: responseBody.id, provider: responseBody },
-            error: null,
-          }
-        : {
-            data: null,
-            error: emailProviderError("resend", "PROVIDER", "Resend returned no message id."),
-          };
+        ? [undefined, { at: new Date(), driver: "resend", id: responseBody.id, provider: responseBody }]
+        : [emailProviderError("resend", "PROVIDER", "Resend returned no message id."), undefined];
     },
   };
 }

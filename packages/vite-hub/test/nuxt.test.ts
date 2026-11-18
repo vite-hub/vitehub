@@ -751,7 +751,7 @@ describe("ViteHub Nuxt integration", () => {
       },
     })
     expect(await viteHubNuxtModule.getModuleDependencies(options({ driver: "fs", serve: { access: "public" } }))).toMatchObject({
-      "@nuxt/image": { defaults: { providers: { vitehub: { options: { baseURL: "/api/_vitehub/blob" } } } } },
+      "@nuxt/image": { defaults: { providers: { vitehub: { options: { baseURL: "/_vitehub/blob" } } } } },
     })
     // No served store, or no Nuxt Image module: Nuxt must not try to resolve @nuxt/image.
     expect(await viteHubNuxtModule.getModuleDependencies(options({ driver: "fs" }))).not.toHaveProperty("@nuxt/image")
@@ -1522,7 +1522,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(development.nuxt.options.devServerHandlers).toEqual([{ handler: existingConsoleHandler, route: "/_vitehub/api" }])
     expect(development.nuxt.options.vite.plugins).toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
     await expect(readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin-dev.mjs`, "utf8")).resolves.toContain(
-      `installConsoleSections("${tmp}/vitehub-nuxt", ["setup","env","agents","skills","usage","channels","blob","kv","workflows","site"])`,
+      `installConsoleSections("${tmp}/vitehub-nuxt", ["setup","env","agents","skills","usage","channels","blob","kv","site"])`,
     )
     await expect(readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin-dev.mjs`, "utf8")).resolves.toContain(
       `installConsoleAgentDefinitions([], { projectRoot: "${tmp}/vitehub-nuxt", invoke: true, capabilities: async () => {`,
@@ -2613,6 +2613,52 @@ describe("ViteHub Nuxt integration", () => {
     // No Vite hooks run between these builds: only the server policy changes.
     await writeFile(definition, policy("strict"))
     await expect(runNitroConfigHook(nitroOptions(nuxt))).rejects.toMatchObject({ code: "RATE_LIMIT_MEMORY_STRICT_UNSUPPORTED" })
+  })
+
+  it("refreshes the Rate Limit installer and manifest on a Cloudflare Nitro-only rebuild", async () => {
+    const root = `${tmp}/vitehub-nuxt`
+    const definition = resolve(root, "server/rate-limit.ts")
+    const installer = resolve(root, ".vitehub/nitro/rate-limit/plugin.ts")
+    const manifest = resolve(root, ".vitehub/rate-limit/manifest.json")
+    const policy = (window: string) => `import { requireRateLimit } from "vite-hub/rate-limit"\nrequireRateLimit(event, "uploads", { limit: 25, window: "${window}" })\n`
+    await mkdir(resolve(definition, ".."), { recursive: true })
+    onTestFinished(() => rm(definition, { force: true }))
+    mocks.vitehub.mockReturnValue([hubRateLimit({ driver: "cloudflare", namespace: "uploads-worker" }), hubKV({ driver: "upstash" }, { hosting: "cloudflare" })])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    await viteHubNuxtModule({ console: false, env: false, host: "cloudflare" }, nuxt)
+    const config = nitroOptions(nuxt)
+    await writeFile(definition, policy("1m"))
+    await runNitroConfigHook(config)
+    expect(config).toHaveProperty("cloudflare.wrangler.ratelimits", [expect.objectContaining({ simple: { limit: 25, period: 60 } })])
+    await expect(readFile(installer, "utf8")).resolves.not.toContain("getKVStoreDriver")
+    await writeFile(definition, policy("1d"))
+    await runNitroConfigHook(config)
+    expect(config).not.toHaveProperty("cloudflare.wrangler.ratelimits.0")
+    await expect(readFile(installer, "utf8")).resolves.toContain("getKVStoreDriver")
+    await expect(readFile(manifest, "utf8").then(JSON.parse)).resolves.toMatchObject({ rateLimits: [{ name: "uploads", provider: "kv" }] })
+  })
+
+  it("validates Cloudflare dev startup and updates against inferred production KV", async () => {
+    vi.stubEnv("KV_REST_API_URL", "https://rate-limit-kv.test")
+    vi.stubEnv("KV_REST_API_TOKEN", "test-token")
+    const root = `${tmp}/vitehub-nuxt`
+    const definition = resolve(root, "server/rate-limit.ts")
+    const policy = (window: string) => `import { requireRateLimit } from "vite-hub/rate-limit"\nrequireRateLimit(event, "uploads", { limit: 25, window: "${window}" })\n`
+    await mkdir(resolve(definition, ".."), { recursive: true })
+    onTestFinished(() => rm(definition, { force: true }))
+    const kv = hubKV(undefined, { hosting: "cloudflare" })
+    const rateLimit = hubRateLimit()
+    const error = vi.fn()
+    const config = { build: { outDir: "dist" }, command: "serve", logger: { error }, nitro: { preset: "cloudflare-module" }, plugins: [kv, rateLimit], resolve: { alias: [] }, root }
+    const runKVConfig = typeof kv.config === "function" ? kv.config : kv.config!.handler
+    await Reflect.apply(runKVConfig, {}, [config, { command: "serve", mode: "development" }])
+    expect(kv.api.getConfig().kv).toMatchObject({ store: { driver: "cloudflare" } })
+    await writeFile(definition, policy("1d"))
+    await Reflect.apply(rateLimit.configResolved as Function, {}, [config])
+    await expect(readFile(resolve(root, ".vitehub/nitro/rate-limit/plugin.ts"), "utf8")).resolves.toContain('{"driver":"memory"}')
+    await writeFile(definition, policy("1h"))
+    await Reflect.apply(rateLimit.handleHotUpdate as Function, {}, [{ file: definition, server: { config } }])
+    expect(error).not.toHaveBeenCalled()
   })
 
   it.each(["build", "dev", "prepare"])("validates explicit KV in Nitro replay (%s)", async (mode) => {
@@ -4348,7 +4394,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       ...names("vite-hub/env", "checkServiceToken", "requireServiceToken", "useServerEnv", "verifyWebhook"),
       ...names("vite-hub/kv", "kv"),
       ...names("vite-hub/queue", "defineQueue", "deferQueue", "useQueue", "sendQueue"),
-      ...names("vite-hub/rate-limit", "checkRateLimit", "peekRateLimit", "requireRateLimit", "resetRateLimit"),
+      ...names("vite-hub/rate-limit", "checkRateLimit", "peekRateLimit", "refundRateLimit", "requireRateLimit", "resetRateLimit"),
       ...names("vite-hub/schedule", "cancelSchedule", "getSchedule", "listSchedules", "startSchedule"),
     ])
   })
@@ -4381,11 +4427,11 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
   })
 
   it.each([
-    { host: "cloudflare", agent: true, workflow: undefined, enabled: true },
-    { host: "node", agent: true, workflow: undefined, enabled: true },
-    { host: "vercel", agent: true, workflow: undefined, enabled: true },
+    { host: "cloudflare", agent: true, workflow: undefined, enabled: false },
+    { host: "node", agent: true, workflow: undefined, enabled: false },
+    { host: "vercel", agent: true, workflow: undefined, enabled: false },
     { host: "netlify", agent: true, workflow: undefined, enabled: false },
-    { host: "cloudflare", agent: true, workflow: false, enabled: false },
+    { host: "cloudflare", agent: true, workflow: true, enabled: true },
     { host: "cloudflare", agent: false, workflow: undefined, enabled: false },
     { host: "cloudflare", agent: false, workflow: true, enabled: true },
   ] as const)("selects server imports for effective Workflow enablement: %j", async ({ host, agent, workflow, enabled }) => {

@@ -407,11 +407,8 @@ describe("handleMultipartUpload", () => {
     expect(await (ok(await storage.get("docs/report.txt")))?.text()).toBe("report body")
   })
 
-  it("lets the route fix the content type and aborts uploads", async () => {
-    const created = ok(await storage.handleMultipartUpload(multipartEvent("create", "safe.txt", {
-      body: JSON.stringify({ contentType: "text/html" }),
-      method: "POST",
-    }), { create: { contentType: "text/plain" } }))
+  it("aborts uploads", async () => {
+    const created = ok(await storage.handleMultipartUpload(multipartEvent("create", "safe.txt", { body: "{}", method: "POST" })))
     if (created.action !== "create") throw new TypeError("Expected a create result.")
 
     expect(ok(await storage.handleMultipartUpload(multipartEvent("abort", created.pathname, {

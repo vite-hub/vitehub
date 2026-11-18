@@ -11,7 +11,6 @@ import {
   readViteHubConsoleActionFailure,
   readViteHubConsoleSection,
   resolveViteHubConsoleSectionPages,
-  viteHubConsoleDocumentActionNames,
 } from "../src/console.ts"
 
 import type { ViteHubConsoleSectionContribution } from "../src/console.ts"
@@ -155,7 +154,6 @@ describe("Console section contributions", () => {
     // Collections are read from the owner actions on each request.
     await expect(readViteHubConsoleSection(editor, { rootDir: "/app" })).resolves.toEqual({ collections: [], kind: "document-editor" })
     expect(() => describeViteHubConsoleDocumentActions({ ...editor, actions: { export: "create", module: "../local.ts" } })).toThrow(expect.objectContaining({ code: "INTERNAL_INVARIANT_FAILED" }))
-    expect(viteHubConsoleDocumentActionNames).toEqual(["get", "list", "overview", "preview", "publish", "raw", "references", "remove", "resolve", "restore", "revisions", "save", "schedule", "search", "session", "sessions", "unschedule"])
   })
 
   it("describes section pages with one index page and resolves their required sections", () => {

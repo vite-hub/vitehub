@@ -46,7 +46,7 @@ function projectOf(config: CmsPresetConfig): { projectRoot: string, serverDirs?:
   return { projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] }
 }
 
-/** Options whose `cms` preset features a framework integration already resolved, for example Nuxt with a known root. */
+/** Options whose features a framework integration already resolved, for example Nuxt with a known root. */
 const resolvedFeatureOptions = new WeakSet<object>()
 
 /** The features that the `cms` preset needs. `vitehub()` turns on the ones left unset. */
@@ -77,10 +77,18 @@ function resolveStorageFeatures<T extends CmsPresetFeatureOptions>(options: T, p
   return (options.comments !== false && (options.comments || usesComments(project))) || usesForms(project) || usesSync(project) ? { ...options, database: true } : options
 }
 
-/** Marks options whose `cms` preset features are resolved, so `vitehub()` does not resolve them again. */
+/**
+ * Marks options whose `cms` preset features and Definition features are resolved, so `vitehub()` does not resolve them
+ * again.
+ */
 export function markCmsPresetFeaturesResolved<T extends CmsPresetFeatureOptions>(options: T): T {
   resolvedFeatureOptions.add(options)
   return options
+}
+
+/** Whether a framework integration resolved the features of these options with `markCmsPresetFeaturesResolved()`. */
+export function featureOptionsResolved(options: object): boolean {
+  return resolvedFeatureOptions.has(options)
 }
 
 function selectedCmsPresetStore(config: CmsPresetConfig): "blob-database" | "github" | undefined {
