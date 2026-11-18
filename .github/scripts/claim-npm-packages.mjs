@@ -12,7 +12,11 @@
 // npm asks for two-factor authentication on the first publish and the first `npm trust` call. Choose "skip for the next
 // 5 minutes" on the npm page so the rest of the run does not ask again.
 //
-// Run: node .github/scripts/claim-npm-packages.mjs [--dry-run] [<package name>...]
+// npm lets a trusted publisher configuration expire, and the CLI does not show it: the website says "Expired" and the
+// release job fails with ENEEDAUTH. `--replace` revokes and adds again the configuration of every package whose version
+// in packages/ is not on npm yet.
+//
+// Run: node .github/scripts/claim-npm-packages.mjs [--dry-run] [--replace] [<package name>...]
 import { spawnSync } from "node:child_process"
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -26,6 +30,7 @@ const trust = { file: "release.yml", repository: "vite-hub/vitehub", environment
 
 const args = process.argv.slice(2)
 const dryRun = args.includes("--dry-run")
+const replace = args.includes("--replace")
 const only = args.filter(arg => !arg.startsWith("--"))
 const repoRoot = resolve(import.meta.dirname, "../..")
 
@@ -96,7 +101,7 @@ function publishablePackages() {
       continue
     }
     if (manifest.private === true || typeof manifest.name !== "string") continue
-    packages.push({ name: manifest.name, description: manifest.description, repository: manifest.repository, license: manifest.license })
+    packages.push({ name: manifest.name, version: manifest.version, description: manifest.description, repository: manifest.repository, license: manifest.license })
   }
   return packages
 }
@@ -106,6 +111,11 @@ async function existsOnNpm(name) {
   if (response.status === 404) return false
   if (!response.ok) throw new Error(`The registry answered ${response.status} for ${name}.`)
   return true
+}
+
+async function versionOnNpm(name, version) {
+  const response = await fetch(`${registry}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`)
+  return response.ok
 }
 
 function publishPlaceholder(pkg) {
@@ -161,7 +171,11 @@ if (dryRun) untrusted.push(...missing.map(pkg => ({ pkg, stale: [] })))
 else {
   for (const pkg of packages) {
     const configs = trustConfigs(pkg.name)
-    if (!configs.some(publishesFromRelease)) untrusted.push({ pkg, stale: configs })
+    // npm lets a configuration expire, and `npm trust list` does not say so. With --replace, every package that has not
+    // published its version yet gets a fresh configuration.
+    if (!configs.some(publishesFromRelease) || (replace && !await versionOnNpm(pkg.name, pkg.version))) {
+      untrusted.push({ pkg, stale: configs })
+    }
     await sleep(500)
   }
 }
