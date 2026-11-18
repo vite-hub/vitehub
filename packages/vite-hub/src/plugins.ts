@@ -42,7 +42,7 @@ import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { vitestInlinePlugin } from "./vitest-inline.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
-import { healthVitePlugin, type HealthOptions } from "./health-vite.ts"
+import { defaultHealthRoute, healthVitePlugin, type HealthOptions } from "./health-vite.ts"
 import { resolveDeployManifest, writeIndexNowKeyFile, type DeployOptions } from "./deploy-options.ts"
 import { viteHubSeoPlugin, type SeoOptions } from "./seo/vite.ts"
 import { requestPolicyVitePlugin, type SameOriginWritesOptions } from "./request-policy-vite.ts"
@@ -59,6 +59,7 @@ import { operationsCheckPlugin } from "./operations-check.ts"
 import { setupDevPlugin } from "./setup-dev.ts"
 import { consoleDeploymentEnv, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { cloudflareExportConditions, type ViteHubHost } from "./deployment.ts"
+import { writeDockerfile, type DockerfileBuild } from "./dockerfile.ts"
 import { resolveSystemdUnit, systemdUnitName, writeSystemdUnit, type SystemdOptions } from "./systemd.ts"
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
 import { addCloudflareVars, cloudflareServerEnvVars } from "./cloudflare-vars.ts"
@@ -634,6 +635,14 @@ export interface ViteHubOptions {
   /** Cloudflare Worker build options. */
   cloudflare?: CloudflareOptions
   /**
+   * A Dockerfile for the server, written to `.output/Dockerfile` by production builds on the `node` host. On by default.
+   * Build the image with `docker build -t <name> .output`. It runs `node .output/server/index.mjs` as the `node` user in
+   * `/app`, mounts volumes for `/app/.vitehub` and a separate `dataDir`, stops on SIGTERM, and checks the `health`
+   * route over HTTP when it is on. With native packages, build the app in the same Linux Node image that will run it.
+   * `false` writes no Dockerfile. Other hosts ignore it.
+   */
+  docker?: boolean
+  /**
    * Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or
    * Vercel Sandbox. `true` uses the Sandbox of the host. An object sets the driver options, such as
    * `{ driver: "cloudflare", keepAlive: true, migrationTag: "v2" }` or `{ driver: "vercel", networkPolicy: "deny-all" }`.
@@ -846,6 +855,7 @@ function deploymentNitroModule(
   isDeployCommandOwned: () => boolean,
   resolvedBuildConfig: () => ResolvedBuildConfig,
   systemd: { drainMs: number, name: string, options: SystemdOptions } | undefined,
+  docker: DockerfileBuild | undefined,
   envPlugin: () => EnvVitePlugin | undefined,
   contributedEnv: () => readonly DeploymentEnvEntry[],
   envDir: () => string | false | undefined,
@@ -857,6 +867,7 @@ function deploymentNitroModule(
       hook: ((name: "compiled", callback: () => Promise<void>) => void)
         & ((name: "build:config", callback: (nitro: unknown, config: { rolldown?: BundlerConfig, rollup?: BundlerConfig }) => void) => void)
     }
+    logger: { warn(message: string): void }
     options: { cloudflare?: { deployConfig?: boolean }, commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
   }) => {
     if (hostFromNitroPreset(nitro.options.preset) !== plan.host) return
@@ -902,6 +913,7 @@ function deploymentNitroModule(
         })
         await writeSystemdUnit(outputDir, systemd.name, unit)
       }
+      if (docker) await writeDockerfile(docker, { logger: nitro.logger, outputDir, serverDir: nitro.options.output.serverDir })
     })
   }
 }
@@ -1195,6 +1207,14 @@ function deploymentPlugins(
             const systemd = plan.host === "node" && systemdOptions
               ? { drainMs: agentDrainMs(options.agent), name: systemdUnitName(systemdOptions, name), options: systemdOptions }
               : undefined
+            const docker = plan.host === "node" && options.docker !== false
+              ? {
+                  ...(options.dataDir ? { dataDir: options.dataDir } : {}),
+                  drainMs: agentDrainMs(options.agent),
+                  ...(options.health ? { healthRoute: options.health === true ? defaultHealthRoute : options.health.route ?? defaultHealthRoute } : {}),
+                  name,
+                }
+              : undefined
             const viteRoot = resolve(config.root ?? process.cwd())
             const cloudflareVars = () => {
               const envPlugin = deploymentEnvPlugin.current
@@ -1210,7 +1230,7 @@ function deploymentPlugins(
               const publicAssets = Array.isArray(nitro.publicAssets) ? nitro.publicAssets : []
               nitro.publicAssets = [...publicAssets.filter(asset => cloneRecord(asset).dir !== dir), { baseURL: "/", dir, maxAge: 3600 }]
             }
-            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current, systemd, () => deploymentEnvPlugin.current, contributedEnv, () => resolvedEnvDir, deploy, cloudflareVars)
+            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current, systemd, docker, () => deploymentEnvPlugin.current, contributedEnv, () => resolvedEnvDir, deploy, cloudflareVars)
             resolvedBuildConfigs.set(module, buildConfigRef)
             nitro.modules = [
               module,
