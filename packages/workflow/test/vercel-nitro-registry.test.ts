@@ -85,9 +85,10 @@ it("installs the Workflow registry in Nitro's Vercel server function", async () 
     "",
     "export async function handleRequest() {",
     "  startup()",
-    "  const run = await startWorkflow('welcome', { name: 'Ada' })",
+    "  const [, run] = await startWorkflow('welcome', { name: 'Ada' })",
     "  await Promise.all(globalThis.__vitehubWaitUntil)",
-    "  return { run, settled: await getWorkflowRun('welcome', run.id) }",
+    "  const [, settled] = await getWorkflowRun('welcome', run.id)",
+    "  return { run, settled }",
     "}",
     "",
   ].join("\n"))

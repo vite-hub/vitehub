@@ -4,6 +4,7 @@ import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare
 import { enableWorkflowDevRuns } from "../src/runtime/dev-runs.ts"
 import { createWorkflow, getWorkflowRun, startWorkflow } from "../src/runtime/client.ts"
 import { enterWorkflowRuntimeEvent, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { unwrap } from "./unwrap.ts"
 
 afterEach(() => {
   resetWorkflowRuntime()
@@ -45,37 +46,37 @@ it.each([
 ])("rejects a run id with $label before Cloudflare sees it", async ({ id }) => {
   const binding = cloudflareBinding("checkout")
 
-  await expect(startWorkflow("checkout", { orderId: "1042" }, { id })).rejects.toMatchObject({
+  expect(await startWorkflow("checkout", { orderId: "1042" }, { id })).toMatchObject([{
     code: "WORKFLOW_CLOUDFLARE_RUN_ID_INVALID",
-    message: expect.stringContaining("up to 100 characters"),
-  })
+    why: expect.stringContaining("up to 100 characters"),
+  }, undefined])
   expect(binding.createBatch).not.toHaveBeenCalled()
 })
 
 it("starts and reads a run with an id that Cloudflare accepts", async () => {
   cloudflareBinding("checkout")
 
-  await expect(startWorkflow("checkout", { orderId: "1042" }, { id: "checkout-1042" })).resolves.toMatchObject({ id: "checkout-1042", status: "queued" })
-  await expect(getWorkflowRun("checkout", "checkout-1042")).resolves.toMatchObject({ id: "checkout-1042", status: "running" })
+  await expect(unwrap(startWorkflow("checkout", { orderId: "1042" }, { id: "checkout-1042" }))).resolves.toMatchObject({ id: "checkout-1042", status: "queued" })
+  await expect(unwrap(getWorkflowRun("checkout", "checkout-1042"))).resolves.toMatchObject({ id: "checkout-1042", status: "running" })
 })
 
 it.each(["batch", "terminate", "terminateAll", "cf_" + "a".repeat(64)])("starts and inspects supported reserved id %s", async (id) => {
   const binding = cloudflareBinding("checkout")
-  await expect(startWorkflow("checkout", {}, { id })).resolves.toMatchObject({ id, status: "queued" })
-  await expect(getWorkflowRun("checkout", id)).resolves.toMatchObject({ id, status: "running" })
+  await expect(unwrap(startWorkflow("checkout", {}, { id }))).resolves.toMatchObject({ id, status: "queued" })
+  await expect(unwrap(getWorkflowRun("checkout", id))).resolves.toMatchObject({ id, status: "running" })
   expect(binding.get).toHaveBeenCalledWith(id)
 })
 
 it("inspects an existing cron-generated instance id", async () => {
   const id = "*/30 * * * *-1786001400000"
   const binding = cloudflareBinding("checkout", [id])
-  await expect(getWorkflowRun("checkout", id)).resolves.toMatchObject({ id, status: "running" })
+  await expect(unwrap(getWorkflowRun("checkout", id))).resolves.toMatchObject({ id, status: "running" })
   expect(binding.get).toHaveBeenCalledWith(id)
 })
 
 it("reports a missing instance as unknown after querying the binding", async () => {
   const binding = cloudflareBinding("checkout")
-  await expect(getWorkflowRun("checkout", "checkout:1042")).resolves.toEqual({ id: "checkout:1042", provider: "cloudflare", status: "unknown" })
+  await expect(unwrap(getWorkflowRun("checkout", "checkout:1042"))).resolves.toEqual({ id: "checkout:1042", provider: "cloudflare", status: "unknown" })
   expect(binding.get).toHaveBeenCalledWith("checkout:1042")
 })
 
@@ -86,7 +87,7 @@ it("rejects the id in vite dev, where the run is inline", async () => {
   setWorkflowRuntimeRegistry({ checkout: async () => ({ default: { handler: async () => ({ ok: true }) } }) })
   enterWorkflowRuntimeEvent({ req: { runtime: { cloudflare: { env: {} } } } })
 
-  await expect(startWorkflow("checkout", {}, { id: "checkout:1042" })).rejects.toMatchObject({ code: "WORKFLOW_CLOUDFLARE_RUN_ID_INVALID" })
+  expect(await startWorkflow("checkout", {}, { id: "checkout:1042" })).toMatchObject([{ code: "WORKFLOW_CLOUDFLARE_RUN_ID_INVALID" }, undefined])
 })
 
 it("derives a Cloudflare instance id from createWorkflow({ id }) for a long Workflow name", async () => {
@@ -94,7 +95,7 @@ it("derives a Cloudflare instance id from createWorkflow({ id }) for a long Work
   const binding = cloudflareBinding(name)
   const workflow = createWorkflow<{ orderId: string }>(name, { id: ({ payload }) => payload?.orderId ?? "" })
 
-  const run = await workflow.start({ orderId: "1042" })
+  const run = await unwrap(workflow.start({ orderId: "1042" }))
   expect(run.id.length).toBeLessThanOrEqual(100)
   expect(binding.createBatch).toHaveBeenCalledWith([{ id: run.id, params: { orderId: "1042" } }])
 })
