@@ -1,6 +1,7 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
 import { isRecordOrFunction as isObjectRecord } from "@vite-hub/internal/object"
 import { serializeResponse, toResponse } from "@vite-hub/runtime"
+import { emitRunFailed, toRunFailedError } from "@vite-hub/runtime/internal/run-failed"
 import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 
 import { createScheduleError } from "../errors.ts"
@@ -231,6 +232,7 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
   }
   catch (error) {
     const failed = await failRun(run, attempt, error, runStore)
+    await emitRunFailed({ event: "schedule.failed", schedule: failed.scheduleId, runId: failed.id, error: toRunFailedError(error), failedAt: (failed.completedAt ?? new Date()).toISOString() })
     if (options.captureHandlerFailure) return failed
     throw error
   }

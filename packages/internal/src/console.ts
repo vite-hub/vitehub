@@ -363,6 +363,8 @@ export interface ViteHubConsoleDocumentHint {
  * failing without a reason.
  */
 export interface ViteHubConsoleDocumentSetup {
+  /** The project has GitHub Sources but no document collections. */
+  sourceHeadsOnly?: true
   /** Present when no user can read anything because the owner has no access policy. */
   access?: ViteHubConsoleDocumentHint
   /**

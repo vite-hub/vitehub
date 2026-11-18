@@ -71,8 +71,8 @@ describe("Email outbox runtime reader", () => {
       const outbox = await createEmailDevOutboxDriver({ deliver: true, driver: () => driver, provider: "resend" })
       await outbox.send(message, { attempt: 1, driver: outbox.name, meta: {} })
     }
-    await send({ name: "resend", send: () => ({ data: { at: new Date(), driver: "resend", id: "re_1" }, error: null }) })
-    await send({ name: "resend", send: () => ({ data: null, error: emailProviderError("resend", "AUTH", "Resend rejected the API key.") }) })
+    await send({ name: "resend", send: () => [undefined, { at: new Date(), driver: "resend", id: "re_1" }] })
+    await send({ name: "resend", send: () => [emailProviderError("resend", "AUTH", "Resend rejected the API key."), undefined] })
 
     const [failed, sent] = readEmailOutboxConsoleRecords()
     expect(failed?.cells.delivery).toBe("Failed")

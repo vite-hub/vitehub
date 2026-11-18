@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { deserializeResponse, serializeResponse } from "@vite-hub/runtime"
 import { defineSchedule, type ScheduleDefinition, type ScheduleKVStorage, type ScheduleRunAttemptRecord, type ScheduleRunRecord } from "../src/index.ts"
 import { createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule } from "../src/runtime.ts"
+import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
 import { registerRunScope } from "@vite-hub/runtime/internal/run-scope"
 import { runScheduleFrom } from "../src/runtime/execute.ts"
 import { executeStaticSchedule as executeStaticScheduleHandler } from "../src/runtime/static.ts"
@@ -435,6 +436,36 @@ describe("Schedule Run bookkeeping", () => {
       error: { message: "boom", name: "TypeError" },
       status: "failed",
     })
+  })
+
+  it("sends schedule.failed once the run is stored as failed", async () => {
+    const events: unknown[] = []
+    const stop = onRunFailed(async (event) => {
+      const [run] = await getScheduleRunStore().listRuns()
+      events.push({ event, stored: run?.status })
+    })
+    try {
+      await expect(executeStaticSchedule({
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => { throw new Error("SMTP timeout") } },
+        name: "nightly-sync",
+        scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+      })).rejects.toThrow("SMTP timeout")
+      await executeStaticSchedule({
+        cron: "0 9 * * *",
+        definition: { cron: "0 9 * * *", handler: async () => "ok" },
+        name: "hourly-report",
+        scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+      })
+    }
+    finally {
+      stop()
+    }
+    const [run] = (await getScheduleRunStore().listRuns()).filter(candidate => candidate.status === "failed")
+    expect(events).toEqual([{
+      event: { event: "schedule.failed", schedule: "nightly-sync", runId: run!.id, error: { message: "SMTP timeout" }, failedAt: run!.completedAt!.toISOString() },
+      stored: "failed",
+    }])
   })
 
   it.each([

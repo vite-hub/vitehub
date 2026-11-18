@@ -83,6 +83,15 @@ function traceMessages(messages: Message[]): Message[] {
   }))
 }
 
+/** The message that started the run: the one with the run's message ID, else the last user message. */
+function triggerMessage(context: AgentTraceContext): Message | undefined {
+  const messages = context.input.messages
+  if (!messages?.length) return
+  const messageId = context.run?.messageId
+  return (messageId ? messages.find(message => message.id === messageId) : undefined)
+    ?? messages.findLast(message => message.role === "user")
+}
+
 function invocationAttributes(
   context: AgentTraceContext,
   extra: Record<string, unknown> = {},
@@ -114,6 +123,7 @@ function invocationAttributes(
     "input.hasPrompt": Boolean(context.input.prompt),
     ...(includeInput && context.input.data !== undefined ? { "input.data": context.input.data } : {}),
     ...(includeInput && context.input.messages?.length ? { "input.messages": traceMessages(context.input.messages) } : {}),
+    ...(includeInput && triggerMessage(context) ? { "input.trigger.message": traceMessages([triggerMessage(context)!])[0] } : {}),
     ...(includeInput && context.input.prompt ? { "input.prompt": context.input.prompt } : {}),
     "runtime.name": context.runtime.runtime,
     ...extra,

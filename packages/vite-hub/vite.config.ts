@@ -95,6 +95,7 @@ const runtimeEntries = [
   "src/console/runtime/client/request.ts",
   "src/console/runtime/client/ticket.ts",
   "src/console/runtime/client/blob-media.ts",
+  "src/console/runtime/client/content-heads.ts",
   "src/console/runtime/client/documents.ts",
   "src/console/runtime/client/format.ts",
   "src/console/runtime/client/editor.ts",
@@ -479,6 +480,7 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-skill-tree.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-skill-file.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-loading.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-content-heads.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-documents.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-document-dashboard.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-media-library.vue", to: "dist/console/runtime/components" },
@@ -580,6 +582,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/request"];
           delete exports["./console/runtime/client/ticket"];
           delete exports["./console/runtime/client/blob-media"];
+          delete exports["./console/runtime/client/content-heads"];
           delete exports["./console/runtime/client/documents"];
           delete exports["./console/runtime/client/editor"];
           delete exports["./console/runtime/client/env-groups"];

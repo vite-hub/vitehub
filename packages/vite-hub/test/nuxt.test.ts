@@ -751,7 +751,7 @@ describe("ViteHub Nuxt integration", () => {
       },
     })
     expect(await viteHubNuxtModule.getModuleDependencies(options({ driver: "fs", serve: { access: "public" } }))).toMatchObject({
-      "@nuxt/image": { defaults: { providers: { vitehub: { options: { baseURL: "/api/_vitehub/blob" } } } } },
+      "@nuxt/image": { defaults: { providers: { vitehub: { options: { baseURL: "/_vitehub/blob" } } } } },
     })
     // No served store, or no Nuxt Image module: Nuxt must not try to resolve @nuxt/image.
     expect(await viteHubNuxtModule.getModuleDependencies(options({ driver: "fs" }))).not.toHaveProperty("@nuxt/image")
