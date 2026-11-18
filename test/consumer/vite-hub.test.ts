@@ -1161,9 +1161,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           headers: { "content-type": "application/json" },
           method: "POST",
         } as const
-        const response = await fetch(`${origin}/api/_vitehub/agents/contract/chat`, request)
+        const response = await fetch(`${origin}/_vitehub/agents/contract/chat`, request)
         const body = await response.text()
-        const disabledResponse = await fetch(`${origin}/api/_vitehub/agents/disabled/chat`, request)
+        const disabledResponse = await fetch(`${origin}/_vitehub/agents/disabled/chat`, request)
         const disabledBody = await disabledResponse.text()
         await new Promise(resolve => setTimeout(resolve, 50))
         return {

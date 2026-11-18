@@ -140,7 +140,7 @@ function reply(status: number, headers: Record<string, string> = {}): Response {
   return new Response(null, { status, headers: { "cache-control": "no-store", ...headers } })
 }
 
-/** The `{ fetch }` handler of `POST <base>/api/_vitehub/browser-errors`. `now` is for tests. */
+/** The `{ fetch }` handler of `POST <base>/_vitehub/browser-errors`. `now` is for tests. */
 export function createBrowserErrorsHandler(now: () => number = Date.now): { fetch: (request: Request) => Promise<Response> } {
   const limit = minuteLimit(now)
   return {

@@ -136,7 +136,7 @@ A person who may not read sees **Sign in with GitHub** in the overlay. GitHub re
 
 | GitHub App setting | Value |
 | --- | --- |
-| Callback URL | `https://<your site>/api/_vitehub/comments/auth/callback/github`, one per site. A GitHub App takes up to 10. |
+| Callback URL | `https://<your site>/_vitehub/comments/auth/callback/github`, one per site. A GitHub App takes up to 10. |
 | Expire user authorization tokens | Off. When on, GitHub's token lasts 8 hours, and Comments cannot store a renewed one in the cookie, so people must sign in again. |
 | Webhook | Off |
 | Permissions | Only the default. Add **Pull requests: Read and write** to [post as each person](#post-as-each-person). |
@@ -593,7 +593,7 @@ The server has checked each person in `users`. `link` is the app path that opens
 
 ## Attach files
 
-A message can keep files, with keys in `attachments`. The `comments.upload` operation, or `POST /api/_vitehub/comments/attachments`, stores a file and returns `{ key, name, type, size }`. Pass the key in `attachments` of `comments.create` or `comments.reply`. A message with attachments may have no text. Uploads need `write` on the subject.
+A message can keep files, with keys in `attachments`. The `comments.upload` operation, or `POST /_vitehub/comments/attachments`, stores a file and returns `{ key, name, type, size }`. Pass the key in `attachments` of `comments.create` or `comments.reply`. A message with attachments may have no text. Uploads need `write` on the subject.
 
 By default, files go to the app's [Blob](/docs/blob) store, under `comments/<id>/<name>`. To store them yourself, return the key from `storeAttachment`:
 
@@ -613,7 +613,7 @@ export const comments = defineComments({
 
 Comments checks size and type before it calls `storeAttachment`: at most 5 MB of PNG, JPEG, GIF, WebP, AVIF, PDF, or plain text. See [Limits](/docs/comments/limits-and-errors#limits). Without Blob or `storeAttachment`, uploads fail with `COMMENTS_R0014`.
 
-**Show attachments.** `GET /api/_vitehub/comments/attachments/<key>` returns the file to people who may read a thread with a message that lists the key. Others, and unlisted keys, get `404` with `COMMENTS_R0020`. It reads with `readAttachment`, else from Blob. With `storeAttachment` and no `readAttachment`, it returns `COMMENTS_R0021`. Use `transport.attachmentUrl(key)` of [`createRestTransport()`](/docs/comments/server-api#rest-transport), or `commentAttachmentUrl(key)`, as a thumbnail `src`. For the CLI, the `comments.attachment` operation returns the file in Base64.
+**Show attachments.** `GET /_vitehub/comments/attachments/<key>` returns the file to people who may read a thread with a message that lists the key. Others, and unlisted keys, get `404` with `COMMENTS_R0020`. It reads with `readAttachment`, else from Blob. With `storeAttachment` and no `readAttachment`, it returns `COMMENTS_R0021`. Use `transport.attachmentUrl(key)` of [`createRestTransport()`](/docs/comments/server-api#rest-transport), or `commentAttachmentUrl(key)`, as a thumbnail `src`. For the CLI, the `comments.attachment` operation returns the file in Base64.
 
 The response keeps a browser from running the file:
 
@@ -717,7 +717,7 @@ When Comments or the [Console link](/docs/development/console#open-the-console-f
 
 ### Apps below a base path
 
-With a Vite `base`, such as `base: '/docs/'`, or a Nuxt `app.baseURL`, Comments and the page tools follow it. The session route is `/docs/_vitehub/page/session`, the loader is `/docs/_vitehub/page/assets/loader.js`, and the Comments API is `/docs/api/_vitehub/comments`. The loader and overlay read the base from their own URL. Paths under `/docs/_vitehub` and `/docs/api` never get the loader.
+With a Vite `base`, such as `base: '/docs/'`, or a Nuxt `app.baseURL`, Comments and the page tools follow it. The session route is `/docs/_vitehub/page/session`, the loader is `/docs/_vitehub/page/assets/loader.js`, and the Comments API is `/docs/_vitehub/comments`. The loader and overlay read the base from their own URL. Paths under `/docs/_vitehub` and `/docs/api` never get the loader.
 
 ViteHub registers these routes below the part of the base that Nitro does not add. When Nitro `baseURL` is the same path, as Nuxt sets for `app.baseURL`, Nitro adds the base and ViteHub adds nothing.
 
