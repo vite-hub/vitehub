@@ -8,6 +8,9 @@ icon: i-lucide-sparkles
 
 Most motion in `@vite-hub/ui` needs no code. The motion layer moves a control by its role: a press squashes a button, a switch knob travels, a tab indicator slides, a tooltip rises. The parts on this page are for changes that only your component knows about: a label, a count, or an icon that changes with state, a list that changes, work that runs, files that a person drags in, and a delete that can be undone. The rules behind them are in [docs/design/motion.md](https://github.com/vite-hub/vitehub/blob/main/docs/design/motion.md).
 
+::example{name="MotionExample" height=8}
+::
+
 ## Installation
 
 Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports the parts. In Vue with Vite, import them from `vite-hub/ui`:
@@ -71,7 +74,11 @@ Each part continues from where it is when its value changes again in the middle 
 
 ## Without Vue
 
-`morphText(element, text)`, `rollNumber(element, value, format?)`, `swapIcon(container, icon, { exit, enter })`, `ring(element)`, `createMotionList(container)`, `createProgress(host)`, `createDropField(field, options)`, and `createHoldToDelete(button, options)` from `@vite-hub/ui/motion` do the same on any element.
+`morphText(element, text)`, `rollNumber(element, value, format?)`, `swapIcon(container, icon, { exit, enter })`, `ring(element)`, `createMotionList(container)`, `createProgress(host)`, `createDropField(field, options)`, and `createHoldToDelete(button, options)` from `vite-hub/ui/motion` do the same on any element.
+
+## Accessibility
+
+`MorphText` and `RollNumber` keep the final text in the element while the letters move, so a screen reader reads the new text at once and never a half state. `SwapIcon` is hidden from screen readers: give the control that holds it a label or an `aria-label`. With reduced motion turned on in the system, nothing travels and the parts crossfade in 150ms.
 
 ## API Reference
 
@@ -108,7 +115,7 @@ Renders a `span` with `data-slot="swap-icon"` that holds a `UIcon`, or the defau
 | Prop    | Type                                                        | Default  | Description                                       |
 | ------- | ----------------------------------------------------------- | -------- | ------------------------------------------------- |
 | `name`  | `string`                                                    | Required | The icon. A new name swaps the icon.              |
-| `exit`  | `"blur" \| "left" \| "right" \| "up" \| "down"`             | `"blur"` | How the old icon leaves.                          |
+| `exit`  | `"blur" \| "left" \| "right" \| "up" \| "down"`             |          | How the old icon leaves. It blurs out by default. |
 | `enter` | `"blur" \| "draw" \| "left" \| "right" \| "up" \| "down"`   |          | How the new icon comes in. A spinner draws by default, other icons blur in. |
 | `spin`  | `boolean`                                                   | `false`  | The icon turns, as a spinner does.                |
 
