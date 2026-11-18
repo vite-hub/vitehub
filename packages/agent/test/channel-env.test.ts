@@ -1038,6 +1038,8 @@ describe("built-in Channel discovery", () => {
       }
       expect(declared.telegram?.botToken).toEqual({ names: ["TELEGRAM_BOT_TOKEN"], required: true, secret: true })
       expect(declared.teams?.appPassword).toEqual({ names: ["TEAMS_APP_PASSWORD"], required: true, secret: true })
+      // The Teams SDK sends to the service URL of each conversation, so TEAMS_API_URL only pins a gateway or emulator.
+      expect(declared.teams?.apiUrl).toEqual({ names: ["TEAMS_API_URL"], required: false, secret: false })
     }
     finally {
       await rm(root, { force: true, recursive: true })
