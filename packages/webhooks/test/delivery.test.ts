@@ -283,8 +283,8 @@ describe("sendWebhook", () => {
 
   it("lists the webhooks with their variable names, not their values", () => {
     expect(listWebhooks()).toEqual(expect.arrayContaining([
-      { name: "t3", url: "WEBHOOK_TEST_URL", secret: "WEBHOOK_TEST_SECRET", signature: "github", debounceMs: 300, urlSet: true, secretSet: true },
-      expect.objectContaining({ name: "unset", urlSet: false, secretSet: true }),
+      { name: "t3", url: "WEBHOOK_TEST_URL", secret: "WEBHOOK_TEST_SECRET", signature: "github", debounceMs: 300, urlSet: true, secretSet: true, host: new URL(receiverUrl).host },
+      expect.objectContaining({ name: "unset", urlSet: false, secretSet: true, host: null }),
     ]))
     expect(JSON.stringify(listWebhooks())).not.toContain(token)
   })
@@ -299,7 +299,9 @@ describe("defineWebhook", () => {
   it("fails at define time for a debounce above the host limit, or a value in place of a variable name", () => {
     expect(() => defineWebhook({ url: "U", secret: "S", debounce: "25 hours" })).toThrow(expect.objectContaining({ code: "WEBHOOKS_DEBOUNCE_TOO_LONG" }))
     expect(() => defineWebhook({ url: "https://example.com/hook", secret: "S" })).toThrow(expect.objectContaining({ code: "WEBHOOKS_DEFINITION_INVALID" }))
-    expect(() => defineWebhook({ url: "U", secret: "S", debounce: "soon" })).toThrow(expect.objectContaining({ code: "WEBHOOKS_DEFINITION_INVALID" }))
+    expect(() => defineWebhook({ url: "U", secret: "S", debounce: "soon" as never })).toThrow(expect.objectContaining({ code: "RUNTIME_DURATION_INVALID" }))
+    expect(() => defineWebhook({ url: "U", secret: "S", debounce: 60_000 as never })).toThrow(expect.objectContaining({ code: "RUNTIME_DURATION_INVALID", fix: expect.stringContaining("\"1m\"") }))
     expect(defineWebhook({ url: "U", secret: "S", debounce: "30 minutes" })).toMatchObject({ debounceMs: 1_800_000, signature: "github" })
+    expect(defineWebhook({ url: "U", secret: "S", debounce: "1d" })).toMatchObject({ debounceMs: 86_400_000 })
   })
 })

@@ -39,7 +39,6 @@ Agent finishes inside the HTTP request. Keep your other features.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: "node",
     agent: true,
     workflow: false,
   },
@@ -56,7 +55,6 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       agent: true,
       workflow: false,
     }),
@@ -74,7 +72,6 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       agent: true,
       workflow: false,
     }),

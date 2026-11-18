@@ -1,12 +1,7 @@
 {
-  "rawErrors": {
-    "packages/comments/src/forge/github.ts": 1,
-    "packages/comments/src/migrate.ts": 3,
-    "packages/comments/src/operations-core/rpc.ts": 1,
-    "packages/comments/src/rest-transport.ts": 1,
-    "packages/comments/src/runtime/github-login.ts": 2,
-    "packages/comments/src/runtime/mcp.ts": 1
-  },
+  "rawErrors": {},
   "codesWithoutFix": [],
-  "invariants": {}
+  "invariants": {
+    "packages/comments/src/runtime/mcp.ts": 1
+  }
 }

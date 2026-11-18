@@ -493,7 +493,7 @@ describe("GitHub history commit", () => {
   })
 
   it("merges one ref into another and keeps the merge metadata", async () => {
-    const published = fake.commit("main", { "posts/a.md": "a" })
+    fake.commit("main", { "posts/a.md": "a" })
     const target = history({ refs: aliases })
     const draft = await target.commit({ ref: "draft", ifHead: null, changes: { put: { "posts/b.md": file("posts/b.md", "b") } } })
     const added = fake.commit("main", { "posts/c.md": "c" })
@@ -506,7 +506,6 @@ describe("GitHub history commit", () => {
     // Nothing is left to merge.
     await expect(target.merge!({ from: "published", into: "draft" })).resolves.toBeNull()
     expect(fake.head("main")).toBe(added)
-    expect(published).not.toBe(added)
   })
 
   it("maps a merge conflict to WORKSPACE_CONFLICT", async () => {

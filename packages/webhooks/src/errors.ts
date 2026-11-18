@@ -2,7 +2,7 @@ import { defineErrors } from "@vite-hub/runtime"
 
 // Keep published codes stable. Keep the codes of each group in alphabetical order.
 export const webhooksErrors = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/development/diagnostics",
+  docs: "https://vitehub.dev/docs/webhooks/diagnostics",
   codes: {
     // Definition and build errors. They throw.
     WEBHOOKS_DATABASE_OFF: {
@@ -11,11 +11,11 @@ export const webhooksErrors = /*#__PURE__*/ defineErrors({
     },
     WEBHOOKS_DEBOUNCE_TOO_LONG: {
       why: ({ debounce }: { debounce: string }) => `The debounce ${debounce} is longer than 24 hours. Cloudflare Queues delays a message at most 24 hours, and a webhook must work on every host.`,
-      fix: "Set `debounce` to 24 hours or less, such as `\"30 minutes\"`.",
+      fix: "Set `debounce` to 24 hours or less, such as `\"30m\"` or `\"1d\"`.",
     },
     WEBHOOKS_DEFINITION_INVALID: {
       why: ({ message }: { message: string }) => message,
-      fix: "Default-export `defineWebhook({ url: \"T3_WEBHOOK_URL\", secret: \"T3_WEBHOOK_SECRET\" })` from each file of `server/webhooks/`. `url` and `secret` are names of server variables, `signature` is `\"github\"` or `\"stripe\"`, and `debounce` is a duration such as `\"30 minutes\"`.",
+      fix: "Default-export `defineWebhook({ url: \"T3_WEBHOOK_URL\", secret: \"T3_WEBHOOK_SECRET\" })` from each file of `server/webhooks/`. `url` and `secret` are names of server variables, `signature` is `\"github\"` or `\"stripe\"`, and `debounce` is a duration such as `\"30m\"`.",
     },
     WEBHOOKS_FILE_INVALID: {
       why: ({ message }: { message: string }) => message,

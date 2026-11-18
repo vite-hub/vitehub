@@ -269,7 +269,7 @@ describe("Sandbox runtime lifecycle", () => {
     await expect(second).rejects.toBe(reason)
 
     const third = runner.run()
-    await Promise.resolve()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(runtimeMocks.open).toHaveBeenCalledOnce()
 
     releases.shift()?.()
@@ -304,7 +304,7 @@ describe("Sandbox runtime lifecycle", () => {
     await expect(first).rejects.toBe(reason)
 
     const next = runner.run()
-    await Promise.resolve()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(runtimeMocks.open).toHaveBeenCalledOnce()
     expect(runtimeMocks.close).not.toHaveBeenCalled()
     finishExecution()

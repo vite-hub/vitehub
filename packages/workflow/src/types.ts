@@ -1,3 +1,5 @@
+import type { Duration, Result } from "@vite-hub/runtime"
+
 export type WorkflowDriver = "cloudflare" | "openworkflow" | "vercel"
 
 export interface CloudflareWorkflowBinding<TPayload = unknown> {
@@ -135,15 +137,34 @@ export interface WorkflowRunStep {
   status: WorkflowRunStatus
 }
 
-export interface WorkflowStepOptions {
-  retries?: {
-    backoff?: string
-    delay?: string
-    limit?: number
-  }
+/** How the wait between retries grows: `exponential` doubles it after each retry, `constant` keeps it. */
+export type WorkflowStepBackoff = "constant" | "exponential"
+
+/** When a step runs again after it throws. The defaults are `{ limit: 3, delay: '10 seconds', backoff: 'exponential' }`. */
+export interface WorkflowStepRetries {
+  backoff?: WorkflowStepBackoff
+  /** How long to wait before the first retry. */
+  delay?: WorkflowDuration
+  /** How many times to run the step again after the first attempt fails. `0` runs it once. */
+  limit?: number
 }
 
-export type WorkflowStepFunction<TInput = unknown, TResult = unknown> = (input: TInput) => TResult | Promise<TResult>
+/**
+ * The options of one step. A step file exports them as `retries` and `timeout`. `timeout` is the time limit of one
+ * attempt: when it passes, the step's `signal` aborts and the attempt fails with `WORKFLOW_STEP_TIMEOUT`.
+ */
+export interface WorkflowStepOptions {
+  retries?: WorkflowStepRetries
+  timeout?: WorkflowDuration
+}
+
+/** The second argument of a step function. */
+export interface WorkflowStepContext {
+  /** Aborts when the `timeout` of the step passes. Pass it to `fetch()` and other calls that take a signal. */
+  signal: AbortSignal
+}
+
+export type WorkflowStepFunction<TInput = unknown, TResult = unknown> = (input: TInput, context: WorkflowStepContext) => TResult | Promise<TResult>
 
 export interface WorkflowProviderStep {
   do?: <TResult>(
@@ -250,17 +271,31 @@ export type WorkflowStartArguments<TPayload> = undefined extends TPayload
   ? [payload?: TPayload, options?: WorkflowStartOptions]
   : [payload: TPayload, options?: WorkflowStartOptions]
 
+/**
+ * Codes that `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, and the methods of a
+ * WorkflowHandle return in the `[error, data]` tuple. Config errors throw instead.
+ */
+export type WorkflowResultErrorCode =
+  | "RUNTIME_DURATION_INVALID"
+  | "WORKFLOW_CLOUDFLARE_RUN_ID_INVALID"
+  | "WORKFLOW_OPERATION_UNSUPPORTED"
+  | "WORKFLOW_PROVIDER_OPERATION_FAILED"
+  | "WORKFLOW_R0014"
+  | "WORKFLOW_RUN_ID_UNSUPPORTED"
+  | "WORKFLOW_START_DELAY_INVALID"
+
+/** `cancel()`, `getRun()`, and `start()` return `[error, data]`, as `cancelWorkflow()`, `getWorkflowRun()`, and `startWorkflow()` do. */
 export interface WorkflowHandle<TPayload = unknown, TResult = unknown> {
-  cancel: (id: string) => Promise<WorkflowRun<unknown, unknown>>
+  cancel: (id: string) => Promise<Result<WorkflowRun<unknown, unknown>, WorkflowResultErrorCode>>
   /** Starts a run after the response, through `waitUntil`. A failure goes to the log. */
   defer: (...args: WorkflowStartArguments<TPayload>) => void
-  getRun: (id: string) => Promise<WorkflowRun<unknown, unknown>>
+  getRun: (id: string) => Promise<Result<WorkflowRun<unknown, unknown>, WorkflowResultErrorCode>>
   name: string
-  start: (...args: WorkflowStartArguments<TPayload>) => Promise<WorkflowRun<TPayload, TResult>>
+  start: (...args: WorkflowStartArguments<TPayload>) => Promise<Result<WorkflowRun<TPayload, TResult>, WorkflowResultErrorCode>>
 }
 
-/** Milliseconds, a duration such as `"30 minutes"` or `"3 days"`, or a `Date` that the run must not start before. */
-export type WorkflowStartDelay = number | string | Date
+/** A duration such as `"30m"` or `"3 days"`, or a `Date` that the run must not start before. */
+export type WorkflowStartDelay = Duration | Date
 
 export interface WorkflowStartOptions {
   /** Starts the run later. A `Date` in the past starts it now. */

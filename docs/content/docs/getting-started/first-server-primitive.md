@@ -30,7 +30,7 @@ Install the KV package:
 pnpm add @vite-hub/kv
 ```
 
-Turn on KV with the `fs-lite` driver, which stores values under
+Add `kv: true`. On the `node` host, KV stores values in files under
 `.vitehub/data/kv`. Keep the other features in your config.
 
 :::tabs{sync="framework"}
@@ -39,8 +39,7 @@ Turn on KV with the `fs-lite` driver, which stores values under
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: "node",
-    kv: { driver: "fs-lite", base: ".vitehub/data/kv" },
+    kv: true,
   },
 })
 ```
@@ -55,8 +54,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
-      kv: { driver: "fs-lite", base: ".vitehub/data/kv" },
+      kv: true,
     }),
     nitro(),
   ],
@@ -72,8 +70,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
-      kv: { driver: "fs-lite", base: ".vitehub/data/kv" },
+      kv: true,
     }),
   ],
 })
