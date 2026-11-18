@@ -1,7 +1,7 @@
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { Readable } from "node:stream"
 import { pathToFileURL } from "node:url"
 
@@ -702,7 +702,7 @@ describe("hubWorkspace", () => {
 
     await expect(config({ nitro: {}, root: appRoot }, { command: "serve", mode: "development" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
     await configResolved({ command: "serve", root: appRoot })
@@ -763,7 +763,7 @@ describe("hubWorkspace", () => {
 
     await expect(config({ nitro: {}, root }, { command: "serve", mode: "development" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
 
@@ -922,7 +922,7 @@ describe("hubWorkspace", () => {
       root,
     }, { command: "serve", mode: "development" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
 
@@ -947,7 +947,7 @@ describe("hubWorkspace", () => {
 
     await expect(config({ nitro: {}, root }, { command: "serve", mode: "development" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
 
@@ -1039,10 +1039,10 @@ describe("hubWorkspace", () => {
 
     await expect(config(userConfig, { command: "build", mode: "production" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
-    expect(userConfig.nitro).toMatchObject({ plugins: [".vitehub/nitro/workspace/plugin.ts"] })
+    expect(userConfig.nitro).toMatchObject({ plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")] })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     expect(pluginSource).toContain(`import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(ownModule(import.meta.url, "runtime/registry"))}`)
@@ -1055,6 +1055,24 @@ describe("hubWorkspace", () => {
     expect(pluginSource).toContain('"driver": "github"')
     expect(pluginSource).toContain('"repository": "onmax/quiver-airtable"')
     await expect(readFile(join(root, "server", "plugins", "vitehub-workspace.ts"), "utf8")).rejects.toThrow()
+  })
+
+  it("registers the Nitro plugin that it writes when projectRoot is not the Vite root", async () => {
+    const root = await createViteRoot()
+    await mkdir(join(root, "service"))
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({
+      projectRoot: "service",
+      store: { branch: "main", driver: "github", repository: "onmax/quiver-airtable" },
+    })
+    const config = mergedConfigHook(plugin.config)
+    const userConfig: UserConfig & { nitro?: { plugins?: string[] } } = { root }
+    await config(userConfig, { command: "build", mode: "production" })
+
+    // Nitro resolves a relative plugin against its own rootDir, which the Nitro Vite plugin sets to the Vite root.
+    const [registered] = userConfig.nitro?.plugins ?? []
+    expect(resolve(root, registered!)).toBe(join(root, "service", ".vitehub/nitro/workspace/plugin.ts"))
+    await expect(readFile(resolve(root, registered!), "utf8")).resolves.toContain("setWorkspaceRuntimeRegistry")
   })
 
   it("preserves lazy GitHub store callbacks in generated Nitro runtime setup", async () => {
@@ -1078,7 +1096,7 @@ describe("hubWorkspace", () => {
     await expect(config(userConfig, { command: "build", mode: "production" })).resolves.toMatchObject({
       nitro: {
         cloudflare: { nodeCompat: true },
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
         rollupConfig: { external: ["cloudflare:workers"] },
       },
     })
@@ -1195,7 +1213,7 @@ describe("hubWorkspace", () => {
 
     await expect(config(userConfig, { command: "build", mode: "production" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
 
@@ -1223,7 +1241,7 @@ describe("hubWorkspace", () => {
 
     await expect(config(userConfig, { command: "build", mode: "production" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
 
@@ -1255,10 +1273,10 @@ describe("hubWorkspace", () => {
 
     await expect(config(userConfig, { command: "serve", mode: "development" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
-    expect(userConfig.nitro).toMatchObject({ plugins: [".vitehub/nitro/workspace/plugin.ts"] })
+    expect(userConfig.nitro).toMatchObject({ plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")] })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     expect(pluginSource).toContain("setWorkspaceRuntimeConfig")
@@ -1283,7 +1301,7 @@ describe("hubWorkspace", () => {
       root,
     }, { command: "serve", mode: "development" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
 
@@ -1370,7 +1388,7 @@ describe("hubWorkspace", () => {
     const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
 
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
-      plugins: [".vitehub/nitro/workspace/plugin.ts"],
+      plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
@@ -1414,7 +1432,7 @@ describe("hubWorkspace", () => {
 
     const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
     await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
-      plugins: [".vitehub/nitro/workspace/plugin.ts"],
+      plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
     })
 
     const registry = (await import(`${pathToFileURL(join(root, ".vitehub", "nitro", "workspace", "registry.js")).href}?t=${Date.now()}`)).default
@@ -1459,7 +1477,7 @@ describe("hubWorkspace", () => {
       root: join(root, "app"),
     }, { command: "build", mode: "production" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
 
@@ -1496,7 +1514,7 @@ describe("hubWorkspace", () => {
       root: join(root, "frontend"),
     }, { command: "build", mode: "production" })).resolves.toMatchObject({
       nitro: {
-        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+        plugins: [join(root, ".vitehub/nitro/workspace/plugin.ts")],
       },
     })
 

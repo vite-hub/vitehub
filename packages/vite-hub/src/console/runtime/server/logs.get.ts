@@ -62,6 +62,6 @@ export const readConsoleLogs: ConsoleAccessRoute<typeof consoleLogsHandler> = wi
   { section: "logs" },
 );
 
-/** `GET <base>/api/_vitehub/console/logs` */
+/** `GET <base>/_vitehub/console/logs` */
 const consoleLogsRoute: ConsoleRoute = consoleRoute(readConsoleLogs);
 export default consoleLogsRoute;

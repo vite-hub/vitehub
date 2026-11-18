@@ -1,5 +1,7 @@
 import { invariantError } from "@vite-hub/internal/invariant"
 
+import { isUint8Array, kvValueType } from "./inspect-value.ts"
+
 const maximumValueBytes = 256 * 1_024
 
 export interface KVPreview {
@@ -9,13 +11,6 @@ export interface KVPreview {
   truncated?: true
   type: string
   value: string
-}
-
-function valueType(value: unknown): string {
-  if (value === null) return "null"
-  if (Array.isArray(value)) return "array"
-  if (value instanceof Uint8Array) return "bytes"
-  return typeof value
 }
 
 function truncateValue(value: string): { truncated: boolean; value: string } {
@@ -152,7 +147,7 @@ function boundedJSONStringify(value: unknown): { editable: boolean; truncated: b
 
 /** A stored value as text of at most 256 KiB, for a page that shows it. Bytes become hex. */
 export function previewKVValue(value: unknown): KVPreview {
-  const type = valueType(value)
+  const type = kvValueType(value)
   let format: "json" | "text" = "json"
   let rendered: string
   let truncated = false
@@ -162,7 +157,7 @@ export function previewKVValue(value: unknown): KVPreview {
     format = "text"
     rendered = value
   }
-  else if (value instanceof Uint8Array) {
+  else if (isUint8Array(value)) {
     format = "text"
     const maximumBytes = maximumValueBytes / 2
     truncated = value.byteLength > maximumBytes

@@ -8,6 +8,7 @@ import { drizzle } from "drizzle-orm/libsql"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { verifyWebhook } from "@vite-hub/env"
+import { emitRunFailed } from "@vite-hub/runtime/internal/run-failed"
 
 import { createLocalQueueClient, createLocalQueueEngine, localQueueDeliveryRules } from "../../queue/src/providers/local.ts"
 import { createDrizzleWebhookStore, webhooksTables } from "../src/database.ts"
@@ -36,6 +37,8 @@ declare module "../src/index.ts" {
     "t3": WebhookDefinition
     "hourly": WebhookDefinition
     "unset": WebhookDefinition
+    "alerts": WebhookDefinition
+    "alerts-digest": WebhookDefinition
   }
 }
 
@@ -96,6 +99,8 @@ beforeAll(async () => {
       t3: defineWebhook({ ...target, debounce: "300ms" }),
       hourly: defineWebhook({ ...target, debounce: "1 hour" }),
       unset: defineWebhook({ url: "WEBHOOK_UNSET_URL", secret: "WEBHOOK_TEST_SECRET" }),
+      "alerts": defineWebhook({ ...target, events: ["workflow.failed", "invocation.failed"] }),
+      "alerts-digest": defineWebhook({ ...target, debounce: "300ms", events: ["schedule.failed"] }),
     },
     store: createDrizzleWebhookStore(drizzle({ client })),
     wake: (wake, options) => queue.send(wake, options),
@@ -283,7 +288,8 @@ describe("sendWebhook", () => {
 
   it("lists the webhooks with their variable names, not their values", () => {
     expect(listWebhooks()).toEqual(expect.arrayContaining([
-      { name: "t3", url: "WEBHOOK_TEST_URL", secret: "WEBHOOK_TEST_SECRET", signature: "github", debounceMs: 300, urlSet: true, secretSet: true, host: new URL(receiverUrl).host },
+      { name: "t3", url: "WEBHOOK_TEST_URL", secret: "WEBHOOK_TEST_SECRET", signature: "github", debounceMs: 300, events: [], urlSet: true, secretSet: true, host: new URL(receiverUrl).host },
+      expect.objectContaining({ name: "alerts", events: ["workflow.failed", "invocation.failed"] }),
       expect.objectContaining({ name: "unset", urlSet: false, secretSet: true, host: null }),
     ]))
     expect(JSON.stringify(listWebhooks())).not.toContain(token)
@@ -295,11 +301,54 @@ describe("sendWebhook", () => {
   })
 })
 
+describe("failure events", () => {
+  it("sends workflow.failed and invocation.failed to the webhook that lists them, signed, with a line for chat apps", async () => {
+    await emitRunFailed({ event: "workflow.failed", workflow: "send-digest", runId: "run_1", error: { message: "SMTP timeout", code: "EMAIL_SEND_FAILED" }, failedAt: "2026-11-18T10:00:00.000Z" })
+    await emitRunFailed({ event: "invocation.failed", agent: "support", invocationId: "inv_1", error: { message: "Model refused" }, failedAt: "2026-11-18T10:01:00.000Z" })
+    await vi.waitFor(() => expect(received).toHaveLength(2), { timeout: 5_000 })
+    const byEvent = Object.fromEntries(received.map(entry => [entry.headers["x-vitehub-event"], entry]))
+    expect(await verifyWebhook(asRequest(byEvent["workflow.failed"]!), { provider: "github", secret: "WEBHOOK_TEST_SECRET" })).toEqual([undefined, {
+      event: "workflow.failed",
+      workflow: "send-digest",
+      runId: "run_1",
+      error: { message: "SMTP timeout", code: "EMAIL_SEND_FAILED" },
+      failedAt: "2026-11-18T10:00:00.000Z",
+      text: "The Workflow run run_1 of \"send-digest\" failed: SMTP timeout",
+    }])
+    expect(JSON.parse(byEvent["invocation.failed"]!.body)).toMatchObject({ agent: "support", invocationId: "inv_1", text: "The Agent Invocation inv_1 of \"support\" failed: Model refused" })
+  })
+
+  it("sends an event only to the webhooks that list it", async () => {
+    await emitRunFailed({ event: "workflow.failed", workflow: "import", runId: "run_2", error: { message: "boom" }, failedAt: "2026-11-18T10:00:00.000Z" })
+    await vi.waitFor(() => expect(received).toHaveLength(1), { timeout: 5_000 })
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(received).toHaveLength(1)
+  })
+
+  it("collapses repeated failures of one Schedule in the debounce, and keeps other Schedules apart", async () => {
+    for (const runId of ["srun_1", "srun_2", "srun_3"]) {
+      await emitRunFailed({ event: "schedule.failed", schedule: "nightly-sync", runId, error: { message: `failed ${runId}` }, failedAt: "2026-11-18T03:00:00.000Z" })
+    }
+    await emitRunFailed({ event: "schedule.failed", schedule: "hourly-report", runId: "srun_9", error: { message: "other" }, failedAt: "2026-11-18T03:00:00.000Z" })
+    await vi.waitFor(() => expect(received).toHaveLength(2), { timeout: 5_000 })
+    await new Promise(resolve => setTimeout(resolve, 500))
+    expect(received).toHaveLength(2)
+    const nightly = received.find(entry => JSON.parse(entry.body).schedule === "nightly-sync")!
+    expect(nightly.headers["x-vitehub-events"]).toBe("3")
+    expect(JSON.parse(nightly.body)).toMatchObject({ event: "schedule.failed", runId: "srun_3", text: "The Schedule run srun_3 of \"nightly-sync\" failed: failed srun_3" })
+  })
+})
+
 describe("defineWebhook", () => {
   it("fails at define time for a debounce above the host limit, or a value in place of a variable name", () => {
     expect(() => defineWebhook({ url: "U", secret: "S", debounce: "25 hours" })).toThrow(expect.objectContaining({ code: "WEBHOOKS_DEBOUNCE_TOO_LONG" }))
     expect(() => defineWebhook({ url: "https://example.com/hook", secret: "S" })).toThrow(expect.objectContaining({ code: "WEBHOOKS_DEFINITION_INVALID" }))
-    expect(() => defineWebhook({ url: "U", secret: "S", debounce: "soon" })).toThrow(expect.objectContaining({ code: "WEBHOOKS_DEFINITION_INVALID" }))
+    expect(() => defineWebhook({ url: "U", secret: "S", debounce: "soon" as never })).toThrow(expect.objectContaining({ code: "RUNTIME_DURATION_INVALID" }))
+    expect(() => defineWebhook({ url: "U", secret: "S", debounce: 60_000 as never })).toThrow(expect.objectContaining({ code: "RUNTIME_DURATION_INVALID", fix: expect.stringContaining("\"1m\"") }))
     expect(defineWebhook({ url: "U", secret: "S", debounce: "30 minutes" })).toMatchObject({ debounceMs: 1_800_000, signature: "github" })
+    expect(defineWebhook({ url: "U", secret: "S", debounce: "1d" })).toMatchObject({ debounceMs: 86_400_000 })
+    // @ts-expect-error `events` lists only the events that ViteHub sends by itself.
+    expect(() => defineWebhook({ url: "U", secret: "S", events: ["workflow.done"] })).toThrow(expect.objectContaining({ code: "WEBHOOKS_DEFINITION_INVALID" }))
+    expect(defineWebhook({ url: "U", secret: "S", events: ["schedule.failed", "schedule.failed"] })).toMatchObject({ events: ["schedule.failed"] })
   })
 })

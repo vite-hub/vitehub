@@ -110,7 +110,7 @@ function storeKey(name: string, where: unknown): string {
 }
 
 /**
- * One live stream for the stores of a tab, at `url` (`<base>api/_vitehub/sync`). It opens when the first store joins,
+ * One live stream for the stores of a tab, at `url` (`<base>_vitehub/sync`). It opens when the first store joins,
  * opens again after a short pause when stores join or leave, and closes when the last one leaves. Each pull goes to
  * its store by name and subset. After a failure, the stores pull, and join again when the pull works; the stream then
  * waits for the backoff.

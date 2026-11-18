@@ -1,12 +1,14 @@
 import { signWebhook } from "@vite-hub/env"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import { isWebhookDefinition } from "./define.ts"
 import { webhooksErrors } from "./errors.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
-import type { WebhookDefinition, WebhookSignature } from "./define.ts"
+import type { RunFailedEvent } from "@vite-hub/runtime/internal/run-failed"
+import type { WebhookDefinition, WebhookEvent, WebhookSignature } from "./define.ts"
 import type { ListWebhookDeliveriesOptions, WebhookDelivery, WebhookDeliveryStore, WebhooksDatabase } from "./database.ts"
 import type { SendWebhookErrorCode, WebhookDeliveryErrorCode } from "./errors.ts"
 
@@ -55,6 +57,8 @@ export interface WebhookInfo {
   secret: string
   signature: WebhookSignature
   debounceMs: number
+  /** The events that ViteHub sends to this webhook by itself. */
+  events: readonly WebhookEvent[]
   /** Whether this server has a value for `url` and for `secret`. */
   urlSet: boolean
   secretSet: boolean
@@ -91,7 +95,47 @@ export function installWebhooks(options: InstallWebhooksOptions): InstalledWebho
   }
   const installed: InstalledWebhooks = { webhooks, store: options.store, wake: options.wake }
   Reflect.set(globalThis, installedKey, installed)
+  if (!Reflect.get(globalThis, listenerKey)) Reflect.set(globalThis, listenerKey, onRunFailed(sendRunFailed))
   return installed
+}
+
+const listenerKey = Symbol.for("vitehub.webhooks.runFailedListener")
+
+/**
+ * The body of an event that ViteHub sends by itself, such as `workflow.failed`. `text` is one line that a person reads,
+ * so a Slack incoming webhook shows it as the message.
+ */
+export type WebhookEventBody = RunFailedEvent & { text: string }
+
+/** The Agent, Workflow, or Schedule that failed: the key that collapses repeated failures of it while a debounce waits. */
+function failedSubject(event: RunFailedEvent): string {
+  if (event.event === "invocation.failed") return event.agent ?? event.invocationId
+  return event.event === "workflow.failed" ? event.workflow : event.schedule
+}
+
+function toWebhookEventBody(event: RunFailedEvent): WebhookEventBody {
+  const subject = event.event === "invocation.failed"
+    ? `The Agent Invocation ${event.invocationId}${event.agent ? ` of ${JSON.stringify(event.agent)}` : ""}`
+    : event.event === "workflow.failed"
+      ? `The Workflow run ${event.runId} of ${JSON.stringify(event.workflow)}`
+      : `The Schedule run ${event.runId} of ${JSON.stringify(event.schedule)}`
+  return { ...event, text: `${subject} failed: ${event.error.message}` }
+}
+
+/**
+ * Sends a failed run to each webhook that lists its event. With a debounce, failures of the same Agent, Workflow, or
+ * Schedule collapse into one delivery that holds the last failure, and `x-vitehub-events` counts them.
+ */
+async function sendRunFailed(event: RunFailedEvent): Promise<void> {
+  const installed = installedWebhooks()
+  if (!installed) return
+  const body = toWebhookEventBody(event)
+  for (const [name, definition] of installed.webhooks) {
+    if (!definition.events.includes(event.event)) continue
+    const key = definition.debounceMs > 0 ? `${event.event}:${failedSubject(event)}` : null
+    const [error] = await enqueue(name, body, { event: event.event, key, delayMs: definition.debounceMs })
+    if (error) console.error(`[vitehub] The webhook ${name} did not store the ${event.event} event.`, error)
+  }
 }
 
 function requireInstalled(): InstalledWebhooks {
@@ -332,6 +376,7 @@ export function listWebhooks(): WebhookInfo[] {
       secret: definition.secret,
       signature: definition.signature,
       debounceMs: definition.debounceMs,
+      events: definition.events,
       urlSet: url !== undefined,
       secretSet: readString(env, definition.secret) !== undefined,
       host: url !== undefined && URL.canParse(url) ? new URL(url).host || null : null,

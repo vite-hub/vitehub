@@ -165,7 +165,7 @@ export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BLOB_R0021: withFix("In the Vercel dashboard, connect the Blob store to the project for the Production, Preview, and Development environments. Then run `vitehub provision run --host vercel` again."),
     BLOB_R0022: withFix("Run `vitehub provision run --host vercel` again. If it fails again, check the provider status and the API token, then report it at https://github.com/vite-hub/vitehub/issues with the message."),
     BLOB_R0023: withFix("Remove `blob: false` from the Vite config, or remove the `blob` calls from server code."),
-    BLOB_R0024: withFix("Pass `expiresIn` in seconds as a positive integer, for example `blob.sign(pathname, { method: \"GET\", expiresIn: 300 })`."),
+    BLOB_R0024: withFix("Pass `expiresIn` as a positive whole number of seconds or as a duration, for example `blob.sign(pathname, { method: \"GET\", expiresIn: \"5m\" })`."),
     BLOB_R0025: withFix("Use a driver that can sign this request, or remove the option that the message names. `cloudflare` binds `createOnly`, `fs` binds `maxSize`, `vercel` binds both, and drivers such as `s3` bind neither. For a `GET`, you can also serve the object through `blob.serve` instead of a signed URL."),
     BLOB_R0026: withFix("Call `store()` on the `blob` export, for example `blob.store(\"media\")`, not on a handle that `blob.store()` returned."),
     BLOB_R0028: withFix("Use one of the store names that the message lists, or add the store to `blob.stores` in the Vite config, for example `stores: { default: { driver: \"fs\" }, media: { driver: \"fs\" } }`."),
