@@ -53,6 +53,11 @@
       "import": "./dist/motion.js",
       "default": "./dist/motion.js"
     },
+    "./motion/core": {
+      "types": "./dist/motion/core.d.ts",
+      "import": "./dist/motion/core.js",
+      "default": "./dist/motion/core.js"
+    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",

@@ -2,7 +2,7 @@ import type { App, ComputedRef, InjectionKey, MaybeRefOrGetter, Plugin } from "v
 import { computed, inject, toValue } from "vue";
 import { uiComponentsKey, type ViteHubUIComponents } from "./internal/nuxt-ui.ts";
 import { vRing } from "./components/motion.ts";
-import { installMotion } from "./motion/layer.ts";
+import { installMotion } from "./motion/install.ts";
 
 export type { ViteHubUIComponentName, ViteHubUIComponents } from "./internal/nuxt-ui.ts";
 

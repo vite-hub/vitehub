@@ -1,18 +1,16 @@
-import { builtInEffects } from "./effects/index.ts";
 import { onReducedMotionChange, prefersReducedMotion } from "./reduced-motion.ts";
 import { defineMotionEffect, listMotionEffects, motionStateAttributes, onMotionEffectsChange } from "./registry.ts";
 import type { MotionContentChange, MotionEffect, MotionPress, MotionStateAttribute } from "./registry.ts";
 import { settleSprings } from "./spring.ts";
 
 /** What an install covers: the document, a shadow root, or an element and everything in it, such as the host of a bar. */
-type MotionRoot = Document | ShadowRoot | Element;
+export type MotionRoot = Document | ShadowRoot | Element;
 
 const optOut = "[data-motion=\"none\"]";
 const roots = new Map<MotionRoot, { installs: number; observer: MutationObserver }>();
 // The presses that are down, by pointer id, or by "key" for Space and Enter.
 const presses = new Map<number | "key", Array<{ element: HTMLElement; press: MotionPress; leave?: () => void }>>();
 let stopWatching: Array<() => void> = [];
-let builtInsDefined = false;
 // A page can load more than one copy of this module, such as the app's and the one in the bundle of the page pill. The
 // copy that starts a press marks the event with this key, so the press of another copy does not squash it again.
 const pressedBy = Symbol.for("vite-hub.motion.pressed");
@@ -241,40 +239,48 @@ function startDocument(): void {
   ];
 }
 
+/** What `installMotion` of `@vite-hub/ui/motion/core` runs. */
+export interface InstallMotionOptions {
+  /**
+   * The effects that the install runs, such as `[pressEffect, appearEffect]`. Only these effects go in the bundle.
+   * Effects are shared by every install that uses the same copy of the module: an effect that one install adds also
+   * runs in the others.
+   */
+  effects: readonly MotionEffect[];
+}
+
 /**
- * Starts the motion layer: press, toggle, select, drag, and appear motion for every element by its role, from
- * `defineMotionEffect` effects, in `root`: the document by default, a shadow root, or an element and everything in it.
- * It listens once on the document and reads the composed path, so a press also reaches the shadow roots inside an
- * installed root. Pass a shadow root to also watch the state attributes inside it: an observer does not see into a
- * shadow root. A surface that installs only its own host and shadow roots, such as the page pill, does not move the
- * elements of the page around it.
+ * Starts the motion layer in `root`, the document, a shadow root, or an element and everything in it, with the effects
+ * in `options.effects`. The other built-in effects stay out of the bundle. It listens once on the document and reads the composed path, so a press also reaches
+ * the shadow roots inside an installed root. Pass a shadow root to also watch the state attributes inside it: an
+ * observer does not see into a shadow root. A surface that installs only its own host and shadow roots, such as the
+ * page pill, does not move the elements of the page around it.
  *
  * It is safe to call more than once. Returns a function that stops this install. The layer stops when every install
- * has stopped. On the server it does nothing.
+ * has stopped. On the server it does nothing. `installMotion(root?)` of `@vite-hub/ui/motion` is this function with
+ * every built-in effect.
  */
-export function installMotion(root?: MotionRoot): () => void {
+export function installMotion(root: MotionRoot, options: InstallMotionOptions): () => void {
   if (typeof document === "undefined") return () => {};
-  if (!builtInsDefined) {
-    builtInsDefined = true;
-    for (const effect of builtInEffects) defineMotionEffect(effect);
-  }
-  const target = root ?? document;
+  // An effect that an app defined with the same name, to replace a built-in one, stays.
+  const defined = new Set(listMotionEffects().map(effect => effect.name));
+  for (const effect of options.effects) if (!defined.has(effect.name)) defineMotionEffect(effect);
   if (!roots.size) startDocument();
-  const entry = roots.get(target);
+  const entry = roots.get(root);
   if (entry) entry.installs++;
   else {
     const observer = new MutationObserver(onMutations);
-    observe(target, observer);
-    roots.set(target, { installs: 1, observer });
+    observe(root, observer);
+    roots.set(root, { installs: 1, observer });
   }
   let stopped = false;
   return () => {
     if (stopped) return;
     stopped = true;
-    const current = roots.get(target);
+    const current = roots.get(root);
     if (!current || --current.installs > 0) return;
     current.observer.disconnect();
-    roots.delete(target);
+    roots.delete(root);
     if (roots.size) return;
     for (const stop of stopWatching) stop();
     stopWatching = [];

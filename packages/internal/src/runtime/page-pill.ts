@@ -4,13 +4,19 @@
  * for other tools that put a bar on someone's page, such as Drop's review toolbar, so both behave the same.
  *
  * This file runs only in the browser. It imports only the shared button styles and the motion layer of
- * `@vite-hub/ui/motion`, so it bundles on its own.
+ * `@vite-hub/ui/motion/core` with the one effect that it runs, the press, so it bundles on its own and stays small.
  */
-import { createMotionList, createSpring, getMotionSlowFactor, installMotion, springs, writeMotionStyle } from "@vite-hub/ui/motion"
+import { createMotionList, createSpring, getMotionSlowFactor, installMotion, pressEffect, springs, writeMotionStyle } from "@vite-hub/ui/motion/core"
 
 import { viteHubPillButtonStyles } from "./page-tools-shared.ts"
 
 import type { ViteHubPageToolsDock, ViteHubPageToolsEdge } from "./page-tools-window.ts"
+
+/**
+ * The effects of the motion layer that the pill runs: the press of each button. Only the press goes in its bundle. A
+ * page tool that adds more to the pill, such as a tab that comes out from under the bar, installs that effect too.
+ */
+export const viteHubPillMotion = { effects: [pressEffect] }
 
 // Drop's review toolbar: dark glass with the system font on every page. The tools in its segments inherit the colors
 // and the font. Space groups the buttons: 8px between segments, 2px inside one.
@@ -466,9 +472,9 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
   const fold = createPillFold(pill, toolbar, mark, () => parts.measure())
   folds.set(pill, fold)
   // The motion layer moves the pill and what it holds: the host covers the segments and the tabs, also the shadow roots
-  // in them, for presses and for elements that appear. The shadow root needs its own install for its states, such as
-  // the mark's aria-expanded. The page around the pill does not move.
-  const stopMotion = [installMotion(pill), installMotion(shadow)]
+  // in them. The shadow root has its own install, because an observer does not see into it. The page around the pill
+  // does not move.
+  const stopMotion = [installMotion(pill, viteHubPillMotion), installMotion(shadow, viteHubPillMotion)]
   if (signal.aborted) {
     for (const stop of stopMotion) stop()
     return pill

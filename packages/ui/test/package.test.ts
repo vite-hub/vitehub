@@ -61,7 +61,7 @@ const sourceStylesheet = readFileSync(new URL("../styles.css", import.meta.url),
 
 // The root holds every component. An entry of its own is only for parts whose dependencies a chat page must not load, and
 // for modules that load without the components: the theme, which apps import from nuxt.config, and the share links.
-const publicEntries = [".", "./headless", "./markdown-editor", "./motion", "./nuxt", "./playground", "./theme", "./vite", "./workspace"];
+const publicEntries = [".", "./headless", "./markdown-editor", "./motion", "./motion/core", "./nuxt", "./playground", "./theme", "./vite", "./workspace"];
 
 describe("@vite-hub/ui package contract", () => {
   it("exposes the documented entrypoints", () => {

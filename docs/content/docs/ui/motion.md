@@ -79,6 +79,8 @@ Each part continues from where it is when its value changes again in the middle 
 
 `morphText(element, text)`, `rollNumber(element, value, format?)`, `swapIcon(container, icon, { exit, enter })`, `ring(element)`, `shake(element)` for a box that refuses an action, `createMotionList(container)`, `createProgress(host)`, `createDropField(field, options)`, and `createHoldToDelete(button, options)` from `@vite-hub/ui/motion` do the same on any element.
 
+`installMotion(root)` from `@vite-hub/ui/motion` starts the motion layer with every effect, in a shadow root or an element that Vue does not render. A script with its own small bundle, such as a toolbar that you add to other pages, imports `installMotion` from `@vite-hub/ui/motion/core` and lists its effects, so the others stay out of the bundle: `installMotion(shadowRoot, { effects: [pressEffect, appearEffect] })`.
+
 ## API Reference
 
 ### MorphText

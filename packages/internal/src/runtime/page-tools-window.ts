@@ -1,4 +1,6 @@
-import { installMotion } from "@vite-hub/ui/motion"
+import { installMotion } from "@vite-hub/ui/motion/core"
+
+import { viteHubPillMotion } from "./page-pill.ts"
 
 export interface ViteHubPageWindow {
   body: HTMLElement
@@ -233,7 +235,7 @@ export function createViteHubPageWindow(options: ViteHubPageWindowOptions): Vite
   host.style.viewTransitionName = `vitehub-window-${++names}`
   placeHost(host)
   // The motion layer watches the states inside the window, such as its pressed buttons.
-  const stopMotion = installMotion(shadow)
+  const stopMotion = installMotion(shadow, viteHubPillMotion)
   const destroy = () => { hosts.delete(host); resize.disconnect(); host.remove(); stopMotion() }
   if (options.signal.aborted) destroy()
   else {
