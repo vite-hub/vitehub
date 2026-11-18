@@ -42,7 +42,6 @@ Start with the app from [Installation](/docs/getting-started/installation). `vit
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     agent: true,
     workflow: false,
   },
@@ -59,7 +58,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       agent: true,
       workflow: false,
     }),
@@ -77,7 +75,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       agent: true,
       workflow: false,
     }),
@@ -156,7 +153,6 @@ Vite blocks unknown host names, so add the tunnel domain to `server.allowedHosts
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     agent: true,
     workflow: false,
   },
@@ -177,7 +173,6 @@ export default defineConfig({
   server: { allowedHosts: ['.trycloudflare.com'] },
   plugins: [
     vitehub({
-      host: 'node',
       agent: true,
       workflow: false,
     }),
@@ -196,7 +191,6 @@ export default defineConfig({
   server: { allowedHosts: ['.trycloudflare.com'] },
   plugins: [
     vitehub({
-      host: 'node',
       agent: true,
       workflow: false,
     }),
