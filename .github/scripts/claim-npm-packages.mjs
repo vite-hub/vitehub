@@ -9,8 +9,8 @@
 //    `npm-release` environment of vite-hub/vitehub, and revokes its other links. A second run picks up what the first
 //    left.
 //
-// npm asks for two-factor authentication on the first publish and the first `npm trust` call. Choose "skip for the next
-// 5 minutes" on the npm page so the rest of the run does not ask again.
+// npm asks for two-factor authentication on a publish and on trusted publisher changes. The script prints the sign-in
+// link and waits. Choose "skip for the next 5 minutes" on the npm page so the rest of the run does not ask again.
 //
 // npm lets a trusted publisher configuration expire, and the CLI does not show it: the website says "Expired" and the
 // release job fails with ENEEDAUTH. `--replace` revokes and adds again the configuration of every package whose version
@@ -36,39 +36,68 @@ const repoRoot = resolve(import.meta.dirname, "../..")
 
 function npmOutput(npmArgs) {
   const result = spawnSync("npm", npmArgs, { encoding: "utf8", stdio: ["inherit", "pipe", "pipe"] })
-  if (result.status === 0) return result.stdout
-  if (!/EOTP|one-time password/i.test(`${result.stdout}${result.stderr}`)) {
+  if (result.status !== 0) {
     process.stderr.write(result.stderr)
     throw new Error(`npm ${npmArgs.join(" ")} failed with exit code ${result.status}`)
   }
-  // npm waits for the browser sign-in only when it writes to a terminal. Without one it fails at once. Run the command in
-  // a pseudo-terminal, so the link shows and npm waits, and read its output from the transcript file.
-  console.log(`npm asks for two-factor authentication. Sign in and choose "skip for the next 5 minutes", so the next reads do not ask again.`)
-  return npmInTerminal(npmArgs)
+  return result.stdout
 }
 
-function npmInTerminal(npmArgs) {
-  const directory = mkdtempSync(join(tmpdir(), "vitehub-npm-"))
-  const transcript = join(directory, "output")
-  try {
-    // In a terminal npm draws a spinner on the line of the output, so turn it off.
-    const commandArgs = ["npm", ...npmArgs, "--no-progress"]
-    const command = commandArgs.map(arg => `'${arg.replaceAll("'", `'\\''`)}'`).join(" ")
-    const scriptArgs = process.platform === "darwin" ? ["-q", transcript, ...commandArgs] : ["-qec", command, transcript]
-    const result = spawnSync("script", scriptArgs, { stdio: "inherit" })
-    if (result.status !== 0) throw new Error(`npm ${npmArgs.join(" ")} failed with exit code ${result.status}`)
-    // The transcript also has the sign-in prompts, npm notices, terminal escape codes and lines from `script`. npm prints
-    // JSON that starts at the first line that opens an object or an array, and ends on that line or at the last line that
-    // starts by closing one.
-    // eslint-disable-next-line no-control-regex
-    const lines = readFileSync(transcript, "utf8").replace(/\u001B\[[0-9;?]*[A-Za-z]|\r/g, "").split("\n")
-    const start = lines.findIndex(line => /^[[{]/.test(line))
-    if (start === -1) return ""
-    const end = Math.max(start, lines.findLastIndex(line => /^[\]}]/.test(line)))
-    return lines.slice(start, end + 1).join("\n")
+/** The token of `npm login`, from NPM_TOKEN or the user .npmrc. */
+function npmToken() {
+  if (process.env.NPM_TOKEN) return process.env.NPM_TOKEN
+  const userConfig = npmOutput(["config", "get", "userconfig"]).trim()
+  const token = readFileSync(userConfig, "utf8").match(/^\/\/registry\.npmjs\.org\/:_authToken\s*=\s*(.+)$/m)?.[1]?.trim()
+  if (!token) throw new Error(`No npm token for ${registry} in ${userConfig}. Run \`npm login\` first.`)
+  return token
+}
+
+let token
+let otp
+
+/**
+ * Calls the trusted publisher API of the registry, as `npm trust` does. `npm trust` waits for the browser sign-in only
+ * when it writes to a terminal, and with `--json` it holds the sign-in link back until it ends, so the script cannot
+ * read its output. When the registry asks for two-factor authentication, this prints the link, waits for the sign-in,
+ * and keeps the one-time password for the next calls.
+ */
+async function trustApi(method, name, path = "", body) {
+  token ??= npmToken()
+  const url = `${registry}/-/package/${name.replace("/", "%2f")}/trust${path}`
+  for (let attempt = 0; ; attempt++) {
+    const response = await fetch(url, {
+      method,
+      headers: {
+        "authorization": `Bearer ${token}`,
+        "npm-auth-type": "web",
+        "npm-command": "trust",
+        ...otp && { "npm-otp": otp },
+        ...body && { "content-type": "application/json" },
+      },
+      ...body && { body: JSON.stringify(body) },
+    })
+    const text = await response.text()
+    if (response.ok) return text ? JSON.parse(text) : undefined
+    const challenge = response.status === 401 && /otp/i.test(response.headers.get("www-authenticate") ?? "") ? JSON.parse(text || "{}") : undefined
+    if (!challenge || attempt > 2) throw new Error(`${method} ${url} answered ${response.status}: ${text}`)
+    // A kept password that npm no longer accepts: try once without it, since "skip for the next 5 minutes" may cover it.
+    if (otp) {
+      otp = undefined
+      continue
+    }
+    if (!challenge.authUrl || !challenge.doneUrl) throw new Error(`npm asks for a one-time password for ${name} without a sign-in link: ${text}`)
+    console.log(`\nnpm asks for two-factor authentication. Open this link, sign in and choose "skip for the next 5 minutes":\n${challenge.authUrl}\n`)
+    otp = await signInPassword(challenge.doneUrl)
+    console.log("Signed in.")
   }
-  finally {
-    rmSync(directory, { force: true, recursive: true })
+}
+
+async function signInPassword(doneUrl) {
+  for (;;) {
+    const response = await fetch(doneUrl, { headers: { authorization: `Bearer ${token}` } })
+    if (response.status === 200) return (await response.json()).token
+    if (response.status !== 202) throw new Error(`The npm sign-in answered ${response.status}: ${await response.text()}`)
+    await sleep(Math.max(1000, Number(response.headers.get("retry-after")) * 1000 || 0))
   }
 }
 
@@ -81,12 +110,17 @@ function ownedPackages(packages) {
   return names
 }
 
-/** The trusted publisher configurations of a package. `npm trust list --json` prints one object or several. */
-function trustConfigs(name) {
-  const output = npmOutput(["trust", "list", name, "--json"]).trim()
-  if (!output) return []
-  const parsed = JSON.parse(output.startsWith("[") ? output : `[${output.replace(/\}\s*\{/g, "},{")}]`)
-  return parsed.flat()
+/** The trusted publisher configurations of a package, in the shape that `npm trust list --json` prints. */
+async function trustConfigs(name) {
+  const body = await trustApi("GET", name)
+  return (Array.isArray(body) ? body : body ? [body] : []).map(config => ({
+    id: config.id,
+    type: config.type,
+    file: config.claims?.workflow_ref?.file,
+    repository: config.claims?.repository,
+    environment: config.claims?.environment,
+    permissions: config.permissions,
+  }))
 }
 
 /**
@@ -151,24 +185,26 @@ function publishPlaceholder(pkg) {
       homepage: "https://vitehub.dev",
     }, null, 2)}\n`)
     writeFileSync(join(directory, "README.md"), `# ${pkg.name}\n\nThis version only reserves the name. Install the latest version from the ViteHub release.\n`)
-    npm(["publish", "--access", "public", "--tag", placeholderTag, "--ignore-scripts", ...(dryRun ? ["--dry-run"] : [])], { cwd: directory })
+    npm(["publish", "--access", "public", "--tag", placeholderTag, "--ignore-scripts", "--browser=false", ...(dryRun ? ["--dry-run"] : [])], { cwd: directory })
   }
   finally {
     rmSync(directory, { force: true, recursive: true })
   }
 }
 
-function linkTrustedPublisher(name) {
-  npm([
-    "trust", "github", name,
-    "--file", trust.file,
-    "--repository", trust.repository,
-    "--environment", trust.environment,
-    "--allow-publish",
-    "--allow-stage-publish",
-    "--yes",
-    ...(dryRun ? ["--dry-run"] : []),
-  ])
+async function linkTrustedPublisher(name) {
+  console.log(`${name}: link ${trust.file} in ${trust.environment} of ${trust.repository}${dryRun ? " (dry run)" : ""}`)
+  if (dryRun) return
+  await trustApi("POST", name, "", [{
+    type: "github",
+    claims: { repository: trust.repository, workflow_ref: { file: trust.file }, environment: trust.environment },
+    permissions: ["createPackage", "createStagedPackage"],
+  }])
+}
+
+async function revokeTrustedPublisher(name, config) {
+  console.log(`${name}: revoke ${describeConfig(config)}`)
+  await trustApi("DELETE", name, `/${encodeURIComponent(config.id)}`)
 }
 
 const packages = publishablePackages().filter(pkg => only.length === 0 || only.includes(pkg.name))
@@ -191,7 +227,7 @@ const untrusted = []
 if (dryRun) untrusted.push(...missing.map(pkg => ({ pkg, stale: [] })))
 else {
   for (const pkg of packages) {
-    const configs = trustConfigs(pkg.name)
+    const configs = await trustConfigs(pkg.name)
     // npm lets a configuration expire, and `npm trust list` does not say so. With --replace, every package that has not
     // published its version yet gets a fresh configuration.
     if (!configs.some(publishesFromRelease) || (replace && !await versionOnNpm(pkg.name, pkg.version))) {
@@ -201,16 +237,16 @@ else {
   }
 }
 for (const { pkg, stale } of untrusted) {
-  console.log(`${pkg.name}: ${stale.length ? `links only ${stale.map(describeConfig).join(", ")}` : "no trusted publisher"}`)
+  console.log(`${pkg.name}: ${stale.length ? `has ${stale.map(describeConfig).join(", ")}` : "no trusted publisher"}`)
 }
 for (const [index, { pkg, stale }] of untrusted.entries()) {
-  // npm asks for at most one `npm trust` call every 2 seconds.
+  // npm asks for at most one trusted publisher change every 2 seconds.
   if (index > 0) await sleep(2000)
   for (const config of stale) {
-    npm(["trust", "revoke", pkg.name, `--id=${config.id}`, "--yes"])
+    await revokeTrustedPublisher(pkg.name, config)
     await sleep(2000)
   }
-  linkTrustedPublisher(pkg.name)
+  await linkTrustedPublisher(pkg.name)
 }
 
 if (dryRun) console.log("\nDry run: reading trusted publishers needs a login, so only a real run checks the packages that npm has.")
