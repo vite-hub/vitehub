@@ -673,6 +673,42 @@ export async function linkWorkflow() {
   }
 })
 
+it("bundles native Vercel steps that import a Markdown template and an optional package the app did not install", { timeout: buildOutputTestTimeout }, async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-native-step-resolution-")
+  const workflowDir = join(rootDir, "server", "workflows")
+  await mkdir(workflowDir, { recursive: true })
+  // An Agent-like package loads `@vite-hub/kv` lazily. The empty package hides the playground's copy, as in an app without it.
+  await mkdir(join(rootDir, "node_modules", "agent-like"), { recursive: true })
+  await writeFile(join(rootDir, "node_modules", "agent-like", "package.json"), JSON.stringify({ name: "agent-like", type: "module", exports: "./index.js" }))
+  await writeFile(join(rootDir, "node_modules", "agent-like", "index.js"), 'export const loadKV = () => import("@vite-hub/kv")\n')
+  await mkdir(join(rootDir, "node_modules", "@vite-hub", "kv"), { recursive: true })
+  await writeFile(join(rootDir, "node_modules", "@vite-hub", "kv", "package.json"), JSON.stringify({ name: "@vite-hub/kv", type: "module", exports: {} }))
+  await writeFile(join(workflowDir, "prompt.md"), "Summarize the call from {{ data.name }}.\n")
+  await writeFile(join(workflowDir, "summary.ts"), `
+import { loadKV } from "agent-like"
+import renderPrompt from "./prompt.md?markdown-template"
+export async function promptStep(name: string) {
+  "use step"
+  if (name === "kv") await loadKV()
+  return await renderPrompt({ name })
+}
+export async function summary(name: string) {
+  "use workflow"
+  return await promptStep(name)
+}
+`)
+  await writeFile(join(workflowDir, "summarize.ts"), 'import { summary } from "./summary.ts"\nexport default { handler: async () => undefined, options: { native: summary } }\n')
+
+  await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), rootDir, workflow: { driver: "vercel" } })
+
+  const output = await readFile(join(rootDir, ".vercel/output/functions/.well-known/workflow/v1/flow.func/index.mjs"), "utf8")
+  const steps = output.slice(0, output.indexOf("workflowCode ="))
+  expect(steps).toContain("Summarize the call from {{ data.name }}.")
+  expect(steps).toContain('Cannot find package "@vite-hub/kv". Install it to use it in a Workflow.')
+  expect(steps).not.toMatch(/import\(["']@vite-hub\/kv["']\)/)
+  expect(steps).toContain('"step//./server/workflows/summary//promptStep"')
+})
+
 it("keeps native Workflow and step IDs stable across staged builds", { timeout: buildOutputTestTimeout * 2 }, async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-stable-ids-")
   const workflowDir = join(rootDir, "server", "workflows")

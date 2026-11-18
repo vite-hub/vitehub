@@ -16,6 +16,8 @@ interface BundleEsmEntryOptions {
   extensions?: string[]
   external?: string[]
   format?: "esm" | "cjs"
+  /** Keeps function and class names. Defaults to true when syntax or identifiers are minified. */
+  keepNames?: boolean
   mainFields?: string[]
   minifyIdentifiers?: boolean
   minifySyntax?: boolean
@@ -528,7 +530,7 @@ export async function bundleEsmEntry(
     external: options.external,
     format,
     // Syntax and identifier minification can change function and class names.
-    keepNames: options.minifySyntax || options.minifyIdentifiers,
+    keepNames: options.keepNames ?? (options.minifySyntax || options.minifyIdentifiers),
     // On Node.js, a WASM import becomes its bytes, and packages such as @vite-hub/shell compile them.
     loader: platform === "node" ? { ".wasm": "binary" } : undefined,
     logLevel: "silent",

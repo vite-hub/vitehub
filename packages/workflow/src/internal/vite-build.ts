@@ -2,7 +2,7 @@ import { isRuntimeRecord } from "./runtime-type.ts"
 import { workflowRuntimeModule, type WorkflowRuntimeModuleName } from "./runtime-modules.ts"
 import { createHash, randomUUID } from "node:crypto"
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
-import { cp, mkdir, readFile, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
+import { cp, mkdir, readFile, readdir, realpath, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -130,7 +130,8 @@ const optionalViteDevtoolsPattern = /^@vitejs\/devtools-(?:oxc|rolldown|vite|vit
 interface VercelWorkflowBuilders {
   VercelBuildOutputAPIBuilder: typeof import("@workflow/builders").VercelBuildOutputAPIBuilder
   applySwcTransform: typeof import("@workflow/builders").applySwcTransform
-  createSwcPlugin: (options: { mode: "workflow", projectRoot: string }) => Plugin
+  createPseudoPackagePlugin: () => Plugin
+  createSwcPlugin: (options: { mode: "step" | "workflow", moduleSpecifierRoot?: string, projectRoot: string, sideEffectEntries?: string[] }) => Plugin
   detectWorkflowPatterns: typeof import("@workflow/builders").detectWorkflowPatterns
   shouldTransformFile: typeof import("@workflow/builders").shouldTransformFile
 }
@@ -606,18 +607,57 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
     ...definitions.map(definition => dirname(definition.handler)),
     ...nativeFiles.map(file => dirname(file)),
   ])]
-  // The native builder has no esbuild define option. Transform both intermediate
-  // bundles before it embeds the VM code and combines the step registrations.
-  class ConfiguredWorkflowBuilder extends builders.VercelBuildOutputAPIBuilder {
-    protected override async createStepsBundle(options: { inputFiles: string[], outfile: string }) {
-      const result = await super.createStepsBundle(options)
-      if (!Object.keys(bundleDefines).length) return result
-      const source = await readFile(options.outfile, "utf8")
-      const output = await transform(source, { define: bundleDefines, sourcefile: options.outfile, sourcemap: "inline" })
-      await writeFile(options.outfile, output.code)
-      return result
+  const { createPseudoPackagePlugin, createSwcPlugin, VercelBuildOutputAPIBuilder } = builders
+  class ConfiguredWorkflowBuilder extends VercelBuildOutputAPIBuilder {
+    /**
+     * Workflow DevKit bundles steps with its own esbuild plugins only. Steps import app code, so ViteHub bundles them:
+     * Workflow DevKit writes the step registration imports, and ViteHub bundles them with its own resolution, as the
+     * server bundle does. A step can import a `?markdown-template` file or a package that loads an optional peer the app
+     * did not install, such as `@vite-hub/kv` in `@vite-hub/agent`.
+     */
+    protected override async createStepsBundle(options: Parameters<InstanceType<typeof VercelBuildOutputAPIBuilder>["createStepsBundle"]>[0]) {
+      const discoveredEntries = options.discoveredEntries ?? await this.discoverEntries(options.inputFiles, dirname(options.outfile), options.tsconfigPath)
+      const entryFile = `${options.outfile}.entry.mjs`
+      const manifest = await this.createStepSourceRegistrationFile({ discoveredEntries, inputFiles: options.inputFiles, outfile: entryFile, tsconfigPath: options.tsconfigPath })
+      const registeredFiles = [...discoveredEntries.discoveredSteps, ...discoveredEntries.discoveredSerdeFiles]
+      const swcPlugin = createSwcPlugin({
+        mode: "step",
+        moduleSpecifierRoot: this.moduleSpecifierRoot,
+        projectRoot: this.transformProjectRoot,
+        // Keeps step files whose package declares `"sideEffects": false`: only their imports register the steps.
+        sideEffectEntries: await Promise.all(registeredFiles.map(file => realpath(file).catch(() => file))),
+      })
+      try {
+        await bundleEsmEntry(entryFile, options.outfile, {
+          define: bundleDefines,
+          extensions: [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],
+          external: ["bun", "bun:*", ...(this.config.externalPackages ?? [])],
+          format: "esm",
+          keepNames: true,
+          platform: "node",
+          plugins: [
+            createPseudoPackagePlugin(),
+            createOptionalPackagesPlugin(rootDir),
+            {
+              ...swcPlugin,
+              // The SWC step transform drops the bare imports of the registration entry. Workflow DevKit passes it as stdin.
+              setup: build => swcPlugin.setup({
+                ...build,
+                onLoad: (onLoadOptions, callback) => build.onLoad(onLoadOptions, args => args.path === entryFile ? undefined : callback(args)),
+              }),
+            },
+          ],
+          rootDir,
+          workingDir: this.config.workingDir,
+        })
+      }
+      finally {
+        await rm(entryFile, { force: true })
+      }
+      return { context: undefined, manifest }
     }
 
+    // The native builder has no esbuild define option. Transform the VM bundle before the builder embeds it.
     protected override async createWorkflowsBundle(options: { inputFiles: string[], outfile: string }) {
       const result = await super.createWorkflowsBundle(options)
       if (result.interimBundleText && Object.keys(bundleDefines).length) {
