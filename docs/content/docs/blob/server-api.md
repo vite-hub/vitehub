@@ -615,20 +615,20 @@ import { blob } from 'vite-hub/blob'
 
 const [sourceError, source] = await blob.sign('users/user/jobs/job/source.mp3', {
   method: 'GET',
-  expiresIn: 6 * 60 * 60,
+  expiresIn: '6h',
 })
 if (sourceError) throw sourceError
 
 const [uploadError, upload] = await blob.sign('users/user/jobs/job/source.mp3', {
   method: 'PUT',
-  expiresIn: 15 * 60,
+  expiresIn: '15m',
   contentType: 'audio/mpeg',
   createOnly: true,
 })
 if (uploadError) throw uploadError
 ```
 
-Send `upload.headers` unchanged with the `PUT` body. `contentType` locks the MIME type into the signed request. `createOnly` makes the provider reject the upload when the file already exists. Drivers that cannot enforce it throw, so they never allow an overwrite silently. `maxSize`, such as `'8MB'`, limits the size of the body. Only the `fs` and `vercel` drivers bind it, and the other drivers fail the request.
+`expiresIn` is a duration such as `'15m'`, or a whole number of seconds. Send `upload.headers` unchanged with the `PUT` body. `contentType` locks the MIME type into the signed request. `createOnly` makes the provider reject the upload when the file already exists. Drivers that cannot enforce it throw, so they never allow an overwrite silently. `maxSize`, such as `'8MB'`, limits the size of the body. Only the `fs` and `vercel` drivers bind it, and the other drivers fail the request.
 
 The `fs` driver, the `cloudflare` driver, the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the others that use files-sdk), and the `vercel` driver sign requests. The `vercel` driver signs a `PUT` only. It returns a request to the Vercel Blob API with a client token, as `@vercel/blob/client` uploads a file. The token binds the pathname, `contentType`, `maxSize`, `createOnly`, and the expiry, and it needs `BLOB_READ_WRITE_TOKEN`. A files-sdk driver signs a `GET` only when its provider gives a URL that expires after exactly `expiresIn` seconds. It signs a `PUT` only when its provider gives a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign, `blob.sign()` returns `BLOB_OPERATION_FAILED`, and `cause` says why. It never returns a permanent public link instead.
 

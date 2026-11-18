@@ -1,7 +1,7 @@
 import { deriveViteHubSecret, readViteHubSecret, viteHubSecretMinimumLength } from "@vite-hub/internal/secret"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
-import type { BlobSignedRequest, BlobSignOptions } from "../types.ts"
+import type { BlobSignedRequest, BlobDriverSignOptions } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import { blobSizeToBytes } from "./size.ts"
 
@@ -85,7 +85,7 @@ function decode(segment: string): string | undefined {
  * Signs a link to the signed route for one object of an `fs` store, as a provider signs its own URL. Expects a
  * pathname that `sign()` checked. A `PUT` link binds its content type and its largest body.
  */
-export async function signFsRequest(store: string, pathname: string, options: BlobSignOptions, urlBaseUrl = ""): Promise<BlobSignedRequest> {
+export async function signFsRequest(store: string, pathname: string, options: BlobDriverSignOptions, urlBaseUrl = ""): Promise<BlobSignedRequest> {
   if (options.method === "PUT" && options.createOnly) {
     throw blobErrorDiagnostics.BLOB_R0025({ message: "Blob driver \"fs\" cannot bind `createOnly` to a signed request." })
   }

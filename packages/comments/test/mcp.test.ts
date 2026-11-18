@@ -1,7 +1,12 @@
+import { openAsBlob } from "node:fs"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { installStandardContext } from "@vite-hub/runtime/internal/h3"
 import { describe, expect, it, vi } from "vitest"
 
 import { commentsMcpTools } from "../src/runtime/mcp.ts"
+import { mcpToolResult } from "../src/runtime/index.ts"
 import { defineCommentSubject } from "../src/index.ts"
 import { createCommentsHandler } from "../src/runtime/handler.ts"
 import { ada, anchor, createComments } from "./harness.ts"
@@ -80,6 +85,58 @@ describe("Comments MCP tools", () => {
     const [, after] = await comments.get(thread!.id)
     expect(after?.messages.at(-1)?.author).toEqual({ id: "ada", name: "Ada" })
     expect(after?.status).toBe("resolved")
+  })
+
+  it("shows the Agent the images of a thread, up to the size cap", async () => {
+    const png = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    const files = new Map([
+      ["files/shot.png", new Blob([png], { type: "image/png" })],
+      ["files/notes.pdf", new Blob(["%PDF-1.7"], { type: "application/pdf" })],
+      ["files/huge.webp", new Blob([new Uint8Array(4 * 1024 * 1024)], { type: "image/webp" })],
+    ])
+    const { comments, call } = await setup({ readAttachment: key => files.get(key) ?? null })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "The button overlaps", author: ada, attachments: ["files/shot.png", "files/notes.pdf"] })
+    await comments.reply(thread!.id, { body: "Bigger one", author: ada, attachments: ["files/huge.webp", "files/gone.png"] })
+
+    const read = await call("comments_get_thread", { id: thread!.id })
+    const image = { data: btoa(String.fromCharCode(...png)), mimeType: "image/png" }
+    expect(read.images).toEqual([image])
+    expect(read.text).toContain("Not shown: files/huge.webp, because the images of one answer stay under 4 MB.")
+    expect(read.text).toContain("Could not read files/gone.png: ")
+    expect(mcpToolResult(read)).toEqual({ content: [{ type: "text", text: read.text }, { type: "image", ...image }], structuredContent: read.structured, isError: false })
+  })
+
+  it("keeps other images and their byte budget when a file-backed image cannot be read", async ({ onTestFinished }) => {
+    const directory = await mkdtemp(join(tmpdir(), "comments-mcp-"))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    onTestFinished(() => { warn.mockRestore() })
+    const path = join(directory, "gone.webp")
+    await writeFile(path, new Uint8Array(4 * 1024 * 1024))
+    const gone = await openAsBlob(path, { type: "image/webp" })
+    await rm(path)
+    const { comments, call } = await setup({ readAttachment: key => key === "files/gone.webp" ? gone : new Blob(["image"], { type: "image/png" }) })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Two images", author: ada, attachments: ["files/gone.webp", "files/shot.png"] })
+
+    const read = await call("comments_get_thread", { id: thread!.id })
+    expect(read.text).toContain("Two images")
+    expect(read.text).toContain("Could not read files/gone.webp: The file could not be loaded.")
+    expect(read.images).toEqual([{ data: btoa("image"), mimeType: "image/png" }])
+  })
+
+  it("logs attachment hook failures without sending storage details to the Agent", async ({ onTestFinished }) => {
+    const directory = await mkdtemp(join(tmpdir(), "comments-mcp-"))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    onTestFinished(() => { warn.mockRestore() })
+    const path = join(directory, "missing.png")
+    const { comments, call } = await setup({ readAttachment: async () => new Blob([await readFile(path)], { type: "image/png" }) })
+    const [, thread] = await comments.create({ page: "/", body: "Still readable", author: ada, attachments: ["files/missing.png"] })
+
+    const read = await call("comments_get_thread", { id: thread!.id })
+    expect(read.text).not.toContain(path)
+    expect(read.text).toContain("Could not read files/missing.png: The file could not be loaded.")
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("files/missing.png"), expect.objectContaining({ code: "ENOENT", path }))
   })
 
   it("lets custom identify and authorize decide for Console callers with a request", async () => {

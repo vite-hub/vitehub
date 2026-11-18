@@ -839,7 +839,7 @@ The Comments section of the [Console](/docs/development/console) lists the 500 t
 
 Connect the Agent to the [ViteHub MCP](/docs/development/mcp) of the Console. It runs the Comments operations of your app, such as `comments.threads` and `comments.reply`: it lists open threads, reads their page context and source files, changes the code, then replies and resolves. It acts as you, and `authorize` applies to each call. The `page` filter takes a path such as `/pricing` or a full URL of the page. When `authorize` hides threads, the list says how many and why, and `hidden` counts them.
 
-Your own MCP server can register the same tools. `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them, each with a JSON Schema and a `call(input, { user })` function.
+Your own MCP server can register the same tools. `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them, each with a JSON Schema and a `call(input, { user })` function. Pass the answer of a call to `mcpToolResult()` from the same import to get the MCP result. `comments_get_thread` sends the images attached to the thread as `image` blocks, so the Agent sees the screenshots, up to 4 MB in one answer.
 
 ::warning
 Your server must authenticate `user` before it calls a tool. Pass `null` for an anonymous caller.

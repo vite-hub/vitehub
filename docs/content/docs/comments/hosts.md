@@ -19,7 +19,7 @@ The [`comments()` plugin](/docs/comments/get-started) keeps threads in the datab
 | Cloudflare Workers | Yes | `comments({ database: 'd1:COMMENTS' })`, or a D1 binding named `DB`. See [Cloudflare D1](/docs/comments/configure#cloudflare-d1). |
 | Vercel, Netlify | Yes | A Turso database, set in the project's environment variables. |
 
-`comments()` runs on the [Nitro](https://nitro.build) server, which builds for the host it detects. Set `NITRO_PRESET=cloudflare_module` to build for Workers. The SQLite file needs Node.js 22.5 or newer for `node:sqlite`. It has no presence, edits in place, or Console section.
+`comments()` runs on the [Nitro](https://nitro.build) server, which builds for the host it detects. Set `NITRO_PRESET=cloudflare_module` to build for Workers. It has no presence, edits in place, or Console section.
 
 [Sign in with GitHub](/docs/comments/configure#sign-in-with-github) stores nothing on the server, because the session is a cookie. It works the same in a ViteHub app on every host.
 
