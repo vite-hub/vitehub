@@ -36,7 +36,7 @@ function assertR2Key(pathname: string): string {
 /** Checks each pathname before an R2 driver gets it, so dev and production return the same code. Other drivers are unchanged. */
 export function withHostPathnameLimits<TOptions>(driver: BlobDriverAdapter<TOptions>): BlobDriverAdapter<TOptions> {
   if (driver.name !== "cloudflare") return driver
-  const { copy, createMultipartUpload, getStream, resumeMultipartUpload, sign } = driver
+  const { copy, createMultipartUpload, getStream, putIf, resumeMultipartUpload, sign } = driver
   return {
     ...driver,
     delete: pathnames => driver.delete(Array.isArray(pathnames) ? pathnames.map(assertR2Key) : assertR2Key(pathnames)),
@@ -47,6 +47,7 @@ export function withHostPathnameLimits<TOptions>(driver: BlobDriverAdapter<TOpti
     ...(copy ? { copy: (from, to) => copy.call(driver, assertR2Key(from), assertR2Key(to)) } : {}),
     ...(createMultipartUpload ? { createMultipartUpload: (pathname, options) => createMultipartUpload.call(driver, assertR2Key(pathname), options) } : {}),
     ...(getStream ? { getStream: (pathname, options) => getStream.call(driver, assertR2Key(pathname), options) } : {}),
+    ...(putIf ? { putIf: (pathname, body, options, condition) => putIf.call(driver, assertR2Key(pathname), body, options, condition) } : {}),
     ...(resumeMultipartUpload ? { resumeMultipartUpload: (pathname, uploadId) => resumeMultipartUpload.call(driver, assertR2Key(pathname), uploadId) } : {}),
     ...(sign ? { sign: (pathname, options, context) => sign.call(driver, assertR2Key(pathname), options, context) } : {}),
   }

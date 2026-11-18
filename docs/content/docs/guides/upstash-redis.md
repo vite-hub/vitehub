@@ -30,7 +30,7 @@ features.
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', kv: { driver: 'upstash' } },
+  vitehub: { kv: { driver: 'upstash' } },
 })
 ```
 :::
@@ -42,7 +42,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-	plugins: [vitehub({ host: 'node', kv: { driver: 'upstash' } }), nitro()],
+	plugins: [vitehub({ kv: { driver: 'upstash' } }), nitro()],
 })
 ```
 :::
@@ -53,7 +53,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-	plugins: [vitehub({ host: 'node', kv: { driver: 'upstash' } })],
+	plugins: [vitehub({ kv: { driver: 'upstash' } })],
 })
 ```
 :::

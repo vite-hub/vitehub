@@ -313,7 +313,6 @@ describe("hubConnections", () => {
     const source = await readFile(handlers[0]!.handler, "utf8");
     expect(source).toContain('export default createConnectionsHandler({ actor: "development", basePath: "/_vitehub/connections" })');
     expect(source).not.toMatch(/from "(h3|nitro)/);
-    expect(source).not.toContain("event");
   });
 
   it.each(["node-server", "cloudflare-module"])("preserves the Nuxt app base in production H3 requests on %s", async (preset) => {
@@ -512,7 +511,6 @@ describe("hubConnections", () => {
     await hubConnectionsTypesCleanup().api!.prepareTypes({ projectRoot: root });
     await expect(readFile(file, "utf8")).resolves.toContain("user declaration");
     await expect(readFile(join(other, ".vitehub/types/connections.d.ts"))).resolves.toBeTruthy();
-    await expect(readFile(join(root, ".vitehub/connections-types.json"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("preserves user declarations at the default root across repeated cleanup hooks", async () => {

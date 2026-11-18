@@ -163,10 +163,10 @@ export default defineRealtime({
 
 `save()` reads the stored file first. It throws `RealtimeDocumentConflict`
 when the file changed, was created, or was deleted after the room loaded it.
-
-> [!WARNING]
-> Blob has no conditional write. An outside write between that read and the
-> save's write is lost.
+It then writes with the Blob `ifMatch` condition, so an outside write between
+that read and the save's write also throws `RealtimeDocumentConflict`, and the
+outside write stays. The store must support conditional writes: see
+[Write only if unchanged](/docs/blob/server-api#write-only-if-unchanged).
 
 After you change the file outside the room, call `refreshRealtimeDocument()`
 so the room loads it.
@@ -323,7 +323,7 @@ Each definition must say who can use its rooms. Set `auth: true`, `authorize()`,
 | `identify({ request, event, definition })` | Finds the user for each WebSocket and HTTP request. Return `null` for anonymous. Replaces the ViteHub Auth session. |
 | `origins({ origin, request, event, definition })` | Lets a page on another origin connect, such as a script that sites load from your app. Return `true` to accept `origin`. Without it, requests with an `Origin` other than the app origin get 403. Behind a TLS-terminating proxy, the app origin uses the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. A cross-site handshake carries cookies too, so `identify` and `authorize` must then trust only what the page sends, such as a ticket in `params`. With `auth: true` and no `identify`, `origins` is an error: the Auth session is a cookie. See [From another site](#from-another-site). |
 | `auth: true` | Requires an identified user (else 401). Without `identify`, the user is the ViteHub Auth session, and the Auth trusted-origin policy applies. |
-| `authorize({ request, event, user, documentId, mode })` | Called with `mode: 'read'` on every request, and `mode: 'write'` on connections, saves, and checkpoints. Return `false` to deny. A connection denied write is read-only: the server closes it with `4403` if it sends a change. `documentId` is `null` for the Workspace event channel. |
+| `authorize({ request, event, user, documentId, mode })` | Called with `mode: 'read'` on every request, and `mode: 'write'` on connections, saves, and checkpoints. Return `true` to allow. Any other result denies, `undefined` too. A connection denied write is read-only: the server closes it with `4403` if it sends a change. `documentId` is `null` for the Workspace event channel. |
 
 `event` is the H3 event of the WebSocket upgrade or HTTP request (`RealtimeRequestEvent`, an `H3Event`), so you can pass it to your own helpers that take an `H3Event`. Read the request and its cookies from `event['~standard'].req`, the platform bindings from `event['~standard'].runtime`, and the H3 event context from `event.context`. See [Standard Context](/docs/reference/runtime-context#standard-context).
 

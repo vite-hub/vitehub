@@ -221,19 +221,20 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
 
   const attempt = await startAttempt(run, runStore)
   options.onExecution?.()
+  let response: ScheduleRunRecord["response"]
   try {
     const value = await runInRunScopes(() => runWithScheduleWaitUntil(
       waitUntil => options.definition.handler(toHandlerContext(run, attempt, waitUntil)),
       options.waitUntil,
     ))
-    const response = await serializeResponse(toResponse(value))
-    return await completeRun(run, attempt, response, runStore)
+    response = await serializeResponse(toResponse(value))
   }
   catch (error) {
     const failed = await failRun(run, attempt, error, runStore)
     if (options.captureHandlerFailure) return failed
     throw error
   }
+  return await completeRun(run, attempt, response, runStore)
 }
 
 export async function executeStaticSchedule(options: ExecuteStaticScheduleOptions): Promise<ScheduleRunRecord> {
@@ -269,8 +270,7 @@ async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefi
   return definition
 }
 
-/** Runs a manually dispatchable static Schedule Definition of `registry` immediately. */
-export async function runScheduleFrom(registry: ScheduleDefinitionRegistry, name: string, options: RunScheduleOptions = {}): Promise<ScheduleRunRecord> {
+export async function resolveManualSchedule(registry: ScheduleDefinitionRegistry, name: string): Promise<ScheduleDefinition> {
   const definition = typeof name === "string" && name ? await loadStaticScheduleDefinition(name, registry) : undefined
   if (!definition) {
     throw createScheduleError("SCHEDULE_DEFINITION_NOT_FOUND")
@@ -278,15 +278,23 @@ export async function runScheduleFrom(registry: ScheduleDefinitionRegistry, name
   if (definition.options?.manual !== true) {
     throw createScheduleError("SCHEDULE_MANUAL_RUN_DISABLED")
   }
-  const scheduledAt = parseScheduledAt(options.scheduledAt)
-  const runStore = getScheduleRunStore()
-  const runIdSuffix = randomId("manual")
-  try {
-    return await executeSchedule({ definition, runIdSuffix, runStore, scheduleId: name, source: "manual", scheduledAt, target: name })
-  }
-  catch (error) {
-    const run = await runStore.getRun(toRunId("manual", name, scheduledAt, runIdSuffix))
-    if (run?.status === "failed") return run
-    throw error
-  }
+  return definition
+}
+
+export function executeManualSchedule(definition: ScheduleDefinition, name: string, scheduledAt: Date): Promise<ScheduleRunRecord> {
+  return executeSchedule({
+    captureHandlerFailure: true,
+    definition,
+    runIdSuffix: randomId("manual"),
+    scheduleId: name,
+    scheduledAt,
+    source: "manual",
+    target: name,
+  })
+}
+
+/** Runs a manually dispatchable static Schedule Definition of `registry` immediately. */
+export async function runScheduleFrom(registry: ScheduleDefinitionRegistry, name: string, options: RunScheduleOptions = {}): Promise<ScheduleRunRecord> {
+  const definition = await resolveManualSchedule(registry, name)
+  return await executeManualSchedule(definition, name, parseScheduledAt(options.scheduledAt))
 }

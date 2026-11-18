@@ -226,7 +226,7 @@ describe("Content sessions", { timeout: 30_000 }, () => {
     await expect(posts.save("hello", { data: { title: "Override" } }, { lease: "override", ifDigest: own.digest })).resolves.toMatchObject({ data: { title: "Override" } })
     // Other documents are not leased.
     await expect(posts.save("other", { data: { title: "Other" } })).resolves.toMatchObject({ id: "other" })
-    await expect(rejection(posts.save("hello", { data: { title: "x" } }, { lease: "skip" as never }))).resolves.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(rejection(posts.save("hello", { data: { title: "x" } }, { lease: "skip" as never }))).resolves.toMatchObject({ code: "CONTENT_WRITE_LEASE_INVALID" })
   })
 
   it("lets several sessions edit a collection with editing: { lease: false }", async () => {
@@ -255,11 +255,11 @@ describe("Content sessions", { timeout: 30_000 }, () => {
 
   it("validates sessions input", async () => {
     const { content } = await setup()
-    await expect(rejection(content.sessions.report("posts", "hello", { session: "short", user: ana, kind: "view" }))).resolves.toMatchObject({ code: "CONTENT_R0008" })
-    await expect(rejection(content.sessions.report("posts", "hello", { session: tabA, user: { id: "" }, kind: "view" }))).resolves.toMatchObject({ code: "CONTENT_R0008" })
-    await expect(rejection(content.sessions.report("posts", "hello", { session: tabA, user: ana, kind: "write" as never }))).resolves.toMatchObject({ code: "CONTENT_R0008" })
-    await expect(rejection(content.sessions.report("missing" as never, "hello", { session: tabA, user: ana, kind: "view" }))).resolves.toMatchObject({ code: "CONTENT_R0008" })
-    await expect(rejection(content.sessions.report("posts", "../escape", { session: tabA, user: ana, kind: "view" }))).resolves.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(rejection(content.sessions.report("posts", "hello", { session: "short", user: ana, kind: "view" }))).resolves.toMatchObject({ code: "CONTENT_SESSION_TOKEN_INVALID" })
+    await expect(rejection(content.sessions.report("posts", "hello", { session: tabA, user: { id: "" }, kind: "view" }))).resolves.toMatchObject({ code: "CONTENT_SESSION_USER_INVALID" })
+    await expect(rejection(content.sessions.report("posts", "hello", { session: tabA, user: ana, kind: "write" as never }))).resolves.toMatchObject({ code: "CONTENT_SESSION_KIND_INVALID" })
+    await expect(rejection(content.sessions.report("missing" as never, "hello", { session: tabA, user: ana, kind: "view" }))).resolves.toMatchObject({ code: "CONTENT_COLLECTION_UNKNOWN" })
+    await expect(rejection(content.sessions.report("posts", "../escape", { session: tabA, user: ana, kind: "view" }))).resolves.toMatchObject({ code: "CONTENT_DOCUMENT_ID_INVALID" })
   })
 
   it("refuses other Workspace writes to the draft of a leased document, and lets Content's own writes through", async () => {

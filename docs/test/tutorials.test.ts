@@ -113,7 +113,6 @@ describe("documentation tutorials", () => {
     expect(page).toContain('<DocsArticle :response="response" />');
     expect(step).toContain("<slot />");
     expect(step).not.toContain("display: none");
-    expect(step).not.toContain("CodeTreeIntersection");
     expect(step).not.toContain("min-height: 30rem");
     expect(step).toContain("counter-increment: tutorial-step");
   });

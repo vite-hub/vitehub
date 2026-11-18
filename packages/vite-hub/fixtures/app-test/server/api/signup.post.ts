@@ -25,7 +25,8 @@ export default defineHandler(async (event) => {
   const [queueError] = await sendQueue("welcome", { userId: user.id }, { delaySeconds: 86_400 })
   if (queueError) throw queueError
 
-  await startWorkflow("onboarding", { userId: user.id })
+  const [workflowError] = await startWorkflow("onboarding", { userId: user.id })
+  if (workflowError) throw workflowError
 
   return user
 })
