@@ -4,7 +4,7 @@ import { basename, relative } from "node:path"
 import { listSourceFiles, resolveDefinitionScanRoots } from "@vite-hub/internal/definition-catalog"
 import { parseSync, Visitor } from "vite"
 
-import { declaredRateLimitPolicy, normalizeRateLimitPolicy, rateLimitPolicyKeys } from "./policy.ts"
+import { declaredRateLimitPolicy, normalizeRateLimitPolicy, rateLimitPolicyKey, rateLimitPolicyKeys } from "./policy.ts"
 
 import type { ESTree } from "vite"
 import type { RateLimitDeclaration, RateLimitPolicy } from "./types.ts"
@@ -507,7 +507,7 @@ function discoverRateLimitCatalog(
     }
     for (const declaration of extracted) {
       const existing = declarations.get(declaration.name)
-      if (existing && JSON.stringify(existing.policy) !== JSON.stringify(declaration.policy)) {
+      if (existing && rateLimitPolicyKey(existing.policy) !== rateLimitPolicyKey(declaration.policy)) {
         throw rateLimitErrorDiagnostics.RATE_LIMIT_R0003({ message: [
           `[vitehub] Conflicting Rate Limit policies for ID "${declaration.name}":`,
           `  - ${existing.source.file}:${existing.source.line}:${existing.source.column} ${JSON.stringify(existing.policy)}`,

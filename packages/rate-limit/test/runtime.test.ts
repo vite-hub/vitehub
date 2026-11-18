@@ -31,7 +31,7 @@ describe("managed Rate Limit guard", () => {
 
     await expect(requireRateLimit(event, "", { limit: 1, window: "1m" })).rejects.toThrow("non-empty stable ID")
     await expect(requireRateLimit(event, "uploads", { limit: 0, window: "1m" })).rejects.toThrow("positive integer")
-    await expect(requireRateLimit(event, "uploads", { limit: 1, window: "soon" as never })).rejects.toThrow("must use a duration")
+    await expect(requireRateLimit(event, "uploads", { limit: 1, window: "soon" as never })).rejects.toThrow("is not a duration")
     await expect(requireRateLimit(event, "uploads", { limit: 1, window: "1m", extra: true } as never)).rejects.toThrow("does not support")
     await expect(requireRateLimit(event, "uploads", { key: "", limit: 1, window: "1m" })).rejects.toThrow("non-empty string")
   })
@@ -219,6 +219,16 @@ describe("managed Rate Limit guard", () => {
       .resolves.toMatchObject([{ code: "RATE_LIMIT_R0013" }, undefined])
   })
 
+  it("shares a budget across equivalent decimal windows", async () => {
+    const request = new Request("https://example.com/upload")
+    vi.spyOn(Date, "now").mockReturnValue(30_000)
+
+    await expect(checkRateLimit(request, "decimal-window", { key: "user", limit: 1, window: "2.007 seconds" }))
+      .resolves.toMatchObject([undefined, { allowed: true }])
+    await expect(checkRateLimit(request, "decimal-window", { key: "user", limit: 1, window: "2007ms" }))
+      .resolves.toMatchObject([undefined, { allowed: false }])
+  })
+
   it("reads the Cloudflare address header and the active bindings for a Web Request", async () => {
     setRateLimitRuntimeConfig({ driver: "cloudflare" })
     const limit = vi.fn(async () => ({ success: true }))
@@ -382,7 +392,8 @@ describe("Rate Limit refund", () => {
         return [undefined, values.get(key)!] as [undefined, number]
       },
     }
-    setRateLimitRuntimeConfig({ driver: "cloudflare" }, { driver: async () => "upstash", storage, store: "default" })
+    const deploy = (namespace: string) => setRateLimitRuntimeConfig({ driver: "cloudflare", namespace }, { driver: async () => "upstash", storage, store: "default" })
+    deploy("production")
     const limit = vi.fn(async () => ({ success: true }))
     const event = cloudflareEvent("tutor", { limit }, { "cf-connecting-ip": "198.51.100.7" })
     const policy = { limit: 1, window: "1d" } as const
@@ -391,8 +402,13 @@ describe("Rate Limit refund", () => {
     await expect(checkRateLimit(event, "tutor", policy)).resolves.toMatchObject([undefined, { allowed: false, reason: "limited" }])
     await expect(refundRateLimit(event, "tutor", policy)).resolves.toEqual([undefined, { status: "refunded" }])
     await expect(peekRateLimit("tutor", "198.51.100.7")).resolves.toMatchObject({ counters: [{ used: 1 }], provider: "cloudflare", scope: "global", status: "known" })
+    deploy("staging")
+    await expect(checkRateLimit(event, "tutor", policy)).resolves.toMatchObject([undefined, { allowed: true, remaining: 0 }])
+    await expect(refundRateLimit(event, "tutor", policy)).resolves.toEqual([undefined, { status: "refunded" }])
+    await resetRateLimit("tutor", "198.51.100.7")
+    deploy("production")
+    await expect(checkRateLimit(event, "tutor", policy)).resolves.toMatchObject([undefined, { allowed: false, reason: "limited" }])
     expect(limit).not.toHaveBeenCalled()
-    expect([...values.keys()].every(key => key.startsWith("rate-limit:tutor:86400000:198%2E51%2E100%2E7:"))).toBe(true)
   })
 })
 

@@ -241,6 +241,8 @@ const rateLimitDiagnosticCodes = new Set([
   "RATE_LIMIT_B0002",
   "RATE_LIMIT_B0003",
   "RATE_LIMIT_B0004",
+  // parseDuration() from @vite-hub/runtime reads `window`.
+  "RUNTIME_DURATION_INVALID",
 ])
 
 export function createRateLimiter(options: CreateRateLimiterOptions): RateLimiter {

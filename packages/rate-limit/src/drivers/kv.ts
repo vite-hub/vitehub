@@ -12,12 +12,13 @@ type KVOperationResult<T> = Result<T>
  * atomic and set the TTL with the first increment, as the `redis`, `database`, and `upstash` drivers do.
  */
 export interface RateLimitKVStorage {
-  delete: (key: string) => Promise<KVOperationResult<void>>
+  delete?: (key: string) => Promise<KVOperationResult<void>>
   get: (key: string) => Promise<KVOperationResult<unknown>>
   increment: (key: string, ttl: number) => Promise<KVOperationResult<number>>
 }
 
 export interface KVRateLimitDriverOptions {
+  namespace?: string
   now?: () => number
   storage: RateLimitKVStorage
 }
@@ -32,7 +33,6 @@ function isStorage(value: unknown): value is RateLimitKVStorage {
   if (!value || typeof value !== "object") return false
   return typeof Reflect.get(value, "increment") === "function"
     && typeof Reflect.get(value, "get") === "function"
-    && typeof Reflect.get(value, "delete") === "function"
 }
 
 /** Bound the request wait without hiding configuration errors thrown by KV. */
@@ -51,10 +51,7 @@ async function withKVDeadline<T>(operation: Promise<KVOperationResult<T>>): Prom
 
 interface FixedWindow {
   key: string
-  /** Counts the requests that `refund()` gave back in this window. */
-  refundKey: string
   resetAt: number
-  start: number
 }
 
 /**
@@ -69,14 +66,14 @@ function keySegment(value: string): string {
  * One counter for each Rate Limit, window duration, key, and window start. A new window uses a new key, so no reset is
  * necessary. The duration keeps a `1m` and a `1h` limiter of one name apart when their window starts align.
  */
-function fixedWindow(input: RateLimitDriverInput, timestamp: number): FixedWindow {
+function fixedWindow(input: RateLimitDriverInput, timestamp: number, prefix: string): FixedWindow {
   const start = Math.floor(timestamp / input.windowMs) * input.windowMs
   const resetAt = start + input.windowMs
   if (!Number.isFinite(resetAt) || resetAt <= 0 || resetAt > 8.64e15) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0045({ message: "[vitehub] KV Rate Limit fixed-window end must be a positive timestamp at most 8640000000000000 milliseconds." })
   }
-  const key = `rate-limit:${keySegment(input.name ?? "default")}:${input.windowMs}:${keySegment(input.key)}:${start}`
-  return { key, refundKey: `${key}:refunds`, resetAt, start }
+  const key = `${prefix}:${keySegment(input.name ?? "default")}:${input.windowMs}:${keySegment(input.key)}:${start}`
+  return { key, resetAt }
 }
 
 function storedCount(value: unknown): number {
@@ -90,15 +87,23 @@ function storedCount(value: unknown): number {
  */
 export function kvRateLimitDriver(options: KVRateLimitDriverOptions): KVRateLimitDriver {
   if (!isStorage(options?.storage)) {
-    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0046({ message: "[vitehub] kvRateLimitDriver() requires a KV store with increment(), get(), and delete()." })
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0046({ message: "[vitehub] kvRateLimitDriver() requires a KV store with increment() and get()." })
   }
   const storage = options.storage
   const now = options.now ?? Date.now
+  const prefix = options.namespace ? `rate-limit-deployment:${keySegment(options.namespace)}` : "rate-limit"
 
-  async function readCounts(window: FixedWindow): Promise<KVOperationResult<{ count: number, refunds: number }>> {
+  async function counterKey(window: FixedWindow): Promise<KVOperationResult<string>> {
+    const [error, value] = await withKVDeadline(storage.get(`${window.key}:generation`))
+    if (error) return [error, undefined]
+    const generation = storedCount(value)
+    return [undefined, generation === 0 ? window.key : `${window.key}:g:${generation}`]
+  }
+
+  async function readCounts(key: string): Promise<KVOperationResult<{ count: number, refunds: number }>> {
     const [[countError, count], [refundsError, refunds]] = await Promise.all([
-      withKVDeadline(storage.get(window.key)),
-      withKVDeadline(storage.get(window.refundKey)),
+      withKVDeadline(storage.get(key)),
+      withKVDeadline(storage.get(`${key}:refunds`)),
     ])
     const error = countError ?? refundsError
     if (error) return [error, undefined]
@@ -113,15 +118,17 @@ export function kvRateLimitDriver(options: KVRateLimitDriverOptions): KVRateLimi
     },
     async consume(input) {
       const timestamp = now()
-      const window = fixedWindow(input, timestamp)
+      const window = fixedWindow(input, timestamp, prefix)
+      const [keyError, key] = await counterKey(window)
+      if (keyError) return [keyError, undefined]
       // The key expires one window after the first request, so old windows do not stay in the store.
-      const [error, count] = await withKVDeadline(storage.increment(window.key, input.windowMs / 1_000))
+      const [error, count] = await withKVDeadline(storage.increment(key, input.windowMs / 1_000))
       if (error) return [error, undefined]
       let used = count
       if (count > input.limit) {
-        const [refundsError, refunds] = await withKVDeadline(storage.get(window.refundKey))
+        const [refundsError, refunds] = await withKVDeadline(storage.get(`${key}:refunds`))
         if (refundsError) return [refundsError, undefined]
-        used = count - storedCount(refunds)
+        used = Math.max(0, count - storedCount(refunds))
       }
       if (used > input.limit) {
         return [undefined, {
@@ -136,29 +143,29 @@ export function kvRateLimitDriver(options: KVRateLimitDriverOptions): KVRateLimi
     },
     name: "kv",
     async peek(input) {
-      const window = fixedWindow(input, now())
-      const [error, counts] = await readCounts(window)
+      const window = fixedWindow(input, now(), prefix)
+      const [keyError, key] = await counterKey(window)
+      if (keyError) return [keyError, undefined]
+      const [error, counts] = await readCounts(key)
       if (error) return [error, undefined]
       const used = Math.max(0, counts.count - counts.refunds)
       return [undefined, { resetAt: counts.count ? window.resetAt : undefined, used }]
     },
     async refund(input) {
-      const window = fixedWindow(input, now())
-      const [error, counts] = await readCounts(window)
+      const window = fixedWindow(input, now(), prefix)
+      const [keyError, key] = await counterKey(window)
+      if (keyError) return [keyError, undefined]
+      const [error, counts] = await readCounts(key)
       if (error) return [error, undefined]
       // Nothing to give back. Two refunds at the same time can both pass this check, which gives back one more.
       if (counts.count <= counts.refunds) return [undefined, undefined]
-      const [refundError] = await withKVDeadline(storage.increment(window.refundKey, input.windowMs / 1_000))
+      const [refundError] = await withKVDeadline(storage.increment(`${key}:refunds`, input.windowMs / 1_000))
       return refundError ? [refundError, undefined] : [undefined, undefined]
     },
     async reset(input) {
-      const window = fixedWindow(input, now())
-      // Refunds go first, so a failed delete never leaves refunds without the requests that they give back.
-      for (const key of [window.refundKey, window.key]) {
-        const [error] = await withKVDeadline(storage.delete(key))
-        if (error) return [error, undefined]
-      }
-      return [undefined, undefined]
+      const window = fixedWindow(input, now(), prefix)
+      const [error] = await withKVDeadline(storage.increment(`${window.key}:generation`, input.windowMs / 1_000))
+      return error ? [error, undefined] : [undefined, undefined]
     },
   }
 }

@@ -99,7 +99,7 @@ describe("kvRateLimitDriver", () => {
     await expect(minute.peek({ key: "user" })).resolves.toMatchObject({ used: 1 })
   })
 
-  it("reads and deletes the counter of the current window", async () => {
+  it("reads and resets the counter of the current window", async () => {
     const kv = fakeKV()
     const limiter = createRateLimiter({ driver: kvRateLimitDriver({ now: () => windowStart, storage: kv }), limit: 5, name: "uploads", window: "1m" })
 
@@ -141,7 +141,7 @@ describe("kvRateLimitDriver", () => {
 
     await limiter.consume({ key: "user" })
     await limiter.consume({ key: "user" })
-    expect(get).not.toHaveBeenCalled()
+    expect(get.mock.calls).toEqual([[`${key}:generation`], [`${key}:generation`]])
     await expect(limiter.refund({ key: "user" })).resolves.toEqual({ status: "refunded" })
     expect(kv.values.get(`${key}:refunds`)).toBe(1)
     expect(kv.ttls.get(`${key}:refunds`)).toBe(86_400)
@@ -149,7 +149,35 @@ describe("kvRateLimitDriver", () => {
     await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true, remaining: 0, used: 2 })
     await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: false, used: 3 })
     await expect(limiter.reset({ key: "user" })).resolves.toEqual({ status: "reset" })
-    expect([...kv.values.keys()]).toEqual([])
+    await expect(limiter.peek({ key: "user" })).resolves.toMatchObject({ used: 0 })
+  })
+
+  it("does not credit a refund that finishes after another instance resets the window", async () => {
+    const kv = fakeKV()
+    const entered = Promise.withResolvers<void>()
+    const resume = Promise.withResolvers<void>()
+    const pendingStore: RateLimitKVStorage = {
+      ...kv,
+      async increment(key, ttl) {
+        if (key.endsWith(":refunds")) {
+          entered.resolve()
+          await resume.promise
+        }
+        return kv.increment(key, ttl)
+      },
+    }
+    const limiter = (storage: RateLimitKVStorage) => createRateLimiter({ driver: kvRateLimitDriver({ now: () => windowStart, storage }), limit: 1, window: "1m" })
+    const input = { key: "user" }
+    const first = limiter(pendingStore)
+    const second = limiter(kv)
+    await first.consume(input)
+    const pending = first.refund(input)
+    await entered.promise
+    await expect(second.reset(input)).resolves.toEqual({ status: "reset" })
+    resume.resolve()
+    await expect(pending).resolves.toEqual({ status: "refunded" })
+    await expect(second.consume(input)).resolves.toMatchObject({ allowed: true })
+    await expect(second.consume(input)).resolves.toMatchObject({ allowed: false })
   })
 
   it("gives back nothing when no request counts in the window", async () => {
@@ -167,7 +195,7 @@ describe("kvRateLimitDriver", () => {
 
   it.each(["peek", "refund", "reset"] as const)("bounds a stalled KV %s operation", async (operation) => {
     vi.useFakeTimers()
-    const kv: RateLimitKVStorage = { ...fakeKV(), delete: () => new Promise(() => {}), get: () => new Promise(() => {}) }
+    const kv: RateLimitKVStorage = { ...fakeKV(), get: () => new Promise(() => {}), increment: () => new Promise(() => {}) }
     const limiter = createRateLimiter({ driver: kvRateLimitDriver({ storage: kv }), limit: 1, window: "1m" })
     const result = vi.fn()
     void limiter[operation]({ key: "user" }).then(result)
@@ -206,7 +234,7 @@ describe("kvRateLimitDriver", () => {
     expect(result).toHaveBeenCalledTimes(1)
   })
 
-  it("requires a KV store with increment, get, and delete", () => {
+  it("requires a KV store with increment and get", () => {
     expect(() => kvRateLimitDriver({ storage: { increment: async () => [undefined, 1] } as never })).toThrow(expect.objectContaining({ code: "RATE_LIMIT_R0046" }))
   })
 })

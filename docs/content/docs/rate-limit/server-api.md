@@ -42,7 +42,7 @@ export async function publishBurst(event: H3Event, ownerId: string) {
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `limit` | positive integer | required | Allowed requests per fixed window. |
-| `window` | duration string | required | Fixed window such as `10s`, `1m`, `1h`, or `1d`. Must be finite, more than zero, and at most `8.64e15` milliseconds. |
+| `window` | duration string | required | Fixed window such as `10s`, `1m`, `1 hour`, or `1d`. Must be more than zero and at most `8.64e15` milliseconds. |
 | `enforcement` | `"best-effort" \| "strict"` | `"best-effort"` | Lowest guarantee the driver must give. |
 | `failure` | `"deny" \| "allow"` | `"deny"` | Whether an unavailable driver denies or allows the request. |
 | `key` | `string` | request client address | Identity of a user, tenant, account, or API client. |
@@ -100,7 +100,12 @@ import { defineHandler, HTTPError } from 'h3'
 import { refundRateLimit, requireRateLimit } from 'vite-hub/rate-limit'
 
 export default defineHandler(async (event) => {
-  const { learnerId, question } = await event.req.json()
+  const body = await event.req.json()
+  if (!body || typeof body !== 'object' || !('learnerId' in body) || typeof body.learnerId !== 'string'
+    || !('question' in body) || typeof body.question !== 'string') {
+    throw new HTTPError({ message: 'Expected a learner ID and a question.', status: 400 })
+  }
+  const { learnerId, question } = body
   await requireRateLimit(event, 'tutor', { key: learnerId, limit: 5, window: '1d' })
   const answer = await fetch('https://tutor.example.com/answer', { body: JSON.stringify({ question }), method: 'POST' })
   if (!answer.ok) {

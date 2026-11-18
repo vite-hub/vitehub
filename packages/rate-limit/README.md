@@ -119,7 +119,7 @@ The limiter exposes its resolved `policy` and the driver's declared `capabilitie
 
 ## Read, refund, or reset a counter
 
-`limiter.peek({ key })` reads the counter of a key without consuming a token. `limiter.refund({ key })` gives back one request in the current window, for example when the work that the request paid for failed. Refund only a request that was allowed. `limiter.reset({ key })` deletes the counter. A driver supports them through optional `peek(input)`, `refund(input)`, and `reset(input)` methods. Like `consume()`, `peek()` returns `[undefined, value]` or `[error, undefined]`. The `refund()` and `reset()` methods return `[undefined, undefined]` or `[error, undefined]`. When the driver omits a method, the result has `status: "unsupported"` and a `reason`.
+`limiter.peek({ key })` reads the counter of a key without consuming a token. `limiter.refund({ key })` gives back one request in the current window, for example when the work that the request paid for failed. Refund only a request that was allowed. `limiter.reset({ key })` clears the count. A driver supports them through optional `peek(input)`, `refund(input)`, and `reset(input)` methods. Like `consume()`, `peek()` returns `[undefined, value]` or `[error, undefined]`. The `refund()` and `reset()` methods return `[undefined, undefined]` or `[error, undefined]`. When the driver omits a method, the result has `status: "unsupported"` and a `reason`.
 
 | Driver     | `peek()`                                                                  | `refund()` | `reset()`             |
 | ---------- | ------------------------------------------------------------------------- | ---------- | --------------------- |

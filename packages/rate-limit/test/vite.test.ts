@@ -458,7 +458,7 @@ describe("hubRateLimit", () => {
       root,
     } as never)
     const installer = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")
-    expect(installer).toContain('const config = {"driver":"cloudflare"}')
+    expect(installer).toContain('const config = {"driver":"cloudflare","namespace":"formula"}')
   })
 
   it("counts a Cloudflare window other than 10s or 1m in KV", async () => {

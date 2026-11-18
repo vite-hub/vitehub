@@ -57,15 +57,17 @@ export type RateLimitVitePlugin = Plugin & { vitehub: ViteHubCliPluginMetadata &
 type RateLimitConfig = UserConfig | ResolvedConfig
 
 /** The part of the KV integration that describes its build-selected default store. */
+type KVConfigReader = () => { kv: false | { store: { driver: string } } }
 interface KVVitePlugin {
-  api?: { getConfig?: () => { kv: false | { store: { driver: string } } } }
+  api?: { getBuildConfig?: KVConfigReader, getConfig?: KVConfigReader }
 }
 
 /** The driver of the default KV store, or `undefined` when the app has no KV. */
-function kvStoreDriver(config: ResolvedConfig): string | undefined {
+function kvStoreDriver(config: ResolvedConfig, build = false): string | undefined {
   // SAFETY: The plugin name identifies KV, which owns driver selection and this configuration API.
   const kvPlugin = config.plugins?.find(plugin => plugin.name === "@vite-hub/kv/vite") as KVVitePlugin | undefined
-  const kv = kvPlugin?.api?.getConfig?.().kv
+  const api = kvPlugin?.api
+  const kv = (build ? api?.getBuildConfig?.() : undefined)?.kv ?? api?.getConfig?.().kv
   return kv ? kv.store.driver : undefined
 }
 
@@ -200,7 +202,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
   const refreshDeclarations = async (): Promise<void> => {
     if (!projectRoot || !resolved) return
     collectDeclarations()
-    if (checkCloudflarePolicies) assertCloudflareRateLimitPolicies(declarations, kvStoreDriver(resolved))
+    if (checkCloudflarePolicies) assertCloudflareRateLimitPolicies(declarations, kvStoreDriver(resolved, true))
     await writeRateLimitManifest(projectRoot, declarations, effectiveDriver(driver, resolved))
   }
 
@@ -233,17 +235,30 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
 
   const inspectionRoot = (): string => projectRoot ?? resolveViteHubProjectRoot(process.cwd(), { projectRoot: rateLimit.projectRoot })
 
+  async function writeRuntimeOutput(config: ResolvedConfig, root: string): Promise<void> {
+    const runtimeConfig: RateLimitRuntimeConfig = { driver }
+    if (driver === "kv" && ((rateLimit as InternalRateLimitOptions).memoryFallback === true || config.command === "serve")) {
+      runtimeConfig.memoryFallback = true
+    }
+    const kvWindows = driver === "cloudflare" && !declarations.every(usesCloudflareBinding)
+    const namespace = resolveRateLimitNamespace(rateLimit.namespace)
+    if (kvWindows && namespace) runtimeConfig.namespace = namespace
+    await writeRateLimitManifest(root, declarations, effectiveDriver(driver, config))
+    await writeFileIfChanged(resolve(root, generatedNitroPlugin), renderRuntimeInstaller(runtimeConfig, kvImport, kvWindows))
+  }
+
   return {
     api: {
       // Nitro can rebuild server policies while Nuxt reuses the cached Vite bundle.
       // The replay boundary calls this only after Database and KV have resolved.
-      validateNitroBuild(config: ResolvedConfig) {
+      async validateNitroBuild(config: ResolvedConfig) {
         resolved = config
         rateLimit = getResolvedFeatureOptions<RateLimitOptions>(config, "rateLimit") ?? rateLimit
         projectRoot = resolveViteHubProjectRoot(config.root, { projectRoot: rateLimit.projectRoot })
         driver = resolveDriver(rateLimit, config.command, (config as { nitro?: unknown }).nitro)!
         collectDeclarations()
         assertBuildDriver()
+        await writeRuntimeOutput(config, projectRoot)
       },
     },
     name: pluginName,
@@ -305,7 +320,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       cloudflareBindings = nitroCloudflare && driver === "cloudflare"
       checkCloudflarePolicies = config.command === "serve" && buildTargetsCloudflare(config, rateLimit, configuredNitro)
       collectDeclarations()
-      if (checkCloudflarePolicies) assertCloudflareRateLimitPolicies(declarations, kvStoreDriver(config))
+      if (checkCloudflarePolicies) assertCloudflareRateLimitPolicies(declarations, kvStoreDriver(config, true))
       ;(config as { nitro?: unknown }).nitro = mergeNitroConfig(
         config,
         configuredNitro,
@@ -315,12 +330,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         nitroCloudflare,
         projectRoot,
       )
-      await writeRateLimitManifest(projectRoot, declarations, effectiveDriver(driver, config))
-      const pluginFile = resolve(projectRoot, generatedNitroPlugin)
-      // `vite dev` runs one process, so memory counts are exact there.
-      const memoryFallback = driver === "kv" && ((rateLimit as InternalRateLimitOptions).memoryFallback === true || config.command === "serve")
-      const runtimeConfig: RateLimitRuntimeConfig = memoryFallback ? { memoryFallback, driver } : { driver }
-      await writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig, kvImport, !declarations.every(usesCloudflareBinding)))
+      await writeRuntimeOutput(config, projectRoot)
       // KV rereads Database's resolved definitions at buildStart; avoid warning before that choice is final.
       if (driver !== "kv") {
         assertBuildDriver()

@@ -45,7 +45,7 @@ The build reads the policy of each `checkRateLimit()` and `requireRateLimit()` c
 | `RATE_LIMIT_R0001` | A policy is not a static object literal, or one of its values is wrong. The message names the file, line, and column. |
 | `RATE_LIMIT_R0002` | A source file does not parse while ViteHub collects policies. |
 | `RATE_LIMIT_R0003` | Two calls use the same ID with different policies. The message lists both locations. |
-| `RATE_LIMIT_R0031`, `RATE_LIMIT_R0032` | `window` is not a duration such as `10s`, `1m`, `1h`, or `1d`, or it is not greater than zero. |
+| `RATE_LIMIT_R0031`, `RATE_LIMIT_R0032` | `window` is not a string, or it is not greater than zero. A string that is not a duration, such as `10s`, `1m`, `1h`, or `1d`, fails with [`RUNTIME_DURATION_INVALID`](/docs/development/diagnostics/runtime_duration_invalid). |
 | `RATE_LIMIT_R0033`, `RATE_LIMIT_R0034` | The policy is not an object, or `limit` is not a positive integer. |
 | `RATE_LIMIT_R0035`, `RATE_LIMIT_R0036` | `enforcement` is not `'best-effort'` or `'strict'`, or `failure` is not `'allow'` or `'deny'`. |
 
@@ -70,7 +70,7 @@ The build reads the policy of each `checkRateLimit()` and `requireRateLimit()` c
 
 ## KV limits
 
-The `kv` driver counts fixed windows with one atomic `increment` for each request. The key is `rate-limit:<id>:<window ms>:<key>:<window start>` in the default KV store, and its TTL is the window, set with the first request.
+The `kv` driver reads the current counter generation and uses one atomic `increment` for each request. Counter keys include the policy ID, window length, client key, and window start. Cloudflare adds the deployment namespace. A reset advances the generation so in-flight refunds cannot credit the new counter. Previous counters expire by TTL.
 
 - Rejected requests also increment the counter, so `used` can be larger than `limit`. The manifest says `rejectedAttempts: "counted"`.
 - Each instance computes the window start from its own clock. Keep the server clocks in sync, or requests at the end of a window can count in the next one.
@@ -78,4 +78,4 @@ The `kv` driver counts fixed windows with one atomic `increment` for each reques
 - `refund()` adds one to a second key, `<counter key>:refunds`, because KV has no atomic decrement. `consume()` reads that key only when the counter passes the limit, so the `used` and `remaining` of an allowed request do not include refunds. `peek()` includes them. Two refunds at the same time can give back one request more than the window counted.
 - `peekRateLimit()` and `resetRateLimit()` read the window from the policies that this process used. In a process that has not used the Rate Limit yet, `peek` returns `unused` and `reset` returns `unsupported`.
 - An explicit `driver: 'kv'` on a KV store without a shared atomic increment, such as `fs-lite`, fails the build with `RATE_LIMIT_KV_STORE_UNSUPPORTED`. A runtime that `setRateLimitRuntimeConfig({ driver: 'kv' })` configures fails with `RATE_LIMIT_KV_RUNTIME_STORE_UNSUPPORTED` on such a store, unless it also sets `memoryFallback: true`.
-- Without a KV store, the `kv` driver fails with `RATE_LIMIT_R0047`. `kvRateLimitDriver()` without `increment`, `get`, and `delete` fails with `RATE_LIMIT_R0046`.
+- Without a KV store, the `kv` driver fails with `RATE_LIMIT_R0047`. `kvRateLimitDriver()` without `increment` and `get` fails with `RATE_LIMIT_R0046`.

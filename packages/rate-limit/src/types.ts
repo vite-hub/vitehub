@@ -1,13 +1,6 @@
-import type { Result, ViteHubContext } from "@vite-hub/runtime"
+import type { Duration, Result, ViteHubContext } from "@vite-hub/runtime"
 
 type MaybePromise<T> = Promise<T> | T
-
-export type RateLimitWindow =
-  | `${number}ms`
-  | `${number}s`
-  | `${number}m`
-  | `${number}h`
-  | `${number}d`
 
 export type RateLimitEnforcement = "best-effort" | "strict"
 export type RateLimitFailurePolicy = "allow" | "deny"
@@ -18,7 +11,8 @@ export interface RateLimitPolicy {
   enforcement?: RateLimitEnforcement
   failure?: RateLimitFailurePolicy
   limit: number
-  window: RateLimitWindow
+  /** The length of the window, such as `"10s"`, `"1m"`, or `"1 hour"`. */
+  window: Duration
 }
 
 export interface CheckRateLimitOptions extends RateLimitPolicy {
@@ -47,7 +41,7 @@ export interface ResolvedRateLimitPolicy {
   readonly enforcement: RateLimitEnforcement
   readonly failure: RateLimitFailurePolicy
   readonly limit: number
-  readonly window: RateLimitWindow
+  readonly window: Duration
   readonly windowMs: number
 }
 
@@ -215,6 +209,8 @@ export interface RateLimitOptions {
 
 export interface RateLimitRuntimeConfig {
   driver: Exclude<RateLimitDriverName, "auto">
+  /** Cloudflare deployment namespace for policies counted in KV. */
+  namespace?: string
   /**
    * With the `kv` driver: count in the memory of this process, with a warning, when the KV store cannot share counts.
    * Without it, such a store fails with `RATE_LIMIT_KV_RUNTIME_STORE_UNSUPPORTED`. ViteHub sets it in `vite dev` and when it selects `kv` itself.

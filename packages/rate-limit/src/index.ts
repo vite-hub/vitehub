@@ -33,7 +33,6 @@ export type {
   RateLimitRequestEvent,
   RateLimitResetResult,
   RateLimitRuntimeConfig,
-  RateLimitWindow,
   RefundRateLimitErrorCode,
   RequireRateLimitOptions,
   ResolvedRateLimitPolicy,
