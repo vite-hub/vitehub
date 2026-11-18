@@ -29,6 +29,19 @@ export interface AuthenticationSessionRead {
    * the old cookies and loses the session when they expire.
    */
   setCookies: string[]
+  /**
+   * Better Auth refused the credentials of the request with a `4xx` status, such as an invalid key of the API Key
+   * plugin. A guard answers with it in place of its own `SIGNED_OUT` refusal.
+   */
+  refusal?: AuthenticationRefusal
+}
+
+/** A `4xx` refusal of a Better Auth session read. `headers` has the headers other than `Set-Cookie`. */
+export interface AuthenticationRefusal {
+  code?: string
+  headers: Headers
+  message?: string
+  status: number
 }
 
 // Better Auth keeps the cookies that an endpoint set before it threw an `APIError`, such as the deletion of an ended
@@ -47,7 +60,7 @@ export async function getAuthenticationSession(
     throw authErrorDiagnostics.AUTH_R0011({ message: "Better Auth did not expose api.getSession()." })
   }
 
-  let refusal: HTTPError | undefined
+  let refusal: AuthenticationRefusal | undefined
   const value = await readProvider(async () => {
     try {
       return await Reflect.apply(getSession, api, [{ ...input, returnHeaders: true }])
@@ -59,17 +72,30 @@ export async function getAuthenticationSession(
         return { headers: headers instanceof Headers ? headers : undefined, response: null }
       }
       // A plugin refuses the credentials of the request, such as an invalid key of the API Key plugin. Keep its status.
-      refusal = readClientApiError(cause)
-      if (refusal) return
-      throw cause
+      const client = readClientApiError(cause)
+      if (!client) throw cause
+      refusal = client.refusal
+      return { headers: client.headers, response: null }
     }
   })
-  if (refusal) throw refusal
   const read = await readProvider(() => resolveAuthenticationSessionRead(value))
   if (!read) {
     throw authErrorDiagnostics.AUTH_R0012({ message: "Better Auth returned an invalid session response." })
   }
-  return read
+  return refusal ? { ...read, refusal } : read
+}
+
+/** The H3 error format of a refusal, as the guards answer their own refusals. */
+export function authenticationRefusalResponse(refusal: AuthenticationRefusal): Response {
+  return Response.json(
+    { status: refusal.status, message: refusal.message, data: refusal.code ? { code: refusal.code } : undefined },
+    { headers: refusal.headers, status: refusal.status },
+  )
+}
+
+/** The `HTTPError` of a refusal, for a caller that throws. */
+export function authenticationRefusalError(refusal: AuthenticationRefusal): HTTPError {
+  return new HTTPError({ data: refusal.code ? { code: refusal.code } : undefined, headers: refusal.headers, message: refusal.message, status: refusal.status })
 }
 
 async function readProvider<T>(read: () => T | PromiseLike<T>): Promise<T> {
@@ -125,23 +151,39 @@ function isUnauthorizedApiError(error: unknown): error is object {
   }
 }
 
-/** The `HTTPError` for a Better Auth `APIError` with a 4xx status, with its status, message, code, and cookies. */
-function readClientApiError(error: unknown): HTTPError | undefined {
+/**
+ * The refusal of a Better Auth `APIError` with a 4xx status, and all its headers. A `before` hook can pass headers to
+ * the error, and better-call keeps the headers that the endpoint set before under its own key. Both reach the client.
+ */
+function readClientApiError(error: unknown): { headers: Headers, refusal: AuthenticationRefusal } | undefined {
   if (typeof error !== "object" || error === null) return
   try {
     if (Reflect.get(error, "name") !== "APIError") return
     const status: unknown = Reflect.get(error, "statusCode")
     if (typeof status !== "number" || !Number.isInteger(status) || status < 400 || status > 499) return
     const body: unknown = Reflect.get(error, "body")
-    const code = isRecord(body) && typeof body.code === "string" ? body.code : undefined
-    const message = isRecord(body) && typeof body.message === "string" ? body.message : undefined
-    const headers: unknown = Reflect.get(error, apiErrorHeaders)
-    return new HTTPError({
-      data: code ? { code } : undefined,
-      headers: headers instanceof Headers ? headers : undefined,
-      message,
-      status,
-    })
+    const headers = new Headers()
+    for (const source of [Reflect.get(error, apiErrorHeaders), Reflect.get(error, "headers")]) {
+      if (!(source instanceof Headers) && !isRecord(source)) continue
+      const incoming = new Headers(source instanceof Headers ? source : Object.entries(source).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+      for (const cookie of incoming.getSetCookie()) {
+        if (!headers.getSetCookie().includes(cookie)) headers.append("set-cookie", cookie)
+      }
+      for (const [name, value] of incoming) {
+        if (name !== "set-cookie" && !headers.has(name)) headers.set(name, value)
+      }
+    }
+    const refusalHeaders = new Headers(headers)
+    refusalHeaders.delete("set-cookie")
+    return {
+      headers,
+      refusal: {
+        code: isRecord(body) && typeof body.code === "string" ? body.code : undefined,
+        headers: refusalHeaders,
+        message: isRecord(body) && typeof body.message === "string" ? body.message : undefined,
+        status,
+      },
+    }
   }
   catch {
     return undefined
