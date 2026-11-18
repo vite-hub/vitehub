@@ -19,7 +19,11 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     AUTH_DELETE_ACCOUNT_INVALID: {
       why: "`defineAuth()` deleteAccount must be `true` or an object of Better Auth `user.deleteUser` options without `enabled`.",
-      fix: "Pass `deleteAccount: true`, or `deleteAccount: { beforeDelete: async (user) => { ... } }` to also delete the app's own rows of the user.",
+      fix: "Pass `deleteAccount: true` or an options object. If specifying `userApiKeyConfigIds`, pass an array of nonempty configuration IDs.",
+    },
+    AUTH_DELETE_ACCOUNT_SESSION: {
+      why: "`defineAuth()` deleteAccount cannot revoke sessions that Auth accepts from cookies alone.",
+      fix: "Use stored Auth without `stateless()` or `session.cookieCache.enabled` to enable account deletion.",
     },
     AUTH_DELETE_USER_UNSUPPORTED: {
       why: "`defineAuth()` does not take Better Auth `user.deleteUser`, because it would delete the user without the user's rows in ViteHub Server Primitives.",

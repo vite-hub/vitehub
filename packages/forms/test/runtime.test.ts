@@ -149,9 +149,12 @@ describe("createFormsHandler", () => {
   })
 
   it("registers the submissions of a signed-in user for Auth deleteAccount", async () => {
+    const app = {}
     const handler = createFormsHandler({ forms: { contact }, memory: true, session: async () => ({ id: "user-1", email: "ana@example.com" }) })
+    handler.registerUserData(app)
     expect((await handler.fetch(post("contact").request)).status).toBe(201)
-    const forms = viteHubUserData().find(data => data.owner === "forms")
+    const forms = viteHubUserData(app).find(data => data.owner === "forms")
+    expect(viteHubUserData({})).toEqual([])
     expect(forms?.tables).toEqual(["vitehub_form_submissions"])
     await forms!.delete("user-1")
     const [, listed] = await installedForms()!.inbox.list()

@@ -266,7 +266,7 @@ The hook runs on every Better Auth path that refreshes a stored session: `/get-s
 
 ## Let users delete their account
 
-Set `deleteAccount: true`. Better Auth then serves `deleteUser`, and Auth also deletes the rows that ViteHub Server Primitives keep for that user.
+Set `deleteAccount: true`. Better Auth then serves `deleteUser`, and Auth also deletes the rows that ViteHub Server Primitives keep for that user. Use stored Auth without `stateless()` or `session.cookieCache.enabled` so deletion can revoke existing sessions.
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'
@@ -285,16 +285,18 @@ When a user deletes the account, this happens in order:
 
 1. Your `beforeDelete` runs, when you pass one.
 2. Each Server Primitive deletes the rows of the user. The table below lists them.
-3. Auth deletes the rows of the other Better Auth tables that name the user, such as passkeys, two-factor secrets, organization memberships, invitations that the user sent, API keys, and MCP tokens.
+3. Auth deletes the rows of the other Better Auth tables that name the user, such as passkeys, two-factor secrets, organization memberships, invitations that the user sent, and MCP tokens. It also deletes database-backed API keys for the user-owned configurations you list.
 4. Better Auth deletes the user, the sessions, and the accounts.
 
 | Owner | Rows that Auth deletes |
 | --- | --- |
 | [Comments](/docs/comments) | The messages of the user. A thread with no message left goes too. A thread that the user started keeps the replies of other people, without the user's name and image. A thread that the user resolved forgets who resolved it. |
 | [Forms](/docs/forms) | The submissions that the user sent while signed in. |
-| Auth | Each row of a Better Auth table with a field that references the user, and the `apikey` rows whose `referenceId` is the user. An organization stays, also when the user was its last member. |
+| Auth | Each row of a Better Auth table with a field that references the user, and matching `apikey` rows in `deleteAccount.userApiKeyConfigIds`. An organization and its API keys stay, also when the user was its last member. |
 
-Auth does not delete your own tables, files in Blob, or keys in KV, because it cannot know which ones belong to the user. Delete them in `beforeDelete`, which takes the Better Auth `user.deleteUser` options without `enabled`:
+Set `deleteAccount: { userApiKeyConfigIds: ['personal'] }` if `apiKey()` uses the database and the `personal` configuration references users. Use `'default'` for an unnamed user-owned configuration. Do not list organization-owned configurations: Better Auth does not expose their ownership to Auth, and a user and an organization can have the same ID. With no IDs listed, Auth leaves API keys alone.
+
+Auth does not delete your own tables, files in Blob, or keys in KV, because it cannot know which ones belong to the user. Delete them in `beforeDelete`, one of the Better Auth `user.deleteUser` options supported by `deleteAccount`:
 
 ```ts [server/auth.ts] fragment
 import { APIError } from 'better-auth/api'

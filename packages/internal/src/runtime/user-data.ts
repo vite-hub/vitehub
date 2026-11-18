@@ -14,17 +14,18 @@ export interface ViteHubUserData {
 const stateKey: unique symbol = Symbol.for("vitehub.user-data")
 // SAFETY: This module owns the process slot. Owner packages bundle their own copy of it, so the registry must be shared
 // through the slot, not through module state.
-const scope = globalThis as typeof globalThis & { [stateKey]?: Map<string, ViteHubUserData> }
+const scope = globalThis as typeof globalThis & { [stateKey]?: WeakMap<object, Map<string, ViteHubUserData>> }
 
-function registry(): Map<string, ViteHubUserData> {
-  return scope[stateKey] ??= new Map()
-}
-
-export function registerViteHubUserData(data: ViteHubUserData): void {
-  registry().set(data.owner, data)
+export function registerViteHubUserData(app: unknown, data: ViteHubUserData): void {
+  if (!app || typeof app !== "object") return
+  const apps = scope[stateKey] ??= new WeakMap()
+  let owners = apps.get(app)
+  if (!owners) apps.set(app, owners = new Map())
+  owners.set(data.owner, data)
 }
 
 /** The registered owners, by owner name. */
-export function viteHubUserData(): ViteHubUserData[] {
-  return [...registry().values()].sort((left, right) => left.owner.localeCompare(right.owner))
+export function viteHubUserData(app: object | undefined): ViteHubUserData[] {
+  const owners = app && scope[stateKey]?.get(app)
+  return [...owners?.values() ?? []].sort((left, right) => left.owner.localeCompare(right.owner))
 }

@@ -76,7 +76,7 @@ export function installedForms(): InstalledForms | undefined {
  * The `{ fetch }` route of every form at `<base>api/_vitehub/forms/<name>`. The generated Nitro handler of a ViteHub
  * app calls it with the forms of `server/forms/` and the services of the app.
  */
-export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (request: Request) => Promise<Response> } {
+export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (request: Request) => Promise<Response>, registerUserData: (app: unknown) => void } {
   const forms = new Map<string, FormDefinition>()
   for (const [name, form] of Object.entries(options.forms)) {
     if (!isFormDefinition(form)) throw formsDiagnostics.FORMS_C0001({ message: `[vitehub] server/forms/${name} must default-export defineForm({ schema }).` })
@@ -95,8 +95,6 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
       })
     : options.memory ? createMemoryFormsStore() : undefined
   Reflect.set(globalThis, installedKey, { names: [...forms.keys()].sort(), inbox: createFormsInbox(store ?? emptyFormsStore) } satisfies InstalledForms)
-  // Auth `deleteAccount` deletes the submissions that the user sent.
-  if (store) registerViteHubUserData({ owner: "forms", tables: Object.values(formsTableNames), delete: userId => store.deleteUser(userId) })
   const { sendEmail, session, context } = options
   // Rate Limit on Cloudflare needs each limit name at build time, so a Worker counts in the memory of its isolate.
   const rateLimit = createClientRateLimit({ name: "forms", unavailable: "Forms could not count this message in Rate Limit", ...(options.rateLimit ? { shared: options.rateLimit } : {}) })
@@ -116,6 +114,9 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
     }
   }
   return {
+    registerUserData(app) {
+      if (store) registerViteHubUserData(app, { owner: "forms", tables: Object.values(formsTableNames), delete: userId => store.deleteUser(userId) })
+    },
     async fetch(request) {
       const segment = new URL(request.url).pathname.split("/").filter(Boolean).at(-1) ?? ""
       let name = segment

@@ -37,7 +37,10 @@ export type AuthBetterAuthOptions = Omit<BetterAuthOptions, AuthReservedOption |
  * Better Auth `user.deleteUser` options without `enabled`. `beforeDelete` runs first: delete the app's own rows of the
  * user there, or throw an `APIError` to keep the account.
  */
-export type AuthDeleteAccountOptions = Omit<NonNullable<NonNullable<BetterAuthOptions["user"]>["deleteUser"]>, "enabled">
+export type AuthDeleteAccountOptions = Omit<NonNullable<NonNullable<BetterAuthOptions["user"]>["deleteUser"]>, "enabled"> & {
+  /** Database-backed `apiKey()` configuration IDs that reference users, never organizations. Use `"default"` for the unnamed configuration. */
+  userApiKeyConfigIds?: readonly string[]
+}
 
 /** Session fields to write when a refresh extends the session. */
 export type AuthSessionRefreshFields = Partial<Session> & Record<string, unknown>

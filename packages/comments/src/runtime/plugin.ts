@@ -91,7 +91,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
     installCommentsRuntime(build)
     Reflect.set(globalThis, runtimeKey, options.comments)
     // Auth `deleteAccount` deletes the messages of the user. An app without a Comments Database has none.
-    registerViteHubUserData({
+    registerViteHubUserData(nitroApp, {
       owner: "comments",
       tables: [commentsTableNames.vitehubCommentThreads, commentsTableNames.vitehubCommentMessages],
       async delete(userId) {

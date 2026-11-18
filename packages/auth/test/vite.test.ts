@@ -125,7 +125,7 @@ describe("hubAuth", () => {
     const plugin = hubAuth()
     await resolvePluginConfig(plugin, root)
 
-    expect(loadAuthDefinition(plugin)).toBe("export const definition = undefined\nexport default definition\n")
+    expect(loadAuthDefinition(plugin)).toBe("export const definition = undefined\nexport const getAuthApp = () => undefined\nexport default definition\n")
   })
 
   it("serves a stable virtual Auth server helper module", async () => {
@@ -409,7 +409,7 @@ describe("hubAuth", () => {
     await (plugin.configResolved as (config: { root: string }) => Promise<void>)({ root })
 
     expect(plugin.api.getConfig()).toBeUndefined()
-    expect(loadAuthDefinition(plugin)).toBe("export const definition = undefined\nexport default definition\n")
+    expect(loadAuthDefinition(plugin)).toBe("export const definition = undefined\nexport const getAuthApp = () => undefined\nexport default definition\n")
   })
 
   it("keeps configured entries single after Vite resolves the Auth config", async () => {

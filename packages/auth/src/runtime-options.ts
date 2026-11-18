@@ -1,4 +1,5 @@
 import { memoryAdapter } from "better-auth/adapters/memory"
+import definitionForApp, { getAuthApp } from "#vitehub/auth/definition"
 import { createAuthMiddleware } from "better-auth/api"
 import { getAuthTables } from "better-auth/db"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
@@ -134,6 +135,7 @@ function stripViteHubOptions(
   options: AuthRuntimeOptions & Record<string, unknown>,
   environment: ProviderEnvironment,
 ): AuthBetterAuthRuntimeOptions {
+  validateDeleteAccount(options)
   const {
     access,
     adminClaim: _adminClaim,
@@ -145,7 +147,6 @@ function stripViteHubOptions(
     secondaryStorage,
     ...rest
   } = applyAuthPreset(options)
-  validateDeleteAccount({ deleteAccount, user: rest.user })
 
   if (isAuthDatabasePlacement(database)) {
     throw authErrorDiagnostics.AUTH_C0061({ message: "Auth `database` must be a Better Auth adapter, such as `authDatabase()`. `true` and `{ name }` do not create storage, so users and sessions would stay in memory." })
@@ -183,7 +184,7 @@ function stripViteHubOptions(
   const membersGate = members.length ? createMembersGate(members, admins, declaredPlugins) : undefined
   const adminsPlugin = admins.length ? createAdminsPlugin(admins, declaredPlugins) : undefined
   const adminClaimPlugin = adminClaim ? createAdminClaimPlugin(adminClaim, declaredPlugins) : undefined
-  const accountDeletion = deleteAccount ? createDeleteAccount(deleteAccount) : undefined
+  const accountDeletion = deleteAccount ? createDeleteAccount(deleteAccount, definition === definitionForApp ? getAuthApp() : undefined) : undefined
   const plugins = [
     ...declaredPlugins,
     ...(accountDeletion ? [accountDeletion.plugin] : []),

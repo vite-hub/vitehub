@@ -1,48 +1,51 @@
 import { registerViteHubUserData } from "@vite-hub/internal/runtime/user-data"
+import { apiKey } from "@better-auth/api-key"
 import { memoryAdapter } from "better-auth/adapters/memory"
 import { APIError } from "better-auth/api"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAuth } from "../src/definition.ts"
 import { createAuth } from "../src/internal/server.ts"
+import { stateless } from "../src/presets.ts"
 import { defineFixedAuth } from "./fixed-auth.ts"
 
 import type { BetterAuthPlugin } from "better-auth"
-import type { AuthDeleteAccountOptions } from "../src/index.ts"
+import type { AuthDefinition, AuthDeleteAccountOptions } from "../src/index.ts"
 
 const origin = "https://app.example.com"
 const account = { email: "ada@example.com", name: "Ada", password: "passwordpassword" }
-const owners: string[] = []
+const host = vi.hoisted(() => ({ app: {} as object, definition: undefined as AuthDefinition | undefined }))
+vi.mock("#vitehub/auth/definition", () => ({ get default() { return host.definition }, getAuthApp: () => host.app }))
 
 function owner(name: string, remove: (userId: string) => Promise<void>) {
-  owners.push(name)
-  registerViteHubUserData({ owner: name, tables: [`${name}_rows`], delete: remove })
+  registerViteHubUserData(host.app, { owner: name, tables: [`${name}_rows`], delete: remove })
 }
 
 afterEach(() => {
-  // Each test registers its own owners. An owner that deletes nothing stands in for one that a test removed.
-  for (const name of owners.splice(0)) registerViteHubUserData({ owner: name, tables: [], delete: async () => {} })
+  host.app = {}
+  host.definition = undefined
 })
 
-// A plugin table that names the user with a reference, and one that names it in `referenceId`, as `apiKey()` does.
 const notes: BetterAuthPlugin = {
   id: "notes",
   schema: {
     note: { fields: { userId: { type: "string", required: true, references: { model: "user", field: "id" } } } },
-    apikey: { fields: { referenceId: { type: "string", required: true } } },
+    emailNote: { fields: { email: { type: "string", required: true, references: { model: "user", field: "email" } } } },
   },
 }
 
 async function signedUp(deleteAccount?: true | AuthDeleteAccountOptions) {
-  const tables: Record<string, Record<string, unknown>[]> = { account: [], apikey: [], note: [], session: [], user: [], verification: [] }
-  const auth = createAuth(defineFixedAuth({
+  const tables: Record<string, Record<string, unknown>[]> = { account: [], apikey: [], emailNote: [], note: [], session: [], user: [], verification: [] }
+  const definition = defineFixedAuth({
     baseURL: origin,
     database: memoryAdapter(tables),
     emailAndPassword: { enabled: true },
-    plugins: [notes],
+    plugins: [notes, apiKey([{ configId: "personal", references: "user" }, { configId: "business", references: "organization" }])],
     secret: "vitehub-delete-account-test-secret-5d1c7e9a",
     ...(deleteAccount ? { deleteAccount } : {}),
-  }))
+  })
+  host.definition = definition
+  const auth = createAuth(definition)
   const signUp = await auth.api.signUpEmail({ body: account, returnHeaders: true })
   const headers = new Headers({ cookie: signUp.headers.getSetCookie().map(value => value.split(";")[0]).join("; ") })
   const deleteAccountRequest = () => auth.api.deleteUser({ body: { password: account.password }, headers })
@@ -59,16 +62,27 @@ describe("deleteAccount", () => {
     owner("forms", async (userId) => {
       order.push(`forms:${userId}`)
     })
-    const { deleteAccount, signIn, tables, userId } = await signedUp({ beforeDelete: async (user) => {
+    const { deleteAccount, signIn, tables, userId } = await signedUp({ userApiKeyConfigIds: ["personal"], beforeDelete: async (user) => {
       order.push(`app:${user.id}`)
     } })
     tables.note!.push({ id: "note-1", userId }, { id: "note-2", userId: "grace" })
-    tables.apikey!.push({ id: "key-1", referenceId: userId }, { id: "key-2", referenceId: "grace" })
+    tables.emailNote!.push({ id: "email-1", email: account.email }, { id: "email-2", email: "grace@example.com" })
+    tables.apikey!.push(
+      { id: "personal-key", configId: "personal", referenceId: userId },
+      { id: "organization-key", configId: "business", referenceId: userId },
+      { id: "other-user-key", configId: "personal", referenceId: "grace" },
+    )
+    host.app = {}
+    const otherApp = vi.fn(async () => {})
+    owner("comments", otherApp)
+    owner("forms", otherApp)
 
     await expect(deleteAccount()).resolves.toMatchObject({ success: true })
     expect(order).toEqual([`app:${userId}`, `comments:${userId}`, `forms:${userId}`])
     expect(tables.note!.map(row => row.id)).toEqual(["note-2"])
-    expect(tables.apikey!.map(row => row.id)).toEqual(["key-2"])
+    expect(tables.emailNote!.map(row => row.id)).toEqual(["email-2"])
+    expect(tables.apikey!.map(row => row.id)).toEqual(["organization-key", "other-user-key"])
+    expect(otherApp).not.toHaveBeenCalled()
     expect(await signIn()).toBe(false)
   })
 
@@ -108,5 +122,13 @@ describe("deleteAccount", () => {
     expect(() => defineAuth({ deleteAccount: false })).toThrow(expect.objectContaining({ code: "AUTH_DELETE_ACCOUNT_INVALID" }))
     const callback = defineAuth(() => ({ baseURL: origin, database: "memory", secret: "vitehub-delete-account-test-secret-5d1c7e9a", user: { deleteUser: { enabled: true } } }))
     expect(() => createAuth(callback)).toThrow(expect.objectContaining({ code: "AUTH_DELETE_USER_UNSUPPORTED" }))
+  })
+
+  it("rejects account deletion when a cookie can authenticate without stored sessions", () => {
+    const options = { preset: stateless(), deleteAccount: true } as const
+    const error = expect.objectContaining({ code: "AUTH_DELETE_ACCOUNT_SESSION" })
+    expect(() => defineAuth(options)).toThrow(error)
+    expect(() => createAuth(defineAuth(() => options))).toThrow(error)
+    expect(() => defineAuth({ deleteAccount: true, session: { cookieCache: { enabled: true } } })).toThrow(error)
   })
 })

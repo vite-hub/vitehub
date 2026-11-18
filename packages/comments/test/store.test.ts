@@ -129,3 +129,24 @@ it("deletes the messages of one person and keeps the replies of other people", a
   expect(resolved?.resolvedBy).toBeUndefined()
   expect(await store.deleteUser("ada")).toEqual([])
 })
+
+it("checks for surviving replies and the current resolver after locking the thread", async () => {
+  const client = createClient({ url: ":memory:" })
+  try {
+    await client.executeMultiple(commentsMigration)
+    const store = createCommentsStore(drizzle({ client }))
+    const opened = await store.createThread(thread("Ada asks"))
+    await store.setStatus(opened.id, "resolved", ada, Date.now())
+    await client.execute(`CREATE TRIGGER reply_before_thread_lock BEFORE UPDATE OF id ON vitehub_comment_threads BEGIN
+      INSERT INTO vitehub_comment_messages (id, thread_id, body, author_id, mentions, attachments, created_at)
+      VALUES ('racing-reply', OLD.id, 'Grace answers', 'grace', '[]', '[]', 1);
+      UPDATE vitehub_comment_threads SET resolved_by = '{"id":"grace"}' WHERE id = OLD.id;
+    END`)
+
+    await expect(store.deleteUser("ada")).resolves.toEqual([opened.id])
+    expect(await store.getById(opened.id)).toMatchObject({ resolvedBy: { id: "grace" }, messages: [{ body: "Grace answers" }] })
+  }
+  finally {
+    client.close()
+  }
+})

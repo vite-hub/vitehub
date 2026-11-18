@@ -164,10 +164,11 @@ interface InternalAuthModuleOptions {
 
 function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, options: { importBase?: string, serverEnv: boolean } = { serverEnv: false }): string {
   if (!config) {
-    return "export const definition = undefined\nexport default definition\n"
+    return "export const definition = undefined\nexport const getAuthApp = () => undefined\nexport default definition\n"
   }
   return [
     `import definition from ${JSON.stringify(config.definition.handler)}`,
+    'export { useNitroApp as getAuthApp } from "nitro/app"',
     // The Auth server module imports this module, so the Env resolver is set before the first Auth instance.
     ...(options.serverEnv
       ? [
@@ -180,6 +181,12 @@ function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, 
     "export default definition",
     "",
   ].join("\n")
+}
+
+export async function writeNuxtAuthDefinition(root: string, config: ResolvedAuthViteConfig): Promise<string> {
+  const file = resolve(resolveViteHubProjectRoot(root), ".vitehub/auth/definition.ts")
+  await writeFileIfChanged(file, renderAuthDefinitionModule(config))
+  return file
 }
 
 /** Private Auth entries of the distribution. */
@@ -556,4 +563,3 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
     },
   }
 }
-

@@ -431,16 +431,16 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
       const found = await one(threadId)
       if (!found.messages.some(message => message.id === messageId)) throw commentsErrorDiagnostics.COMMENTS_R0003({ messageId })
       await together(target => [
-        target.update(messages).set({ body: input.body, editedAt: input.now, mentions: JSON.stringify(input.mentions) }).where(and(eq(messages.id, messageId), eq(messages.threadId, threadId))),
         // A message that someone deleted meanwhile leaves the activity time as it was.
         touching(target, threadId, input.now, {}, sql`exists (select 1 from ${messages} where ${messages.id} = ${messageId} and ${messages.threadId} = ${threadId})`),
+        target.update(messages).set({ body: input.body, editedAt: input.now, mentions: JSON.stringify(input.mentions) }).where(and(eq(messages.id, messageId), eq(messages.threadId, threadId))),
       ])
       const after = await one(threadId)
       if (!after.messages.some(message => message.id === messageId)) throw commentsErrorDiagnostics.COMMENTS_R0003({ messageId })
       return after
     },
     async deleteMessage(threadId, messageId, now) {
-      await together(target => [target.delete(messages).where(and(eq(messages.id, messageId), eq(messages.threadId, threadId))), touching(target, threadId, now)])
+      await together(target => [touching(target, threadId, now), target.delete(messages).where(and(eq(messages.id, messageId), eq(messages.threadId, threadId)))])
       return one(threadId)
     },
     async deleteThread(threadId, ownerId) {
@@ -495,18 +495,22 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
       // `resolvedBy` holds the JSON of the person, so the pattern finds candidates and the parsed id decides.
       const candidates = await db.select({ id: threads.id, resolvedBy: threads.resolvedBy }).from(threads)
         .where(sql`${threads.resolvedBy} like ${`%${escapeLike(JSON.stringify(userId))}%`} escape '\\'`)
-      const resolved = candidates.filter(row => parseJson<CommentUser | undefined>(row.resolvedBy, undefined)?.id === userId).map(row => row.id)
-      const touched = [...new Set([...written, ...started].map(row => row.id).concat(resolved))]
+      const resolved = candidates.flatMap(({ id, resolvedBy }) => resolvedBy !== null && parseJson<CommentUser | undefined>(resolvedBy, undefined)?.id === userId
+        ? [{ id, resolvedBy }]
+        : [])
+      const touched = [...new Set([...written, ...started, ...resolved].map(row => row.id))].sort()
       if (!touched.length) return []
       const now = Date.now()
+      const parts = chunks(touched)
       await together(target => [
-        target.delete(messages).where(eq(messages.authorId, userId)),
+        ...parts.map(part => target.update(threads).set({ id: sql`${threads.id}` }).where(inArray(threads.id, part))),
+        ...parts.map(part => target.delete(messages).where(and(eq(messages.authorId, userId), inArray(messages.threadId, part)))),
         // A thread goes when no message is left in it.
-        ...chunks(touched).map(part => target.delete(threads).where(and(inArray(threads.id, part),
+        ...parts.map(part => target.delete(threads).where(and(inArray(threads.id, part),
           sql`not exists (select 1 from ${messages} where ${messages.threadId} = ${threads.id})`))),
-        target.update(threads).set({ authorName: null, authorImage: null }).where(eq(threads.authorId, userId)),
-        ...chunks(resolved).map(part => target.update(threads).set({ resolvedBy: null }).where(inArray(threads.id, part))),
-        ...chunks(touched).map(part => target.update(threads).set({ updatedAt: newer(now) }).where(inArray(threads.id, part))),
+        ...parts.map(part => target.update(threads).set({ authorName: null, authorImage: null }).where(and(eq(threads.authorId, userId), inArray(threads.id, part)))),
+        ...resolved.map(row => target.update(threads).set({ resolvedBy: null }).where(and(eq(threads.id, row.id), eq(threads.resolvedBy, row.resolvedBy)))),
+        ...parts.map(part => target.update(threads).set({ updatedAt: newer(now) }).where(inArray(threads.id, part))),
       ])
       return touched
     },

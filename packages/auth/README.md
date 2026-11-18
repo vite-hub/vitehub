@@ -90,7 +90,9 @@ export default defineAuth({
 });
 ```
 
-`deleteAccount` turns on Better Auth `deleteUser`. Before Better Auth deletes the user, Auth deletes the rows of the user in each Server Primitive that the app uses: the messages of Comments and the submissions of Forms. Each primitive registers its rows when the server starts. Then Auth deletes the rows of each Better Auth table with a field that references the user, such as passkeys and MCP tokens, and the `apikey` rows of the user, also when the app schema has no foreign keys. Pass `deleteAccount: { beforeDelete }`, the Better Auth `user.deleteUser` options without `enabled`, to delete the app's own rows first, or throw an `APIError` there to keep the account. When a primitive fails, Auth keeps the account and fails with `AUTH_DELETE_ACCOUNT_FAILED`. Better Auth `user.deleteUser` fails with `AUTH_DELETE_USER_UNSUPPORTED`.
+`deleteAccount` turns on Better Auth `deleteUser`. Use stored Auth without `stateless()` or `session.cookieCache.enabled` so existing sessions can be revoked. Before Better Auth deletes the user, Auth deletes the user's Comments messages and Forms submissions in that app, then rows in Better Auth tables that reference the user, such as passkeys and MCP tokens, even without foreign keys. To delete database-backed API keys, list only the configurations that reference users in `deleteAccount.userApiKeyConfigIds`. Use `"default"` for an unnamed user-owned configuration. Unlisted configurations are left alone.
+
+Pass `deleteAccount: { beforeDelete }` to delete the app's own rows first, or throw an `APIError` there to keep the account. When a primitive fails, Auth keeps the account and fails with `AUTH_DELETE_ACCOUNT_FAILED`. Better Auth `user.deleteUser` fails with `AUTH_DELETE_USER_UNSUPPORTED`.
 
 ## First admin
 
