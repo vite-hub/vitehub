@@ -22,6 +22,7 @@ type ResponseLike = { headers: Headers }
 type EventLike = { req?: { headers?: Headers }, res?: { headers?: Headers } }
 
 const stateKey = "vitehub:auth:session"
+const guardRouteKey = "vitehub:auth:guard-route"
 
 /**
  * True when the request may have a session: ViteHub's `vitehub_session` marker cookie, which Auth sets next to the
@@ -192,9 +193,6 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       }
     })
 
-    // The server's answer for this page, while the browser hydrates it. `undefined` is unknown.
-    const seed: unknown = "window" in globalThis && !stale ? (useState(stateKey) as { value: unknown }).value : undefined
-    const hydrated: boolean | undefined = seed === undefined ? undefined : Boolean(seed)
     // Counts navigations, so a read can tell that a newer navigation started while Better Auth answered.
     let navigations = 0
 
@@ -202,8 +200,12 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       const navigation = ++navigations
       const decide = guardOf(to)
       if (!decide) return
-      // Hydration can use this visitor's server answer; later navigations always read again.
-      if (nuxtApp.isHydrating && hydrated !== undefined) return decide(hydrated)
+      const page = to.fullPath.split("#", 1)[0]
+      if (navigation === 1 && !serverSession && !stale && nuxtApp.isHydrating && useState(guardRouteKey).value === page) return decide(true)
+      const decideAndSeed = (loggedIn: boolean) => {
+        if (serverSession && loggedIn) useState(guardRouteKey).value = page
+        return decide(loggedIn)
+      }
       // Decide synchronously on the server when the session is known, to keep Nuxt's request context. Browser
       // navigations read the session into the state that `useUserSession()` and `useSession()` share, so the page and
       // the guard see the same answer.
@@ -218,12 +220,12 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
             return browserSession.value.refetch({}).then(() => Boolean(browserSession.value.data?.session && browserSession.value.data?.user))
           }))
         : session instanceof Promise ? session.then(Boolean) : Boolean(session)
-      if (typeof loggedIn === "boolean") return decide(loggedIn)
+      if (typeof loggedIn === "boolean") return decideAndSeed(loggedIn)
       return loggedIn.then((value) => {
         // Only the latest navigation decides. Vue Router cancels a navigation that a newer one replaced, but it still
         // follows a redirect that the old navigation returns, so an old answer could open a page that is now wrong.
         if (navigation !== navigations) return
-        return inApp(() => decide(value))
+        return inApp(() => decideAndSeed(value))
       })
     }, { global: true })
   },

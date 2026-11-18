@@ -18,6 +18,7 @@ type PublicConfig = { vitehubAuth?: false | { basePath?: string, redirects?: { l
 const mocks = vi.hoisted(() => ({
   config: {} as { app?: { baseURL: string }, public?: PublicConfig },
   state: { value: undefined as unknown },
+  guardRoute: { value: undefined as string | undefined },
   event: { req: { headers: new Headers() }, res: { headers: new Headers() } },
   payload: {} as { prerenderedAt?: number },
   app: {} as App,
@@ -43,7 +44,7 @@ vi.mock("#app", () => ({
   useRequestFetch: () => mocks.requestFetch,
   useRouter: () => ({ currentRoute: mocks.currentRoute }),
   useRuntimeConfig: () => mocks.config,
-  useState: () => mocks.state,
+  useState: (key: string) => key === "vitehub:auth:guard-route" ? mocks.guardRoute : mocks.state,
 }))
 
 vi.mock("#vitehub/auth/abilities", () => import("./fixtures/abilities.ts"))
@@ -53,9 +54,12 @@ vi.mock("better-auth/vue", () => ({
   createAuthClient: (options: unknown) => {
     mocks.createAuthClient(options)
     const atom = ref<Record<string, unknown>>({})
+    let latestRead = 0
     const refetch = async () => {
+      const read = ++latestRead
+      atom.value = { ...atom.value, isRefetching: true }
       const { data } = await mocks.getSession()
-      atom.value = { data, error: null, isPending: false, isRefetching: false, refetch }
+      if (read === latestRead) atom.value = { data, error: null, isPending: false, isRefetching: false, refetch }
     }
     atom.value = { data: null, error: null, isPending: true, isRefetching: false, refetch }
     return {
@@ -94,6 +98,7 @@ beforeEach(async () => {
   vi.clearAllMocks()
   mocks.config = { public: { vitehubAuth: { redirects: { login: "/login", guest: "/" } } } }
   mocks.state = { value: undefined }
+  mocks.guardRoute.value = undefined
   mocks.event = { req: { headers: new Headers({ cookie: "vitehub_session=1" }) }, res: { headers: new Headers() } }
   mocks.payload = {}
   mocks.app = { runWithContext: run => run(), payload: mocks.payload }
@@ -488,23 +493,69 @@ describe("Nuxt default client", () => {
 describe("navigation session ownership", () => {
   it("decides the hydration of a page from the session that the server read", async () => {
     mocks.state.value = session
+    await plugin.setup({ payload: mocks.payload })
+    expect(await mocks.middleware?.(userPage)).toBeUndefined()
     await setupBrowser("vitehub_session=1", {}, true)
 
-    expect(await mocks.middleware?.(userPage)).toBeUndefined()
-    expect(await mocks.middleware?.(guestPage)).toBe("/")
+    expect(await mocks.middleware?.({ ...userPage, fullPath: "/private#details" })).toBeUndefined()
 
     expect(mocks.getSession).not.toHaveBeenCalled()
     expect(mocks.createAuthClient).not.toHaveBeenCalled()
+  })
+
+  it("reads the browser session on a different page even while hydrating", async () => {
+    mocks.state.value = session
+    mocks.guardRoute.value = "/private"
+    mocks.getSession.mockResolvedValue({ data: null })
+    await setupBrowser("", {}, true)
+
+    expect(await mocks.middleware?.(guestPage)).toBeUndefined()
+    expect(mocks.getSession).toHaveBeenCalledOnce()
+  })
+
+  it("checks a signed-out server seed against cookies scoped to the auth endpoint", async () => {
+    mocks.state.value = null
+    await setupBrowser("", {}, true)
+
+    expect(await mocks.middleware?.(guestPage)).toBe("/")
+    expect(mocks.getSession).toHaveBeenCalledOnce()
+  })
+
+  it("waits for a newer Better Auth refresh before deciding a navigation", async () => {
+    await setupBrowser()
+    expect(await mocks.middleware?.(userPage)).toBeUndefined()
+
+    let answerGuard: (value: unknown) => void = () => {}
+    let answerRefresh: (value: unknown) => void = () => {}
+    mocks.getSession.mockClear()
+    mocks.getSession.mockReturnValueOnce(new Promise(resolve => { answerGuard = resolve }))
+    mocks.getSession.mockReturnValueOnce(new Promise(resolve => { answerRefresh = resolve }))
+    const navigation = mocks.middleware?.(userPage)
+    await vi.waitFor(() => expect(mocks.getSession).toHaveBeenCalledTimes(1))
+    const refresh = useUserSession().refresh()
+    await vi.waitFor(() => expect(mocks.getSession).toHaveBeenCalledTimes(2))
+    answerGuard({ data: session })
+    const result = vi.fn()
+    void Promise.resolve(navigation).then(result)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const returnedEarly = result.mock.calls.length > 0
+    answerRefresh({ data: null })
+    await refresh
+
+    expect(returnedEarly).toBe(false)
+    expect(await navigation).toEqual({ path: "/login", query: { redirect: "/private" } })
   })
 
   it.each([
     ["prerendered", { prerenderedAt: 1 }],
     ["cached", { isCached: true }],
   ])("reads the session while it hydrates a %s page", async (_, payload) => {
-    mocks.state.value = null
+    mocks.state.value = session
+    mocks.guardRoute.value = "/private"
+    mocks.getSession.mockResolvedValue({ data: null })
     await setupBrowser("vitehub_session=1", payload, true)
 
-    expect(await mocks.middleware?.(userPage)).toBeUndefined()
+    expect(await mocks.middleware?.(userPage)).toEqual({ path: "/login", query: { redirect: "/private" } })
 
     expect(mocks.getSession).toHaveBeenCalledTimes(1)
   })
@@ -562,11 +613,12 @@ describe("navigation session ownership", () => {
     mocks.getSession.mockResolvedValue({ data: session })
     expect(await mocks.middleware?.(userPage)).toBeUndefined()
     expect(mocks.navigateTo).not.toHaveBeenCalled()
-    expect(mocks.getSession).toHaveBeenCalledTimes(1)
+    expect(mocks.getSession).toHaveBeenCalledTimes(2)
   })
 
   it("sees a sign-out after hydration", async () => {
     mocks.state.value = session
+    mocks.guardRoute.value = "/private"
     const app = await setupBrowser("vitehub_session=1", {}, true)
     expect(await mocks.middleware?.(userPage)).toBeUndefined()
     app.isHydrating = false

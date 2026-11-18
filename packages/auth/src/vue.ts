@@ -316,7 +316,7 @@ function createSessionStore(client: object, app: NuxtApp | undefined, initialRea
         }
         // Better Auth starts each read with no data as pending. Once the state is settled, keep it until the read answers.
         if (!state.value.isPending && isPendingWithoutData(value)) return
-        state.value = value
+        state.value = { ...value, refetch }
       }, { immediate: true, flush: "sync" })
       return ref
     })!

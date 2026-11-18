@@ -501,7 +501,7 @@ export default defineNuxtConfig({
 })
 ```
 
-On client navigation, the guard reads the session, so Better Auth can extend an active session and the guard sees each sign-in and sign-out. When the browser hydrates a page that the server rendered for the visitor, the guard uses the session that the server read. Only the latest navigation decides: when a newer navigation starts before the session read answers, the guard ignores the answer. The guard never redirects a page to itself.
+On client navigation, the guard reads the session, so Better Auth can extend an active session and the guard sees each sign-in and sign-out. On the first navigation during hydration, the guard can reuse a signed-in session from the server for the same guarded page, but not for a prerendered or cached page. A signed-out server response still needs a browser read: cookies scoped to the Auth endpoint may not reach the page request. Only the latest navigation decides: when a newer navigation starts before the session read answers, the guard ignores the answer. The guard never redirects a page to itself.
 
 On client navigation, the guard reads the session into the same state as `useUserSession()` and `useSession()`. When the guard finds that the session ended, such as after a sign-out in another tab, every component shows the visitor as signed out before the redirect.
 
