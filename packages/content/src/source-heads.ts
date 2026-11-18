@@ -1161,7 +1161,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       const held = state.held?.head
       if ((held?.version ?? 0) > headVersion || (stored?.version ?? 0) > headVersion) return false
       if (!stored || stored.version !== headVersion || stored.sha !== sha) {
-        throw new Error(`[vitehub] Content source ${JSON.stringify(source)} has not read published head ${sha} (version ${headVersion}) from KV. Retry the prewarm job.`)
+        throw contentErrorDiagnostics.CONTENT_PREWARM_HEAD_NOT_VISIBLE({ source, sha, headVersion })
       }
       state.failed = undefined
       hold(state, stored)

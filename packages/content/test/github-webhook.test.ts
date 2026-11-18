@@ -441,7 +441,7 @@ describe("prewarm after a push", () => {
       get: <T>(key: string) => key === "content:head:docs" ? Promise.resolve([null, stale[1] as T] as const) : kv.get<T>(key),
       set: (key, value) => kv.set(key, value),
     })
-    await expect(prewarmContentPage(consumer, job!)).rejects.toThrow()
+    await expect(prewarmContentPage(consumer, job!)).rejects.toMatchObject({ code: "CONTENT_PREWARM_HEAD_NOT_VISIBLE" })
     registerContentKV({
       get: key => key === "content:head:docs" ? Promise.resolve([new Error("KV GET failed"), undefined] as const) : kv.get(key),
       set: (key, value) => kv.set(key, value),
