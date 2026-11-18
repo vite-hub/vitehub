@@ -370,6 +370,10 @@ const reservedRuntimeNames = new Set([
   "vercel",
 ]);
 
+function withoutKind<T extends { kind: string }>({ kind: _kind, ...options }: T): Omit<T, "kind"> {
+  return options;
+}
+
 async function resolveSandboxRuntime(value: unknown): Promise<SandboxRuntime> {
   if (isSandboxRuntime(value)) {
     if (reservedRuntimeNames.has(value.name) && !isBuiltInSandboxRuntime(value)) {
@@ -396,26 +400,28 @@ async function resolveSandboxRuntime(value: unknown): Promise<SandboxRuntime> {
     throw sandboxErrorDiagnostics.SANDBOX_R0032({ message: "[vitehub] Sandbox requires an explicit built-in runtime value or custom runtime object." });
   }
 
-  const { kind, ...options } = value as Record<string, unknown>;
-  if (kind === "crabbox") {
+  // SAFETY: The only objects left are tagged built-in configurations, and an unknown `kind` throws below.
+  const config = value as Exclude<BuiltInSandboxRuntime, string>;
+  const kind: unknown = config.kind;
+  if (config.kind === "crabbox") {
     const { createCrabboxRuntime } = await import("./internal/crabbox.ts");
-    return createCrabboxRuntime(options as CrabboxOptions);
+    return createCrabboxRuntime(withoutKind(config));
   }
-  if (kind === "trusted-host") {
+  if (config.kind === "trusted-host") {
     const { createTrustedHostRuntime } = await import("./internal/trusted-host.ts");
-    return createTrustedHostRuntime(options as TrustedHostOptions);
+    return createTrustedHostRuntime(withoutKind(config));
   }
-  if (kind === "cloudflare") {
+  if (config.kind === "cloudflare") {
     const { createCloudflareRuntime } = await import("./cloudflare.ts");
-    return createCloudflareRuntime(options as unknown as CloudflareSandboxOptions);
+    return createCloudflareRuntime(withoutKind(config));
   }
-  if (kind === "vercel") {
+  if (config.kind === "vercel") {
     const { createVercelRuntime } = await import("./vercel.ts");
-    return createVercelRuntime(options as VercelSandboxOptions);
+    return createVercelRuntime(withoutKind(config));
   }
-  if (kind === "container") {
+  if (config.kind === "container") {
     const { createContainerRuntime } = await import("./internal/container.ts");
-    return createContainerRuntime(options as unknown as ContainerSandboxOptions);
+    return createContainerRuntime(withoutKind(config));
   }
   throw sandboxErrorDiagnostics.SANDBOX_R0033({ message: `[vitehub] Unknown Sandbox runtime kind "${String(kind)}". Expected "crabbox", "trusted-host", "cloudflare", "container", or "vercel".` });
 }
