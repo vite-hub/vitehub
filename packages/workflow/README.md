@@ -282,7 +282,14 @@ async function transcribe(recordingId: string) {
 
 `code` and `message` remain available through `error.toJSON()`. Keep `details` JSON-safe and free of secrets; `toJSON()` omits `cause`, which remains available only on the in-memory error. ViteHub's built-in codes are typed as `WorkflowErrorCode` and use code-derived messages and code-specific details. A `ViteHubError` does not change the retry policy.
 
-A step file has no retry option. On Cloudflare and OpenWorkflow, every step file uses `limit: 3`, `delay: "10 seconds"`, and `backoff: "exponential"`. A Vercel `native` entry follows the Workflow DevKit rules, and an inline run does not retry.
+A step gets 3 retries after the first attempt, 10 seconds apart and then twice as long each time. A step file can export its own policy and a time limit for each attempt:
+
+```ts
+export const retries = { limit: 5, delay: "30 seconds", backoff: "exponential" };
+export const timeout = "2 minutes";
+```
+
+Cloudflare gets both in `step.do()`. OpenWorkflow gets `retries` as its `retryPolicy`, and a generated Vercel step gets `limit` as `maxRetries`. Vercel steps cannot set `delay` or `backoff`, so the build fails with `WORKFLOW_STEP_RETRY_DELAY_UNSUPPORTED`. Outside Cloudflare, ViteHub enforces `timeout` itself: it aborts the `signal` that the step function gets as its second argument and fails the attempt. Code that ignores the signal keeps running. An inline run does not retry. See [Retries and sleeps](https://vitehub.dev/docs/workflows/limits-and-errors#retries-and-sleeps).
 
 Throw `NonRetryableError` when another attempt cannot succeed. The run fails at once on every provider. `getWorkflowRun()` reports the error `message` and `name` in `metadata` for inline and OpenWorkflow runs, Cloudflare keeps the error in its status record in `metadata`, and a Vercel `native` run reports the message on the failed step in `steps`.
 

@@ -97,7 +97,7 @@ describe("Workflow registry", () => {
       '    const cached = registryEntryCache.get("release")',
       "    if (cached) return cached",
       `    const index = await import(${JSON.stringify(pathToFileURL(handler).href)})`,
-      `    const steps = [{ name: "01.add.mjs", run: (await import(${JSON.stringify(pathToFileURL(step).href)})).default }]`,
+      `    const steps = [{ name: "01.add.mjs", ...await import(${JSON.stringify(pathToFileURL(step).href)}).then(step => ({ options: { retries: step.retries, timeout: step.timeout }, run: step.default })) }]`,
       '    const definition = index.default?.handler ? index.default : takeInlineWorkflowDefinitionForModule("release", index) || { handler: index.default }',
       "    const entry = {",
       "      ...definition,",

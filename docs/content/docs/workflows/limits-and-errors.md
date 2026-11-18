@@ -42,7 +42,38 @@ In development, the server log also shows the full provider error.
 
 ## Retries and sleeps
 
-A step file has no retry option. On Cloudflare and OpenWorkflow, every step file uses the same policy: `limit: 3`, `delay: '10 seconds'`, and `backoff: 'exponential'`. A Vercel `native` entry follows the Workflow DevKit rules. An inline run does not retry. [What ViteHub stores on each host](/docs/guides/durable-execution#what-vitehub-stores-on-each-host) shows what each provider does with the policy.
+When a step file throws, the provider runs it again. By default, a step gets 3 retries after the first attempt: 10 seconds later, then 20, then 40. Export `retries` and `timeout` from a step file to change this for that step:
+
+```ts [server/workflows/sync-repo/01.fetch-issues.ts]
+import type { WorkflowStepContext, WorkflowStepRetries } from 'vite-hub/workflow'
+
+export const retries = { limit: 5, delay: '30 seconds', backoff: 'exponential' } satisfies WorkflowStepRetries
+export const timeout = '2 minutes'
+
+export default async function fetchIssues(input: { repo: string }, { signal }: WorkflowStepContext) {
+  const response = await fetch(`https://api.github.com/repos/${input.repo}/issues`, { signal })
+  if (!response.ok) throw new Error(`GitHub answered ${response.status}`)
+  const issues: { number: number, title: string }[] = await response.json()
+  return issues
+}
+```
+
+- `limit` is the number of retries after the first attempt. `0` runs the step once.
+- `delay` is the wait before the first retry, in milliseconds or as a duration such as `'30 seconds'`. `backoff: 'exponential'` doubles the wait after each retry. `'constant'` keeps it the same.
+- `timeout` is the time limit of one attempt. When it passes, `signal` aborts and the attempt fails with `WORKFLOW_STEP_TIMEOUT`. Then the step retries as `retries` says.
+- Write the values as literals. The build reads them from the file. It fails with `WORKFLOW_STEP_OPTIONS_NOT_STATIC` when it cannot read a value, and with `WORKFLOW_STEP_OPTIONS_INVALID` for a value that is not valid.
+
+| Provider | `retries` | `timeout` |
+| --- | --- | --- |
+| Cloudflare | Sent to `step.do()`. | Sent to `step.do()`. Without `timeout`, Cloudflare stops an attempt after 10 minutes. |
+| OpenWorkflow | Sent as the step's `retryPolicy`, with `maximumAttempts: limit + 1`. | ViteHub aborts `signal` and fails the attempt. |
+| Vercel, folder without `index.ts` | `limit` becomes Workflow DevKit's `maxRetries`. DevKit retries a step after about one second, so `delay` or `backoff` fails the build with `WORKFLOW_STEP_RETRY_DELAY_UNSUPPORTED`. | ViteHub aborts `signal` and fails the attempt. |
+| Inline (`vite dev`, normal Vercel handlers) | No retries. | ViteHub aborts `signal` and fails the attempt. |
+
+> [!NOTE]
+> Only Cloudflare enforces `timeout` itself. Elsewhere, ViteHub cannot stop code that ignores `signal`: the attempt fails, and the next attempt can start while the old one still runs. Pass `signal` to `fetch()` and to every other call that takes one.
+
+A Vercel `native` entry that you write follows the Workflow DevKit rules. [What ViteHub stores on each host](/docs/guides/durable-execution#what-vitehub-stores-on-each-host) compares the providers.
 
 ### Stop the retries
 

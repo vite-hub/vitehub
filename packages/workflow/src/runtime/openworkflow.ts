@@ -1,6 +1,6 @@
 import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
 import { invariantError } from "@vite-hub/internal/invariant"
-import { readNonRetryableStepResult, runSerializedWorkflowHandler, toNonRetryableStepResult } from "./execute.ts"
+import { readNonRetryableStepResult, resolveWorkflowStepOptions, runSerializedWorkflowHandler, toDurationMilliseconds, toNonRetryableStepResult } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"
 import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
 import { toWorkflowRunError } from "./run-error.ts"
@@ -362,17 +362,20 @@ export async function getOpenWorkflowRuntime(config: ResolvedWorkflowOptions): P
   return resolved
 }
 
-function toOpenWorkflowRetryPolicy(options: WorkflowStepOptions): Partial<RetryPolicy> | undefined {
-  const retries = options.retries
-  if (!retries) {
-    return undefined
-  }
-
+/**
+ * OpenWorkflow counts attempts, and `limit` counts the retries after the first attempt. OpenWorkflow caps each wait at
+ * `maximumInterval`, 100 seconds by default, so the cap is the longest wait that the policy asks for.
+ */
+function toOpenWorkflowRetryPolicy(name: string, options: WorkflowStepOptions): Partial<RetryPolicy> {
+  const { backoff, delay, limit } = resolveWorkflowStepOptions(name, options).retries
+  // SAFETY: `resolveWorkflowStepOptions` accepted `delay`, so it is a valid duration.
+  const initial = toDurationMilliseconds(delay)!
+  const coefficient = backoff === "exponential" ? 2 : 1
   return {
-    ...(retries.backoff ? { backoffCoefficient: retries.backoff === "exponential" ? 2 : 1 } : {}),
-    // SAFETY: ViteHub's duration input matches OpenWorkflow's accepted interval representation.
-    ...(retries.delay ? { initialInterval: retries.delay as RetryPolicy["initialInterval"] } : {}),
-    ...(typeof retries.limit === "number" ? { maximumAttempts: retries.limit } : {}),
+    backoffCoefficient: coefficient,
+    initialInterval: `${initial}ms`,
+    maximumAttempts: limit + 1,
+    maximumInterval: `${initial * coefficient ** Math.max(limit - 1, 0)}ms`,
   }
 }
 
@@ -380,10 +383,7 @@ function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProv
   return {
     // OpenWorkflow retries every error. A NonRetryableError ends the step with a result instead, and fails the run here.
     async do(name, options, run) {
-      const output = await step.run({
-        name,
-        ...(toOpenWorkflowRetryPolicy(options) ? { retryPolicy: toOpenWorkflowRetryPolicy(options) } : {}),
-      }, async () => {
+      const output = await step.run({ name, retryPolicy: toOpenWorkflowRetryPolicy(name, options) }, async () => {
         try {
           return await run()
         }
