@@ -266,7 +266,7 @@ With `EXECUTOR_URL=https://executor.example.com` and `LABELLER_DRY_RUN=false` in
 
 - ViteHub reads the process environment and the `.env` files that Vite loads for the build mode. `.env.development` never applies to `vite build`.
 - Each value keeps the name that holds it, in the order Server Env reads names at runtime. `VITEHUB_EXECUTOR_URL` wins over `EXECUTOR_URL`.
-- Secrets never go to `vars`. Set them with `wrangler secret put` or [a secrets file](#upload-secrets-from-a-file).
+- Secrets never go to `vars`. Set them with `wrangler secret put` or [upload them with the version](#upload-secrets-with-the-version).
 - A missing or empty value, a default, a literal, and a provider source stay out. The default applies at runtime.
 - A var that your Wrangler config already sets keeps its value. Named Wrangler environments get the same vars, since they do not inherit them.
 
