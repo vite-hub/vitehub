@@ -60,18 +60,22 @@ export default defineNuxtConfig({
 
 :::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { env, hubEnv } from '@vite-hub/env/vite'
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [hubEnv({
-    public: {
-      appName: env({ default: 'Acme', mode: 'build' }),
-    },
-    server: {
-      github: {
-        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
       },
     },
   }), nitro()],
@@ -81,17 +85,21 @@ export default defineConfig({
 
 :::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
-import { env, hubEnv } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [hubEnv({
-    public: {
-      appName: env({ default: 'Acme', mode: 'build' }),
-    },
-    server: {
-      github: {
-        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+  plugins: [vitehub({
+    host: 'node',
+    env: {
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      server: {
+        github: {
+          token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+        },
       },
     },
   })],
@@ -274,7 +282,7 @@ This GitHub token lets the app fetch Sources. It is not the model or shell crede
 
 `describeServerEnv()` lists declarations without reading values or calling provider `read()`. Each entry has the path, the [variable names](/docs/env/configure#variable-names) an env declaration reads in read order, source kind, provider alias, secret and required flags, whether a default exists, and the value type, such as `boolean` or `"draft" | "send"`. It leaves out defaults, provider keys, and provider module paths. `inspectServerEnv()` entries also report `via` and `conflict`; see [Variable names](/docs/env/configure#variable-names).
 
-The Console Env section shows this metadata behind Console access. Host variables stay read-only. Env management (masked previews, replacement, activity, and grants) needed the Console that the app served, which is removed.
+The Console Env section shows this metadata behind Console access. Host variables stay read-only.
 
 `inspectServerEnv()` loads providers the same way. It reports only paths, variable names, the variable `name` that supplied an env value, source kinds, provider aliases, masking, required flags, and a status: `available`, `defaulted`, `missing`, `invalid`, or `error`. It never returns values, hashes, lengths, provider keys, or provider errors. Paths match `describeServerEnv()`. `isBlockingServerEnvEntry()` returns `true` when an entry makes `loadServerEnv()` fail: a missing required value, an invalid value, or a failed provider.
 

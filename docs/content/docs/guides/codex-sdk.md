@@ -131,14 +131,14 @@ With neither a gateway nor `credentials`, Codex uses the host user's Codex Home.
 ### Call the Agent from a route
 
 ```ts [server/api/review.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { runAgent } from 'vite-hub/agent'
 import reviewer from '../agents/reviewer'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ prompt?: unknown }>(event)
   if (typeof body?.prompt !== 'string' || !body.prompt.trim()) {
-    throw createError({ statusCode: 400, message: 'Send a non-empty prompt.' })
+    throw new HTTPError({ status: 400, message: 'Send a non-empty prompt.' })
   }
 
   const [error, result] = await runAgent(reviewer, { prompt: body.prompt })
