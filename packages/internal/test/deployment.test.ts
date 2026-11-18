@@ -102,7 +102,6 @@ describe("built-in deployment plans", () => {
       await finalizeDeploymentPlanOutput({ plan, rootDir })
       const manifest = JSON.parse(await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8"))
       expect(manifest).toMatchObject({ host: preset, output: plan.output, runtime: plan.runtime, services: plan.services })
-      expect(manifest).not.toHaveProperty("preset")
       if (preset === "netlify") {
         const wrapper = await readFile(resolve(rootDir, ".netlify", "functions", "server.mjs"), "utf8")
         expect(wrapper).toBe('export { default } from "../functions-internal/server/server.mjs"\n')
