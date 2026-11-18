@@ -734,6 +734,7 @@ describe("vitehub", () => {
       "vite-hub/unavailable-services",
       "vite-hub/dependencies",
       "vite-hub/error-log",
+      "vite-hub/request-policy",
       "@vite-hub/env/vite",
       "vite-hub/stale-chunk-reload",
       "vite-hub/operations",

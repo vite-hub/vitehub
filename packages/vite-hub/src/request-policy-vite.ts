@@ -51,8 +51,9 @@ export function requestPolicyVitePlugin(options: { trustProxy?: boolean, sameOri
   const headers = security?.headers ?? []
   return generatedNitroPlugin("vite-hub/request-policy", "request-policy.mjs", () => renderRequestPolicyNitroPlugin(policy, security), {
     position: "start",
-    ...headers.length > 0
-      ? { configure: (nitro: Record<string, unknown>) => { nitro.modules = [...Array.isArray(nitro.modules) ? nitro.modules : [], securityHeadersNitroModule(headers)] } }
-      : {},
+    // The module writes host header files, which only a build has.
+    configure: (nitro, { command }) => {
+      if (command === "build" && headers.length > 0) nitro.modules = [...Array.isArray(nitro.modules) ? nitro.modules : [], securityHeadersNitroModule(headers)]
+    },
   })
 }
