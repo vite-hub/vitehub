@@ -188,11 +188,11 @@ async function loadNuxtViteConfig(rootDir: string, command: "build" | "serve", m
       nitro: { handlers: [
         ...resolveRouteHandlers({
           ...Object(Reflect.get(config, "nitro")),
-          alias: { ...nuxt.options.alias, ...nuxt.options.nitro.alias, ...Reflect.get(Object(Reflect.get(config, "nitro")), "alias") },
+          alias: { ...nuxt.options.alias, ...Reflect.get(nuxt.options.nitro, "alias"), ...Reflect.get(Object(Reflect.get(config, "nitro")), "alias") },
         }, config.root),
         ...resolveRouteHandlers({
           ...nuxt.options.nitro,
-          alias: { ...nuxt.options.alias, ...nuxt.options.nitro.alias },
+          alias: { ...nuxt.options.alias, ...Reflect.get(nuxt.options.nitro, "alias") },
           handlers: [...nitroHandlers(nuxt.options.nitro), ...nuxt.options.serverHandlers],
         }, nuxt.options.rootDir || rootDir),
       ] },
