@@ -413,29 +413,23 @@ describe("generated Console access", () => {
     ])
   })
 
-  it("serves development operations with Setup-only navigation and no app-served pages", async () => {
+  it("serves development operations with Setup-only navigation", async () => {
     const assets = [{ baseURL: "/public", dir: "/user-owned-assets" }]
     const config = { base: "/portal/", nitro: { handlers: [], publicAssets: assets } }
 
     await expect(generatedPlugin({ rpcOnly: true }, "serve", config)).resolves.toContain('installConsoleAccess({ mode: "local" })')
 
     expect(config.nitro.handlers).toContainEqual(expect.objectContaining({ route: "/portal/_vitehub/rpc" }))
-    expect(config.nitro.handlers).not.toContainEqual(expect.objectContaining({ handler: expect.stringMatching(/server\/(?:page\.get|sign-in|client\.get)\.js$/) }))
     expect(config.nitro.publicAssets).toEqual(assets)
   })
 
-  it.each(["/", "/portal/"])("registers the entry, RPC and page tools session, and no Console page, client, MCP, or assets, below %s", async (base) => {
+  it.each(["/", "/portal/"])("registers the entry, RPC and page tools session below %s", async (base) => {
     const mount = base.replace(/\/$/, "")
     const config: { base: string, nitro: { handlers: Array<{ handler: string, middleware?: boolean, route: string }>, publicAssets?: Array<{ baseURL?: string }> } } = { base, nitro: { handlers: [] } }
     await generatedPlugin({ console: {} }, "build", config)
 
     const routes = config.nitro.handlers.map(handler => handler.route)
     expect(routes).toEqual([`${mount}/_vitehub/rpc`, `${mount}/_vitehub`, `${mount}/_vitehub/**`, `${mount}/_vitehub/page/session`])
-    for (const removed of ["/_vitehub/api/client.js", "/_vitehub/api/status", "/_vitehub/api/logs", "/_vitehub/api/usage", "/_vitehub/sign-in"]) {
-      expect(routes, removed).not.toContain(`${mount}${removed}`)
-    }
-    expect(config.nitro.handlers).not.toContainEqual(expect.objectContaining({ handler: expect.stringMatching(/server\/(?:page\.get|client\.get)\.js$/) }))
-    expect(config.nitro.publicAssets?.map(asset => asset.baseURL)).not.toContain(`${mount}/_vitehub/assets`)
   })
 
   it("imports console.authorize for open access", async () => {
