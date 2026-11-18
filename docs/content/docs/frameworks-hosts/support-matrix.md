@@ -33,7 +33,7 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 | Blob | fs | R2 | Vercel Blob | Netlify Blobs | S3 | Host driver | fs / S3 |
 | Cache | fs-lite | Workers KV | Runtime Cache | KV | Deno KV | Host driver | fs-lite |
 | Database | SQLite | D1 | libSQL / D1 / Postgres | libSQL / D1 / Postgres | libSQL / D1 / Postgres | Nuxt D1 | SQLite / libSQL / Postgres |
-| Email | Resend | Cloudflare Email | Resend | Resend | Resend | Host driver | Resend / custom |
+| Email | Log | Cloudflare Email | Resend | Resend | Resend | Host driver | Resend / custom |
 | KV | fs-lite | Workers KV | Upstash | Upstash / Redis | Deno KV | Host driver | Redis / Postgres / fs-lite |
 | Queue | Local driver | Queues | Vercel Queues | — | — | Cloudflare / Vercel | Postgres / local driver |
 | Rate Limit | memory | Cloudflare | — | — | — | Cloudflare | memory, or KV |
@@ -75,7 +75,7 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 The table names built-in providers or adapters.
 
 - **Browser:** Browser Definitions require the Cloudflare host. Local Wrangler can reach Browser Run in remote mode. Trusted local and self-hosted Node processes can call `createBrowser({ driver: localBrowser({ executablePath }) })`, but Browser Definitions do not select that driver.
-- **Email:** `email: true` selects Cloudflare Email only on the Cloudflare host; every other host requires the explicit built-in Resend driver or a programmatic custom driver.
+- **Email:** `email: true` selects Cloudflare Email on the Cloudflare host. On other hosts, `vite dev` keeps each message in the development outbox and sends nothing, and a production build fails with `VITE_HUB_R0089` until you set `email.driver`, such as `resend`.
 - **Realtime:** Production uses Cloudflare Durable Objects, or memory that you select on a single-process Node server; distributed Vercel, Netlify, and Deno hosts reject memory.
 
 Local Vite delivers Queue Jobs in the dev server through the local driver, which stores jobs in `.vitehub/data/queue`. For every Queue driver, development follows the retry, delay, and size rules of the driver of the build, and `vitehub queue jobs list` shows the jobs. The build still generates the hosted driver output. `vitehub({ queue: true })` fails on Netlify because `queue` has no driver option. Compose `hubQueue({ driver })` to select the Cloudflare or Vercel Queue driver there. `vitehub({ sandboxTask: true })` fails on the Netlify and Node hosts. Set `sandboxTask: { driver: 'vercel' }` to use Vercel Sandbox with Vercel credentials. Cloudflare Sandbox works only on the Cloudflare host, because it needs a Cloudflare binding.

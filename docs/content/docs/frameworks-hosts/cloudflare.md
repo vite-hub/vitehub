@@ -21,7 +21,8 @@ host-neutral. Cloudflare details stay in the config and generated output.
 | Sandbox | Cloudflare Sandbox |
 | Workflow | Cloudflare Workflows |
 | Workspace | `memory` Store unless you select Cloudflare Artifacts |
-| Browser and `email: true` | Browser Run and Cloudflare Email. Both require this host. |
+| Browser | Browser Run. It requires this host. |
+| Email | Cloudflare Email for `email: true`. |
 | Workers Logs | `observability: { enabled: true }` in `wrangler.json` |
 
 The app name comes from `vitehub({ name })`, then `WRANGLER_CI_OVERRIDE_NAME`

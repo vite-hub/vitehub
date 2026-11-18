@@ -13,7 +13,7 @@ const hosts: ViteHubHost[] = ["cloudflare", "deno", "netlify", "node", "vercel"]
 /** The error code of each feature that `vitehub()` checks, and when it checks. */
 const checks: Partial<Record<FeatureId, { code: string, at: "vitehub" | "config" }>> = {
   browser: { at: "vitehub", code: "VITE_HUB_R0088" },
-  email: { at: "vitehub", code: "VITE_HUB_R0089" },
+  email: { at: "config", code: "VITE_HUB_R0089" },
   queue: { at: "config", code: "INTERNAL_R0002" },
   rateLimit: { at: "config", code: "INTERNAL_R0002" },
   sandboxTask: { at: "config", code: "INTERNAL_R0002" },
@@ -68,11 +68,12 @@ describe("feature catalog host checks", () => {
     }
   })
 
-  it("throws for an explicit cell only when the app does not choose the provider", () => {
+  it("fails a production build of email: true only when the host has no Email provider", () => {
     for (const host of hosts) {
+      expect(() => vitehub({ host, email: true }), host).not.toThrow()
+      expect(() => build(host, { email: { driver: "resend" } }), host).not.toThrow()
       if (featureSupport("email", host).level !== "explicit") continue
-      expect(() => vitehub({ host, email: true }), host).toThrow(expect.objectContaining({ code: "VITE_HUB_R0089" }))
-      expect(() => vitehub({ host, email: { driver: "resend" } }), host).not.toThrow()
+      expect(() => build(host, { email: true }), host).toThrow(expect.objectContaining({ code: "VITE_HUB_R0089" }))
     }
     expect(featureSupport("blob", "deno").level).toBe("explicit")
     expect(() => build("deno", { blob: true })).toThrow(expect.objectContaining({ code: "INTERNAL_R0002" }))

@@ -439,7 +439,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0089: {
       ...dynamicError,
-      fix: "Choose an Email driver for this host, such as `email: { driver: \"resend\" }` in `vitehub()`, or set `host: \"cloudflare\"`.",
+      fix: "Set `driver` for the production build, such as `email: { driver: \"resend\" }` in `vitehub()`. Use `driver: \"log\"` to send no email, or build for `host: \"cloudflare\"`.",
     },
     VITE_HUB_B0008: {
       ...dynamicError,

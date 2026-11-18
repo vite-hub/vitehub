@@ -27,7 +27,7 @@ import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import { hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
-import { assertFeatureSupported, assertHostService } from "./internal/feature-support.ts"
+import { assertEmailBuildDriver, assertFeatureSupported, assertHostService, defaultEmailDriver } from "./internal/feature-support.ts"
 import type { HostSelectedService } from "./internal/feature-support.ts"
 import { assertFeaturePackages, forgetPackageChecks, hostFeaturePackages, isPackageInstalled, isPackageInstalledInApp, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
@@ -1016,6 +1016,7 @@ function deploymentPlugins(
         order: "post",
         handler(config, environment) {
           const building = environment.command === "build"
+          if (building) assertEmailBuildDriver(plan.host, options.email)
           Reflect.set(config, VITEHUB_DEPLOYMENT_HOST, plan.host)
           for (const service of requestedServices) assertHostService(plan, service)
           // The dev server keeps manual runs working without a wake owner.
@@ -1431,7 +1432,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     }
   }
   assertFeatureSupported("browser", plan.host, options)
-  assertFeatureSupported("email", plan.host, options)
   const sandboxTaskDriver = resolveSandboxTaskDriver(options.sandboxTask, plan)
   const sandboxTaskEnabled = sandboxTaskDriver !== undefined
   const blobEnabled = Boolean(options.blob) && (plan.services.blob.supported || hasExplicitBlobStore(options.blob))
@@ -1702,9 +1702,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(afterApplicationConfig(requireOptionalOwner(blobVite, "blob").hubBlob(configuredBlob, { importBase: "vite-hub/blob", presetDriver: blob => Boolean(blob && hostBlobConfigs.has(blob)) })))
   }
   if (options.email) {
-    const emailOptions = options.email === true
-      ? { driver: "cloudflare" as const }
-      : options.email
+    // `email: true` uses the host provider, or `log` in `vite dev` on a host without one.
+    const emailOptions = options.email === true ? { driver: defaultEmailDriver(plan.host) } : options.email
     plugins.push(requireOptionalOwner(emailVite, "email").hubEmail({
       ...emailOptions,
       hosting: plan.nitroPreset,
