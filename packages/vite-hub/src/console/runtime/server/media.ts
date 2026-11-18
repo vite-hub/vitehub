@@ -44,7 +44,7 @@ export interface ConsoleMediaFile extends Omit<MediaRecord, "etag" | "hash"> {
 /** What the library and the picker need before they list anything. */
 export interface ConsoleMediaInfo {
   access: ConsoleMediaAccess
-  /** The served URL that a pathname is appended to, such as `/api/_vitehub/blob/`, or null when the store is not served. */
+  /** The served URL that a pathname is appended to, such as `/_vitehub/blob/`, or null when the store is not served. */
   served: string | null
   store: string
 }
@@ -60,7 +60,7 @@ export interface ConsoleMediaListing {
   /** More files follow. Pass `cursor` to read them. */
   cursor?: string
   hasMore: boolean
-  /** The served URL that a pathname is appended to, such as `/api/_vitehub/blob/`, or null when the store is not served. */
+  /** The served URL that a pathname is appended to, such as `/_vitehub/blob/`, or null when the store is not served. */
   served: string | null
   store: string
   /** True when a search stopped after scanning its limit of files. */

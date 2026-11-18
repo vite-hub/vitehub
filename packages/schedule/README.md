@@ -15,7 +15,7 @@ Install `vite-hub` and `@vite-hub/schedule` for an application. `vite-hub` expos
 pnpm add vite-hub @vite-hub/schedule
 ```
 
-Enable Schedule with the framework integration and import application helpers from its feature path:
+A file in `server/schedules/` turns Schedule on in the framework integration. Import application helpers from its feature path:
 
 ```ts
 // vite.config.ts
@@ -23,7 +23,7 @@ import { vitehub } from "vite-hub";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [vitehub({ host: "cloudflare", schedule: true })],
+  plugins: [vitehub({ host: "cloudflare" })],
 });
 ```
 
@@ -39,7 +39,7 @@ pnpm add @vite-hub/schedule
 
 Direct integrations use `@vite-hub/schedule`, `@vite-hub/schedule/runtime`, and `@vite-hub/schedule/vite`. Add Vite when the project uses `hubSchedule()`. Add `@vite-hub/kv` when using the KV Schedule Run store through `@vite-hub/schedule/runtime/kv` or the generated Process Runtime. Static Schedule Definitions, memory stores, and custom `ScheduleKVStorage` implementations do not require KV.
 
-Both packages require Node.js 22.18 or newer.
+Both packages require Node.js 24.15 or newer.
 
 ## Run one occurrence
 
@@ -106,9 +106,9 @@ Static Schedule Definitions use five-field cron expressions. The cron uses UTC u
 
 The integration can generate host-specific output for Cloudflare Cron Triggers, Vercel Cron Jobs, Netlify Scheduled Functions, standalone `Deno.cron`, Nitro's Cloudflare schedule hook, and Netlify Scheduled Functions that run in Nitro's server bundle. A build writes only the output of its host: Nitro's resolved preset, or else `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOST`. It writes the output of every host only when no host is known. Host selection, local execution, deployment proof, limits, and billing still come from the selected host. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before deploying.
 
-Applications that use the framework distribution register Schedule through `vitehub({ host, schedule: true })` and import the definition helper from `vite-hub/schedule`. On Deno, the build writes standalone cron output and a `.output/main.ts` entrypoint that loads it before the Nitro server.
+Applications that use the framework distribution turn Schedule on with a file in `server/schedules/`, with no `schedule` key, and import the definition helper from `vite-hub/schedule`. On Deno, the build writes standalone cron output and a `.output/main.ts` entrypoint that loads it before the Nitro server.
 
-Nuxt projects enable Schedule with `vite-hub/nuxt` and `vitehub: { schedule: true }`. The module installs the Vite integration and merges Schedule output into Nitro config.
+Nuxt projects enable Schedule with `vite-hub/nuxt` and a file in `server/schedules/`. The module installs the Vite integration and merges Schedule output into Nitro config.
 
 ## Start a Schedule from code
 

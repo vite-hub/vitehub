@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
+import { VITEHUB_PREPARE } from "@vite-hub/internal/build/vite"
 import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import { resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import type { FeatureId } from "@vite-hub/internal/features"
@@ -17,7 +18,7 @@ const hosts: ViteHubHost[] = ["cloudflare", "deno", "netlify", "node", "vercel"]
 /** The error code of each feature that `vitehub()` checks, and when it checks. */
 const checks: Partial<Record<FeatureId, { code: string, at: "vitehub" | "config" }>> = {
   browser: { at: "vitehub", code: "VITE_HUB_R0088" },
-  email: { at: "vitehub", code: "VITE_HUB_R0089" },
+  email: { at: "config", code: "VITE_HUB_R0089" },
   queue: { at: "config", code: "INTERNAL_R0002" },
   rateLimit: { at: "config", code: "INTERNAL_R0002" },
   sandboxTask: { at: "config", code: "INTERNAL_R0002" },
@@ -36,11 +37,11 @@ function findPlugin(plugins: PluginOption[], name: string): Plugin {
   return plugin
 }
 
-function runConfigHook(plugin: Plugin): void {
+function runConfigHook(plugin: Plugin, config = {}): void {
   const hook = plugin.config
   const handler = isCallable(hook) ? hook : hook?.handler
   if (!isCallable(handler)) throw new TypeError("Expected a callable config hook.")
-  Reflect.apply(handler, undefined, [{}, { command: "build", mode: "production" }])
+  Reflect.apply(handler, undefined, [config, { command: "build", mode: "production" }])
 }
 
 function build(host: ViteHubHost, options: Record<string, unknown>): void {
@@ -94,14 +95,22 @@ describe("feature catalog host checks", () => {
     }
   })
 
-  it("throws for an explicit cell only when the app does not choose the provider", () => {
+  it("fails a production build of email: true only when the host has no Email provider", () => {
     for (const host of hosts) {
+      expect(() => vitehub({ host, email: true }), host).not.toThrow()
+      expect(() => build(host, { email: { driver: "resend" } }), host).not.toThrow()
       if (featureSupport("email", host).level !== "explicit") continue
-      expect(() => vitehub({ host, email: true }), host).toThrow(expect.objectContaining({ code: "VITE_HUB_R0089" }))
-      expect(() => vitehub({ host, email: { driver: "resend" } }), host).not.toThrow()
+      expect(() => build(host, { email: true }), host).toThrow(expect.objectContaining({ code: "VITE_HUB_R0089" }))
     }
     expect(featureSupport("blob", "deno").level).toBe("explicit")
     expect(() => build("deno", { blob: true })).toThrow(expect.objectContaining({ code: "INTERNAL_R0002" }))
+  })
+
+  it("allows email: true during Nuxt type preparation on every host", () => {
+    for (const host of hosts) {
+      const plugins = vitehub({ host, email: true })
+      expect(() => runConfigHook(findPlugin(plugins, "vite-hub/deployment-host"), { [VITEHUB_PREPARE]: true }), host).not.toThrow()
+    }
   })
 
   it("agrees with the Deployment Plan about the services that ViteHub selects", () => {

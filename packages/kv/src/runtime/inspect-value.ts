@@ -2,7 +2,7 @@ import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 
 const unsupported = () => kvErrorDiagnostics.KV_VALUE_UNSUPPORTED()
 
-function isUint8Array(value: unknown): value is Uint8Array {
+export function isUint8Array(value: unknown): value is Uint8Array {
   try {
     if (!ArrayBuffer.isView(value)) return false
     const tagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
