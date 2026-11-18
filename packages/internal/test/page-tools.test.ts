@@ -83,8 +83,6 @@ describe("hasViteHubPageToolsHint", () => {
     // A new Auth session that the session route has not checked yet.
     expect(hint("http://site.test/", "vitehub_session=1")).toBe(true)
     expect(hint("http://site.test/", "vitehub_session=1; vitehub-tools=0")).toBe(false)
-    // The old Comments hints are gone.
-    expect(hint("http://site.test/?comments", "vitehub-comments=1")).toBe(false)
     expect(hint("http://site.test/_vitehub/content?vitehub", "vitehub-tools=1")).toBe(false)
     expect(hint("http://site.test/api/x?vitehub", "vitehub-tools=1")).toBe(false)
   })

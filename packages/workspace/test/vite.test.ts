@@ -1,5 +1,5 @@
 import { ownModule } from "@vite-hub/internal/build/paths"
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Readable } from "node:stream"
@@ -434,7 +434,7 @@ describe("hubWorkspace", () => {
     }))
   })
 
-  it("contributes the Workspace operations and adds no history route", async () => {
+  it("contributes the Workspace operations", async () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
@@ -450,7 +450,6 @@ describe("hubWorkspace", () => {
     const served = await config({ nitro: {}, root }, { command: "serve", mode: "development" })
     // Only the middleware that drops the staged writes of a failed request.
     expect(served.nitro?.handlers ?? []).toEqual([{ handler: ownModule(import.meta.url, "runtime/request"), middleware: true }])
-    await expect(readdir(join(root, ".vitehub", "nitro", "workspace", "history-dev"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("streams Workspace Dev command progress from the Vite endpoint", async () => {

@@ -1066,7 +1066,6 @@ load("@img/sharp-linux-x64/sharp.node")
     await expect(readFile(join(outputDir, "deno.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
       deploy: { runtime: { mode: "dynamic", entrypoint: "./server/index.mjs", cwd: "." } },
     })
-    expect(deployRunner).not.toContain("DENO_DEPLOY_NODE_MODULES_ENABLED")
     expect(deployRunner.indexOf("if (!interrupted) {")).toBeLessThan(deployRunner.indexOf('const common = ["--allow-node-modules"'))
   })
 

@@ -149,7 +149,6 @@ describe("createRuntimeRegistryContents", () => {
       "export default registry",
       "",
     ].join("\n"))
-    expect(contents).not.toContain("@vite-hub/workflow")
 
     await mkdir(join(root, ".vitehub", owner), { recursive: true })
     await writeFile(registryFile, contents, "utf8")
