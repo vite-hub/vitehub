@@ -167,12 +167,12 @@ A Source without `ref` follows the default branch in the payload. `content.sourc
 
 `before` is the head commit that the push moved from.
 
-When a push moves the head, Content prewarms each page that the push changed: it loads the page at the new commit, so the first read is warm. The changed pages come from the `commits` of the push. When the push is forced, lists no files, has GitHub's maximum of 2,048 commits, or did not start at the old head, Content compares the files of both commits instead.
+When a push moves the head, Content prewarms each changed page by loading it at the new commit. Only reads served by the warmed instance benefit. The changed pages come from the `commits` of the push. When the push is forced, lists no files, has GitHub's maximum of 2,048 commits, or either endpoint differs from the actual head move, Content compares the files of the old and new heads instead.
 
-- With ViteHub Queue (`vitehub({ queue })`), each changed page is one job of the `vitehub-content-prewarm` Queue, which ViteHub adds. The job runs on any server instance, so another instance loads the new commit before a reader asks for it. A job for a head that has moved on does nothing.
-- Without Queue, the webhook prewarms the pages itself, after the response when the host has `waitUntil`.
+- With ViteHub Queue (`vitehub({ queue })`) on Node or Cloudflare, each changed page is one job of the `vitehub-content-prewarm` Queue, which ViteHub adds. A job for a superseded head does nothing. If the KV head read is stale or fails, the job throws so Queue can retry it.
+- Without Queue, or on Vercel where Queue consumers run in separate functions, the webhook prewarms the pages itself, after the response when the host has `waitUntil` and before it otherwise.
 
-ViteHub adds the route only for an `import { github }` in `server/content.ts`. When the Source comes from another file, or in another server, mount `defineContentGitHubWebhookHandler(content)` as a Fetchable route. To prewarm through your own Queue, pass `{ prewarm: job => queue.send(job) }` and call `prewarmContentPage(content, job)` in its handler.
+ViteHub adds the route only for an `import { github }` in `server/content.ts`. When the Source comes from another file, or in another server, mount `defineContentGitHubWebhookHandler(content)` as a Fetchable route. To prewarm through your own ViteHub Queue, pass `{ prewarm: job => queue.send(job) }` and call `prewarmContentPage(content, job)` in its handler. The webhook logs returned send errors without failing the head move.
 
 ### Commit cache
 

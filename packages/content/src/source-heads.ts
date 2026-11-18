@@ -96,12 +96,14 @@ export interface ContentPrewarmJob {
   sha: string
   /** The Source key of the changed file, such as `guide/start.md`. */
   key: string
+  /** The published head version. Queue retries if its KV read has not reached this version. */
+  headVersion: number
 }
 
 /** The files that a push changed, from the `commits` of its payload. */
 export interface ContentPushedChanges {
-  /** The commit before the push. The changes count only when it is the head that the push moved from. */
   before: string | null
+  after: string | null
   /** The repository paths that the commits added, modified, or removed. */
   paths: string[]
 }
@@ -172,12 +174,20 @@ interface StoredHead {
   sha: string | null
   ref: string | null
   movedAt: string | null
+  /** Increases with each publication; heads stored before this field start at zero. */
+  version?: number
   pinned: boolean
   rejected: ContentSourceHead["rejected"]
   /** True after a valid pin or a lookup confirms the serving commit. Older heads infer recovery from `movedAt`. */
   rejectionResolved?: boolean
   /** The check time in heads stored before polling metadata moved to its own key. */
   checkedAt?: string | null
+}
+
+export interface ContentHeadMove {
+  before: string | null
+  sha: string
+  headVersion: number
 }
 
 /** The last completed branch check, separate from both head authority and the short check lease. */
@@ -362,14 +372,14 @@ interface ContentSourceHeadsRuntime {
    */
   inspect(name: string, sha?: string, published?: boolean): Promise<{ sha: string, input: ContentCheckInput }>
   /** Advance a Source for a push webhook delivery and keep the delivery in KV, where `head()` shows it. */
-  deliver(source: string, delivery: { id: string | null, sha: string | null }): Promise<ContentSourceWebhookDelivery>
+  deliver(source: string, delivery: { id: string | null, sha: string | null }): Promise<{ delivery: ContentSourceWebhookDelivery, transition: ContentHeadMove | undefined }>
   /** Run `work` after the push webhook moves the head of a Source, such as computing page dates. */
   onMove(work: (source: string) => Promise<void>): void
   /** The work of `onMove()` for a Source whose head moved. The push webhook runs it in `waitUntil`. */
   moved(source: string): Promise<void>
   /**
    * The Source keys of the documents that changed from commit `from` to commit `to`. `pushed` are the paths of the push
-   * payload: they count when the push started at `from`. Else Content compares the files of both commits.
+   * payload: they count when both endpoints match. Else Content compares the files of both commits.
    */
   changed(source: string, from: string | null, to: string, pushed?: ContentPushedChanges): Promise<string[]>
   /** Load one changed document at the head commit. Returns false when the head has moved on from `job.sha`. */
@@ -602,7 +612,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   }
 
   /** Move the head to the latest valid commit of the branch, and record a completed check separately. */
-  async function move(state: HeadState, recheck = false): Promise<StoredHead | null> {
+  async function move(state: HeadState, recheck = false, onMove?: (move: ContentHeadMove) => void): Promise<StoredHead | null> {
     const before = await read(state)
     if (before?.pinned) return before
     // A fresh reader resolves the branch, not the head that the instance reads.
@@ -627,12 +637,13 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     const now = new Date().toISOString()
     const next: StoredHead = reason
       ? { ...(before ?? { origin: origin(state), sha: null, ref: revision.ref ?? null, movedAt: null, pinned: false }), rejected: { sha: revision.id, at: now, reason }, rejectionResolved: false }
-      : { origin: origin(state), sha: revision.id, ref: revision.ref ?? null, movedAt: now, pinned: false, rejected: null }
+      : { origin: origin(state), sha: revision.id, ref: revision.ref ?? null, movedAt: now, version: (before?.version ?? 0) + 1, pinned: false, rejected: null }
     // Best-effort conflict detection only. KV is not CAS: callers must serialize initialization and mutations through one writer.
     const latest = await read(state)
     if (JSON.stringify(latest) !== JSON.stringify(before)) return latest
     await write(state, next)
     await checked(state)
+    if (!reason && next.version !== undefined) onMove?.({ before: before?.sha ?? null, sha: revision.id, headVersion: next.version })
     return next
   }
 
@@ -907,6 +918,13 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     await serve(state, head)
   }
 
+  async function advance(state: HeadState, onMove?: (move: ContentHeadMove) => void): Promise<StoredHead | null> {
+    const head = await move(state, false, onMove)
+    hold(state, head)
+    await serve(state, head)
+    return head
+  }
+
   const api: ContentSourceHeads = {
     async head(source) {
       const state = stateOf(source)
@@ -918,10 +936,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     async advance(source) {
       const state = stateOf(source)
       if (!await isLive(state)) return await view(state, null, false)
-      const head = await move(state)
-      hold(state, head)
-      await serve(state, head)
-      return await view(state, head)
+      return await view(state, await advance(state))
     },
     async pin(sha, source) {
       const state = stateOf(source)
@@ -932,7 +947,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       const before = await read(state)
       const reason = await check(state, { id: sha, immutable: true, ...(before?.ref ? { ref: before.ref } : {}) })
       if (reason) throw contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha, reason, head: before?.sha ?? null })
-      const head: StoredHead = { origin: origin(state), sha, ref: before?.ref ?? null, movedAt: new Date().toISOString(), pinned: true, rejected: before?.rejected ?? null, rejectionResolved: true }
+      const head: StoredHead = { origin: origin(state), sha, ref: before?.ref ?? null, movedAt: new Date().toISOString(), version: (before?.version ?? 0) + 1, pinned: true, rejected: before?.rejected ?? null, rejectionResolved: true }
       await write(state, head)
       hold(state, head)
       await serve(state, head)
@@ -1129,9 +1144,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       // Only documents are pages. Comark keys them as `<source>/<Source key>`.
       const documents = new Set(next.commit.items.filter(item => item.meta.kind === "document").map(item => item.meta.key.slice(item.meta.key.indexOf("/") + 1)))
       let keys: Iterable<string>
-      // A push that did not start at the old head, such as a force push or a missed delivery, names other changes.
-      // GitHub also cuts `commits` at 2,048 entries. Both compare the files of the two commits instead.
-      if (pushed && from !== null && pushed.before === from && pushed.paths.length) {
+      if (pushed && from !== null && pushed.before === from && pushed.after === to && pushed.paths.length) {
         const root = rootOf(state)
         keys = pushed.paths.flatMap(path => !root ? [path] : path.startsWith(`${root}/`) ? [path.slice(root.length + 1)] : [])
       }
@@ -1142,12 +1155,19 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       }
       return [...new Set(keys)].filter(key => documents.has(key)).sort()
     },
-    async prewarm({ source, sha, key }) {
+    async prewarm({ source, sha, key, headVersion }) {
       const state = stateOf(source)
-      await sync(state)
+      const stored = await read(state)
+      const held = state.held?.head
+      if ((held?.version ?? 0) > headVersion || (stored?.version ?? 0) > headVersion) return false
+      if (!stored || stored.version !== headVersion || stored.sha !== sha) {
+        throw new Error(`[vitehub] Content source ${JSON.stringify(source)} has not read published head ${sha} (version ${headVersion}) from KV. Retry the prewarm job.`)
+      }
+      state.failed = undefined
+      hold(state, stored)
+      await serve(state, stored)
       if (state.served?.sha !== sha) return false
-      // The guarded read loads the head commit into this server instance and parses the document once.
-      await state.instance?.get(`${source}/${key}`)
+      await state.access.run(true, () => state.instance?.get(`${source}/${key}`))
       return state.served?.sha === sha
     },
     names: () => [...states.keys()],
@@ -1207,12 +1227,12 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       const state = stateOf(name)
       const at = new Date().toISOString()
       let delivery: ContentSourceWebhookDelivery
+      let transition: ContentHeadMove | undefined
       try {
-        const before = await isLive(state) ? await read(state) : null
-        const head = await api.advance(name)
-        if (!head.live) throw contentKV() ? contentErrorDiagnostics.CONTENT_R0020({ source: name }) : contentErrorDiagnostics.CONTENT_R0021({ source: name })
-        const result = head.pinned ? "pinned" : sha && head.rejected?.sha === sha ? "rejected" : head.sha !== (before?.sha ?? null) ? "moved" : "kept"
-        delivery = { id, at, sha, result, before: before?.sha ?? null }
+        if (!await isLive(state)) throw contentKV() ? contentErrorDiagnostics.CONTENT_R0020({ source: name }) : contentErrorDiagnostics.CONTENT_R0021({ source: name })
+        const head = await advance(state, (move) => { transition = move })
+        const result = transition ? "moved" : head?.pinned ? "pinned" : sha && head?.rejected?.sha === sha ? "rejected" : "kept"
+        delivery = { id, at, sha, result, before: transition ? transition.before : head?.sha ?? null }
       }
       catch (error) {
         delivery = { id, at, sha, result: "failed", error: error instanceof Error ? error.message : String(error) }
@@ -1222,7 +1242,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
         const [error] = await store.set(webhookKey(name), delivery)
         if (error) throw error
       }
-      return delivery
+      return { delivery, transition }
     },
   }
   runtimes.set(api, runtime)
