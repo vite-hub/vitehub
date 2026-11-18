@@ -44,7 +44,6 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     agent: true,
-    workflow: false,
   },
 })
 ```
@@ -60,7 +59,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       agent: true,
-      workflow: false,
     }),
     nitro(),
   ],
@@ -77,7 +75,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       agent: true,
-      workflow: false,
     }),
   ],
 })
@@ -85,7 +82,7 @@ export default defineConfig({
 :::
 ::
 
-The `node` host starts the Gateway listener in the server process. `workflow: false` runs each reply inline in that process.
+The `node` host starts the Gateway listener in the server process. The Agent runs each reply inline in that process.
 
 ### Define the Agent
 

@@ -78,10 +78,10 @@ The checkout has the finished files to read and edit. Paths start from `fixtures
 }
 ```
 
-The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. `workflow: false` keeps these short chat Invocations inline. Register Nuxt UI before ViteHub so Nuxt installs its Icon and color-mode dependencies. ViteHub then gives the chat components their Nuxt runtime, and `main.css` loads their styles. Disable font downloads so the offline app does not need a font service.
+The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. Register Nuxt UI before ViteHub so Nuxt installs its Icon and color-mode dependencies. ViteHub then gives the chat components their Nuxt runtime, and `main.css` loads their styles. Disable font downloads so the offline app does not need a font service.
 
 - The ViteHub module finds Agent Definitions (one file per Agent) in `server/agents`.
-- `workflow: false` runs each short reply (an Invocation) inside the request.
+- Each short reply (an Invocation) runs inline by default.
 - Nuxt UI comes before the ViteHub UI module, so its Icon and color-mode dependencies install. The ViteHub UI module adds the chat components.
 - `ui: { fonts: false }` skips font downloads, so offline mode needs no font service.
 - `buildDir: ".nuxt"` keeps generated TypeScript in the project.
@@ -93,7 +93,6 @@ export default defineNuxtConfig({
   buildDir: ".nuxt",
   modules: ["@nuxt/ui", [viteHub, {
     agent: true,
-    workflow: false,
     console: false,
   }]],
   css: ["~/assets/main.css"],

@@ -160,6 +160,6 @@ The schedule file stays the same. Change the host, and the build writes the new 
 | Host | What runs the schedule |
 | --- | --- |
 | `cloudflare` | A Cloudflare Cron Trigger in the generated `wrangler.json`. |
-| `node` | The Process Runtime, with `schedule: { runtime: { driver: 'process' } }`. Use one long-lived process, and enable `kv` to keep Schedule Runs after restarts. |
+| `node` | The Process Runtime, with `schedule: true`. Use one long-lived process, and enable `kv` to keep Schedule Runs after restarts. |
 
 Cloudflare also reads cron in UTC only, and ViteHub handles `timeZone` there the same way. Read [Schedule hosts](/docs/schedule/hosts#provider-output) for each output.

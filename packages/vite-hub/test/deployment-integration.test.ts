@@ -904,7 +904,7 @@ describe("built-in host integration", () => {
       const builder = await createBuilder({
         logLevel: "silent",
         root,
-        plugins: [vitehub({ agent: true, host: "cloudflare", workflow: false }), nitro() as never],
+        plugins: [vitehub({ agent: true, host: "cloudflare" }), nitro() as never],
       })
       await builder.buildApp()
 
@@ -937,7 +937,7 @@ describe("built-in host integration", () => {
       const builder = await createBuilder({
         logLevel: "silent",
         root,
-        plugins: [vitehub({ agent: true, host: "cloudflare", workflow: false }), nitro() as never],
+        plugins: [vitehub({ agent: true, host: "cloudflare" }), nitro() as never],
       })
 
       await expect(builder.buildApp()).rejects.toThrow(/AGENT_B0019[\s\S]*cannot run in a Cloudflare Worker/)

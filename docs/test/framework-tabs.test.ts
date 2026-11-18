@@ -219,8 +219,8 @@ function vitehubOptions(source: string, mode: "development" | "production"): str
   for (const [key, value] of env) options.set(`env.${key}`, value)
   options = flattenOptions(options)
   for (const [key, value] of flattenOptions(overrides)) {
-    // An object override, such as `console: { auth: false }` over `console: true`, replaces the value of its parent.
-    for (const parent of options.keys()) if (key.startsWith(`${parent}.`)) options.delete(parent)
+    // A scalar and an object both replace the previous value at the same path.
+    for (const path of options.keys()) if (key.startsWith(`${path}.`) || path.startsWith(`${key}.`)) options.delete(path)
     options.set(key, value)
   }
   return [...options].map(([key, value]) => `${key}=${value}`).sort().join("\n")
