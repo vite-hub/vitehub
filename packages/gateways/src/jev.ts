@@ -215,7 +215,7 @@ async function requestJevWithRetry(
       const status = errorStatus(error)
       const details = { cause: error, providerStatus: status, requestId: errorRequestId(error) }
       if (status === 401 || status === 403) {
-        return [Object.assign(gatewayDiagnostics.GATEWAYS_R0008({ provider, status, env: options.keyEnv, option: options.keyOption, cause: error }), { ...details, providerStatus: status, status: 503 as const }), undefined]
+        return [Object.assign(gatewayDiagnostics.GATEWAYS_R0008({ provider, status, env: options.keyEnv, option: options.keyOption, cause: error }), { ...details, providerStatus: status, status: 503 } as const), undefined]
       }
       // A failed fetch is surfaced as a TypeError without a status. Response
       // decoding and validation can also throw TypeError, but those are
