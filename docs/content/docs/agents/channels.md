@@ -69,7 +69,7 @@ Set `agent.channels.simulate` to talk to the Agent through its Slack, Discord, T
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', agent: { channels: { simulate: true } } },
+  vitehub: { agent: { channels: { simulate: true } } },
 })
 ```
 :::
@@ -81,7 +81,7 @@ import { vitehub } from 'vite-hub'
 import { nitro } from 'nitro/vite'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', agent: { channels: { simulate: true } } }), nitro()],
+  plugins: [vitehub({ agent: { channels: { simulate: true } } }), nitro()],
 })
 ```
 :::
@@ -92,7 +92,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', agent: { channels: { simulate: true } } })],
+  plugins: [vitehub({ agent: { channels: { simulate: true } } })],
 })
 ```
 :::
@@ -357,7 +357,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: {
       server: {
         prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
@@ -377,7 +376,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
@@ -396,7 +394,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
@@ -1036,7 +1033,7 @@ export default defineAgent({
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', agent: true },
+  vitehub: { agent: true },
 })
 ```
 :::
@@ -1049,7 +1046,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ host: 'node', agent: true }),
+    vitehub({ agent: true }),
     nitro(),
   ],
 })
@@ -1063,7 +1060,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ host: 'node', agent: true }),
+    vitehub({ agent: true }),
   ],
 })
 ```
@@ -1176,7 +1173,7 @@ Each field reads its canonical name first (`VITEHUB_` plus the path in upper sna
 
 See [Server Env variable names](/docs/env/configure).
 
-`teams()` always builds its adapter from `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and `TEAMS_API_URL` in `env.server.teams`, so it needs no credential options. Pass `adapter` options such as `userName` or `appType`, or your own adapter or factory. Install `@chat-adapter/teams`.
+`teams()` always builds its adapter from `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and `TEAMS_API_URL` in `env.server.teams`, so it needs no credential options. `TEAMS_API_URL` is optional: without it, each reply goes to the service URL of its conversation. Set it only to send every call to a gateway or an emulator. Pass `adapter` options such as `userName` or `appType`, or your own adapter or factory. Install `@chat-adapter/teams`.
 
 ```ts [server/agents/support.ts] fragment
 teams({ adapter: { userName: 'Support' } })

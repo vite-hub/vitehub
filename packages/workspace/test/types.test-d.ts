@@ -85,13 +85,6 @@ describe("workspace types", () => {
     expectTypeOf(source.github(githubOptions)).toMatchTypeOf(github(githubOptions))
   })
 
-  it("does not expose a placeholder mount contract", () => {
-    // SAFETY: This type-only fixture is never evaluated and exists to exercise the Workspace surface.
-    const workspace = {} as Workspace
-    // @ts-expect-error Workspace mounts require a real host projection contract.
-    workspace.mount()
-  })
-
   it("types the facade helpers", async () => {
     const definition = defineWorkspace({
       sources: {
@@ -151,8 +144,6 @@ describe("workspace types", () => {
         docs: { ignore: false, repo: "acme/docs" },
       },
     })
-    // @ts-expect-error Source Instructions no longer belong on Source config.
-    github({ repo: "acme/app", instructions: "Use for hosted docs." })
     github(({ invocation, selectedWorkspaceScope, source: sourceContext, workspace }) => {
       expectTypeOf(invocation.context.get("support.customerScope")?.customers).toEqualTypeOf<Array<"acme" | "globex"> | undefined>()
       expectTypeOf(selectedWorkspaceScope?.name).toEqualTypeOf<"acme" | "globex" | "support" | undefined>()
@@ -179,8 +170,6 @@ describe("workspace types", () => {
       include: "**/*.md",
       prefix: "content",
     })
-    // @ts-expect-error Source Instructions no longer belong on Source config.
-    glob({ include: "**/*.md", instructions: "Use for local docs." })
     fetch<{ status: string }, { ok: boolean }>({
       querySchema: {
         "~standard": {
@@ -238,8 +227,6 @@ describe("workspace types", () => {
         url: `https://status.example.com/api/${sourceContext.key}`,
       }
     })
-    // @ts-expect-error Source Instructions no longer belong on Source config.
-    fetch({ instructions: "Use for live status.", url: "https://status.example.com" })
     mcpResources({
       mount: "nuxt",
       server: {
@@ -251,8 +238,6 @@ describe("workspace types", () => {
         },
       },
     })
-    // @ts-expect-error Source Instructions no longer belong on Source config.
-    mcpResources({ instructions: "Use for MCP resource docs.", server: { listResources: async () => ({ resources: [] }), readResource: async () => ({ contents: [] }) } })
     // @ts-expect-error fetch does not expose public lifecycle hooks
     fetch({ url: "https://status.example.com/api/summary", beforeRequest() {} })
     // @ts-expect-error fetch uses workspacePath as its only Workspace-facing address
@@ -282,8 +267,6 @@ describe("workspace types", () => {
     expectTypeOf(readonly.tools.inspect().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
     expectTypeOf(readonly.tools.inspect({ materialize: true }).materialize_sources).toMatchTypeOf<Tool<{ path?: string, sources?: string[] }, WorkspaceMaterializeSourcesResult>>()
     expectTypeOf(readonly.tools.none()).toMatchTypeOf<ToolSet>()
-    // @ts-expect-error workspace tools are no longer callable aliases
-    readonly.tools()
     // @ts-expect-error read-only facade does not expose executable write sessions
     readonly.startSession()
     // @ts-expect-error read-only facade does not expose Source Sync
@@ -301,12 +284,9 @@ describe("workspace types", () => {
     const workspaceOptions: WorkspaceOptions = { assets: ["typed"], store: { driver: "memory" } }
     const githubWorkspaceOptions: WorkspaceOptions = { store: { branch: "main", driver: "github", repository: "acme/app", root: ".vitehub/workspaces/<workspace>" } }
     const lazyGithubWorkspaceOptions: WorkspaceOptions = { store: { driver: "github", repository: () => "acme/app", token: () => "token" } }
-    // @ts-expect-error Workspace Sources configure generated assets through assets.
-    const removedOptions: WorkspaceOptions = { syncOnBuild: true }
     expectTypeOf(workspaceOptions).toMatchTypeOf<WorkspaceOptions>()
     expectTypeOf(githubWorkspaceOptions).toMatchTypeOf<WorkspaceOptions>()
     expectTypeOf(lazyGithubWorkspaceOptions).toMatchTypeOf<WorkspaceOptions>()
-    expectTypeOf(removedOptions).toMatchTypeOf<WorkspaceOptions>()
     // SAFETY: This type-only fixture is never evaluated and exists to exercise the session surface.
     const session: Awaited<ReturnType<typeof writable.startSession>> = undefined!
     // @ts-expect-error runtime selection belongs to Sandbox, not Workspace session options

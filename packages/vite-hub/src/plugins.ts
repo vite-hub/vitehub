@@ -24,7 +24,8 @@ import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { createNoExternalAddition, getDeploymentHost, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, setResolvedFeatureOptions, VITEHUB_DEPLOYMENT_HOST, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import { listSourceFiles } from "@vite-hub/internal/definition-catalog"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
-import { hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { findProviderHostConflict, hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { formatDiagnostic } from "nostics"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { assertFeatureSupported, assertHostService } from "./internal/feature-support.ts"
@@ -163,6 +164,8 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/content": true,
   "@vite-hub/database": true,
   "@vite-hub/decisions": true,
+  // Browser-only: generated server code never imports it.
+  "@vite-hub/device": false,
   "@vite-hub/docs": true,
   "@vite-hub/email": true,
   "@vite-hub/env": true,
@@ -446,6 +449,14 @@ export type ConnectionsOptions = Omit<ConnectionsVitePluginOptions, "database" |
   database?: string
 }
 
+/** Options of the Nuxt client plugin of `@vite-hub/device`. */
+export interface ViteHubDeviceOptions {
+  /** The `version` of `openDevice()`. A change deletes the stored copies. Default: none, so a deploy keeps them. */
+  version?: string
+  /** `false`: the plugin does not name the account from Auth, and the app calls `setDeviceAccount()`. */
+  account?: false
+}
+
 export interface ViteHubNodeOptions {
   /**
    * The number of server instances that run this build. The server fails at boot when it is greater than 1 and a
@@ -541,6 +552,14 @@ export interface ViteHubOptions {
   bundle?: boolean
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   database?: boolean | DatabaseOptions
+  /**
+   * Stored reads in Nuxt, when the app installs `@vite-hub/device`. A client plugin opens the device: after hydration on
+   * a page that the server rendered, else before the app mounts. With Auth, it names the account of `useUserSession()`
+   * and waits for the copies to go on `signOut()`. `useStoredData`, `useStoredFetch`, `setDeviceAccount`, `clearDevice`,
+   * and `inspectDevice` are auto-imported. `version` deletes the copies of another version. `account: false` leaves the
+   * account to the app. `false` turns it off. A Vite app calls `openDevice()` itself.
+   */
+  device?: false | ViteHubDeviceOptions
   email?: boolean | EmailOptions
   /**
    * Public Env, Server Env, and build-time replacements in `public`, `server`, and `define`, with the options that resolve
@@ -939,6 +958,7 @@ function deploymentPlugins(
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
   let deployCommandOwned = false
+  let providerConflictWarned = false
   const resolvedBuildConfigs = new WeakMap<object, { current: ResolvedBuildConfig }>()
   let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
   let deploymentRoot: string | undefined
@@ -1120,6 +1140,14 @@ function deploymentPlugins(
           const configuredHosting = process.env.VITEHUB_HOST
           if (configuredHosting && hostFromNitroPreset(configuredHosting) !== plan.host) {
             throw viteHubErrorDiagnostics.VITE_HUB_R0080({ message: "[vitehub] vitehub host " + JSON.stringify(plan.host) + " conflicts with VITEHUB_HOST=" + JSON.stringify(configuredHosting) + "." })
+          }
+          const providerConflict = findProviderHostConflict(plan.host)
+          if (providerConflict) {
+            const diagnostic = viteHubErrorDiagnostics.VITE_HUB_HOST_PROVIDER_CONFLICT({ detected: providerConflict.host, host: plan.host, variable: providerConflict.variable })
+            // A production build for the wrong host deploys output that the provider cannot run.
+            if (building) throw diagnostic
+            if (!providerConflictWarned) console.warn(formatDiagnostic(diagnostic))
+            providerConflictWarned = true
           }
           if (building) {
             if (configuredPreset && normalizeNitroPreset(configuredPreset) !== nitroPreset) {
@@ -1826,7 +1854,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       // Vercel cron jobs and Deno.cron call entries outside the Nitro server.
       ...(plan.host === "vercel" || plan.host === "deno" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
-      databaseImport: "@vite-hub/database",
+      databaseImport: "vite-hub/database",
       importBase: "vite-hub/schedule",
       providerImportAliases,
     } as ScheduleOptions))
@@ -1869,8 +1897,12 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   })
   plugins.push(sourcePlugin)
   // Adds the `vitehub content` commands, the Content operations, and the Content inspector. Inert without server/content.ts.
-  // The app installs only `vite-hub`, so the KV and snapshot registrations that it adds to server/content.ts import `vite-hub/content`.
-  if (ownerModules.contentVite) plugins.push(ownerModules.contentVite.hubContent({ importBase: "vite-hub/content" }))
+  // The app installs only `vite-hub`, so the KV and snapshot registrations that it adds to server/content.ts import
+  // `vite-hub/content` and `vite-hub/kv`. `kvImport` is an internal Content option.
+  if (ownerModules.contentVite) {
+    const contentOptions = { importBase: "vite-hub/content", kvImport: "vite-hub/kv" }
+    plugins.push(ownerModules.contentVite.hubContent(contentOptions))
+  }
   // Forms in `server/forms/<name>.ts`: one route for each, submissions in the Database, email with Email, the user
   // with Auth, and the message counts in Rate Limit when its KV store is shared. Inert without the folder, and absent
   // without its package.

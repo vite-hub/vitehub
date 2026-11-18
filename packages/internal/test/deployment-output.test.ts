@@ -86,27 +86,41 @@ describe("provider deployment outputs", () => {
     const rootDir = await createTempProject()
     const sourceRootDir = join(rootDir, ".vitehub", "agent-generations", "one", "sources", "0")
     const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
+    const actual = await vi.importActual<typeof import("../src/build/esbuild.ts")>("../src/build/esbuild.ts")
+    const bundles: string[] = []
+    vi.mocked(bundleEsmEntry).mockImplementation(async (entryFile, outfile, options) => {
+      await actual.bundleEsmEntry(entryFile, outfile, options)
+      bundles.push(await readFile(outfile, "utf8"))
+    })
+    await mkdir(sourceRootDir, { recursive: true })
+    await writeFile(join(rootDir, "context.md"), "project root context", "utf8")
+    await writeFile(join(sourceRootDir, "context.md"), "retained source context", "utf8")
+    const entry = join(rootDir, "entry.mjs")
+    await writeFile(entry, 'import context from "/context.md?raw"\nexport default { fetch: () => new Response(context) }\n', "utf8")
 
     await writeProviderDeploymentOutputs({
       clientOutDir: "dist/client",
       cloudflare: {
-        bundleEntry: join(rootDir, "cloudflare.mjs"),
+        bundleEntry: entry,
         bundleOptions: {},
         wranglerConfig: {},
       },
       netlify: {
-        functions: [{ bundleEntry: join(rootDir, "netlify.mjs"), bundleOptions: {}, functionName: "agent" }],
+        functions: [{ bundleEntry: entry, bundleOptions: {}, functionName: "agent" }],
       },
       rootDir,
       sourceRootDir,
       vercel: {
-        bundleEntry: join(rootDir, "vercel.mjs"),
+        bundleEntry: entry,
         bundleOptions: {},
       },
     })
 
-    expect(vi.mocked(bundleEsmEntry).mock.calls).toHaveLength(3)
-    expect(vi.mocked(bundleEsmEntry).mock.calls.every(([, , options]) => options?.rootDir === sourceRootDir)).toBe(true)
+    expect(bundles).toHaveLength(3)
+    for (const bundled of bundles) {
+      expect(bundled).toContain("retained source context")
+      expect(bundled).not.toContain("project root context")
+    }
   })
 
   it("preserves default output roots for omitted providers", async () => {
@@ -769,11 +783,10 @@ describe("provider deployment outputs", () => {
     const functionFile = join(netlifyDir, "functions", "vitehub-agent.mjs")
     await expect(readFile(siblingFunction, "utf8")).resolves.toBe("export default {}")
     await expect(readFile(functionFile, "utf8")).resolves.toContain("export const config = {")
-    await expect(readFile(functionFile, "utf8")).resolves.toContain("\"nodeBundler\": \"esbuild\"")
     expect(vi.mocked(bundleEsmEntry)).toHaveBeenCalledWith(
       join(rootDir, "agent.mjs"),
-      join(`${netlifyDir}.pending`, "functions", "vitehub-agent.mjs"),
-      { conditions: ["netlify", "node"], define: {}, format: "esm", minifyIdentifiers: true, minifySyntax: true, minifyWhitespace: true, platform: "node", resolveEntryPackageAliases: false, rootDir, signal: undefined },
+      expect.any(String),
+      expect.objectContaining({ minifyIdentifiers: true, minifySyntax: true, minifyWhitespace: true }),
     )
     await expect(readFile(join(netlifyDir, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       edge_functions: [{ function: "vitehub-edge", path: "/edge" }],

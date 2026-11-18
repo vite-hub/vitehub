@@ -12,7 +12,6 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { parseJSONC } from "confbox/jsonc"
 import { parseTOML } from "confbox/toml"
 import { findNearestFile } from "pkg-types"
-import { ownModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { addViteHubDevPeerDevHandler, addViteHubDevPeerUpgradeSigner, type ViteHubDevPeerUpgradeServer } from "@vite-hub/internal/dev-peer"
 import { getResolvedFeatureOptions, resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PREPARE, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
@@ -60,7 +59,6 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 import { assertNoRemovedViteHubOptions } from "./removed-options.ts"
 import { resolveViteHubServerImports, type ServerAutoImport } from "./nuxt-server-imports.ts"
 
-const databaseRuntimeState = ownModule(import.meta.url, "internal/database-runtime-state")
 const doctorExtensionEntry = fileURLToPath(new URL("./doctor", import.meta.url))
 const consoleRuntimeRoot = fileURLToPath(new URL("./console/runtime", import.meta.url))
 
@@ -462,6 +460,41 @@ function configuredProjectRoots(options: ViteHubOptions, rootDir: string, viteRo
       return Boolean(value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string")
     })
     .map(([name, value]) => resolve(name === "database" ? rootDir : viteRoot, value.projectRoot))
+}
+
+/**
+ * Adds the client plugin that opens `@vite-hub/device`. On a page that the server rendered, it opens the device after
+ * hydration, so the first render matches the server HTML. Without server HTML, it opens the device before the app
+ * mounts, so the first render shows the stored copies. With Auth, it names the account of `useUserSession()`, and
+ * `signOut()` waits until the copies are gone. The plugin goes to `.vitehub/device/`, because Nuxt clears its build
+ * directory after modules run.
+ */
+async function addDevicePlugin(nuxt: NuxtLike, projectRoot: string, options: { version: string | undefined, auth: boolean }): Promise<void> {
+  const src = join(projectRoot, ".vitehub/device/nuxt-plugin.mjs")
+  const open = `openDevice(${options.version === undefined ? "" : JSON.stringify({ version: options.version })})`
+  // The session read, and the copies that go before `signOut()` opens the next page.
+  const account = `
+    const report = ([error]) => error && console.warn(error)
+    const session = useUserSession()
+    // A session read that failed names nobody, so an offline reload keeps the copies.
+    watch(() => session.ready.value && !session.error.value ? session.user.value?.id ?? null : undefined, (account) => {
+      if (account !== undefined) setDeviceAccount(account).then(report)
+    }, { immediate: true, flush: "sync" })
+    onSignOut(() => setDeviceAccount(null).then(report))`
+  await writeFileIfChanged(src, `import { defineNuxtPlugin, watch } from "#imports"
+import { openDevice, setDeviceAccount } from "vite-hub/device"
+${options.auth ? `import { onSignOut, useUserSession } from "vite-hub/auth/vue"\n` : ""}
+export default defineNuxtPlugin({
+  name: "vitehub:device",${options.auth ? `\n  dependsOn: ["vitehub:auth"],` : ""}
+  async setup(nuxtApp) {${options.auth ? account : ""}
+    // Hydration does not wait for IndexedDB. A read that hydrates renders what the server rendered either way.
+    if (nuxtApp.payload.serverRendered) nuxtApp.hooks.hookOnce("app:suspense:resolve", () => void ${open})
+    else await ${open}
+  },
+})
+`)
+  const plugins = (nuxt.options.plugins ??= [])
+  if (!plugins.some(plugin => (typeof plugin === "string" ? plugin : plugin.src) === src)) plugins.push({ src, mode: "client" })
 }
 
 /**
@@ -1587,6 +1620,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     addVueImports(nuxt, "vite-hub/forms/vue", ["useFormAction"])
     if (isPackageInstalled("@formisch/vue")) addVueImports(nuxt, "vite-hub/forms/formisch", ["useFormSubmit"])
   }
+  if (options.device !== false && isPackageInstalled("@vite-hub/device")) {
+    // `openDevice()` belongs to the plugin, so it is not auto-imported.
+    addVueImports(nuxt, "vite-hub/device/vue", ["useStoredData", "useStoredFetch"])
+    addVueImports(nuxt, "vite-hub/device", ["setDeviceAccount", "clearDevice", "inspectDevice"])
+    await addDevicePlugin(nuxt, projectRoot, { version: options.device?.version, auth: Boolean(effectiveAuth) && options.device?.account !== false })
+  }
   // `server/sync/` turns Sync on, so `useSync()` is imported only then.
   if (isPackageInstalled("@vite-hub/sync") && hasSyncDirectory(projectRoot, resolveNuxtServerDirs(nuxt.options))) {
     addVueImports(nuxt, "vite-hub/sync/vue", ["useSync"])
@@ -1622,17 +1661,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   if (options.realtime) {
     addVueImports(nuxt, "vite-hub/realtime", ["defineRealtime"])
     addVueImports(nuxt, "vite-hub/realtime/vue", ["useRealtimeTiptap"])
-  }
-  if (options.database) {
-    const nuxtAlias = (nuxt.options.alias ??= {})
-    nuxtAlias["@vite-hub/database/runtime/state"] ??= databaseRuntimeState
-    if (!nuxt.options.dev) {
-      nuxt.hook?.("nitro:config", async (config) => {
-        const alias = (config.alias ??= {}) as Record<string, string>
-        alias["@vite-hub/database/runtime/state"]
-          ??= nuxtAlias["@vite-hub/database/runtime/state"]
-      })
-    }
   }
   if (consoleOptions) {
     generatedConsolePluginPath = await installConsole({

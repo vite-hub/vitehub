@@ -55,8 +55,10 @@ export const gatewayDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Check the model ID and the gateway key. For HTTP 429 or 5xx, retry later. The cause has the provider response.",
     },
     GATEWAYS_ASK_OUTPUT_INVALID: {
-      why: ({ issue }: { issue?: string }) => `[vitehub] The model answer to ask() is not JSON that the schema accepts${issue === undefined ? "." : `: ${issue}`}`,
-      fix: "Ask again, because a retry often helps. If it repeats, describe each field in the schema or the prompt, or make the schema less strict.",
+      why: ({ finishReason, issue }: { finishReason?: string, issue?: string }) => finishReason !== undefined
+        ? `[vitehub] The model answer to ask() has no text. The model stopped with finish reason "${finishReason}".`
+        : `[vitehub] The model answer to ask() is not JSON that the schema accepts${issue === undefined ? "." : `: ${issue}`}`,
+      fix: "Ask again, because a retry often helps. If it repeats, describe each field in the schema or the prompt, or make the schema less strict. For finish reason \"content-filter\", change the prompt. For \"length\", shorten the prompt or use a model with a larger output limit.",
     },
     GATEWAYS_ASK_PROMPT_INVALID: {
       why: "ask() needs a non-empty prompt string",

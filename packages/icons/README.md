@@ -28,6 +28,7 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `content` | Content |
 | `database` | Database |
 | `decisions` | Decisions |
+| `device` | Device |
 | `email` | Email |
 | `env` | Env |
 | `forge` | Forge |

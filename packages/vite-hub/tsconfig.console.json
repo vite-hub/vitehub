@@ -16,6 +16,7 @@
     "src/page/**/*.ts",
     "../ui/src/standalone/virtual.d.ts",
     "test/console-comment-thread-dismissal.test.ts",
+    "test/console-stored-boot.test.ts",
     "test/vue.d.ts",
     "test/console-invocation-views/**/*.ts"
   ],

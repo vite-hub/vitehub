@@ -376,6 +376,7 @@ export const docsLegacyFragmentRedirects = {
     setup_install_failed: "/docs/cli/project",
     setup_link_account_required: "/docs/cli/project",
     setup_link_credentials_missing: "/docs/cli/project",
+    setup_link_host_required: "/docs/cli/project",
     setup_link_host_unsupported: "/docs/cli/project",
     setup_link_name_required: "/docs/cli/project",
     setup_link_project_not_found: "/docs/cli/project",
