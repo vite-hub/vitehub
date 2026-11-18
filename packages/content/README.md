@@ -107,6 +107,7 @@ await content.sources.unpin("docs")
 - When the KV store fails on a read, the page does not fail. Content logs `CONTENT_R0022`, serves the commit that the server instance already serves, or else the latest commit of the branch, and tries KV again after 5 seconds. `head()`, `advance()`, `pin()`, and `unpin()` throw `CONTENT_R0022` to the caller.
 - When GitHub answers 403 or 429 to the branch lookup, as it does when the rate limit is hit, the head stays where it is. Content logs `CONTENT_R0035` once, and `head()` on that server instance returns it in `diagnostic` until a lookup succeeds.
 - `diagnostic` is `{ code, message, fix }` when the head does not follow the branch: `CONTENT_R0020`, `CONTENT_R0021`, `CONTENT_R0035`, or `CONTENT_R0019`. `vitehub content head` prints it.
+- The Console's Content page shows the head, pin, and last push webhook with a `content:read` grant. You do not need to define editable collections.
 - Without a push webhook, the head still moves: the first read one hour after the last check resolves the branch again and calls `advance()`. That read waits for the check. It takes a one-minute lease under `content:check:<source>` first, so other server instances do not check at the same time. Completed checks store `checkedAt` under `content:checked:<source>`. An unchanged branch needs no head write unless a stored rejection becomes history; a changed branch needs one. A failed check is tried again after the lease.
 
 ### Check documents
@@ -163,9 +164,16 @@ The route checks `X-Hub-Signature-256` against the raw body in constant time, wi
 | `push` to another branch, a deleted branch, or another event | 200 `{ ignored }` |
 | `push` to a repository that no Source reads | 200, and Content logs `CONTENT_R0025`. |
 
-A Source without `ref` follows the default branch in the payload. `content.sources.head()` shows the last delivery in `webhook`: `{ id, at, sha, result }`, where `id` is the `X-GitHub-Delivery` id and `result` is `moved`, `kept`, `rejected`, `pinned`, or `failed` with `error`. `vitehub kv get content:webhook:docs` shows the same record. A delivery with a bad signature writes nothing, so only the log shows it.
+A Source without `ref` follows the default branch in the payload. `content.sources.head()` shows the last delivery in `webhook`: `{ id, at, sha, result, before }`, where `id` is the `X-GitHub-Delivery` id and `result` is `moved`, `kept`, `rejected`, `pinned`, or `failed` with `error`. `vitehub kv get content:webhook:docs` shows the same record. A delivery with a bad signature writes nothing, so only the log shows it.
 
-ViteHub adds the route only for an `import { github }` in `server/content.ts`. When the Source comes from another file, or in another server, mount `defineContentGitHubWebhookHandler(content)` as a Fetchable route.
+`before` is the head commit that the push moved from.
+
+When a push moves the head, Content prewarms each changed page by loading it at the new commit. Only reads served by the warmed instance benefit. The changed pages come from the `commits` of the push. When the push is forced, lists no files, has GitHub's maximum of 2,048 commits, or either endpoint differs from the actual head move, Content compares the files of the old and new heads instead.
+
+- With ViteHub Queue (`vitehub({ queue })`) on Node or Cloudflare, each changed page is one job of the `vitehub-content-prewarm` Queue, which ViteHub adds. A job for a superseded head does nothing. If the KV head read is stale or fails, the job throws so Queue can retry it.
+- Without Queue, or on Vercel where Queue consumers run in separate functions, the webhook prewarms the pages itself, after the response when the host has `waitUntil` and before it otherwise.
+
+ViteHub adds the route only for an `import { github }` in `server/content.ts`. When the Source comes from another file, or in another server, mount `defineContentGitHubWebhookHandler(content)` as a Fetchable route. To prewarm through your own ViteHub Queue, pass `{ prewarm: job => queue.send(job) }` and call `prewarmContentPage(content, job)` in its handler. The webhook logs returned send errors without failing the head move.
 
 ### Commit cache
 

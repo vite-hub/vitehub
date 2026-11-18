@@ -102,27 +102,23 @@ The public hosts are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each
 
 ViteHub derives one deployment identity from the nearest `package.json` name, falling back to the Vite root directory name. Set `name` to pin the identity explicitly. Cloudflare Workers Builds supplies its connected Worker through `WRANGLER_CI_OVERRIDE_NAME`; the Cloudflare host uses it after explicit `name` and fails when the two resolve to different values because the connected Worker remains the deployment target. Cloudflare uses the resolved identity for the default Worker, Blob bucket, Queue prefix, Rate Limit namespace, Sandbox, and Container names. Explicit Wrangler Worker names remain authoritative outside Workers Builds, while explicit Blob bucket, driver, and store options still win. The Workers Builds fallback derives deterministic names but does not provision the corresponding R2 bucket or Queue.
 
-Blob, Agent, Auth, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace are opt-in. Enabling Agent also enables Workflow for discovered Agent Definitions; set `workflow: false` only when every Agent must stay inline:
+A Definition file turns its feature on, with no key: `server/agents/`, `server/auth.ts`, `server/browsers/`, `server/channels/`, `server/connections/`, `server/queues/`, `server/realtime/`, `server/schedules/`, `server/workflows/`, and `server/workspaces/`. Set the key to `false` to keep the feature off, or to an object to set its options. When the package of the feature is missing, the build fails with `VITE_HUB_DEFINITION_PACKAGE_MISSING` and the `pnpm add` command. Enabling Agent also enables Workflow for discovered Agent Definitions; set `workflow: false` only when every Agent must stay inline.
+
+Blob, Database, Email, KV, Rate Limit, and Sandbox Task have no Definition files to find, so they are opt-in with their key:
 
 ```ts
 import { vitehub } from "vite-hub"
 
 vitehub({
-  agent: true,
   blob: true,
   host: "cloudflare",
-  auth: true,
   database: true,
   email: {
     driver: "resend",
   },
   kv: true,
-  queue: true,
   rateLimit: true,
   sandboxTask: true,
-  schedule: true,
-  workflow: true,
-  workspace: true,
 });
 ```
 
