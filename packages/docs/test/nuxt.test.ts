@@ -247,6 +247,7 @@ describe("docs in an existing app", () => {
     // Absolute files, so they resolve from a template outside the app and in an app that lists neither package.
     expect(docsCss()).toMatch(/@import "\/.+\/tailwindcss\/index\.css";/)
     expect(docsCss()).toMatch(/@import "\/.+\/@nuxt\/ui\/dist\/runtime\/index\.css";/)
+    expect(docsCss()).toMatch(/@layer theme, base, comark, components, utilities;[\s\S]*@import "[^"]+\/tailwindcss\/index\.css";/)
     for (const [, file] of docsCss().matchAll(/@import "([^"]+(?:tailwindcss|@nuxt\/ui)[^"]+)";/g)) expect(existsSync(file!)).toBe(true)
   })
 
@@ -836,18 +837,16 @@ describe("docs Nuxt setup", () => {
     const routes = nitro.prerender.routes
     expect(routes).toEqual(expect.arrayContaining(["/blog", "/docs/kv", "/api/_docs/page/docs/kv.json", "/api/_docs/search.json", "/sitemap.xml", "/raw/docs/kv.md", "/sitemap.md", "/llms.txt", "/llms-full.txt"]))
     expect(routes.some(path => path.startsWith("/portal"))).toBe(false)
-    expect(handlers.map(handler => handler.route)).toEqual([
-      "/api/_docs/page/**", "/api/_docs/search.json", "/sitemap.xml",
-      // The trailing-slash redirect: middleware, with no route.
-      undefined,
-      "/llms.txt", "/llms-full.txt", "/sitemap.md",
-      "/llms.txt", "/llms-full.txt", "/sitemap.md",
-      "/mcp",
-      // The Markdown copies of app pages: middleware, with no route.
-      undefined,
+    expect(handlers.flatMap(handler => handler.route ? [`${handler.method ?? "all"} ${handler.route}`] : []).sort()).toEqual([
+      "all /api/_docs/page/**", "all /api/_docs/search.json", "all /mcp", "all /sitemap.xml",
+      "get /llms-full.txt", "get /llms.txt", "get /sitemap.md",
+      "head /llms-full.txt", "head /llms.txt", "head /sitemap.md",
     ])
-    expect(handlers[3]).toMatchObject({ middleware: true, handler: expect.stringMatching(/runtime\/server\/trailing-slash\.js$/) })
-    expect(handlers.at(-1)).toMatchObject({ middleware: true, handler: expect.stringMatching(/runtime\/server\/markdown\.js$/) })
+    // The trailing-slash redirect runs before the Markdown copies of app pages.
+    expect(handlers.filter(handler => handler.middleware).map(handler => handler.handler)).toEqual([
+      expect.stringMatching(/runtime\/server\/trailing-slash\.js$/),
+      expect.stringMatching(/runtime\/server\/markdown\.js$/),
+    ])
     // Nitro gets the raw route directly, so nuxt-agent-discovery still lets the build prerender the copies.
     expect((nitro as { handlers?: Array<{ route: string, method: string }> }).handlers?.map(handler => [handler.route, handler.method])).toEqual([["/raw/**", "get"], ["/raw/**", "head"]])
   })

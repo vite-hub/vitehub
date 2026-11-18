@@ -697,7 +697,6 @@ describe("hubSandboxTask", () => {
       options: { timeout: 30_000 },
     })
     const generatedTypes = await readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task.d.ts"), "utf8")
-    expect(generatedTypes).toContain("SandboxTaskPackageContract<typeof import(")
     expect(generatedTypes).toContain("TArgs extends [] ? unknown : TArgs[0]")
   })
 

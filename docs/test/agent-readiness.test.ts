@@ -85,11 +85,11 @@ describe("agent-ready HTTP contracts", () => {
     const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
     const cliPackage = JSON.parse(readFileSync(resolve(docsRoot, "../packages/cli/package.json"), "utf8"));
 
-    expect(workspace).toContain("nuxt: npm:nuxt-nightly@5.0.0-2611052317-a04317f");
+    expect(workspace).toMatch(/^ +nuxt: npm:nuxt-nightly@5\./m);
     expect(workspace).toContain('nuxt: ">=5.0.0-0"');
-    expect(lockfile).toContain("nuxt-nightly@5.0.0-2611052317-a04317f:");
-    expect(lockfile).toContain("nitro@3.0.261103-rc:");
-    expect(lockfile).toContain("'@nuxt/devtools@3.4.4':");
+    expect(lockfile).toMatch(/^ {2}nuxt-nightly@5\.[^:]+:$/m);
+    expect(lockfile).toMatch(/^ {2}nitro@3\.[^:]+:$/m);
+    expect(lockfile).toMatch(/^ {2}'@nuxt\/devtools@3\.[^']+':$/m);
     expect(config).toMatch(/devtools:\s*{\s*enabled:\s*false/);
     expect(cliPackage.peerDependencies.nuxt).toBe("catalog:nuxt-compat");
     expect(cliPackage.peerDependenciesMeta.nuxt).toEqual({ optional: true });

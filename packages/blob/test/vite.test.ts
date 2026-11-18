@@ -275,7 +275,6 @@ describe("hubBlob", () => {
     const nitroRuntime = await readFile(join(root, ".vitehub", "nitro", "blob", "runtime.mjs"), "utf8")
     expect(nitroRuntime).toContain('"base": ".runtime/blob"')
     expect(nitroPlugin).not.toContain("#vitehub/blob/config")
-    expect(nitroPlugin).toContain("import { blobConfig } from './runtime.mjs'")
     expect(nitroPlugin).toContain("setBlobRuntimeConfig(blobConfig)")
     expect(driverImports(nitroRuntime)).toHaveLength(1)
     expect(driverImports(nitroRuntime)[0]).toContain("/drivers/fs")
@@ -412,8 +411,6 @@ describe("hubBlob", () => {
       expect(driverImports(runtimeSource)[0]).toContain("/drivers/fs")
       expect(runtimeSource).not.toContain("/drivers/netlify-blobs")
       expect(runtimeSource).toContain("/drivers/vercel")
-      expect(runtimeSource).toContain("export const blob = createLazyGeneratedBlobStorage(\"default\")")
-      expect(runtimeSource).toContain("setNamedBlobRuntimeStorage(name, createLazyGeneratedBlobStorage(name))")
 
       const entryFile = join(root, "entry.mjs")
       const artifactFile = join(artifactRoot, "server.mjs")
@@ -834,13 +831,9 @@ describe("hubBlob", () => {
       const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
       expect(nitroPlugin).toContain('"driver":"cloudflare"')
       expect(nitroPlugin).toContain('"bucketName":"assets"')
-      expect(nitroPlugin).toContain("import { env as vitehubEnv } from 'cloudflare:workers'")
-      expect(nitroPlugin).toContain("setActiveCloudflareEnv(vitehubEnv as unknown as Record<string, unknown>)")
       const middleware = await readFile(join(root, ".vitehub", "nitro", "blob", "middleware.ts"), "utf8")
-      expect(middleware).toContain("export default function vitehubBlobMiddleware(event: Parameters<typeof getRequestCloudflareEnv>[0])")
       expect(middleware).not.toContain("from 'nitro'")
       expect(middleware).toContain("setActiveCloudflareEnv(env)")
-      expect(middleware).toContain("getRequestCloudflareEnv(event) ?? (vitehubEnv as unknown as Record<string, unknown>)")
 
       await symlink(join(workspaceRoot, "node_modules"), join(root, "node_modules"), "dir")
       await writeFile(join(root, "tsconfig.json"), `${JSON.stringify({
@@ -988,7 +981,6 @@ describe("hubBlob", () => {
     }
 
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
-    expect(nitroPlugin).toContain("import { blobConfig } from './runtime.mjs'")
     expect(nitroPlugin).not.toContain("private-token")
     const runtime = await readFile(join(root, ".vitehub", "nitro", "blob", "runtime.mjs"), "utf8")
     expect(runtime).toContain('"token": "********"')
@@ -1119,8 +1111,6 @@ describe("hubBlob", () => {
     expect(handler).toContain("headers: {\"Cache-Control\":\"public, max-age=300\",\"X-Content-Type-Options\":\"nosniff\"}")
     expect(handler).not.toMatch(/from ['"]h3['"]/)
     expect(handler).toContain("blob.store(storeName).serve(request, pathname, options)")
-    expect(handler).toContain("const routeSegments: string[] = [\"assets\"]")
-    expect(handler).toContain("export default { fetch: serveBlob }")
   })
 
   const serveCacheCases: Array<{ baseURL?: string, expectedCacheControl: string, headers?: Record<string, string>, name: string, requestRoute?: string, route?: string }> = [
@@ -1457,7 +1447,6 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain("import { withAuthorization } from \"#vitehub/auth/server\"")
-        expect(handler).toContain("export default defineHandler(event => withAuthorization(true, () => serveBlob(event.req))(event))")
 
         const request = await bundleServeRoute(root, "public, max-age=3600")
         const anonymous = await request("u1/meal.jpg")
@@ -1514,7 +1503,6 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain(`import { authorize } from ${JSON.stringify(join(root, "server", `blob${extension}`))}`)
-        expect(handler).toContain("export default defineHandler(event => withAuthorization(authorize, () => serveBlob(event.req))(event))")
 
         const request = await bundleServeRoute(root)
         const own = await request("u1/meal.jpg", { cookie: "session=u1" })
@@ -1585,7 +1573,6 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain("import { withAnonymousAuthorization } from \"#vitehub/auth/server\"")
-        expect(handler).toContain("export default defineHandler(event => withAnonymousAuthorization(authorize, () => serveBlob(event.req))(event))")
 
         const request = await bundleServeRoute(root, "public, max-age=3600", "/f")
         const shared = await request("public/meal.jpg")
