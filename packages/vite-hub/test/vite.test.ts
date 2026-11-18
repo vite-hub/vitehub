@@ -792,6 +792,7 @@ describe("vitehub", () => {
       "vite-hub/cloudflare-redirects-file",
       "vite-hub/dependencies",
       "vite-hub/error-log",
+      "vite-hub/request-policy",
       "@vite-hub/env/vite",
       "vite-hub/stale-chunk-reload",
       "vite-hub/setup-dev",
