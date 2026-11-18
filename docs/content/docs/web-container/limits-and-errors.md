@@ -19,13 +19,7 @@ icon: i-lucide-triangle-alert
 
 ## Errors
 
-### `WebContainerUnsupportedError`
-
-`bootWebContainer()` throws it when the page cannot run a WebContainer. Its message is the `reason` of `checkWebContainerSupport()`. The usual cause is a page that is not cross-origin isolated. Send the [isolation headers](/docs/web-container/configure#set-the-headers-in-production) on that route.
-
-### `SnapshotLockfileMismatchError`
-
-`createNodeModulesSnapshot()` throws it when the `lockfile` that you pass no longer matches the dependencies of the app, or misses the wasm aliases. Pass `frozenLockfile: false` to update the lockfile, then keep the new one. Other install and snapshot errors propagate unchanged.
+`bootWebContainer()` throws `WEB_CONTAINER_UNSUPPORTED` when the page cannot run a WebContainer, and `createNodeModulesSnapshot()` throws `WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH` when the `lockfile` that you pass no longer matches the app. Each error has a `fix` and a `docs` link to its page.
 
 ### `RangeError: Offset is outside the bounds of the DataView`
 
