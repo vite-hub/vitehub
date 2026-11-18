@@ -2692,12 +2692,10 @@ describe("workflow runtime", () => {
 
     await startWorkflow("one", {}, { id: "shared" })
     await startWorkflow("two", {}, { id: "shared" })
-    await Promise.resolve()
-
-    const oneResult = (await getWorkflowRun("one", "shared"))?.result
-    expect(oneResult).toBe("one")
-    const twoResult = (await getWorkflowRun("two", "shared"))?.result
-    expect(twoResult).toBe("two")
+    await vi.waitFor(async () => {
+      expect(await getWorkflowRun("one", "shared")).toMatchObject({ result: "one", status: "completed" })
+      expect(await getWorkflowRun("two", "shared")).toMatchObject({ result: "two", status: "completed" })
+    })
   })
 
   it("runs native Vercel entries durably and exposes run and step state", async () => {
