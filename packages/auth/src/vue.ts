@@ -867,7 +867,8 @@ export type AuthPermissionComponent = <const Name extends AbilityName>(props: Au
 }
 
 /** Render the allowed or denied slot. The default slot is shorthand for allowed. */
-// SAFETY: the runtime props implement the generic component contract used by vue-tsc.
+// SAFETY: Vue returns a component constructor; vue-tsc reads a generic call signature for rule-specific props and slots.
+// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Vue constructor and template call signatures do not overlap; abilities.test-d.ts checks the generic contract and abilities-vue.test.ts checks these runtime props and slots.
 export const AuthPermission: AuthPermissionComponent = defineComponent({
   name: "AuthPermission",
   props: {
