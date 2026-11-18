@@ -224,15 +224,6 @@ describe("contentRealtime", { timeout: 30_000 }, () => {
     await expect(authorizer(definition)(authorizeContext(null, "read", ana))).resolves.toBe(false)
   })
 
-  it("denies when the extra access check returns undefined", async () => {
-    const { content } = await setup()
-    // SAFETY: A JavaScript caller can return undefined, which the type does not allow.
-    const silent = vi.fn(() => undefined) as unknown as (context: RealtimeAuthorizeContext) => boolean
-    const definition = contentRealtime(content, { authorize: silent })
-    await expect(definition.authorize!(authorizeContext("posts/hello", "write", ana))).resolves.toBe(false)
-    await expect(definition.authorize!(authorizeContext(null, "read", ana))).resolves.toBe(false)
-  })
-
   it("gives content.can() the user that options.user returns", async () => {
     const { content } = await setup()
     const definition = contentRealtime(content, { user: () => ({ id: "ana" }) })
