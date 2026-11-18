@@ -1,3 +1,5 @@
+import { contentClientDiagnostics } from "./client-diagnostics.ts"
+
 /** The attribute that names the Content field an element renders. */
 export const contentFieldAttribute = "data-content-field"
 
@@ -13,6 +15,10 @@ export interface ContentFieldAddress {
 const collectionName = /^[A-Za-z_$][\w$-]*$/
 const fieldPath = /^[\w$-]+(?:\.[\w$-]+)*$/
 
+function invalid(part: "collection name" | "document id" | "field path", value: string) {
+  return contentClientDiagnostics.CONTENT_FIELD_ADDRESS_INVALID({ part, value })
+}
+
 /**
  * Attributes that mark an element as the rendering of one Content field, so tools on the page, such as ViteHub
  * Comments, can find the document and field behind it. Spread them on the element that shows the value:
@@ -27,9 +33,9 @@ export function contentField(collection: string, idOrField: string, field?: stri
 
 /** Writes a field address as `collection[:id]#field`. Throws for a name or path that the format cannot hold. */
 export function formatContentField(address: ContentFieldAddress): string {
-  if (!collectionName.test(address.collection)) throw new TypeError(`[vitehub] ${JSON.stringify(address.collection)} is not a Content collection name.`)
-  if (!fieldPath.test(address.field)) throw new TypeError(`[vitehub] ${JSON.stringify(address.field)} is not a Content field path. Use dots between keys, such as hero.title.`)
-  if (address.id !== undefined && (!address.id || address.id.includes("#"))) throw new TypeError(`[vitehub] ${JSON.stringify(address.id)} is not a Content document id.`)
+  if (!collectionName.test(address.collection)) throw invalid("collection name", address.collection)
+  if (!fieldPath.test(address.field)) throw invalid("field path", address.field)
+  if (address.id !== undefined && (!address.id || address.id.includes("#"))) throw invalid("document id", address.id)
   return `${address.collection}${address.id === undefined ? "" : `:${address.id}`}#${address.field}`
 }
 

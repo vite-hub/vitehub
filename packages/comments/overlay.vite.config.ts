@@ -1,5 +1,6 @@
 import { resolve } from "node:path"
 
+import { browserTarget } from "@vite-hub/internal/package-exports"
 import { defineConfig } from "vite"
 
 import { overlayAliases, standaloneStyles, standaloneUI } from "./overlay.aliases.ts"
@@ -30,6 +31,6 @@ export default defineConfig({
       preserveEntrySignatures: "exports-only",
       output: { chunkFileNames: "[name]-[hash].js", entryFileNames: "[name].js" },
     },
-    target: "es2022",
+    target: browserTarget,
   },
 })

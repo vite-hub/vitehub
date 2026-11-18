@@ -16,13 +16,13 @@ icon: i-lucide-git-pull-request
   ```
 
   ```ts [server/api/issues.post.ts]
-  import { createError, defineEventHandler } from 'h3'
+  import { defineEventHandler, HTTPError } from 'h3'
   import { useForge } from 'vite-hub/forge'
 
   // Sends the installation token of acme/web
   export default defineEventHandler(async () => {
     const [error, github] = await useForge().provider({ repository: 'acme/web' })
-    if (error) throw createError({ status: 502, message: error.why })
+    if (error) throw new HTTPError({ status: 502, message: error.why })
 
     const { data } = await github.request<{ html_url: string }>('POST', '/repos/acme/web/issues', {
       body: { title: 'Nightly build failed' },

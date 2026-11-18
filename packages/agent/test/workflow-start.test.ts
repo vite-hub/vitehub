@@ -6,7 +6,7 @@ describe("workflow start failure classification", () => {
   it("rejects callable failures", () => {
     const failure = Object.assign(() => undefined, {
       code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
-      details: { acknowledgement: "unknown", provider: "cloudflare", operation: "create" },
+      data: { acknowledgement: "unknown", provider: "cloudflare", operation: "create" },
     })
 
     expect(isAmbiguousAgentWorkflowStartFailure(failure)).toBe(false)

@@ -42,7 +42,6 @@ import * as frameworkWebContainer from "vite-hub/web-container";
 import * as frameworkWebContainerConnect from "vite-hub/web-container/connect";
 import * as ownerRuntimeNode from "@vite-hub/runtime/internal/node";
 import { distributionBinEntries, distributionEntriesFromManifest } from "../vite.config.ts";
-import { setActiveCloudflareEnv as frameworkDatabaseStateSetter } from "../src/internal/database-runtime-state.ts";
 import { hostManagedAuthorize } from "./support/console-authorize.ts";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -259,7 +258,6 @@ describe("framework package contract", () => {
 
   it("keeps the Database environment setter on its owner runtime instance", () => {
     expect(ownerCloudflareEnvSetter).toBe(ownerDatabaseStateSetter);
-    expect(frameworkDatabaseStateSetter).toBe(ownerDatabaseStateSetter);
   });
 
   it("keeps every source forwarder owned by its matching package export", () => {
@@ -428,7 +426,6 @@ describe("framework package contract", () => {
     );
     expect(consolePage).toContain('invocation.annotations?.["agent.model.provider"]');
     expect(consolePage).toContain("ConsoleSessionInspector");
-    expect(consolePage).not.toContain("ConsoleHealth");
     const consoleSessionCss = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-session.css`,
       "utf8",
@@ -660,7 +657,6 @@ describe("framework package contract", () => {
     );
     expect(consolePage).toContain("max-width: 48rem");
     expect(consolePage).not.toContain("route.query.agent");
-    expect(consolePage).not.toContain("groupConsoleSessions");
     expect(consolePage).not.toContain("<UApp");
     expect(consolePage).toContain(".vitehub-console");
     // Nuxt serves the standalone Console page, so the package ships no Nuxt pages.

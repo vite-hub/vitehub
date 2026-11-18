@@ -57,7 +57,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', database: true, email: { driver: 'resend' }, kv: true, queue: true })],
+  plugins: [vitehub({ database: true, email: { driver: 'resend' }, kv: true, queue: true })],
   test: { environment: 'node' },
 })
 ```
@@ -198,4 +198,4 @@ The Channel adapter still calls the provider API for replies and files, so stub 
 
 `vite-hub/test` loads no Primitive. Each Primitive switches to its test backend only when your code calls it, so a test pays only for the features that the app uses. Only a test that calls `signIn()` loads `@vite-hub/auth`.
 
-Queue and Workflow still check enabled configuration, discovered Definitions, and provider operation support before recording work. Deferred Queue dispatch and Workflow starts keep the host's `waitUntil()` behavior; wait for that work before reading `jobs` or `workflows`. Workflow signals are not supported by the test backend: `resumeWorkflow()` rejects with `WORKFLOW_OPERATION_UNSUPPORTED` and calls no provider.
+Queue and Workflow still check enabled configuration, discovered Definitions, and provider operation support before recording work. Deferred Queue dispatch and Workflow starts keep the host's `waitUntil()` behavior; wait for that work before reading `jobs` or `workflows`. Workflow signals are not supported by the test backend: `resumeWorkflow()` returns the error `WORKFLOW_OPERATION_UNSUPPORTED` and calls no provider.

@@ -80,9 +80,6 @@ afterEach(async () => {
   vi.clearAllMocks()
   await Promise.all(tempDirs.splice(0).flatMap(path => [
     path,
-    `${path}.vitehub-lock`,
-    `${path}.vitehub-locks`,
-    `${path}.vitehub-file-metadata`,
     `${path}.meta.json`,
   ]).map(path => rm(path, { recursive: true, force: true })))
 })
@@ -1813,7 +1810,7 @@ describe("local workspace store", () => {
     await expect(afterRemoval.readFile("a.json/b")).resolves.toMatchObject({ metadata: { owner: "b" } })
   })
 
-  it("does not serialize unconditional writes behind the Workspace root lock", async () => {
+  it("stages an unconditional write in the Workspace temp folder before publishing it", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
     tempDirs.push(root)
     const store = createLocalWorkspaceStore(root)
@@ -1831,7 +1828,6 @@ describe("local workspace store", () => {
     const writing = store.writeFile("docs/readme.md", { path: "docs/readme.md", content: "hello" })
     await writingStarted
 
-    await expect(stat(`${root}.vitehub-lock`)).rejects.toMatchObject({ code: "ENOENT" })
     const tempPath = String(vi.mocked(writeFile).mock.calls[0]?.[0])
     expect(tempPath.startsWith(`${root}/.vitehub/tmp/`)).toBe(true)
     await expect(store.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
@@ -2013,7 +2009,7 @@ describe("local workspace store", () => {
     })
   })
 
-  it("does not serialize unconditional streamed writes behind the Workspace root lock", async () => {
+  it("does not publish an unconditional streamed write before its content finishes", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
     tempDirs.push(root)
     const store = createLocalWorkspaceStore(root)
@@ -2034,7 +2030,6 @@ describe("local workspace store", () => {
     })
     await waiting
 
-    await expect(stat(`${root}.vitehub-lock`)).rejects.toMatchObject({ code: "ENOENT" })
     await expect(store.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
       expect.objectContaining({ type: "file" }),
     ]))

@@ -875,7 +875,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     const first = store.snapshot()
     await vi.waitFor(() => expect(gitMock.push).toHaveBeenCalledOnce())
     const second = store.snapshot()
-    await Promise.resolve()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(gitMock.statusMatrix).toHaveBeenCalledOnce()
     releasePush()
 
@@ -1082,6 +1082,10 @@ describe("Cloudflare Artifacts workspace store", () => {
       const store = await createStore({ create: vi.fn(), get: vi.fn(async () => repo) })
       await store.writeFile("local.md", { content: "local", path: "local.md" })
       await store.setMeta?.("sync-state", { at: 1 })
+      // `undefined` removes the key, also after the staged writes move onto the new head.
+      await store.setMeta?.("recovery", { at: 0 })
+      await store.setMeta?.("recovery", undefined)
+      await expect(store.getMeta?.("recovery")).resolves.toBeUndefined()
 
       await expect(store.snapshot({ name: "sync" })).resolves.toMatchObject({ id: "commit-1" })
       expect(gitMock.push).toHaveBeenCalledTimes(2)
@@ -1089,6 +1093,7 @@ describe("Cloudflare Artifacts workspace store", () => {
       await expect(store.readFile("remote.md")).resolves.toMatchObject({ content: new TextEncoder().encode("other-writer") })
       await expect(store.readFile("local.md")).resolves.toMatchObject({ content: new TextEncoder().encode("local") })
       await expect(store.getMeta?.("sync-state")).resolves.toEqual({ at: 1 })
+      await expect(store.getMeta?.("recovery")).resolves.toBeUndefined()
     }
     finally {
       gitMock.listServerRefs.mockReset().mockImplementation(async () => [])
