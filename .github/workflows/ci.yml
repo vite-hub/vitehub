@@ -507,12 +507,12 @@ jobs:
     steps:
       - run: echo 'All consumer contract shards passed'
 
-  # The workspace and every package require Node.js 24.11. Other jobs run the
+  # The workspace and every package require Node.js 24.15. Other jobs run the
   # newest Node.js 24. This job runs the tests for built-ins that change between
   # releases (fs glob, node:sqlite, module hooks, Response brand checks,
   # TextDecoder, and structuredClone) on the exact floor.
   node-floor:
-    name: node 24.11
+    name: node 24.15
     if: *full-suite
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -522,17 +522,12 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
         with:
-          node-version: "24.11.0"
+          node-version: "24.15.0"
 
-      - name: Require Node.js 24.11
-        run: node -e 'if (process.version !== "v24.11.0") throw new Error("Expected Node.js v24.11.0, got " + process.version)'
-      # Node 24.11 bundles Corepack 0.34.0. Corepack finds the pnpm 11+ binary
-      # only from 0.34.5. Bootstrap the exact Corepack version independently of
-      # workspace dependencies.
-      - name: Install Corepack with native pnpm support
-        run: npm install --global corepack@0.34.6 # zizmor: ignore[adhoc-packages]
+      - name: Require Node.js 24.15
+        run: node -e 'if (process.version !== "v24.15.0") throw new Error("Expected Node.js v24.15.0, got " + process.version)'
       # The restored task cache can hold builds from a newer Node.js 24. Build the
-      # targets together on 24.11 so each dependency runs once, preserving
+      # targets together on 24.15 so each dependency runs once, preserving
       # uncached floor validation.
       - name: Clear install-time build cache
         run: vp cache clean

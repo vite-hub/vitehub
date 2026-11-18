@@ -395,7 +395,7 @@ describe("unified vite e2e hosted outputs", () => {
     expect(vercelServerContents).not.toContain('from "@vercel/blob"')
     expect(vercelServerContents).not.toContain("from '@vercel/blob'")
     expect(vercelServerContents).not.toContain('import("vite")')
-    expect(vercelServerConfig.runtime).toBe("nodejs22.x")
+    expect(vercelServerConfig.runtime).toBe("nodejs24.x")
     expect(vercelConsumerContents).toContain("waitUntil")
     expect(vercelConsumerContents).toContain("handleHostedVercelQueueCallback")
     expect(vercelScheduleContents).toContain("process.env.CRON_SECRET")

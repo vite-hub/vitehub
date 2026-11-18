@@ -128,7 +128,7 @@ If a coding agent writes your app, install the ViteHub skill:
 npx skills add https://vitehub.dev --skill vitehub
 ```
 
-Requirements: Node.js 24.11 or newer, and Vite 8 or newer. Hosts: `cloudflare`, `netlify`, `vercel`, `deno`, and `node`.
+Requirements: Node.js 24.15 or newer, and Vite 8 or newer. Nuxt 5 does not install on Node.js 25, so with Nuxt use 24.15 or newer on 24.x, or 26 or newer. Hosts: `cloudflare`, `netlify`, `vercel`, `deno`, and `node`.
 
 ## Agents
 

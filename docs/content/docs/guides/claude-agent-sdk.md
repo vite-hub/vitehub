@@ -17,7 +17,7 @@ The SDK runs the Claude Code binary as a local process. A ViteHub Agent with `cl
 
 ## Set up the Claude Agent SDK
 
-Start from the app of [Installation](/docs/getting-started/installation). You need Node.js 24.11 or newer on Linux or macOS, pnpm, and an Anthropic API key (see the [Agent SDK quickstart](https://code.claude.com/docs/en/agent-sdk/quickstart)).
+Start from the app of [Installation](/docs/getting-started/installation). You need Node.js 24.15 or newer on Linux or macOS, pnpm, and an Anthropic API key (see the [Agent SDK quickstart](https://code.claude.com/docs/en/agent-sdk/quickstart)).
 
 ### Install the packages
 

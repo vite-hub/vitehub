@@ -11,7 +11,7 @@ navigation.kind: Tutorial
 
 In this tutorial you open a Sandbox on your own Node host, write a file, and run Node to read it back. A Sandbox is a session for running commands, with a private Home, a set environment, and boot checks.
 
-You need Node.js 24.11 or newer, pnpm, and a Vite server app. Run the commands from its root.
+You need Node.js 24.15 or newer, pnpm, and a Vite server app. Run the commands from its root.
 
 > [!WARNING]
 > A trusted-host Sandbox shares your host's files and process rights. For untrusted code, use [Sandbox](/docs/sandbox) with provider isolation.

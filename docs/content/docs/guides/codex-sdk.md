@@ -17,7 +17,7 @@ ViteHub does not use `@openai/codex-sdk`. `codexDriver()` starts the Codex CLI f
 
 ## Set up Codex
 
-Start from the app of [Installation](/docs/getting-started/installation). You need Node.js 24.11 or newer on Linux or macOS, pnpm, and an OpenAI API key or a ChatGPT plan.
+Start from the app of [Installation](/docs/getting-started/installation). You need Node.js 24.15 or newer on Linux or macOS, pnpm, and an OpenAI API key or a ChatGPT plan.
 
 ### Install the packages
 

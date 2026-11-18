@@ -64,7 +64,7 @@ export default defineHandler((event) => {
           language: "markdown",
           content: `# Local Logs
 
-Use Node.js 24.11 or newer. Run pnpm install, then pnpm dev.
+Use Node.js 24.15 or newer. Run pnpm install, then pnpm dev.
 Request /api/status, then open the Console link that pnpm dev prints, and select Logs.
 This starter uses temporary development capture. It has no production build script.
 For production, connect an existing backend with observability.logs.source.
