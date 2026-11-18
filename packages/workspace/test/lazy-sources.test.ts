@@ -1926,7 +1926,7 @@ describe("lazy sources", () => {
     const active = first.materializeSources({ path: "docs" })
     await materializing
     const read = second.readFile("docs/a.md", { encoding: "utf8" })
-    await Promise.resolve()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(getItems).toHaveBeenCalledOnce()
 
     release()
@@ -2016,7 +2016,7 @@ describe("lazy sources", () => {
     const first = createWorkspaceSourceView(definition, store).materializeSources({ path: "docs/a.md" })
     await started
     const second = createWorkspaceSourceView(definition, store).materializeSources({ path: "docs/b.md" })
-    await Promise.resolve()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(getItem).toHaveBeenCalledOnce()
 
     release()
@@ -3523,8 +3523,10 @@ describe("lazy sources", () => {
     const materializing = view.materializeSources({ sources: ["generated"] })
     await started
     const synchronizing = syncWorkspaceDefinition(definition, store)
-    await expect(Promise.race([synchronizing.then(() => "synced"), Promise.resolve("pending")])).resolves.toBe("pending")
+    let synced = false
+    void synchronizing.then(() => { synced = true }, () => { synced = true })
     await new Promise(resolve => setTimeout(resolve, 10))
+    expect(synced).toBe(false)
     releaseFirst()
     await expect(materializing).resolves.toMatchObject({
       sources: [expect.objectContaining({ source: "generated", status: "error" })],

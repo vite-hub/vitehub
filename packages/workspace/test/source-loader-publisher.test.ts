@@ -1201,7 +1201,10 @@ describe("sources and loaders", () => {
 
     await removing
     controller.abort(new Error("preparation stopped"))
-    await expect(Promise.race([syncing.then(() => "settled", () => "settled"), Promise.resolve("pending")])).resolves.toBe("pending")
+    let settled = false
+    void syncing.then(() => { settled = true }, () => { settled = true })
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(settled).toBe(false)
     releaseRemoval()
     await expect(syncing).rejects.toThrow("preparation stopped")
   })
