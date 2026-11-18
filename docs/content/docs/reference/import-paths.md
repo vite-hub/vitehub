@@ -171,6 +171,7 @@ the same behavior.
 | `vite-hub/tsconfig` | TypeScript config that includes ViteHub's generated declaration entry without taking ownership of application source includes. |
 | `vite-hub/webhooks` | `defineWebhook()` for `server/webhooks/<name>.ts` and `sendWebhook()`: send events to a URL outside the app, signed, retried, and debounced. Needs `queue` and `database`. Re-exports `@vite-hub/webhooks`. |
 | `vite-hub/webhooks/database` | The `vitehub_webhook_deliveries` table and `createDrizzleWebhookStore()`. Re-exports `@vite-hub/webhooks/database`. |
+| `vite-hub/webhooks/operations` | The `webhooks.*` operations of the Console, `vitehub webhooks`, and MCP: list, deliveries, pending, get, test, flush, cancel, and redeliver. Re-exports `@vite-hub/webhooks/operations`. |
 | `vite-hub/webhooks/runtime` | List, flush, cancel, and redeliver webhook deliveries from server code. Re-exports `@vite-hub/webhooks/runtime`. |
 | `vite-hub/workflow` | Workflow Definitions and run helpers. |
 | `vite-hub/workflow/openworkflow` | `startOpenWorkflowWorker()` and `createOpenWorkflowWorker()` for a separate OpenWorkflow worker process. Node servers start a worker automatically. |

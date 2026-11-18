@@ -1,6 +1,6 @@
 ---
 title: Send your first request through a gateway
-description: Send an AI SDK model request through OpenRouter, then ask TypeSafe Jev a typed question.
+description: Send an AI SDK model request through OpenRouter, get typed data from one call, then ask TypeSafe Jev a typed question.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2
@@ -9,7 +9,7 @@ icon: i-lucide-rocket
 
 An AI gateway is one object that knows where to send AI requests and how to sign them. A preset is a ready-made gateway for one provider, such as `openrouter()`.
 
-In this tutorial, you send a prompt to a model through OpenRouter. Then you ask [TypeSafe Jev](https://typesafe.ai) a typed question.
+In this tutorial, you send a prompt to a model through OpenRouter and get typed data back. Then you ask [TypeSafe Jev](https://typesafe.ai) a typed question.
 
 > [!NOTE] Before you start
 > Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need an [OpenRouter](https://openrouter.ai) API key, and a TypeSafe API key for the last step.
@@ -64,6 +64,33 @@ TypeScript accepts only a gateway that serves the model API. `languageModel(type
 
 ::
 
+::tutorial-step{title="Get typed data from one call"}
+## Get typed data from one call
+
+Call `ask(prompt, { model, schema })` when you need data in a fixed shape, such as fields read from a receipt. It sends one request and checks the answer against your schema. You do not need an Agent for this.
+
+Create `receipt.ts`:
+
+```ts [receipt.ts]
+import { z } from 'zod'
+import { ask, openrouter } from 'vite-hub/gateways'
+import { languageModel } from 'vite-hub/gateways/ai-sdk'
+
+const [error, receipt] = await ask('MERCADONA 23.10 -34.90 EUR', {
+  model: languageModel(openrouter(), 'google/gemini-3-flash'),
+  schema: z.object({ merchant: z.string(), amount: z.number(), date: z.string() }),
+})
+if (error) throw error
+
+receipt.merchant // string
+```
+
+- `schema` is a [Standard Schema](https://standardschema.dev) that converts to JSON Schema, such as Zod 4 or ArkType. For Valibot, wrap the schema with `toStandardJsonSchema()` from `@valibot/to-json-schema`.
+- The result is `[error, data]`. `error` is set when the request fails or when the answer does not match the schema.
+- Use an Agent when the model must call tools, keep a conversation, or run for a long time.
+
+::
+
 ::tutorial-step{title="Ask your first question"}
 ## Ask your first question
 
@@ -112,7 +139,7 @@ Pick a preset, pass keys, and set up Cloudflare AI Gateway.
 :::
 
 :::card{title="Server API" icon="i-lucide-code-2" to="/docs/gateways/server-api"}
-Read `languageModel()`, `ask()`, `askWithModel()`, and `defineAiGateway()`.
+Read `languageModel()`, `ask()`, `gateway.ask()`, `askWithModel()`, and `defineAiGateway()`.
 :::
 
 :::card{title="Use with Agents" icon="i-lucide-bot" to="/docs/gateways/agents"}

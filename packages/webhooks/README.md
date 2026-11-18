@@ -67,13 +67,31 @@ Errors and stored fields never hold the URL, its query, or the secret. A deliver
 
 | Function | Does |
 | --- | --- |
-| `listWebhooks()` | Every webhook, with the names of its variables and whether they are set |
+| `listWebhooks()` | Every webhook, with the names of its variables, whether they are set, and the URL host |
 | `listWebhookDeliveries({ webhook?, state?, limit?, before? })` | Deliveries, newest first |
 | `listPendingWebhookDeliveries({ webhook?, limit? })` | Pending deliveries, the soonest due first |
 | `getWebhookDelivery(id)` | One delivery |
 | `flushWebhookDelivery(id)` | Delivers a pending delivery now |
 | `cancelWebhookDelivery(id)` | Cancels a pending delivery |
 | `redeliverWebhookDelivery(id)` | Sends a sent, dead, or cancelled delivery again as a new delivery |
+| `testWebhook(name, { body? })` | Sends a test delivery now, without the debounce, with the event `webhooks.test` |
+
+The same actions run from the terminal, the Console, and MCP as the `webhooks.*` operations on the app's operation RPC. `vitehub webhooks` reaches `vite dev`, or a deployed app with `--url`, and prints JSON:
+
+```bash
+vitehub webhooks list
+vitehub webhooks deliveries --webhook t3 --state dead --limit 20
+vitehub webhooks pending
+vitehub webhooks get whd_...
+vitehub webhooks test t3 --body '{"thread":"thr_1"}'
+vitehub webhooks flush whd_...
+vitehub webhooks cancel whd_...
+vitehub webhooks redeliver whd_...
+```
+
+`list`, `deliveries`, `pending`, and `get` only read, so MCP marks them read-only. The output shows the host of a URL, never its path, query, or the secret.
+
+The Webhooks section of the Console shows each webhook with its host, signature, debounce, and the names of its URL and secret variables, then the pending timers with a countdown and the delivery log. Its buttons run Send test, Send now, Cancel, and Redeliver through the same operations. Set the variables in the Env section.
 
 ## Public imports
 
@@ -81,7 +99,8 @@ Errors and stored fields never hold the URL, its query, or the secret. A deliver
 | --- | --- |
 | `@vite-hub/webhooks` | `defineWebhook()`, `sendWebhook()`, and the types |
 | `@vite-hub/webhooks/runtime` | The delivery functions above, `installWebhooks()` for tests, and the Queue handler |
+| `@vite-hub/webhooks/operations` | `webhooksOperations`, the operations of the Console, `vitehub webhooks`, and MCP |
 | `@vite-hub/webhooks/database` | The table as `webhooksSchema`, as SQL in `webhooksTables`, and `createDrizzleWebhookStore(db)` |
-| `@vite-hub/webhooks/vite` | `hubWebhooks()`, which `vite-hub` adds for you |
+| `@vite-hub/webhooks/vite` | `hubWebhooks()`, which `vite-hub` adds for you, and `webhooksConsoleSection` |
 
 In a ViteHub app, import the same functions from `vite-hub/webhooks`.

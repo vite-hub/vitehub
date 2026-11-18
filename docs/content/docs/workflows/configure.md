@@ -86,7 +86,6 @@ Use Workflow Steps only when you need parts that the provider can retry or inspe
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `id` | `string` | Static provider id for the workflow. |
 | `native` | `(context: WorkflowProviderContext) => unknown` | Durable entry for Vercel Workflow DevKit. |
 | `rootStep` | `boolean` | Wraps the handler in a root Workflow Step when the provider supports steps. `context.sleep()` in a root step throws `WORKFLOW_ROOT_STEP_SLEEP`. A folder Workflow's `index.ts` has no root step, so it can [sleep](/docs/workflows/limits-and-errors#retries-and-sleeps). |
 

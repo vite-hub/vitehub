@@ -593,6 +593,25 @@ describe("GitHub workspace store", () => {
     });
   });
 
+  // Source materialization clears its recovery record with setMeta(key, undefined). The Store committed that as an empty
+  // file, and the next getMeta() of the key failed with "Unexpected end of JSON input".
+  it("removes metadata set to undefined and reads an empty metadata file as absent", async () => {
+    seedRemote(".vitehub/workspaces/docs/.vitehub/meta/legacy.json", "");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const options = { driver: "github" as const, repository: "onmax/repo", root: ".vitehub/workspaces/<workspace>", token: "token" };
+    const store = createGitHubWorkspaceStore(options, "docs");
+    await expect(store.getMeta!("legacy")).resolves.toBeUndefined();
+
+    await store.setMeta!("recovery", { digest: "abc" });
+    await store.snapshot({ name: "save recovery" });
+    await store.setMeta!("recovery", undefined);
+    await expect(store.getMeta!("recovery")).resolves.toBeUndefined();
+    await store.snapshot({ name: "clear recovery" });
+    expect(fake.tree("main").map(entry => entry.path)).not.toContain(".vitehub/workspaces/docs/.vitehub/meta/recovery.json");
+
+    await expect(createGitHubWorkspaceStore(options, "docs").getMeta!("recovery")).resolves.toBeUndefined();
+  });
+
   it("commits metadata-only updates and removes their sidecars", async () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore({

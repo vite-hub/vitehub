@@ -1,4 +1,5 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -29,6 +30,19 @@ function ndjsonResponse(lines: unknown[]) {
   }), {
     headers: { "content-type": "application/x-ndjson; charset=utf-8" },
   })
+}
+
+
+/** A Session host that runs the real command, with a HOME whose `.profile` sets PATH as Debian's /etc/profile does. */
+async function profileResettingHost() {
+  const home = await mkdtemp(join(tmpdir(), "vitehub-workspace-profile-"))
+  await writeFile(join(home, ".profile"), "export PATH=/from/profile\n")
+  const exec = async (command: string, args: string[] = []) => await new Promise<{ args: string[], command: string, exitCode: number, stderr: string, stdout: string }>((resolve) => {
+    execFile(command, args, { env: { ...process.env, HOME: home } }, (error, stdout, stderr) => {
+      resolve({ args, command, exitCode: error ? Number(error.code ?? 1) : 0, stderr, stdout })
+    })
+  })
+  return { cleanup: () => rm(home, { force: true, recursive: true }), exec }
 }
 
 describe("workspace CLI", () => {
@@ -339,6 +353,22 @@ describe("workspace CLI", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
+  it("runs string Workspace Dev commands without a login shell, so a profile keeps the PATH", async () => {
+    const host = await profileResettingHost()
+    try {
+      const workspace = {
+        startSession: vi.fn(async () => ({ close: vi.fn(), commit: vi.fn(), diff: vi.fn(async () => ({ entries: [] })), exec: host.exec })),
+      }
+      await expect(runWorkspaceDevCommand({ command: "printenv PATH", workspace: workspace as never })).resolves.toMatchObject({
+        exitCode: 0,
+        stdout: `${process.env.PATH}\n`,
+      })
+    }
+    finally {
+      await host.cleanup()
+    }
+  })
+
   it("uses the portable Workspace shell for string Workspace Dev commands", async () => {
     const exec = vi.fn(async () => ({
       exitCode: 0,
@@ -360,7 +390,7 @@ describe("workspace CLI", () => {
       stdout: "ok\n",
     })
 
-    expect(exec).toHaveBeenCalledWith("sh", ["-lc", "echo ok"], {
+    expect(exec).toHaveBeenCalledWith("sh", ["-c", "echo ok"], {
       abortSignal: undefined,
       timeout: undefined,
     })

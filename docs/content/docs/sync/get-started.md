@@ -15,8 +15,8 @@ You need a ViteHub app with Vue or Nuxt from [Installation](/docs/getting-starte
 Install Sync and the Database packages that store the rows:
 
 ```bash [commands/install]
-pnpm add @vite-hub/sync @vite-hub/database drizzle-orm
-pnpm add -D drizzle-kit
+pnpm add @vite-hub/sync @vite-hub/database drizzle-orm@1.0.0-rc.5
+pnpm add -D drizzle-kit@1.0.0-rc.5
 ```
 
 ::

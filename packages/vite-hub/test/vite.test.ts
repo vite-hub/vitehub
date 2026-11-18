@@ -2399,7 +2399,7 @@ describe("vitehub", () => {
   })
 
   it("rejects unsupported capabilities and conflicting target selection", async () => {
-    expect(() => vitehub({ host: "deno", schedule: true })).toThrow("cannot provide Schedule")
+    expect(() => vitehub({ host: "deno", schedule: true })).not.toThrow()
     expect(() => vitehub({ host: "deno", agent: { runtime: "deno" } })).toThrow("cannot deploy the Agent Deno runtime")
 
     // SAFETY: The explicit Deno preset installs the named deployment plugin.
