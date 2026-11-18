@@ -230,6 +230,15 @@ describe("contributed operations over the Console RPC", () => {
     expect((await call("fixture.greet", { name: "Ada" }, {}, "https://app.example.com/_vitehub/rpc")).status).toBe(200)
   })
 
+  it("gives an operation the project root only on a development server", async () => {
+    const root = defineOperation({ description: "Read the project root.", input: v.object({}), kind: "read", name: "fixture.root", section: false, user: false, run: (_input, context) => ({ projectRoot: context.projectRoot ?? null }) })
+    installConsoleOperations([{ operations: [root] }])
+    installConsoleDevelopment("/work/app", true)
+    await expect(operationRpcResponseResult(await call("fixture.root", {}, {}, "http://localhost:5173/_vitehub/rpc"))).resolves.toEqual({ ok: true, value: { projectRoot: "/work/app" } })
+    installConsoleDevelopment("/work/app", false)
+    await expect(operationRpcResponseResult(await call("fixture.root"))).resolves.toEqual({ ok: true, value: { projectRoot: null } })
+  })
+
   it("tells an operation that the CLI made the call", async () => {
     installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
     const response = await call("fixture.greet", { name: "Ada" }, { "x-vitehub-surface": "cli" })

@@ -48,6 +48,11 @@ export interface OperationContext {
   surface: "console" | "cli" | "mcp" | "agent"
   /** Set by the host from generated build identity, never from request input or runtime NODE_ENV. */
   development?: boolean
+  /**
+   * The project root of a development server, for operations that read build files, such as `bundle.report`. Hosts set
+   * it only with `development`, so a deployed server never reads project files through it.
+   */
+  projectRoot?: string
   env?: Record<string, unknown>
   waitUntil?: (task: Promise<unknown>) => void
   request?: Request
