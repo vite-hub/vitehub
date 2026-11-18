@@ -6,7 +6,7 @@ import type { Window } from "happy-dom"
 
 vi.mock("#vitehub/auth/abilities", () => import("./fixtures/abilities.ts"))
 
-const { Can, createAuthClient, provideAuthClient, setNuxtAppResolver, setSessionSeedResolver, useAbility, useSession } = await import("../src/vue.ts")
+const { AuthPermission, createAuthClient, provideAuthClient, setNuxtAppResolver, setSessionSeedResolver, useAbility, useSession } = await import("../src/vue.ts")
 const { document } = globalThis as unknown as Window
 const author = { session: { id: "s1", expiresAt: new Date(Date.now() + 60_000).toISOString() }, user: { id: "u1", name: "Ada", email: "ada@example.com", emailVerified: true } }
 const ownPost = { authorId: "u1", published: false }
@@ -47,7 +47,7 @@ describe("configured ability clients", () => {
       explicit = useAbility(client)
       const state = useSession(client)
       refresh = () => state.value.refetch()
-      return () => h(Can as never, { do: "posts.edit", with: ownPost }, {
+      return () => h(AuthPermission as never, { check: "posts.edit", args: [ownPost] }, {
         default: () => h("button", "Edit"),
         denied: ({ code }: { code: string }) => h("span", code),
       })

@@ -26,7 +26,7 @@ icon: i-lucide-code-2
 | `requireServiceToken`, `checkServiceToken` from `vite-hub/env` | Check the bearer token of a route that a script or a runner calls. No session and no Auth setup. See [Service tokens](/docs/env/service-tokens). |
 | `defineAbilities`, `deny`, `guest` from `vite-hub/auth/abilities` | Write the rules of `shared/abilities.ts`. See [Abilities](/docs/auth/abilities). |
 | `requireAbility`, `can`, `AbilityError` from `vite-hub/auth/server` | Check a rule of `shared/abilities.ts` in server code. |
-| `useAbility`, `Can`, `Cannot` from `vite-hub/auth/vue` | Check a rule of `shared/abilities.ts` in Vue. `useAbility()` returns `can()`, `cannot()`, `authorize()`, and `ready`. |
+| `useAbility`, `AuthPermission` from `vite-hub/auth/vue` | Check a rule of `shared/abilities.ts` in Vue. `useAbility()` returns `can()`, `cannot()`, `authorize()`, and `ready`. |
 | `useUserSession`, `useSession`, `createAuthClient`, `loadAuthClient` from `vite-hub/auth/vue` | Read session state and call Better Auth from Vue. Better Auth loads on first use. |
 | `defineAuthClient` from `vite-hub/auth/vue` | Set the [client plugins](#client-plugins) of the default client in `auth.client.ts`. |
 | `authenticated` from `vite-hub/auth/agent` | Turn a Better Auth session into an Agent Invoker (who calls the Agent). |
