@@ -36,6 +36,12 @@ provider. Without it, ViteHub detects the host in this order:
    `VERCEL` or `VERCEL_ENV`, then `DENO_DEPLOY` or `DENO_DEPLOYMENT_ID`
 4. `node` when none of them is set
 
+When you set `host` and a build variable of step 3 names another host, the
+production build fails with
+[`VITE_HUB_HOST_PROVIDER_CONFLICT`](/docs/development/diagnostics/vite_hub_host_provider_conflict),
+and dev prints a warning once. Remove `host`, or set `VITEHUB_HOST` to build
+for another host on purpose.
+
 Cloudflare Pages is not detected, because the `cloudflare` host builds a
 Worker. To set host-specific options, use `detectHost()` from
 `vite-hub`:

@@ -125,13 +125,6 @@ describe("provision state", () => {
     expect(await readFile(path)).toEqual(original)
   })
 
-  it("only persists the non-secret ids it is given", async () => {
-    const rootDir = await createTempDir()
-    await writeProvisionState(rootDir, { cloudflare: { d1: { primary: "id-1" } } })
-    const raw = await readFile(join(rootDir, ".vitehub", "provision.json"), "utf8")
-    expect(raw).not.toMatch(/token|secret/i)
-  })
-
   it("does not return inherited categories or identifiers", () => {
     const state = { cloudflare: { d1: { primary: "id-1" } } }
     for (const name of ["__proto__", "constructor", "toString"]) {

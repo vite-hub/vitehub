@@ -670,7 +670,8 @@ async function allows(
   definition: RealtimeDefinition,
   context: RealtimeAuthorizeContext,
 ): Promise<boolean> {
-  if (definition.authorize) return (await definition.authorize(context)) !== false
+  // Only `true` allows. A callback that returns nothing, such as one that checks only `write`, denies.
+  if (definition.authorize) return (await definition.authorize(context)) === true
   // `assertRealtimeAccess()` let the definition load, so it is `auth: true` (identify() already required a user) or
   // `access: "public"`.
   return definition.auth === true || definition.access === "public"

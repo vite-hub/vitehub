@@ -85,7 +85,7 @@ Use `createScheduleNitroConfig()` when your Nitro integration merges config and 
 
 The Process Runtime loads the discovered registry and runs each Static Schedule Definition on its cron inside the Node.js process.
 
-- It records Schedule Runs in the default KV store (the `kv` option) under the prefix, reports errors through Nitro, and stops on Nitro shutdown.
+- It records Schedule Runs in memory when KV is off, or under the prefix in the default KV store when KV is on. In-memory history is lost on restart. The runtime reports errors through Nitro and stops on Nitro shutdown.
 - By default it checks once per minute, with one run at a time. `intervalMs` cannot be more than one minute.
 - Each check covers the minutes since the last one that are still inside `catchUpMs`, plus the current minute.
 - After a restart, it runs due minutes that no process checked, such as during a deploy, for each schedule that already has a run. It looks back at most one hour (`installProcessScheduleRuntime({ catchUpMs })`, `0` turns it off).
@@ -115,7 +115,7 @@ Every server checks every Schedule. While the holder keeps its lease, one server
 | A started Schedule is due | Each occurrence takes the same lease, so one server runs it. |
 | A manual run | The server that gets the request runs it once. Each manual run has its own run id. |
 
-Without a Database, the leases stay in the memory of each server, and the build prints a warning. Then each server runs every occurrence, so run one server only. The Schedule Runs stay in KV. Use a KV store that all servers share, such as Upstash, so catch-up, `vitehub schedule runs`, and the Console see the runs of every server.
+Without a Database, the leases stay in the memory of each server, and the build prints a warning. Then each server runs every occurrence, so run one server only. With a shared Database, use a KV store that all servers share, such as Upstash, so catch-up, `vitehub schedule runs`, and the Console see the runs of every server.
 
 Inspect the leases with SQL, for example `select "key", owner, expires_at from vitehub_leases where "key" like 'vitehub:schedule/schedule/%'`. Replace `vitehub:schedule` with the app's prefix. `owner` is the host name and process ID of the server.
 
