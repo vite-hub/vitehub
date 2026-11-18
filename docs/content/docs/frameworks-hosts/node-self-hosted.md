@@ -201,8 +201,9 @@ Database, KV store, and Blob store of the app answers:
 
 A Database runs `SELECT 1`, and a KV or Blob store reads one key. Each check
 has 2 seconds. When one fails, the route answers `503` with `ok: false`. The
-error goes to the server log, never to the response. Point a container health
-check or a load balancer at it:
+error goes to the server log, never to the response. The
+[generated Dockerfile](#run-the-server-with-docker) checks this route. For
+your own image or a load balancer, point the health check at it:
 
 ```dockerfile [Dockerfile]
 HEALTHCHECK --interval=30s --timeout=5s \
@@ -299,6 +300,55 @@ MemoryMax=2G
 
 Set `TimeoutStopSec` in a drop-in when you set `VITEHUB_SHUTDOWN_DRAIN_MS` in
 `.env`, because the build cannot read that file.
+
+## Run the server with Docker
+
+A production build on the `node` host also writes `.output/Dockerfile`. It is a
+runtime image for the build output. Build the image from `.output` and run it:
+
+```bash [Terminal]
+pnpm build
+docker build -t my-app .output
+docker run --init --stop-timeout 30 -p 3000:3000 --env-file .env -v my-app-data:/app/.vitehub my-app
+```
+
+```dockerfile [.output/Dockerfile]
+FROM node:24-slim
+WORKDIR /app
+COPY . .output/
+RUN ["install","-d","-o","node","-g","node","/app","/app/.vitehub"]
+USER node
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
+EXPOSE 3000
+VOLUME ["/app/.vitehub"]
+STOPSIGNAL SIGTERM
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["node","-e","fetch(\"http://127.0.0.1:\" + (process.env.PORT || 3000) + \"/api/_vitehub/health\").then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+CMD ["node",".output/server/index.mjs"]
+```
+
+- The server runs as the `node` user in `/app`, as the systemd unit runs in
+  the project root. Relative data paths, such as `.vitehub/data`, resolve
+  there. The volume is `/app/.vitehub`, or `dataDir` when you set it. Mount a
+  volume there to keep the data when the container changes.
+- The image does not include `.env`. Pass Server Env with `--env-file` or `-e`.
+- Docker sends `SIGTERM` on stop, and ViteHub
+  [drains Agent work](/docs/agents/process-hosts#drain-agent-work-on-stop-signals).
+  A Dockerfile cannot set the stop timeout, so the comment at the top of the file
+  shows `--stop-timeout`: the `agent.shutdown.drainMs` budget plus 30 seconds,
+  as `TimeoutStopSec` in the systemd unit. `--init` collects the child
+  processes that Agents start.
+- `HEALTHCHECK` is there only when `health` is on. It reads `PORT`.
+- Nitro copies native packages, such as the libSQL binary, into
+  `.output/server/node_modules` for the build machine. When the output has
+  them, the image uses the CPU of the build machine (`--platform`) and its C
+  library: `node:<major>-slim` for glibc, `node:<major>-alpine` for musl. A
+  build on macOS or Windows with native packages prints
+  [`VITE_HUB_DOCKERFILE_NATIVE_PACKAGES_NOT_LINUX`](/docs/development/diagnostics/vite_hub_dockerfile_native_packages_not_linux).
+  Build on Linux, for example in CI, then build the image.
+
+Each build replaces the file. To add system packages, such as `git`, start your
+own Dockerfile `FROM` the image that you built. Set `docker: false` in
+`vitehub()` to write no Dockerfile.
 
 ## Defaults on the node host
 
