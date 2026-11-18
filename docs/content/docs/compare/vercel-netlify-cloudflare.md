@@ -122,8 +122,9 @@ Of these three hosts, only Cloudflare has a ViteHub provider for:
   fails the build on Vercel and Netlify.
 - Realtime uses Durable Objects on Cloudflare. Vercel and Netlify reject the
   `memory` provider.
-- Browser and `email: true` need the `cloudflare` host. On other hosts,
-  Email needs the Resend driver or a custom driver.
+- Browser needs the `cloudflare` host. `email: true` uses Cloudflare Email
+  there. On other hosts, a production build needs `email.driver`, such as
+  `resend`.
 
 ViteHub provisioning creates resources on Cloudflare and Vercel, not Netlify.
 Netlify Blobs needs no provisioning.
