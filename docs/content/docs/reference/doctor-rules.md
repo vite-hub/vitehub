@@ -75,7 +75,6 @@ Some rules read the whole project:
 | [`VHUB0016`](#vhub0016) | `vitehub/queue-payload-options` | Warning |
 | [`VHUB0017`](#vhub0017) | `vitehub/no-module-scope-dispatch` | Warning |
 | [`VHUB0018`](#vhub0018) | `vitehub/no-destructure-non-tuples` | Error |
-| [`VHUB0019`](#vhub0019) | `vitehub/check-response-results` | Error |
 | [`VHUB0020`](#vhub0020) | `vitehub/workflow-step-names` | Error |
 | [`VHUB0021`](#vhub0021) | `vitehub/valid-schedule-cron` | Error |
 | [`VHUB0022`](#vhub0022) | `vitehub/manual-schedule-run` | Error |
@@ -166,6 +165,8 @@ The rule checks these calls:
 - `callMcpTool()` from `vite-hub/agent/mcp`
 - `enqueueChannelTask()` and `cancelChannelTask()` from `vite-hub/agent/server`
 - `runAgent()` and `streamAgent()` from `vite-hub/agent`
+- `runBrowser()` and `runBrowserContent()` from `vite-hub/browser`
+- `runSandboxTask()` from `vite-hub/sandbox/task`
 
 It follows imports from `vite-hub/*` and `@vite-hub/*`, local aliases, and Nuxt auto-imports in `server/`. It reports a result that code:
 
@@ -712,7 +713,6 @@ Code destructures `[error, value]` from an API that returns no tuple:
 
 - `useQueue()` returns the client and throws on failure.
 - `deferWorkflow()` returns `void` and logs start failures.
-- `runSandboxTask()` and `runBrowser()` return a Web `Response`, which is not iterable.
 
 ```ts [server/api/welcome.post.ts] fragment
 import { useQueue } from 'vite-hub/queue'
@@ -724,31 +724,7 @@ const [error, queue] = await useQueue('welcome-email')
 const queue = await useQueue('welcome-email')
 ```
 
-The rule skips the calls that return `[error, value]`, such as `startWorkflow()`, `runSchedule()`, `runAgent()`, and `streamAgent()`.
-
-## VHUB0019
-
-**Read Sandbox Task and Browser results as a Response.** Rule `vitehub/check-response-results`.
-
-`runSandboxTask()` and `runBrowser()` return a Web `Response`. A failed run returns one with an error status, not your data. Reading a data field from it gives `undefined`.
-
-```ts [server/api/resize.post.ts] fragment
-import { runSandboxTask } from 'vite-hub/sandbox/task'
-
-// Invalid
-const { width } = await runSandboxTask('resize', payload)
-```
-
-```ts [server/api/resize.post.ts] fragment
-import { runSandboxTask } from 'vite-hub/sandbox/task'
-
-// Valid
-const response = await runSandboxTask('resize', payload)
-if (!response.ok) throw new Error(await response.text())
-const { width } = await response.json()
-```
-
-The rule reports property reads and destructuring of names that are not `Response` properties.
+The rule skips the calls that return `[error, value]`, such as `startWorkflow()`, `runSchedule()`, `runBrowser()`, `runSandboxTask()`, `runAgent()`, and `streamAgent()`.
 
 ## VHUB0020
 
