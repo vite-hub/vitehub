@@ -306,5 +306,21 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ delay }: { delay: string }) => `[vitehub] \`startWorkflow()\` does not accept the delay ${JSON.stringify(delay)}. A delay is a duration such as \`"30m"\` or \`"3 days"\`, or a valid \`Date\`, that ends before the year 275760.`,
       fix: "Pass `{ delay: \"1h\" }`, `{ delay: \"3 days\" }`, or `{ delay: new Date(\"2026-12-01T09:00:00Z\") }`. For a month or a calendar time, pass a `Date`.",
     },
+    WORKFLOW_STEP_OPTIONS_INVALID: {
+      why: ({ option, step, value }: { option: string, step: string, value: string }) => `[vitehub] The Workflow step ${JSON.stringify(step)} sets \`${option}\` to ${value}. A step takes \`retries: { limit, delay, backoff }\` and \`timeout\`.`,
+      fix: "Set `retries.limit` to a whole number of 0 or more, `retries.delay` to a duration such as `'30 seconds'` or a number of milliseconds, `retries.backoff` to `'constant'` or `'exponential'`, and `timeout` to a duration that is more than 0. Remove other keys.",
+    },
+    WORKFLOW_STEP_OPTIONS_NOT_STATIC: {
+      why: ({ file, option }: { file: string, option: string }) => `[vitehub] The Workflow step file ${JSON.stringify(file)} exports \`${option}\`, and the build cannot read its value without running the file.`,
+      fix: "Write the value in the export itself, with literals only, such as `export const retries = { limit: 5, delay: '30 seconds' }` or `export const timeout = '2 minutes'`. The build reads it from the source to check it and to configure the provider.",
+    },
+    WORKFLOW_STEP_RETRY_DELAY_UNSUPPORTED: {
+      why: ({ file }: { file: string }) => `[vitehub] The Workflow step file ${JSON.stringify(file)} sets \`retries.delay\` or \`retries.backoff\`. On Vercel, Workflow DevKit runs this step and retries it after about one second. It has no wait or backoff option for a step.`,
+      fix: "Remove `delay` and `backoff` from `retries`, and keep `limit`. To wait longer between attempts, deploy the Workflow on Cloudflare or OpenWorkflow.",
+    },
+    WORKFLOW_STEP_TIMEOUT: {
+      why: ({ step, timeout }: { step: string, timeout: string }) => `[vitehub] The Workflow step ${JSON.stringify(step)} ran longer than its timeout of ${timeout}. ViteHub aborted the step's signal and failed this attempt.`,
+      fix: "Make the step finish sooner, or set a longer `timeout` in the step file. Pass the `signal` of the step to `fetch()` and other calls, so they stop when the attempt times out. The provider retries the step as its `retries` say.",
+    },
   },
 })
