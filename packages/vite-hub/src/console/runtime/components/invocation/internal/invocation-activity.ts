@@ -444,15 +444,13 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       : Array.isArray(originalAttributes["input.prompt"])
         ? originalAttributes["input.prompt"]
         : undefined;
-    if (Array.isArray(inputMessages)) {
+    const trigger = record(originalAttributes["input.trigger.message"]);
+    const triggerId = trigger && stringAttribute(trigger, "id");
+    const recoveredTrigger = trigger && triggerId && !inputMessages?.some(message => record(message)?.id === triggerId) ? trigger : undefined;
+    const inputs = recoveredTrigger ? [recoveredTrigger, ...(inputMessages ?? [])] : inputMessages;
+    if (inputs) {
       let lastInputKey: string | undefined;
       let firstInputKey: string | undefined;
-      // The message that started the run. The journal keeps it whole, apart from the history.
-      const trigger = record(originalAttributes["input.trigger.message"]);
-      const triggerId = trigger && stringAttribute(trigger, "id");
-      const inputs = trigger && triggerId && !inputMessages.some(message => record(message)?.id === triggerId)
-        ? [...inputMessages, trigger]
-        : inputMessages;
       inputs.forEach((message, index) => {
         const value = record(message);
         const body = messageText(value) ?? (Array.isArray(value?.parts) ? "```json\n" + payloadText(value.parts) + "\n```" : undefined);
@@ -477,10 +475,16 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
           sequence: observation.sequence - (inputs.length - index) / (inputs.length + 1),
         }]);
       });
-      // The journal left the oldest messages out of a long history. The conversation says how many.
       const omitted = originalAttributes["input.messages.omitted"];
       const firstInput = firstInputKey === undefined ? undefined : groups.get(firstInputKey)?.[0];
-      if (firstInput && typeof omitted === "number" && omitted > 0) firstInput.attributes = { ...firstInput.attributes, "input.messages.omitted": omitted };
+      if (firstInput && typeof omitted === "number" && omitted > 0) {
+        firstInput.attributes = {
+          ...firstInput.attributes,
+          ...(recoveredTrigger
+            ? { "input.messages.omittedUnplaced": omitted - 1 }
+            : { "input.messages.omitted": omitted }),
+        };
+      }
       // One note after the history says it was shortened; repeating it on every message adds noise.
       const historyTruncation = truncatedContent(observation) === undefined
         ? { "vitehub.observation.truncated": true }
@@ -490,10 +494,10 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const lastInput = lastInputKey === undefined ? undefined : groups.get(lastInputKey)?.[0];
       if (lastInput && historyTruncation) lastInput.attributes = { ...lastInput.attributes, ...historyTruncation };
     }
-    const attributes = inputMessages === undefined
+    const attributes = inputs === undefined
       ? originalAttributes
-      : Object.fromEntries(Object.entries(originalAttributes).filter(([key]) => key !== "input.messages" && key !== "input.prompt"));
-    if (inputMessages !== undefined && Object.keys(attributes).length === 0) continue;
+      : Object.fromEntries(Object.entries(originalAttributes).filter(([key]) => key !== "input.messages" && key !== "input.prompt" && key !== "input.messages.omitted"));
+    if (inputs !== undefined && Object.keys(attributes).length === 0) continue;
     const isAnonymousMessage = stringAttribute(attributes, "message.content") !== undefined
       && !attributes["message.id"];
     const messagePhase = stringAttribute(attributes, "message.phase") ?? "message";

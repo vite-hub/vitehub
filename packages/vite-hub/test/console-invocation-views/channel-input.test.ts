@@ -49,6 +49,23 @@ describe("Agent Invocation Channel input", () => {
     expect(activities.filter(activity => activity.attributes["message.trigger"] === true).map(activity => activity.body)).toEqual(["Check the k8s values."]);
   });
 
+  it.each([1, 3])("does not treat a retained suffix as previous messages when the trigger was omitted (%i omitted)", (omitted) => {
+    const trigger = teamsMessage(1, "Start here.");
+    const later = teamsMessage(omitted + 1, "This came later.");
+    const wrapper = show(invocation([start([later], { "input.trigger.message": trigger, "input.messages.omitted": omitted })]));
+    expect(wrapper.find(".vh-invocation-history").exists()).toBe(false);
+    expect(wrapper.get(".vh-invocation-message__body").text()).toBe("Start here.");
+    const notice = wrapper.find(".vh-invocation-history__omitted");
+    if (omitted > 1) expect(notice.text()).toBe("2 messages not recorded");
+    else expect(notice.exists()).toBe(false);
+  });
+
+  it("shows a separately recorded trigger even when the journal omits the history field", () => {
+    const trigger = teamsMessage(1, "Only the prompt was captured.");
+    const wrapper = show(invocation([start([], { "input.messages": undefined, "input.trigger.message": trigger })]));
+    expect(wrapper.get(".vh-invocation-message__body").text()).toBe("Only the prompt was captured.");
+  });
+
   it("says how many earlier messages the journal did not record", async () => {
     const kept = Array.from({ length: 18 }, (_, index) => teamsMessage(index + 33, `Message ${index + 33}`));
     const wrapper = show(invocation([

@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import type { HTMLElement, Window } from "happy-dom"
-import { createApp, defineComponent, h } from "vue"
+import { createApp, defineComponent, h, nextTick } from "vue"
 import { createMemoryHistory, createRouter } from "vue-router"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { decodeAgentRouteParam } from "../src/console/runtime/console-route"
 
 const mocks = vi.hoisted(() => ({ request: vi.fn() }))
 vi.mock("../src/console/runtime/client/request", async importOriginal => ({
@@ -207,6 +208,45 @@ describe("Channels page", () => {
     await router.push({ path: "/channels", query: { agent: "support", channel: "telegram", thread: "telegram:1" } })
     await vi.waitFor(() => expect(host.querySelector("[data-slot=message]")).not.toBeNull())
     expect(host.querySelector("[aria-label='Received messages']")).toBeNull()
+  })
+
+  it("opens a delivery run for a namespaced Agent", async () => {
+    mocks.request.mockImplementation(async (path: string) => {
+      if (path === "/api/c/channels") return { channels: [{ agent: "team/support", channel: "telegram" }] }
+      if (path === "/api/c/channels/deliveries") return { deliveries: [{ id: "delivery", invocationId: "run", status: "completed" }] }
+      return answers[path]
+    })
+    const { host, router } = await mountPage({ agent: "team/support", channel: "telegram" }, ".vitehub-console__delivery a")
+    const target = router.resolve(host.querySelector(".vitehub-console__delivery a")!.getAttribute("href")!)
+    expect(decodeAgentRouteParam(target.params.agent)).toBe("team/support")
+    expect(target.params.invocation).toBe("run")
+  })
+
+  it("does not show deliveries from another selection while loading or after a late response", async () => {
+    const telegram = Promise.withResolvers<{ deliveries: { id: string; sourceId: string }[] }>()
+    const teams = Promise.withResolvers<{ deliveries: { id: string; sourceId: string }[] }>()
+    let telegramRequests = 0
+    mocks.request.mockImplementation(async (path: string, options?: { query?: Record<string, string> }) => {
+      if (path === "/api/c/channels") return { channels: [{ agent: "support", channel: "telegram" }, { agent: "billing", channel: "teams" }] }
+      if (path === "/api/c/channels/deliveries") {
+        if (options?.query?.agent === "billing") return teams.promise
+        if (++telegramRequests > 1) return telegram.promise
+        return { deliveries: [{ id: "original", sourceId: "Telegram original", invocationId: "run" }] }
+      }
+      return answers[path]
+    })
+    const { host, router } = await mountPage({ agent: "support", channel: "telegram" }, ".vitehub-console__delivery")
+    host.querySelector("[aria-label='Refresh']")?.click()
+    await vi.waitFor(() => expect(telegramRequests).toBe(2))
+    expect(host.querySelector(".vitehub-console__delivery")?.textContent).toContain("Telegram original")
+    await router.push({ path: "/channels", query: { agent: "billing", channel: "teams" } })
+    await nextTick()
+    expect(host.querySelector(".vitehub-console__delivery")).toBeNull()
+    teams.resolve({ deliveries: [{ id: "new", sourceId: "Teams new" }] })
+    await vi.waitFor(() => expect(host.querySelector(".vitehub-console__delivery")?.textContent).toContain("Teams new"))
+    telegram.resolve({ deliveries: [{ id: "late", sourceId: "Telegram late" }] })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(host.querySelector(".vitehub-console__delivery")?.textContent).toContain("Teams new")
   })
 
   it("links only http(s) attachments", async () => {

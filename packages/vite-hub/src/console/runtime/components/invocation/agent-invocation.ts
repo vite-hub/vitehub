@@ -1608,6 +1608,9 @@ function renderInvocationActivities(
   }
   return [
     renderPreviousMessages(conversation.history, conversation.omittedHistory, invocation, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen),
+    conversation.omittedUnplacedHistory
+      ? h("li", { class: "vh-invocation-history__omitted", key: "omitted-unplaced" }, `${conversation.omittedUnplacedHistory} ${conversation.omittedUnplacedHistory === 1 ? "message" : "messages"} not recorded`)
+      : null,
     conversation.prompt ? renderInvocationActivity(conversation.prompt, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen) : null,
     renderWorkSummary(conversation.work, invocation, expanded, workOpen, setWorkOpen, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen),
     ...conversation.answers.map(activity => renderInvocationActivity(activity, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen)),

@@ -4,6 +4,7 @@ export type InvocationConversation = {
   deliveredAnswerCount: number;
   /** Earlier history messages that the journal did not record. */
   omittedHistory: number;
+  omittedUnplacedHistory?: number;
   promptId?: string;
 } & (
   | { kind: "activities"; activities: readonly InvocationActivity[] }
@@ -25,12 +26,14 @@ export function buildInvocationConversation(activities: readonly InvocationActiv
   const firstUser = promptActivityIndex(orderedActivities);
   const lastUser = orderedActivities.findLastIndex(activity => activity.kind === "message" && activity.role === "user");
   const lastAssistant = orderedActivities.findLastIndex((activity, index) => index > lastUser
-    && activity.kind === "message" && activity.role === "assistant" && activity.attributes["message.phase"] !== "commentary");
+    && activity.kind === "message" && activity.role === "assistant" && activity.attributes["message.phase"] !== "commentary"
+    && activity.attributes["message.origin"] !== "invocation-input");
   const tail = orderedActivities.slice(firstUser + 1);
   const finalBody = lastAssistant >= 0 ? orderedActivities[lastAssistant]!.body?.trim() : undefined;
   const answers = new Set(uniqueDeliveredAnswers(tail, new Set(finalBody ? [finalBody] : [])));
   const omittedHistory = Math.max(0, ...activities.map(activity => Number(activity.attributes["input.messages.omitted"]) || 0));
-  const metadata = { deliveredAnswerCount: answers.size, omittedHistory, promptId };
+  const omittedUnplacedHistory = Math.max(0, ...activities.map(activity => Number(activity.attributes["input.messages.omittedUnplaced"]) || 0));
+  const metadata = { deliveredAnswerCount: answers.size, omittedHistory, ...(omittedUnplacedHistory ? { omittedUnplacedHistory } : {}), promptId };
   if (firstUser < 0 && !orderedActivities.some(isDeliveredAnswer)) {
     return { ...metadata, kind: "activities", activities: orderedActivities };
   }
@@ -73,7 +76,7 @@ export function buildInvocationConversation(activities: readonly InvocationActiv
 // Match only that initial pair, before any response or subsequent user turn.
 function withoutInitialDriverEcho(activities: readonly InvocationActivity[]): readonly InvocationActivity[] {
   const lastInput = activities.findLastIndex(activity => activity.attributes["message.origin"] === "invocation-input");
-  const prompt = activities[lastInput];
+  const prompt = activities.find(activity => activity.attributes["message.trigger"] === true) ?? activities[lastInput];
   if (!prompt || prompt.role !== "user") return activities;
   const firstMessage = activities.findIndex((activity, index) => index > lastInput && activity.kind === "message");
   const echo = activities[firstMessage];

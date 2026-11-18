@@ -9,7 +9,7 @@ import { useRoute, useRouter } from "vue-router";
 
 import { requestConsole } from "../client/request";
 import { queryText, useConsoleQuery } from "../client/route-query";
-import { consoleMountBase, consoleMountPath } from "../console-route";
+import { consoleMountBase, consoleMountPath, encodeAgentRouteParam } from "../console-route";
 import { rememberConsoleSection } from "../sections";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
@@ -101,6 +101,7 @@ let channelsRequest: AbortController | undefined;
 let threadsRequest: AbortController | undefined;
 let messagesRequest: AbortController | undefined;
 let deliveriesRequest: AbortController | undefined;
+let deliveriesSelection: Pick<ChannelRow, "agent" | "channel"> | undefined;
 
 function text(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
@@ -267,9 +268,14 @@ async function loadDeliveries(): Promise<void> {
   deliveriesRequest?.abort();
   const entry = selected.value;
   if (!entry || selectedThread.value || entry.simulator) {
+    deliveriesRequest = undefined;
+    deliveriesSelection = undefined;
     deliveries.value = [];
+    deliveriesLoading.value = false;
     return;
   }
+  if (deliveriesSelection?.agent !== entry.agent || deliveriesSelection.channel !== entry.channel) deliveries.value = [];
+  deliveriesSelection = entry;
   const controller = new AbortController();
   deliveriesRequest = controller;
   deliveriesLoading.value = true;
@@ -278,6 +284,7 @@ async function loadDeliveries(): Promise<void> {
       query: { agent: entry.agent, channel: entry.channel },
       signal: controller.signal,
     }));
+    if (controller.signal.aborted) return;
     deliveries.value = list(value.deliveries).map((delivery): DeliveryRow => ({
       ...(text(delivery.error) ? { error: text(delivery.error)! } : {}),
       id: text(delivery.id) ?? "",
@@ -289,7 +296,7 @@ async function loadDeliveries(): Promise<void> {
     }));
     error.value = undefined;
   } catch (failure) {
-    if (!isAbort(failure)) error.value = failure;
+    if (!controller.signal.aborted && !isAbort(failure)) error.value = failure;
   } finally {
     if (deliveriesRequest === controller) deliveriesLoading.value = false;
   }
@@ -310,7 +317,7 @@ function deliveryOutcome(delivery: DeliveryRow): string {
 function deliveryRoute(delivery: DeliveryRow): string | undefined {
   const agent = selectedAgent.value;
   return agent && delivery.invocationId
-    ? router.resolve({ name: "vitehub-console-invocation", params: { agent, invocation: delivery.invocationId } }).href
+    ? router.resolve({ name: "vitehub-console-invocation", params: { agent: encodeAgentRouteParam(agent), invocation: delivery.invocationId } }).href
     : undefined;
 }
 
