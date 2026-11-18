@@ -453,6 +453,20 @@ function discoverFolderAgentDefinitions(scanDirs: string[]): DiscoveredAgentDefi
   return discoveredCandidates.filter(definition => !isWorkspaceSourceConfig(definition.handler, folderAgentDirs))
 }
 
+/**
+ * The host imports the default export of each discovered Agent file. A file without one, such as a folder of helpers
+ * under `server/agents/`, fails at build time with its path, not later in a generated route. A CommonJS file is not
+ * read: its default export is `module.exports`.
+ */
+function assertDefaultAgentExport(definition: DiscoveredAgentDefinition): void {
+  if (/\.cjs$/i.test(definition.handler)) return
+  const { program } = scanModule(readFileSync(definition.handler, "utf8"), definition.handler)
+  const exportsDefault = program.body.some(statement => statement.type === "ExportDefaultDeclaration"
+    || (statement.type === "ExportNamedDeclaration" && statement.specifiers.some(specifier => exportName(specifier.exported) === "default"))
+    || (statement.type === "ExportAllDeclaration" && statement.exported !== null && exportName(statement.exported) === "default"))
+  if (!exportsDefault) throw agentDiagnostics.AGENT_DEFINITION_EXPORT_MISSING({ file: definition.handler, name: definition.name })
+}
+
 export function discoverAgentDefinitions(options:
   | { mode?: "vite-suffix", rootDir: string, scanDirs?: string[] }
   | { mode: "server-agents", scanDirs: string[] }
@@ -483,7 +497,9 @@ export function discoverAgentDefinitions(options:
       }),
     ])
 
-    return mergeDefinitions("agent", directoryDefinitions, folderDefinitions)
+    const definitions = mergeDefinitions("agent", directoryDefinitions, folderDefinitions)
+    for (const definition of definitions) assertDefaultAgentExport(definition)
+    return definitions
   }
 
   const roots = new Set([options.rootDir, ...(options.scanDirs || [])].filter(Boolean))

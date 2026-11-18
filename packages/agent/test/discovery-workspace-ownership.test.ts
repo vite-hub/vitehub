@@ -68,9 +68,13 @@ describe("Agent Workspace discovery", () => {
     // Its github() Channel comes from a relative module with `pullRequest: false`, after a `String.raw` template and
     // templates that call functions.
     ["quiver-babysitter", [{ name: "babysitter", source: "server-agents", workspace: undefined }]],
-    ["brief", [{ name: "summary", source: "server-agents", workspace: undefined }]],
   ])("discovers the Workspace of the %s Agents", async (project, expected) => {
     expect(await discoverProject(project)).toEqual(expected)
+  })
+
+  it("names the brief helper folder that exports no Agent", async () => {
+    // server/agents/summary/agent.ts holds helpers. Its generated chat route crashed when the module loaded.
+    await expect(discoverProject("brief")).rejects.toMatchObject({ code: "AGENT_DEFINITION_EXPORT_MISSING" })
   })
 
   it.each([
@@ -86,7 +90,6 @@ describe("Agent Workspace discovery", () => {
     ["a chained const alias", "const create = defineAgent\nconst make = create\nexport default make({ workspace: {} })"],
     ["a namespace", "import * as hub from '@vite-hub/agent'\nexport default hub.defineAgent({ workspace: {} })"],
     ["type arguments", "export default defineAgent<Config>({ workspace: {} } satisfies Options)"],
-    ["no default export", "export const review = defineAgent({ workspace: {} })"],
   ])("owns a Workspace with %s", async (_label, source) => {
     expect(await discoverFolderAgent(source)).toBe("review")
   })

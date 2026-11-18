@@ -416,6 +416,36 @@ describe("agent discovery", () => {
     ]))
   })
 
+  it("names an Agent folder file without a default export", async () => {
+    const root = await createTempRoot("vitehub-agent-folder-no-default-")
+    await mkdir(join(root, "server", "agents", "summary"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "summary", "agent.ts"), "export async function runSummaryAgent() {}\n", "utf8")
+    await writeFile(join(root, "server", "agents", "summary", "instructions.md"), "Summarize the call.\n", "utf8")
+
+    expect(() => discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })).toThrow(expect.objectContaining({
+      code: "AGENT_DEFINITION_EXPORT_MISSING",
+      message: expect.stringContaining(`Agent "summary" has no default export in ${join(root, "server", "agents", "summary", "agent.ts")}`),
+    }))
+  })
+
+  it("accepts a default export that an Agent file re-exports or names", async () => {
+    const root = await createTempRoot("vitehub-agent-reexported-default-")
+    await mkdir(join(root, "server", "agents", "support"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support", "agent.ts"), 'export { default } from "./definition"\n', "utf8")
+    await writeFile(join(root, "server", "agents", "review.ts"), "const agent = defineAgent({ driver: { model } })\nexport { agent as default }\n", "utf8")
+
+    expect(discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })).toEqual([
+      expect.objectContaining({ name: "review", source: "server-agents" }),
+      expect.objectContaining({ name: "support", source: "server-agents" }),
+    ])
+  })
+
   it("throws on duplicate server agent names", async () => {
     const root = await createTempRoot("vitehub-agent-duplicate-")
     await mkdir(join(root, "server", "agents"), { recursive: true })

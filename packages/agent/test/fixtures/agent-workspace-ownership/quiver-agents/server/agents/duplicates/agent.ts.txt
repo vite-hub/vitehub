@@ -62,3 +62,5 @@ export async function writeDuplicateFailure({ ticket, message }: { ticket: Airta
 async function writeDuplicateResult(input: { ticket: AirtableTicket, answers: Record<string, string>, signal?: AbortSignal }) {
   return input.answers ? { ticket: input.ticket } : undefined
 }
+
+export default duplicates
