@@ -97,7 +97,7 @@ describe("live", () => {
       { name: "notes", where: { teamId: "b" }, rows: [{ id: "n1", teamId: "b", body: "Team b" }] },
     ])
 
-    const tasksRoute = new URL("/api/_vitehub/sync/tasks", origin)
+    const tasksRoute = new URL("/_vitehub/sync/tasks", origin)
     const start = await (await handleSyncRequest("tasks", app.others.tasks, new Request(tasksRoute, { headers: { "x-user": "alice", "x-teams": "a,b" } }), app.services)).json() as SyncPullResponse
     await handleSyncRequest("tasks", app.others.tasks, new Request(tasksRoute, {
       method: "POST",
@@ -192,14 +192,14 @@ describe("live", () => {
     const events = readEvents(response)
     await opened(events)
 
-    await app.call(new Request("https://app.test/api/_vitehub/sync/notes", {
+    await app.call(new Request("https://app.test/_vitehub/sync/notes", {
       method: "POST",
       headers: { "content-type": "application/json", "origin": "https://app.test", "x-user": "carol", "x-teams": "c" },
       body: JSON.stringify({ account: (await app.start(carol)).account, mutations: [{ id: "m1", op: "insert", value: { id: "n1", teamId: "c", body: "Other team" } }] }),
     }), other)
     expect(await events.next(400)).toBe("timeout")
 
-    await app.call(new Request("https://app.test/api/_vitehub/sync/notes", {
+    await app.call(new Request("https://app.test/_vitehub/sync/notes", {
       method: "POST",
       headers: { "content-type": "application/json", "origin": "https://app.test", "x-user": "bob", "x-teams": "a" },
       body: JSON.stringify({ account: (await app.start(bob)).account, mutations: [{ id: "m2", op: "insert", value: { id: "n2", teamId: "a", body: "Same team" } }] }),
@@ -310,7 +310,7 @@ it("routes the live stream of the installed handler, and wakes it at once after 
   // services object, as in a ViteHub app.
   const everyone = defineSync({ table: notes, where: () => ({}), write: false })
   const handler = createSyncHandler({ definitions: { notes: app.definition, everyone }, db: () => app.db, session: app.services.identify! })
-  const first = await (await handler.fetch(new Request(new URL("/app/api/_vitehub/sync/everyone", origin), { headers: { "x-user": "alice", "x-teams": "a" } }))).json() as SyncPullResponse
+  const first = await (await handler.fetch(new Request(new URL("/app/_vitehub/sync/everyone", origin), { headers: { "x-user": "alice", "x-teams": "a" } }))).json() as SyncPullResponse
   const controller = new AbortController()
   const response = await handler.fetch(new Request(new URL(`/app${syncLiveRoute}`, origin), {
     method: "POST",
@@ -323,9 +323,9 @@ it("routes the live stream of the installed handler, and wakes it at once after 
   await opened(events)
   expect(await events.next(100)).toBe("timeout")
 
-  const held = await (await handler.fetch(new Request(new URL("/app/api/_vitehub/sync/notes", origin), { headers: { "x-user": "bob", "x-teams": "a" } }))).json() as SyncPullResponse
+  const held = await (await handler.fetch(new Request(new URL("/app/_vitehub/sync/notes", origin), { headers: { "x-user": "bob", "x-teams": "a" } }))).json() as SyncPullResponse
   const started = performance.now()
-  const pushed = await handler.fetch(new Request(new URL("/app/api/_vitehub/sync/notes", origin), {
+  const pushed = await handler.fetch(new Request(new URL("/app/_vitehub/sync/notes", origin), {
     method: "POST",
     headers: { "content-type": "application/json", origin, "x-user": "bob", "x-teams": "a" },
     body: JSON.stringify({ account: held.account, mutations: [{ id: "m1", op: "insert", value: { id: "n1", teamId: "a", body: "Hello" } }] }),

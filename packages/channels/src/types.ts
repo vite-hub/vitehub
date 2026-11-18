@@ -88,7 +88,7 @@ export interface WebhookAdapterBaseOptions<TData = unknown> {
    */
   kind?: string
   /**
-   * Another route for the webhook, next to `/api/_vitehub/channels/<name>`. ViteHub reads it from the source, so it
+   * Another route for the webhook, next to `/_vitehub/channels/<name>`. ViteHub reads it from the source, so it
    * must be a string literal.
    */
   path?: string

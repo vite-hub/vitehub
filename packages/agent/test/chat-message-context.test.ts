@@ -123,7 +123,7 @@ function telegramHarness(messages: MessageOptions = {}, answer?: (prompt: Prompt
 
   async function send(message: Record<string, unknown>) {
     const tasks: Promise<unknown>[] = []
-    const response = await handler(new Request("https://example.test/api/_vitehub/agents/calories/webhooks/telegram", {
+    const response = await handler(new Request("https://example.test/_vitehub/agents/calories/webhooks/telegram", {
       body: JSON.stringify({ message: { chat, from: user, ...message }, update_id: nextUpdateId++ }),
       headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": "test-secret" },
       method: "POST",

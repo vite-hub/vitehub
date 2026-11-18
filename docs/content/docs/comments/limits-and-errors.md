@@ -84,13 +84,13 @@ The API also returns it for a `POST` or `DELETE` from another origin. Behind a p
 
 ### COMMENTS_SIGN_IN_OFF
 
-A request reached `/api/_vitehub/comments/auth/`, but the server has no GitHub OAuth client. Set `VITEHUB_GITHUB_CLIENT_ID` and `VITEHUB_GITHUB_CLIENT_SECRET` on the server. See [Sign in with GitHub](/docs/comments/configure#sign-in-with-github).
+A request reached `/_vitehub/comments/auth/`, but the server has no GitHub OAuth client. Set `VITEHUB_GITHUB_CLIENT_ID` and `VITEHUB_GITHUB_CLIENT_SECRET` on the server. See [Sign in with GitHub](/docs/comments/configure#sign-in-with-github).
 
 ### COMMENTS_SIGN_IN_FAILED
 
 GitHub sign-in could not start. Check that the client ID and secret belong to the same GitHub App. In production, `VITEHUB_SECRET` must be set, with at least 32 characters.
 
-When GitHub returns an error, such as for a callback URL the App does not list, sign-in shows `/api/_vitehub/comments/auth/error`. Its `error` query names the cause. Add the site's callback URL to the App.
+When GitHub returns an error, such as for a callback URL the App does not list, sign-in shows `/_vitehub/comments/auth/error`. Its `error` query names the cause. Add the site's callback URL to the App.
 
 ### COMMENTS_RESOLVED
 
