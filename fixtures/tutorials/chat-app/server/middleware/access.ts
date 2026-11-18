@@ -1,11 +1,11 @@
-import { createError, defineEventHandler, setHeader } from "h3";
+import { defineEventHandler, HTTPError, setHeader } from "h3";
 import { checkOrigin, requireOwner } from "../utils/session";
 
 export default defineEventHandler(async (event) => {
   const path = event.path.split("?")[0] || "/";
   // The app owns its chat API. Generated Agent endpoints must not bypass it.
   if (/^\/(?:api\/)?_+vitehub(?:\/|$)/.test(path)) {
-    throw createError({ statusCode: 404 });
+    throw new HTTPError({ status: 404 });
   }
   if (!path.startsWith("/api/")) return;
   setHeader(event, "cache-control", "no-store");

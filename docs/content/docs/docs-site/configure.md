@@ -215,7 +215,7 @@ Set `layout` in the frontmatter:
 | `article` (default) | Guides, concepts, and reference pages | Title, description, text, and outline. |
 | `tutorial` | Steps that build one result | Numbered `::tutorial-step` blocks. With `codePanel: true`, a code panel beside the text. |
 | `landing` | Section Overviews | A wide page with no outline, ending with the catalog of every section. |
-| `home` | A product home page | Only the page's own blocks, full width under the site header, with no docs sidebar. |
+| `home` | A product home page | Your `components/content/` blocks at full width, and the Markdown between them as on a docs page. No title or docs sidebar. |
 
 ### Tutorials
 

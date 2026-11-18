@@ -549,7 +549,8 @@ export interface ViteHubOptions {
   env?: false | EnvOptions
   /**
    * A health route for load balancers and container health checks, at `/api/_vitehub/health` unless `route` moves it.
-   * It answers `{ ok, commit }`, and with a Database, pings each one and answers 503 when one fails.
+   * It answers `{ ok, version, commit, vitehub }` and checks each Database, KV store, and Blob store of the app in `checks`. It
+   * answers 503 when one fails, and never shows error text.
    */
   health?: boolean | HealthOptions
   /**
@@ -1488,7 +1489,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const resolvedConsoleBlob = configuredBlob
     ? requireOptionalOwner(blobVite, "blob").resolveBlobViteConfig(configuredBlob, { hosting: plan.nitroPreset }).blob
     : false
-  const consoleBlobStores = resolvedConsoleBlob
+  const blobStoreNames = resolvedConsoleBlob
     ? Object.keys(resolvedConsoleBlob.stores || { default: resolvedConsoleBlob.store })
     : []
   const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, host: plan.host, sandboxTask: sandboxTaskEnabled })
@@ -1577,7 +1578,14 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (browserErrors) plugins.push(browserErrorsVitePlugin())
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
   if (options.trustProxy || options.sameOriginWrites || options.security) plugins.push(requestPolicyVitePlugin(options))
-  if (options.health) plugins.push(healthVitePlugin(options.health === true ? {} : options.health, { database: Boolean(options.database) }))
+  if (options.health) {
+    const resolvedKV = options.kv && kvVite ? kvVite.resolveKVViteConfig(configuredKV, { hosting: kvHosting }).kv : false
+    plugins.push(healthVitePlugin(options.health === true ? {} : options.health, {
+      database: Boolean(options.database),
+      kv: resolvedKV ? Object.keys(resolvedKV.stores || { default: resolvedKV.store }) : [],
+      blob: blobStoreNames,
+    }))
+  }
   if (envPlugin) plugins.push(envPlugin)
   const redirects = resolveRedirectsPolicy(options.redirects)
   if (redirects) plugins.push(redirectsVitePlugin(redirects))
@@ -1606,7 +1614,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     const consolePlugin = consoleVitePlugin({
       name: options.name,
       contentImportBase: "vite-hub/content",
-      blobStores: consoleBlobStores,
+      blobStores: blobStoreNames,
       console: configuredConsole || undefined,
       rpcOnly: devOperationsOnly,
       runtimeCapabilityImports,
@@ -1915,6 +1923,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     queue: Boolean(options.queue) && plan.services.queue.supported,
     imports: {
       runtime: "vite-hub/webhooks/runtime",
+      operations: "vite-hub/webhooks/operations",
       database: "vite-hub/webhooks/database",
       databases: "@vite-hub/database/runtime/registry",
       queue: "vite-hub/queue",
