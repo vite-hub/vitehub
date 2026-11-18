@@ -1116,7 +1116,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     env: options.env !== false,
     blob: consoleBlobEnabled,
     kv: effectiveKV,
-    host: plan.host,
     queue: effectiveQueue,
     sandboxTask: resolveSandboxTaskDriver(options.sandboxTask, plan) !== undefined,
   })
@@ -1148,8 +1147,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     queue: effectiveQueue && plan.services.queue.supported,
     sandboxTask: resolveSandboxTaskDriver(options.sandboxTask, plan) !== undefined,
     seo: Boolean(options.seo?.sitemap),
-    // Match the Workflow owner's implicit enablement through Agent, including the Netlify exception.
-    workflow: options.workflow !== false && Boolean(options.workflow || (options.agent && plan.host !== "netlify")),
+    workflow: Boolean(options.workflow),
   })
   let consoleHasPrimaryAuth = false;
   let consoleAccess: ConsoleAccessBuild | undefined
@@ -1500,7 +1498,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         database: getResolvedFeatureOptions(replayConfig, "database") ?? options.database,
         email: options.email,
         kv: resolvedKV,
-        host: plan.host,
         queue: effectiveQueue === false
           ? false
           : effectiveQueue === undefined

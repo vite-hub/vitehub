@@ -49,8 +49,7 @@ export default defineEventHandler(async (event) => {
 
 ## Build for Cloudflare Workers
 
-Select the Cloudflare host. Turn off Workflow, because this Agent finishes
-inside the request. Turn off Console, so the check needs no run log.
+Select the Cloudflare host. Turn off Console, so the check needs no run log.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -61,7 +60,6 @@ export default defineNuxtConfig({
   	name: 'vitehub-greeting',
   	host: 'cloudflare',
   	agent: true,
-  	workflow: false,
   	console: false,
   },
 })
@@ -79,7 +77,6 @@ export default defineConfig({
 		name: 'vitehub-greeting',
 		host: 'cloudflare',
 		agent: true,
-		workflow: false,
 		console: false,
 	}), nitro()],
 })
@@ -96,7 +93,6 @@ export default defineConfig({
 		name: 'vitehub-greeting',
 		host: 'cloudflare',
 		agent: true,
-		workflow: false,
 		console: false,
 	})],
 })

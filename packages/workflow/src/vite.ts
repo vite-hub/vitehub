@@ -112,7 +112,6 @@ interface InternalWorkflowModuleOptions {
   /** The module that exports `getPostgresConnectionUrl()`. Default `@vite-hub/database`. */
   databaseImport?: string
   hosting?: string
-  implicitlyEnabled?: boolean
   importBase?: string
   providerImportAliases?: Record<string, string>
   /**
@@ -161,19 +160,14 @@ function readPostgresDefaultDatabase(plugin: DatabaseVitePlugin | undefined): bo
   return config ? config.databases.default?.dialect === "postgresql" : undefined
 }
 
-export function hubWorkflow(options?: WorkflowOptions, internalOptions: InternalWorkflowModuleOptions = {}): WorkflowVitePlugin {
+export function hubWorkflow(workflow?: WorkflowOptions, internalOptions: InternalWorkflowModuleOptions = {}): WorkflowVitePlugin {
   let providerOutput: ProviderOutputCatalog | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   const providerOutputEnvironment = createProviderOutputEnvironmentOwner("@vite-hub/workflow/vite")
   let resolved: ResolvedConfig | undefined
-  const workflow: WorkflowOptions | undefined = internalOptions.implicitlyEnabled
-    && normalizeHosting(internalOptions.hosting).includes("netlify")
-    ? false
-    : options
   let startupBuild = false
-  // `vite dev` and the Workflow that only the Agent turns on run inline when the host has no inferable provider.
-  // A build that turns Workflow on itself must name its provider there.
-  const allowsInline = () => !startupBuild || internalOptions.implicitlyEnabled === true
+  // `vite dev` runs Workflows inline when the host has no inferable provider. A build must name its provider there.
+  const allowsInline = () => !startupBuild
   const resolveWorkflow = (workflowOptions: WorkflowOptions | undefined) => normalizeWorkflowOptions(workflowOptions, { hosting: internalOptions.hosting, inline: allowsInline() })
   const resolveOutputs = (workflowOptions: WorkflowOptions | undefined, hosting = internalOptions.hosting) => resolveWorkflowProviderOutputs(workflowOptions, hosting, allowsInline())
   const scheduleBuildConfigs = new WeakMap<ResolvedConfig, {

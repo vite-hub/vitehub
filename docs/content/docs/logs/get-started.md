@@ -35,7 +35,7 @@ const isDev = process.env.NODE_ENV === 'development'
 
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false },
+  vitehub: { host: 'node', observability: { logs: isDev }, console: isDev ? { auth: false } : false },
 })
 ```
 ::::
@@ -51,7 +51,7 @@ export default defineConfig(({ command }) => {
 
   return {
     plugins: [
-      vitehub({ host: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false }),
+      vitehub({ host: 'node', observability: { logs: isDev }, console: isDev ? { auth: false } : false }),
       nitro(),
     ],
   }
@@ -69,7 +69,7 @@ export default defineConfig(({ command }) => {
 
   return {
     plugins: [
-      vitehub({ host: 'node', observability: { logs: true }, console: isDev ? { auth: false } : false }),
+      vitehub({ host: 'node', observability: { logs: isDev }, console: isDev ? { auth: false } : false }),
     ],
   }
 })
@@ -77,7 +77,7 @@ export default defineConfig(({ command }) => {
 ::::
 :::
 
-- `observability: { logs: true }` saves the log events on your computer while the dev server runs.
+- `logs: isDev` saves the log events on your computer while the dev server runs. A production build fails with `logs: true`, because each server process would keep its own short history. See [What happens when you deploy](#what-happens-when-you-deploy).
 - `auth: false` lets you open the Console with no sign-in while the dev server runs. These configs disable the Console in production. See [Console](/docs/development/console) before you deploy.
 
 ::

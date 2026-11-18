@@ -188,7 +188,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
     if (state.enabled === "off") continue
     if (state.reason === "implied" && !args.force) {
       const disabled = deleted.features.filter(item => item.enabled === "off" && item.reason === "config").map(item => item.id)
-      const by = deleted.features.filter(item => item.enabled === "on" && item.reason !== "implied" && impliedFeatures([item.id], host, disabled).includes(id)).map(item => item.id)
+      const by = deleted.features.filter(item => item.enabled === "on" && item.reason !== "implied" && impliedFeatures([item.id], disabled).includes(id)).map(item => item.id)
       throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_IMPLIED({ by: by.join(", "), feature: id }), setupExitCodes.conflict, { data: { impliedBy: by } })
     }
     if (state.reason === "default" && !features[id].enabledByDefault && state.enabled === "on") {

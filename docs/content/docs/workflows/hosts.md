@@ -17,7 +17,7 @@ icon: i-lucide-cloud-cog
 | Deno and other hosts | OpenWorkflow when you set `postgres.url` or `sqlite.path`. Else the build fails with `WORKFLOW_C0020`. |
 | `vite dev` on a host without a provider | Inline runs in the dev server |
 
-ViteHub infers Vercel only on Vercel. On Node and Docker, Agent turns are OpenWorkflow runs, so they survive a restart. On a host where only the Agent turns on Workflow, such as Deno, Agent Workflows run inline, and a restart loses their runs. On Node and Docker, an app without discovered Workflows or Agents starts no worker. `vitehub durability list` shows the store that the app uses.
+ViteHub infers Vercel only on Vercel. `agent: true` does not turn on Workflow: without `workflow`, Agents run inline, and a restart loses their runs. With `workflow: true` on Node and Docker, Agent turns are OpenWorkflow runs, so they survive a restart. On Node and Docker, an app without discovered Workflows or Agents starts no worker. `vitehub durability list` shows the store that the app uses.
 
 
 | Driver | Configure with | Driver output | Nuance |

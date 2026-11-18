@@ -6,7 +6,6 @@ export default defineConfig({
     vitehub({
       host: "node",
       agent: { channels: { simulate: true } },
-      workflow: false,
     }),
   ],
 })

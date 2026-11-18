@@ -225,7 +225,7 @@ When another installed package has a version that your `vite-hub` release does n
 
 | Feature | Add these packages |
 | --- | --- |
-| `agent` | `@vite-hub/agent @vite-hub/workflow` (Agents run on Workflow) |
+| `agent` | `@vite-hub/agent` |
 | `auth` | `@vite-hub/auth better-auth` |
 | `blob` | `@vite-hub/blob` |
 | `browser` | `@vite-hub/browser` |
@@ -255,7 +255,7 @@ When another installed package has a version that your `vite-hub` release does n
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
 
-Agent also turns on Workflow, unless you set `workflow: false`. Env is on by default. If the host cannot run a feature you turned on, the build fails. See [Frameworks and hosts](/docs/frameworks-hosts).
+Env is on by default. If the host cannot run a feature you turned on, the build fails. See [Frameworks and hosts](/docs/frameworks-hosts).
 
 Some hosts and providers add an SDK, and the build names it in the same error. On Vercel, [Workflow](/docs/workflows/hosts) needs `@vercel/functions`, and Queue needs `@vercel/queue` and `@vercel/functions`. A Sandbox Task needs `@vercel/sandbox` on Vercel or `@cloudflare/sandbox` on Cloudflare, and also `typescript`. `queue: { driver: "postgres" }` needs `postgres`. A [native Vercel Workflow](/docs/workflows/configure#add-a-durable-vercel-entry), such as a Workflow folder, also needs `workflow` and `@workflow/builders`. When they are missing, the build stops with `WORKFLOW_R0006` and prints the install command.
 ::

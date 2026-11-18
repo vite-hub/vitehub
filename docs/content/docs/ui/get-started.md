@@ -132,10 +132,10 @@ Start the dev server with `pnpm dev` and open the page. Select **Project name**:
 ::tutorial-step{title="Let an Agent work the page"}
 ## Let an Agent work the page
 
-Install the Agent, Realtime, and Workflow packages, and `ai` for the model. An Agent runs on Workflow on Node:
+Install the Agent and Realtime packages, and `ai` for the model:
 
 ```bash [commands/install-agent]
-pnpm add @vite-hub/agent @vite-hub/realtime @vite-hub/workflow ai
+pnpm add @vite-hub/agent @vite-hub/realtime ai
 ```
 
 Turn them on in `nuxt.config.ts` or `vite.config.ts`. This Node build keeps its rooms in memory, in one process:

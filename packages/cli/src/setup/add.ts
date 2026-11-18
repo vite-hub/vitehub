@@ -4,7 +4,7 @@ import process from "node:process"
 import { createInterface } from "node:readline/promises"
 
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
-import { featureIds, featurePackages, features, featureSupport, impliedFeatures, impliedInline } from "@vite-hub/internal/features"
+import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
 import { dirname, join, relative, resolve } from "pathe"
 
@@ -304,10 +304,10 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   }
   // Implications and provider prerequisites need their inputs before any file can be written.
   // Database is mandatory for Comments and Connections.
-  const inputFeatures = [...args.features, ...impliedFeatures(args.features, host, keep.filter(id => id !== "database"))]
+  const inputFeatures = [...args.features, ...impliedFeatures(args.features, keep.filter(id => id !== "database"))]
   if (inputFeatures.includes("database") && keep.includes("database")) requires.push("database")
   const requireFeature = (required: FeatureId) => {
-    for (const id of [required, ...impliedFeatures([required], host, keep.filter(id => id !== "database"))]) {
+    for (const id of [required, ...impliedFeatures([required], keep.filter(id => id !== "database"))]) {
       if (!inputFeatures.includes(id)) inputFeatures.push(id)
       if ((id === required || keep.includes(id)) && !args.features.includes(id) && !requires.includes(id) && status.features.find(item => item.id === id)?.enabled !== "on") requires.push(id)
     }
@@ -349,11 +349,9 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     if (invocations === "database" || (isRecord(invocations) && invocations.store === "database")) {
       requireFeature("database")
     }
-    // A feature that only an implication turns on can run inline, such as the Workflow of an Agent on Node.
-    const inlineOnly = !args.features.includes(id) && !requires.includes(id) && impliedInline(id, inputFeatures, host)
     // Outside Netlify, Workflow storage options select OpenWorkflow without `workflow.driver`.
     const storageSelected = id === "workflow" && host !== "netlify" && selectsProvider(id, value, host)
-    if (support.level === "explicit" && !inlineOnly && !storageSelected) {
+    if (support.level === "explicit" && !storageSelected) {
       const key = support.option.slice(id.length + 1)
       if (!(options && key in options) && !setsOption(project, support.option)) {
         const choices = optionChoices[support.option]
@@ -457,7 +455,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
 
   // The features that this command turns on, through the config or through an implication.
   const alreadyOn = new Set(status.features.filter(item => item.enabled === "on").map(item => item.id))
-  const implied = impliedFeatures([...new Set([...alreadyOn, ...addedFeatures])], host, keep.filter(id => !requires.includes(id))).filter(id => !addedFeatures.includes(id))
+  const implied = impliedFeatures([...new Set([...alreadyOn, ...addedFeatures])], keep.filter(id => !requires.includes(id))).filter(id => !addedFeatures.includes(id))
   const enabled = new Set([...alreadyOn, ...addedFeatures, ...implied])
   const packageFeatures = [...new Set([...addedFeatures, ...implied, ...inputFeatures, ...(enabled.has("console") ? ["console" as const] : [])])]
   const packages = packageFeatures.flatMap(id => featurePackages(id, valueFor(id), host, [...enabled]))
@@ -474,9 +472,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   for (const id of implied) {
     const support = featureSupport(id, host)
     if (support.level === "unsupported") nextSteps.push(`${id} is turned on by ${args.features.join(", ")} but is not supported on ${host}: ${support.detail} Set \`${id}: false\` to turn it off.`)
-    else if (support.level === "explicit" && impliedInline(id, [...enabled], host)) {
-      if (!selectsProvider(id, valueFor(id), host) && !setsOption(project, support.option)) nextSteps.push(`${features[id].title} that ${args.features.join(", ")} turns on runs inline in the request process on ${host}, and a restart loses its runs. Set \`${support.option}\` for durable runs. ${support.detail}`)
-    }
     else if (support.level === "explicit" && !setsOption(project, support.option) && !(args.options[id] && support.option.slice(id.length + 1) in args.options[id])) nextSteps.push(`${id} is turned on by ${args.features.join(", ")}. Set \`${support.option}\` on ${host}, or set \`${id}: false\`. ${support.detail}`)
   }
   // Host defaults that build and run, but keep state in one process.

@@ -1471,8 +1471,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const { logs: logsOption, browserErrors, ...observabilityOptions } = observability ?? {}
   const observabilityLogs = logsOption === true ? {} : logsOption || undefined
   const telemetry = Boolean(observabilityOptions.service)
-  const workflowEnabled = options.workflow !== false
-    && Boolean(options.workflow || (options.agent && plan.host !== "netlify"))
+  // Agents run inline. They use Workflow for durable runs only when the app sets `workflow`.
+  const workflowEnabled = Boolean(options.workflow)
   // The packages of these features are optional peers. One error lists every package that the app must add, also the
   // SDKs that the host or a provider adds, such as `@vercel/functions` for Workflow on Vercel.
   const enabledFeatures = ([
@@ -1497,7 +1497,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ["realtime", options.realtime],
     ["sandboxTask", sandboxTaskEnabled],
     ["schedule", options.schedule],
-    // Agents run on Workflow outside Netlify unless the app sets `workflow: false`.
     ["workflow", workflowEnabled],
     ["workspace", options.workspace],
   ] as const).filter(([, enabled]) => enabled).map(([feature]) => feature)
@@ -1510,7 +1509,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const blobStoreNames = resolvedConsoleBlob
     ? Object.keys(resolvedConsoleBlob.stores || { default: resolvedConsoleBlob.store })
     : []
-  const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, host: plan.host, sandboxTask: sandboxTaskEnabled })
+  const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, sandboxTask: sandboxTaskEnabled })
   // `.template.md` imports work when the app installed `@vite-hub/markdown-template`.
   const plugins: unknown[] = [doctorPlugin(), viteHubHintsPlugin(), ...markdownTemplateVite ? [markdownTemplateVite.hubMarkdownTemplate()] : []]
   const requestedServices: HostSelectedService[] = []
@@ -1856,9 +1855,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       databaseImport: "vite-hub/database",
       hosting: plan.nitroPreset,
       importBase: "vite-hub/workflow",
-      ...(options.workflow === undefined ? { implicitlyEnabled: true } : {}),
       providerImportAliases,
-      includeUserAppEntry: options.workflow !== undefined && options.workflow !== false,
+      includeUserAppEntry: true,
       workspaceDependencyRuntimeImports,
       // With the Agent, Workspace may be installed only as an Agent dependency, so the Agent hands out its path.
       workspaceRuntimeModule: options.agent ? requireOptionalOwner(ownerModules.agentVite, "agent").agentRuntimeModule("internal/workspace/runtime") : "vite-hub/workspace/runtime",

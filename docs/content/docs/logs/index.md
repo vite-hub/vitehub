@@ -14,9 +14,14 @@ icon: i-lucide-logs
 ::code-tree
 :::framework{name="Nuxt"}
 ```ts [nuxt.config.ts]
+const isDev = process.env.NODE_ENV === 'development'
+
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', observability: { logs: true } },
+  vitehub: {
+    host: 'node',
+    observability: { logs: isDev ? true : { source: './server/logs.ts' } },
+  },
 })
 ```
 :::
@@ -26,12 +31,15 @@ import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [
-    vitehub({ host: 'node', observability: { logs: true } }),
+    vitehub({
+      host: 'node',
+      observability: { logs: command === 'serve' ? true : { source: './server/logs.ts' } },
+    }),
     nitro(),
   ],
-})
+}))
 ```
 :::
 :::framework{name="Vite"}
@@ -39,14 +47,21 @@ export default defineConfig({
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
-export default defineConfig({
-  plugins: [vitehub({ host: 'node', observability: { logs: true } })],
-})
+export default defineConfig(({ command }) => ({
+  plugins: [
+    vitehub({
+      host: 'node',
+      observability: { logs: command === 'serve' ? true : { source: './server/logs.ts' } },
+    }),
+  ],
+}))
 ```
 :::
 ::
 
 ViteHub Logs uses Evlog for structured request events. Keep Evlog's logger API, framework adapters, options, and drains. ViteHub adds a read contract, Console inspection, and CLI access.
+
+`logs: true` keeps events in memory while the dev server runs. A production build needs `source`: a server file that reads the log service you already use. See [Read an existing backend](/docs/logs/configure#read-an-existing-backend).
 
 ::product-features
   :::product-feature-item{title="Start locally" icon="i-lucide-terminal" to="/docs/logs/get-started"}

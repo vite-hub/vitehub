@@ -329,21 +329,21 @@ describe("vitehub remove", () => {
   })
 
   it("refuses a feature that another enabled feature implies, and writes false with --force", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "cloudflare", agent: true, workflow: true }`) })
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "cloudflare", comments: true, database: true }`) })
     const before = await readFile(join(root, "vite.config.ts"), "utf8")
 
-    const refused = await remove(["workflow", "--yes", "--no-uninstall"], root)
+    const refused = await remove(["database", "--yes", "--no-uninstall"], root)
 
     expect(refused.exitCode).toBe(3)
-    expect(refused.json.error).toMatchObject({ code: "SETUP_FEATURE_IMPLIED", message: "workflow stays on because agent turns it on." })
-    expect(refused.json.impliedBy).toEqual(["agent"])
+    expect(refused.json.error).toMatchObject({ code: "SETUP_FEATURE_IMPLIED", message: "database stays on because comments turns it on." })
+    expect(refused.json.impliedBy).toEqual(["comments"])
     expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(before)
 
-    const forced = await remove(["workflow", "--yes", "--no-uninstall", "--force"], root)
+    const forced = await remove(["database", "--yes", "--no-uninstall", "--force"], root)
 
     expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
-    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(viteConfig(`{ host: "cloudflare", agent: true, workflow: false }`))
-    expect(await enabled(root, "workflow")).toBe("off")
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(viteConfig(`{ host: "cloudflare", comments: true, database: false }`))
+    expect(await enabled(root, "database")).toBe("off")
   })
 
   it("names the feature that implies Database", async () => {

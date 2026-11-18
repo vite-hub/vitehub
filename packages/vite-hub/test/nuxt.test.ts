@@ -1523,7 +1523,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(development.nuxt.options.devServerHandlers).toEqual([{ handler: existingConsoleHandler, route: "/_vitehub/api" }])
     expect(development.nuxt.options.vite.plugins).toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
     await expect(readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin-dev.mjs`, "utf8")).resolves.toContain(
-      `installConsoleSections("${tmp}/vitehub-nuxt", ["setup","env","agents","skills","usage","channels","blob","kv","workflows","site"])`,
+      `installConsoleSections("${tmp}/vitehub-nuxt", ["setup","env","agents","skills","usage","channels","blob","kv","site"])`,
     )
     await expect(readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin-dev.mjs`, "utf8")).resolves.toContain(
       `installConsoleAgentDefinitions([], { projectRoot: "${tmp}/vitehub-nuxt", invoke: true, capabilities: async () => {`,
@@ -4421,11 +4421,11 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
   })
 
   it.each([
-    { host: "cloudflare", agent: true, workflow: undefined, enabled: true },
-    { host: "node", agent: true, workflow: undefined, enabled: true },
-    { host: "vercel", agent: true, workflow: undefined, enabled: true },
+    { host: "cloudflare", agent: true, workflow: undefined, enabled: false },
+    { host: "node", agent: true, workflow: undefined, enabled: false },
+    { host: "vercel", agent: true, workflow: undefined, enabled: false },
     { host: "netlify", agent: true, workflow: undefined, enabled: false },
-    { host: "cloudflare", agent: true, workflow: false, enabled: false },
+    { host: "cloudflare", agent: true, workflow: true, enabled: true },
     { host: "cloudflare", agent: false, workflow: undefined, enabled: false },
     { host: "cloudflare", agent: false, workflow: true, enabled: true },
   ] as const)("selects server imports for effective Workflow enablement: %j", async ({ host, agent, workflow, enabled }) => {

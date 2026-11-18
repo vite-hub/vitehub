@@ -5,7 +5,6 @@ export default defineNuxtConfig({
   modules: ["@nuxt/ui", [viteHub, {
     host: "node",
     agent: true,
-    workflow: false,
     console: false,
   }]],
   css: ["~/assets/main.css"],

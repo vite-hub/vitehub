@@ -191,7 +191,13 @@ A child Agent's `data` or `intercept` replaces the parent's; schemas and interce
 
 ## Choose hosted execution
 
-Discovered Agents use the active host's Workflow integration by default. On Node and Docker, that is OpenWorkflow: each turn is a durable run that any server's worker executes, and a queued turn survives a restart. Set `runtime: false` when a hosted Agent must complete inline, or select a named Workflow identity with `runtime: agentWorkflow('support')`.
+Discovered Agents run inline by default: each turn runs in the server process that got the request, and a restart loses it. For durable turns, turn on [Workflow](/docs/workflows) in the ViteHub options:
+
+```ts [vite.config.ts]
+vitehub({ agent: true, workflow: true })
+```
+
+Then each discovered Agent uses the host's Workflow integration. On Node and Docker, that is OpenWorkflow: each turn is a durable run that any server's worker executes, and a queued turn survives a restart. Other hosts may need a Workflow `driver`; see [Workflow hosts](/docs/workflows/hosts). With Workflow on, set `runtime: false` when one Agent must still complete inline, or select a named Workflow identity with `runtime: agentWorkflow('support')`.
 
 `runAgent()` and `streamAgent()` run the Agent inline in the calling process, whatever its `runtime`. See [Run an Agent](/docs/agents/invocations#run-an-agent).
 

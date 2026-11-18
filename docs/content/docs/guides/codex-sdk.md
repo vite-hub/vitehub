@@ -37,7 +37,6 @@ export default defineNuxtConfig({
   vitehub: {
     host: 'node',
     agent: true,
-    workflow: false,
   },
 })
 ```
@@ -53,7 +52,6 @@ export default defineConfig({
   plugins: [vitehub({
     host: 'node',
     agent: true,
-    workflow: false,
   }), nitro()],
 })
 ```
@@ -68,14 +66,13 @@ export default defineConfig({
   plugins: [vitehub({
     host: 'node',
     agent: true,
-    workflow: false,
   })],
 })
 ```
 :::
 ::
 
-`workflow: false` fits because the Agent finishes inside the HTTP request. Codex starts as a local process, so it needs a Node.js host. See [Where Codex can run](#where-codex-can-run).
+The Agent runs inline and finishes inside the HTTP request. Codex starts as a local process, so it needs a Node.js host. See [Where Codex can run](#where-codex-can-run).
 
 ### Define the Agent
 
