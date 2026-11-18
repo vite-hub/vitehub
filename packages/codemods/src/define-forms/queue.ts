@@ -71,6 +71,7 @@ export function rewriteQueues(file: SourceFile, parsed: ParsedFile, output: Magi
     }
 
     const close = end(node) - 1
+    let closingBrace = " }"
     if (options) {
       if (options.type !== "ObjectExpression" || options.properties.some((property) => {
         if (property.type !== "ObjectProperty" || property.computed) return true
@@ -81,14 +82,19 @@ export function rewriteQueues(file: SourceFile, parsed: ParsedFile, output: Magi
         return
       }
       const opening = argumentStart(options)
-      const first = start(options) + 1
       const last = end(options) - 1
+      let first = start(options) + 1
+      if (/[ \t]/.test(file.code[opening - 1])) {
+        while (first < last && /[ \t]/.test(file.code[first])) first++
+      }
+      const suffix = withoutDelimiters(file.code.slice(last, close))
+      if (!suffix && first < last && /\s/.test(file.code[last - 1])) closingBrace = "}"
       output.overwrite(opening, first, withoutDelimiters(file.code.slice(opening, first)))
-      output.overwrite(last, close, withoutDelimiters(file.code.slice(last, close)))
+      output.overwrite(last, close, suffix)
     }
     const shorthand = handler.type === "Identifier" && handler.name === "handler" && start(handler) === argumentStart(handler)
     output.appendLeft(argumentStart(handler), shorthand ? "{ " : "{ handler: ")
-    output.appendLeft(close, " }")
+    output.appendLeft(close, closingBrace)
     count++
   })
   return count
