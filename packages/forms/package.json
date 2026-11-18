@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/forms",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Let site visitors write to the site owner: one defineForm() with a spam guard, Standard Schema validation, storage, and notifications.",
   "keywords": [
     "contact-form",
@@ -40,6 +40,11 @@
       "types": "./dist/database.d.ts",
       "import": "./dist/database.js",
       "default": "./dist/database.js"
+    },
+    "./formisch": {
+      "types": "./dist/formisch.d.ts",
+      "import": "./dist/formisch.js",
+      "default": "./dist/formisch.js"
     },
     "./guard": {
       "types": "./dist/guard.d.ts",
@@ -81,11 +86,13 @@
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
+    "@chat-adapter/slack": "catalog:chat",
+    "@chat-adapter/teams": "catalog:chat",
     "@formisch/vue": "catalog:ui",
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
-    "@ui-sdk/core": "0.1.0-beta.2",
-    "@ui-sdk/vue": "0.1.0-beta.2",
+    "@ui-sdk/core": "0.1.0-beta.5",
+    "@ui-sdk/vue": "0.1.0-beta.5",
     "@vite-hub/internal": "workspace:*",
     "happy-dom": "21.0.3",
     "publint": "catalog:tooling",
@@ -95,13 +102,15 @@
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
-    "drizzle-orm": "catalog:database"
+    "drizzle-orm": "catalog:database",
+    "chat": "catalog:chat",
+    "zod": "catalog:runtime"
   },
   "peerDependencies": {
     "@formisch/vue": "^1.2.0",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat",
-    "drizzle-orm": ">=1.0.0-rc.5 <2.0.0"
+    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0"
   },
   "peerDependenciesMeta": {
     "@formisch/vue": {

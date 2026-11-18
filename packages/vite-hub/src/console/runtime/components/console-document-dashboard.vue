@@ -386,7 +386,7 @@ async function publishAll(): Promise<void> {
                   <RouterLink
                     v-if="entry.action !== 'remove'"
                     :to="documentRoute(entry.documents[0]!.collection, entry.documents[0]!.id)"
-                    class="text-highlighted underline decoration-(--ui-border-accented) underline-offset-2 hover:decoration-(--ui-text-muted)"
+                    class="text-highlighted underline decoration-(--ui-border-accented) underline-offset-2 hover:decoration-(--muted-foreground)"
                   >{{ entry.documents[0]!.title }}</RouterLink>
                   <span v-else class="text-highlighted">{{ entry.documents[0]!.title }}</span>
                 </template>
@@ -428,13 +428,13 @@ async function publishAll(): Promise<void> {
 }
 
 .vitehub-dashboard-row:hover {
-  background: var(--ui-bg-elevated);
+  background: var(--muted);
 }
 
 .vitehub-dashboard-row__status { grid-area: status; }
 
 .vitehub-dashboard-row__title {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   font-size: 0.875rem;
   grid-area: title;
   line-height: 1.25rem;
@@ -455,7 +455,7 @@ async function publishAll(): Promise<void> {
 }
 
 .vitehub-dashboard-row__time {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
   grid-area: time;

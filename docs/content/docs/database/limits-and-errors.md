@@ -61,7 +61,7 @@ export default defineEventHandler(async () => {
 | `DATABASE_MIGRATIONS_OLD_LAYOUT` | Printed by `vitehub database generate` and `vitehub database migrate`, which then exit with code 1. Also by the build with `migrateOnStart`, and by test mode |
 | `DATABASE_EXPORT_FAILED` | Printed by `vitehub database export`, which then exits with code 1 |
 | `DATABASE_MIGRATION_BACKUP_FAILED`, `DATABASE_MIGRATION_BACKUP_UNSUPPORTED`, `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | When a Node server migrates on start, before it listens. `DATABASE_MIGRATION_BACKUP_UNSUPPORTED` and `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fail the build |
-| `DATABASE_SEED_FAILED`, `DATABASE_SEED_NOT_FOUND`, `DATABASE_SEED_PENDING_MIGRATIONS` | Printed by `vitehub database seed`, which then exits with code 1 |
+| `DATABASE_SEED_FAILED`, `DATABASE_SEED_NOT_FOUND`, `DATABASE_SEED_PENDING_MIGRATIONS` | Printed by `vitehub seed`, which then exits with code 1 |
 | `DATABASE_DRIZZLE_OPTION_REMOVED`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_DRIVER`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
 | Every other code | During discovery, the build, or `vitehub provision run` |
 
@@ -171,7 +171,7 @@ A migrations folder has the layout of Drizzle Kit 0.x: flat `.sql` files and `me
 
 A pending migration drops a table, column, or schema, deletes every row of a table, or rebuilds a SQLite table without one of its columns. A table that an earlier pending migration created or dropped does not count, because it has no old rows. For PostgreSQL, this skip needs schema-qualified table names, and for `TRUNCATE`, `ONLY` on every target without `CASCADE`. After a SQLite temporary table is created, later losses stay in the check, because unqualified names can switch between temporary and permanent tables. `error.why` names each migration and statement.
 
-Run `vitehub database migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub database migrate --allow-data-loss`. With `migrateOnStart`, the server throws this at startup and handles no requests. Back up the data and set `migrateOnStart: { allowDataLoss: true }` to accept the loss.
+Run `vitehub database migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub database migrate --allow-data-loss`. With `migrateOnStart`, the server throws this at startup and handles no requests. Back up the data and set `migrateOnStart: { allowDataLoss: true }` to accept the loss, or start the built server once with `VITEHUB_DATABASE_ALLOW_DATA_LOSS=1`.
 
 ### DATABASE_MIGRATION_FAILED
 
@@ -203,7 +203,7 @@ A statement of a pending Postgres migration failed. `error.why` names the migrat
 
 ### DATABASE_SEED_NOT_FOUND
 
-`vitehub database seed` found no seed file. `error.why` names the path that ViteHub looks for: `seed.ts` beside the migrations folder, such as `server/databases/default/seed.ts`. Without `--database`, the command fails only when no database has a seed file. See [Seed data](/docs/database/configure#seed-data).
+`vitehub seed` found no seed file. `error.why` names the path that ViteHub looks for: `seed.ts` beside the migrations folder, such as `server/databases/default/seed.ts`. Without `--database`, the command fails only when no database has a seed file. See [Seed data](/docs/database/configure#seed-data).
 
 ### DATABASE_SEED_PENDING_MIGRATIONS
 
@@ -211,7 +211,7 @@ The database has migrations that it has not applied, so the seed could write to 
 
 ### DATABASE_SEED_FAILED
 
-`vitehub database seed` cannot run the seed. `error.why` has the reason, such as a remote database without `--remote`, `--remote` for a local database, a seed file that cannot load or has no default export function, or an error that the seed throws, in `error.cause`. The database keeps the rows that the seed wrote before the error. Write them in one `db.transaction()` to keep all or none.
+`vitehub seed` cannot run the seed. `error.why` has the reason, such as a remote database without `--remote`, `--remote` for a local database, a seed file that cannot load or has no default export function, or an error that the seed throws, in `error.cause`. The database keeps the rows that the seed wrote before the error. Write them in one `db.transaction()` to keep all or none.
 
 ## Definition errors
 
@@ -225,7 +225,7 @@ The Definition sets `drizzle`. Drizzle 1.0 has no `casing` option on the databas
 
 ### DATABASE_INVALID_DRIVER
 
-`driver` of a Postgres Definition is not `pglite`. The build reads it from the source, so write a string literal. Remove `driver` to connect with `connection.url`.
+`driver` of a Postgres Definition is not `node-postgres` or `pglite`. The build reads it from the source, so write a string literal. Remove `driver` to connect with postgres.js.
 
 ### DATABASE_INVALID_NAME
 
@@ -291,7 +291,7 @@ A Database Definition still uses `config.ts`. The Database `<name>` is now `serv
 
 ### DATABASE_MISSING_D1_RESOURCE
 
-D1 output needs the database id and name at build time, so create the database before the first production build. Set `cloudflare.databaseId` and `cloudflare.databaseName`, or run `vitehub provision run --provider cloudflare`. In the Nuxt module options, the names are `database.databaseId` and `database.databaseName`. To create the database, read [Create the D1 database](/docs/guides/cloudflare-d1#create-the-d1-database). For values known only at runtime, use D1 HTTP or a remote libSQL connection.
+D1 output needs the database id and name at build time, so create the database before the first production build. Set `cloudflare.databaseId` and `cloudflare.databaseName`, or run `vitehub provision run --host cloudflare`. In the Nuxt module options, the names are `database.databaseId` and `database.databaseName`. To create the database, read [Create the D1 database](/docs/guides/cloudflare-d1#create-the-d1-database). For values known only at runtime, use D1 HTTP or a remote libSQL connection.
 
 ### DATABASE_MIXED_DEFINITIONS
 

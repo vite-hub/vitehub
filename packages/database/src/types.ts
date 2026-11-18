@@ -2,7 +2,7 @@ import type { AnyRelations, EmptyRelations, ExtractTablesFromSchema, ExtractTabl
 import type { BatchItem, BatchResponse } from "drizzle-orm/batch"
 import type { PgAsyncDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core"
 import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core"
-import type { ResolvedDatabaseContribution } from "./contributions.ts"
+import type { ResolvedDatabaseContribution, ResolvedDatabaseMigrations } from "./contributions.ts"
 
 export type DatabaseDialect = "sqlite" | "postgresql"
 
@@ -52,7 +52,7 @@ export interface DatabaseRuntimeD1Options {
   databaseId?: DatabaseConfigValue
   databaseName?: DatabaseConfigValue
   cloudflare?: Pick<CloudflareD1BindingConfig, "http">
-  driver: "d1"
+  driver: "cloudflare"
   local?: DatabaseLocalRuntimeOptions
   migrationsTable?: string
   previewDatabaseId?: DatabaseConfigValue
@@ -69,10 +69,13 @@ export interface MigrationBackupOptions {
 
 export interface DatabaseIntegrationOptions {
   cli?: false | {
+    drop?: false
     export?: false
     generate?: false
     migrate?: false
+    reset?: false
     seed?: false
+    sql?: false
     up?: false
   }
   /**
@@ -147,10 +150,13 @@ export interface PostgresConnectionConfig {
 }
 
 /**
- * `pglite` runs a Postgres Database on PGlite, a Postgres that runs in the Node process, in `vite dev`, app tests, and
- * `vitehub database migrate`. It ignores `connection.url` and the PG* variables. A production build fails with it.
+ * The client of a Postgres Database. Without `driver`, ViteHub uses postgres.js.
+ *
+ * - `node-postgres` uses the `pg` package and its `Pool`. Install `pg` in the app. `db.$client` is the Pool.
+ * - `pglite` runs the Database on PGlite, a Postgres that runs in the Node process, in `vite dev`, app tests, and
+ *   `vitehub database migrate`. It ignores `connection.url` and the PG* variables. A production build fails with it.
  */
-export type PostgresDatabaseDriver = "pglite"
+export type PostgresDatabaseDriver = "node-postgres" | "pglite"
 
 export interface PostgresDatabaseDefinitionOptions<
   TSchema extends Record<string, unknown> = Record<string, unknown>,
@@ -235,8 +241,10 @@ export type RuntimeDrizzleDatabase<
   TSchema extends Record<string, unknown>,
   TRelations extends AnyRelations = SchemaRelations<TSchema>,
 > = SQLiteAsyncDatabase<"async", unknown, TRelations> & {
-  /** Execute an atomic batch on D1, D1 HTTP, or libSQL. */
+  /** Execute an atomic batch on D1, D1 HTTP, or libSQL. A literal list types each result. */
   batch<U extends BatchItem<"sqlite">, T extends Readonly<[U, ...U[]]>>(queries: T): Promise<BatchResponse<T>>
+  /** Execute a list of queries that the code builds. An empty list runs nothing and resolves `[]`. */
+  batch(queries: readonly BatchItem<"sqlite">[]): Promise<unknown[]>
 }
 
 /** A module whose `schema` tables join a database. */
@@ -327,6 +335,8 @@ export interface ResolvedDBViteConfig {
   rootDir: string
   /** Tables that Vite plugins contribute, by target Database name. */
   tableContributionsByDatabase: Record<string, ResolvedDatabaseContribution[]>
+  /** Folders of `.sql` migrations that Vite plugins contribute, by target Database name. */
+  migrationContributionsByDatabase: Record<string, ResolvedDatabaseMigrations[]>
 }
 
 export type DatabaseOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options> & {

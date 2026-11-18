@@ -26,7 +26,7 @@ function registerNativeWorkflow() {
     }),
   }
   setVercelWorkflowRuntimeLoader(async () => runtime)
-  setWorkflowRuntimeConfig({ provider: "vercel" })
+  setWorkflowRuntimeConfig({ driver: "vercel" })
   setWorkflowRuntimeRegistry({
     onboard: async () => ({ default: { handler, options: { native } } }),
   })
@@ -43,8 +43,7 @@ it("runs the normal handler of a native Vercel entry inline on a development ser
     await expect(getWorkflowRun("onboard", started.id)).resolves.toMatchObject({ status: "completed" })
   })
   const run = await getWorkflowRun("onboard", started.id)
-  expect(run.result).toBeInstanceOf(Response)
-  await expect((run.result as Response).json()).resolves.toEqual({ inline: "ada@example.com" })
+  expect(run.result).toEqual({ inline: "ada@example.com" })
   await expect(cancelWorkflow("onboard", started.id)).rejects.toMatchObject({ code: "WORKFLOW_OPERATION_UNSUPPORTED" })
 
   expect(handler).toHaveBeenCalledOnce()

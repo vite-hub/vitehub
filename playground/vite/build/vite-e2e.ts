@@ -177,6 +177,7 @@ function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
   return [
     `import { createHostedDrizzleDb } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(dbPackageDir, "runtime/hosted")))}`,
     `import { createDatabaseBindingLookup } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(dbPackageDir, "runtime/agent")))}`,
+    `import { readPostgresConnectionUrl } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(dbPackageDir, "runtime/postgres-connection")))}`,
     `import { ensureDatabaseMigrations } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(dbPackageDir, "runtime/migrate-on-start")))}`,
     "",
     ...schemaImports,
@@ -188,6 +189,7 @@ function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
     "  return databases[name]",
     "}",
     "export const useDatabaseBinding = createDatabaseBindingLookup(databases)",
+    "export function getPostgresConnectionUrl(name = \"default\") { return readPostgresConnectionUrl(databases, name) }",
     "export function ensureMigrations(name) { return ensureDatabaseMigrations({ databases, load: async () => ({ allowDataLoss: false, databases: {}, unsupported: 'Hosted test output does not ship migrations.' }) }, name === undefined ? undefined : [name]) }",
     "",
     // The Database root re-exports `db` and `schema`, so the registry has them also without a default Database.
@@ -204,11 +206,11 @@ function renderBlobRuntimeModule(file: string, config: false | ResolvedBlobModul
     `import { setBlobRuntimeConfig, setBlobRuntimeStorage } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "runtime/state")))}`,
   ]
 
-  if (config?.store.driver === "cloudflare-r2") {
+  if (config?.store.driver === "cloudflare") {
     const driver = hosting === "cloudflare" ? "drivers/cloudflare-native" : "drivers/cloudflare"
     imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, driver)))}`)
   }
-  else if (config?.store.driver === "vercel-blob") {
+  else if (config?.store.driver === "vercel") {
     imports.push(`import { resolveRuntimeVercelBlobStore } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(blobPackageDir, "config")))}`)
     imports.push(`import { createBundledVercelBlobDriver } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/drivers/vercel-bundled.ts")))}`)
   }
@@ -218,7 +220,7 @@ function renderBlobRuntimeModule(file: string, config: false | ResolvedBlobModul
 
   const storageExpression = !config
     ? "undefined"
-    : config.store.driver === "vercel-blob"
+    : config.store.driver === "vercel"
       ? "createBlobStorage(createBundledVercelBlobDriver(resolveRuntimeVercelBlobStore(blobConfig.store, process.env)))"
       : "createBlobStorage(createDriver(blobConfig.store))"
 
@@ -255,7 +257,7 @@ function renderKvRuntimeModule(file: string, config: false | ResolvedKVModuleOpt
     `import { kvResult } from ${JSON.stringify(createImportPath(file, resolve(kvPackageDir, "src/errors.ts")))}`,
   ]
 
-  if (config.store.driver === "cloudflare-kv-binding") {
+  if (config.store.driver === "cloudflare") {
     // Use the KV package's Cloudflare storage so the local run proves how it resolves the request binding.
     imports.push(`import { createCloudflareKVStorage } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(kvPackageDir, "runtime/cloudflare-kv")))}`)
   }
@@ -276,7 +278,7 @@ function renderKvRuntimeModule(file: string, config: false | ResolvedKVModuleOpt
     "",
     `const kvConfig = ${JSON.stringify(config, null, 2)}`,
     `const resolvedKvConfig = ${resolvedConfigExpression}`,
-    config.store.driver === "cloudflare-kv-binding"
+    config.store.driver === "cloudflare"
       ? "const storage = createCloudflareKVStorage(resolvedKvConfig.store)"
       : "const storage = createStorage({ driver: createDriver(resolvedKvConfig.store) })",
     "export const kv = {",
@@ -831,7 +833,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   let sandboxTaskConfig: false | AgentSandboxTaskConfig | undefined
   if (options.sandbox) {
     sandboxTaskConfig = resolveSandboxTaskFeatureConfig(options.sandbox, options.hosting)
-    const sandboxTaskProvider = sandboxTaskConfig.provider === "vercel" ? "vercel" : "cloudflare"
+    const sandboxTaskProvider = sandboxTaskConfig.driver === "vercel" ? "vercel" : "cloudflare"
 
     const emittedDefinitions = await Promise.all(sandboxTaskDefinitions.map(async (definition) => {
       const file = resolve(generatedDir, "runtime", "sandbox-task-definitions", `${toSandboxTaskArtifactName(definition.name)}.mjs`)
@@ -868,6 +870,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
 
     if (sandboxTaskProvider === "cloudflare") {
       // @cloudflare/sandbox 1.0 exports only the `import` condition, which require.resolve cannot read.
+      // Reported upstream: https://github.com/cloudflare/sandbox-sdk/issues/1053.
       alias["@cloudflare/sandbox"] = realpathSync(resolve(sandboxPackageDir, "node_modules/@cloudflare/sandbox/dist/index.mjs"))
     }
   }
@@ -901,7 +904,7 @@ export function renderCloudflareEntry(file: string, options: ViteE2EComposerOpti
   const appEntry = resolve(options.rootDir, "src/server.e2e.ts")
   const resolveApp = resolve(packagesDir, "internal/src/runtime/app.ts")
   const cloudflareEnv = resolve(packagesDir, "internal/src/runtime/cloudflare-env.ts")
-  const workspaceProvider = options.workspace && options.workspace.store.provider
+  const workspaceDriver = options.workspace && options.workspace.store.driver
   const workspaceRuntimeState = artifacts.alias["@vite-hub/workspace/runtime"] || resolve(workspacePackageDir, "src/runtime/state.ts")
   const queueNamePrefix = options.queue ? options.queue.namePrefix : ""
   const queueDefinitionNames = Object.fromEntries(artifacts.queueDefinitions.map(definition => [getCloudflareQueueName(definition.name, queueNamePrefix), definition.name]))
@@ -924,10 +927,10 @@ export function renderCloudflareEntry(file: string, options: ViteE2EComposerOpti
     `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, workspaceRuntimeState))}`,
   ]
 
-  if (workspaceProvider === "cloudflare-artifacts") {
+  if (workspaceDriver === "cloudflare") {
     imports.push(`import { createCloudflareArtifactsWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/providers/cloudflare/artifacts-store.ts")))}`)
   }
-  if (workspaceProvider === "github") {
+  if (workspaceDriver === "github") {
     imports.push(`import { createGitHubWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/providers/github/store.ts")))}`)
   }
 
@@ -979,21 +982,21 @@ export function renderCloudflareEntry(file: string, options: ViteE2EComposerOpti
     "setWorkflowRuntimeConfig(workflowConfig)",
     `setWorkflowRuntimeRegistry(${artifacts.workflowRegistryFile ? "workflowRegistry" : "undefined"})`,
     "setBlobRuntimeConfig(blobConfig)",
-    ...(options.rateLimit ? ["setRateLimitRuntimeConfig({ provider: 'cloudflare' })"] : []),
+    ...(options.rateLimit ? ["setRateLimitRuntimeConfig({ driver: 'cloudflare' })"] : []),
     "setSandboxTaskRuntimeConfig(sandboxTaskConfig)",
     `setSandboxTaskRuntimeRegistry(${artifacts.alias["#vitehub-sandbox-task-registry"] ? "sandboxTaskRegistry" : "undefined"})`,
     "setWorkspaceRuntimeConfig(workspaceConfig)",
-    ...(workspaceProvider === "cloudflare-artifacts"
+    ...(workspaceDriver === "cloudflare"
       ? [
           "setWorkspaceHostedStoreLoader((store, workspaceName) => {",
-          "  if (store.provider !== 'cloudflare-artifacts') throw new Error(`[vitehub] Unsupported workspace store for Cloudflare build: ${store.provider}`)",
+          "  if (store.driver !== 'cloudflare') throw new Error(`[vitehub] Unsupported workspace store for Cloudflare build: ${store.driver}`)",
           "  return createCloudflareArtifactsWorkspaceStore(store, workspaceName)",
           "})",
         ]
-      : workspaceProvider === "github"
+      : workspaceDriver === "github"
         ? [
             "setWorkspaceHostedStoreLoader((store, workspaceName) => {",
-            "  if (store.provider !== 'github') throw new Error(`[vitehub] Unsupported workspace store for Cloudflare build: ${store.provider}`)",
+            "  if (store.driver !== 'github') throw new Error(`[vitehub] Unsupported workspace store for Cloudflare build: ${store.driver}`)",
             "  return createGitHubWorkspaceStore(store, workspaceName)",
             "})",
           ]
@@ -1019,7 +1022,7 @@ export function renderCloudflareEntry(file: string, options: ViteE2EComposerOpti
     "    })",
     "  },",
     "  async queue(batch, env, context) {",
-    "    if (queueConfig === false || queueConfig?.provider !== 'cloudflare') return",
+    "    if (queueConfig === false || queueConfig?.driver !== 'cloudflare') return",
     "    return await runWithActiveCloudflareEnv(env, async () => {",
     "      try {",
     "        const definition = await loadQueueDefinition(queueDefinitionNames[batch.queue])",
@@ -1065,8 +1068,8 @@ export function renderCloudflareEntry(file: string, options: ViteE2EComposerOpti
 function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifacts: GeneratedFeatureArtifacts) {
   const appEntry = resolve(options.rootDir, "src/server.e2e.ts")
   const resolveApp = resolve(packagesDir, "internal/src/runtime/app.ts")
-  const workspaceProvider = options.workspace && options.workspace.store.provider
-  const preloadVercelQueue = options.queue && options.queue.provider === "vercel"
+  const workspaceDriver = options.workspace && options.workspace.store.driver
+  const preloadVercelQueue = options.queue && options.queue.driver === "vercel"
   const workspaceRuntimeState = artifacts.alias["@vite-hub/workspace/runtime"] || resolve(workspacePackageDir, "src/runtime/state.ts")
 
   const imports = [
@@ -1086,10 +1089,10 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     imports.push(`import * as __vitehubVercelQueue from ${JSON.stringify(createImportPath(file, resolvePackageDependency(queuePackageDir, "@vercel/queue")))}`)
   }
 
-  if (workspaceProvider === "vercel-blob") {
+  if (workspaceDriver === "vercel") {
     imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/providers/vercel/blob-store.ts")))}`)
   }
-  if (workspaceProvider === "github") {
+  if (workspaceDriver === "github") {
     imports.push(`import { createGitHubWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/providers/github/store.ts")))}`)
   }
 
@@ -1119,17 +1122,17 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     "setSandboxTaskRuntimeConfig(sandboxTaskConfig)",
     `setSandboxTaskRuntimeRegistry(${artifacts.alias["#vitehub-sandbox-task-registry"] ? "sandboxTaskRegistry" : "undefined"})`,
     "setWorkspaceRuntimeConfig(workspaceConfig)",
-    ...(workspaceProvider === "vercel-blob"
+    ...(workspaceDriver === "vercel"
       ? [
           "setWorkspaceHostedStoreLoader((store, workspaceName) => {",
-          "  if (store.provider !== 'vercel-blob') throw new Error(`[vitehub] Unsupported workspace store for Vercel build: ${store.provider}`)",
+          "  if (store.driver !== 'vercel') throw new Error(`[vitehub] Unsupported workspace store for Vercel build: ${store.driver}`)",
           "  return createVercelBlobWorkspaceStore(store, workspaceName)",
           "})",
         ]
-      : workspaceProvider === "github"
+      : workspaceDriver === "github"
         ? [
             "setWorkspaceHostedStoreLoader((store, workspaceName) => {",
-            "  if (store.provider !== 'github') throw new Error(`[vitehub] Unsupported workspace store for Vercel build: ${store.provider}`)",
+            "  if (store.driver !== 'github') throw new Error(`[vitehub] Unsupported workspace store for Vercel build: ${store.driver}`)",
             "  return createGitHubWorkspaceStore(store, workspaceName)",
             "})",
           ]
@@ -1150,7 +1153,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
 }
 
 function renderVercelQueueWrapper(file: string, queueRegistryFile: string, definitionName: string, queueConfig: false | ResolvedQueueOptions | undefined) {
-  const preloadVercelQueue = queueConfig && queueConfig.provider === "vercel"
+  const preloadVercelQueue = queueConfig && queueConfig.driver === "vercel"
   const imports = [
     "import { H3 } from 'h3'",
     "import { toNodeHandler } from 'h3/node'",
@@ -1253,7 +1256,7 @@ function createCloudflareQueueBindings(definitions: Array<{ name: string }>, nam
 }
 
 function createCloudflareR2Bindings(config: false | ResolvedBlobModuleOptions | undefined) {
-  if (!config || config.store.driver !== "cloudflare-r2" || !config.store.bucketName) {
+  if (!config || config.store.driver !== "cloudflare" || !config.store.bucketName) {
     return undefined
   }
   return [{ binding: config.store.binding, bucket_name: config.store.bucketName }]
@@ -1353,7 +1356,7 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
   // SAFETY: The fixture owns the Cloudflare config object and supplies the shape expected by this integration.
   configureCloudflareArtifacts({ cloudflare: { wrangler: wranglerConfig } as never }, options.workspace || false)
 
-  if (artifacts.sandboxTaskConfig && artifacts.sandboxTaskConfig.provider === "cloudflare") {
+  if (artifacts.sandboxTaskConfig && artifacts.sandboxTaskConfig.driver === "cloudflare") {
     const sandboxClassName = resolveSandboxClassName(artifacts.sandboxTaskConfig)
     // SAFETY: The fixture owns the Cloudflare config object and supplies the shape expected by this integration.
     configureCloudflareSandbox({ cloudflare: { wrangler: wranglerConfig } as never }, {
@@ -1480,7 +1483,7 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
       writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig({
         memory: 1024,
         supportsResponseStreaming: false,
-        ...(options.queue && options.queue.provider === "vercel"
+        ...(options.queue && options.queue.driver === "vercel"
           ? {
               experimentalTriggers: [{
                 consumer,
@@ -1553,7 +1556,7 @@ export function resolveViteE2EModuleOptions(hosting: string, env: Record<string,
   const queueNamePrefix = cloudflare ? env.VITEHUB_QUEUE_NAME_PREFIX?.trim() : undefined
   const workflowName = cloudflare ? env.VITEHUB_CLOUDFLARE_WORKFLOW_NAME?.trim() : undefined
   return {
-    kv: kvNamespaceName ? { driver: "cloudflare-kv-binding" as const, namespaceName: kvNamespaceName } : undefined,
+    kv: kvNamespaceName ? { driver: "cloudflare" as const, namespaceName: kvNamespaceName } : undefined,
     queue: queueNamePrefix ? { namePrefix: queueNamePrefix } : {},
     workflow: workflowName ? { name: workflowName } : {},
   }
@@ -1563,7 +1566,7 @@ export function resolveViteE2EOptions(rootDir: string, hosting: string) {
   const provider = resolveHostedProvider(hosting)
   const moduleOptions = resolveViteE2EModuleOptions(hosting)
   return {
-    blob: normalizeBlobOptions(provider === "vercel" ? { access: "private", driver: "vercel-blob" } : undefined, { hosting }),
+    blob: normalizeBlobOptions(provider === "vercel" ? { access: "private", driver: "vercel" } : undefined, { hosting }),
     db: resolveDBViteConfig(undefined, rootDir),
     hosting: provider,
     kv: normalizeKVOptions(moduleOptions.kv, { hosting }),

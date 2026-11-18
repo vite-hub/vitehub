@@ -66,7 +66,7 @@ async function setup(driver: "libsql" | "d1" | "d1-http", workspace = "drop-1") 
     cleanup.push(() => worker.dispose())
     setActiveCloudflareEnv({ HISTORY_R2: await worker.getR2Bucket("HISTORY_R2") })
     cleanup.push(() => setActiveCloudflareEnv(undefined))
-    blob = createBlobStorage(createR2Driver({ driver: "cloudflare-r2", binding: "HISTORY_R2" }))
+    blob = createBlobStorage(createR2Driver({ driver: "cloudflare", binding: "HISTORY_R2" }))
     database = driver === "d1" ? drizzleD1(await worker.getD1Database("DB")) : createCloudflareD1HttpResolver({
       name: "history", cloudflare: { databaseId: "history", http: { authToken: "test", url: "https://d1.test/raw" } },
     }, defineRelations(workspaceHistorySchema), async (url, options) => {
@@ -380,6 +380,13 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     await store.snapshot()
     const revision = await store.history.head()
     expect(await (await store.history.open(revision!.id)).readFile("keep.txt")).toBe("accepted")
+  })
+
+  it("keeps the author of a snapshot in the revision metadata", async () => {
+    const { store } = await setup(driver)
+    await store.writeFile("posts/a.md", { path: "posts/a.md", content: "a" })
+    await store.snapshot({ name: "docs: add a", author: { name: "Ada Lovelace", email: "ada@example.com" } })
+    expect(await store.history.head()).toMatchObject({ message: "docs: add a", metadata: { author: { name: "Ada Lovelace", email: "ada@example.com" } } })
   })
 
   it("accepts cross-realm binary content through both history entry points", async () => {

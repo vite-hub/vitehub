@@ -3,7 +3,11 @@ import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { consoleFeaturePackages, features } from "@vite-hub/internal/features"
+import { formatDiagnostic } from "nostics"
+
+import type { ViteHubHost } from "@vite-hub/internal/deployment"
+import type { FeatureId } from "@vite-hub/internal/features"
+import { consoleFeaturePackages, featureIds, featurePackages, features } from "@vite-hub/internal/features"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -40,7 +44,9 @@ export type OptionalOwnerPackage
     | "@vite-hub/sandbox"
     | "@vite-hub/schedule"
     | "@vite-hub/shell"
+    | "@vite-hub/sync"
     | "@vite-hub/ui"
+    | "@vite-hub/webhooks"
     | "@vite-hub/workflow"
     | "@vite-hub/workspace"
 
@@ -89,7 +95,11 @@ export const optionalFeaturePackages = {
   "sandboxTask": features.sandboxTask.packages,
   "schedule": features.schedule.packages,
   "shell": ["@vite-hub/shell"],
+  // `server/sync/` turns Sync on, and its change log goes to the Database.
+  "sync": ["@vite-hub/sync"],
   "ui": ["@vite-hub/ui"],
+  // `server/webhooks/` turns Webhooks on. It needs `queue` and `database`.
+  "webhooks": ["@vite-hub/webhooks"],
   // An Agent turns Workflow on unless the app sets `workflow: false`.
   "workflow": features.workflow.packages,
   "workspace": features.workspace.packages,
@@ -144,7 +154,8 @@ function resolvesPackage(packageName: string): boolean {
     // file system root, and most owner packages are missing in a typical app.
     if (error instanceof Error && "code" in error && error.code === "ERR_MODULE_NOT_FOUND") return false
   }
-  // Some packages, such as drizzle-orm, do not export their manifest, so also try the package entry.
+  // Some packages, such as drizzle-orm, do not export their manifest, so also try the package entry
+  // (drizzle-orm: https://github.com/drizzle-team/drizzle-orm/issues/6695).
   try {
     import.meta.resolve(packageName)
     return true
@@ -190,23 +201,97 @@ function readViteHubManifest(): unknown {
   return JSON.parse(readFileSync(fileURLToPath(import.meta.resolve("vite-hub/package.json")), "utf8"))
 }
 
-/** The error for enabled features whose packages the app did not install. It lists one install command for all. */
-export function missingFeaturePackagesError(features: readonly OptionalFeature[]) {
-  const lines = features.map(feature => `The ${feature} feature needs ${optionalFeaturePackages[feature].join(", ")}.`)
-  const missing = [...new Set(features.flatMap(feature => optionalFeaturePackages[feature]))].filter(name => !isPackageInstalled(name))
-  return viteHubErrorDiagnostics.VITE_HUB_R0136({ message: `[vitehub] ${lines.join(" ")} Install the missing packages in your app with: pnpm add ${installArguments(missing).join(" ")}` })
+/**
+ * Packages that the host or a provider adds to a feature, such as `@vercel/queue` for Queue on Vercel. They are optional
+ * peers of the feature's owner package, which loads them, so the check resolves them from that owner.
+ */
+export type FeatureHostPackages = Partial<Record<OptionalFeature, readonly string[]>>
+
+/**
+ * The packages that each feature in `enabled` adds on `host` with its option value in `options`. `vitehub add` and
+ * `vitehub status` read the same catalog, so the build asks for the packages that the CLI installs.
+ */
+export function hostFeaturePackages(enabled: readonly OptionalFeature[], host: ViteHubHost, options: object): FeatureHostPackages {
+  return Object.fromEntries(enabled.flatMap((feature) => {
+    if (!isFeatureId(feature)) return []
+    const added = featurePackages(feature, Reflect.get(options, feature), host).filter(name => !optionalFeaturePackages[feature].includes(name))
+    return added.length ? [[feature, added]] : []
+  }))
 }
 
-/** Throws when an enabled feature misses one of its packages, and warns when an installed one is outside its range. */
-export function assertFeaturePackages(features: readonly OptionalFeature[]): void {
-  const isMissing = (feature: OptionalFeature) => !optionalFeaturePackages[feature].every(isPackageInstalled)
+function isFeatureId(feature: OptionalFeature): feature is OptionalFeature & FeatureId {
+  return featureIds.some(id => id === feature)
+}
+
+function packagesOf(feature: OptionalFeature, hostPackages: FeatureHostPackages): string[] {
+  return [...new Set([...optionalFeaturePackages[feature], ...hostPackages[feature] ?? []])]
+}
+
+/** Whether `packageName` is installed where the feature loads it: from `vite-hub` for its own peers, else from the owner. */
+function isFeaturePackageInstalled(feature: OptionalFeature, packageName: string): boolean {
+  const own: readonly string[] = optionalFeaturePackages[feature]
+  if (own.includes(packageName)) return isPackageInstalled(packageName)
+  return isPackageInstalled(packageName) || isPackageInstalledFrom(own[0]!, packageName)
+}
+
+/** Whether `owner` resolves `packageName`. pnpm links an optional peer only into the packages that declare it. */
+function isPackageInstalledFrom(owner: string, packageName: string): boolean {
+  const key = `${owner}>${packageName}`
+  let installed = packageChecks.get(key)
+  if (installed === undefined) {
+    installed = resolvesPackageFrom(owner, packageName)
+    packageChecks.set(key, installed)
+  }
+  return installed
+}
+
+function isModuleNotFound(error: unknown): boolean {
+  return error instanceof Error && "code" in error && (error.code === "MODULE_NOT_FOUND" || error.code === "ERR_MODULE_NOT_FOUND")
+}
+
+function resolvesPackageFrom(owner: string, packageName: string): boolean {
+  let ownerFile: string
+  try {
+    ownerFile = fileURLToPath(import.meta.resolve(`${owner}/package.json`))
+  }
+  catch {
+    return false
+  }
+  try {
+    createRequire(ownerFile).resolve(`${packageName}/package.json`)
+    return true
+  }
+  catch (error) {
+    // A package that does not export its manifest is still installed.
+    return !isModuleNotFound(error)
+  }
+}
+
+/**
+ * The error for enabled features whose packages the app did not install. It lists one install command for every package
+ * that it names. A package that another dependency happens to provide is still an optional peer of `vite-hub`, so the
+ * app installs it too.
+ */
+export function missingFeaturePackagesError(features: readonly OptionalFeature[], hostPackages: FeatureHostPackages = {}) {
+  const lines = features.map(feature => `The ${feature} feature needs ${packagesOf(feature, hostPackages).join(", ")}.`)
+  const packages = [...new Set(features.flatMap(feature => packagesOf(feature, hostPackages)))]
+  return viteHubErrorDiagnostics.VITE_HUB_R0136({ message: `[vitehub] ${lines.join(" ")} Install them in your app with: pnpm add ${installArguments(packages).join(" ")}` })
+}
+
+/**
+ * Throws when an enabled feature misses one of its packages or has a ViteHub package outside the range of `vite-hub`,
+ * and warns when another installed package is outside its range. `hostPackages` adds the packages that the host or a
+ * provider needs, from `hostFeaturePackages`.
+ */
+export function assertFeaturePackages(features: readonly OptionalFeature[], hostPackages: FeatureHostPackages = {}): void {
+  const isMissing = (feature: OptionalFeature) => !packagesOf(feature, hostPackages).every(name => isFeaturePackageInstalled(feature, name))
   if (features.some(isMissing)) {
     // The app can install a package after an earlier check, such as after this error in a dev session. Check again.
     forgetPackageChecks()
     const missing = features.filter(isMissing)
-    if (missing.length) throw missingFeaturePackagesError(missing)
+    if (missing.length) throw missingFeaturePackagesError(missing, hostPackages)
   }
-  warnUnsupportedPackageVersions(features.flatMap(feature => optionalFeaturePackages[feature]))
+  checkPackageVersions(features.flatMap(feature => packagesOf(feature, hostPackages)))
 }
 
 /**
@@ -254,15 +339,16 @@ function shellArgument(value: string): string {
 }
 
 /**
- * The warning for installed packages whose version is outside the range in the `peerDependencies` of `vite-hub`, or
- * `undefined` when all are in range. A package without a version, or with a range that is not semver, such as
- * `workspace:*` in a source checkout, is not checked. A prerelease of a supported release line is in range.
+ * Installed packages whose version is outside the range in the `peerDependencies` of `vite-hub`, with the sentences
+ * that name them and the `pnpm add` arguments that install supported versions. A package without a version, or with a
+ * range that is not semver, such as `workspace:*` in a source checkout, is not checked. A prerelease of a supported
+ * release line is in range.
  */
-export function unsupportedPackageVersionsWarning(
+function unsupportedPackageVersions(
   packages: readonly string[],
-  versionOf: (packageName: string) => string | undefined = installedPackageVersion,
-  manifest: unknown = readViteHubManifest(),
-): string | undefined {
+  versionOf: (packageName: string) => string | undefined,
+  manifest: unknown,
+): { install: string, installed: string } | undefined {
   const peers = isPlainObject(manifest) && isPlainObject(manifest.peerDependencies) ? manifest.peerDependencies : {}
   const { satisfies, validRange, validVersion } = semverFunctions()
   const unsupported = [...new Set(packages)].flatMap((name) => {
@@ -274,11 +360,36 @@ export function unsupportedPackageVersionsWarning(
   })
   if (!unsupported.length) return undefined
   const viteHub = isPlainObject(manifest) && typeof manifest.version === "string" ? `vite-hub ${manifest.version}` : "vite-hub"
-  const lines = unsupported.map(({ name, range, version }) => `${name} ${version} is installed, but ${viteHub} supports ${name}@${range}.`)
+  const installed = unsupported.map(({ name, range, version }) => `${name} ${version} is installed, but ${viteHub} supports ${name}@${range}.`).join(" ")
   // A preview of `vite-hub` gives a ViteHub package the preview URL. Other packages get the supported range.
   const previews = installArguments(unsupported.map(({ name }) => name), manifest)
-  const install = unsupported.map(({ name, range }, index) => shellArgument(previews[index] === name ? `${name}@${range}` : previews[index]!))
-  return `[vitehub] ${lines.join(" ")} Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add ${install.join(" ")}`
+  const install = unsupported.map(({ name, range }, index) => shellArgument(previews[index] === name ? `${name}@${range}` : previews[index]!)).join(" ")
+  return { install, installed }
+}
+
+const isViteHubPackage = (name: string) => name.startsWith("@vite-hub/")
+
+/**
+ * The error for installed ViteHub packages outside the range of `vite-hub`, or `undefined` when all are in range.
+ * ViteHub packages of another release share internal contracts with `vite-hub` that can change in any commit.
+ */
+export function unsupportedViteHubPackagesError(
+  packages: readonly string[],
+  versionOf: (packageName: string) => string | undefined = installedPackageVersion,
+  manifest: unknown = readViteHubManifest(),
+): ReturnType<typeof viteHubErrorDiagnostics.VITE_HUB_PACKAGE_VERSION_UNSUPPORTED> | undefined {
+  const unsupported = unsupportedPackageVersions(packages.filter(isViteHubPackage), versionOf, manifest)
+  return unsupported && viteHubErrorDiagnostics.VITE_HUB_PACKAGE_VERSION_UNSUPPORTED(unsupported)
+}
+
+/** The warning for other installed packages outside the range of `vite-hub`, or `undefined` when all are in range. */
+export function unsupportedPackageVersionsWarning(
+  packages: readonly string[],
+  versionOf: (packageName: string) => string | undefined = installedPackageVersion,
+  manifest: unknown = readViteHubManifest(),
+): string | undefined {
+  const unsupported = unsupportedPackageVersions(packages.filter(name => !isViteHubPackage(name)), versionOf, manifest)
+  return unsupported && `[vitehub] ${unsupported.installed} Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add ${unsupported.install}`
 }
 
 interface SemverFunctions {
@@ -308,14 +419,14 @@ const checkedPackageVersions = new Set<string>()
 let viteHubManifest: unknown
 
 /**
- * Prints the warning of `unsupportedPackageVersionsWarning` one time for each package in this process. The import
- * facades call `assertFeaturePackages` for each import, so a package is checked only the first time. The check only
- * warns, so a `vite-hub` manifest that it cannot read turns it off and does not stop the build.
+ * Throws the error of `unsupportedViteHubPackagesError`, and prints the warning of `unsupportedPackageVersionsWarning`
+ * one time for each package in this process. The import facades call `assertFeaturePackages` for each import, so a
+ * package in range is checked only the first time. A package out of range stays unchecked, so the next check throws
+ * again until the app installs a supported version. A `vite-hub` manifest that the check cannot read turns it off.
  */
-function warnUnsupportedPackageVersions(packages: readonly string[]): void {
+function checkPackageVersions(packages: readonly string[]): void {
   const unchecked = [...new Set(packages)].filter(name => !checkedPackageVersions.has(name))
   if (!unchecked.length) return
-  for (const name of unchecked) checkedPackageVersions.add(name)
   if (viteHubManifest === undefined) {
     try {
       viteHubManifest = readViteHubManifest()
@@ -324,6 +435,13 @@ function warnUnsupportedPackageVersions(packages: readonly string[]): void {
       viteHubManifest = null
     }
   }
+  const error = unsupportedViteHubPackagesError(unchecked, installedPackageVersion, viteHubManifest)
+  if (error) {
+    // Vite and Nitro print the message of a build error, not its fix. The fix names the install command and pnpm `overrides`.
+    console.error(formatDiagnostic(error))
+    throw error
+  }
+  for (const name of unchecked) checkedPackageVersions.add(name)
   const warning = unsupportedPackageVersionsWarning(unchecked, installedPackageVersion, viteHubManifest)
   if (warning) console.warn(warning)
 }

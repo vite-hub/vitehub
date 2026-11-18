@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../src/babysitter/inbox/store.ts";
-import { directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, mergeReviewEvidenceKey, resolveBabysitterMerge, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
-import { directMergeBranchSafety, stackRetargetBase } from "../src/babysitter/stack.ts";
+import { approvedIfOutside, directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, mergeReviewEvidenceKey, resolveBabysitterMerge, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
+import { directMergeBranchSafety, foldMethod, foldParent, stackRetargetBase } from "../src/babysitter/stack.ts";
 
 const head = "a".repeat(40);
 function snapshot(): Snapshot {
@@ -298,14 +298,50 @@ describe("Babysitter stacked PR preservation", () => {
     expect(children[0]!.base.ref).toBe("fix");
   });
 
-  it("retargets only after the parent has landed on the default branch", () => {
+  it("retargets only after the parent has landed on another branch", () => {
     const s = snapshot();
     s.pr!.base!.ref = "parent";
     s.pr!.base!.repo!.owner = { login: "acme" };
     const parent = { head: { ref: "parent", repo: { owner: { login: "acme" } } }, base: { ref: "main" }, state: "closed", merged_at: "2026-10-01" };
     expect(stackRetargetBase(s.pr!, [parent])).toBe("main");
     expect(stackRetargetBase(s.pr!, [{ ...parent, state: "open" }])).toBeUndefined();
-    expect(stackRetargetBase(s.pr!, [{ ...parent, base: { ref: "feature" } }])).toBeUndefined();
+    // A parent that folded into another branch moves its child to that branch, not to main.
+    expect(stackRetargetBase(s.pr!, [{ ...parent, base: { ref: "feature" } }])).toBe("feature");
+  });
+
+  it("folds only into the one open pull request whose same-repository branch is the base", () => {
+    const s = snapshot();
+    s.pr!.base!.ref = "parent";
+    const parent = { number: 7, state: "open", head: { ref: "parent", repo: { full_name: "acme/app" } }, base: { ref: "main" } };
+    expect(foldParent(s.pr, [parent])).toEqual({ number: 7, branch: "parent" });
+    // A long-lived branch with no open pull request keeps the old refusal.
+    expect(foldParent(s.pr, [])).toBeUndefined();
+    expect(foldParent(s.pr, [{ ...parent, state: "closed" }])).toBeUndefined();
+    expect(foldParent(s.pr, [parent, { ...parent, number: 8 }])).toBeUndefined();
+    // Forks keep today's behavior: the parent branch and the child must both be in the repository.
+    expect(foldParent(s.pr, [{ ...parent, head: { ref: "parent", repo: { full_name: "someone/app" } } }])).toBeUndefined();
+    expect(foldParent({ ...s.pr, head: { ...s.pr!.head, repo: { full_name: "someone/app" } } }, [parent])).toBeUndefined();
+    expect(foldParent({ ...s.pr, base: { ...s.pr!.base, ref: "main" } }, [{ ...parent, head: { ref: "main", repo: { full_name: "acme/app" } } }])).toBeUndefined();
+  });
+
+  it("folds with a merge commit unless the repository disallows it", () => {
+    expect(foldMethod("squash", { allow_merge_commit: true })).toBe("merge");
+    expect(foldMethod("rebase", {})).toBe("merge");
+    expect(foldMethod("squash", { allow_merge_commit: false })).toBe("squash");
+  });
+
+  it("accepts the verified parent branch as a fold target only", () => {
+    const s = snapshot();
+    const live = { ...s.pr, base: { ...s.pr!.base, ref: "parent" }, mergeable: true, mergeable_state: "clean" };
+    expect(liveMergeReadiness(live, head)).toEqual({ ready: false, reason: "base parent is not the default branch" });
+    expect(liveMergeReadiness(live, head, { foldInto: "parent" })).toEqual({ ready: true, head });
+    expect(liveMergeReadiness(live, head, { foldInto: "other" }).ready).toBe(false);
+  });
+
+  it("validates merge.foldStacks and turns it on by default", () => {
+    expect(resolveBabysitterMerge("direct")).toMatchObject({ foldStacks: true });
+    expect(resolveBabysitterMerge({ strategy: "direct", foldStacks: false })).toMatchObject({ foldStacks: false });
+    expect(() => resolveBabysitterMerge({ strategy: "direct", foldStacks: "yes" })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_OPTION_INVALID" }));
   });
 });
 
@@ -388,9 +424,33 @@ describe("Babysitter approved-if-outside merge gate", () => {
     expect(await ready(s)).toBe(true);
   });
 
+  it("merges a trusted bot's PR without an approval, and holds a user of the same name", async () => {
+    const trusted = resolveBabysitterMerge({ strategy: "direct", trustedAuthors: ["Renovate[bot]", "octocat"] });
+    if (trusted.mode !== "direct" || !trusted.ready) throw new Error("expected a direct merge with a ready gate");
+    const gate = (user: Record<string, string>) => {
+      const s = outside("CONTRIBUTOR");
+      s.pr = { ...s.pr!, user };
+      return trusted.ready!({ repository: s.repository, number: s.number, head, snapshot: s, requiredChecks: "passed" });
+    };
+    expect(await gate({ login: "renovate[bot]", type: "Bot" })).toBe(true);
+    expect(await gate({ login: "renovate", __typename: "Bot" })).toBe(true);
+    expect(await gate({ login: "OctoCat", type: "User" })).toBe(true);
+    expect(await gate({ login: "renovate", type: "User" })).toBe("a maintainer's approval of aaaaaaa");
+    expect(await gate({ login: "octocat[bot]", type: "Bot" })).toBe("a maintainer's approval of aaaaaaa");
+    expect(await gate({ login: "dependabot[bot]", type: "Bot" })).toBe("a maintainer's approval of aaaaaaa");
+    expect(await ready(outside("NONE"))).toBe("a maintainer's approval of aaaaaaa");
+  });
+
+  it("rejects trustedAuthors that are not logins or that come with a ready callback", () => {
+    expect(() => resolveBabysitterMerge({ strategy: "direct", trustedAuthors: [" "] })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_OPTION_INVALID" }));
+    expect(() => resolveBabysitterMerge({ strategy: "direct", trustedAuthors: "renovate[bot]" })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_OPTION_INVALID" }));
+    expect(() => resolveBabysitterMerge({ strategy: "direct", ready: () => true, trustedAuthors: ["renovate[bot]"] })).toThrow(expect.objectContaining({ code: "PRESETS_BABYSITTER_OPTION_INVALID" }));
+    expect(resolveBabysitterMerge({ strategy: "direct", trustedAuthors: [] })).toEqual({ mode: "direct", method: "squash", ready: approvedIfOutside, foldStacks: true });
+  });
+
   it("keeps the callback form and rejects other ready values", () => {
     const callback = () => true as const;
-    expect(resolveBabysitterMerge({ strategy: "direct", ready: callback })).toEqual({ mode: "direct", method: "squash", ready: callback });
+    expect(resolveBabysitterMerge({ strategy: "direct", ready: callback })).toEqual({ mode: "direct", method: "squash", ready: callback, foldStacks: true });
     expect(() => resolveBabysitterMerge({ strategy: "direct", ready: "approved" })).toThrow('Babysitter merge.ready must be a function or "approved-if-outside".');
   });
 });

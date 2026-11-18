@@ -1,6 +1,6 @@
 ---
 title: Rate Limit limits and errors
-description: Rate Limit enforcement, identity, and provider limits to know before production.
+description: Rate Limit enforcement, identity, and driver limits to know before production.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert
@@ -8,10 +8,10 @@ icon: i-lucide-circle-alert
 
 ## Limitations
 
-- Memory counts live in one process. Do not use them in production on scaled-out or per-request hosts. On several Node instances, turn on KV so the `kv` provider shares the counts. See [Share counts on Node](/docs/rate-limit/hosts#share-counts-on-node).
-- A production build for an unknown host must set a provider or use a direct Rate Limiter.
+- Memory counts live in one process. Do not use them in production on scaled-out or per-request hosts. On several Node instances, turn on KV so the `kv` driver shares the counts. See [Share counts on Node](/docs/rate-limit/hosts#share-counts-on-node).
+- A production build for an unknown host must set a driver or use a direct Rate Limiter.
 - The request identity defaults to the client address in the event's Standard Context, and explicit user or tenant identities remain application policy.
-- Managed policies must be static, so ViteHub can create the provider resources.
+- Managed policies must be static, so ViteHub can create the driver resources.
 - The package has only atomic consume. Providers cannot all check without consuming.
 
 ## Cloudflare limits
@@ -23,9 +23,11 @@ The [Cloudflare Rate Limiting binding](https://developers.cloudflare.com/workers
 | `enforcement: 'strict'` | `RATE_LIMIT_R0015` |
 | `window` other than `10s` or `1m`, for example `30s` or `1h` | `RATE_LIMIT_R0016` |
 
-The dev server counts in memory, but checks the same policies when the build targets Cloudflare: `vitehub({ host: 'cloudflare' })`, `hubRateLimit({ provider: 'cloudflare' })`, or the Cloudflare Nitro preset with no provider set. Then `vite dev` fails to start with the same code, and saving a file with an unsupported policy logs the error. Without a Cloudflare target, the dev server accepts every valid policy.
+The dev server counts in memory, but checks the same policies when the build targets Cloudflare: `vitehub({ host: 'cloudflare' })`, `hubRateLimit({ driver: 'cloudflare' })`, or the Cloudflare Nitro preset with no driver set. Then `vite dev` fails to start with the same code, and saving a file with an unsupported policy logs the error. Without a Cloudflare target, the dev server accepts every valid policy.
 
 ## Memory limits
+
+A production build that counts in memory fails with `RATE_LIMIT_MEMORY_STRICT_UNSUPPORTED` when a Rate Limit sets `enforcement: 'strict'`, because each server process allows the full limit. `vite dev` and app tests run one process, so they accept strict Rate Limits in memory.
 
 The memory driver keeps at most 100,000 counters in one process. It removes counters whose window has ended before it adds a new one. When every counter is still active, the next new key fails with `RATE_LIMIT_R0008`. Pass `maxEntries` to `memoryRateLimitDriver()` to change the cap. Counters are lost when the process restarts, and two processes count separately.
 
@@ -67,10 +69,11 @@ The build reads the policy of each `checkRateLimit()` and `requireRateLimit()` c
 
 ## KV limits
 
-The `kv` provider counts fixed windows with one atomic `increment` for each request. The key is `rate-limit:<id>:<window ms>:<key>:<window start>` in the default KV store, and its TTL is the window, set with the first request.
+The `kv` driver counts fixed windows with one atomic `increment` for each request. The key is `rate-limit:<id>:<window ms>:<key>:<window start>` in the default KV store, and its TTL is the window, set with the first request.
 
 - Rejected requests also increment the counter, so `used` can be larger than `limit`. The manifest says `rejectedAttempts: "counted"`.
 - Each instance computes the window start from its own clock. Keep the server clocks in sync, or requests at the end of a window can count in the next one.
 - When KV fails or takes more than one second, the request follows the `failure` policy: `deny` returns `503`, `allow` lets it continue. `peek` and `reset` also return `unavailable` after one second. The deadline does not cancel the KV operation, so a timed-out request can still increment the counter. A KV configuration error, such as a missing `REDIS_URL` for an explicit `redis` store, throws.
 - `peekRateLimit()` and `resetRateLimit()` read the window from the policies that this process used. In a process that has not used the Rate Limit yet, `peek` returns `unused` and `reset` returns `unsupported`.
-- Without a KV store, the `kv` provider fails with `RATE_LIMIT_R0047`. `kvRateLimitDriver()` without `increment`, `get`, and `delete` fails with `RATE_LIMIT_R0046`.
+- An explicit `driver: 'kv'` on a KV store without a shared atomic increment, such as `fs-lite`, fails the build with `RATE_LIMIT_KV_STORE_UNSUPPORTED`. A runtime that `setRateLimitRuntimeConfig({ driver: 'kv' })` configures fails with `RATE_LIMIT_KV_RUNTIME_STORE_UNSUPPORTED` on such a store, unless it also sets `memoryFallback: true`.
+- Without a KV store, the `kv` driver fails with `RATE_LIMIT_R0047`. `kvRateLimitDriver()` without `increment`, `get`, and `delete` fails with `RATE_LIMIT_R0046`.

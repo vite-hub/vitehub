@@ -7,11 +7,13 @@ import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runti
 import { consolePublicURL } from "../../packages/vite-hub/src/console/runtime/server/request.ts"
 import { authConsoleActionOperations, authConsoleImpersonationOperations, authConsoleReadOperations } from "../../packages/vite-hub/src/console/runtime/auth-operations.ts"
 import { authFixture } from "./auth-fixture.ts"
+import { cacheFixture } from "./cache-fixture.ts"
 import { channelsFixture } from "./channels-fixture.ts"
 import { callCommentsFixture, openCommentsFixture } from "./comments.ts"
 import { mcpClientFixture } from "./mcp-client-fixture.ts"
 import { servedSkillsFixture } from "./served-skills-fixture.ts"
 import { siteFixture } from "./site-fixture.ts"
+import { webhooksFixture } from "./webhooks-fixture.ts"
 
 const authReads = new Map<string, string>(Object.entries(authConsoleReadOperations).map(([read, operation]) => [operation, read]))
 const authActions = new Map<string, string>(Object.entries(authConsoleActionOperations).map(([action, operation]) => [operation, action]))
@@ -46,6 +48,7 @@ const fixtureRoutes: Record<string, string> = {
   "databases.browse": "database",
   "definitions.list": "definitions",
   "env.get": "env",
+  "env.inspect": "env-inspect",
   "invocations.capabilities": "invocation-capabilities",
   "invocations.list": "invocations",
   "kv.list": "kv",
@@ -61,7 +64,7 @@ const fixtureRoutes: Record<string, string> = {
 // its open Comments threads.
 const projectFixture = {
   build: {
-    commit: { author: "Maxi", branch: "main", message: "feat(content): add the ferry schedule to the travel guide", sha: "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f" },
+    commit: { author: "Maxi", branch: "main", message: "feat(content): add the ferry schedule to the travel guide", repository: "vite-hub/vitehub", sha: "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f" },
     time: new Date(Date.now() - 2 * 3_600_000).toISOString(),
   },
   name: "playground-console",
@@ -85,8 +88,12 @@ export async function callConsoleFixture(origin: string, payload: { input?: Reco
   if (channel) return channel
   const site = siteFixture(origin, payload.operation, input)
   if (site) return site
+  const cache = await cacheFixture(payload.operation, input)
+  if (cache) return cache
   const servedSkills = servedSkillsFixture(payload.operation, input)
   if (servedSkills) return servedSkills
+  const webhooks = webhooksFixture(payload.operation, input)
+  if (webhooks) return webhooks
   let route = fixtureRoutes[payload.operation]
   let method = "GET"
   let body: unknown

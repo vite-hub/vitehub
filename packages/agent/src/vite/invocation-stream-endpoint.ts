@@ -241,7 +241,7 @@ function hasHostedWorkspaceStore(agent: AgentInput<ViteAgentRuntimeContext>): bo
   const workspace = typeof options?.workspace === "string" || isRecord(options?.workspace) ? options.workspace : undefined
   const store = isRecord(workspace) && isRecord(workspace.store) ? workspace.store : undefined
   if (!workspace) return false
-  return store?.provider === "cloudflare-artifacts" || store?.provider === "github"
+  return store?.driver === "cloudflare" || store?.driver === "github"
 }
 
 function hasHostedVercelBlobWorkspaceStore(agent: AgentInput<ViteAgentRuntimeContext>): boolean {
@@ -251,7 +251,7 @@ function hasHostedVercelBlobWorkspaceStore(agent: AgentInput<ViteAgentRuntimeCon
   if (!workspace) return false
   // Same env names as `hasVercelWorkspaceBlobEnv` in @vite-hub/workspace storage/provider.ts.
   if (!store && typeof process === "object" && (process?.env?.BLOB_STORE_ID || process?.env?.BLOB_READ_WRITE_TOKEN)) return true
-  return store?.provider === "vercel-blob"
+  return store?.driver === "vercel"
 }
 
 async function loadViteWorkspaceRegistry(server: ViteDevServer): Promise<WorkspaceRegistry> {
@@ -277,9 +277,9 @@ async function installServerAgentWorkspaceRegistry(
   if (entries.some(({ agent }) => hasHostedVercelBlobWorkspaceStore(agent))) installHostedVercelBlobWorkspaceRuntime()
   const existingWorkspaceHostedStoreLoader = getWorkspaceHostedStoreLoader()
   setWorkspaceHostedStoreLoader((storeOptions, workspaceName) => {
-    if (storeOptions.provider === "github") return createGitHubWorkspaceStore(storeOptions, workspaceName)
+    if (storeOptions.driver === "github") return createGitHubWorkspaceStore(storeOptions, workspaceName)
     if (existingWorkspaceHostedStoreLoader) return existingWorkspaceHostedStoreLoader(storeOptions, workspaceName)
-    throw agentDiagnostics.AGENT_R0874({ message: `[vitehub] Hosted workspace store "${storeOptions.provider}" is not available in this runtime.` })
+    throw agentDiagnostics.AGENT_R0874({ message: `[vitehub] Hosted workspace store "${storeOptions.driver}" is not available in this runtime.` })
   })
   setWorkspaceRuntimeRegistry(registry)
   for (const { agent, definition } of entries) {

@@ -545,20 +545,11 @@ describe("Vite schedule integration", () => {
     }
     const retainedScheduleSpecifier = registry.match(/import\("(\.\/sources\/[^"]+\/cleanup\.schedule\.ts)"\)/)?.[1]
     expect(retainedScheduleSpecifier).toBeDefined()
+    // The provider bundles hold the snapshot code. Deployments get only the sources that a bundle names.
     const retainedSchedulePath = retainedScheduleSpecifier!.slice(2)
-    for (const directory of [
-      join(root, ".vitehub", "schedule"),
-      join(createDefaultCloudflareOutputRoot(root), ".vitehub", "schedule"),
-      join(createDefaultVercelOutputRoot(root), "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", ".vitehub", "schedule"),
-    ]) {
-      await expect(readFile(join(directory, retainedSchedulePath), "utf8")).resolves.toContain("Owner decoration.")
-    }
-    await expect(readFile(join(root, ".vitehub", "schedule", retainedSchedulePath), "utf8"))
-      .resolves.toContain("cron: '0 0 * * *'")
-    await expect(readFile(join(createDefaultCloudflareOutputRoot(root), ".vitehub", "schedule", retainedSchedulePath), "utf8"))
-      .resolves.toContain("cron: '0 0 * * *'")
-    await expect(readFile(join(createDefaultVercelOutputRoot(root), "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", ".vitehub", "schedule", retainedSchedulePath), "utf8"))
-      .resolves.toContain("cron: '0 0 * * *'")
+    const retainedSchedule = await readFile(join(root, ".vitehub", "schedule", retainedSchedulePath), "utf8")
+    expect(retainedSchedule).toContain("Owner decoration.")
+    expect(retainedSchedule).toContain("cron: '0 0 * * *'")
   })
 
   it("resets pending Provider Output when schedule preparation fails", async () => {
@@ -1199,7 +1190,13 @@ describe("Vite schedule integration", () => {
 
       const { default: vercelFunction } = await import(pathToFileURL(join(createDefaultVercelOutputRoot(root), "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs")).href)
       const response = { end: vi.fn(), statusCode: 0 }
-      await vercelFunction({ headers: {}, url: "/api/vitehub/schedules/vercel/cleanup" }, response)
+      vi.stubEnv("CRON_SECRET", "cron-secret")
+      try {
+        await vercelFunction({ headers: { authorization: "Bearer cron-secret" }, url: "/api/vitehub/schedules/vercel/cleanup" }, response)
+      }
+      finally {
+        vi.unstubAllEnvs()
+      }
       expect(response.statusCode).toBe(204)
       expect((globalThis as { cleanupCron?: string }).cleanupCron).toBe("0 0 * * *")
 

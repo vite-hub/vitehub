@@ -30,6 +30,11 @@ export interface DocsAppPage {
   navigation: boolean
   /** `true` on the Overview of a folder with `navigation.panel: true`. Its folder is a panel of its own. */
   panel?: true
+  /**
+   * On a panel's Overview in the app manifest: the number of listed pages inside the panel. The app loads those pages
+   * when a reader opens the panel, so the section sidebar reads the count from here.
+   */
+  panelSize?: number
   order: number
 }
 
@@ -97,4 +102,6 @@ export interface DocsSearchSection {
   content: string
   /** Page entries only: the page's `keywords`, which search matches like a title. */
   keywords?: string[]
+  /** `false` on the one record of a page that search engines skip, such as a generated error code page. */
+  indexed?: false
 }

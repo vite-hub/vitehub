@@ -42,7 +42,8 @@ With the account address, the agent works on the apps of your active Console tea
 | `check_app` | Checks that the app takes the signed calls of its link. |
 | `unlink_app` | Unlinks an app. Remove its variable from the app as well. |
 | `list_operations` | Lists the [operations](/docs/development/operations) of an app that you may call, with their input schemas. |
-| `run_operation` | Runs one operation of an app. |
+| `read_operation` | Runs one operation of an app that only reads, such as `kv.list`. The app refuses an operation that changes data. |
+| `run_operation` | Runs one operation of an app that changes data, such as `comments.create`. |
 
 The Console runs each operation with a [signed request](/docs/development/console#sign-console-requests), the same way as the Console UI. The app's `console.authorize` gets `via: "console"` and your Console user, so it decides what the agent may do. The agent never gets the key of the link.
 

@@ -1,5 +1,9 @@
 import * as v from "valibot";
 
+import { viteHubErrorDiagnostics } from "../error-diagnostics.ts";
+
+import type { Diagnostic } from "nostics";
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export interface LogEntry {
   id: string;
@@ -71,11 +75,14 @@ export interface LogSource {
   query(query: LogQuery, options?: { signal?: AbortSignal }): Promise<LogPage>;
 }
 
-export class LogCursorExpiredError extends Error {
-  override name: string = "LogCursorExpiredError";
-  constructor() {
-    super("The log cursor has expired. Refresh to read the retained events.");
-  }
+/** The error that a `LogSource` throws when a cursor points to events it no longer keeps: `LOGS_CURSOR_EXPIRED`. */
+export function logCursorExpiredError(): Diagnostic {
+  return viteHubErrorDiagnostics.LOGS_CURSOR_EXPIRED();
+}
+
+/** Whether a `LogSource` rejected the cursor of the query as expired. */
+export function isLogCursorExpiredError(error: unknown): boolean {
+  return error instanceof Error && Reflect.get(error, "code") === "LOGS_CURSOR_EXPIRED";
 }
 
 /** Validate once at the transport boundary. Adapters must reject filters they cannot apply. */

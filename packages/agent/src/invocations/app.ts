@@ -1,3 +1,4 @@
+import { invariantError } from "@vite-hub/internal/invariant"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../invocations.ts"
 import { createDefaultAgentInvocations, defaultAgentInvocationsUrlEnv } from "./default-core.ts"
@@ -70,6 +71,8 @@ export interface DefaultAgentJournalLocation {
   libsql?: DefaultAgentInvocationsLibsql
   /** The ViteHub project root. The default journal file and relative `file:` URLs resolve from it. */
   projectRoot: string
+  /** A `file:` Agent State URL. The default journal without a `databaseUrl` goes next to the State database. */
+  stateUrl?: string
 }
 
 type DatabaseStoreModule = {
@@ -117,7 +120,7 @@ function deferredDatabaseStore(options: DatabaseAgentInvocationStoreOptions): Ag
     create: async input => await (await store()).create(input),
     delete: async (id) => {
       const target = await store()
-      if (!target.delete) throw new TypeError("[vitehub] The Database Invocation store does not support delete.")
+      if (!target.delete) throw invariantError("createD1AgentInvocationStore() returns a store with delete()")
       return await target.delete(id)
     },
     get: async (...args) => await (await store()).get(...args),
@@ -129,7 +132,7 @@ function deferredDatabaseStore(options: DatabaseAgentInvocationStoreOptions): Ag
     listTriggeredBy: async agentName => await (await store()).listTriggeredBy?.(agentName) ?? [],
     prune: async (options) => {
       const target = await store()
-      if (!target.prune) throw new TypeError("[vitehub] The Database Invocation store does not support prune.")
+      if (!target.prune) throw invariantError("createD1AgentInvocationStore() returns a store with prune()")
       return await target.prune(options)
     },
     release: async (...args) => await (await store()).release(...args),
@@ -152,7 +155,7 @@ export function resolveAgentInvocationsSetting(setting: AgentInvocationsSetting 
   if (setting === "database" || setting === "memory") return journal(setting)
   if (!("store" in setting)) return setting
   if ("database" in setting && setting.database !== undefined && setting.store !== "database") {
-    throw new TypeError("[vitehub] Agent invocations accept `database` only with `store: \"database\"`.")
+    throw agentDiagnostics.AGENT_INVOCATIONS_DATABASE_WITHOUT_STORE()
   }
   if (setting.store === "database" || setting.store === "memory") {
     // SAFETY: The checks above select the built-in store form.
@@ -208,7 +211,7 @@ export function installAgentInvocations(options: { database?: () => Promise<Data
     if (globalThis.process?.env?.VITEHUB_CONSOLE_DATABASE_URL?.trim()) {
       throw agentDiagnostics.AGENT_R1032({ message: "[vitehub] VITEHUB_CONSOLE_DATABASE_URL was renamed. Set VITEHUB_AGENT_INVOCATIONS_DATABASE_URL, and VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN for an authenticated libSQL endpoint." })
     }
-    const { d1, libsql, projectRoot } = options.journal
+    const { d1, libsql, projectRoot, stateUrl } = options.journal
     const key = JSON.stringify({
       d1: d1?.binding,
       databaseUrl: setting?.databaseUrl,
@@ -217,10 +220,12 @@ export function installAgentInvocations(options: { database?: () => Promise<Data
       projectRoot,
       retention: setting?.retention,
       runtimeUrl: globalThis.process?.env?.[defaultAgentInvocationsUrlEnv]?.trim(),
+      stateUrl,
+      runtimeStateUrl: globalThis.process?.env?.VITEHUB_AGENT_STATE_URL?.trim(),
     })
     // Keep one journal per location and options when development reloads the generated plugin.
     if (state[defaultInvocationsKey]?.key === key) return
-    state[defaultInvocationsKey] = { invocations: createDefaultAgentInvocations({ ...setting, d1, libsql, projectRoot }), key }
+    state[defaultInvocationsKey] = { invocations: createDefaultAgentInvocations({ ...setting, d1, libsql, projectRoot, stateUrl }), key }
     return
   }
   const key = JSON.stringify(setting)

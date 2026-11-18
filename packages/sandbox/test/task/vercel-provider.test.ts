@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const { resolveVercelSandbox } = vi.hoisted(() => ({
+const { loadVercelSandbox, resolveVercelSandbox } = vi.hoisted(() => ({
+  loadVercelSandbox: vi.fn(async () => async () => ({})),
   resolveVercelSandbox: vi.fn(async () => ({ open: vi.fn(), plan: {} })),
 }))
 
 vi.mock("../../src/internal/vercel.ts", () => ({ resolveVercelSandbox }))
+vi.mock("../../src/vercel.ts", () => ({ loadVercelSandbox }))
 
 import { resolveVercelTaskSandbox } from "../../src/task/runtime/providers/vercel.ts"
 
@@ -29,7 +31,7 @@ describe("resolveTaskSandbox", () => {
     const provider = await resolveVercelTaskSandbox({
       local: {},
       provider: {
-        provider: "vercel",
+        driver: "vercel",
         token: "token-from-config",
       },
     })
@@ -45,13 +47,25 @@ describe("resolveTaskSandbox", () => {
     )
   })
 
+  it.each([
+    "deny-all" as const,
+    { allow: ["registry.npmjs.org", "*.github.com"] },
+  ])("passes networkPolicy %j to the Vercel runtime", async (networkPolicy) => {
+    const provider = await resolveVercelTaskSandbox({
+      local: {},
+      provider: { driver: "vercel", networkPolicy },
+    })
+    await provider.resolveSandbox(["node"])
+    expect(resolveVercelSandbox).toHaveBeenLastCalledWith(expect.objectContaining({ networkPolicy }), ["node"])
+  })
+
   it("uses config credentials without process", async () => {
     vi.stubGlobal("process", undefined)
 
     const provider = await resolveVercelTaskSandbox({
       local: {},
       provider: {
-        provider: "vercel",
+        driver: "vercel",
         token: "token-from-config",
         teamId: "team-from-config",
         projectId: "project-from-config",
@@ -65,6 +79,18 @@ describe("resolveTaskSandbox", () => {
         teamId: "team-from-config",
         projectId: "project-from-config",
       }),
+      ["node"],
+    )
+  })
+
+  it("leaves the runtime to the Sandbox runtime, which omits it for a snapshot source", async () => {
+    const provider = await resolveVercelTaskSandbox({
+      local: {},
+      provider: { driver: "vercel", source: { snapshotId: "snap_123", type: "snapshot" } },
+    })
+    await provider.resolveSandbox(["node"])
+    expect(resolveVercelSandbox).toHaveBeenLastCalledWith(
+      expect.objectContaining({ runtime: undefined, source: { snapshotId: "snap_123", type: "snapshot" } }),
       ["node"],
     )
   })

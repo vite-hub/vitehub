@@ -271,6 +271,17 @@ describe("guarded dev endpoint", () => {
     expect(handled).toEqual(["GET"])
   })
 
+  it("sends every Set-Cookie value of an owner response", async () => {
+    const cookies = ["session=; Max-Age=0; Path=/", "csrf=; Max-Age=0; Path=/"]
+    const { url } = await listen({
+      authorize: () => new Response("Sign in again.", { headers: [["set-cookie", cookies[0]!], ["set-cookie", cookies[1]!], ["x-test", "kept"]], status: 401 }),
+    })
+    const response = await fetch(`${url}${endpoint.route}`, { headers: { [endpoint.header]: "1" } })
+    expect([response.status, await response.text()]).toEqual([401, "Sign in again."])
+    expect(response.headers.getSetCookie()).toEqual(cookies)
+    expect(response.headers.get("x-test")).toBe("kept")
+  })
+
   it("returns a redacted 500 when owner authorization fails", async () => {
     const { handled, url } = await listen({ authorize: () => { throw new Error("Bearer private-secret") } })
     const response = await fetch(`${url}${endpoint.route}`, { headers: { [endpoint.header]: "1" } })

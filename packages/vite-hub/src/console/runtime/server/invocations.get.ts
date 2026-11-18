@@ -25,25 +25,34 @@ interface ConsoleInvocationCursor {
 const defaultListLimit = 50
 const maximumListLimit = 100
 
-function decodeCursor(value: string | undefined): ConsoleInvocationCursor {
-  if (!value) return {}
+function invalidCursor() {
+  return consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0058({ message: "Invalid invocation cursor" }))
+}
+
+function parseCursorJson(value: string): unknown {
   try {
-    const parsed: unknown = JSON.parse(value)
-    if (!(parsed instanceof Object) || Array.isArray(parsed)) throw viteHubErrorDiagnostics.VITE_HUB_R0055()
-    const keys = ["working", "queued", "done", "history"] as const
-    if (!keys.some(key => Reflect.has(parsed, key))) throw viteHubErrorDiagnostics.VITE_HUB_R0056()
-    const cursor: ConsoleInvocationCursor = {}
-    for (const key of keys) {
-      if (!Reflect.has(parsed, key)) continue
-      const value = Reflect.get(parsed, key)
-      if (value !== null && String(value) !== value) throw viteHubErrorDiagnostics.VITE_HUB_R0057()
-      cursor[key] = value === null ? null : String(value)
-    }
-    return cursor
+    return JSON.parse(value)
   }
   catch {
-    throw consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0058({ message: "Invalid invocation cursor" }))
+    throw invalidCursor()
   }
+}
+
+function decodeCursor(value: string | undefined): ConsoleInvocationCursor {
+  if (!value) return {}
+  const parsed = parseCursorJson(value)
+  // An object with at least one position, and each position a string or null.
+  if (!(parsed instanceof Object) || Array.isArray(parsed)) throw invalidCursor()
+  const keys = ["working", "queued", "done", "history"] as const
+  if (!keys.some(key => Reflect.has(parsed, key))) throw invalidCursor()
+  const cursor: ConsoleInvocationCursor = {}
+  for (const key of keys) {
+    if (!Reflect.has(parsed, key)) continue
+    const position = Reflect.get(parsed, key)
+    if (position !== null && typeof position !== "string") throw invalidCursor()
+    cursor[key] = position
+  }
+  return cursor
 }
 
 function encodeCursor(cursor: ConsoleInvocationCursor): string | undefined {

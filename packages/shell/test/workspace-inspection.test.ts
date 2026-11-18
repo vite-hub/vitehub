@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createJustBashProvider } from "../src/providers/just-bash.ts"
+import { createJustBashDriver } from "../src/providers/just-bash.ts"
 import {
   createReadonlyWorkspaceFs,
   createWritableWorkspaceFs,
@@ -10,18 +10,18 @@ import {
 import { MemoryWorkspace } from "./workspace-test-utils.ts"
 
 describe("@vite-hub/shell workspace inspection", () => {
-  it.each([false, true])("runs controlled curl substitution with an injected provider: %s", async (injectProvider) => {
+  it.each([false, true])("runs controlled curl substitution with an injected driver: %s", async (injectDriver) => {
     const workspace = new MemoryWorkspace({})
     const fs = createReadonlyWorkspaceFs(workspace)
-    const provider = createJustBashProvider({ fs })
-    const exec = vi.spyOn(provider, "exec")
+    const driver = createJustBashDriver({ fs })
+    const exec = vi.spyOn(driver, "exec")
     const executeSourceRequest = vi.fn(async () => ({ content: "{\"status\":\"green\"}\n" }))
 
     await expect(runWorkspaceInspectionCommand(workspace, "echo \"status=$(curl https://portal.example.com/runtime/health | jq -r .status)\"", {
       commands: ["curl", "echo", "jq"],
       fs,
       networkGrants: { executeSourceRequest },
-      provider: injectProvider ? provider : undefined,
+      driver: injectDriver ? driver : undefined,
     })).resolves.toMatchObject({
       event: "command_finished",
       exitCode: 0,
@@ -42,18 +42,18 @@ describe("@vite-hub/shell workspace inspection", () => {
     "cat < <(curl https://portal.example.com/runtime/health)",
     "echo \"$('curl' https://portal.example.com/runtime/health)\"",
     'echo "$(cu"rl" https://portal.example.com/runtime/health)"',
-  ])("routes controlled curl through Source grants with an injected provider: %s", async (command) => {
+  ])("routes controlled curl through Source grants with an injected driver: %s", async (command) => {
     const workspace = new MemoryWorkspace({})
     const fs = createReadonlyWorkspaceFs(workspace)
-    const provider = createJustBashProvider({ fs })
-    const exec = vi.spyOn(provider, "exec")
+    const driver = createJustBashDriver({ fs })
+    const exec = vi.spyOn(driver, "exec")
     const executeSourceRequest = vi.fn(async () => ({ content: "green\n" }))
 
     await expect(runWorkspaceInspectionCommand(workspace, command, {
       commands: ["cat", "curl", "echo"],
       fs,
       networkGrants: { executeSourceRequest },
-      provider,
+      driver,
     })).resolves.toMatchObject({
       event: "command_finished",
       exitCode: 0,
@@ -82,16 +82,16 @@ describe("@vite-hub/shell workspace inspection", () => {
     expect(executeSourceRequest).not.toHaveBeenCalled()
   })
 
-  it("keeps substitution away from injected providers without Source request grants", async () => {
+  it("keeps substitution away from injected drivers without Source request grants", async () => {
     const workspace = new MemoryWorkspace({})
     const fs = createReadonlyWorkspaceFs(workspace)
-    const provider = createJustBashProvider({ fs })
-    const exec = vi.spyOn(provider, "exec")
+    const driver = createJustBashDriver({ fs })
+    const exec = vi.spyOn(driver, "exec")
 
     await expect(runWorkspaceInspectionCommand(workspace, "echo \"$(curl https://portal.example.com/runtime/health)\"", {
       commands: ["curl", "echo"],
       fs,
-      provider,
+      driver,
     })).resolves.toMatchObject({
       event: "policy_denied",
       exitCode: 126,
@@ -107,18 +107,18 @@ describe("@vite-hub/shell workspace inspection", () => {
     'echo "$(printf curl)"',
     'echo "$(pwd)" # curl',
     "echo \"$(echo '$(curl https://portal.example.com/runtime/health)')\"",
-  ])("preserves injected provider substitution denial with Source grants: %s", async (command) => {
+  ])("preserves injected driver substitution denial with Source grants: %s", async (command) => {
     const workspace = new MemoryWorkspace({ "README.md": "# Docs\n" })
     const fs = createReadonlyWorkspaceFs(workspace)
-    const provider = createJustBashProvider({ fs })
-    const exec = vi.spyOn(provider, "exec")
+    const driver = createJustBashDriver({ fs })
+    const exec = vi.spyOn(driver, "exec")
     const executeSourceRequest = vi.fn(async () => ({ content: "private" }))
 
     await expect(runWorkspaceInspectionCommand(workspace, command, {
       commands: ["cat", "curl", "echo", "printf", "pwd"],
       fs,
       networkGrants: { executeSourceRequest },
-      provider,
+      driver,
     })).resolves.toMatchObject({
       event: "policy_denied",
       exitCode: 126,
@@ -191,7 +191,7 @@ describe("@vite-hub/shell workspace inspection", () => {
     "cat README.md # note \\\nrm README.md",
     "cat <<EOF\nit's\nEOF\ncat README.md # note \\\nrm README.md",
     "cat <<'E\"'\nE\"\ncat README.md # note \\\nrm README.md",
-  ])("checks every statement in %j before a provider runs it", async (command) => {
+  ])("checks every statement in %j before a driver runs it", async (command) => {
     const workspace = new MemoryWorkspace({ "README.md": "# Docs\n" })
     const exec = vi.fn(async (command: string) => ({ command, event: "command_finished" as const, exitCode: 0, stderr: "", stdout: "" }))
 
@@ -201,7 +201,7 @@ describe("@vite-hub/shell workspace inspection", () => {
       commands: ["cat"],
       cwd: workspaceMountPoint,
       fs,
-      provider: { ...createJustBashProvider({ fs }), exec },
+      driver: { ...createJustBashDriver({ fs }), exec },
     })).resolves.toMatchObject({ event: "policy_denied" })
     expect(exec).not.toHaveBeenCalled()
   })
@@ -283,7 +283,7 @@ describe("@vite-hub/shell workspace inspection", () => {
       commands: ["rm"],
       cwd: workspaceMountPoint,
       fs,
-      provider: createJustBashProvider({ fs }),
+      driver: createJustBashDriver({ fs }),
     })).resolves.toMatchObject({
       event: "policy_denied",
     })

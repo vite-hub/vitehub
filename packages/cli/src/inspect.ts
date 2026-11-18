@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs"
 
 import { collectViteHubDefinitionInspectors, collectViteHubProviderOutputEntries, collectViteHubResourceSummaries, redactInspectionValue } from "@vite-hub/internal/inspect"
 import { PROVISION_STATE_FILE, readProvisionStateSync } from "@vite-hub/internal/provision-state"
-import { basename, relative, resolve } from "pathe"
+import { basename, dirname, relative, resolve } from "pathe"
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { ViteHubDefinitionSummary, ViteHubProviderOutputEntry, ViteHubResourceSummary } from "@vite-hub/internal/inspect"
@@ -20,6 +20,7 @@ interface ParsedInspectArgs {
 const definitionsUsage = "vitehub inspect definitions [--kind <kind>] [--json]"
 const providerOutputUsage = "vitehub inspect output [--json]"
 const resourcesUsage = "vitehub inspect resources [--json]"
+const routesUsage = "vitehub inspect routes [--json]"
 
 function parseArgs(args: string[], options: { kind: boolean }): ParsedInspectArgs {
   const parsed: ParsedInspectArgs = { help: false, json: false }
@@ -272,7 +273,7 @@ async function runResources(args: string[], context: InspectContext, plugins: re
     context.stdout.write([
       `Usage: ${resourcesUsage}`,
       "",
-      "Lists the host resources that Definitions and stores map to: D1, KV, R2, Queues, and Vercel Blob.",
+      "Lists the host resources that Definitions and stores map to: D1, KV, R2, Queues, Vercel Blob, and the Sandbox Durable Object and Container.",
       "Shows each resource name, its id, and where the id came from: config, env, Provision State, generated provider output, or the host binds it by name.",
       "Reads local config and files only. It never calls a provider API.",
       "",
@@ -316,10 +317,111 @@ async function runResources(args: string[], context: InspectContext, plugins: re
   return 0
 }
 
+/** One server route of the production build. */
+interface RouteReport {
+  /** The handler file: relative to the project root, or `<package>/<file>` for a file of another package. */
+  handler: string
+  /** `*` when the route answers every method. */
+  method: string
+  /** Middleware runs before the routes and passes the request on. */
+  middleware?: true
+  /** The ViteHub area of a generated handler, the package of a package file, or `app`. */
+  owner: string
+  route: string
+}
+
+function findPackage(file: string): { dir: string, name: string } | undefined {
+  for (let dir = dirname(file); dir !== dirname(dir); dir = dirname(dir)) {
+    const manifest = resolve(dir, "package.json")
+    if (!existsSync(manifest)) continue
+    const name: unknown = Reflect.get(Object(JSON.parse(readFileSync(manifest, "utf8"))), "name")
+    if (typeof name === "string") return { dir, name }
+  }
+}
+
+// Generated handlers live in `.vitehub/<area>/` or `.vitehub/nitro/<area>/`.
+function routeHandler(rootDir: string, file: string): Pick<RouteReport, "handler" | "owner"> {
+  const path = relative(rootDir, file)
+  const generated = file.lastIndexOf("/.vitehub/")
+  if (generated !== -1) {
+    const [first, second] = file.slice(generated + "/.vitehub/".length).split("/")
+    return { handler: path, owner: (first === "nitro" ? second : first) || "vite-hub" }
+  }
+  const owned = path.startsWith("..") || path.split("/").includes("node_modules") ? findPackage(file) : undefined
+  return owned ? { handler: `${owned.name}/${relative(owned.dir, file)}`, owner: owned.name } : { handler: path, owner: "app" }
+}
+
+function readRoutes(rootDir: string, handlers: readonly unknown[]): RouteReport[] {
+  const routes: RouteReport[] = []
+  const seen = new Set<string>()
+  for (const entry of handlers) {
+    const handler: unknown = Reflect.get(Object(entry), "handler")
+    if (typeof handler !== "string") continue
+    const middleware = Reflect.get(Object(entry), "middleware") === true
+    const route: unknown = Reflect.get(Object(entry), "route")
+    const methods: unknown = Reflect.get(Object(entry), "method")
+    const method = typeof methods === "string" ? methods.toUpperCase() : Array.isArray(methods) && methods.length ? methods.map(String).join(",").toUpperCase() : "*"
+    const report: RouteReport = {
+      ...(/^[#\u0000]/.test(handler) ? { handler, owner: "app" } : routeHandler(rootDir, resolve(rootDir, handler))),
+      method,
+      ...(middleware ? { middleware: true } : {}),
+      route: typeof route === "string" && route ? route : "/**",
+    }
+    const key = `${report.method} ${report.route} ${report.handler} ${middleware}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    routes.push(report)
+  }
+  // Middleware runs first, so it comes first. Routes keep the order Nitro reads them in.
+  return [...routes.filter(route => route.middleware), ...routes.filter(route => !route.middleware)]
+}
+
+async function runRoutes(args: string[], context: InspectContext, handlers: readonly unknown[]): Promise<number> {
+  const parsed = parseArgs(args, { kind: false })
+  if (parsed.help) {
+    context.stdout.write([
+      `Usage: ${routesUsage}`,
+      "",
+      "Lists the server routes and middleware that ViteHub and other Vite plugins add to the production build.",
+      "Shows each method, path, owner, and handler file. Routes in server/routes and server/api are not listed.",
+      "",
+      "Options:",
+      "  --json      Print machine-readable JSON.",
+      "  -h, --help  Show this help.",
+      "",
+    ].join("\n"))
+    return 0
+  }
+  if (parsed.error) {
+    context.stderr.write(`${parsed.error}\nUsage: ${routesUsage}\n`)
+    return 1
+  }
+
+  const routes = readRoutes(context.rootDir, handlers)
+  if (parsed.json) {
+    writeJson(context, { routes })
+    return 0
+  }
+  if (!routes.length) {
+    context.stdout.write("No plugin adds a server route.\n")
+    return 0
+  }
+  const methodWidth = Math.max(6, ...routes.map(route => route.method.length))
+  const routeWidth = Math.max(4, ...routes.map(route => route.route.length))
+  const ownerWidth = Math.max(5, ...routes.map(route => route.owner.length))
+  const lines = [`${"METHOD".padEnd(methodWidth)}  ${"PATH".padEnd(routeWidth)}  ${"OWNER".padEnd(ownerWidth)}  HANDLER`]
+  for (const route of routes) {
+    lines.push(`${route.method.padEnd(methodWidth)}  ${route.route.padEnd(routeWidth)}  ${route.owner.padEnd(ownerWidth)}  ${route.handler}${route.middleware ? "  (middleware)" : ""}`)
+  }
+  lines.push("")
+  context.stdout.write(lines.join("\n"))
+  return 0
+}
+
 /** Built-in namespace that renders package-owned inspection data. */
-export function createInspectNamespace(plugins: readonly unknown[], operations: readonly AnyOperation[] = []): ViteHubCliCommandNamespace {
+export function createInspectNamespace(plugins: readonly unknown[], operations: readonly AnyOperation[] = [], handlers: readonly unknown[] = []): ViteHubCliCommandNamespace {
   return {
-    description: "Inspect discovered Definitions, host resources, and generated Provider Output.",
+    description: "Inspect discovered Definitions, host resources, server routes, and generated Provider Output.",
     features: [
       {
         description: "List Definitions discovered by each active package.",
@@ -338,6 +440,12 @@ export function createInspectNamespace(plugins: readonly unknown[], operations: 
         name: "resources",
         run: (args, context) => runResources(args, context, plugins),
         usage: resourcesUsage,
+      },
+      {
+        description: "List the server routes that plugins add to the build, with method, path, and owner.",
+        name: "routes",
+        run: (args, context) => runRoutes(args, context, handlers),
+        usage: routesUsage,
       },
     ],
     name: "inspect",

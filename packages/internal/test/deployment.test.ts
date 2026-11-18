@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path"
 
 import { afterAll, describe, expect, it } from "vitest"
 
-import { finalizeDeploymentPlanOutput } from "../src/build/deployment-plan-output.ts"
+import { collectDeploymentEnv, finalizeDeploymentPlanOutput, mergeDeploymentEnv } from "../src/build/deployment-plan-output.ts"
 import {
   assertDeploymentService,
   hostFromNitroPreset,
@@ -40,16 +40,16 @@ describe("built-in deployment plans", () => {
   )
   it("keeps service guarantees explicit", () => {
     expect(resolveDeploymentPlan("cloudflare").services.queue).toMatchObject({
-      adapter: "cloudflare",
+      driver: "cloudflare",
       supported: true,
     })
     expect(resolveDeploymentPlan("node").services.queue).toEqual({
-      adapter: "local",
+      driver: "local",
       guarantee: "single-host",
       supported: true,
     })
     expect(resolveDeploymentPlan("node").services.rateLimit).toEqual({
-      adapter: "memory",
+      driver: "memory",
       guarantee: "process-local",
       supported: true,
     })
@@ -126,6 +126,102 @@ describe("built-in deployment plans", () => {
     const manifest = JSON.parse(await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8"))
     expect(manifest.identity).toEqual(identity)
     expect(manifest.services).toEqual(services)
+  })
+  it("records Server Env names and copies no other field", async () => {
+    const rootDir = await temporaryDirectory("vitehub-plan-env-")
+    const plan = resolveDeploymentPlan("node")
+    const entry = resolve(rootDir, plan.output.directory, plan.output.entry!)
+    await mkdir(dirname(entry), { recursive: true })
+    await writeFile(entry, "export {}\n", "utf8")
+    const env = [
+      { path: "env.server.token", names: ["VITEHUB_TOKEN", "VENDOR_TOKEN"], required: true, secret: true, hasDefault: false },
+      { names: ["DIRECT_URL"], required: false, secret: false, hasDefault: true },
+    ]
+    // A value that reaches the entry at runtime must not reach the manifest.
+    const leaked = { ...env[0]!, value: "canary-value-91b0" }
+
+    await finalizeDeploymentPlanOutput({ env: [leaked, env[1]!], plan, rootDir })
+
+    const text = await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8")
+    expect(JSON.parse(text).env).toEqual(env)
+    expect(text).not.toContain("canary-value-91b0")
+  })
+  it("records the resolved envDir relative to the manifest, so the CLI reads the env files that the app reads", async () => {
+    const rootDir = await temporaryDirectory("vitehub-plan-env-dir-")
+    const plan = resolveDeploymentPlan("node")
+    const entry = resolve(rootDir, plan.output.directory, plan.output.entry!)
+    await mkdir(dirname(entry), { recursive: true })
+    await writeFile(entry, "export {}\n", "utf8")
+    const manifest = async () => JSON.parse(await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8"))
+
+    await finalizeDeploymentPlanOutput({ envDir: resolve(rootDir, "config"), plan, rootDir })
+    expect((await manifest()).envDir).toBe("../config")
+    await finalizeDeploymentPlanOutput({ envDir: false, plan, rootDir })
+    expect((await manifest()).envDir).toBe(false)
+    await finalizeDeploymentPlanOutput({ plan, rootDir })
+    expect(await manifest()).not.toHaveProperty("envDir")
+  })
+  it("omits env when the app has no Env plugin", async () => {
+    const rootDir = await temporaryDirectory("vitehub-plan-no-env-")
+    const plan = resolveDeploymentPlan("node")
+    const entry = resolve(rootDir, plan.output.directory, plan.output.entry!)
+    await mkdir(dirname(entry), { recursive: true })
+    await writeFile(entry, "export {}\n", "utf8")
+    await finalizeDeploymentPlanOutput({ plan, rootDir })
+    expect(JSON.parse(await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8"))).not.toHaveProperty("env")
+  })
+  it("collects the names that plugins contribute for the host and joins repeated names", () => {
+    const hosts: string[] = []
+    const plugins = [
+      { name: "env", api: { deploymentEnv: () => [{ names: ["VITEHUB_SECRET"], required: false, secret: true, hasDefault: false, owners: ["env"] }] } },
+      { name: "blob", api: { deploymentEnv: ({ host }: { host: string }) => {
+        hosts.push(host)
+        return [
+          { names: ["VITEHUB_SECRET"], required: true, secret: true, hasDefault: false, owners: ["blob"] },
+          { names: ["BLOB_STORE_ID", "BLOB_READ_WRITE_TOKEN"], required: true, secret: true, hasDefault: false, owners: ["blob"] },
+        ]
+      } } },
+      { name: "no-api" },
+      { name: "other-api", api: { getConfig: () => ({}) } },
+      null,
+    ]
+
+    const entries = mergeDeploymentEnv(collectDeploymentEnv(plugins, { host: "vercel" }))
+
+    expect(hosts).toEqual(["vercel"])
+    expect(entries).toEqual([
+      { names: ["VITEHUB_SECRET"], required: true, secret: true, hasDefault: false, owners: ["env", "blob"] },
+      { names: ["BLOB_STORE_ID", "BLOB_READ_WRITE_TOKEN"], required: true, secret: true, hasDefault: false, owners: ["blob"] },
+    ])
+  })
+  it("keeps a Server Env declaration apart from a primitive entry with the same names", () => {
+    const declared = { path: "env.server.secret", names: ["VITEHUB_SECRET"], required: true, secret: true, hasDefault: false }
+    const primitive = { names: ["VITEHUB_SECRET"], required: false, secret: true, hasDefault: false, owners: ["env"] }
+    expect(mergeDeploymentEnv([declared, primitive])).toEqual([declared, primitive])
+  })
+  it("records prefixes and owners, and drops names that are not host variable names", async () => {
+    const rootDir = await temporaryDirectory("vitehub-plan-env-prefix-")
+    const plan = resolveDeploymentPlan("node")
+    const entry = resolve(rootDir, plan.output.directory, plan.output.entry!)
+    await mkdir(dirname(entry), { recursive: true })
+    await writeFile(entry, "export {}\n", "utf8")
+
+    await finalizeDeploymentPlanOutput({
+      env: [
+        { names: [], prefix: "VITEHUB_CONSOLE_KEY_", required: true, secret: false, hasDefault: false, owners: ["console"] },
+        { names: ["libsql://canary-value-7c1f.turso.io"], required: true, secret: true, hasDefault: false, owners: ["database"] },
+        { names: ["TURSO_AUTH_TOKEN", "canary value"], required: false, secret: true, hasDefault: false, owners: ["Database Owner"] },
+      ],
+      plan,
+      rootDir,
+    })
+
+    const text = await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8")
+    expect(JSON.parse(text).env).toEqual([
+      { names: [], prefix: "VITEHUB_CONSOLE_KEY_", required: true, secret: false, hasDefault: false, owners: ["console"] },
+      { names: ["TURSO_AUTH_TOKEN"], required: false, secret: true, hasDefault: false },
+    ])
+    expect(text).not.toContain("canary")
   })
   it("uses Netlify's deployment root above its Nitro output directory", async () => {
     const rootDir = await temporaryDirectory("vitehub-plan-netlify-output-")

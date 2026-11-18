@@ -18,7 +18,7 @@
             </template>
             <template #body>
               <p role="status" class="vitehub-console-opening">
-                <UIcon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
+                <Icon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
                 Opening Console…
               </p>
             </template>
@@ -37,6 +37,7 @@ import { isConsoleSectionId } from "../sections";
 import ConsoleFrame from "../components/console-frame.vue";
 import ConsoleProjectGate from "../components/console-project-gate.vue";
 import ConsoleSidebarTrigger from "../components/console-sidebar-trigger.vue";
+import Icon from "../components/console-icon.vue";
 import { useConsoleProjects } from "./project-session";
 
 defineProps<{ sectionsBase: string }>();
@@ -61,10 +62,10 @@ function skipToContent(): void {
 
 <style>
 .vitehub-console__skip-link {
-  background: var(--ui-bg);
+  background: var(--background);
   border-radius: 0.375rem;
   box-shadow: var(--vh-shadow-floating);
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   font-size: 0.875rem;
   font-weight: 500;
   inset-inline-start: 0.5rem;

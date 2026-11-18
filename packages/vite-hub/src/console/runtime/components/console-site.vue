@@ -9,6 +9,7 @@ import ConsoleConfirm from "./console-confirm.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
+import Icon from "./console-icon.vue";
 
 import type { SiteGrant, SiteInvite, SiteSession } from "../client/site-access";
 
@@ -274,7 +275,7 @@ onBeforeUnmount(() => {
           </h2>
           <ul class="divide-y divide-default rounded-lg border border-default">
             <li v-for="item in invites" :key="item.id" class="flex min-w-0 items-center gap-3 px-3 py-2.5">
-              <span class="grid size-8 shrink-0 place-items-center rounded-full bg-elevated text-muted"><UIcon name="i-lucide-link" class="size-4" aria-hidden="true" /></span>
+              <span class="grid size-8 shrink-0 place-items-center rounded-full bg-elevated text-muted"><Icon name="i-lucide-link" class="size-4" aria-hidden="true" /></span>
               <span class="grid min-w-0 flex-1">
                 <span class="truncate text-[13px] font-medium text-highlighted">{{ item.name }}</span>
                 <span class="truncate text-xs text-dimmed">{{ grantSummary("guest", item.grants, grants) }}</span>

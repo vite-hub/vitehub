@@ -2,6 +2,7 @@ import { ViteHubError } from "@vite-hub/runtime"
 
 import { capabilityFinishDeliveryEffectSymbol, capabilityFinishDeliveryReminderSymbol, defineCapability } from "../capability-runtime.ts"
 import { defineInternalTool } from "./internal.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { traceAgentChannelDeliveryEffect } from "../trace.ts"
 
@@ -108,21 +109,21 @@ export function channelDelivery<TOptions, TMessage = string>(options: ChannelDel
   const reminder = options.reminder === true ? {} : options.reminder || undefined
   const reminderTurns = reminder?.turns ?? 1
   if (reminder && options.required !== true) {
-    throw new TypeError("[vitehub] channelDelivery({ reminder }) requires required: true.")
+    throw agentDiagnostics.AGENT_CHANNEL_DELIVERY_REMINDER_NOT_REQUIRED()
   }
   if (reminder && (!Number.isInteger(reminderTurns) || reminderTurns < 1)) {
-    throw new TypeError("[vitehub] channelDelivery({ reminder: { turns } }) must be a positive integer.")
+    throw agentDiagnostics.AGENT_CHANNEL_DELIVERY_REMINDER_TURNS_INVALID()
   }
   if (reminder?.instruction !== undefined && (typeof reminder.instruction !== "string" || !reminder.instruction.trim())) {
-    throw new TypeError("[vitehub] channelDelivery({ reminder: { instruction } }) must be a non-empty string.")
+    throw agentDiagnostics.AGENT_CHANNEL_DELIVERY_REMINDER_INSTRUCTION_INVALID()
   }
   const reminderInstruction = reminder?.instruction
     ?? `You finished without calling ${name}, so nothing was delivered. Call ${name} now with the completed message. If your previous reply already contains it, send that text. Do not repeat completed work.`
   if (!Number.isInteger(maxCalls) || maxCalls < 1) {
-    throw new TypeError("[vitehub] channelDelivery({ maxCalls }) must be a positive integer.")
+    throw agentDiagnostics.AGENT_CHANNEL_DELIVERY_MAX_CALLS_INVALID()
   }
   if (!isRuntimeRecord(options.channel) || typeof options.channel.send !== "function") {
-    throw new TypeError("[vitehub] channelDelivery({ channel }) requires a Channel client, for example useChannel(\"teams\").")
+    throw agentDiagnostics.AGENT_CHANNEL_DELIVERY_CHANNEL_INVALID()
   }
   const channelName = options.channel.name ? ` "${options.channel.name}"` : ""
   const description = options.description
@@ -175,10 +176,10 @@ export function channelDelivery<TOptions, TMessage = string>(options: ChannelDel
           async execute(input) {
             checkLimit()
             const message = isRuntimeRecord(input) && typeof input.message === "string" ? input.message.trim() : ""
-            if (!message) throw new TypeError(`[vitehub] ${name} requires a non-empty message.`)
+            if (!message) throw agentDiagnostics.AGENT_CHANNEL_DELIVERY_MESSAGE_MISSING({ name })
             await options.validate?.(message)
             const text = options.format ? await options.format(message, context) : message
-            if (!text.trim()) throw new TypeError(`[vitehub] ${name} requires formatted text to be non-empty.`)
+            if (!text.trim()) throw agentDiagnostics.AGENT_CHANNEL_DELIVERY_FORMAT_EMPTY({ name })
             checkLimit()
             // Count the attempt before sending. A failed send can still have reached the recipient.
             state.calls++

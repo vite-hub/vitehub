@@ -158,8 +158,9 @@ describe("vitehub agent invocations with a deployed Console", () => {
   it("adds the credential hint to a 403 only when no Console credential is set", async () => {
     const forbidden = () => Response.json({ message: "Forbidden.", ok: false, status: 403 }, { status: 403 })
     const anonymous = await run(["cancel", "ainv_1", "--url", "https://agent.example.com"], deployedConsole(forbidden).fetch, {})
-    expect(anonymous.stderr).toBe(`Console denied the request with HTTP 403: Forbidden. ${operationCredentialHint}\n`)
+    expect(anonymous.stderr).toContain(`[AGENT_R0511] Console denied the request with HTTP 403: Forbidden. ${operationCredentialHint}\n`)
     const signedIn = await run(["cancel", "ainv_1", "--url", "https://agent.example.com"], deployedConsole(forbidden).fetch)
-    expect(signedIn.stderr).toBe("Console denied the request with HTTP 403: Forbidden.\n")
+    expect(signedIn.stderr).toContain("[AGENT_R0511] Console denied the request with HTTP 403: Forbidden.\n")
+    expect(signedIn.stderr).not.toContain(operationCredentialHint)
   })
 })

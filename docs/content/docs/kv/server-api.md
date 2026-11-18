@@ -81,7 +81,7 @@ The options work as in `get()` and `set()` and apply to every key. In `setMany()
 | `redis` | `MGET`, 1000 keys per command. | One pipeline. |
 | `database` | One `SELECT` per 200 keys. | One `INSERT ... ON CONFLICT` per 200 entries. |
 | `upstash` | One `MGET`. | One request per entry, 16 at a time. |
-| `cloudflare-kv-binding` | One bulk `get()` per 100 keys. | One `put()` per entry, 16 at a time. It checks every entry against the [Workers KV limits](/docs/kv/limits-and-errors#limits) before it writes any. |
+| `cloudflare` | One bulk `get()` per 100 keys. | One `put()` per entry, 16 at a time. It checks every entry against the [Workers KV limits](/docs/kv/limits-and-errors#limits) before it writes any. |
 | `deno-kv`, `fs-lite` | One read per key, 16 at a time. | One write per key, 16 at a time. |
 
 ### Read-only handles
@@ -123,10 +123,10 @@ Use `setIfAbsent()` for single-use tokens, such as upload tickets, invite codes,
 ```ts [server/api/uploads/[ticket].put.ts] fragment
 const [claimError, claimed] = await kv.setIfAbsent(`uploads:${ticket}`, 1, { ttl: 600 })
 if (claimError) throw claimError
-if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket already used' })
+if (!claimed) throw new HTTPError({ status: 409, message: 'Ticket already used' })
 ```
 
-`setIfAbsent()` needs a value: `undefined` fails with `KV_OPERATION_FAILED`, because it cannot mean "remove" as in `set()`. Do not use `kv.get()` then `kv.set()`: two requests can both see a missing key and both write.
+`setIfAbsent()` needs a value: `undefined` returns `KV_INVALID_VALUE`, because it cannot mean "remove" as in `set()`. Do not use `kv.get()` then `kv.set()`: two requests can both see a missing key and both write.
 
 | Driver | `setIfAbsent()` |
 | --- | --- |
@@ -135,7 +135,7 @@ if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket alread
 | `upstash` | Atomic. One `SET NX` command, with `EX` when you pass `ttl`. |
 | `deno-kv` | Atomic. One commit that checks the key is missing. Deno KV deletes expired keys some time after the TTL, so a key can stay longer than `ttl`. |
 | `fs-lite` | Atomic on one disk, also across processes. It writes a temporary file and links it into place, so other calls see the whole value or none. A key with `ttl` expires on time, and a later call can claim it. |
-| `cloudflare-kv-binding` | Returns `KV_UNSUPPORTED_OPERATION`. Workers KV is eventually consistent, so two requests can both see a missing key. Use D1 with `INSERT ... ON CONFLICT DO NOTHING`, or a Durable Object. |
+| `cloudflare` | Returns `KV_UNSUPPORTED_OPERATION`. Workers KV is eventually consistent, so two requests can both see a missing key. Use D1 with `INSERT ... ON CONFLICT DO NOTHING`, or a Durable Object. |
 
 `increment()` applies the TTL only when it creates the counter. Redis and Upstash round it up to whole seconds. A stored value that is not an integer, or that is already `Number.MAX_SAFE_INTEGER`, returns `KV_OPERATION_FAILED` and does not change. Deno KV accepts a new relative expiry on each write, so matching that fixed window would require a hidden deadline and cleanup. Deno KV, Cloudflare KV, and local `fs-lite` stores therefore return `KV_UNSUPPORTED_OPERATION` for both methods.
 
@@ -195,9 +195,9 @@ finally {
 | --- | --- |
 | `redis`, `upstash` | Atomic. `SET NX` with a TTL, and a script that deletes the key only when it holds the owner token. Upstash rounds `ttl` up to whole seconds. |
 | `database` | Atomic. One `INSERT ... ON CONFLICT` statement, and one `DELETE` that checks the owner token. Expiry uses the clock of the Database. |
-| `deno-kv`, `fs-lite`, `cloudflare-kv-binding` | Returns `KV_UNSUPPORTED_OPERATION`, and does not call your function. These drivers have no `deleteIfEquals()`, and `fs-lite` never expires keys. App tests use `fs-lite`, so they return this code too. |
+| `deno-kv`, `fs-lite`, `cloudflare` | Returns `KV_UNSUPPORTED_OPERATION`, and does not call your function. These drivers have no `deleteIfEquals()`, and `fs-lite` never expires keys. App tests use `fs-lite`, so they return this code too. |
 
-The type `KVDriversWith<'deleteIfEquals'>` lists the drivers that support `lock()`.
+The type `KVDriversWith<'deleteIfEquals'>` lists the drivers that support `lock()`. For work that runs longer than you can predict, use a lease, which its holder can renew. See [Locks and leases](/docs/guides/run-one-at-a-time).
 
 ## Runtime helper
 
@@ -208,8 +208,8 @@ The type `KVDriversWith<'deleteIfEquals'>` lists the drivers that support `lock(
 | `kv.get<T>(key, { type? })` | Reads a value or returns `null`. Pass `type` to convert it, see [Typed reads](#typed-reads). |
 | `kv.getMany<T>(keys, { type? })` | Reads many keys in one call. Returns one value or `null` per key, in the order of `keys`. See [Read and write many keys](#read-and-write-many-keys). |
 | `kv.getAndDelete<T>(key, { type? })` | Atomically returns and deletes a value on `redis`, `database`, and Upstash. `{ type: 'text' }` returns the stored text. |
-| `kv.set<T>(key, value, { ttl? })` | Writes a value. The driver applies `ttl` in seconds. `fs-lite`, the local store of `vite dev`, ignores it, so the key stays until you delete it. |
-| `kv.setMany<T>(entries, { ttl? })` | Writes an array of `{ key, value }` entries. Not atomic. |
+| `kv.set<T>(key, value, { ttl? })` | Writes a value. With `ttl`, every driver expires the value after that many seconds. Without `ttl`, the value stays until you delete or replace it. Other options return `KV_INVALID_OPTION`. |
+| `kv.setMany<T>(entries, { ttl? })` | Writes an array of `{ key, value }` entries, with the options of `kv.set()`. Not atomic. |
 | `kv.setIfAbsent<T>(key, value, { ttl? })` | Writes only when the key is empty, in one step. Returns `true` when this call wrote. Not on Cloudflare KV. |
 | `kv.has(key)` | Checks whether a key exists. |
 | `kv.increment(key, ttl)` | Atomically increments a counter on `redis`, `database`, and Upstash. |
@@ -288,9 +288,10 @@ After the app stops taking new work, call `disposeKVStores()` in your shutdown h
 In Nitro, register the hook in a server plugin:
 
 ```ts [server/plugins/kv-cleanup.ts] fragment
+import { definePlugin } from 'nitro'
 import { disposeKVStores } from 'vite-hub/kv'
 
-export default defineNitroPlugin((nitroApp) => {
+export default definePlugin((nitroApp) => {
   nitroApp.hooks.hook('close', disposeKVStores)
 })
 ```

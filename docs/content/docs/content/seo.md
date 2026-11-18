@@ -42,7 +42,7 @@ export default defineContent({
 
 `get()`, `list()`, `save()`, and the Console return `url` for a routable collection. Values are encoded per path segment, so the id `2026/hello` becomes `/blog/2026/hello`. An empty pattern field, or a function that returns `null`, gives `url: null`: the document has no page. Without `url`, reads leave the key out and `collection.routable` is `false`. [`content.resolve(path)`](/docs/content/configure#find-the-document-of-a-page) uses `url` to find a page's document.
 
-A pattern must start with `/` and name only `:id` and defined fields. Otherwise loading the definition throws `CONTENT_R0006`.
+A pattern must start with `/` and name only `:id` and defined fields. Otherwise loading the definition throws `CONTENT_DOCUMENTS_URL_INVALID`.
 
 In a collection with [locales](/docs/content/configure#locales), a pattern without `:locale` puts `/<locale>` before the URL of every locale but the source locale, so `/docs/:id` gives `/docs/guide` and `/es/docs/guide`. Write `:locale` in the pattern, such as `/:locale/docs/:id`, to place the locale yourself. A `url()` function receives `{ id, data, locale }`.
 
@@ -60,7 +60,7 @@ export default defineContent({
 })
 ```
 
-A Source `url` adds its documents to the [sitemap](#sitemap-and-robotstxt), but Source reads do not return `document.url`. `content.resolve()`, Markdown copies, and `seo()` fields work only with collections.
+A Source `url` adds its documents to the [sitemap](#sitemap-and-robotstxt) and gives them [Markdown copies](#markdown-for-agents), but Source reads do not return `document.url`. `content.resolve()` and `seo()` fields work only with collections.
 
 ## SEO fields
 
@@ -182,6 +182,8 @@ The sitemap lists:
 
 One sitemap holds 50,000 URLs. Above that, `content.sitemap()` throws `CONTENT_R0009` and does not return a partial sitemap.
 
+To list Content pages together with the other pages of your app, use [`vitehub({ seo: { sitemap: true } })`](/docs/frameworks-hosts/sitemap) instead. It serves `/sitemap.xml` and `/robots.txt` for the whole app, so Content adds neither route.
+
 Like `/api/content/**`, the `vitehub()` Vite plugin and the Nuxt module generate both routes from the `defineContent()` call in `server/content.ts`, without running it. They do so when `seo` sets `sitemap` or `robots` to anything but literal `false`. The routes run on Nitro 3, in Vite and in Nuxt 5, and on every host. Your own server route at `/sitemap.xml` or `/robots.txt` fails the build. A file in `public/` is served first.
 
 Check the output from code:
@@ -282,13 +284,13 @@ export default defineContent({
 
 | `seo` option | Description |
 | --- | --- |
-| `markdown` | `true` serves each page as Markdown at its URL plus `.md`, such as `/blog/hello.md`, and `/index.md` for `/`. The page URL also returns Markdown when the request sends `Accept: text/markdown` before `text/html`. `{ prefix: '/raw' }` also serves each copy below that folder, such as `/raw/blog/hello.md`, and the llms files link there. |
-| `llms` | `true`, or `{ title, description, details, sections }`, serves `/llms.txt`, `/llms-full.txt`, and `/sitemap.md`. It also turns on `markdown`, because their links point at the `.md` copies. The title defaults to the host name. `details` is text under the description, such as rules for agents. `sections` adds sections of links, `[{ title, description?, links: [{ title, href, description? }] }]`, before the sections of pages. |
+| `markdown` | `true` serves each page as Markdown at its URL plus `.md`, such as `/blog/hello.md`, and `/index.md` for `/`. The page URL also returns Markdown when the request sends `Accept: text/markdown` before `text/html`. `{ prefix: '/raw' }` also serves each copy below that folder, such as `/raw/blog/hello.md`, and the llms files link there. `{ pages: true }` also gives [every other app page](#app-pages-as-markdown) a copy, converted from its HTML. |
+| `llms` | `true`, or `{ title, description, details, sections, sort, headers, locales }`, serves `/llms.txt`, `/llms-full.txt`, and `/sitemap.md`. It also turns on `markdown`, because their links point at the `.md` copies. The title defaults to the host name. `details` is text under the description, such as rules for agents. `sections` adds sections of links, `[{ title, description?, links: [{ title, href, description? }] }]`, before the sections of pages, or is a function that builds them from `{ pages, markdown(page) }`. `sort(left, right)` puts the pages in the order of your app. `headers` adds response headers to the three files. `locales` sets the `title`, `description`, and `details` of each translated `llms-full.txt`, such as `{ es: { description: 'Guía para los invitados.' } }`. |
 
 The copy starts with the document title, unless the body has its own heading, and its description as a quote. Root-relative links become absolute.
 
 - `/llms.txt` follows the [llms.txt](https://llmstxt.org) format: the title, the description as a quote, the details, a link to `/llms-full.txt`, then one section per collection or Source, named by its `label`, with a link to the `.md` copy of each page and its description. Link titles are escaped, so a `]` in a title does not break the link.
-- `/llms-full.txt` starts with the same title, description, and details, then has the copy of every page, home page first. Each page starts with `URL:` and its page URL, so an agent can cite it, and a `---` line separates the pages.
+- `/llms-full.txt` starts with the same title, description, and details, then has the copy of every page, home page first. Each page starts with `URL:` and its page URL, so an agent can cite it, and a `---` line separates the pages. A collection with `locales` keeps its source locale here, and each other locale in `/<locale>/llms-full.txt`, such as `/es/llms-full.txt`. `/llms.txt` links every one of these files.
 - `/sitemap.md` lists every page, grouped by the first segment of its URL.
 
 They list the same Markdown pages as the sitemap: published documents with a URL, and the Markdown files of Sources with a `url`, without `seo.noindex` or a `seo.canonical` that points elsewhere. Drafts and JSON and YAML documents are not listed. A `noindex` page still has its `.md` copy.
@@ -317,9 +319,62 @@ export default defineContent({
 })
 ```
 
+### Write the copy yourself
+
+A page can hold blocks that mean nothing outside the browser, such as a booking form, or a component that reads its words from the app, such as a `::phrases` table. Pass `markdown` to `documents()` or `singleton()` to write the copy that agents read:
+
+```ts [server/content.ts]
+import { defineContent } from 'vite-hub/content'
+import { documents } from 'vite-hub/content/collections'
+import { z } from 'zod'
+
+const phrases = [['Hello', 'สวัสดี'], ['Thank you', 'ขอบคุณ']]
+const phrasesTable = () => ['| Meaning | Thai |', '| --- | --- |', ...phrases.map(([meaning, thai]) => `| ${meaning} | ${thai} |`)].join('\n')
+
+export default defineContent({
+  workspace: 'site',
+  collections: {
+    guide: documents({
+      path: 'guide/*.md',
+      url: '/guide/:id',
+      fields: { title: z.string(), description: z.string().optional() },
+      markdown: ({ title, description, body }) => [
+        `# ${title}`,
+        description && `> ${description}`,
+        body.replace(/^::phrases\n::$/m, phrasesTable()).replace(/^::booking-form\n::\n?/m, ''),
+      ].filter(Boolean).join('\n\n'),
+    }),
+  },
+  seo: { site: 'https://example.com', llms: { title: 'Trip guide' } },
+})
+```
+
+The function gets `{ id, path, locale, data, body, title, description, site }` of the published document. `title` and `description` come from its `seo()` field, else from its fields. Return a string, or `{ markdown, footer }`: only the `.md` copy ends with `footer`, and `llms-full.txt` and `get-page` leave it out. Return `null` for a page without a copy. Content uses the result as it is, so make links absolute yourself if agents need them. The `.md` copy, the `Accept: text/markdown` answer, `llms-full.txt`, and the MCP `get-page` tool all use it. A Source takes the same function in `contentSource(input, { markdown })`, with the whole file as `text`.
+
+To keep the copies and the llms files out of search results, such as for an unlisted site, set `llms: { headers: { 'x-robots-tag': 'noindex' } }`, and add the same header to the copies with [route rules](https://nuxt.com/docs/guide/concepts/rendering#route-rules): `routeRules: { '/raw/**': { headers: { 'x-robots-tag': 'noindex' } } }`.
+
 A `site` with a path, such as `https://example.com/docs` for an app mounted there, keeps the path in every URL that these files and the MCP server write.
 
-An HTML page that has a copy gets `Vary: Accept`, so a cache keeps the HTML and the Markdown apart, and a `Link: </blog/hello.md>; rel="alternate"; type="text/markdown"` header, so an agent finds the copy from the response alone. Every response at a URL with a copy varies on `Accept`, including JSON, assets, and redirects. URLs without copies keep their headers unless they return a 404. A copy has `Content-Location`, its `.md` URL, and an `ETag`, so a request with `If-None-Match` gets a `304` when the copy did not change. When a request asks for Markdown, with `.md` or with `Accept`, and no page answers it, the response is a `404` with a Markdown body. The body names `/llms.txt` and the sitemaps, so an agent knows where to look next.
+An HTML page that has a copy gets `Vary: Accept`, so a cache keeps the HTML and the Markdown apart, and a `Link: </blog/hello.md>; rel="alternate"; type="text/markdown"` header, so an agent finds the copy from the response alone. Every response at a URL with a copy varies on `Accept`, including JSON, assets, and redirects. URLs without copies keep their headers unless they return a 404. A copy has `Content-Location`, its `.md` URL, and an `ETag`, so a request with `If-None-Match` gets a `304` when the copy did not change. When a request asks for Markdown, with `.md` or with `Accept`, and no page answers it, the response is a `404` with a Markdown body. A `.md` URL that only an HTML page answers, such as the shell of a single-page app, gets the same `404`. The body names `/llms.txt` and the sitemaps, so an agent knows where to look next.
+
+### App pages as Markdown
+
+`seo: { markdown: { pages: true } }` gives a copy to the app pages that are not Content documents, such as a pricing page or a dashboard. A Markdown request for such a page renders the page inside the server, without a network hop, for the same request with its cookies and `Authorization` header. Content converts the HTML with [mdream](https://github.com/harlan-zw/mdream): it keeps the `<main>` part and leaves out navigation, footers, buttons, forms, scripts, and hidden elements. When the content has no heading first, the page `<title>` becomes the heading. A Content document keeps its exact copy.
+
+```ts [server/content.ts]
+import { defineContent } from 'vite-hub/content'
+
+export default defineContent({
+  seo: { site: 'https://example.com', markdown: { pages: true } },
+})
+```
+
+- Only a `200` HTML page gets a copy. A page with `X-Robots-Tag: noindex` gets none. The copy keeps the page's `X-Robots-Tag` and its robots meta tag as `X-Robots-Tag`.
+- A `404` page gets the Markdown 404. A redirect, such as to a sign-in page, or an error is the answer for the copy too.
+- A copy of a page that the request's cookies or `Authorization` header can change has `Cache-Control: private, no-store`, so no shared cache gives it to another reader. The page's own `Set-Cookie` headers stay.
+- The copy has `Link: <page>; rel="canonical"`, so search engines index the page and not the copy.
+
+Off by default. [Docs sites](/docs/docs-site/configure#agent-resources) turn it on. ViteHub renders the page with `serverFetch` from `nitro`. In another server, pass your own renderer: `defineContentMarkdownHandler(content, { render: request => app.fetch(request) })`.
 
 Check the output from code:
 
@@ -329,13 +384,14 @@ import content from '../content'
 export async function checkAgentFiles() {
   await content.llms()                           // llms.txt
   await content.llms({ file: 'llms-full.txt' })
+  await content.llms({ file: 'llms-full.txt', locale: 'es' })
   await content.llms({ file: 'sitemap.md' })
   await content.markdown('/blog/hello.md')       // the copy, or null
   await content.hasMarkdown('/blog/hello.md')    // true when the copy exists
 }
 ```
 
-ViteHub generates these routes from `server/content.ts` like the sitemap, when `seo` sets `markdown` or `llms` to anything but literal `false`. The Markdown copies are middleware, because no route pattern matches a URL plus `.md`. The middleware loads when the server starts, so it can see a missing page, but it loads `server/content.ts` only on the first request that asks for Markdown or gets an HTML page. In another server, mount `defineContentLlmsHandler(content)` at the three paths and `defineContentMarkdownHandler(content)` as middleware.
+ViteHub generates these routes from `server/content.ts` like the sitemap, when `seo` sets `markdown` or `llms` to anything but literal `false`. The Markdown copies are middleware, because no route pattern matches a URL plus `.md`. The middleware loads when the server starts, so it can see a missing page, but it loads `server/content.ts` only on the first request that asks for Markdown or gets an HTML page. In another server, mount `defineContentLlmsHandler(content)` at the three paths and at `/:locale/llms-full.txt` and `defineContentMarkdownHandler(content)` as middleware.
 
 ## Console
 

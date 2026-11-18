@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import Icon from "./console-icon.vue";
 withDefaults(defineProps<{ label?: string }>(), { label: "Opening Console…" });
 </script>
 
 <template>
   <div class="vitehub-console-page grid content-start gap-6">
     <p role="status" class="flex items-center gap-2 text-sm text-muted">
-      <UIcon
+      <Icon
         name="i-lucide-loader-circle"
         class="size-4 motion-safe:animate-spin"
         aria-hidden="true"

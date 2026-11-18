@@ -195,7 +195,7 @@ export function standaloneChannelWebhookAliases(
       if (existing) {
         if (aliases[existing.path]) continue
         if (existing.target?.agent === channel.agent && existing.target?.webhook === channel.name) continue
-        throw standaloneChannelError(channel.handler, `the webhook path ${JSON.stringify(path)} is already routed to ${JSON.stringify(`${existing.target?.agent}/${existing.target?.webhook}`)}.`)
+        throw agentDiagnostics.AGENT_CHANNEL_WEBHOOK_PATH_TAKEN({ channel: channel.handler, path, target: `${existing.target?.agent}/${existing.target?.webhook}` })
       }
       const target = { agent: channel.agent, webhook: channel.name }
       normalized.set(normalizeAliasPath(path), { path, target })

@@ -6,6 +6,7 @@ import { normalizeWorkflowOptions } from "../config.ts"
 import { createWorkflowError } from "../errors.ts"
 
 import { getWorkflowRuntimeAdapter } from "./adapters.ts"
+import { resolveWorkflowStartAt } from "./delay.ts"
 import { safeWorkflowName } from "./provider-operation.ts"
 import { getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefinition, registerInlineWorkflowDefinition, runWithWorkflowRuntimeEvent } from "./state.ts"
 import { getWorkflowTestRun, recordWorkflowTestRun } from "./test-client.ts"
@@ -64,7 +65,8 @@ async function sha256Hex(value: string): Promise<string> {
 async function createStableWorkflowRunId(name: string, value: WorkflowRunIdValue): Promise<string> {
   const normalized = JSON.stringify(normalizeWorkflowRunIdValue(value))
   const hash = await sha256Hex(`${name}:${normalized}`)
-  const prefix = name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "workflow"
+  // 67 characters, a `-`, and 32 hex digits fit the 100-character Cloudflare instance id.
+  const prefix = name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 67) || "workflow"
   return `${prefix}-${hash.slice(0, 32)}`
 }
 
@@ -143,6 +145,7 @@ export function createWorkflow<TPayload = unknown, TResult = unknown>(
     registerInlineWorkflowDefinition(name, {
       // SAFETY: Workflow definition registration establishes the handler's erased registry payload contract.
       handler: handler as WorkflowHandler,
+      ...(createOptions?.internalAgentWorkflow ? { internalAgentWorkflow: true } : {}),
       ...(createOptions?.rootStep === undefined ? {} : { options: { rootStep: createOptions.rootStep } }),
     })
   }
@@ -181,15 +184,16 @@ async function startWorkflowRun<TPayload>(
   const config = getActiveWorkflowConfig()
 
   const id = options.id || randomId("wrun")
+  const startAt = resolveWorkflowStartAt(options.delay)
   const definition = await loadRequiredWorkflowDefinition(name)
-  if (config.provider === "vercel" && definition.options?.native && options.id) {
+  if (config.driver === "vercel" && definition.options?.native && options.id) {
     throw createWorkflowError({
       code: "WORKFLOW_RUN_ID_UNSUPPORTED",
       details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
     })
   }
   const test = getViteHubTestMode()
-  if (test) return recordWorkflowTestRun(test, config.provider, { deferred, id, name, payload })
+  if (test) return recordWorkflowTestRun(test, config.driver, { deferred, id, name, payload })
   return await getWorkflowRuntimeAdapter(config).run<TPayload, unknown>({
     // SAFETY: The named Workflow definition receives the caller-provided payload and its result remains unknown.
     definition: definition as WorkflowDefinition<TPayload, unknown>,
@@ -198,13 +202,14 @@ async function startWorkflowRun<TPayload>(
     name,
     options,
     payload,
+    startAt,
   })
 }
 
 export async function getWorkflowRun(name: string, id: string): Promise<WorkflowRun<unknown, unknown>> {
   const config = getActiveWorkflowConfig()
   const test = getViteHubTestMode()
-  if (test) return getWorkflowTestRun(test, config.provider, name, id)
+  if (test) return getWorkflowTestRun(test, config.driver, name, id)
 
   return await getWorkflowRuntimeAdapter(config).get({
     event: getWorkflowRuntimeEvent(),
@@ -219,10 +224,10 @@ export async function cancelWorkflow(name: string, id: string): Promise<Workflow
   const definition = await loadRequiredWorkflowDefinition(name)
   const test = getViteHubTestMode()
   if (test) {
-    if (config.provider === "cloudflare" || (config.provider === "vercel" && !definition.options?.native)) {
-      throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "cancellation", provider: config.provider } })
+    if (config.driver === "vercel" && !definition.options?.native) {
+      throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "cancellation", provider: config.driver } })
     }
-    return getWorkflowTestRun(test, config.provider, name, id, true)
+    return getWorkflowTestRun(test, config.driver, name, id, true)
   }
   return await getWorkflowRuntimeAdapter(config).cancel({
     event: getWorkflowRuntimeEvent(),
@@ -239,7 +244,7 @@ export async function resumeWorkflow<TPayload = unknown>(token: string, payload:
   const config = getActiveWorkflowConfig()
   // Test backends start no handlers, so there is no suspended signal to resume.
   if (getViteHubTestMode()) {
-    throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "signals", provider: config.provider } })
+    throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "signals", provider: config.driver } })
   }
   return await getWorkflowRuntimeAdapter(config).resume(token, payload)
 }

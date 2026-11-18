@@ -12,6 +12,7 @@ import ConsoleRelativeTime from "./console-relative-time.vue";
 import type { ConsoleDocumentOverview, ConsoleDocumentState } from "../client/documents";
 import type { ConsoleDocumentCollection } from "../definitions";
 import ConsoleSection from "./console-section.vue";
+import Icon from "./console-icon.vue";
 
 /**
  * The Settings page of a document editor section: one row per singleton, such as site settings or a home page, that
@@ -95,7 +96,7 @@ function editorRoute(name: string) {
               <span v-if="updatedAt(singleton.name)" class="hidden w-16 shrink-0 whitespace-nowrap text-right text-xs text-muted sm:inline">
                 <ConsoleRelativeTime :value="updatedAt(singleton.name)!" />
               </span>
-              <UIcon name="i-lucide-chevron-right" class="size-4 shrink-0 text-dimmed" aria-hidden="true" />
+              <Icon name="i-lucide-chevron-right" class="size-4 shrink-0 text-dimmed" aria-hidden="true" />
             </RouterLink>
           </li>
         </ul>

@@ -11,6 +11,7 @@ import ConsoleState from "./console-state.vue";
 import ConsoleUsageChart from "./console-usage-chart.vue";
 import ConsoleUsageModelDetail from "./console-usage-model-detail.vue";
 import ConsoleUsageShareBar from "./console-usage-share-bar.vue";
+import Icon from "./console-icon.vue";
 import {
   consoleUsageCacheHitRate,
   consoleUsageMetricValue,
@@ -343,7 +344,7 @@ const headline = computed(() => {
   }));
 });
 /** Neutral steps from the text color, so the share bar reads by rank and never looks like a status color. */
-const shareColors = [100, 72, 52, 36, 24, 16].map(percent => `color-mix(in oklab, var(--ui-text-highlighted) ${percent}%, var(--ui-bg))`);
+const shareColors = [100, 72, 52, 36, 24, 16].map(percent => `color-mix(in oklab, var(--foreground) ${percent}%, var(--background))`);
 const modelSegments = computed(() => breakdownModels.value
   .map((model, index) => ({ color: shareColors[Math.min(index, shareColors.length - 1)]!, key: model.model, label: model.model, value: consoleUsageMetricValue(model, metric.value) }))
   .filter(segment => segment.value > 0));
@@ -522,7 +523,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
           </div>
           <ConsoleState v-if="error" compact :error="error" title="Could not load usage" :retry="load" />
           <p v-if="summary?.partial" class="flex items-start gap-2 text-xs text-muted" role="status">
-            <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <Icon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
             Some usage is unavailable. Recorded totals include only the evidence received.
           </p>
           <!-- The skeleton has the height of the numbers, so they do not push the page down when they arrive. -->
@@ -679,7 +680,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                       </td>
                       <td class="px-3 py-2.5 align-top"><span class="block truncate" :title="session.agent">{{ session.agent || 'Unknown agent' }}</span><span class="block truncate text-xs text-muted" :title="session.models.join(', ')">{{ session.models.length ? session.models.join(', ') : 'Model unavailable' }}</span></td>
                       <td class="px-3 py-2.5 align-top text-muted"><time :datetime="session.at" :title="formatDateTime(session.at)">{{ formatTimestamp(session.at) }}</time></td>
-                      <td class="px-3 py-2.5 align-top"><span class="inline-flex items-center gap-1.5 text-xs" :class="session.status === 'failed' ? 'text-default' : 'text-muted'"><UIcon :name="statusIcons[session.status]" class="size-3.5 shrink-0" :class="session.status === 'failed' ? 'text-error' : ''" aria-hidden="true" />{{ statusLabels[session.status] }}</span></td>
+                      <td class="px-3 py-2.5 align-top"><span class="inline-flex items-center gap-1.5 text-xs" :class="session.status === 'failed' ? 'text-default' : 'text-muted'"><Icon :name="statusIcons[session.status]" class="size-3.5 shrink-0" :class="session.status === 'failed' ? 'text-error' : ''" aria-hidden="true" />{{ statusLabels[session.status] }}</span></td>
                       <td class="px-3 py-2.5 text-right align-top tabular-nums" :class="session.totals.totalTokensAvailable ? 'text-highlighted' : 'text-muted'">{{ formatTokenEvidence(session.totals.totalTokens, session.totals.totalTokensAvailable) }}</td>
                       <td v-if="costSupported" class="px-3 py-2.5 text-right align-top font-medium tabular-nums" :class="session.totals.costAvailable ? 'text-highlighted' : 'text-muted'">{{ formatCostEvidence(session.totals.costUsd, session.totals.costEstimated, session.totals.costAvailable) }}</td>
                     </tr>
@@ -703,7 +704,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
               <p class="mt-0.5 mb-3 text-xs text-muted">Provider limits apply to the shared account or credential. Recorded session tokens and API cost estimates are shown separately.</p>
 
               <p v-if="statusError" class="flex items-start gap-2 p-3 text-sm" role="status">
-                <UIcon name="i-lucide-triangle-alert" class="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
+                <Icon name="i-lucide-triangle-alert" class="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
                 {{ statusError }}
               </p>
               <div v-else class="grid gap-x-8 lg:grid-cols-2">
@@ -868,7 +869,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 .usage-toggles button {
   border-block-end: 1px solid transparent;
   position: relative;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.8125rem;
   padding-block: 0.25rem;
   transition: color 150ms ease, border-color 150ms ease;
@@ -882,12 +883,12 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 }
 
 .usage-toggles button:hover {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 .usage-toggles button:is([aria-pressed="true"], [aria-current="page"]) {
-  border-block-end-color: var(--ui-text-highlighted);
-  color: var(--ui-text-highlighted);
+  border-block-end-color: var(--foreground);
+  color: var(--foreground);
 }
 
 .usage-toggles--small button {
@@ -895,7 +896,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 }
 
 .usage-toggles__divider {
-  background: var(--ui-border);
+  background: var(--border);
   height: 1rem;
   width: 1px;
 }
@@ -914,7 +915,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 }
 
 .usage-headline__label {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.75rem;
 }
 
@@ -930,11 +931,11 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 
 .usage-headline__item:hover .usage-headline__value,
 .usage-headline__item[aria-pressed="true"] .usage-headline__value {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 .usage-headline__item[aria-pressed="true"] .usage-headline__label {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 .usage-headline__note {
@@ -977,7 +978,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 }
 
 .usage-ranked h2 {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   font-size: 0.8125rem;
   font-weight: 500;
 }
@@ -990,8 +991,8 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 
 .usage-ranked li {
   align-items: center;
-  border-block-start: 1px solid var(--ui-border);
-  color: var(--ui-text-muted);
+  border-block-start: 1px solid var(--border);
+  color: var(--muted-foreground);
   column-gap: 1rem;
   display: grid;
   font-size: 0.8125rem;
@@ -1026,7 +1027,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 }
 
 .usage-ranked__name > :is(button, a, span:not(.usage-ranked__bar)) {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1044,7 +1045,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 }
 
 .usage-ranked__bar {
-  background: var(--ui-text-highlighted);
+  background: var(--foreground);
   pointer-events: none;
   border-radius: 9999px;
   height: 2px;
@@ -1052,7 +1053,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 }
 
 .usage-filters {
-  border-inline-start: 1px solid var(--ui-border);
+  border-inline-start: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -1063,7 +1064,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 
 .usage-filters h2 {
   align-items: baseline;
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   display: flex;
   font-size: 0.8125rem;
   font-weight: 500;
@@ -1086,7 +1087,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 
 .usage-filters li button {
   align-items: center;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: flex;
   font-size: 0.8125rem;
   gap: 0.5rem;
@@ -1098,7 +1099,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 
 .usage-filters li button:hover,
 .usage-filters li button[aria-pressed="true"] {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 .usage-filters__check {
@@ -1110,8 +1111,8 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 }
 
 [aria-pressed="true"] > .usage-filters__check {
-  background: var(--ui-text-highlighted);
-  border-color: var(--ui-text-highlighted);
+  background: var(--foreground);
+  border-color: var(--foreground);
 }
 
 .usage-filters__name {
@@ -1130,14 +1131,14 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 
 .usage-filters__clear {
   align-self: start;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   font-size: 0.75rem;
   text-decoration: underline;
   text-underline-offset: 4px;
 }
 
 .usage-filters__note {
-  border-block-start: 1px solid var(--ui-border);
+  border-block-start: 1px solid var(--border);
   color: var(--ui-text-dimmed);
   font-size: 0.6875rem;
   line-height: 1.5;
@@ -1157,7 +1158,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
   }
 
   .usage-filters {
-    border-block-start: 1px solid var(--ui-border);
+    border-block-start: 1px solid var(--border);
     border-inline-start: 0;
   }
 }

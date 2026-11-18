@@ -7,7 +7,7 @@ import type { ConsoleAccountPage } from "../client/project-session";
 import { consoleAccountViewsKey } from "../client/account-views";
 import { checkConsoleAccountProject, earlyConsoleSignInState, earlyConsoleTeam } from "../client/account";
 import { useConsoleApp } from "../client/app-identity";
-import { canManageConsoleProjects, consoleProjectDisplayName, openConsoleProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
+import { canManageConsoleProjects, consoleProjectDisplayName, openConsoleProject, rememberConsoleProjectName, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { closeConsoleSidebarDrawer, consoleSidebarDrawer } from "../client/sidebar";
 import ConsoleAccountHome from "./console-account-home.vue";
 import ConsoleAccountLink from "./console-account-link.vue";
@@ -21,16 +21,22 @@ import ConsoleSidebar from "./console-sidebar.vue";
 import ConsoleSidebarItem from "./console-sidebar-item.vue";
 import ConsoleSidebarTrigger from "./console-sidebar-trigger.vue";
 import ConsoleToaster from "./console-toaster.vue";
+import Icon from "./console-icon.vue";
 
 // A page whose code has loaded renders at once. The page of the first paint loads before the app mounts, and the other
 // pages load when the browser is idle. Until then, a page loads on demand.
 const views = inject(consoleAccountViewsKey, {});
 const pageCode = {
-  team: () => import("./console-account-team.vue"),
-  settings: () => import("./console-account-settings.vue"),
+  "team": () => import("./console-account-team.vue"),
+  "team-settings": () => import("./console-account-team-settings.vue"),
+  "env": () => import("./console-account-env.vue"),
+  "settings": () => import("./console-account-settings.vue"),
 };
-const loadedPages = shallowReactive<{ team?: Component, settings?: Component }>({ team: views.team, settings: views.settings });
+type LazyPage = keyof typeof pageCode;
+const loadedPages = shallowReactive<Partial<Record<LazyPage, Component>>>({ "team": views.team, "team-settings": views.teamSettings, "env": views.env, "settings": views.settings });
 const ConsoleAccountTeam = computed(() => loadedPages.team ?? defineAsyncComponent(pageCode.team));
+const ConsoleAccountTeamSettings = computed(() => loadedPages["team-settings"] ?? defineAsyncComponent(pageCode["team-settings"]));
+const ConsoleAccountEnv = computed(() => loadedPages.env ?? defineAsyncComponent(pageCode.env));
 const ConsoleAccountSettings = computed(() => loadedPages.settings ?? defineAsyncComponent(pageCode.settings));
 
 /**
@@ -59,6 +65,8 @@ const page = computed(() => {
 const currentApp = computed(() => page.value === "app" ? projects.current.value?.id : undefined);
 const title = computed(() => {
   if (page.value === "team") return "Members";
+  if (page.value === "team-settings") return "Team settings";
+  if (page.value === "env") return "Env values";
   if (page.value === "settings") return "Account settings";
   if (page.value === "home") return "Apps";
   if (gate.value.kind === "setup") return `Connect ${appName(gate.value.project)}`;
@@ -94,7 +102,7 @@ watchEffect(() => {
 });
 
 /** Keep the code of a page that is not open, so the page renders at once when it opens. */
-function preparePage(target: "team" | "settings"): void {
+function preparePage(target: LazyPage): void {
   if (loadedPages[target]) return;
   void pageCode[target]().then((module) => {
     // The open page keeps its component, so it does not mount again.
@@ -103,9 +111,10 @@ function preparePage(target: "team" | "settings"): void {
 }
 
 /** The pointer or the focus reached the link of a page: its data starts to load. */
-function intent(target: "team" | "settings"): void {
+function intent(target: LazyPage): void {
   if (page.value === target) return;
-  void (target === "team" ? earlyConsoleTeam : earlyConsoleSignInState).start();
+  if (target === "team") void earlyConsoleTeam.start();
+  if (target === "settings") void earlyConsoleSignInState.start();
   preparePage(target);
 }
 
@@ -113,6 +122,8 @@ onMounted(() => {
   const idle = window.requestIdleCallback ?? ((callback: () => void) => window.setTimeout(callback, 200));
   idle(() => {
     preparePage("team");
+    preparePage("team-settings");
+    preparePage("env");
     preparePage("settings");
   });
   // The server calls each app with its token. A linked app answers, and an app without the variable refuses it.
@@ -121,6 +132,7 @@ onMounted(() => {
     void checkConsoleAccountProject(app.id).then(
       (result) => {
         status[app.id] = result.status;
+        rememberConsoleProjectName(app.id, result.name);
         checks[app.id] = result;
       },
       () => { status[app.id] = "unreachable"; },
@@ -161,6 +173,24 @@ async function retry(): Promise<void> {
         @focus="intent('team')"
         @click="follow($event, () => showConsoleAccountPage('team'))"
       />
+      <ConsoleSidebarItem
+        label="Team settings"
+        icon="i-lucide-settings"
+        :href="pagePath('team-settings')"
+        :current="page === 'team-settings'"
+        @pointerenter="intent('team-settings')"
+        @focus="intent('team-settings')"
+        @click="follow($event, () => showConsoleAccountPage('team-settings'))"
+      />
+      <ConsoleSidebarItem
+        label="Env values"
+        icon="i-lucide-key-round"
+        :href="pagePath('env')"
+        :current="page === 'env'"
+        @pointerenter="intent('env')"
+        @focus="intent('env')"
+        @click="follow($event, () => showConsoleAccountPage('env'))"
+      />
 
       <template #footer>
         <ConsoleAccountMenu />
@@ -191,10 +221,12 @@ async function retry(): Promise<void> {
         <main id="vitehub-account-main" tabindex="-1" class="vitehub-console-page outline-none">
           <ConsoleAccountHome v-if="page === 'home'" :status="status" :checks="checks" />
           <component :is="ConsoleAccountTeam" v-else-if="page === 'team'" />
+          <component :is="ConsoleAccountTeamSettings" v-else-if="page === 'team-settings'" />
+          <component :is="ConsoleAccountEnv" v-else-if="page === 'env'" />
           <component :is="ConsoleAccountSettings" v-else-if="page === 'settings'" />
           <ConsoleAccountSetup v-else-if="gate.kind === 'setup'" :key="gate.project.id" :project="gate.project" @checked="(value) => { status[gate.project.id] = value; }" />
           <p v-else-if="gate.kind === 'opening'" role="status" class="flex max-w-2xl items-center gap-2 text-sm text-muted">
-            <UIcon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
+            <Icon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
             Opening {{ title }}…
           </p>
           <div v-else-if="gate.kind === 'problem'" class="grid max-w-2xl gap-6">
@@ -240,7 +272,7 @@ async function retry(): Promise<void> {
 }
 
 .vitehub-account-shell__dot[data-status="checking"] {
-  box-shadow: inset 0 0 0 1px var(--ui-text-muted);
+  box-shadow: inset 0 0 0 1px var(--muted-foreground);
 }
 
 .vitehub-account-shell__dot[data-status="connected"] {

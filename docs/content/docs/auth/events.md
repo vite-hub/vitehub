@@ -15,7 +15,7 @@ Use the app's SQLite Drizzle database or another one. Like the Env and Connectio
 Here, users and events share the `auth` Database. [`authDatabase('auth')`](/docs/auth/configure#keep-users-in-the-app-database) adds the Better Auth tables to it.
 
 ```ts [server/databases/auth/index.ts]
-import { defineDatabase } from '@vite-hub/database'
+import { defineDatabase } from 'vite-hub/database'
 
 export default defineDatabase({ name: 'auth', schema: {} })
 ```
@@ -99,7 +99,7 @@ const events: AuthEventsConfiguration = {
 }
 ```
 
-Without `authorize`, there is no endpoint. With it, `GET <auth-base-path>/vitehub/events` needs a session read from the session store and a `true` result, so a normal user gets in only if your policy allows it. Successful reads send `Cache-Control: no-store`. The policy can return a `Response` to reject with its own status, headers, and body.
+Without `authorize`, there is no endpoint. With it, `GET <auth-base-path>/vitehub/events` needs a session read from the session store and a `true` result, so a normal user gets in only if your policy allows it. Successful reads send `Cache-Control: no-store`. The policy can return a `Response` to reject with its own status, headers, and body. It gets `{ event, request, session, user }`. `event` is what the Auth route passed to `handleAuthRequest()`: the Request, with its Standard Context, for the generated route.
 
 Put an authorized session cookie in the `VITEHUB_AUTH_COOKIE` shell variable, never in a command argument or shared log. Set `VITEHUB_AUTH_URL`, or pass the full Auth base URL with `--url`:
 
@@ -111,6 +111,19 @@ vitehub auth events --url http://localhost:5173/api/auth --aggregate \
 ```
 
 Output is JSON. List commands also take `--from`, `--to`, and `--cursor`. The CLI needs HTTPS except on loopback, does not follow redirects, and times out after 30 seconds. It uses the same readers as server code.
+
+## Run code for each event
+
+`events.onEvent` runs for each event after the store records it. Use it to send the event to another service:
+
+```ts fragment
+events: {
+  store,
+  onEvent: event => fetch('https://example.com/hooks/auth', { method: 'POST', body: JSON.stringify(event) }),
+},
+```
+
+With a host `waitUntil()`, the callback runs after the response. Else Auth waits for it. A thrown error never fails the request. Auth logs it as `AUTH_EVENT_CALLBACK_FAILED`, with the error in `cause`. An event that the store could not record does not reach `onEvent`.
 
 ## Event fields
 

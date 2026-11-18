@@ -16,8 +16,6 @@ import { markBuiltInSandboxRuntime } from "./internal/runtime.ts";
 import { killOnAbort } from "./internal/abortable.ts";
 import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
 
-const vercelSandboxPackage = "@vercel/sandbox";
-
 export type VercelSandboxSource =
   | { depth?: number; revision?: string; type: "git"; url: string }
   | { password: string; username: string; depth?: number; revision?: string; type: "git"; url: string }
@@ -51,7 +49,8 @@ export interface VercelSandboxCreateOptions {
   persistent?: boolean;
   projectId?: string;
   resources?: { vcpus?: number };
-  runtime: string;
+  /** Vercel takes the runtime from the snapshot for a snapshot source, so ViteHub omits it then. */
+  runtime?: string;
   signal?: AbortSignal;
   source?: VercelSandboxSource;
   teamId?: string;
@@ -115,7 +114,8 @@ export interface VercelFileStat {
 }
 
 export function createVercelRuntime(options: VercelSandboxOptions = {}): SandboxRuntime {
-  const runtime = options.runtime ?? "node24";
+  // A snapshot already has its runtime. The Vercel SDK types forbid `runtime` with a snapshot source.
+  const runtime = options.source?.type === "snapshot" ? options.runtime : options.runtime ?? "node24";
   const executionAuthority = vercelExecutionAuthority(options.networkPolicy);
   return markBuiltInSandboxRuntime({
     name: "vercel",
@@ -127,7 +127,7 @@ export function createVercelRuntime(options: VercelSandboxOptions = {}): Sandbox
       const env = await resolveRemoteEnvironment(input, { workspace });
       const create = options.create ?? await loadVercelSandbox();
       const instance = await create({
-        runtime,
+        ...(runtime ? { runtime } : {}),
         persistent: false,
         signal: openOptions?.signal,
         timeout: options.timeout ?? 300_000,
@@ -221,11 +221,15 @@ function ownNetworkPolicyMember<T extends object, K extends keyof T>(
   return value !== null && value !== undefined && Object.hasOwn(value, key) ? value[key] : undefined;
 }
 
-async function loadVercelSandbox() {
+// A literal specifier lets the server bundler include the SDK. Nitro output has no `node_modules`, so a variable
+// specifier cannot load the SDK there.
+export async function loadVercelSandbox(): Promise<NonNullable<VercelSandboxOptions["create"]>> {
   try {
-    const { Sandbox } = await import(/* @vite-ignore */ vercelSandboxPackage);
+    const { Sandbox } = await import("@vercel/sandbox");
     return async (options: VercelSandboxCreateOptions) =>
-      await Sandbox.create(options);
+      await Sandbox.create(
+        options as Parameters<typeof Sandbox.create>[0],
+      ) as unknown as VercelSandboxInstance;
   } catch (error) {
     throw sandboxErrorDiagnostics.SANDBOX_R0142({ message: `[vitehub] The vercel Sandbox runtime requires @vercel/sandbox: ${error instanceof Error ? error.message : error}` });
   }
@@ -249,7 +253,8 @@ function createVercelSession(
   const startCommand = (options: Parameters<RuntimeSession["run"]>[0]) => {
     options.abortSignal?.throwIfAborted();
     return instance.runCommand({
-      args: ["-lc", options.command],
+      // Not a login shell: a profile, such as Debian's /etc/profile in a custom image, would set PATH again and drop `env.PATH`.
+      args: ["-c", options.command],
       cmd: "sh",
       cwd: options.workingDirectory ?? workspace,
       detached: true,

@@ -207,11 +207,14 @@ async function retryBusy<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-/** libSQL and better-sqlite3 set `code` to `SQLITE_BUSY`. Other drivers only say so in the message. */
+/**
+ * libSQL and better-sqlite3 set `code` to `SQLITE_BUSY`. Other drivers only say so in the message. Drizzle puts the
+ * driver error in `cause`.
+ */
 function isBusy(error: unknown): boolean {
   if (!(error instanceof Error)) return false
   const code: unknown = Reflect.get(error, "code")
-  return (typeof code === "string" && code.startsWith("SQLITE_BUSY")) || /SQLITE_BUSY|database is locked/i.test(error.message)
+  return (typeof code === "string" && code.startsWith("SQLITE_BUSY")) || /SQLITE_BUSY|database is locked/i.test(error.message) || isBusy(error.cause)
 }
 
 /** The parameter values that the lease statements pass. */
@@ -246,14 +249,11 @@ export function createSqlLeaseStore(client: LeaseSqlClient): LeaseStore {
 
   let ready: Promise<void> | undefined
   let sweptAt = 0
+  const tableExists = () => query(`select 1 from ${table} limit 0`, []).then(() => true, () => false)
   function ensureTable(): Promise<void> {
     ready ??= (async () => {
-      try {
-        // A table that exists needs no DDL. Postgres prints a notice for each `if not exists` that skips.
-        await query(`select 1 from ${table} limit 0`, [])
-        return
-      }
-      catch {}
+      // A table that exists needs no DDL. Postgres prints a notice for each `if not exists` that skips.
+      if (await tableExists()) return
       for (const statement of create) await query(statement, [])
     })()
     ready.catch(() => {
@@ -261,49 +261,63 @@ export function createSqlLeaseStore(client: LeaseSqlClient): LeaseStore {
     })
     return ready
   }
+  /**
+   * Runs one lease statement. A test reset can give the same client an empty database, so a statement that fails
+   * because the table is gone creates it again and runs once more. Every other failure throws.
+   */
+  async function run<T>(statement: () => Promise<T>): Promise<T> {
+    await ensureTable()
+    try {
+      return await statement()
+    }
+    catch (error) {
+      if (await tableExists()) throw error
+      ready = undefined
+      await ensureTable().catch(() => {
+        throw error
+      })
+      return await statement()
+    }
+  }
   const end = (value: unknown) => Number(value)
 
   return createLeaseStore({
     async acquire(key, id, owner, ttlMs) {
-      await ensureTable()
       if (Date.now() - sweptAt >= sweepIntervalMs) {
         sweptAt = Date.now()
-        await query(`delete from ${table} where expires_at <= ${now}`, [])
+        await run(() => query(`delete from ${table} where expires_at <= ${now}`, []))
       }
       // One statement: a free key inserts, an expired lease is replaced, and a live lease returns no row. A run again
       // after SQLITE_BUSY finds its own ID when the first run committed, and gets its lease back.
       // Compute the conflict expiry after locking the row: Postgres evaluates the proposed insert before the wait.
-      const [row] = await query(
+      const [row] = await run(() => query(
         `insert into ${table} ("key", id, owner, expires_at) values (?, ?, ?, ${now} + cast(? as bigint))
          on conflict ("key") do update set id = excluded.id, owner = excluded.owner, expires_at = ${now} + cast(? as bigint)
          where ${table}.expires_at <= ${now} or ${table}.id = excluded.id
          returning id, expires_at`,
         [key, id, owner ?? null, ttlMs, ttlMs],
-      )
+      ))
       return row?.id === id ? end(row.expires_at) : undefined
     },
     async renew(key, id, ttlMs) {
-      await ensureTable()
       // Postgres can project an UPDATE's expiry before waiting on its row lock. FOR UPDATE keeps the CTE from
       // being inlined and locks the matching holder before the outer UPDATE evaluates the Database clock.
-      const [row] = client.dialect === "postgresql"
-        ? await query(
+      const [row] = await run(() => client.dialect === "postgresql"
+        ? query(
             `with held as (select "key", id from ${table} where "key" = ? and id = ? for update)
              update ${table} set expires_at = ${now} + cast(? as bigint) from held
              where ${table}."key" = held."key" and ${table}.id = held.id returning ${table}.expires_at`,
             [key, id, ttlMs],
           )
-        : await query(`update ${table} set expires_at = ${now} + cast(? as bigint) where "key" = ? and id = ? returning expires_at`, [ttlMs, key, id])
+        : query(`update ${table} set expires_at = ${now} + cast(? as bigint) where "key" = ? and id = ? returning expires_at`, [ttlMs, key, id]))
       return row ? end(row.expires_at) : undefined
     },
     async release(key, id) {
-      await ensureTable()
-      const rows = await query(`delete from ${table} where "key" = ? and id = ? returning id`, [key, id])
+      const rows = await run(() => query(`delete from ${table} where "key" = ? and id = ? returning id`, [key, id]))
       return rows.length > 0
     },
     async get(key) {
-      await ensureTable()
-      const [row] = await query(`select id, owner, expires_at from ${table} where "key" = ? and expires_at > ${now}`, [key])
+      const [row] = await run(() => query(`select id, owner, expires_at from ${table} where "key" = ? and expires_at > ${now}`, [key]))
       if (!row) return undefined
       return { id: String(row.id), ...(typeof row.owner === "string" ? { owner: row.owner } : {}), expiresAt: end(row.expires_at) }
     },

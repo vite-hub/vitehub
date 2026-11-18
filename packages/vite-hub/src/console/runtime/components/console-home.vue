@@ -9,19 +9,21 @@ import type { ConsoleSectionId } from "../sections";
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
 import type { ConsoleNavigation } from "../client/sections";
 import { consoleSectionDetails, groupConsoleSections } from "../sections";
+import { consoleAddablePrimitives, openConsoleAddPrimitive } from "../client/add-primitive";
 import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import { recentTimestamp } from "../client/format";
 import { accountAppStatusLabels } from "../client/account";
 import { useConsoleApp } from "../client/app-identity";
+import { consoleCompareUrl } from "../client/project-link";
 import { useConsoleProjects } from "../client/project-session";
-import { consoleAddPrimitiveOpen } from "../client/sidebar";
 import ConsoleMark from "./console-mark.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
 import ConsoleState from "./console-state.vue";
+import Icon from "./console-icon.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 const props = defineProps<{
@@ -84,6 +86,7 @@ const sectionCards = computed(() =>
 const agentsEnabled = computed(() => sections.value.includes("agents"));
 // The build that serves the app, from `project.get`. A development server has none.
 const build = computed(() => projects.info.value?.build);
+const compareUrl = computed(() => consoleCompareUrl(build.value));
 const siteUrl = computed(() => projects.current.value?.url ? `${projects.current.value.url.replace(/\/+$/, "")}/` : undefined);
 const sessionItems = computed(() =>
   recentSessions.items.value.slice(0, 5).map((item) => ({
@@ -95,10 +98,8 @@ const sessionItems = computed(() =>
     time: recentTimestamp(item.updatedAt, sessionsLoadedAt.value),
   })),
 );
-/** The Add a primitive dialog of the sidebar. */
-function openAddPrimitive(): void {
-  consoleAddPrimitiveOpen.value = true;
-}
+/** The primitives that the Add a primitive dialog offers. With none left, the Overview hides its button. */
+const addablePrimitives = computed(() => consoleAddablePrimitives(sections.value));
 
 async function loadRecentSessions(): Promise<void> {
   sessionsLoadedAt.value = Date.now();
@@ -241,7 +242,7 @@ onBeforeUnmount(() => {
               <section v-else-if="!availableSections.length" class="grid justify-items-start gap-1 rounded-lg border border-default p-4" aria-labelledby="console-home-start">
                 <h2 id="console-home-start" class="text-sm font-medium text-highlighted">Add your first primitive</h2>
                 <p class="max-w-md text-sm text-pretty text-muted">No primitive in this app has a Console page yet.</p>
-                <UButton class="mt-3" icon="i-lucide-plus" label="Add a primitive" @click="openAddPrimitive" />
+                <UButton class="mt-3" icon="i-lucide-plus" label="Add a primitive" @click="openConsoleAddPrimitive()" />
               </section>
               <section v-else aria-label="Primitives" class="vitehub-overview__cards">
                 <RouterLink
@@ -269,7 +270,7 @@ onBeforeUnmount(() => {
                   </li>
                   <template v-else>
                     <li v-if="build" class="vitehub-console__overview-row">
-                      <UIcon name="i-lucide-rocket" class="vitehub-console__overview-icon" />
+                      <Icon name="i-lucide-rocket" class="vitehub-console__overview-icon" />
                       <span class="flex min-w-0 flex-1 items-center gap-1.5">
                         <span class="shrink-0 font-medium text-highlighted">{{ build.commit?.author ?? "Someone" }}</span>
                         <span class="shrink-0 text-muted">deployed</span>
@@ -279,7 +280,7 @@ onBeforeUnmount(() => {
                       <span class="vitehub-console__overview-meta"><ConsoleRelativeTime :value="build.time" /></span>
                     </li>
                     <li v-if="agentsEnabled && recentSessions.error.value" class="vitehub-console__overview-row">
-                      <UIcon name="i-lucide-cloud-off" class="vitehub-console__overview-icon" />
+                      <Icon name="i-lucide-cloud-off" class="vitehub-console__overview-icon" />
                       <span class="vitehub-console__overview-description">Could not load recent sessions.</span>
                       <UButton class="ms-auto" variant="ghost" size="xs" label="Try again" @click="loadRecentSessions" />
                     </li>
@@ -303,12 +304,12 @@ onBeforeUnmount(() => {
                       </button>
                     </li>
                     <li v-if="!build && !sessionItems.length && !recentSessions.error.value" class="vitehub-console__overview-row text-muted">
-                      <UIcon name="i-lucide-activity" class="vitehub-console__overview-icon" />
+                      <Icon name="i-lucide-activity" class="vitehub-console__overview-icon" />
                       <span class="vitehub-console__overview-description">No activity yet. Deploys and Agent sessions show here.</span>
                     </li>
                     <li v-if="sessionItems.length">
                       <button type="button" class="vitehub-console__overview-row text-muted" data-focus-inset @click="openSection(consoleSectionDetails.agents.routeName)">
-                        <UIcon name="i-lucide-arrow-right" class="vitehub-console__overview-icon" />
+                        <Icon name="i-lucide-arrow-right" class="vitehub-console__overview-icon" />
                         <span>View all sessions</span>
                       </button>
                     </li>
@@ -321,7 +322,7 @@ onBeforeUnmount(() => {
             <aside class="vitehub-overview__details" aria-label="App details">
               <ul>
                 <li v-if="app.host" class="vitehub-overview__detail">
-                  <UIcon name="i-lucide-globe" class="vitehub-overview__detail-icon" />
+                  <Icon name="i-lucide-globe" class="vitehub-overview__detail-icon" />
                   <span class="min-w-0 flex-1 truncate"><a :href="siteUrl" target="_blank" rel="noreferrer" class="hover:underline">{{ app.host }}</a></span>
                   <span class="vitehub-overview__detail-key">Domain</span>
                 </li>
@@ -336,15 +337,26 @@ onBeforeUnmount(() => {
                   <span class="vitehub-overview__detail-key">ViteHub</span>
                 </li>
                 <li v-if="build?.commit" class="vitehub-overview__detail">
-                  <UIcon name="i-lucide-git-branch" class="vitehub-overview__detail-icon" />
+                  <Icon name="i-lucide-git-branch" class="vitehub-overview__detail-icon" />
                   <span class="flex min-w-0 flex-1 items-center gap-1.5 font-mono text-xs">
                     <span v-if="build.commit.branch" class="truncate">{{ build.commit.branch }}</span>
                     <span class="shrink-0 text-muted">{{ build.commit.sha.slice(0, 7) }}</span>
                   </span>
+                  <UButton
+                    v-if="compareUrl"
+                    icon="i-lucide-git-compare-arrows"
+                    label="Compare"
+                    :to="compareUrl"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    variant="ghost"
+                    size="xs"
+                    title="Compare the live commit with the default branch on GitHub"
+                  />
                   <span class="vitehub-overview__detail-key">Source</span>
                 </li>
                 <li v-if="build" class="vitehub-overview__detail">
-                  <UIcon name="i-lucide-rocket" class="vitehub-overview__detail-icon" />
+                  <Icon name="i-lucide-rocket" class="vitehub-overview__detail-icon" />
                   <span class="flex min-w-0 flex-1 items-center gap-1">
                     <ConsoleRelativeTime :value="build.time" class="shrink-0" />
                     <span v-if="build.commit?.author" class="truncate text-muted">by {{ build.commit.author }}</span>
@@ -352,10 +364,10 @@ onBeforeUnmount(() => {
                   <span class="vitehub-overview__detail-key">Deployed</span>
                 </li>
               </ul>
-              <button type="button" class="vitehub-overview__detail vitehub-overview__add" @click="openAddPrimitive">
-                <UIcon name="i-lucide-plus" class="vitehub-overview__detail-icon" />
+              <button v-if="addablePrimitives.length" type="button" class="vitehub-overview__detail vitehub-overview__add" @click="openConsoleAddPrimitive()">
+                <Icon name="i-lucide-plus" class="vitehub-overview__detail-icon" />
                 <span class="flex-1 text-start">Add a primitive</span>
-                <UIcon name="i-lucide-chevron-right" class="size-3.5" />
+                <Icon name="i-lucide-chevron-right" class="size-3.5" />
               </button>
             </aside>
           </div>
@@ -385,7 +397,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-overview__card {
-  border: 1px solid var(--ui-border);
+  border: 1px solid var(--border);
   border-radius: 0.5rem;
   display: flex;
   flex-direction: column;
@@ -395,12 +407,12 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-overview__card:hover {
-  background: var(--ui-bg-elevated);
+  background: var(--muted);
   border-color: var(--ui-border-accented);
 }
 
 .vitehub-overview__details {
-  border: 1px solid var(--ui-border);
+  border: 1px solid var(--border);
   border-radius: 0.5rem;
   font-size: 0.8125rem;
   overflow: hidden;
@@ -418,7 +430,7 @@ onBeforeUnmount(() => {
 
 .vitehub-overview__detail-icon {
   align-items: center;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: inline-flex;
   flex: none;
   height: 1rem;
@@ -433,20 +445,20 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-overview__add {
-  border-top: 1px solid var(--ui-border);
-  color: var(--ui-text-muted);
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
   cursor: pointer;
   margin-top: 0.25rem;
   transition: background-color 150ms ease, color 150ms ease;
 }
 
 .vitehub-overview__add:hover {
-  background: var(--ui-bg-elevated);
-  color: var(--ui-text-highlighted);
+  background: var(--muted);
+  color: var(--foreground);
 }
 
 .vitehub-console__overview-mark {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
 }
 
 /* Rows reach past the text edge, so the hover tint has room and the icons still line up with the heading. */
@@ -483,13 +495,13 @@ onBeforeUnmount(() => {
 
 @media (hover: hover) {
   .vitehub-console__overview-row:is(button, a):not(:disabled):hover {
-    background: var(--ui-bg-elevated);
+    background: var(--muted);
   }
 }
 
 .vitehub-console__overview-icon {
   align-items: center;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: inline-flex;
   flex: none;
   height: 1rem;
@@ -499,7 +511,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__overview-name {
-  color: var(--ui-text-highlighted);
+  color: var(--foreground);
   flex: none;
   font-weight: 500;
   max-width: 45%;
@@ -509,7 +521,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__overview-description {
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -519,7 +531,7 @@ onBeforeUnmount(() => {
 
 .vitehub-console__overview-meta {
   align-items: center;
-  color: var(--ui-text-muted);
+  color: var(--muted-foreground);
   display: inline-flex;
   flex: none;
   font-size: 0.75rem;

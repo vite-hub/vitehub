@@ -206,7 +206,7 @@ describe("content preview", { timeout: 30_000 }, () => {
         event.res.headers.set("cache-control", "s-maxage=60")
         return { bypass: shouldBypassCache(), title: (await posts.get("hello"))?.data.title }
       })
-      .get("/posts", defineCollectionHandler(posts))
+      .get("/posts", defineCollectionHandler({ ...posts, access: "public" }))
       .all("/api/content/**", defineContentHandler(content))
     // The shape of a Nitro 3 app: plugins may replace the fetch entry before presets read it.
     const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
@@ -291,7 +291,7 @@ describe("content preview", { timeout: 30_000 }, () => {
     const nitroApp = { h3App: { handler } }
 
     for (const host of [content, load]) {
-      expect(() => defineContentPreviewPlugin(host)(nitroApp)).toThrow(expect.objectContaining({ code: "CONTENT_R0008" }))
+      expect(() => defineContentPreviewPlugin(host)(nitroApp)).toThrow(expect.objectContaining({ code: "CONTENT_PREVIEW_NITRO_REQUIRED" }))
     }
     expect(load).not.toHaveBeenCalled()
     expect(handler).not.toHaveBeenCalled()
@@ -673,8 +673,8 @@ describe("content preview", { timeout: 30_000 }, () => {
     expect(disabled.headers.get("set-cookie")).toBe(`${contentPreviewCookieName}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict; Secure`)
     expect(await disabled.json()).toEqual({ setCookie: disabled.headers.get("set-cookie"), expiresAt: null })
 
-    await expect(content.preview.enable(new Request("https://site.test/"), { maxAge: 10 })).rejects.toMatchObject({ code: "CONTENT_R0008" })
-    await expect(content.preview.enable(new Request("https://site.test/"), { maxAge: 90_000 })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(content.preview.enable(new Request("https://site.test/"), { maxAge: 10 })).rejects.toMatchObject({ code: "CONTENT_PREVIEW_MAX_AGE_INVALID" })
+    await expect(content.preview.enable(new Request("https://site.test/"), { maxAge: 90_000 })).rejects.toMatchObject({ code: "CONTENT_PREVIEW_MAX_AGE_INVALID" })
   })
 
   it("fails closed in production without VITEHUB_CONTENT_KEY", async () => {
@@ -707,7 +707,7 @@ describe("content preview", { timeout: 30_000 }, () => {
   it("is unavailable without collections and leaves Source-only requests unchanged", async () => {
     const content = defineContent({ access: "public", source: { items: async () => [{ key: "index.md", content: "# Home" }] }, logger: false })
     cleanup.push(() => content.dispose())
-    await expect(content.preview.enable(new Request("https://site.test/"))).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    await expect(content.preview.enable(new Request("https://site.test/"))).rejects.toMatchObject({ code: "CONTENT_COLLECTIONS_UNDEFINED" })
     const request = new Request("https://site.test/", { headers: { cookie: `${contentPreviewCookieName}=v1.1.x` } })
     expect(await content.preview.run(request, () => content.preview.active())).toBe(false)
   })

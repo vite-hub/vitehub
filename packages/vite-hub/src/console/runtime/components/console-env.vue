@@ -5,8 +5,9 @@ import * as v from "valibot";
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 
 import { consoleEnvName, groupConsoleEnv } from "../client/env-groups";
-import { indexEnvStatuses } from "../client/env-status";
-import { requestConsole } from "../client/request";
+import { envStatusFix, indexEnvStatuses, parseEnvInspect } from "../client/env-status";
+import type { ConsoleEnvInspect, ConsoleEnvStatus } from "../client/env-status";
+import { ConsoleRequestError, requestConsole, requestConsoleOperation } from "../client/request";
 import { querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import { rememberConsoleSection } from "../sections";
 import ConsolePageHeader from "./console-page-header.vue";
@@ -14,11 +15,14 @@ import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleEnvDetails from "./console-env-details.vue";
 import ConsoleState from "./console-state.vue";
+import ConsoleCodeText from "./console-code-text.vue";
+import Icon from "./console-icon.vue";
 
 const descriptionSchema = v.object({
   entries: v.array(
     v.object({
       path: v.optional(v.string()),
+      names: v.optional(v.array(v.string())),
       source: v.picklist(["env", "literal", "provider"]),
       provider: v.optional(v.string()),
       secret: v.boolean(),
@@ -27,17 +31,7 @@ const descriptionSchema = v.object({
       type: v.optional(v.string()),
     }),
   ),
-  status: v.optional(
-    v.array(
-      v.object({
-        blocking: v.boolean(),
-        path: v.optional(v.string()),
-        status: v.picklist(["available", "defaulted", "error", "invalid", "missing"]),
-      }),
-    ),
-  ),
 });
-type EnvStatus = NonNullable<v.InferOutput<typeof descriptionSchema>["status"]>[number];
 const props = defineProps<{
   agentsBase: string;
   definitionsBase: string;
@@ -67,8 +61,12 @@ const selected = computed({
 });
 const loading = ref(true);
 const failed = ref<unknown>();
-// Status is loaded on request because inspection can call providers.
-const statuses = ref<ReadonlyMap<ServerEnvDescriptionEntry, EnvStatus>>();
+// The `env.inspect` operation of Env. It can call providers, so it runs when the page opens and on "Check status".
+const inspection = shallowRef<ConsoleEnvInspect>();
+const statuses = computed<ReadonlyMap<ServerEnvDescriptionEntry, ConsoleEnvStatus> | undefined>(() =>
+  inspection.value ? indexEnvStatuses(entries.value, inspection.value.entries) : undefined,
+);
+const fix = computed(() => (inspection.value ? envStatusFix(inspection.value) : undefined));
 const statusFailed = ref(false);
 // A status check can call providers, so the button shows progress and the toolbar shows when it finished.
 const checking = ref(false);
@@ -110,7 +108,7 @@ const summary = computed(() => {
   return secretCount.value ? `${total} · ${plural(secretCount.value, "secret")}` : total;
 });
 const blockingCount = computed(() => entries.value.filter((entry) => statuses.value?.get(entry)?.blocking).length);
-const statusLabels: Record<EnvStatus["status"], string> = {
+const statusLabels: Record<ConsoleEnvStatus["status"], string> = {
   available: "Available",
   defaulted: "Default",
   error: "Provider error",
@@ -128,43 +126,39 @@ function status(entry: ServerEnvDescriptionEntry) {
     tone: value.blocking ? "error" : value.status === "available" ? "success" : "neutral",
   } as const;
 }
-async function refresh(includeStatus = false) {
+/** Loads the declarations and, with `env.inspect`, the status of each value. */
+async function refresh() {
   request?.abort();
   const current = new AbortController();
   request = current;
   loading.value = true;
-  checking.value = includeStatus;
+  checking.value = true;
   failed.value = undefined;
   statusFailed.value = false;
   statusUnavailable.value = false;
+  const status: Promise<{ value: ConsoleEnvInspect } | { error: unknown }> = requestConsoleOperation("env.inspect", {}, { signal: current.signal })
+    .then((value) => ({ value: parseEnvInspect(value) }))
+    .catch((error: unknown) => ({ error }));
   try {
-    const result = v.parse(
-      descriptionSchema,
-      await requestConsole(props.envBase, {
-        query: includeStatus ? { status: 1 } : undefined,
-        signal: current.signal,
-      }),
-    );
+    const result = v.parse(descriptionSchema, await requestConsole(props.envBase, { signal: current.signal }));
     if (current.signal.aborted) return;
     entries.value = result.entries;
-    statuses.value = result.status
-      ? indexEnvStatuses(result.entries, result.status)
-      : undefined;
-    if (includeStatus) {
-      checkedAt.value = new Date();
-      statusUnavailable.value = !result.status;
+    const answer = await status;
+    if (current.signal.aborted) return;
+    checkedAt.value = new Date();
+    if ("value" in answer) inspection.value = answer.value;
+    else {
+      inspection.value = undefined;
+      // An app that runs an older vite-hub answers that the operation does not exist.
+      if (answer.error instanceof ConsoleRequestError && answer.error.status === 404) statusUnavailable.value = true;
+      else statusFailed.value = true;
     }
     if (!blockingCount.value) attentionOnly.value = false;
     if (!sourceItems.value.some((item) => item.value === source.value)) source.value = "all";
     if (undisclosed.value && !entries.value.includes(undisclosed.value)) undisclosed.value = undefined;
   } catch (cause) {
     if (current.signal.aborted) return;
-    if (includeStatus && entries.value.length) {
-      statuses.value = undefined;
-      attentionOnly.value = false;
-      statusFailed.value = true;
-    }
-    else failed.value = cause;
+    failed.value = cause;
   } finally {
     if (!current.signal.aborted) {
       loading.value = false;
@@ -175,7 +169,7 @@ async function refresh(includeStatus = false) {
 const checkedTime = computed(() => checkedAt.value?.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" }));
 onMounted(() => {
   rememberConsoleSection("env");
-  void refresh(false);
+  void refresh();
 });
 onBeforeUnmount(() => request?.abort());
 </script>
@@ -197,17 +191,8 @@ onBeforeUnmount(() => request?.abort());
             variant="ghost"
             :loading="checking"
             :disabled="loading"
-            @click="refresh(true)"
+            @click="refresh()"
           />
-          <UTooltip text="Refresh declarations">
-            <UButton
-              aria-label="Refresh declarations"
-              icon="i-lucide-refresh-cw"
-              variant="ghost"
-              :disabled="loading"
-              @click="refresh()"
-            />
-          </UTooltip>
         </template>
       </ConsolePageHeader>
       <ConsolePageToolbar v-if="entries.length" width="page">
@@ -227,7 +212,7 @@ onBeforeUnmount(() => request?.abort());
         />
         <div class="ms-auto flex items-center gap-3 text-xs text-muted tabular-nums" aria-live="polite">
           <span v-if="statusFailed" role="alert" class="text-error">Could not check status. Try again.</span>
-          <span v-else-if="statusUnavailable">This host cannot check status.</span>
+          <span v-else-if="statusUnavailable">This app cannot check status. Update vite-hub.</span>
           <!-- An on and off filter, not a view switch, so it stays a pressed button. -->
           <UButton
             v-else-if="statuses && blockingCount"
@@ -267,6 +252,9 @@ onBeforeUnmount(() => request?.abort());
           :description="attentionOnly && !search.trim() ? 'No values match the filters.' : `No variables match “${search.trim() || source}”.`"
         />
         <main v-else class="vitehub-console-page grid gap-6">
+          <UAlert v-if="fix" role="alert" color="error" variant="subtle" icon="i-lucide-circle-alert" :title="fix.title">
+            <template #description><p class="text-pretty"><ConsoleCodeText :text="fix.description" /></p></template>
+          </UAlert>
           <section
             v-for="group in groups"
             :key="group.name ?? '(undisclosed)'"
@@ -294,19 +282,25 @@ onBeforeUnmount(() => request?.abort());
                       ><span class="text-dimmed">{{ row.parent }}</span><span class="text-highlighted">{{ row.name }}</span></span
                     >
                     <span v-else class="truncate text-[13px] text-muted">Undisclosed name</span>
+                    <span v-if="row.entry.required" class="hidden shrink-0 text-xs text-muted sm:inline">Required</span>
                     <span v-if="row.entry.secret" class="inline-flex shrink-0 items-center gap-1 text-xs text-muted">
-                      <UIcon name="i-lucide-lock" class="size-3" aria-hidden="true" />Secret
+                      <Icon name="i-lucide-lock" class="size-3" aria-hidden="true" />Secret
                     </span>
                   </span>
                   <span class="flex items-center gap-4 text-xs">
                     <Status v-if="status(row.entry)" class="w-28" v-bind="status(row.entry)" />
-                    <span
-                      class="hidden w-24 truncate text-end font-mono text-dimmed md:block"
-                      :title="row.entry.type"
-                      >{{ row.entry.type }}</span
-                    >
+                    <span class="hidden w-24 truncate text-end font-mono text-dimmed md:block" :title="row.entry.type">{{ row.entry.type }}</span>
                     <span class="hidden w-36 truncate text-muted sm:block">{{ sourceLabel(row.entry) }}</span>
-                    <UIcon name="i-lucide-chevron-right" class="size-3.5 text-dimmed group-hover:text-muted" aria-hidden="true" />
+                    <Icon name="i-lucide-chevron-right" class="size-3.5 text-dimmed group-hover:text-muted" aria-hidden="true" />
+                  </span>
+                  <!-- The host variable names in read order. The name that supplied the value is highlighted. -->
+                  <span v-if="row.entry.names?.length" class="col-span-2 flex min-w-0 flex-wrap gap-x-2 font-mono text-xs text-dimmed">
+                    <span
+                      v-for="name in row.entry.names"
+                      :key="name"
+                      :class="statuses?.get(row.entry)?.name === name ? 'text-highlighted' : undefined"
+                      :title="statuses?.get(row.entry)?.name === name ? `${name} supplied the value` : undefined"
+                    >{{ name }}</span>
                   </span>
                 </button>
               </li>
@@ -322,7 +316,7 @@ onBeforeUnmount(() => request?.abort());
       :ui="{ title: 'font-mono text-sm', description: 'sr-only' }"
     >
       <template #body
-        ><ConsoleEnvDetails v-if="selected" :entry="selected" :status="selected && status(selected)"
+        ><ConsoleEnvDetails v-if="selected" :entry="selected" :status="selected && status(selected)" :supplied-by="selected && statuses?.get(selected)?.name"
       /></template>
     </USlideover>
 </template>

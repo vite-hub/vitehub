@@ -9,11 +9,11 @@ export interface WorkflowDurabilityInput {
   /** OpenWorkflow uses the Postgres Default Database after the explicit storage and its environment variables. */
   defaultDatabase?: boolean
   postgresUrl?: WorkflowRuntimeConfigValue
-  provider: string
+  driver: string
   sqlitePath?: WorkflowRuntimeConfigValue
 }
 
-const sqliteFix = "Set OPENWORKFLOW_POSTGRES_URL or DATABASE_URL to a Postgres URL, or set `workflow.postgres.url`."
+const sqliteFix = "Set OPENWORKFLOW_POSTGRES_URL to a Postgres URL, or set `workflow.postgres.url`."
 
 function sqlite(path: string): Durability[] {
   return [{ primitive: "workflow", store: "openworkflow-sqlite", scope: "host", reason: `Runs in the SQLite file ${path} on this host.`, fix: sqliteFix }]
@@ -25,21 +25,21 @@ function postgres(source: string): Durability[] {
 
 /**
  * The durability of Workflow runs. It follows the storage order of the OpenWorkflow runtime: the SQLite path, then
- * `OPENWORKFLOW_SQLITE_PATH`, then the Postgres URL, `OPENWORKFLOW_POSTGRES_URL`, and `DATABASE_URL`, then the default
+ * `OPENWORKFLOW_SQLITE_PATH`, then the Postgres URL, `OPENWORKFLOW_POSTGRES_URL`, and the Postgres Default Database, then the default
  * SQLite file. The runtime and reporter share this selection.
  */
 export function workflowDurability(input: WorkflowDurabilityInput, context: DurabilityContext): Durability[] {
   const { env } = context
-  if (input.provider === "cloudflare") {
+  if (input.driver === "cloudflare") {
     return [{ primitive: "workflow", store: "cloudflare", scope: "shared", reason: "Cloudflare Workflows store each run." }]
   }
-  if (input.provider !== "openworkflow") {
+  if (input.driver !== "openworkflow") {
     return [{
       primitive: "workflow",
       store: "inline",
       scope: "process",
       reason: "Runs execute in the request process. A restart loses them.",
-      fix: "Set `workflow: { provider: \"openworkflow\" }` with a Postgres URL.",
+      fix: "Set `workflow: { driver: \"openworkflow\" }` with a Postgres URL.",
     }]
   }
   const storage = resolveOpenWorkflowStorage({

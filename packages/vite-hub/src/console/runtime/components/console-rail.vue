@@ -10,6 +10,7 @@ import { operationItems } from "../client/operation-view";
 import { showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { isConsoleSignInRequired, requestConsoleOperation } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
+import { openConsoleAddPrimitive } from "../client/add-primitive";
 import { closeConsoleSidebarDrawer, consoleAddPrimitiveOpen, openConsoleSearch } from "../client/sidebar";
 import { decodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
 import { consoleGoToKey, consoleOverviewShortcut, consoleSectionGroupLabels, consoleSectionShortcut, groupConsoleSections, resolveConsoleSectionGroup } from "../sections";
@@ -21,6 +22,8 @@ import ConsoleUserMenu from "./console-user-menu.vue";
 
 // Only an `account` Console shows it, so it loads with the Better Auth client.
 const ConsoleAccountMenu = defineAsyncComponent(() => import("./console-account-menu.vue"));
+// The dialog loads the first time it opens, and then stays mounted so it can animate out.
+const ConsoleAddPrimitive = defineAsyncComponent(() => import("./console-add-primitive.vue"));
 
 /**
  * The sidebar of an open app: the app tile, Overview, the app's sections in groups, and Add a primitive. It owns the
@@ -34,7 +37,11 @@ const props = defineProps<{
 
 const route = useRoute();
 const router = useRouter();
+// Successful navigation includes browser history and links outside the rail.
+watch(() => route.fullPath, closeConsoleSidebarDrawer);
 const navigation = shallowRef<ConsoleNavigation>();
+const addPrimitiveLoaded = ref(false);
+watch(consoleAddPrimitiveOpen, (open) => { if (open) addPrimitiveLoaded.value = true; });
 const navigationFailed = ref(false);
 // Loading again cannot help when the project refuses the signature, so the sidebar offers no retry then.
 const signedOut = ref(false);
@@ -57,6 +64,9 @@ const groups = computed(() =>
     items,
   })),
 );
+
+// Settings is a page of the app, not a section, so the route name marks it.
+const settingsOpen = computed(() => route.name === resolveConsoleRouteName(route.name, "vitehub-console-app-settings"));
 
 // The brand row leads to the apps of the team. An embedded Console has one app, so its home is the Overview.
 
@@ -84,7 +94,7 @@ function search(): void {
 
 function addPrimitive(): void {
   closeConsoleSidebarDrawer();
-  consoleAddPrimitiveOpen.value = true;
+  openConsoleAddPrimitive();
 }
 
 // The number of open threads of a section whose list has an `open` filter, such as Comments. The count reloads when
@@ -114,7 +124,7 @@ let goToStartedOutsideEditor = false;
 
 function editing(): boolean {
   const active = document.activeElement;
-  return active instanceof HTMLElement && (active.matches("input, textarea") || active.isContentEditable);
+  return active instanceof HTMLElement && (active.matches("input, textarea, select") || active.isContentEditable);
 }
 
 function trackGoToStart(event: KeyboardEvent): void {
@@ -185,7 +195,8 @@ onBeforeUnmount(() => {
       <ConsoleProjectSwitcher :app="app" />
     </template>
 
-    <ConsoleSidebarItem label="Overview" icon="i-lucide-gauge" :current="!active" :shortcut="consoleOverviewShortcut" @click="open('vitehub-console')" />
+    <ConsoleSidebarItem label="Overview" icon="i-lucide-gauge" :current="!active && !settingsOpen" :shortcut="consoleOverviewShortcut" @click="open('vitehub-console')" />
+    <ConsoleSidebarItem label="Settings" icon="i-lucide-settings" :current="settingsOpen" @click="open('vitehub-console-app-settings')" />
     <ConsoleSidebarItem v-if="setup" :label="setup.label" :current="active === 'setup'" :shortcut="setup.shortcut" @click="open(setup.routeName)">
       <template #icon><ConsoleSectionIcon :icon="setup.icon" /></template>
     </ConsoleSidebarItem>
@@ -214,6 +225,8 @@ onBeforeUnmount(() => {
     <div v-if="navigation" class="vitehub-sidebar__group">
       <ConsoleSidebarItem class="vitehub-sidebar__quiet" label="Add a primitive" icon="i-lucide-plus" @click="addPrimitive" />
     </div>
+
+    <ConsoleAddPrimitive v-if="addPrimitiveLoaded" :app-name="app.name" :navigation="navigation" />
 
     <template #footer>
       <!-- An `account` Console signs people in to itself, not to the app. -->

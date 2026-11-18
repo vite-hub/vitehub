@@ -1,7 +1,7 @@
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { ledgerUpgradeProblem, matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
+import { ledgerUpgradeProblem, ledgerUpgradeStatements, matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
 import { withoutNewTableDataLoss } from "../internal/migration-sql.ts"
 
 import type { LedgerMatch, LedgerRow } from "../internal/migration-ledger.ts"
@@ -88,15 +88,7 @@ async function readLedger(client: LibsqlMigrationClient, databases: readonly Sta
   if (problem) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: databases[0]!.name, problem })
   const hashes = ledgerHashes(rows, match.backfill)
   if (named) return { ...match, hashes, upgrade: [] }
-  return {
-    ...match,
-    hashes,
-    upgrade: [
-      `ALTER TABLE "${migrationsTable}" ADD COLUMN "name" text`,
-      `ALTER TABLE "${migrationsTable}" ADD COLUMN "applied_at" TEXT`,
-      ...match.backfill.map(({ column, name, value }) => ({ args: [name, value], sql: `UPDATE "${migrationsTable}" SET "name" = ?, "applied_at" = NULL WHERE "${column}" = ?` })),
-    ],
-  }
+  return { ...match, hashes, upgrade: ledgerUpgradeStatements(migrationsTable, match) }
 }
 
 type PendingEntry = { migration: StartMigration, name: string }
@@ -177,9 +169,10 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
   }
   const sqlitePlans = await planSqlite(databases.filter(database => database.dialect === "sqlite"), options)
   const postgres = databases.filter(database => database.dialect === "postgresql").map((database) => {
-    const client: unknown = Reflect.get(Object(database.db), "$client")
-    if (!isPostgresClient(client)) {
-      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: "Its client is not postgres.js." })
+    const value: unknown = Reflect.get(Object(database.db), "$client")
+    const client = isPostgresClient(value) ? value : isNodePostgresPool(value) ? toPostgresMigrationClient(value) : undefined
+    if (!client) {
+      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: "Its client is not postgres.js or a node-postgres Pool." })
     }
     return { client, database }
   })
@@ -226,12 +219,14 @@ export function ensureDatabaseMigrations(context: EnsureMigrationsContext, names
     const run = lastRun.then(() => context.load()).then(async (shipped) => {
       if (shipped.unsupported) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ problem: shipped.unsupported })
       const test = getViteHubTestMode()
+      // A container image is built once, so its operator accepts data loss for one start with this variable.
+      const allowDataLoss = shipped.allowDataLoss || process.env.VITEHUB_DATABASE_ALLOW_DATA_LOSS === "1"
       await migrateOnStart(missing.flatMap((name) => {
         const database = Object.hasOwn(shipped.databases, name) ? shipped.databases[name] : undefined
         if (database && "problem" in database) throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: name, problem: database.problem })
         if (!database?.migrations.length || (test && database.dialect === "sqlite")) return []
         return [{ db: context.databases[name]!.db, dialect: database.dialect, migrations: database.migrations, name }]
-      }), { allowDataLoss: shipped.allowDataLoss, backup: shipped.backup })
+      }), { allowDataLoss, backup: shipped.backup })
     })
     for (const name of missing) runs.set(name, run)
     lastRun = run.catch(() => {
@@ -346,6 +341,52 @@ function isPostgresClient(value: unknown): value is PostgresMigrationClient {
   return typeof value === "function"
     && typeof Reflect.get(value, "begin") === "function"
     && typeof Reflect.get(value, "unsafe") === "function"
+}
+
+/** The part of a node-postgres Pool, or of one of its clients, that migrations use. */
+interface NodePostgresQueryable {
+  query: (query: string, parameters?: Array<number | string>) => Promise<{ rows: Array<Record<string, unknown>> }>
+}
+
+interface NodePostgresPool extends NodePostgresQueryable {
+  connect: () => Promise<NodePostgresQueryable & { release: (error?: Error) => void }>
+}
+
+function isNodePostgresPool(value: unknown): value is NodePostgresPool {
+  return typeof value === "object" && value !== null
+    && typeof Reflect.get(value, "connect") === "function"
+    && typeof Reflect.get(value, "query") === "function"
+}
+
+function nodePostgresSql(queryable: NodePostgresQueryable): PostgresMigrationSql {
+  return { unsafe: async (query, parameters) => (await queryable.query(query, parameters)).rows }
+}
+
+/** Runs migrations on a node-postgres Pool: `begin()` takes one client of the pool and wraps the run in a transaction. */
+export function toPostgresMigrationClient(pool: NodePostgresPool): PostgresMigrationClient {
+  return {
+    ...nodePostgresSql(pool),
+    begin: async (run) => {
+      const client = await pool.connect()
+      let failure: Error | undefined
+      try {
+        await client.query("begin")
+        const result = await run(nodePostgresSql(client))
+        await client.query("commit")
+        return result
+      }
+      catch (error) {
+        await client.query("rollback").catch((rollbackError: unknown) => {
+          // A client that cannot roll back must not go back to the pool.
+          failure = rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError))
+        })
+        throw error
+      }
+      finally {
+        client.release(failure)
+      }
+    },
+  }
 }
 
 /**

@@ -38,7 +38,7 @@ const columnClass = {
     class="grid"
     :class="[
       columnClass[columns],
-      framed ? 'gap-px overflow-hidden rounded-lg border border-default bg-(--ui-border)' : size === 'lg' ? 'gap-x-6 gap-y-4' : 'gap-x-4 gap-y-2',
+      framed ? 'gap-px overflow-hidden rounded-lg border border-default bg-(--border)' : size === 'lg' ? 'gap-x-6 gap-y-4' : 'gap-x-4 gap-y-2',
     ]"
     :aria-label="label"
   >

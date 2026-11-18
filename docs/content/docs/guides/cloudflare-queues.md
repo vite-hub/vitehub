@@ -78,13 +78,13 @@ Cloudflare can deliver the same message twice. A handler that sends mail or char
 ### Send a job from a route
 
 ```ts [server/api/signup.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { sendQueue } from 'vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email?: unknown }>(event)
   if (typeof body?.email !== 'string' || !body.email.trim()) {
-    throw createError({ statusCode: 400, message: 'Send a non-empty email.' })
+    throw new HTTPError({ status: 400, message: 'Send a non-empty email.' })
   }
 
   const [error, result] = await sendQueue('welcome-email', { email: body.email.trim() }, {
@@ -176,8 +176,8 @@ Wrangler runs them through Miniflare. See Cloudflare's [Queues local development
 Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. The token must be allowed to create Queues and deploy Workers. Preview, then create the queues:
 
 ```bash [Terminal]
-pnpm vitehub provision run --provider cloudflare --dry-run
-pnpm vitehub provision run --provider cloudflare
+pnpm vitehub provision run --host cloudflare --dry-run
+pnpm vitehub provision run --host cloudflare
 ```
 
 Build again and deploy with Nitro:
@@ -227,4 +227,4 @@ The queue file and route stay the same. To move to Vercel Queues:
 3. Remove `contentType` from `sendQueue()` calls. Vercel returns `QUEUE_UNSUPPORTED_OPTION` for it.
 4. Replace `onError` with `callbackOptions.retry`, which returns `{ acknowledge: true }`, `{ afterSeconds }`, or `undefined`. `concurrency` applies only to Cloudflare.
 
-See [Vercel Queues](/docs/guides/vercel-queues) for all steps. Self-hosted Node uses the local provider. Deno has no Queue Provider. See [Queue hosts](/docs/queue/hosts) and the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix).
+See [Vercel Queues](/docs/guides/vercel-queues) for all steps. Self-hosted Node uses the local driver. Deno has no Queue Provider. See [Queue hosts](/docs/queue/hosts) and the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix).

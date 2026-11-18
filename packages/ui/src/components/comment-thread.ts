@@ -10,7 +10,6 @@ import {
 import { mentionPlugin, mentionTag } from "../internal/comment-mentions.ts";
 import { displayName, writerName, writerPerson } from "../internal/comment-person.ts";
 import { messagesSinceResolved } from "../internal/comment-status.ts";
-import { timeAgo } from "../internal/format.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { type CommentCan, type CommentThreadAction, defaultCommentCan } from "../headless/comments.ts";
 import { ImagePreview } from "../internal/image-preview.ts";
@@ -19,6 +18,7 @@ import { AvatarStack } from "./avatar-stack.ts";
 import { CommentComposer, type CommentComposerSize, type CommentComposerSlots, type CommentComposerSubmit } from "./comment-composer.ts";
 import { Markdown } from "./markdown.ts";
 import { Marker, MarkerContent } from "./marker.ts";
+import { RelativeTime } from "./relative-time.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
 import { useViteHubUIIcons } from "../config.ts";
 
@@ -235,11 +235,7 @@ export const CommentReply = defineComponent({
             h("div", { "data-slot": "comment-reply-header" }, [
               h(AvatarStack, { "aria-hidden": "true", people: [writerPerson(message)], size: "sm" }),
               h("span", { "data-agent": message.actor ? "true" : undefined, "data-slot": "comment-reply-author" }, writerName(message)),
-              h(
-                "time",
-                { "data-slot": "comment-reply-time", datetime: new Date(message.createdAt).toISOString(), title: new Date(message.createdAt).toLocaleString() },
-                timeAgo(message.createdAt),
-              ),
+              h(RelativeTime, { at: message.createdAt, "data-slot": "comment-reply-time" }),
               message.editedAt ? h("span", { "data-slot": "comment-reply-edited" }, "edited") : null,
             ]),
             editing.value

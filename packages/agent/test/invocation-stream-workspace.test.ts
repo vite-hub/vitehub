@@ -362,7 +362,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       driver: { run: () => "unused" },
       workspace: {
         mode: "write",
-        store: { provider: "github", repository: "onmax/bitacora-de-vida", root: "/" },
+        store: { driver: "github", repository: "onmax/bitacora-de-vida", root: "/" },
       },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
@@ -494,7 +494,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       driver: { run: () => "unused" },
       workspace: {
         mode: "write",
-        store: { provider: "github", repository: "onmax/bitacora-de-vida", root: "/" },
+        store: { driver: "github", repository: "onmax/bitacora-de-vida", root: "/" },
       },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
@@ -668,6 +668,7 @@ describe("Agent Invocation Stream Channel replay", () => {
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const label = vi.fn()
     const history = defineCollection(async () => [{ id: "m1" }], {
+      route: false,
       cursor: (message: { id: string }) => message.id,
       cursorSchema: v.string(),
       querySchema: v.object({ folder: v.optional(v.string()) }),

@@ -4,13 +4,13 @@ const s3Peers = ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-pres
 
 export const filesSdkDriverPeers = {
   azure: ["@azure/identity", "@azure/storage-blob"],
-  "cloudflare-r2": s3Peers,
+  cloudflare: s3Peers,
   fs: [],
   gcs: ["@google-cloud/storage"],
   minio: s3Peers,
   "netlify-blobs": [],
   s3: s3Peers,
-  "vercel-blob": [],
+  vercel: [],
 } satisfies Record<BlobDriver, readonly string[]>
 
 export function getFilesSdkPeerInstall(driver: BlobDriver) {

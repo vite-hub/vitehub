@@ -93,7 +93,7 @@ it.each([
   const getItem = vi.fn(async (key: string) => ({ key, content: "original" }))
   const definition = {
     name: `metadata-facade-${crypto.randomUUID()}`,
-    store: { provider: "local" as const, root },
+    store: { driver: "local" as const, root },
     sources: {
       docs: {
         cache: { maxAge: 3600 },

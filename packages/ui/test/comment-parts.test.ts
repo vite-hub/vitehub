@@ -205,6 +205,20 @@ describe("composer mentions", () => {
     expect(wrapper.emitted("cancel")).toHaveLength(1);
   });
 
+  it("keeps the text unchanged while a send runs, and shows Send as loading", async () => {
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, busy: true, layout: "row", modelValue: "On its way" } }));
+    const field = wrapper.get("textarea");
+    expect(field.attributes("readonly")).toBeDefined();
+    expect(field.attributes("aria-busy")).toBe("true");
+    const send = wrapper.findAll("button").at(-1)!;
+    expect(send.attributes("disabled")).toBeDefined();
+    await field.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(wrapper.emitted("submit")).toBeUndefined();
+    await wrapper.setProps({ busy: false });
+    expect(wrapper.get("textarea").attributes("readonly")).toBeUndefined();
+  });
+
   it("keeps the text while Esc is held down", async () => {
     const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, modelValue: "Half a thought" } }));
     const field = wrapper.get("textarea");
@@ -383,6 +397,18 @@ describe("composer attachments", () => {
     expect(wrapper.emitted("submit")?.at(-1)).toEqual([{ body: "", files: [shot], mentions: [] }]);
   });
 
+  it("marks a picture as an image, so the box can draw it as a thumbnail, and keeps its name for a screen reader", async () => {
+    const wrapper = keep(mount(CommentComposer, { global, props: { autofocus: false, files: [shot, notes] } }));
+    await flushPromises();
+    const [picture, file] = wrapper.findAll("[data-slot=attachment]");
+    expect(picture!.get("[data-slot=attachment-media]").attributes("data-variant")).toBe("image");
+    expect(picture!.get("img").attributes("alt")).toBe("shot.png");
+    expect(picture!.get("[data-slot=attachment-title]").text()).toBe("shot.png");
+    expect(picture!.get("[data-slot=attachment-actions] button").attributes("aria-label")).toBe("Remove shot.png");
+    expect(file!.get("[data-slot=attachment-media]").attributes("data-variant")).toBe("icon");
+    expect(file!.get("[data-slot=attachment-title]").text()).toBe("notes.txt");
+  });
+
   it("has no file button when attachments is off, or while editing", () => {
     expect(keep(mount(CommentComposer, { global, props: { attachments: false, autofocus: false } })).find("input[type=file]").exists()).toBe(false);
     expect(keep(mount(CommentComposer, { global, props: { autofocus: false, variant: "edit" } })).find("input[type=file]").exists()).toBe(false);
@@ -522,6 +548,45 @@ describe("thread slots", () => {
 });
 
 describe("CommentPanel", () => {
+  it.each(["open", "resolved"] as const)("reveals %s panel selections without opening a page popover and preserves flashes on release", async (status) => {
+    const selected = client([thread(1, { status }), thread(2, { status })]);
+    let state!: ReturnType<typeof useComments>;
+    const visible = ref(true);
+    const selection = ref<string | null | undefined>(undefined);
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        state = useComments({ client: selected, subject: pricing, visibility: "hidden", hotkey: false });
+        return () => visible.value ? h(CommentPanel, { comments: state, status, thread: selection.value }) : null;
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(selected.status).toBe("ready"));
+    expect([...state.shown.value]).toEqual([]);
+    await wrapper.get('[data-thread-id="thread-1"]').trigger("click");
+    expect(state.isShown("thread-1")).toBe(true);
+    expect(state.openId.value).toBe(null);
+    expect(state.opened.value).toBeUndefined();
+    expect(state.visibility.value).toBe("hidden");
+    await wrapper.get("[aria-label='Back to comments']").trigger("click");
+    expect(state.isShown("thread-1")).toBe(false);
+    await wrapper.get('[data-thread-id="thread-1"]').trigger("click");
+    selection.value = "thread-2";
+    await flushPromises();
+    expect(state.isShown("thread-1")).toBe(false);
+    expect(state.isShown("thread-2")).toBe(true);
+    vi.useFakeTimers();
+    try {
+      state.flash("thread-2");
+      visible.value = false;
+      await flushPromises();
+      expect(state.isShown("thread-2")).toBe(true);
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(state.isShown("thread-2")).toBe(false);
+      expect(state.visibility.value).toBe("hidden");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each([false, true])("provides its explicit state to children with ancestor=%s", async (ancestor) => {
     const selected = client([thread(1, { messages: [message("m1", { body: "Hello @Ben Soto", mentions: ["ben"], author: ben })] })]);
     const wrapper = keep(mount(defineComponent({
@@ -1162,11 +1227,54 @@ describe("composer layout", () => {
     expect(box("row")).toBe("row");
   });
 
-  it("opens a new comment on the layer as a one-line bubble", async () => {
+  it("opens a new comment on the layer as a one-line bubble of the layer's size, framed by the bubble", async () => {
     const { state, wrapper } = await draftLayer();
     state.startDraft("page");
     await flushPromises();
-    expect(wrapper.get("[data-draft=true] > [data-slot=comment-layer-popover] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
+    expect(wrapper.get("[data-draft=true] > [data-slot=comment-layer-popover] > [data-slot=comment-composer]").attributes())
+      .toMatchObject({ "data-frame": "none", "data-layout": "row", "data-size": "sm" });
+  });
+
+  it("frames a box itself unless told that its parent does", () => {
+    const frame = (value?: "none") =>
+      keep(mount(CommentComposer, { global, props: { autofocus: false, frame: value } })).get("[data-slot=comment-composer]").attributes("data-frame");
+    expect(frame()).toBe("field");
+    expect(frame("none")).toBe("none");
+  });
+
+  it("moves attach and send under the text of a row box once it wraps, and back once it fits beside them", async () => {
+    // happy-dom has no layout. The field is 288px wide alone and 224px beside attach and send, a line is 21px, and a
+    // character is 10px wide.
+    const composerOf = (element: Element) => element.closest("[data-slot=comment-composer]");
+    const wide = (element: Element) => composerOf(element)?.getAttribute("data-multiline") === "true";
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute("data-slot") === "prompt-input-group" ? 288 : 0;
+    });
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+      if (this.getAttribute("data-slot") !== "prompt-input-textarea") return 0;
+      return wide(this) ? 288 : 224;
+    });
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+      if (!(this instanceof HTMLTextAreaElement)) return 0;
+      const width = this.style.maxWidth ? Number.parseFloat(this.style.maxWidth) : wide(this) ? 288 : 224;
+      return Math.max(1, Math.ceil((this.value.length * 10) / width)) * 21 + 7;
+    });
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, guard: false, layout: "row", size: "sm" } }));
+    Object.assign(wrapper.get("textarea").element.style, { lineHeight: "21px", paddingBottom: "3.5px", paddingTop: "3.5px" });
+    const multiline = async (length: number) => {
+      await wrapper.setProps({ modelValue: "a".repeat(length) });
+      return wrapper.get("[data-slot=comment-composer]").attributes("data-multiline") === "true";
+    };
+
+    expect(await multiline(20)).toBe(false);
+    expect(await multiline(25)).toBe(true);
+    // 240px fits the full width, but not beside the buttons, so the box keeps the text on its own row.
+    expect(await multiline(24)).toBe(true);
+    expect(await multiline(22)).toBe(false);
+    expect(await multiline(0)).toBe(false);
+    // A bordered box keeps its layout whatever the text.
+    await wrapper.setProps({ layout: "box", modelValue: "a".repeat(80) });
+    expect(wrapper.get("[data-slot=comment-composer]").attributes("data-multiline")).toBeUndefined();
   });
 
   it.each([

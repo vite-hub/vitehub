@@ -8,11 +8,11 @@ import { consoleDevAccessNotice } from "../src/console/dev-access-notice.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 
 describe("the startup line of a development Console without signed calls", () => {
-  it("says that a tunnel needs console.auth when the server listens on loopback", () => {
+  it("says that a tunnel needs console: true and a key when the server listens on loopback", () => {
     for (const address of ["127.0.0.1", "::1"]) {
       const notice = consoleDevAccessNotice("local", { address })
       expect(notice?.level, address).toBe("info")
-      expect(notice?.message).toContain("console.auth")
+      expect(notice?.message).toContain("Set console: true and a VITEHUB_CONSOLE_KEY_<NAME>")
       expect(notice?.message).toContain("tunnel")
     }
   })
@@ -22,12 +22,20 @@ describe("the startup line of a development Console without signed calls", () =>
       const notice = consoleDevAccessNotice("open", { address })
       expect(notice?.level, address).toBe("warn")
       expect(notice?.message).toContain(address)
-      expect(notice?.message).toContain("console.auth")
+      expect(notice?.message).toContain("Remove console.auth and set a VITEHUB_CONSOLE_KEY_<NAME>")
     }
   })
 
+  it("says that a tunnel needs a key when console: true has none yet", () => {
+    const notice = consoleDevAccessNotice("token", { address: "127.0.0.1" }, {})
+    expect(notice?.level).toBe("info")
+    expect(notice?.message).toContain("without a signature")
+    expect(notice?.message).toContain("VITEHUB_CONSOLE_KEY_<NAME>")
+    expect(consoleDevAccessNotice("token", { address: "0.0.0.0" }, { VITEHUB_CONSOLE_KEY_CI: "" })?.level).toBe("warn")
+  })
+
   it("says nothing for signed calls or a server without a TCP address", () => {
-    expect(consoleDevAccessNotice("token", { address: "0.0.0.0" })).toBeUndefined()
+    expect(consoleDevAccessNotice("token", { address: "0.0.0.0" }, { VITEHUB_CONSOLE_KEY_CI: "a".repeat(43) })).toBeUndefined()
     expect(consoleDevAccessNotice(undefined, { address: "0.0.0.0" })).toBeUndefined()
     expect(consoleDevAccessNotice("local", "/tmp/dev.sock")).toBeUndefined()
     expect(consoleDevAccessNotice("local", null)).toBeUndefined()
@@ -52,7 +60,6 @@ describe("the startup line of a development Console without signed calls", () =>
       http.emit("listening")
       expect(logger[level]).toHaveBeenCalledWith(expect.stringContaining("without a signature"))
       expect(logger[level]).toHaveBeenCalledWith(expect.stringContaining("console.auth"))
-      expect(logger[level]).not.toHaveBeenCalledWith(expect.stringContaining("console.vitehub.dev/open"))
     }
     finally {
       http.emit("close")

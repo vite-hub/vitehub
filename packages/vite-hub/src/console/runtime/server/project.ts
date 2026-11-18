@@ -3,9 +3,9 @@ import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { consoleOperations } from "./operations.ts"
 import { getConsoleBuild, getConsoleProjectName, getConsoleSections } from "./sections.ts"
 import { consoleState } from "../../internal.ts"
-import { version } from "../../../version.ts"
 
 import type { ConsoleAccess } from "./access.ts"
+import type { ConsoleSectionsResponse } from "./sections.get.ts"
 
 declare global {
   interface ImportMeta {
@@ -25,6 +25,8 @@ export interface ConsoleProjectBuild {
     /** The name of the commit author, without the email. */
     author?: string
     branch?: string
+    /** The github.com repository of the commit, as `owner/name`, so the Console can compare the commit with the default branch. */
+    repository?: string
   }
 }
 
@@ -44,10 +46,18 @@ export interface ConsoleProject {
   sections: string[]
   /** The installed operations that the caller may call. Each call checks its section again. */
   operations: string[]
+  /**
+   * What the Console page shows in its rail and Overview, the answer of `sections.list`, so the page opens the project
+   * with one call. The CLI and the ViteHub MCP do not get it.
+   */
+  navigation?: ConsoleSectionsResponse
 }
 
-/** Describe the project for one Console access. `console.authorize` limits the sections and the operations. */
-export async function readConsoleProject(access: ConsoleAccess): Promise<ConsoleProject> {
+/**
+ * Describe the project for one Console access. `console.authorize` limits the sections and the operations. With
+ * `navigation`, the answer also has the sections that the Console page shows.
+ */
+export async function readConsoleProject(access: ConsoleAccess, options: { navigation?: boolean } = {}): Promise<ConsoleProject> {
   const installed = getConsoleSections()
   const sections = allowedConsoleSections(access, installed)
   const operationSections = import.meta.viteHubConsoleOperationSections ?? installed
@@ -60,8 +70,9 @@ export async function readConsoleProject(access: ConsoleAccess): Promise<Console
     .map(operation => operation.name)
   const name = getConsoleProjectName()
   const build = getConsoleBuild()
+  const navigation = options.navigation ? await (await import("./sections.get.ts")).listConsoleSections(access) : undefined
   const comments = sections.includes("comments") ? await countOpenComments() : undefined
-  return { protocol: 1, ...(name ? { name } : {}), vitehub: version, ...(build ? { build } : {}), ...(comments ? { comments } : {}), sections, operations }
+  return { protocol: 1, ...(name ? { name } : {}), vitehub: consoleState().vitehub ?? "0.0.0", ...(build ? { build } : {}), ...(comments ? { comments } : {}), sections, operations, ...(navigation ? { navigation } : {}) }
 }
 
 /**

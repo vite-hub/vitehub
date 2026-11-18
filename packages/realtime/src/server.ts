@@ -1,6 +1,6 @@
 import { assertAuthOrigin } from "@vite-hub/auth/internal/server"
 import { isWorkspaceConflict, normalizeSafeWorkspacePath } from "@vite-hub/workspace/files"
-import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
+import { HTTPError, defineEventHandler, defineWebSocketHandler } from "nitro/h3"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
 import * as awarenessProtocol from "y-protocols/awareness"
@@ -214,11 +214,8 @@ function changesOnlyStatus(document: Y.Doc, transaction: Y.Transaction): boolean
 }
 
 /** A peer tried to write what it may not: a read-only connection, or the server-written status map. */
-export class RealtimeWriteRejected extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = "RealtimeWriteRejected"
-  }
+function isWriteRejected(error: unknown): error is Error {
+  return error instanceof Error && Reflect.get(error, "code") === "REALTIME_WRITE_REJECTED"
 }
 
 export interface RealtimeSyncOptions {
@@ -250,13 +247,13 @@ export function applyRealtimeSyncMessage(data: Uint8Array, document: Y.Doc, orig
     const before = Y.snapshot(candidate)
     apply(candidate)
     if (candidate.store.pendingStructs || candidate.store.pendingDs) {
-      throw new RealtimeWriteRejected("Realtime update depends on state this room does not have.")
+      throw realtimeErrorDiagnostics.REALTIME_WRITE_REJECTED({ problem: "missing-state" })
     }
     if (options.readOnly && !Y.equalSnapshots(before, Y.snapshot(candidate))) {
-      throw new RealtimeWriteRejected(typeof options.readOnly === "string" ? options.readOnly : "This realtime connection is read-only.")
+      throw realtimeErrorDiagnostics.REALTIME_WRITE_REJECTED({ problem: "read-only", ...(typeof options.readOnly === "string" ? { readOnly: options.readOnly } : {}) })
     }
     if (options.protectStatus !== false && realtimeStatusFingerprint(candidate) !== realtimeStatusFingerprint(document)) {
-      throw new RealtimeWriteRejected("Realtime document status is written by the server.")
+      throw realtimeErrorDiagnostics.REALTIME_WRITE_REJECTED({ problem: "status" })
     }
     if (Y.encodeStateAsUpdate(candidate).byteLength > (options.maxStateBytes ?? maxRoomStateBytes)) {
       throw realtimeErrorDiagnostics.REALTIME_DOCUMENT_TOO_LARGE()
@@ -537,23 +534,26 @@ function migrateLegacyDocument(sql: RealtimeRoomSql, key: string, clientUpdateCo
     const legacyUpdate = storedUpdate(row.update_blob)
     if (!legacyUpdate) continue
     const blob = Uint8Array.from(legacyUpdate).buffer
-    try {
-      if (!clientUpdateColumn) throw new Error("client_update column unavailable")
-      sql.exec(
-        "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob, client_update) VALUES (?, ?, 1)",
-        key,
-        blob,
-      )
+    if (clientUpdateColumn) {
+      try {
+        sql.exec(
+          "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob, client_update) VALUES (?, ?, 1)",
+          key,
+          blob,
+        )
+        continue
+      }
+      catch {
+        // Fall back to the two-column journal schema below.
+      }
     }
-    catch {
-      // Hosts that reject ALTER TABLE may still expose the intermediate
-      // two-column journal schema. Preserve those rows so the room can open.
-      sql.exec(
-        "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob) VALUES (?, ?)",
-        key,
-        blob,
-      )
-    }
+    // Hosts that reject ALTER TABLE may still expose the intermediate
+    // two-column journal schema. Preserve those rows so the room can open.
+    sql.exec(
+      "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob) VALUES (?, ?)",
+      key,
+      blob,
+    )
   }
 }
 
@@ -1182,8 +1182,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       try {
         if (await bus.writeRoom(key, record, record.epoch)) return
         console.error("[vitehub] Realtime room record compare-and-set failed.", key)
-        // Internal invariant: compare-and-set rejection is caught here and retried before the room save reports failure.
-        throw new Error("Realtime room record compare-and-set failed.")
+        // The loop retries it. After the last attempt, the room save reports it.
+        throw realtimeErrorDiagnostics.REALTIME_ROOM_WRITE_CONFLICT()
       }
       catch (error) { failure = error }
     }
@@ -2132,8 +2132,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       catch (error) {
         // The deletes of another editor version arrive on their own when it renders. Closing would make the browser
         // reconnect and send them again, so drop them and keep the connection open for live updates.
-        if (error instanceof RealtimeWriteRejected && otherEditor) return
-        if (error instanceof RealtimeWriteRejected) peer.close(realtimeForbiddenWriteCloseCode, error.message)
+        if (isWriteRejected(error) && otherEditor) return
+        if (isWriteRejected(error)) peer.close(realtimeForbiddenWriteCloseCode, error.message)
         else peer.close(4400, "Realtime document exceeds its 8 MiB room quota.")
       }
     }

@@ -3,7 +3,7 @@ import { createClient } from "@libsql/client"
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 import { drizzle } from "drizzle-orm/libsql"
 import { H3Event } from "h3"
-import { afterEach, beforeEach, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // Exercise the built Node transport without pulling its Vite helpers into Comments' DOM typecheck.
 import { createStandaloneOperationHandler } from "../../internal/dist/operations-dev.js"
@@ -183,12 +183,80 @@ it("lists page threads with comments.threads, with search, a page filter, and a 
   expect(await call("comments.threads", { search: "PRICE" })).toMatchObject({ ok: true, value: { threads: [{ comment: "The price is wrong.", id: pricing.id, page: "/pricing" }] } })
   expect(await call("comments.threads", { page: "/" })).toMatchObject({ ok: true, value: { threads: [{ id: home.id }] } })
   expect(await call("comments.threads", { limit: 1 })).toMatchObject({ ok: true, value: { threads: [{ id: home.id }] } })
-  expect(await call("comments.threads", { status: "resolved" })).toEqual({ ok: true, value: { status: "resolved", threads: [] } })
+  expect(await call("comments.threads", { status: "resolved" })).toEqual({ ok: true, value: { status: "resolved", threads: [], hidden: 0 } })
 
+  const text = threadsText(all)
+  expect(text).toBe([
+    `- #${home.n} ${home.id} / on the whole page, updated ${minute(home.updatedAt)}: Fix the logo. (Ana, 0 replies)`,
+    `- #${pricing.n} ${pricing.id} /pricing on the whole page, updated ${minute(pricing.updatedAt)}: The price is wrong. (Ana, 0 replies)`,
+    "",
+    "`authorize` hid 1 thread from this caller.",
+  ].join("\n"))
+})
+
+function minute(time: number): string {
+  return `${new Date(time).toISOString().slice(0, 16)}Z`
+}
+
+function threadsText(result: Awaited<ReturnType<typeof call>>): string {
   const format = registry.get("comments.threads")?.mcp
-  if (!format || !format.format) throw new TypeError("Expected the MCP format of comments.threads.")
-  const text = (format.format as (output: unknown) => string)(all.ok ? all.value : undefined)
-  expect(text).toBe(`- #${home.n} ${home.id} /: Fix the logo. (Ana, 0 replies)\n- #${pricing.n} ${pricing.id} /pricing: The price is wrong. (Ana, 0 replies)`)
+  if (!format || !format.format || !result.ok) throw new TypeError("Expected the MCP format of comments.threads and a result.")
+  return (format.format as (output: unknown) => string)(result.value)
+}
+
+it("filters comments.threads and comments.list by a full URL of the page, and rejects other text", async () => {
+  setup(defineComments({ authorize: () => true }))
+  const pricing = await create()
+  await create(member, { ...input, subject: { id: "/", kind: "page" } })
+  const url = "https://drop.vitehub.dev/pricing/?plan=pro#top"
+  expect(await call("comments.threads", { page: url })).toMatchObject({ ok: true, value: { threads: [{ id: pricing.id, page: "/pricing" }], hidden: 0 } })
+  expect(await call("comments.list", { page: "https://drop.vitehub.dev/pricing" })).toMatchObject({ ok: true, value: [{ id: pricing.id }] })
+  for (const page of ["pricing page", "//evil.example/pricing", "ftp://site.test/pricing"]) {
+    expect(await call("comments.threads", { page })).toMatchObject({ ok: false, status: 400 })
+  }
+})
+
+it("says how many threads authorize hid, and never answers \"No open threads.\" then", async () => {
+  setup(defineComments({ authorize: ({ action, thread }) => action !== "read" || !thread || thread.messages[0]?.body === "visible" }))
+  for (let index = 0; index < 3; index++) await create()
+  const listed = await call("comments.threads", {})
+  expect(listed).toEqual({ ok: true, value: { status: "open", threads: [], hidden: 3, note: "`authorize` hid 3 threads from this caller." } })
+  expect(threadsText(listed)).toBe("No open threads that this caller may read. `authorize` hid 3 threads from this caller.")
+
+  // Paging on from the last readable thread counts each hidden thread once.
+  const visible = await create(member, { ...input, body: "visible" })
+  for (let index = 0; index < 2; index++) await create()
+  expect(await call("comments.threads", { limit: 1 })).toMatchObject({ ok: true, value: { threads: [{ id: visible.id }], hidden: 2 } })
+  expect(await call("comments.threads", { search: "nothing" })).toMatchObject({ ok: true, value: { threads: [], hidden: 5 } })
+})
+
+it.each([true, false])("gives authorize console: true for comment operations (identify: %s)", async (withIdentify) => {
+  const seen: Array<boolean | undefined> = []
+  const comments = defineComments({
+    ...(withIdentify ? { identify: () => null } : {}),
+    authorize: ({ action, console, thread }) => {
+      if (thread) seen.push(console)
+      return action !== "read" || !thread || console === true
+    },
+  })
+  const store = createCommentsStore(drizzle({ client }))
+  installCommentsRuntime({ definition: comments.options, store, ...(withIdentify ? { identify: async () => null } : {}) })
+  const message = { attachments: [], author: member, body: "Review this page.", id: "message", mentions: [], now: 1 }
+  const thread = await store.createThread({ ...message, anchor: { kind: "page" }, scope: "site", subject: page, threadId: "thread" })
+  expect(await call("comments.threads", {}, null)).toMatchObject({ ok: true, value: { threads: [{ id: thread.id }], hidden: 0 } })
+  expect(await call("comments.list", {}, null)).toMatchObject({ ok: true, value: [{ id: thread.id }] })
+  expect(seen).toEqual([true, true])
+})
+
+it("explains that an identify app hides threads from Console calls until authorize allows console", async () => {
+  const comments = defineComments({ identify: () => null, authorize: ({ user }) => user !== null })
+  const store = createCommentsStore(drizzle({ client }))
+  installCommentsRuntime({ definition: comments.options, store, identify: async () => null })
+  const message = { attachments: [], author: member, body: "Review this page.", mentions: [], now: 1 }
+  for (const id of ["a", "b"]) await store.createThread({ ...message, id, anchor: { kind: "page" }, scope: "site", subject: page, threadId: id })
+  const listed = await call("comments.threads", {})
+  expect(listed).toMatchObject({ ok: true, value: { threads: [], hidden: 2 } })
+  expect(threadsText(listed)).toBe("No open threads that this caller may read. `authorize` hid 2 threads from this caller. With `identify`, a Console call has no app user: allow Console callers in `authorize` with `({ console }) => console`.")
 })
 
 it("passes custom user fields to policies without storing them in comments", async () => {
@@ -249,7 +317,7 @@ it("checks read access on the subject before creating a thread", async () => {
   const authorize = vi.fn(({ action }) => action !== "read")
   const store = setup(defineComments({ authorize }))
   expect(await call("comments.create", input)).toMatchObject({ ok: false, status: 403, code: "COMMENTS_R0009" })
-  expect(authorize).toHaveBeenCalledExactlyOnceWith({ action: "read", subject: page, user: member })
+  expect(authorize).toHaveBeenCalledExactlyOnceWith({ action: "read", console: true, subject: page, user: member })
   expect(await store.list({})).toEqual([])
 })
 
@@ -282,6 +350,72 @@ it("returns only the public session identity", async () => {
   setup(defineComments({ authorize: () => true }))
   const result = await call("comments.session", { subject: page }, { ...member, image: "/ana.png", secret: "private" })
   expect(result).toEqual({ ok: true, value: { canRead: true, canWrite: true, user: { id: member.id, name: member.name, image: "/ana.png" } } })
+})
+
+describe("guest rate limit", () => {
+  /** A guest's call from one address, as the Comments API or the operations RPC passes it. */
+  function asGuest(name: string, value: unknown, address = "203.0.113.9") {
+    const request = Object.assign(new Request("https://example.com/", { headers: { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" } }), { ip: address })
+    return runOperation(registry, name, value, { access: { mode: "auth", sections: "all" }, surface: "console", user: null, request })
+  }
+
+  it("refuses the write after the limit of a guest address with COMMENTS_GUEST_RATE_LIMITED", async () => {
+    setup(defineComments({ authorize: () => true, rateLimit: { limit: 2, window: "1m" } }))
+    const first = await asGuest("comments.create", input)
+    expect(first).toMatchObject({ ok: true })
+    if (!first.ok) throw new Error(first.message)
+    expect(await asGuest("comments.reply", { threadId: (first.value as CommentThread).id, body: "Again." })).toMatchObject({ ok: true })
+    expect(await asGuest("comments.create", input)).toMatchObject({ ok: false, status: 429, code: "COMMENTS_GUEST_RATE_LIMITED" })
+    // Another address has its own budget, and signed-in people are not limited.
+    expect(await asGuest("comments.create", input, "198.51.100.7")).toMatchObject({ ok: true })
+    for (let i = 0; i < 3; i++) await create()
+  })
+
+  it("does not count a guest write that the policy refuses", async () => {
+    setup(defineComments({ authorize: ({ user, action }) => action === "read" || user !== null, rateLimit: { limit: 1, window: "1m" } }))
+    expect(await asGuest("comments.create", input)).toMatchObject({ ok: false, status: 403 })
+    expect(await asGuest("comments.create", input)).toMatchObject({ ok: false, status: 403 })
+  })
+
+  it("counts guest writes in the shared Rate Limit under the name comments", async () => {
+    const calls: unknown[] = []
+    const store = createCommentsStore(drizzle({ client }))
+    installCommentsRuntime({
+      definition: defineComments({ authorize: () => true, rateLimit: { limit: 1, window: "1m" } }).options,
+      store,
+      rateLimit: async (_request, name, options) => {
+        calls.push([name, options])
+        return [undefined, calls.length <= options.limit ? { allowed: true } : { allowed: false, reason: "limited", retryAfter: 30 }]
+      },
+    })
+    expect(await asGuest("comments.create", input)).toMatchObject({ ok: true })
+    expect(await asGuest("comments.create", input)).toMatchObject({ ok: false, status: 429, code: "COMMENTS_GUEST_RATE_LIMITED" })
+    expect(calls[0]).toEqual(["comments", { key: "guest:203.0.113.9", limit: 1, window: "1m" }])
+  })
+
+  it("rejects a rateLimit that is not a budget", () => {
+    expect(() => defineComments({ rateLimit: { limit: 0, window: "1m" } })).toThrow(expect.objectContaining({ code: "COMMENTS_RATE_LIMIT_INVALID" }))
+    expect(() => defineComments({ rateLimit: { limit: 1, window: "0m" } })).toThrow(expect.objectContaining({ code: "COMMENTS_RATE_LIMIT_INVALID" }))
+    expect(() => defineComments({ rateLimit: { limit: 5, window: "a minute" } })).toThrow(expect.objectContaining({ code: "COMMENTS_RATE_LIMIT_INVALID" }))
+  })
+})
+
+it("preserves Console admission for author suggestions and mention writes", async () => {
+  setup(defineComments({ authorize: ({ console }) => console === true, canMention: () => true }))
+  await create(admin)
+  const thread = await create()
+  expect(await call("comments.users", { query: "Admin", threadId: thread.id })).toEqual({ ok: true, value: [{ id: admin.id, name: admin.name }] })
+  for (const operation of ["create", "reply", "edit"]) {
+    const target = operation === "create" ? input : { threadId: thread.id, ...(operation === "edit" ? { messageId: thread.messages[0]!.id } : {}) }
+    expect(await call(`comments.${operation}`, { ...target, body: "Hello @Admin", mentions: [admin.id] })).toMatchObject({ ok: true })
+  }
+})
+
+it("does not give mentioned recipients the writer's Console admission", async () => {
+  setup(defineComments({ authorize: ({ console }) => console === true }))
+  await create(admin)
+  expect(await call("comments.users", { query: "Admin" })).toEqual({ ok: true, value: [] })
+  expect(await call("comments.create", { ...input, body: "Hello @Admin", mentions: [admin.id] })).toMatchObject({ ok: false, code: "COMMENTS_R0007" })
 })
 
 it("checks read access before searching mention suggestions", async () => {

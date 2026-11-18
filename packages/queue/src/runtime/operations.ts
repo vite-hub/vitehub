@@ -7,11 +7,11 @@ import { dynamicQueue } from "./client.ts"
 
 import type { LocalQueueJob, LocalQueueJobDetail, LocalQueueStatus, QueueJobStore } from "../providers/local.ts"
 
-import type { LocalQueueRules, QueueEnqueueOptions, QueueProvider } from "../types.ts"
+import type { LocalQueueRules, QueueEnqueueOptions, QueueDriver } from "../types.ts"
 
 export interface QueueListResult {
   /** `undefined` when the runtime has not installed a Queue configuration. */
-  provider?: QueueProvider
+  provider?: QueueDriver
   /** The local provider only: the provider whose delivery rules the jobs follow. In `vite dev`, the provider of the build. */
   rules?: LocalQueueRules
   /**
@@ -51,7 +51,7 @@ export type { LocalQueueJob, LocalQueueJobDetail }
 
 export interface QueueSendOperationResult {
   messageId?: string
-  provider?: QueueProvider
+  provider?: QueueDriver
   queue: string
   status: "queued"
 }
@@ -63,54 +63,53 @@ export interface QueueSendOperationInput {
   queue: string
 }
 
-/** A failure with the fields that every surface reports. */
-class QueueOperationError extends Error {
-  constructor(message: string, readonly status: number, readonly code: string, readonly fix?: string) {
-    super(redactInspectionText(message))
-  }
-}
-
+/** The HTTP status that the CLI, the Console, and Agents report for each code of a failed operation. */
 const statuses: Readonly<Record<string, number>> = {
+  QUEUE_DEFINITION_NAME_INVALID: 400,
   QUEUE_DEFINITION_NOT_FOUND: 404,
   QUEUE_DISABLED: 409,
+  QUEUE_JOB_DUPLICATE: 409,
+  QUEUE_JOBS_UNAVAILABLE: 409,
+  QUEUE_JOB_NOT_FOUND: 404,
+  QUEUE_JOB_RUNNING: 409,
   QUEUE_PROVIDER_FAILED: 502,
   QUEUE_PROVIDER_INVALID_RESPONSE: 502,
   QUEUE_UNSUPPORTED_OPTION: 400,
 }
 
-/** Gives a Queue catalog error the status that the Console RPC reports. */
+/** Gives a Queue catalog error the status and the redacted message that the CLI and the Console report. */
 function failure(error: unknown): unknown {
   if (!isQueueError(error)) return error
-  return new QueueOperationError(error.message, statuses[error.code] ?? 500, error.code, error.fix)
+  return Object.assign(error, { status: statuses[error.code] ?? 500, statusMessage: redactInspectionText(error.message) })
 }
 
 export async function listQueues(): Promise<QueueListResult> {
   const config = getQueueRuntimeConfig()
   if (config === false) throw failure(queueErrorDiagnostics.QUEUE_DISABLED())
   const names = listQueueDefinitionNames()
-  if (config?.provider === "local" || config?.provider === "postgres") {
-    const status = config.provider === "postgres"
+  if (config?.driver === "local" || config?.driver === "postgres") {
+    const status = config.driver === "postgres"
       ? await (await getQueueRuntimeJobStore())?.status()
       : await (await import("../internal/runtime/local-client.ts")).getLocalQueueStatus(config)
     if (status) {
       const empty = { dead: 0, pending: 0, running: 0 }
       return {
-        provider: config.provider,
-        ...(config.provider === "local" && config.rules && config.rules !== "local" ? { rules: config.rules } : {}),
+        provider: config.driver,
+        ...(config.driver === "local" && config.rules && config.rules !== "local" ? { rules: config.rules } : {}),
         queues: names.map(name => ({ name, ...empty, ...status.queues[name] })),
         storage: { base: status.base, deadLimit: status.deadLimit, durability: status.durability },
       }
     }
   }
   return {
-    ...(config ? { provider: config.provider } : {}),
+    ...(config ? { provider: config.driver } : {}),
     queues: names.map(name => ({ name })),
   }
 }
 
 export async function sendToQueue(input: QueueSendOperationInput): Promise<QueueSendOperationResult> {
   const queue = normalizePublicQueueIdentifier(input.queue)
-  if (!queue) throw new QueueOperationError("The queue name is not a valid Queue Definition name.", 400, "QUEUE_INVALID_NAME", "Pass the name of a Queue Definition. `vitehub queue list` shows them.")
+  if (!queue) throw failure(queueErrorDiagnostics.QUEUE_DEFINITION_NAME_INVALID())
   const options: QueueEnqueueOptions = {
     ...(input.delaySeconds === undefined ? {} : { delaySeconds: input.delaySeconds }),
     ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
@@ -124,10 +123,10 @@ export async function sendToQueue(input: QueueSendOperationInput): Promise<Queue
   }
   const [error, sent] = result
   if (error) throw failure(error)
-  const provider = getQueueRuntimeConfig()
+  const config = getQueueRuntimeConfig()
   return {
     ...(sent?.messageId ? { messageId: sent.messageId } : {}),
-    ...(provider ? { provider: provider.provider } : {}),
+    ...(config ? { provider: config.driver } : {}),
     queue,
     status: "queued",
   }
@@ -140,17 +139,17 @@ export async function sendToQueue(input: QueueSendOperationInput): Promise<Queue
 async function localJobs(): Promise<QueueJobStore> {
   const config = getQueueRuntimeConfig()
   if (config === false) throw failure(queueErrorDiagnostics.QUEUE_DISABLED())
-  const store = config?.provider === "postgres"
+  const store = config?.driver === "postgres"
     ? await getQueueRuntimeJobStore()
     : config ? (await import("../internal/runtime/local-client.ts")).useLocalQueueEngine(config) : undefined
   if (!store) {
-    throw new QueueOperationError(`The ${config?.provider ?? "configured"} queue provider does not let the app read its jobs. Only the local and postgres providers store jobs that ViteHub can list.`, 409, "QUEUE_JOBS_UNAVAILABLE", "Run the app with `vite dev`, which runs every job in the dev server, or on a Node server with the local or postgres provider. Read hosted jobs in the Cloudflare or Vercel dashboard.")
+    throw failure(queueErrorDiagnostics.QUEUE_JOBS_UNAVAILABLE({ driver: config?.driver ?? "configured" }))
   }
   return store
 }
 
-function jobNotFound(): QueueOperationError {
-  return new QueueOperationError("No stored job has this message ID. The local and postgres providers delete a job when its handler succeeds.", 404, "QUEUE_JOB_NOT_FOUND", "Run `vitehub queue jobs list` for the IDs of the pending, running, and dead jobs.")
+function jobNotFound(): unknown {
+  return failure(queueErrorDiagnostics.QUEUE_JOB_NOT_FOUND())
 }
 
 export async function listQueueJobs(input: QueueJobsListInput): Promise<QueueJobsListResult> {
@@ -168,8 +167,8 @@ export async function showQueueJob(id: string): Promise<{ job: LocalQueueJobDeta
 export async function retryQueueJob(id: string): Promise<{ job: LocalQueueJob }> {
   const result = await (await localJobs()).retry(id)
   if (result === "missing") throw jobNotFound()
-  if (result === "running") throw new QueueOperationError("The job is running now.", 409, "QUEUE_JOB_RUNNING", "Wait for the attempt to end, then run `vitehub queue jobs show` for its state.")
-  if (result === "duplicate") throw new QueueOperationError("A newer pending or running job has the idempotency key of this dead job, so the dead job cannot run again.", 409, "QUEUE_JOB_DUPLICATE", "Wait for the newer job to end, or remove the dead job with `vitehub queue jobs clear --state dead`.")
+  if (result === "running") throw failure(queueErrorDiagnostics.QUEUE_JOB_RUNNING())
+  if (result === "duplicate") throw failure(queueErrorDiagnostics.QUEUE_JOB_DUPLICATE())
   return { job: result }
 }
 
