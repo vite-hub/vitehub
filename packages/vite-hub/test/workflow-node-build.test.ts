@@ -101,7 +101,7 @@ it("runs a discovered Workflow from only the deployed Node output", async () => 
     await expect(readFile(join(root, ".vitehub/workflow.d.ts"), "utf8")).resolves.toContain([
       `declare module "vite-hub/workflow" {`,
       `  interface WorkflowRegistry {`,
-      `    "onboard-user": typeof import("../server/workflows/onboard-user/index.ts").default`,
+      `    "onboard-user": typeof import("../server/workflows/onboard-user/index.ts") extends { default: infer TDefault } ? TDefault : unknown`,
       `  }`,
       `  interface WorkflowStepRegistry {`,
       `    "onboard-user": {`,
