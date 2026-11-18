@@ -173,15 +173,40 @@ export type WorkflowDuration = number | `${number} ${WorkflowDurationUnit}` | `$
  */
 export interface WorkflowStepRegistry {}
 
+/**
+ * The Workflow Definitions of the app, by name. ViteHub writes it to `.vitehub/workflow.d.ts` from the files in
+ * `server/workflows/`, so `startWorkflow()` checks the name and the payload.
+ */
+export interface WorkflowRegistry {}
+
+/** A Workflow name from `WorkflowRegistry`. Any string before ViteHub writes the registry. */
+export type WorkflowName = [keyof WorkflowRegistry] extends [never] ? string : Extract<keyof WorkflowRegistry, string>
+
+/** The payload type of the Workflow `TName`, from the `payload` that its handler reads. */
+export type WorkflowPayload<TName extends string> = TName extends keyof WorkflowRegistry
+  ? WorkflowRegistry[TName] extends { handler: (context: infer TContext) => unknown }
+    ? TContext extends { payload: infer TPayload } ? TPayload : unknown
+    : unknown
+  : unknown
+
 /** A step runs one input through its step file, inside a durable provider step. */
 export type WorkflowStep<TStep> = TStep extends (...args: infer TArguments) => infer TResult
   ? (...input: TArguments extends [] ? [] : TArguments extends [unknown, ...unknown[]] ? [input: TArguments[0]] : [input?: TArguments[0]]) => Promise<Awaited<TResult>>
   : never
 
-/** The step functions of the Workflow `TName`. Empty for a Workflow without step files. */
-export type WorkflowSteps<TName extends string = string> = TName extends keyof WorkflowStepRegistry
-  ? { readonly [TStep in keyof WorkflowStepRegistry[TName]]: WorkflowStep<WorkflowStepRegistry[TName][TStep]> }
-  : { readonly [TStep in never]: never }
+type WorkflowStepsOf<TName extends keyof WorkflowStepRegistry> = {
+  readonly [TStep in keyof WorkflowStepRegistry[TName]]: WorkflowStep<WorkflowStepRegistry[TName][TStep]>
+}
+
+/**
+ * The step functions of the folder Workflows. A definition does not name its Workflow, so `steps` has the steps of
+ * every folder Workflow: a step name that no folder has is a type error. At runtime, a Workflow gets only its own steps.
+ */
+export type WorkflowSteps = [keyof WorkflowStepRegistry] extends [never]
+  ? { readonly [TStep in never]: never }
+  : { [TName in keyof WorkflowStepRegistry]: (steps: WorkflowStepsOf<TName>) => void }[keyof WorkflowStepRegistry] extends (steps: infer TSteps) => void
+    ? TSteps
+    : never
 
 /** Run data that a provider gives to ViteHub before ViteHub adds the step runner. */
 export interface WorkflowProviderContext<TPayload = unknown> {
@@ -192,8 +217,8 @@ export interface WorkflowProviderContext<TPayload = unknown> {
   step?: WorkflowProviderStep
 }
 
-export interface WorkflowExecutionContext<TPayload = unknown, TName extends string = string> extends Omit<WorkflowProviderContext<TPayload>, "step"> {
-  name: TName
+/** The one object that a Workflow handler receives: the `payload` of the run, the run data, `sleep`, and `steps`. */
+export interface WorkflowExecutionContext<TPayload = unknown> extends Omit<WorkflowProviderContext<TPayload>, "step"> {
   /** The provider step runner. Use `context.sleep()` to sleep. */
   step?: Omit<WorkflowProviderStep, "sleep" | "sleepUntil">
   /**
@@ -203,12 +228,11 @@ export interface WorkflowExecutionContext<TPayload = unknown, TName extends stri
    */
   sleep: (until: WorkflowDuration | Date) => Promise<void>
   /** Step functions from the numbered files in the Workflow folder. Empty when the Workflow has no step files. */
-  steps: WorkflowSteps<TName>
+  steps: WorkflowSteps
 }
 
-export type WorkflowHandler<TPayload = unknown, TResult = unknown, TName extends string = string> = (
-  payload: TPayload,
-  context: WorkflowExecutionContext<TPayload, TName>,
+export type WorkflowHandler<TPayload = unknown, TResult = unknown> = (
+  context: WorkflowExecutionContext<TPayload>,
 ) => TResult | Promise<TResult>
 
 export type WorkflowRunIdValue =
@@ -229,22 +253,20 @@ export interface WorkflowCreateOptions<TPayload = unknown, TResult = unknown> {
   rootStep?: boolean
 }
 
+/** Options of `defineWorkflow()`, next to `handler`. */
 export interface WorkflowDefinitionOptions<TPayload = unknown, TResult = unknown> {
-  id?: string
   /** Vercel native entry. Vercel calls it with the provider context only, so it gets no step runner. */
   native?: (context: WorkflowProviderContext<TPayload>) => TResult | Promise<TResult>
   rootStep?: boolean
 }
 
-export interface WorkflowDefinition<TPayload = unknown, TResult = unknown, TName extends string = string> {
+/** A Workflow Definition: `defineWorkflow({ handler, ...options })`. Its file path is its name. */
+export interface WorkflowDefinition<TPayload = unknown, TResult = unknown> extends WorkflowDefinitionOptions<TPayload, TResult> {
   /** @internal Identifies provider-generated Agent invocation recovery definitions. */
   internalAgentInvocationRecovery?: true
   /** @internal Identifies the inline Agent Workflow handler that the Agent package creates for an Agent turn. */
   internalAgentWorkflow?: true
-  handler: WorkflowHandler<TPayload, TResult, TName>
-  /** The discovered Workflow name. `defineWorkflow()` sets it; inline and generated definitions may leave it out. */
-  name?: string
-  options?: WorkflowDefinitionOptions<TPayload, TResult>
+  handler: WorkflowHandler<TPayload, TResult>
 }
 
 /** Omission is valid only when the handler accepts undefined. */
@@ -294,7 +316,7 @@ export interface WorkflowSignalResult {
  * payload type fits without a cast.
  */
 export interface WorkflowDefinitionRegistry {
-  [name: string]: (() => Promise<{ default?: WorkflowDefinition<never, unknown, never>, [exportName: string]: unknown } | WorkflowDefinition<never, unknown, never>>) & {
+  [name: string]: (() => Promise<{ default?: WorkflowDefinition<never, unknown>, [exportName: string]: unknown } | WorkflowDefinition<never, unknown>>) & {
     /** @internal Identifies provider-generated Agent invocation recovery definitions without evaluating their modules. */
     internalAgentInvocationRecovery?: true
   }

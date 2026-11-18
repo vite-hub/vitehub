@@ -157,6 +157,58 @@ describe("define-forms edge cases", () => {
     expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/databases/shared.ts", message: expect.stringContaining("Database Definition `shared`") })])
   })
 
+  describe("Workflows", () => {
+    const run = async (code: string, path = "server/workflows/onboard-user/index.ts") => {
+      const result = await migrate({ [path]: code })
+      return { after: result.after[path], followUps: result.run.result.followUps }
+    }
+    const header = "import { createWorkflow, defineWorkflow } from 'vite-hub/workflow'\n"
+
+    it("drops the name and moves the payload type to the type argument", async () => {
+      const { after, followUps } = await run(`${header}export default defineWorkflow('onboard-user', async (payload: { email: string }, { steps }) => {\n  return await steps.createUser(payload)\n})\n`)
+      expect(after).toBe(`${header}export default defineWorkflow<{ email: string }>({ handler: async ({ payload, steps }) => {\n  return await steps.createUser(payload)\n} })\n`)
+      expect(followUps).toEqual([])
+    })
+
+    it("moves the options into the object and drops the unused `id` option", async () => {
+      const { after } = await run(`${header}export default defineWorkflow('onboard-user', async (input, context) => input, { id: 'x', native: durable, rootStep: false })\n`)
+      expect(after).toBe(`${header}export default defineWorkflow({ handler: async ({ payload: input, ...context }) => input, native: durable, rootStep: false })\n`)
+    })
+
+    it("keeps a payload default and the old payload type argument", async () => {
+      const { after } = await run(`${header}export default defineWorkflow<'onboard-user', { email?: string }>('onboard-user', async (payload = {}) => payload)\n`)
+      expect(after).toBe(`${header}export default defineWorkflow<{ email?: string }>({ handler: async ({ payload = {} }) => payload })\n`)
+    })
+
+    it("moves the oldest defineWorkflow(handler, options) form without changing its handler", async () => {
+      const { after } = await run(`${header}export default defineWorkflow(async ({ payload }) => payload, { rootStep: false })\n`)
+      expect(after).toBe(`${header}export default defineWorkflow({ handler: async ({ payload }) => payload, rootStep: false })\n`)
+    })
+
+    it("wraps a handler that a name references and reports it", async () => {
+      const { after, followUps } = await run(`${header}async function onboard(payload, context) { return payload }\nexport default defineWorkflow('onboard-user', onboard)\n`)
+      expect(after).toContain("defineWorkflow({ handler: ({ payload, ...context }) => onboard(payload, context) })")
+      expect(followUps).toEqual([expect.objectContaining({ message: expect.stringContaining("wrapped it") })])
+    })
+
+    it("rewrites createWorkflow handlers and keeps the name", async () => {
+      const { after } = await run(`${header}export const welcome = createWorkflow('welcome', async (payload: { email: string }) => payload.email)\nexport const other = createWorkflow({ name: 'other', handler: async (payload, { sleep }) => sleep('1 day') })\n`, "server/utils/workflows.ts")
+      expect(after).toBe(`${header}export const welcome = createWorkflow<{ email: string }>('welcome', async ({ payload }) => payload.email)\nexport const other = createWorkflow({ name: 'other', handler: async ({ payload, sleep }) => sleep('1 day') })\n`)
+    })
+
+    it("does not change the current forms, so a second run does nothing", async () => {
+      const code = `${header}export default defineWorkflow<{ email: string }>({ handler: async ({ payload, steps }) => steps.createUser(payload) })\nexport const welcome = createWorkflow('welcome', async ({ payload, sleep }) => sleep('1 day'))\n`
+      expect((await run(code)).after).toBeUndefined()
+      expect((await detectCodemods(root)).filter(entry => entry.codemod.name === "define-forms")).toEqual([])
+    })
+
+    it("detects the former form for the migration wizard", async () => {
+      await run(`${header}export default defineWorkflow('onboard-user', async () => undefined)\n`)
+      expect((await detectCodemods(root)).map(entry => [entry.codemod.name, entry.detection.reason]))
+        .toEqual([["define-forms", "server/workflows/onboard-user/index.ts calls defineWorkflow(name, handler) or passes a (payload, context) Workflow handler"]])
+    })
+  })
+
   it("stops on the default Database when default/ already exists", async () => {
     const { run } = await migrate({
       "server/databases/config.ts": "export default defineDatabase({ schema: {} })\n",

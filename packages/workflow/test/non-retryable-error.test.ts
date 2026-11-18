@@ -19,15 +19,15 @@ const calls: string[] = []
 const caught: unknown[] = []
 
 /** A single-file Workflow: the handler runs in the root step. */
-const declineInRootStep = defineWorkflow("decline", async () => {
+const declineInRootStep = defineWorkflow({ handler: async () => {
   calls.push("charge")
   throw new NonRetryableError("card declined")
-})
+} })
 
 /** The shape that the generated registry gives a folder Workflow without `index.ts`. */
 const declineInStepFile: WorkflowDefinition = {
-  options: { rootStep: false },
-  handler: async (payload, context) => {
+  rootStep: false,
+  handler: async (context) => {
     const steps = createWorkflowSteps(context, [
       {
         name: "01.charge.ts",
@@ -38,7 +38,7 @@ const declineInStepFile: WorkflowDefinition = {
       },
       { name: "02.ship.ts", run: () => calls.push("ship") },
     ])
-    let value = payload
+    let value = context.payload
     for (const step of Object.values(steps)) value = await step(value)
     return value
   },
@@ -46,8 +46,8 @@ const declineInStepFile: WorkflowDefinition = {
 
 /** A folder Workflow whose `index.ts` catches the error, then sleeps, so OpenWorkflow replays it. */
 const refundAfterDecline: WorkflowDefinition = {
-  options: { rootStep: false },
-  handler: async (_payload, context) => {
+  rootStep: false,
+  handler: async (context) => {
     const steps = createWorkflowSteps(context, [{
       name: "01.charge.ts",
       run: () => {

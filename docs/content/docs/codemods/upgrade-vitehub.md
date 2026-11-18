@@ -28,6 +28,8 @@ npx @vite-hub/codemods define-forms [dir] [--dry-run]
 | --- | --- |
 | `defineSchedule("0 9 * * *", handler, { manual: true })` | `defineSchedule({ cron: "0 9 * * *", manual: true, handler })` |
 | `defineSandboxTask({ run })` | `defineSandboxTask({ handler })` |
+| `defineWorkflow("onboard-user", async (payload: Payload, { steps }) => {}, { native })` | `defineWorkflow<Payload>({ handler: async ({ payload, steps }) => {}, native })`. The file path is the name. |
+| `createWorkflow("welcome", async (payload: Payload) => {})` | `createWorkflow<Payload>("welcome", async ({ payload }) => {})` |
 | `export const content = defineContent({ ... })` in `server/content.ts` | `export default defineContent({ ... })`, and `import content from` in the files that import it |
 | `server/databases/config.ts` and the files beside it | `server/databases/default/index.ts` and the same files in `server/databases/default/` |
 | `server/databases/migrations/` | `server/databases/default/migrations/` |
@@ -39,11 +41,13 @@ The report lists what it cannot change:
 
 - Schedule options that are not an object literal. The codemod spreads them into the object.
 - Sandbox Task options that are not an object literal.
+- Workflow handlers with parameters that it cannot rewrite, such as a rest parameter.
+- Workflow handlers that a name references, such as `defineWorkflow("onboard-user", onboard)`. The codemod wraps them: `({ payload, ...context }) => onboard(payload, context)`.
 - Dynamic imports of `server/content.ts`.
 - Helper files left in `server/databases/` that the new discovery reads as Databases.
 - Lines in `package.json` and host config files that name the former Database paths.
 
-The former forms fail with `SCHEDULE_C0007`, `SANDBOX_TASK_C0014`, `SOURCE_B0009`, and [`DATABASE_LEGACY_CONFIG_FILE`](/docs/database/limits-and-errors#database_legacy_config_file). See [file conventions](/docs/reference/file-conventions).
+The former forms fail with `SCHEDULE_C0007`, `SANDBOX_TASK_C0014`, `WORKFLOW_C0015`, `SOURCE_B0009`, and [`DATABASE_LEGACY_CONFIG_FILE`](/docs/database/limits-and-errors#database_legacy_config_file). See [file conventions](/docs/reference/file-conventions).
 
 ## vitehub-options
 

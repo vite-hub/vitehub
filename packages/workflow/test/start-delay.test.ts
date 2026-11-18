@@ -40,10 +40,10 @@ describe("inline runs", () => {
     const seen: unknown[] = []
     setWorkflowRuntimeConfig({ driver: "vercel" })
     setWorkflowRuntimeRegistry({
-      remind: async () => ({ default: defineWorkflow("remind", async (payload: { to: string }) => {
+      remind: async () => ({ default: defineWorkflow<{ to: string }>({ handler: async ({ payload }) => {
         seen.push(payload)
         return "sent"
-      }) }),
+      } }) }),
     })
     return seen
   }
@@ -107,10 +107,10 @@ describe("OpenWorkflow", () => {
     const seen: unknown[] = []
     setWorkflowRuntimeConfig(config)
     setWorkflowRuntimeRegistry({
-      remind: async () => ({ default: defineWorkflow("remind", async (payload: { to: string }) => {
+      remind: async () => ({ default: defineWorkflow<{ to: string }>({ handler: async ({ payload }) => {
         seen.push(payload)
         return "sent"
-      }) }),
+      } }) }),
     })
     const before = Date.now()
 
@@ -188,7 +188,7 @@ describe("Cloudflare", () => {
       event: { instanceId: "remind-ada", payload: { "~vitehubStartAt": startAt, payload: { to: "ada" } } },
       name: "remind",
       registry: {
-        remind: async () => ({ default: { handler: async (payload: unknown) => {
+        remind: async () => ({ default: { handler: async ({ payload }) => {
           calls.push(["handler"])
           seen.push(payload)
           return "sent"
@@ -211,7 +211,7 @@ describe("Cloudflare", () => {
       env: {},
       event: { instanceId: "remind-now", payload: { to: "ada" } },
       name: "remind",
-      registry: { remind: async () => ({ default: { handler: async (payload: unknown) => { seen.push(payload) } } }) },
+      registry: { remind: async () => ({ default: { handler: async ({ payload }) => { seen.push(payload) } } }) },
       step,
     })
 
@@ -236,7 +236,7 @@ describe("Vercel native", () => {
   it("passes the start time to a native entry that ViteHub generated", async () => {
     const start = vercelRuntime()
     const native = Object.assign(async () => "native", { workflowId: "workflow//./.vitehub/workflow/vercel-native//RemindNative", "~vitehubGenerated": true })
-    setWorkflowRuntimeRegistry({ remind: async () => ({ default: { handler: async () => "inline", options: { native, rootStep: false } } }) })
+    setWorkflowRuntimeRegistry({ remind: async () => ({ default: { handler: async () => "inline", native, rootStep: false } }) })
     const startAt = new Date(Date.now() + 3_600_000)
 
     await expect(unwrap(startWorkflow("remind", { to: "ada" }, { delay: startAt }))).resolves.toMatchObject({ id: "wrun_1", status: "queued" })
@@ -247,7 +247,7 @@ describe("Vercel native", () => {
   it("rejects a delay for a native entry that the developer wrote", async () => {
     const start = vercelRuntime()
     const native = Object.assign(async () => "native", { workflowId: "workflow//./server/workflows/durable.ts//durable" })
-    setWorkflowRuntimeRegistry({ remind: async () => ({ default: { handler: async () => "inline", options: { native } } }) })
+    setWorkflowRuntimeRegistry({ remind: async () => ({ default: { handler: async () => "inline", native } }) })
 
     expect(await startWorkflow("remind", { to: "ada" }, { delay: "1 hour" })).toMatchObject([{
       code: "WORKFLOW_OPERATION_UNSUPPORTED",
