@@ -307,7 +307,9 @@ That brings every effect. A script with its own small bundle, such as a toolbar 
 ```ts
 import { appearEffect, installMotion, pressEffect } from "@vite-hub/ui/motion/core";
 
-const uninstall = installMotion(shadowRoot, { effects: [pressEffect, appearEffect] });
+const bar = document.createElement("div");
+document.body.append(bar);
+const uninstall = installMotion(bar.attachShadow({ mode: "open" }), { effects: [pressEffect, appearEffect] });
 ```
 
 Four parts move with the helpers of the motion layer, for events that only the component knows:
