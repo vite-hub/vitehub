@@ -3668,17 +3668,17 @@ describe("Workflow input dispatch", () => {
   })
 
   it("dispatches once before Cloudflare submission, including retries", async () => {
-    const onDispatch = vi.fn()
+    const calls: string[] = []
+    const onDispatch = vi.fn(() => { calls.push("dispatch") })
     const createBatch = vi.fn(async () => {
-      expect(onDispatch).toHaveBeenCalledOnce()
+      calls.push("createBatch")
       throw new Error("acknowledgement lost")
     })
     setWorkflowRuntimeConfig({ driver: "cloudflare", binding: "INPUT_OWNER" })
     enterWorkflowRuntimeEvent({ onDispatch, env: { INPUT_OWNER: { createBatch } } })
     const workflow = createWorkflow("input-owner", async () => "done")
     await expect(workflow.start()).rejects.toMatchObject({ code: "WORKFLOW_PROVIDER_OPERATION_FAILED" })
-    expect(createBatch).toHaveBeenCalledTimes(2)
-    expect(onDispatch).toHaveBeenCalledOnce()
+    expect(calls).toEqual(["dispatch", "createBatch", "createBatch"])
   })
 
   it.each([false, true])("dispatches only after OpenWorkflow connects: failure=%s", async (fails) => {
