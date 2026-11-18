@@ -62,10 +62,7 @@ jobs:
             exit 0
           fi
           release_tag="${merged_branch#release/}"
-          # gh api prints the error body on stdout when the tag is missing, so only a successful lookup gives a SHA.
-          if ! tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${release_tag}" --jq .sha 2>/dev/null)"; then
-            tag_sha=""
-          fi
+          tag_sha="$(bash .github/scripts/lookup-release-tag.sh "$release_tag")"
           mapfile -t stale_prs < <(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" \
             --jq '.[] | select(.head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("release/v"))) | "\(.number)|\(.head.sha)"')
           for entry in "${stale_prs[@]}"; do
@@ -273,10 +270,7 @@ jobs:
         run: |
           set -euo pipefail
           release_tag="${RELEASE_BRANCH#release/}"
-          # gh api prints the error body on stdout when the tag is missing, so only a successful lookup gives a SHA.
-          if ! existing_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${release_tag}" --jq .sha 2>/dev/null)"; then
-            existing_sha=""
-          fi
+          existing_sha="$(bash .github/scripts/lookup-release-tag.sh "$release_tag")"
           if [[ -n "$existing_sha" && "$existing_sha" != "$RELEASE_SHA" ]]; then
             echo "Tag $release_tag already points to $existing_sha" >&2
             exit 1
