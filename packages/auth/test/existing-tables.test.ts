@@ -2,6 +2,7 @@ import { execFile } from "node:child_process"
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { promisify } from "node:util"
+import { fileURLToPath } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -12,8 +13,8 @@ import type { AuthSchemaOptions } from "../src/table-specs.ts"
 
 const execFileAsync = promisify(execFile)
 const roots: string[] = []
-const schemaModule = new URL("../src/schema.ts", import.meta.url).pathname
-const drizzleKit = new URL("../node_modules/drizzle-kit/bin.cjs", import.meta.url).pathname
+const schemaModule = fileURLToPath(new URL("../src/schema.ts", import.meta.url))
+const drizzleKit = fileURLToPath(new URL("../node_modules/drizzle-kit/bin.cjs", import.meta.url))
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))

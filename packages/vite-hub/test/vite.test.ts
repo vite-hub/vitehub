@@ -1177,8 +1177,10 @@ describe("vitehub", () => {
     })
   })
 
-  it("rejects the Cloudflare Email default on other presets", () => {
-    expect(() => vitehub({ email: true, host: "node" })).toThrow("requires the Cloudflare host")
+  it("uses the log driver for email: true on hosts without an Email provider", () => {
+    vitehub({ email: true, host: "node" })
+
+    expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith(expect.objectContaining({ driver: "log", hosting: "node-server" }))
   })
 
   it("treats auth: false and email: false as omitted", () => {

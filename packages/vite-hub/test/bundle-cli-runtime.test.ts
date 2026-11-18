@@ -3,11 +3,12 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+import { fileURLToPath } from "node:url"
 
 import { afterEach, expect, it } from "vitest"
 
 const execFileAsync = promisify(execFile)
-const bin = new URL("../dist/bin.js", import.meta.url).pathname
+const bin = fileURLToPath(new URL("../dist/bin.js", import.meta.url))
 const roots: string[] = []
 
 afterEach(async () => {
