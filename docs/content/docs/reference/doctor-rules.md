@@ -18,7 +18,7 @@ import { vitehub } from 'vite-hub'
 import { doctor } from 'vite-doctor'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node' }), doctor()],
+  plugins: [vitehub(), doctor()],
 })
 ```
 
@@ -968,13 +968,13 @@ It skips options from a variable or a spread.
 // Invalid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vite: { plugins: [vitehub({ host: 'node' })] },
+  vite: { plugins: [vitehub()] },
 })
 
 // Valid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node' },
+  vitehub: {},
 })
 ```
 
@@ -1046,7 +1046,7 @@ export default defineNuxtConfig({
 // Valid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', kv: true },
+  vitehub: { kv: true },
 })
 ```
 

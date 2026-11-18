@@ -49,7 +49,7 @@ function model(reply: () => string) {
   return { calls, mock }
 }
 
-describe("ask(prompt, { model, schema })", () => {
+describe("ask(prompt, { model, schema? })", () => {
   it("returns the data that the schema validated, from one request", async () => {
     const { calls, mock } = model(() => JSON.stringify({ amount: -34.9, merchant: "Mercadona" }))
     const usage: unknown[] = []
@@ -130,6 +130,50 @@ describe("ask(prompt, { model, schema })", () => {
   it("throws GATEWAYS_ASK_PROMPT_INVALID for an empty prompt", async () => {
     const { mock } = model(() => "{}")
     await expect(ask(" ", { model: mock, schema: receipt })).rejects.toMatchObject({ code: "GATEWAYS_ASK_PROMPT_INVALID" })
+  })
+
+  it("returns the answer text without a schema", async () => {
+    const { calls, mock } = model(() => "Mercadona charged 34.90 EUR on 23 October.")
+    const usage: unknown[] = []
+    const [error, text] = await ask("Summarize: MERCADONA 23.10 -34.90 EUR", {
+      instructions: "Answer in one sentence.",
+      model: mock,
+      onUsage: entry => usage.push(entry),
+    })
+
+    expect(error).toBeUndefined()
+    expect(text).toBe("Mercadona charged 34.90 EUR on 23 October.")
+    expectTypeOf(text).toEqualTypeOf<string | undefined>()
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.responseFormat).toBeUndefined()
+    expect(calls[0]!.prompt).toEqual([
+      { content: "Answer in one sentence.", role: "system" },
+      { content: [{ text: "Summarize: MERCADONA 23.10 -34.90 EUR", type: "text" }], role: "user" },
+    ])
+    expect(usage).toEqual([{ model: "mock-model-id", provider: "mock-provider", usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25 } }])
+  })
+
+  it.each(["content-filter", "length"] as const)("returns GATEWAYS_ASK_OUTPUT_INVALID for a %s response without text", async (reason) => {
+    const mock = new MockLanguageModelV3({
+      doGenerate: async () => ({
+        content: [],
+        finishReason: { raw: reason, unified: reason },
+        usage: { inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 20, total: 20 }, outputTokens: { reasoning: 0, text: 0, total: 0 } },
+        warnings: [],
+      }),
+    })
+    const [error, text] = await ask("Summarize: MERCADONA 23.10 -34.90 EUR", { model: mock })
+    expect(text).toBeUndefined()
+    expect(error).toMatchObject({ code: "GATEWAYS_ASK_OUTPUT_INVALID", message: `[vitehub] The model answer to ask() has no text. The model stopped with finish reason "${reason}".` })
+  })
+
+  it("returns GATEWAYS_ASK_MODEL_FAILED without a schema when the provider fails", async () => {
+    const providerError = new APICallError({ isRetryable: false, message: "Too Many Requests", requestBodyValues: {}, statusCode: 429, url: "https://openrouter.ai/api/v1/chat/completions" })
+    const mock = new MockLanguageModelV3({ doGenerate: async () => { throw providerError } })
+    const controller = new AbortController()
+    const [error, text] = await ask("Summarize: MERCADONA 23.10 -34.90 EUR", { model: mock, signal: controller.signal })
+    expect(text).toBeUndefined()
+    expect(error).toMatchObject({ code: "GATEWAYS_ASK_MODEL_FAILED", message: "[vitehub] The ask() model request failed with HTTP 429." })
   })
 
   it("keeps the Jev question builders on ask", () => {

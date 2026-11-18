@@ -46,7 +46,7 @@ export default defineConfig({
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `workflow` | `boolean` or `WorkflowOptions` | off | `true` or an object turns on Workflow discovery and host output in `vitehub()`. Discovered Agents then run their turns as durable Workflow runs. |
+| `workflow` | `boolean` or `WorkflowOptions` | off | `true` or an object turns on Workflow discovery and host output. Discovered Agents use the configured driver: OpenWorkflow and Cloudflare Workflows are durable; Vercel runs Agent turns inline. |
 | `driver` | `WorkflowDriver` | inferred | `cloudflare`, `vercel`, or `openworkflow`. |
 | `binding` | `string` | provider default | Binding name in generated output. |
 | `name` | `string` | workflow file name | Provider resource name. |

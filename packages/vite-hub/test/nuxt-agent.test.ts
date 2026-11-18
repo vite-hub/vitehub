@@ -136,9 +136,10 @@ it.each([
   await nitroConfigHook(nitroConfig)
 
   const generated = join(rootDir, ".vitehub/nitro/agent/invocations.mjs")
+  const requestPolicy = join(rootDir, ".vitehub/nitro/request-policy.mjs")
   const standardContext = join(rootDir, ".vitehub/nitro/standard-context.mjs")
-  const workflow = join(rootDir, ".vitehub/nitro/workflow/dev-plugin.mjs")
-  expect(nitroConfig.plugins).toEqual([generated, standardContext, workflow, "/app/existing-plugin.mjs", ...(nitroConfig.plugins as string[]).slice(4)])
+  expect((nitroConfig.plugins as string[]).slice(0, 4)).toEqual([generated, requestPolicy, standardContext, "/app/existing-plugin.mjs"])
+  expect(nitroConfig.plugins).not.toContain(join(rootDir, ".vitehub/nitro/workflow/dev-plugin.mjs"))
   expect((nitroConfig.plugins as string[]).filter(plugin => plugin === generated)).toHaveLength(1)
   await expect(readFile(generated, "utf8")).resolves.toContain(installation)
 })
@@ -160,7 +161,7 @@ it("leaves the serve-only Console out of the workflow registry of a Nuxt build",
   }
 
   // Without Console options, `vite dev` serves the operation RPC through a Console plugin that applies only to `serve`.
-  await viteHubNuxtModule({ agent: true, console: false, host: "cloudflare" }, nuxt)
+  await viteHubNuxtModule({ agent: true, console: false, host: "cloudflare", workflow: true }, nuxt)
   if (!nitroConfigHook) throw new TypeError("Expected a Nitro config hook.")
   await nitroConfigHook({})
 

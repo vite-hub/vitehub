@@ -24,11 +24,15 @@ describe("database config values", () => {
   })
 
   it("renders env-backed config with blank-value fallbacks", () => {
-    expect(renderConfigValueExpression(createRuntimeEnvConfigValue([
+    const expression = renderConfigValueExpression(createRuntimeEnvConfigValue([
       "VITEHUB_PRIMARY_DATABASE_URL",
       "VITEHUB_FALLBACK_DATABASE_URL",
-    ], "file:.vitehub/data/database/sqlite.db"))).toBe(
-      'process.env["VITEHUB_PRIMARY_DATABASE_URL"] || process.env["VITEHUB_FALLBACK_DATABASE_URL"] || "file:.vitehub/data/database/sqlite.db"',
-    )
+    ], "file:.vitehub/data/database/sqlite.db"))!
+    // SAFETY: the expression reads only `process.env`, and the test passes a stand-in.
+    const read = (env: Record<string, string>) => new Function("process", `return ${expression}`)({ env }) as string
+
+    expect(read({ VITEHUB_PRIMARY_DATABASE_URL: "libsql://primary" })).toBe("libsql://primary")
+    expect(read({ VITEHUB_FALLBACK_DATABASE_URL: "libsql://fallback", VITEHUB_PRIMARY_DATABASE_URL: "" })).toBe("libsql://fallback")
+    expect(read({})).toBe("file:.vitehub/data/database/sqlite.db")
   })
 })

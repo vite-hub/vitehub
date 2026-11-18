@@ -64,7 +64,6 @@ const runtimeEntries = [
   "src/_internal/runtime/request-policy.ts",
   "src/_internal/runtime/security.ts",
   "src/internal/agent-invocations-libsql.ts",
-  "src/internal/database-runtime-state.ts",
   "src/internal/disabled-upstash-driver.ts",
   "src/internal/disabled-redis-driver.ts",
   // `vite-hub/test/register` loads these files by path: the module hooks and the worker of the Vite server.

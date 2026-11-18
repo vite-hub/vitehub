@@ -146,7 +146,7 @@ Turn them on in `nuxt.config.ts` or `vite.config.ts`. This Node build keeps its 
  export default defineNuxtConfig({
    modules: ["@ui-sdk/vue/nuxt", "@vite-hub/kit/nuxt", "vite-hub/nuxt"],
    css: ["~/assets/css/main.css"],
-+  vitehub: { host: "node", agent: true, realtime: { driver: "memory" } },
++  vitehub: { agent: true, realtime: { driver: "memory" } },
  })
 ```
 ::::
@@ -155,7 +155,7 @@ Turn them on in `nuxt.config.ts` or `vite.config.ts`. This Node build keeps its 
 ```diff
  export default defineConfig({
 -  plugins: [vue(), vitehub()],
-+  plugins: [vue(), vitehub({ host: "node", agent: true, realtime: { driver: "memory" } })],
++  plugins: [vue(), vitehub({ agent: true, realtime: { driver: "memory" } })],
  })
 ```
 ::::
