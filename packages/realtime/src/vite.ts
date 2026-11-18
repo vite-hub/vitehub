@@ -355,7 +355,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       nitro.features = { ...nitro.features, websocket: true }
       const kit = createNitroServerKit(nitro)
       const { mount } = viteHubPageToolsBase(config)
-      kit.addHandler({ handler: handlerFile, lazy: true, route: `${mount}/api/_vitehub/realtime/**` })
+      kit.addHandler({ handler: handlerFile, lazy: true, route: `${mount}/_vitehub/realtime/**` })
       if (durablePlugin) kit.addPlugin(durablePlugin)
       if (busPlugin) kit.addPlugin(busPlugin)
       for (const plugin of contribution?.plugins ?? []) kit.addPlugin(plugin)

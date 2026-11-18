@@ -185,7 +185,7 @@ there.
 
 ## Check health
 
-Set `health: true` in `vitehub()` to add `/api/_vitehub/health`. It tells
+Set `health: true` in `vitehub()` to add `/_vitehub/health`. It tells
 which app version, commit, and ViteHub version are live, and whether each
 Database, KV store, and Blob store of the app answers:
 
@@ -206,7 +206,7 @@ check or a load balancer at it:
 
 ```dockerfile [Dockerfile]
 HEALTHCHECK --interval=30s --timeout=5s \
-  CMD node -e "fetch('http://127.0.0.1:3000/api/_vitehub/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:3000/_vitehub/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 ```
 
 A Docker build context often has no `.git`. Pass the commit as

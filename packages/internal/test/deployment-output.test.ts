@@ -772,7 +772,7 @@ describe("provider deployment outputs", () => {
           config: {
             name: "vitehub-agent",
             nodeBundler: "esbuild",
-            path: ["/api/_vitehub/agents/:agent/chat", "/api/_vitehub/agents/:agent/webhooks/:webhook"],
+            path: ["/_vitehub/agents/:agent/chat", "/_vitehub/agents/:agent/webhooks/:webhook"],
           },
           functionName: "vitehub-agent",
         }],

@@ -3495,7 +3495,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     // AGENT_B0007 through AGENT_B0015 are retired with the Eve extension adapter. Do not reuse them.
     AGENT_B0016: {
       ...dynamicError,
-      fix: "Put `[agent]` in the inspection route, such as `vitehub({ agent: { routes: { inspection: \"/api/_vitehub/agents/[agent]/inspection\" } } })`, or set `inspection: true` to use that default route.",
+      fix: "Put `[agent]` in the inspection route, such as `vitehub({ agent: { routes: { inspection: \"/_vitehub/agents/[agent]/inspection\" } } })`, or set `inspection: true` to use that default route.",
     },
     AGENT_B0017: dynamicError,
     // AGENT_B0018 is retired with the Eve extension adapter. Do not reuse it.

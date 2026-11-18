@@ -11,7 +11,7 @@ import type { H3Event } from "h3"
 
 function event(headers: Record<string, string> = {}): H3Event {
   // SAFETY: Comments identity readers use the request headers from the H3 event.
-  const event = { req: new Request("http://site.test/api/_vitehub/comments/session", { headers }), res: { headers: new Headers() } }
+  const event = { req: new Request("http://site.test/_vitehub/comments/session", { headers }), res: { headers: new Headers() } }
   // The Console sets Standard Context before it passes the event to a tool, as the ViteHub Nitro plugin does.
   installStandardContext(event)
   return event as unknown as H3Event

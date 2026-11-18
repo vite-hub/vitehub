@@ -568,7 +568,7 @@ export interface ViteHubOptions {
    */
   env?: false | EnvOptions
   /**
-   * A health route for load balancers and container health checks, at `/api/_vitehub/health` unless `route` moves it.
+   * A health route for load balancers and container health checks, at `/_vitehub/health` unless `route` moves it.
    * It answers `{ ok, version, commit, vitehub }` and checks each Database, KV store, and Blob store of the app in `checks`. It
    * answers 503 when one fails, and never shows error text.
    */

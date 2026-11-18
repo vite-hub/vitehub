@@ -40,7 +40,7 @@ interface SyncPageStore {
 }
 
 interface SyncStoreOptions {
-  /** The Sync route, such as `/api/_vitehub/sync/todos`. */
+  /** The Sync route, such as `/_vitehub/sync/todos`. */
   url: string
   /** The subset of the store. Its rows and its outbox are stored apart from the other subsets. */
   where?: SyncValues

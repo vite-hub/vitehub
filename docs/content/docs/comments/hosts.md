@@ -185,7 +185,7 @@ Pages with the page tools loader get `cache-control: private, no-store`. Other p
 
 ## Content Security Policy
 
-The page gets one same-origin script: the page tools loader at `/_vitehub/page/assets/loader.js`. It imports the overlay from `/api/_vitehub/comments/assets/overlay.js`. With a base path such as Vite `base: '/docs/'`, both paths start with `/docs`.
+The page gets one same-origin script: the page tools loader at `/_vitehub/page/assets/loader.js`. It imports the overlay from `/_vitehub/comments/assets/overlay.js`. With a base path such as Vite `base: '/docs/'`, both paths start with `/docs`.
 
 - When the `Content-Security-Policy` header has a script nonce, as with `'strict-dynamic'` in nuxt-security, the loader script gets that nonce. `'strict-dynamic'` then trusts the overlay it imports.
 - The overlay adds styles inside its shadow root, so `style-src` must allow inline styles.
@@ -193,4 +193,4 @@ The page gets one same-origin script: the page tools loader at `/_vitehub/page/a
 
 ## Inspect the build
 
-`vitehub inspect` lists the Comments route `/api/_vitehub/comments/**`, the presence state, and the page tool hint. Without a Realtime driver, the presence line reads `off: the host has no Realtime driver`. The Database inspector lists the two Comments tables as contributed tables.
+`vitehub inspect` lists the Comments route `/_vitehub/comments/**`, the presence state, and the page tool hint. Without a Realtime driver, the presence line reads `off: the host has no Realtime driver`. The Database inspector lists the two Comments tables as contributed tables.

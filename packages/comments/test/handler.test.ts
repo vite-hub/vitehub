@@ -51,7 +51,7 @@ function fakeContent(options: { can?: boolean, fail?: Error } = {}) {
 async function setup(input: { user?: CommentsUser | null, options?: DefineCommentsOptions, content?: ReturnType<typeof fakeContent>, session?: CommentsHandlerOptions["session"] } = {}) {
   // Each test names its policy; the default policy has tests of its own.
   const comments = await createComments({ identify: () => input.user === undefined ? { id: "ada", name: "Ada" } : input.user, authorize: () => true, ...input.options })
-  const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({
+  const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({
     comments,
     session: input.session,
     content: input.content ? { runtime: input.content.runtime, parseField } : undefined,
@@ -63,11 +63,11 @@ async function setup(input: { user?: CommentsUser | null, options?: DefineCommen
     const headers = new Headers(init.headers)
     if (init.json !== undefined) headers.set("content-type", "application/json")
     if (init.method && init.method !== "GET" && !headers.has("origin")) headers.set("origin", origin)
-    const response = await app.fetch(new Request(`${origin}/api/_vitehub/comments${path}`, { ...init, headers, body: init.json === undefined ? init.body : JSON.stringify(init.json) }))
+    const response = await app.fetch(new Request(`${origin}/_vitehub/comments${path}`, { ...init, headers, body: init.json === undefined ? init.body : JSON.stringify(init.json) }))
     return { response, body: await response.json() as { data?: any, error?: { code: string, why: string, fix?: string } } }
   }
   /** A route that answers a file, not JSON. */
-  const fetchFile = (path: string, headers: HeadersInit = {}) => app.fetch(new Request(`${origin}/api/_vitehub/comments${path}`, { headers }))
+  const fetchFile = (path: string, headers: HeadersInit = {}) => app.fetch(new Request(`${origin}/_vitehub/comments${path}`, { headers }))
   return { comments, call, fetchFile }
 }
 
@@ -247,8 +247,8 @@ describe("Comments API", () => {
 
   it("runs with the Cloudflare bindings of the request, as Nitro's workerd dev server passes them", async () => {
     const comments = await createComments({ identify: () => getActiveCloudflareBinding<CommentsUser>("PERSON") ?? null })
-    const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, build: {}, components: {} }))
-    const request = Object.assign(new Request(`${origin}/api/_vitehub/comments/session`), {
+    const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, build: {}, components: {} }))
+    const request = Object.assign(new Request(`${origin}/_vitehub/comments/session`), {
       runtime: { name: "cloudflare", cloudflare: { env: { PERSON: { id: "ada", name: "Ada" } }, context: { waitUntil() {}, passThroughOnException() {} } } },
     })
     const body = await (await app.fetch(request)).json() as { data: { user: CommentsUser | null } }
@@ -452,7 +452,7 @@ describe("Comments API", () => {
     const waitUntil = vi.fn()
     const handler = createCommentsHandler({ comments, realtime: false })
     // srvx puts the host's waitUntil on the Request.
-    const request = Object.assign(new Request(`${origin}/api/_vitehub/comments/threads`, { method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ page: "/", body: "@Grace", mentions: ["grace"] }) }), { waitUntil })
+    const request = Object.assign(new Request(`${origin}/_vitehub/comments/threads`, { method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ page: "/", body: "@Grace", mentions: ["grace"] }) }), { waitUntil })
     const response = await handler.fetch(request)
     expect(response.status).toBe(200)
     expect(onMention).toHaveBeenCalledOnce()
@@ -467,7 +467,7 @@ describe("Comments API", () => {
     const waitUntil = vi.fn((promise: Promise<unknown>) => { work.push(promise) })
     const handler = createCommentsHandler({ comments, realtime: false })
     const send = async (method: string, path: string, json?: unknown) => {
-      const request = new Request(`${origin}/api/_vitehub/comments${path}`, {
+      const request = new Request(`${origin}/_vitehub/comments${path}`, {
         method,
         headers: { origin, "content-type": "application/json" },
         ...(json === undefined ? {} : { body: JSON.stringify(json) }),
@@ -575,12 +575,12 @@ describe("Comments API", () => {
   it("lets authors delete their own reply, and checks delete for others'", async () => {
     let user: CommentsUser = { id: "ada", name: "Ada", role: "editor" }
     const comments = await createComments({ identify: () => user, authorize: ({ user, action }) => action !== "delete" || user?.role === "editor" })
-    const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
+    const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
     const [, thread] = await comments.create({ page: "/", anchor, body: "Root", author: { id: "ada", name: "Ada" } })
     const [, mine] = await comments.reply(thread!.id, { body: "Mine", author: { id: "writer", name: "W" } })
     const [, theirs] = await comments.reply(thread!.id, { body: "Theirs", author: { id: "ada", name: "Ada" } })
     user = { id: "writer", name: "W", role: "writer" }
-    const remove = (comment: string) => app.fetch(new Request(`${origin}/api/_vitehub/comments/threads/${thread!.id}/comments/${comment}`, { method: "DELETE", headers: { origin } }))
+    const remove = (comment: string) => app.fetch(new Request(`${origin}/_vitehub/comments/threads/${thread!.id}/comments/${comment}`, { method: "DELETE", headers: { origin } }))
     expect((await remove(theirs!.id)).status).toBe(403)
     expect((await remove(mine!.id)).status).toBe(200)
   })

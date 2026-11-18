@@ -188,7 +188,7 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
       await two.waitForFunction(() => window.todos.getState().rows.length === 0 && window.todos.getState().queued === 0)
       const stored = await two.evaluate(async () => {
         const db = window.storage.createIndexedDBStorage(() => { throw new Error("no fallback") })
-        return db.read("/api/_vitehub/sync/todos")
+        return db.read("/_vitehub/sync/todos")
       })
       assert.deepEqual(stored, { meta: undefined, rows: [], writes: [] })
       server.offline = false

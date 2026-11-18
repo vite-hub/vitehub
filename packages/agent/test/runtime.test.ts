@@ -6051,7 +6051,7 @@ describe("agent message protocol", () => {
     const { createChannelChatRouteHandler, hasChannelChatRoute } = await import("../src/server/internal.ts")
     const shorthandRun = vi.fn(({ run }) => `${run.channelId}:${run.origin}`)
     const explicitRun = vi.fn(({ run }) => `${run.channelId}:${run.origin}`)
-    const request = () => new Request("https://example.com/api/_vitehub/agents/support/chat", {
+    const request = () => new Request("https://example.com/_vitehub/agents/support/chat", {
       body: JSON.stringify({
         messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
       }),

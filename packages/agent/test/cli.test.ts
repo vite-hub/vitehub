@@ -199,7 +199,7 @@ describe("agent CLI", () => {
         channel: "telegram",
         desired: {
           secretToken: "configured",
-          url: "https://staging.example.com/api/_vitehub/agents/calories/webhooks/telegram",
+          url: "https://staging.example.com/_vitehub/agents/calories/webhooks/telegram",
         },
         preflight: "verified",
         provider: "telegram",
@@ -214,7 +214,7 @@ describe("agent CLI", () => {
     const stdout = stream()
     const stderr = stream()
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      expect(String(input)).toBe("https://example.com/api/_vitehub/agents/calories/webhooks/telegram")
+      expect(String(input)).toBe("https://example.com/_vitehub/agents/calories/webhooks/telegram")
       if (init?.method === "HEAD") {
         expect(new Headers(init.headers).has("x-test-secret")).toBe(false)
         return new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
@@ -278,12 +278,12 @@ describe("agent CLI", () => {
       const exitCode = await runAgentChannelHistoryCli([
         "--stage", "production", "--url", "https://example.com", "--output", "export",
         "--query", "status=open", "--query", "status=urgent", "--thread", "thread-1", "--invocations",
-        ...(override ? ["--webhook-path", "/api/_vitehub/agents/support/webhooks/productlane"] : []),
+        ...(override ? ["--webhook-path", "/_vitehub/agents/support/webhooks/productlane"] : []),
       ], {
         cwd: rootDir, env: {}, rootDir, stderr: stream(), stdout: stream(),
       }, {
         fetch: async (_input, init) => {
-          expect(String(_input)).toBe(override ? "https://example.com/api/_vitehub/agents/support/webhooks/productlane" : "https://example.com/api/productlane/webhook")
+          expect(String(_input)).toBe(override ? "https://example.com/_vitehub/agents/support/webhooks/productlane" : "https://example.com/api/productlane/webhook")
           if (init?.method === "HEAD") return new Response(null, { headers: { "x-vitehub-channel-provider": "productlane" }, status: 204 })
           const body = JSON.parse(String(init?.body)) as Record<string, unknown>
           bodies.push(body)
@@ -820,8 +820,8 @@ describe("agent CLI", () => {
     expect(await run(["--apply"], "https://app.example.com")).toEqual({ exitCode: 0, stderr: "" })
     expect(await run(["--apply", "--url", "https://preview.example.com", "--confirm-origin", "https://preview.example.com"], "https://app.example.com")).toEqual({ exitCode: 0, stderr: "" })
     expect(applied).toEqual([
-      "https://app.example.com/api/_vitehub/agents/support/webhooks/telegram",
-      "https://preview.example.com/api/_vitehub/agents/support/webhooks/telegram",
+      "https://app.example.com/_vitehub/agents/support/webhooks/telegram",
+      "https://preview.example.com/_vitehub/agents/support/webhooks/telegram",
     ])
     expect((await run(["--apply", "--url", "https://preview.example.com"], "https://app.example.com")).stderr).toContain("--apply requires --confirm-origin")
     expect((await run(["--apply", "--confirm-origin", "https://preview.example.com"], "https://app.example.com")).stderr).toContain("--confirm-origin must exactly match vitehub({ publicUrl })")
@@ -870,7 +870,7 @@ describe("agent CLI", () => {
       })
       expect(stderr.output()).toBe("")
       expect(exitCode).toBe(0)
-      expect(new Set(urls)).toEqual(new Set(["https://app.example.com/api/_vitehub/agents/calories/webhooks/telegram"]))
+      expect(new Set(urls)).toEqual(new Set(["https://app.example.com/_vitehub/agents/calories/webhooks/telegram"]))
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -931,7 +931,7 @@ describe("agent CLI", () => {
       allowed_updates: ["message"],
       drop_pending_updates: false,
       secret_token: "webhook-token",
-      url: "https://app.example.com/api/_vitehub/agents/support/webhooks/telegram",
+      url: "https://app.example.com/_vitehub/agents/support/webhooks/telegram",
     })
   })
 

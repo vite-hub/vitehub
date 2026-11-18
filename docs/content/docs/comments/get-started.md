@@ -41,7 +41,7 @@ export default defineConfig({
 
 You do not set up anything else. `comments()` adds a server to your app, [Nitro](https://nitro.build), if the app does not have one. Then it adds:
 
-- The Comments API at `/api/_vitehub/comments/`.
+- The Comments API at `/_vitehub/comments/`.
 - The script that shows comments on your pages.
 - A SQLite database file for the comments, `.vitehub/data/comments.sqlite`. Comments makes its tables for you. Git ignores this file, so the comments that you write on your computer stay out of your repository.
 
@@ -77,7 +77,7 @@ Now resize the window. The pin stays on the heading, because Comments saves it n
 Comments signs people in with a GitHub App. Then anyone who can push to the repository of the app can comment. Other people see why they cannot.
 
 1. On GitHub, open **Settings**, **Developer settings**, **GitHub Apps**, then **New GitHub App**.
-2. Set **Callback URL** to `http://localhost:5173/api/_vitehub/comments/auth/callback/github`. Also add `http://localhost:3000/api/_vitehub/comments/auth/callback/github` for the production server in the next step. Add the URL of each deployed site too, such as `https://staging.example.com/api/_vitehub/comments/auth/callback/github`. A GitHub App takes up to 10 callback URLs.
+2. Set **Callback URL** to `http://localhost:5173/_vitehub/comments/auth/callback/github`. Also add `http://localhost:3000/_vitehub/comments/auth/callback/github` for the production server in the next step. Add the URL of each deployed site too, such as `https://staging.example.com/_vitehub/comments/auth/callback/github`. A GitHub App takes up to 10 callback URLs.
 3. Under **Identifying and authorizing users**, turn off **Expire user authorization tokens**. Under **Webhook**, turn off **Active**. Do not change the permissions. Create the App.
 4. Copy the **Client ID**. Then select **Generate a new client secret**, and copy the secret.
 5. Select **Install App**, and install it on the repository of the app.

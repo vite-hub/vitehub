@@ -34,7 +34,7 @@ describe("playground", () => {
     // The Channels template opens the simulated Slack page of its Agent, so the preview needs no bot or token.
     const channels = built.find(template => template.id === "channels")!;
     expect(channels.files["vite.config.ts"]).toContain("channels: { simulate: true }");
-    expect(channels.preview).toBe("/api/_vitehub/agents/support/webhooks/slack");
+    expect(channels.preview).toBe("/_vitehub/agents/support/webhooks/slack");
     for (const channel of ["slack()", "discord()", "teams()", "telegram()"]) expect(channels.files["server/agents/support.ts"]).toContain(channel);
     // The ViteHub UI template is a Vue app on the headless parts of @ui-sdk/vue, and its preview is the app page.
     const ui = built.find(template => template.id === "ui")!;

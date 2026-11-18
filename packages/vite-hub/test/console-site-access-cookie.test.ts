@@ -91,7 +91,7 @@ async function tools(cookie: string): Promise<string[]> {
 
 /** The person that Comments resolves for this browser. */
 async function commentsUser(cookie: string): Promise<CommentsUser | null> {
-  const request = new Request(`${origin}/api/_vitehub/comments/session`, { headers: { cookie } })
+  const request = new Request(`${origin}/_vitehub/comments/session`, { headers: { cookie } })
   installRequestStandardContext(request)
   // SAFETY: The line above installed the Standard Context of this Request, as Nitro does for a route.
   return (await resolveCommentsIdentity(defineComments(), request as Request & CommentsRequestEvent)).user

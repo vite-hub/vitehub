@@ -88,9 +88,9 @@ const consoleRoutes = [
  */
 const appRoutes = [
   // Signed links for private files in the app's fs Blob store.
-  "route ALL /_vitehub/blob/signed/** @vite-hub/blob/dist/runtime/signed.js",
+  "route ALL /_vitehub/blob-signed/** @vite-hub/blob/dist/runtime/signed.js",
   // The Comments API of the overlay, with the app's own identity.
-  "route ALL /api/_vitehub/comments/** app/.vitehub/nitro/comments/handler.mjs",
+  "route ALL /_vitehub/comments/** app/.vitehub/nitro/comments/handler.mjs",
   // The page tools session of the Comments overlay: which tools this visitor may load on a page of the app.
   "route ALL /_vitehub/page/session app/.vitehub/nitro/comments/page-session.mjs",
   // App Auth: the sign-in of the app's own users.
@@ -118,11 +118,12 @@ const plugins = [
 const publicAssets = [
   // The public ViteHub skill of the installed `vite-hub` version, for `npx skills add <app>/_vitehub`. Static files.
   "/_vitehub/.well-known/skills console/public/skills",
+  // The Comments overlay script, in the assets folder of the Comments API route.
+  "/_vitehub/comments/assets @vite-hub/comments/dist/overlay",
   // The Console link of the page tools pill. Comments added the session route and the loader first, so they stay.
   "/_vitehub/console/assets console/page-tool",
-  // The page tools loader and the Comments overlay script.
+  // The page tools loader.
   "/_vitehub/page/assets @vite-hub/comments/dist/page",
-  "/api/_vitehub/comments/assets @vite-hub/comments/dist/overlay",
 ]
 
 describe("Nitro routes of a production build with every Console section on", () => {
