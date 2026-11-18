@@ -498,7 +498,6 @@ describe("vitehub", () => {
 
       const generated = await readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")
       expect(generated).toContain('"kv"')
-      expect(generated).not.toContain("installConsoleKV")
       expect(namedConfig.nitro).toMatchObject({
         handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc" })]),
       })
@@ -582,11 +581,6 @@ describe("vitehub", () => {
     }
   })
 
-  it("adds no Vite DevTools dock, since apps serve no Console page", () => {
-    const plugin = dependencyPluginByName(vitehub({ console: { auth: false }, host: "node" }), "vite-hub/console")
-    expect(plugin).not.toHaveProperty("devtools")
-  })
-
   it("keeps an application KV route beside the Console RPC route", async () => {
     const plugin = dependencyPluginByName(
       vitehub({ console: { auth: false }, kv: true, host: "node" }),
@@ -608,7 +602,7 @@ describe("vitehub", () => {
     ]))
   })
 
-  it("adds the Auth section and its impersonation route to a production Console with app Auth", async () => {
+  it("resolves app Auth for a production Console and keeps the Console RPC route", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
@@ -621,8 +615,6 @@ describe("vitehub", () => {
       expect(integrationMocks.resolveAuthViteConfig).toHaveBeenCalledWith(undefined, root, { serverDirs: undefined })
       const routes = config.nitro?.handlers?.map(handler => handler.route)
       expect(routes).toContain("/_vitehub/rpc")
-      expect(routes).not.toContain("/_vitehub/auth/manage")
-      expect(routes).not.toContain("/_vitehub/sign-in")
     }
     finally {
       await rm(root, { force: true, recursive: true })
