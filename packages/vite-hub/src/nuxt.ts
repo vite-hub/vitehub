@@ -12,7 +12,6 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { parseJSONC } from "confbox/jsonc"
 import { parseTOML } from "confbox/toml"
 import { findNearestFile } from "pkg-types"
-import { ownModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { addViteHubDevPeerDevHandler, addViteHubDevPeerUpgradeSigner, type ViteHubDevPeerUpgradeServer } from "@vite-hub/internal/dev-peer"
 import { getResolvedFeatureOptions, resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PREPARE, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
@@ -60,7 +59,6 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 import { assertNoRemovedViteHubOptions } from "./removed-options.ts"
 import { resolveViteHubServerImports, type ServerAutoImport } from "./nuxt-server-imports.ts"
 
-const databaseRuntimeState = ownModule(import.meta.url, "internal/database-runtime-state")
 const doctorExtensionEntry = fileURLToPath(new URL("./doctor", import.meta.url))
 const consoleRuntimeRoot = fileURLToPath(new URL("./console/runtime", import.meta.url))
 
@@ -1622,17 +1620,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   if (options.realtime) {
     addVueImports(nuxt, "vite-hub/realtime", ["defineRealtime"])
     addVueImports(nuxt, "vite-hub/realtime/vue", ["useRealtimeTiptap"])
-  }
-  if (options.database) {
-    const nuxtAlias = (nuxt.options.alias ??= {})
-    nuxtAlias["@vite-hub/database/runtime/state"] ??= databaseRuntimeState
-    if (!nuxt.options.dev) {
-      nuxt.hook?.("nitro:config", async (config) => {
-        const alias = (config.alias ??= {}) as Record<string, string>
-        alias["@vite-hub/database/runtime/state"]
-          ??= nuxtAlias["@vite-hub/database/runtime/state"]
-      })
-    }
   }
   if (consoleOptions) {
     generatedConsolePluginPath = await installConsole({

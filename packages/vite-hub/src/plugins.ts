@@ -1826,7 +1826,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       // Vercel cron jobs and Deno.cron call entries outside the Nitro server.
       ...(plan.host === "vercel" || plan.host === "deno" ? { providerOutput: "standalone" as const } : {}),
       ...(options.schedule === true ? {} : options.schedule),
-      databaseImport: "@vite-hub/database",
+      databaseImport: "vite-hub/database",
       importBase: "vite-hub/schedule",
       providerImportAliases,
     } as ScheduleOptions))
@@ -1869,8 +1869,12 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   })
   plugins.push(sourcePlugin)
   // Adds the `vitehub content` commands, the Content operations, and the Content inspector. Inert without server/content.ts.
-  // The app installs only `vite-hub`, so the KV and snapshot registrations that it adds to server/content.ts import `vite-hub/content`.
-  if (ownerModules.contentVite) plugins.push(ownerModules.contentVite.hubContent({ importBase: "vite-hub/content" }))
+  // The app installs only `vite-hub`, so the KV and snapshot registrations that it adds to server/content.ts import
+  // `vite-hub/content` and `vite-hub/kv`. `kvImport` is an internal Content option.
+  if (ownerModules.contentVite) {
+    const contentOptions = { importBase: "vite-hub/content", kvImport: "vite-hub/kv" }
+    plugins.push(ownerModules.contentVite.hubContent(contentOptions))
+  }
   // Forms in `server/forms/<name>.ts`: one route for each, submissions in the Database, email with Email, the user
   // with Auth, and the message counts in Rate Limit when its KV store is shared. Inert without the folder, and absent
   // without its package.
