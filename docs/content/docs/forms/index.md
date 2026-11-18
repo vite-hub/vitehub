@@ -25,7 +25,7 @@ export const ContactSchema = v.object({
 import { defineForm } from 'vite-hub/forms'
 import { ContactSchema } from '../../shared/schemas'
 
-// One file is one form, at POST /api/_vitehub/forms/contact
+// One file is one form, at POST /_vitehub/forms/contact
 export default defineForm({
   schema: ContactSchema,
   notify: { email: { to: 'you@example.com', replyTo: 'email' } },

@@ -10,6 +10,7 @@ import { once } from "node:events"
 import { Server as HttpServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
 import { delimiter, dirname, join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { describe, expect, it, vi } from "vitest"
 import { Diagnostic } from "nostics"
@@ -5628,7 +5629,7 @@ cli_auth_credentials_store = "keyring"
   })
 
   it("binds Workspace command directory variables to the active root", async () => {
-    const cwd = new URL("fixtures/workspace-source-root", import.meta.url).pathname
+    const cwd = fileURLToPath(new URL("fixtures/workspace-source-root", import.meta.url))
     const result = await localWorkspaceHost().exec(process.execPath, ["-e", "process.stdout.write(JSON.stringify({ INIT_CWD: process.env.INIT_CWD, OLDPWD: process.env.OLDPWD, PWD: process.env.PWD, cwd: process.cwd() }))"], {
       cwd,
       env: { INIT_CWD: "/host/init", OLDPWD: "/host/old", PWD: "/host/current" },

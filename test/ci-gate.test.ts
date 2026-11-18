@@ -294,7 +294,7 @@ fi
     expect(runGate(results, "push").status).not.toBe(0)
   })
 
-  it.each(["node-22", "prepublish-contracts"])("requires %s on pushes, manual dispatches and repair-main pull requests", (name) => {
+  it.each(["node-floor", "prepublish-contracts"])("requires %s on pushes, manual dispatches and repair-main pull requests", (name) => {
     const results = { ...successfulJobs, [name]: { result: "skipped" } }
     expect(runGate(results, "pull_request").status).toBe(0)
     expect(runGate(results, "push").status).not.toBe(0)
@@ -322,7 +322,7 @@ fi
     const result = runGate({ ...results, "docs-deploy": { result: "skipped" } }, "pull_request", true)
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain("contracts-examples: skipped")
-    expect(result.stderr).toContain("node-22: skipped")
+    expect(result.stderr).toContain("node-floor: skipped")
     expect(result.stderr).toContain("prepublish-contracts: skipped")
   })
 

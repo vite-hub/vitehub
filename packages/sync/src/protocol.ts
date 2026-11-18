@@ -1,11 +1,11 @@
 /**
  * The wire contract between the Sync client and the Sync server. Both sides import these types, and nothing else
- * crosses the network. Each Sync definition `server/sync/<name>.ts` has one route: `/api/_vitehub/sync/<name>`.
+ * crosses the network. Each Sync definition `server/sync/<name>.ts` has one route: `/_vitehub/sync/<name>`.
  *
  * - `GET ?cursor&scope&version&where` pulls changes (`SyncPullQuery`). Leave out `cursor` for a full snapshot.
  * - `POST` with a `SyncPushRequest` body applies writes in order and answers with the results and a pull.
  *
- * One more route, `/api/_vitehub/sync`, streams the pulls of several stores in one connection: `POST` a
+ * One more route, `/_vitehub/sync`, streams the pulls of several stores in one connection: `POST` a
  * `SyncLiveRequest`, and the answer is Server-Sent Events (`SyncLiveEvent`) while the connection is open. The server
  * ends the stream after a while, and the client opens a new one.
  *
@@ -62,7 +62,7 @@ export interface SyncLivePull {
   version?: string
 }
 
-/** The body of `POST /api/_vitehub/sync`: the stores that one live stream sends pulls for. */
+/** The body of `POST /_vitehub/sync`: the stores that one live stream sends pulls for. */
 export interface SyncLiveRequest {
   pulls: SyncLivePull[]
 }
@@ -153,7 +153,7 @@ export interface SyncPushResponse {
 }
 
 /**
- * One event of a live stream (`POST /api/_vitehub/sync`), as Server-Sent Events. The event name is the `type`, and
+ * One event of a live stream (`POST /_vitehub/sync`), as Server-Sent Events. The event name is the `type`, and
  * the data is the JSON of the rest. `name` and `where` tell the store of the event, as the `SyncLivePull` had them.
  *
  * - `error`: the server refused this store, such as a caller without a session or a subset outside `where`. The
@@ -202,7 +202,7 @@ export type SyncErrorCode =
   | "SYNC_BAD_REQUEST"
 
 /** The route of the live stream of every Sync definition, below the app's base URL. */
-export const syncLiveRoute = "/api/_vitehub/sync"
+export const syncLiveRoute = "/_vitehub/sync"
 
 /** The route of a Sync definition, below the app's base URL. */
 export function syncRoute(name: string): string {

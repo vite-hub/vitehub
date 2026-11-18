@@ -46,7 +46,7 @@ function post(handler: ReturnType<typeof createChannelWebhookRouteHandler>, chat
   const chat = { id: chatId, title: "Support", type: "group" }
   const tasks: Array<Promise<unknown>> = []
   const reply = replyTo ? { reply_to_message: { chat, date: telegramDate, from: replyTo.from, message_id: replyTo.messageId, text: replyTo.text } } : {}
-  const response = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+  const response = handler(new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
     body: JSON.stringify({ message: { chat, date: telegramDate, from, message_id: messageId, text, ...reply }, update_id: messageId }),
     method: "POST",
   }), "telegram", {

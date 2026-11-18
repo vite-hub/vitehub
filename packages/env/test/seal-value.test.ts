@@ -187,6 +187,18 @@ describe("seal and unseal", () => {
     })
   })
 
+  it("reads a ttl duration such as \"15m\" like the same number of seconds", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-07T10:00:00.000Z"))
+    const sealed = await seal("app:upload", { id: 1 }, { ttl: "15m" })
+    vi.setSystemTime(new Date("2026-11-07T10:14:59.999Z"))
+    expect(await unseal("app:upload", sealed)).toEqual([undefined, { id: 1 }])
+    vi.setSystemTime(new Date("2026-11-07T10:15:00.000Z"))
+    expect((await unseal("app:upload", sealed))[0]).toMatchObject({ code: "ENV_SEAL_EXPIRED" })
+    await expect(seal("app:upload", 1, { ttl: "soon" as never })).rejects.toMatchObject({ code: "RUNTIME_DURATION_INVALID" })
+    await expect(seal("app:upload", 1, { ttl: "0s" })).rejects.toMatchObject({ code: "ENV_SEAL_ARGUMENT_INVALID" })
+  })
+
   it("keeps a value without ttl", async () => {
     vi.useFakeTimers({ toFake: ["Date"] })
     const sealed = await seal("app:credentials", { token: "t" })

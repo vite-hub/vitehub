@@ -91,7 +91,7 @@ describe("commentsRealtime", () => {
   it.each([true, false])("keeps anonymous awareness unbound while enforcing read access (%s)", async (allowed) => {
     const definition = commentsRealtime(defineComments({ authorize: ({ user }) => allowed && user === null }), { session: async () => null })
     // SAFETY: the session reader only reads the request headers.
-    const request = { req: new Request("http://site.test/api/_vitehub/realtime/comments/" + commentRoom("/") + "?page=%2F") } as H3Event
+    const request = { req: new Request("http://site.test/_vitehub/realtime/comments/" + commentRoom("/") + "?page=%2F") } as H3Event
     const context = { definition: "comments", event: request, request: request.req }
     const user = await definition.identify!(context)
     expect(user).toBeNull()
@@ -115,7 +115,7 @@ describe("commentsRealtime", () => {
     const person = { id: "guest-reviewer@example.com", email: "guest-reviewer@example.com", name: "guest-reviewer@example.com" }
     const definition = commentsRealtime(defineComments({ authorize: ({ user }) => user?.email === person.email }), { session: async () => person })
     // SAFETY: the session reader only reads the request headers.
-    const request = { req: new Request("http://site.test/api/_vitehub/realtime/comments/" + commentRoom("/") + "?page=%2F") } as H3Event
+    const request = { req: new Request("http://site.test/_vitehub/realtime/comments/" + commentRoom("/") + "?page=%2F") } as H3Event
     const context = { definition: "comments", event: request, request: request.req }
     const user = await definition.identify!(context)
     expect(user).toEqual(person)
