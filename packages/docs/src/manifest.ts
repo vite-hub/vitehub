@@ -6,6 +6,7 @@ import { createSource, glob } from "@vite-hub/source"
 import { parseFrontmatter } from "comark/parse"
 import yaml from "comark-content/plugins/yaml"
 
+import { docsErrorDiagnostics } from "./error-diagnostics.ts"
 import { docsManifestPages, docsPanelOf, docsPanelPages, normalizeDocsBase } from "./navigation.ts"
 import { docsPageOf, docsPagePath } from "./page.ts"
 import { docsFrontmatter, docsPageSchema, docsSectionSchema } from "./schema.ts"
@@ -68,20 +69,17 @@ export function resolveDocsSources(inputs: readonly DocsSourceInput[], rootDir: 
     const { source, ...options } = typeof input === "string" || isContentSource(input) ? { source: input } : input
     const mount = normalizeDocsBase(options.mount ?? "/")
     if (mount.split("/").some((part) => part === "." || part === "..") || /[?#\\]/.test(mount))
-      throw new Error(`Invalid docs source mount: ${mount}`);
+      throw docsErrorDiagnostics.DOCS_SOURCE_MOUNT_INVALID({ mount });
     return typeof source === "string" ? { ...options, dir: resolve(rootDir, source) } : { ...options, source }
   })
 }
 
-/** A page whose frontmatter or section file does not match the schema. The build stops on it. */
-export class DocsContentError extends Error {
-  constructor(file: string, issues: readonly { path: readonly PropertyKey[], message: string }[]) {
-    const details = issues
-      .map((issue) => `${issue.path.map(String).join(".") || "(root)"}: ${issue.message}`)
-      .join("; ");
-    super(`Invalid docs frontmatter in ${file}: ${details}`)
-    this.name = "DocsContentError"
-  }
+/** A page whose frontmatter or section file does not match the schema: `DOCS_CONTENT_INVALID`. The build stops on it. */
+function docsContentError(file: string, issues: readonly { path: readonly PropertyKey[], message: string }[]) {
+  const details = issues
+    .map((issue) => `${issue.path.map(String).join(".") || "(root)"}: ${issue.message}`)
+    .join("; ")
+  return docsErrorDiagnostics.DOCS_CONTENT_INVALID({ details, file })
 }
 
 /** The name of the Content Source of a docs source. Content names allow no `-`, so it is not the page's `docs-<index>`. */
@@ -124,7 +122,7 @@ interface DocsContentFile {
 /**
  * The pages and `.navigation.yml` files of each docs source, from `content.list()`. Content keys a document by its
  * URL, so it lists one of two files with the same URL, such as `guide.md` and `guide/index.md`, and no empty file.
- * Those are read from the Source, so the manifest still names both files or the empty one in a `DocsContentError`.
+ * Those are read from the Source, so the manifest still names both files or the empty one in a `DOCS_CONTENT_INVALID` error.
  */
 async function listDocsContent(content: ContentRuntime, sources: readonly ResolvedDocsSource[]): Promise<DocsContentFile[]> {
   const files: DocsContentFile[] = []
@@ -183,7 +181,7 @@ function docsManifestOf(options: DocsManifestOptions, listed: readonly DocsConte
     }
     const previous = files.get(logical);
     if (previous)
-      throw new DocsContentError(entry.label, [
+      throw docsContentError(entry.label, [
         { path: ["path"], message: `${logical} is also produced by ${previous.label}` },
       ]);
     files.set(logical, entry);
@@ -268,7 +266,7 @@ function docsManifestOf(options: DocsManifestOptions, listed: readonly DocsConte
   for (const page of docsManifestPages(manifest)) {
     const existing = paths.get(page.path)
     if (existing)
-      throw new DocsContentError(join(options.dir, page.file), [
+      throw docsContentError(join(options.dir, page.file), [
         { path: ["path"], message: `${page.path} is also produced by ${existing}` },
       ]);
     paths.set(page.path, page.file)
@@ -278,7 +276,7 @@ function docsManifestOf(options: DocsManifestOptions, listed: readonly DocsConte
 
 function parse<TOutput>(file: string, schema: z.ZodType<TOutput>, input: unknown): TOutput {
   const result = schema.safeParse(input)
-  if (!result.success) throw new DocsContentError(file, result.error.issues)
+  if (!result.success) throw docsContentError(file, result.error.issues)
   return result.data
 }
 
