@@ -9,6 +9,7 @@ export const motionStateAttributes = [
   "data-state",
   "data-checked",
   "data-open",
+  // A native `<details>` opens and closes with its `open` attribute.
   "open",
   "data-leaving",
 ] as const;
@@ -100,9 +101,9 @@ export function onMotionEffectsChange(listener: () => void): () => void {
 
 /**
  * The CSS properties that the motion layer may write. `clip-path` hides the part of a tooltip that is still behind its
- * trigger.
+ * trigger. `width` is only for a panel that opens beside the page, as a sidebar does.
  */
-export type MotionStyleProperty = "scale" | "translate" | "rotate" | "filter" | "opacity" | "clip-path";
+export type MotionStyleProperty = "scale" | "translate" | "rotate" | "filter" | "opacity" | "clip-path" | "width";
 
 /** Writes motion properties inline. An empty string or `null` removes the property, so the stylesheet applies again. */
 export function writeMotionStyle(element: HTMLElement | SVGElement, values: Partial<Record<MotionStyleProperty, string | null>>): void {

@@ -633,6 +633,19 @@ describe("CommentPanel", () => {
     expect(document.activeElement?.getAttribute("data-thread-id")).toBe("thread-2");
   });
 
+  it("makes Open and Resolved a radio group that arrow keys move", async () => {
+    const { wrapper } = await panel([thread(1), thread(2, { status: "resolved" })]);
+    expect(wrapper.get("[data-slot=comment-panel-filters]").attributes("role")).toBe("radiogroup");
+    const filters = () => wrapper.findAll("[data-slot=comment-panel-filter]");
+    expect(filters().map(filter => [filter.attributes("role"), filter.attributes("aria-checked"), filter.attributes("tabindex")])).toEqual([["radio", "true", "0"], ["radio", "false", "-1"]]);
+
+    await filters()[0]!.trigger("keydown", { key: "ArrowRight" });
+    await flushPromises();
+    expect(filters().map(filter => filter.attributes("aria-checked"))).toEqual(["false", "true"]);
+    expect(document.activeElement).toBe(filters()[1]!.element);
+    expect(wrapper.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2"]);
+  });
+
   it("stays open on a click outside, as a side panel does", async () => {
     const { wrapper } = await panel([thread(1)], { thread: "thread-1" });
     document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));

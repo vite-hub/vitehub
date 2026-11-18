@@ -329,11 +329,13 @@ function copyLook(group: HTMLElement, from: HTMLElement, to: HTMLElement): { ele
   for (const [property, value] of Object.entries(style)) element.style.setProperty(property, value);
   adoptSheet(group);
   group.append(element);
-  // Its place at rest is the box of the new item, in the box that positions it.
-  const parent = element.offsetParent instanceof HTMLElement ? element.offsetParent : document.documentElement;
-  const box = boxOf(to, frameOf(parent));
-  element.style.left = `${box.x - parent.clientLeft + parent.scrollLeft}px`;
-  element.style.top = `${box.y - parent.clientTop + parent.scrollTop}px`;
+  // Its place at rest is the box of the new item, in the box that positions it. With no positioned ancestor,
+  // `offsetParent` is the body, but the page itself positions the copy, so a margin of the body does not count.
+  const parent = element.offsetParent instanceof HTMLElement ? element.offsetParent : null;
+  const block = parent && !(parent === document.body && getComputedStyle(parent).position === "static") ? parent : null;
+  const box = boxOf(to, frameOf(block ?? document.documentElement));
+  element.style.left = `${box.x - (block ? block.clientLeft - block.scrollLeft : 0)}px`;
+  element.style.top = `${box.y - (block ? block.clientTop - block.scrollTop : 0)}px`;
   element.style.width = `${box.width}px`;
   element.style.height = `${box.height}px`;
   return { element, hidden };

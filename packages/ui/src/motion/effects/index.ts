@@ -5,6 +5,7 @@ import { divider } from "./divider.ts";
 import { jelly } from "./jelly.ts";
 import { buttonIcon, label } from "./label.ts";
 import { leave } from "./leave.ts";
+import { panel } from "./panel.ts";
 import { press } from "./press.ts";
 import { select } from "./select.ts";
 import { slider } from "./slider.ts";
@@ -27,4 +28,5 @@ export const builtInEffects: MotionEffect[] = [
   buttonIcon,
   disclosure,
   leave,
+  panel,
 ];

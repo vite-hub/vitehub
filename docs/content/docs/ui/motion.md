@@ -6,7 +6,7 @@ navigation.group: Parts
 icon: i-lucide-sparkles
 ---
 
-Most motion in `@vite-hub/ui` needs no code. The motion layer moves a control by its role: a press squashes a button, a switch knob travels, a tab indicator slides, a tooltip rises. The parts on this page are for changes that only your component knows about: a label, a count, or an icon that changes with state, a list that changes, work that runs, files that a person drags in, and a delete that can be undone. The rules behind them are in [docs/design/motion.md](https://github.com/vite-hub/vitehub/blob/main/docs/design/motion.md).
+Most motion in `@vite-hub/ui` needs no code. The motion layer moves a control by its role: a press squashes a button, a switch knob travels, a tab indicator slides, a tooltip rises, the chevron of a `<details>` or an `aria-expanded` control turns. A sidebar that sets `data-motion-panel` follows a spring to its new width when it opens. The parts on this page are for changes that only your component knows about: a label, a count, or an icon that changes with state, a list that changes, work that runs, files that a person drags in, and a delete that can be undone. The rules behind them are in [docs/design/motion.md](https://github.com/vite-hub/vitehub/blob/main/docs/design/motion.md).
 
 ## Installation
 
