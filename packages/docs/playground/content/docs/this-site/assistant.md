@@ -7,7 +7,7 @@ icon: i-lucide-message-square-text
 
 `@vite-hub/docs` has a [docs assistant](https://vitehub.dev/docs/docs-site/assistant) that answers reader questions from the pages. It is off on this site.
 
-The assistant runs Codex as a local process, and a Cloudflare Worker cannot start a process. A build for Workers with `docs.assistant` on stops with `DocsAssistantSetupError`.
+The assistant runs Codex as a local process, and a Cloudflare Worker cannot start a process. A build for Workers with `docs.assistant` on stops with `DOCS_ASSISTANT_AGENTS_MISSING`.
 
 | Host | Docs site | Console, CMS, Comments, MCP | Docs assistant |
 | --- | --- | --- | --- |

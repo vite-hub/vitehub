@@ -10,7 +10,7 @@ Integration Options are the options you pass to `vitehub()` or a package's Vite 
 
 ## Built-in host
 
-`vitehub()` builds for exactly one built-in `host`: `cloudflare`, `netlify`, `vercel`, `deno`, or `node`. Set `host` to select it explicitly, or omit it to detect the host from the environment and fall back to `node`. The host sets the runtime, Nitro output, packaging, and built-in Blob, Queue, Rate Limit, and Sandbox adapters. A Nitro or hosting environment setting that conflicts with it fails the config.
+`vitehub()` builds for exactly one built-in `host`: `cloudflare`, `netlify`, `vercel`, `deno`, or `node`. Set `host` to select it explicitly, or omit it to detect the host from the environment and fall back to `node`. The host sets the runtime, Nitro output, packaging, and built-in Blob, Queue, Rate Limit, and Sandbox adapters. A `VITEHUB_HOST` that names another host fails the config. A `nitro.preset`, `NITRO_PRESET`, or `SERVER_PRESET` that names another host fails the build. A host build variable, such as `VERCEL`, `NETLIFY`, `WORKERS_CI`, or `DENO_DEPLOYMENT_ID`, that names another host fails the production build, and dev prints a warning once. Set `VITEHUB_HOST` to build for another host on purpose.
 
 `name` is the deployment name. On Cloudflare it resolves in this order:
 

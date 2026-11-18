@@ -80,7 +80,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     console: { auth: false },
     env: {
       providers: { credentials: './server/env/credentials.ts' },
@@ -105,7 +104,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     console: { auth: false },
     env: {
       providers: { credentials: './server/env/credentials.ts' },
@@ -129,7 +127,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     console: { auth: false },
     env: {
       providers: { credentials: './server/env/credentials.ts' },

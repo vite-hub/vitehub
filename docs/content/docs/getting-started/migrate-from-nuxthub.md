@@ -729,7 +729,7 @@ export default defineNuxtConfig({
 | --- | --- |
 | Cloudflare | Set `host: "cloudflare"`. Run `pnpm vitehub provision run --host cloudflare` to resolve the D1 database ID. |
 | Vercel | Set `host: "vercel"`. KV reads `KV_REST_API_URL` and `KV_REST_API_TOKEN`, then `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`. Blob uses OIDC with `BLOB_STORE_ID`, then `BLOB_READ_WRITE_TOKEN`. |
-| Node | Set `host: "node"`. KV and Blob use the file system under `.vitehub/data/`. |
+| Node | The default when ViteHub detects no other host. KV and Blob use the file system under `.vitehub/data/`. |
 
 Netlify and Deno have their own hosts. See
 [Frameworks and hosts](/docs/frameworks-hosts) for each feature's default

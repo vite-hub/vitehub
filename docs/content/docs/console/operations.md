@@ -90,7 +90,7 @@ const reports = {
 
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node' },
+  vitehub: {},
   vite: {
     plugins: [reports],
   },
@@ -111,7 +111,7 @@ const reports = {
   },
 }
 
-export default defineConfig({ plugins: [vitehub({ host: 'node' }), nitro(), reports] })
+export default defineConfig({ plugins: [vitehub(), nitro(), reports] })
 ```
 :::
 
@@ -128,7 +128,7 @@ const reports = {
   },
 } satisfies OperationContributingPlugin
 
-export default defineConfig({ plugins: [vitehub({ host: 'node' }), reports] })
+export default defineConfig({ plugins: [vitehub(), reports] })
 ```
 :::
 ::

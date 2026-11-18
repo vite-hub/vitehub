@@ -40,6 +40,7 @@ type CollectionAction = Exclude<ContentAction, "read">
 import type { AnyContentCollection, ContentDocument, ContentDocumentStatus, ContentDocumentSummary, ContentListOptions, ContentPage } from "../collections-types.ts"
 import type { ContentDocumentSchedule, ContentSchedule } from "../schedules.ts"
 import type { ContentDocumentSessions, ContentSession } from "../sessions.ts"
+import { contentErrorDiagnostics } from "../error-diagnostics.ts"
 import { contentDefinitionErrorCodes, contentInputErrorCodes } from "../input-errors.ts"
 import { contentLive } from "../live.ts"
 import { contentPreviewFrameParameter } from "../preview.ts"
@@ -72,7 +73,7 @@ function isContentRuntime(value: unknown): value is ContentRuntime {
 }
 
 function contentRuntime(value: unknown): ContentRuntime {
-  if (!isContentRuntime(value)) throw new TypeError("[vitehub] server/content.ts must default-export the defineContent() runtime.")
+  if (!isContentRuntime(value)) throw contentErrorDiagnostics.CONTENT_RUNTIME_EXPORT_INVALID()
   return value
 }
 
