@@ -2309,6 +2309,9 @@ importers:
       defu:
         specifier: catalog:unjs
         version: 6.1.7
+      nostics:
+        specifier: catalog:runtime
+        version: 1.4.0
       nuxt-agent-discovery:
         specifier: ^0.8.2
         version: 0.8.2(patch_hash=938c034a9b7f331c9e2f568ddb972a1e0b279fa6637b33d970edbd146c6d3a1d)(66e08919554360d90bf8d69944540454)
@@ -3972,6 +3975,9 @@ importers:
       '@vite-hub/icons':
         specifier: workspace:*
         version: link:../icons
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime

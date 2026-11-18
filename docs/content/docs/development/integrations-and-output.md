@@ -18,7 +18,7 @@ Your app code uses the package's documented server API, not generated internals.
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', agent: true, kv: true },
+  vitehub: { agent: true, kv: true },
 })
 ```
 :::
@@ -31,7 +31,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ host: 'node', agent: true, kv: true }),
+    vitehub({ agent: true, kv: true }),
     nitro(),
   ],
 })
@@ -45,7 +45,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ host: 'node', agent: true, kv: true }),
+    vitehub({ agent: true, kv: true }),
   ],
 })
 ```
@@ -154,7 +154,6 @@ Set `publicUrl` in the ViteHub options to your deployed app's public origin. Vit
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: "node",
     publicUrl: "https://agents.example.com",
   },
 })
@@ -170,7 +169,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       publicUrl: "https://agents.example.com",
     }),
     nitro(),
@@ -187,7 +185,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       publicUrl: "https://agents.example.com",
     }),
   ],
@@ -204,7 +201,6 @@ Use a function when one build serves Agents from different origins. ViteHub call
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: "node",
     publicUrl: agent => agent === "bot" ? "https://agent.example.com" : "https://agent-dev.example.com",
   },
 })
@@ -220,7 +216,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       publicUrl: agent => agent === "bot" ? "https://agent.example.com" : "https://agent-dev.example.com",
     }),
     nitro(),
@@ -237,7 +232,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       publicUrl: agent => agent === "bot" ? "https://agent.example.com" : "https://agent-dev.example.com",
     }),
   ],

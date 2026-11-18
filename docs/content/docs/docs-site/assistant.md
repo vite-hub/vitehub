@@ -23,7 +23,7 @@ Add `vite-hub/nuxt` to `modules` and set `assistant: true`:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: [
-    ['vite-hub/nuxt', { host: 'node', agent: true, connections: true, database: true }],
+    ['vite-hub/nuxt', { agent: true, connections: true, database: true }],
     'vite-hub/docs/nuxt',
   ],
   docs: { assistant: true },
