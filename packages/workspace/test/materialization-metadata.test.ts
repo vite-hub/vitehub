@@ -288,7 +288,7 @@ it.each([3600, 0])("restores legacy materialization ownership with cache maxAge 
     expect(getItem).toHaveBeenCalledTimes(2)
   }
   finally {
-    await Promise.all([root, sidecars, `${root}.meta.json`, `${root}.vitehub-locks`, `${root}.vitehub-lock`]
+    await Promise.all([root, sidecars, `${root}.meta.json`]
       .map(path => rm(path, { recursive: true, force: true })))
   }
 })
@@ -348,7 +348,7 @@ it.each([3600, 0])("converges scoped legacy materialization ownership with cache
     await expect(createLocalWorkspaceStore(root).getMeta!(snapshotKey)).resolves.toMatchObject({ status: "ready", files: 2 })
   }
   finally {
-    await Promise.all([root, sidecars, `${root}.meta.json`, `${root}.vitehub-locks`, `${root}.vitehub-lock`]
+    await Promise.all([root, sidecars, `${root}.meta.json`]
       .map(path => rm(path, { recursive: true, force: true })))
   }
 })
