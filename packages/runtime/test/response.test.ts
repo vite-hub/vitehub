@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { Buffer as NodeBuffer } from "node:buffer"
 import { runInNewContext } from "node:vm"
 import { deserializeResponse, isSerializedResponse, serializeResponse, toResponse } from "../src/response.ts"
+import { defineErrors } from "../src/result.ts"
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -249,5 +250,34 @@ describe("durable Response representation", () => {
       expect(deserializeResponse(serialized).body).toBeNull()
       expect(isSerializedResponse({ ...serialized, body: { ...serialized.body, isNull: false } })).toBe(false)
     }
+  })
+})
+
+describe("toResponse with a ResultError", () => {
+  const errors = defineErrors({
+    docs: "https://vitehub.dev/docs/example",
+    codes: {
+      EXAMPLE_CONFLICT: { why: "Someone else saved first.", fix: "Read the record again, then save.", status: 409 },
+      EXAMPLE_FAILED: { why: "The provider failed.", fix: "Try again." },
+    },
+  })
+
+  it("answers the status of the code with code, why, and fix", async () => {
+    const response = toResponse(errors.EXAMPLE_CONFLICT({ cause: new Error("secret provider detail") }))
+
+    expect(response.status).toBe(409)
+    expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8")
+    expect(await response.json()).toEqual({ code: "EXAMPLE_CONFLICT", why: "Someone else saved first.", fix: "Read the record again, then save." })
+  })
+
+  it("answers 500 when the code has no status", async () => {
+    const response = toResponse(errors.EXAMPLE_FAILED())
+
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ code: "EXAMPLE_FAILED", why: "The provider failed.", fix: "Try again." })
+  })
+
+  it("keeps a status outside 400 to 599 from the response", () => {
+    expect(toResponse(Object.assign(errors.EXAMPLE_FAILED(), { status: 200 })).status).toBe(500)
   })
 })

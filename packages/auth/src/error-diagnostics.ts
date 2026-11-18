@@ -12,16 +12,22 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/auth/diagnostics",
   codes: {
     // Event, password, and sign-out errors. The event store, the events route, the password verifier, and `signOut()`
-    // throw them.
+    // throw them. `listAuthEvents()` and `aggregateAuthEvents()` return the event read errors as `[error, undefined]`.
     AUTH_EVENT_CALLBACK_FAILED: {
       why: ({ type }: { type: string }) => `\`events.onEvent\` failed for the ${JSON.stringify(type)} auth event. Auth kept the change and the stored event.`,
       fix: "Read `error.cause` for the error of your callback. Catch errors inside `events.onEvent`, and retry the outside call there if it can fail.",
     },
     AUTH_EVENT_QUERY_INVALID: {
-      why: ({ problem }: { problem: "order" | "window" }) => problem === "order"
+      why: ({ problem }: { problem: "input" | "order" | "window" }) => problem === "order"
         ? "Auth event from must be before to."
-        : "Auth event windows must be positive and at most 366 days.",
-      fix: "Pass `from` before `to`, as ISO timestamps, and keep an aggregate window at most 366 days long.",
+        : problem === "window"
+          ? "Auth event windows must be positive and at most 366 days."
+          : "Auth event filters are not valid. `error.cause` tells which value failed.",
+      fix: "Pass `from` before `to`, as ISO timestamps, and keep an aggregate window at most 366 days long. Pass a known event `type`, a `limit` from 1 to 200, and the `nextCursor` of the previous page without changes.",
+    },
+    AUTH_EVENT_READ_FAILED: {
+      why: "The Auth event store failed to read the events.",
+      fix: "Read `error.cause` for the store error. Check that the database of `events.store` is reachable, then read again.",
     },
     AUTH_EVENT_RETENTION_INVALID: {
       why: "Auth event retention limits must be positive integers.",

@@ -7,6 +7,7 @@ import { verifyPasswordWithNoble } from "../src/password.ts"
 const codes = {
   AUTH_EVENT_CALLBACK_FAILED: authErrorDiagnostics.AUTH_EVENT_CALLBACK_FAILED({ type: "user.signed_in" }),
   AUTH_EVENT_QUERY_INVALID: authErrorDiagnostics.AUTH_EVENT_QUERY_INVALID({ problem: "order" }),
+  AUTH_EVENT_READ_FAILED: authErrorDiagnostics.AUTH_EVENT_READ_FAILED(),
   AUTH_EVENT_RETENTION_INVALID: authErrorDiagnostics.AUTH_EVENT_RETENTION_INVALID(),
   AUTH_PASSWORD_HASH_INVALID: authErrorDiagnostics.AUTH_PASSWORD_HASH_INVALID(),
 }

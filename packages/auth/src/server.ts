@@ -21,5 +21,5 @@ export {
   withAuth,
   withAuthorization,
 } from "./internal/server.ts"
-export type { AbilityErrorData } from "./internal/server.ts"
+export type { AbilityErrorData, AuthEventReadErrorCode } from "./internal/server.ts"
 export type { AuthMemberErrorCode } from "./members.ts"

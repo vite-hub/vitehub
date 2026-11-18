@@ -6,6 +6,7 @@ import { dirname, join } from "node:path"
 import { createRecord, parseRecord } from "@diglot/core"
 import { writeRecord } from "@diglot/store"
 import { compileMessage } from "@lingui/message-utils/compileMessage"
+import { toResponse } from "@vite-hub/runtime"
 import { describe, expect, it, vi } from "vitest"
 
 import { createLiveTranslations, readRevisionRecords } from "../src/live.ts"
@@ -39,7 +40,7 @@ function memoryWorkspace() {
         }
       },
       async commit({ ref, ifHead, changes }) {
-        if ((heads.get(ref) ?? null) !== ifHead) throw new Error("conflict")
+        if ((heads.get(ref) ?? null) !== ifHead) throw Object.assign(new Error("conflict"), { code: "WORKSPACE_CONFLICT" })
         const base = ifHead ? revisions.get(ifHead)! : {}
         const id = `${ref}-${revisions.size + 1}`
         const files = { ...base, ...changes.put }
@@ -241,9 +242,28 @@ describe("translations in a Workspace", () => {
     const head = store.heads.get("draft")
     const rejected = (await translations.list("es", { ref: "draft" }))[1]![deploy.id]!
 
-    await expect(translations.save({ ...input, review: "verified", by: "ben" })).rejects.toThrow(/rejected.*edit/)
+    const [error] = await translations.save({ ...input, review: "verified", by: "ben" })
+    expect(error).toMatchObject({ code: "I18N_INVALID_TRANSLATION", why: expect.stringMatching(/rejected.*edit/), status: 400 })
     expect(store.heads.get("draft")).toBe(head)
     expect((await translations.list("es", { ref: "draft" }))[1]![deploy.id]).toEqual(rejected)
+  })
+
+  it("returns I18N_SAVE_CONFLICT when another save moves the draft first", async () => {
+    const { store } = setup()
+    const translations = useTranslations()
+    const commit = store.workspace.history.commit
+    store.workspace.history.commit = async (options) => {
+      // Another save lands between the head read and this commit.
+      store.workspace.history.commit = commit
+      await commit({ ...options, message: "Other save" })
+      return await commit(options)
+    }
+
+    const [error, saved] = await translations.save({ locale: "es", source: deploy.message, translation: "Publica tu agente", review: "machine" })
+
+    expect(saved).toBeUndefined()
+    expect(error).toMatchObject({ code: "I18N_SAVE_CONFLICT", status: 409, cause: expect.objectContaining({ code: "WORKSPACE_CONFLICT" }) })
+    expect(toResponse(error).status).toBe(409)
   })
 
   it.each(["Publica tu agente", "Despliega tu agente"])("edits rejected text to %s before verification", async (translation) => {

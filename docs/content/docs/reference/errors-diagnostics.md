@@ -34,6 +34,23 @@ if (error) {
 
 A catalog code can give static or computed `data`, which stays in memory. Each factory infers its data type. `ResultError<Code, Data>` names it; without it, `data` is `unknown`. The `toJSON()` type keeps the literal code and name and matches Nostics `Diagnostic`, so `formatDiagnostic()` accepts catalog errors. Nostics requires `data` in its serializer type, but runtime JSON still omits it. Read `data` from the error itself.
 
+### Return an error from a route
+
+`toResponse(error)` from `vite-hub/runtime` turns a `ResultError` into a JSON `Response` with `code`, `why`, and `fix`. The status is the `status` of the catalog code, such as 409 for a conflict, or 500 when the code has none.
+
+```ts [server/api/translations.post.ts]
+import { useTranslations } from 'vite-hub/i18n/server'
+import { toResponse } from 'vite-hub/runtime'
+
+export default async () => {
+  const [error, saved] = await useTranslations().save({ locale: 'es', source: 'Payment received', translation: 'Pago recibido' })
+  if (error) return toResponse(error) // 409 for I18N_SAVE_CONFLICT
+  return saved
+}
+```
+
+A package sets the status in its catalog with `defineErrors()`: `{ why, fix, status: 409 }`.
+
 A catalog checks its own errors. `errors.is(error)` accepts any code of the catalog, and `errors.CODE.is(error)` accepts one code. Both narrow `code` and `data`, and both accept an error from another bundled copy or realm. `InferDiagnosticCodes<typeof errors>` from `nostics` is the union of the codes.
 
 ## Diagnostic codes
