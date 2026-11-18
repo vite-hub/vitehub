@@ -2,7 +2,7 @@ import { isRuntimeRecord } from "./runtime-type.ts"
 import { workflowRuntimeModule, type WorkflowRuntimeModuleName } from "./runtime-modules.ts"
 import { createHash, randomUUID } from "node:crypto"
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
-import { cp, mkdir, readFile, readdir, realpath, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
+import { cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -17,6 +17,7 @@ import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/verc
 import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
+import type { WorkflowManifest } from "@workflow/builders"
 import { buildSync, transform } from "esbuild"
 import type { Plugin } from "esbuild"
 
@@ -131,7 +132,7 @@ interface VercelWorkflowBuilders {
   VercelBuildOutputAPIBuilder: typeof import("@workflow/builders").VercelBuildOutputAPIBuilder
   applySwcTransform: typeof import("@workflow/builders").applySwcTransform
   createPseudoPackagePlugin: () => Plugin
-  createSwcPlugin: (options: { mode: "step" | "workflow", moduleSpecifierRoot?: string, projectRoot: string, sideEffectEntries?: string[] }) => Plugin
+  createSwcPlugin: (options: { mode: "step" | "workflow", moduleSpecifierRoot?: string, projectRoot: string, sideEffectEntries?: string[], workflowManifest?: WorkflowManifest }) => Plugin
   detectWorkflowPatterns: typeof import("@workflow/builders").detectWorkflowPatterns
   shouldTransformFile: typeof import("@workflow/builders").shouldTransformFile
 }
@@ -618,7 +619,7 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
     protected override async createStepsBundle(options: Parameters<InstanceType<typeof VercelBuildOutputAPIBuilder>["createStepsBundle"]>[0]) {
       const discoveredEntries = options.discoveredEntries ?? await this.discoverEntries(options.inputFiles, dirname(options.outfile), options.tsconfigPath)
       const entryFile = `${options.outfile}.entry.mjs`
-      const manifest = await this.createStepSourceRegistrationFile({ discoveredEntries, inputFiles: options.inputFiles, outfile: entryFile, tsconfigPath: options.tsconfigPath })
+      const manifest: WorkflowManifest = {}
       const registeredFiles = [...discoveredEntries.discoveredSteps, ...discoveredEntries.discoveredSerdeFiles]
       const swcPlugin = createSwcPlugin({
         mode: "step",
@@ -626,9 +627,16 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
         projectRoot: this.transformProjectRoot,
         // Keeps step files whose package declares `"sideEffects": false`: only their imports register the steps.
         sideEffectEntries: await Promise.all(registeredFiles.map(file => realpath(file).catch(() => file))),
+        workflowManifest: manifest,
       })
       try {
+        await this.createStepSourceRegistrationFile({ discoveredEntries, inputFiles: options.inputFiles, outfile: entryFile, tsconfigPath: options.tsconfigPath })
+        const tsconfigPath = options.tsconfigPath
+        const tsconfigOptions = tsconfigPath && (await lstat(tsconfigPath)).isSymbolicLink()
+          ? { tsconfigRaw: await readFile(tsconfigPath, "utf8") }
+          : { tsconfig: tsconfigPath }
         await bundleEsmEntry(entryFile, options.outfile, {
+          ...tsconfigOptions,
           define: bundleDefines,
           extensions: [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],
           external: ["bun", "bun:*", ...(this.config.externalPackages ?? [])],

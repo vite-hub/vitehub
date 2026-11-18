@@ -30,6 +30,8 @@ interface BundleEsmEntryOptions {
   /** Reverse package aliases for the entry itself, in addition to its imports. Defaults to true. */
   resolveEntryPackageAliases?: boolean
   signal?: AbortSignal
+  tsconfig?: string
+  tsconfigRaw?: string
   workingDir?: string
 }
 
@@ -546,6 +548,8 @@ export async function bundleEsmEntry(
     plugins,
     sourcemap: false,
     target: "es2022",
+    tsconfig: options.tsconfig,
+    tsconfigRaw: options.tsconfigRaw,
     write: options.signal ? false : true,
   })
   options.signal?.throwIfAborted()
