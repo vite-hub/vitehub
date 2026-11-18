@@ -3495,7 +3495,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     // AGENT_B0007 through AGENT_B0015 are retired with the Eve extension adapter. Do not reuse them.
     AGENT_B0016: {
       ...dynamicError,
-      fix: "Put `[agent]` in the inspection route, such as `vitehub({ agent: { routes: { inspection: \"/api/_vitehub/agents/[agent]/inspection\" } } })`, or set `inspection: true` to use that default route.",
+      fix: "Put `[agent]` in the inspection route, such as `vitehub({ agent: { routes: { inspection: \"/_vitehub/agents/[agent]/inspection\" } } })`, or set `inspection: true` to use that default route.",
     },
     AGENT_B0017: dynamicError,
     // AGENT_B0018 is retired with the Eve extension adapter. Do not reuse it.
@@ -4142,13 +4142,14 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Export without media, or read the conversation page by page with `vitehub channels conversation`.",
     },
     AGENT_CHANNELS_FORBIDDEN: {
-      why: ({ problem }: { problem: "conversations" | "identity" | "participant" | "status" }) => ({
+      why: ({ problem }: { problem: "conversations" | "deliveries" | "identity" | "participant" | "status" }) => ({
         conversations: "An Agent can read Channel conversations only when its operations() capability sets `conversations`.",
+        deliveries: "An Agent can read Channel deliveries only when its operations() capability sets `conversations: \"all\"`.",
         identity: "The Actor has no identity that can be matched to the people of this thread.",
         participant: "The Actor is not a participant of this thread.",
         status: "An Agent can read Channel status only when its operations() capability sets `conversations: \"all\"`.",
       })[problem],
-      fix: "Let the Agent read the threads that it takes part in with `operations({ conversations: \"participant\" })`, or every thread and the Channel status with `operations({ conversations: \"all\" })`.",
+      fix: "Let the Agent read the threads that it takes part in with `operations({ conversations: \"participant\" })`, or every thread, the Channel status, and the deliveries with `operations({ conversations: \"all\" })`.",
     },
     AGENT_CHANNELS_HOST_UNAVAILABLE: {
       why: ({ detail, read }: { detail?: string, read: "admission" | "durable" | "host" | "participants" | "state" | "transcripts" }) => ({
@@ -4987,8 +4988,8 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Pass `--table-prefix` with the `tablePrefix` that the app uses, or pass `--database` with the journal that the app writes.",
     },
     AGENT_INVOCATIONS_NODE_SQLITE_MISSING: {
-      why: "--database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 22.18 or newer, or pass --url.",
-      fix: "Run the command with Node.js 22.18 or newer, or pass `--url` with the app URL.",
+      why: "--database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 24.15 or newer, or pass --url.",
+      fix: "Run the command with Node.js 24.15 or newer, or pass `--url` with the app URL.",
     },
     AGENT_INVOCATIONS_PRUNE_CUTOFF_INVALID: {
       why: "--older-than must produce a cutoff within JavaScript's Date range.",

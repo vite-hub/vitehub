@@ -25,10 +25,9 @@ app.get("/api/workflows/welcome", () => ({ ok: true, workflow: workflowName }))
 app.post("/api/workflows/welcome", async (event) => {
   const body = await readValidatedBody(event, workflowBody)
   const marker = typeof body?.marker === "string" ? body.marker : event.req.headers.get("x-vitehub-e2e-marker") || undefined
-  return {
-    ok: true,
-    result: await startWorkflow(workflowName, buildPayload(body, marker), { id: resolveId(body, marker) }),
-  }
+  const [error, run] = await startWorkflow(workflowName, buildPayload(body, marker), { id: resolveId(body, marker) })
+  if (error) throw error
+  return { ok: true, result: run }
 })
 
 app.post("/api/workflows/welcome-defer", async (event) => {
@@ -42,7 +41,10 @@ app.post("/api/workflows/welcome-defer", async (event) => {
 
 app.get("/api/workflows/welcome/:id", async (event) => {
   const id = event.context.params?.id
-  return id ? await getWorkflowRun(workflowName, id) : { status: "unknown" }
+  if (!id) return { status: "unknown" }
+  const [error, run] = await getWorkflowRun(workflowName, id)
+  if (error) throw error
+  return run
 })
 
 export default app

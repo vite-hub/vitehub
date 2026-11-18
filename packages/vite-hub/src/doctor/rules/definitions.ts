@@ -230,9 +230,8 @@ function nonTupleResult(r: Resolver, call: unknown): { name: string, kind: "resp
   const reference = r.callee(call)
   if (!reference) return
   if (isExport(reference, ["sandbox/task"], "runSandboxTask") || isExport(reference, ["browser"], "runBrowser")) return { name: reference.name, kind: "response" }
-  if (isExport(reference, ["workflow"], ["startWorkflow", "deferWorkflow", "getWorkflowRun", "cancelWorkflow", "resumeWorkflow"])
-    || isExport(reference, ["queue"], "useQueue")
-    || isExport(reference, ["schedule"], "runSchedule")) return { name: reference.name, kind: "value" }
+  if (isExport(reference, ["workflow"], "deferWorkflow")
+    || isExport(reference, ["queue"], "useQueue")) return { name: reference.name, kind: "value" }
 }
 
 function arrayPatternTarget(awaited: unknown): AstNode | undefined {
@@ -259,14 +258,10 @@ export const noDestructureNonTuples: DoctorRule = createRule({
         ctx.report(diagnostics.VHUB0018({
           why: result.kind === "response"
             ? `\`${result.name}()\` returns a Web \`Response\`, not an \`[error, value]\` tuple. A \`Response\` is not iterable, so this destructuring throws.`
-            : result.name === "runSchedule"
-              ? "`runSchedule()` returns a Schedule Run record, not an `[error, value]` tuple. A failed handler resolves with `status: \"failed\"`, so this destructuring throws."
-              : `\`${result.name}()\` returns its value and throws on failure. It does not return an \`[error, value]\` tuple, so this destructuring throws or reads the wrong values.`,
+            : `\`${result.name}()\` returns its value and throws on failure. It does not return an \`[error, value]\` tuple, so this destructuring throws or reads the wrong values.`,
           fix: result.kind === "response"
             ? `Read the response: \`const response = await ${result.name}(...)\`, check \`response.ok\`, then call \`await response.json()\`.`
-            : result.name === "runSchedule"
-              ? "Assign the run, then check it: `const run = await runSchedule(name)`, then `if (run.status === \"failed\")`."
-              : `Assign the result directly: \`const value = await ${result.name}(...)\`. Use \`try\`/\`catch\` to handle failures.`,
+            : `Assign the result directly: \`const value = await ${result.name}(...)\`. Use \`try\`/\`catch\` to handle failures.`,
         }), { range: ctx.range(pattern) })
       },
     }

@@ -449,7 +449,7 @@ export async function deliverChannel(
   const headers = new Headers(options.headers)
   const raw = typeof body === "string" || body instanceof Uint8Array ? body : JSON.stringify(body)
   if (raw !== body && !headers.has("content-type")) headers.set("content-type", "application/json")
-  const url = `http://localhost/api/_vitehub/agents/${encodeURIComponent(agentName)}/webhooks/${encodeURIComponent(channel)}`
+  const url = `http://localhost/_vitehub/agents/${encodeURIComponent(agentName)}/webhooks/${encodeURIComponent(channel)}`
   const tasks: Promise<unknown>[] = []
   const response = await createChannelWebhookRouteHandler(agent)(new Request(url, { body: raw, headers, method: "POST" }), channel, {
     agentName,

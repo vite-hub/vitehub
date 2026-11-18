@@ -336,6 +336,7 @@ export type {
   AgentChannelDeliveryEventInput,
   AgentChannelDeliveryEventType,
   AgentChannelDeliveryInspection,
+  AgentChannelDeliveryRejection,
   AgentChannelDeliveryStatus,
   AgentCallSettingsInstrumentation,
   AgentCallSettingsInstrumentationContext,
@@ -988,7 +989,8 @@ async function startAgentWorkflowRecovery<TPayload, TResult>(
   let failure: unknown
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      await handle.start(payload, options)
+      const [error] = await handle.start(payload, options)
+      if (error) throw error
       return
     }
     catch (error) {
@@ -1155,7 +1157,8 @@ async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntimeConfig
         }
       }
       const providerId = (recoveryConfig && recoveryConfig.driver) === "vercel" && dispatch?.id ? dispatch.id : recoveryConfig && recoveryConfig.driver === "cloudflare" ? await portableAgentWorkflowRunId(stableId) : stableId
-      const accepted = await handle.getRun(providerId)
+      const [acceptedError, accepted] = await handle.getRun(providerId)
+      if (acceptedError) throw acceptedError
       if (accepted.status !== "unknown") {
         if (!await journal.confirmWorkflowDispatch()) throw agentDiagnostics.AGENT_INVOCATION_STORE_UNCONFIRMED({ step: "confirm the accepted Workflow Invocation" })
         throw agentDiagnostics.AGENT_INVOCATION_CLAIM_CONFLICT()
@@ -1423,11 +1426,13 @@ async function runAgentAsWorkflow<
     // Storage handoff can yield after cancellation was requested. Check the
     // journal signal at the last possible point before accepting the run.
     replayJournal?.abortSignal.throwIfAborted()
-    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    run = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.start(
+    const [error, started] = await workflowRuntimeState.runWithWorkflowRuntimeEvent(workflowEvent, () => handle.start(
       payload,
       workflowRunId ? { id: workflowRunId } : {},
-    )) as AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
+    ))
+    if (error) throw error
+    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+    run = started as AgentWorkflowRun<AgentWorkflowOutput<TOutput>>
   }
   catch (error) {
     const status = invocationFailureWasCancelled(error, input.abortSignal) || invocationFailureWasCancelled(error, replayJournal?.abortSignal) ? "cancelled" : "failed"
@@ -3781,7 +3786,7 @@ function agentTelemetryAttributeForContent(
     const messages = agentTelemetryMessagesForContent(value, policy)
     return messages ? { selected: true, value: messages } : undefined
   }
-  if (key === "input.message" && typeof value !== "string") {
+  if (key === "input.trigger.message" || (key === "input.message" && typeof value !== "string")) {
     const contentClass = agentTelemetryMessageContentClass(value)
     return contentClass !== undefined && policy[contentClass] === true
       ? { selected: true, value }
@@ -8584,15 +8589,19 @@ function createWorkflowAgentInvocationController<CALL_OPTIONS, TOutput>(
   const controllerOptions: BackedAgentInvocationOptions<TOutput | Response> = {
     cancel: async () => {
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      const snapshot = agentInvocationSnapshotFromWorkflow(await handle.cancel(run.id) as AgentWorkflowRun<TOutput>)
+      const [error, cancelled] = await handle.cancel(run.id)
+      if (error) throw error
+      const snapshot = agentInvocationSnapshotFromWorkflow(cancelled as AgentWorkflowRun<TOutput>)
       return await reconcileJournal(snapshot)
     },
     errorOutcome: workflowOperationOutcome,
     id: run.id,
-    inspect: async () => await reconcileJournal(agentInvocationSnapshotFromWorkflow(
+    inspect: async () => {
+      const [error, found] = await handle.getRun(run.id)
+      if (error) throw error
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      await handle.getRun(run.id) as AgentWorkflowRun<TOutput>,
-    )),
+      return await reconcileJournal(agentInvocationSnapshotFromWorkflow(found as AgentWorkflowRun<TOutput>))
+    },
     result: Promise.resolve(run),
   }
   if (settled) {

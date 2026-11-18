@@ -367,7 +367,7 @@ describe("vitehub blob", () => {
     const record = {
       alt: "Hero", color: "#336699", contentType: "image/png", createdAt: "2026-10-01T00:00:00.000Z",
       crops: { mobile: { aspect: "4:5", focal: { x: 0.5, y: 0.2 }, replacement: { contentType: "image/png", hash: "f".repeat(64), height: 500, pathname: "_vitehub/media/crops/abc/mobile.ffffffffffff.png", size: 10, width: 400 } }, square: { aspect: "1:1" } },
-      focal: { x: 0.25, y: 0.75 }, hash: "a".repeat(64), height: 300, pathname: "images/hero.png", size: 2048, updatedAt: "2026-10-02T00:00:00.000Z", url: "/api/_vitehub/blob/images/hero.png", width: 600,
+      focal: { x: 0.25, y: 0.75 }, hash: "a".repeat(64), height: 300, pathname: "images/hero.png", size: 2048, updatedAt: "2026-10-02T00:00:00.000Z", url: "/_vitehub/blob/images/hero.png", width: 600,
     }
     const human = context()
     const fetch = devServer({ record, store: "default" })
@@ -383,7 +383,7 @@ describe("vitehub blob", () => {
       "Alt           Hero",
       "Focal point   0.25,0.75",
       "Color         #336699",
-      "URL           /api/_vitehub/blob/images/hero.png",
+      "URL           /_vitehub/blob/images/hero.png",
       "Updated       2026-10-02T00:00:00.000Z",
       "Crops         mobile 4:5, focal 0.5,0.2, replacement _vitehub/media/crops/abc/mobile.ffffffffffff.png (400x500)",
       "              square 1:1",
