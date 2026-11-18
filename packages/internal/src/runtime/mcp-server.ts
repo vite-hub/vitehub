@@ -29,9 +29,11 @@ export interface McpToolResult {
   _meta?: McpMeta
 }
 
+type ToolResultContent = ({ type: "text", text: string } | { type: "image", data: string, mimeType: string })[]
+
 /** The MCP result of a `ViteHubMcpTool` call: a text block, then one image block for each image. */
-export function mcpToolResult(result: ViteHubMcpToolResult) {
-  const content: ({ type: "text", text: string } | { type: "image", data: string, mimeType: string })[] = [{ type: "text", text: result.text }]
+export function mcpToolResult(result: ViteHubMcpToolResult): { content: ToolResultContent, structuredContent?: Record<string, unknown>, isError: boolean } {
+  const content: ToolResultContent = [{ type: "text", text: result.text }]
   for (const image of result.images ?? []) {
     content.push({ type: "image", data: image.data, mimeType: image.mimeType })
   }
