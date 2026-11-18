@@ -727,7 +727,6 @@ describe("vitehub", () => {
       "vite-hub/deployment-host",
       "vite-hub/deployment-output",
       "vite-hub/public-url",
-      "vite-hub/agent-option-missing",
       "vite-hub/standard-context",
       "vite-hub/vitest-inline",
       "vite-hub/database-disabled",
@@ -757,6 +756,7 @@ describe("vitehub", () => {
       "vite-hub/types",
       "vite-hub/nitro-order",
       "vite-hub/nitro-order/run",
+      "vite-hub/definition-features-root",
     ])
 
     expect(pluginNames(vitehub({
@@ -826,6 +826,7 @@ describe("vitehub", () => {
       "vite-hub/types",
       "vite-hub/nitro-order",
       "vite-hub/nitro-order/run",
+      "vite-hub/definition-features-root",
     ])
     expect((vitehub({ host: "node" }).flat() as Plugin[]).filter(isIncludedNitroPlugin).map(plugin => plugin.name)).toContain("nitro:main")
     expect(pluginNames(vitehub({ host: "node", sandboxTask: false }))).not.toContain("@vite-hub/sandbox/task/vite")
@@ -1179,8 +1180,10 @@ describe("vitehub", () => {
     })
   })
 
-  it("rejects the Cloudflare Email default on other presets", () => {
-    expect(() => vitehub({ email: true, host: "node" })).toThrow("requires the Cloudflare host")
+  it("uses the log driver for email: true on hosts without an Email provider", () => {
+    vitehub({ email: true, host: "node" })
+
+    expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith(expect.objectContaining({ driver: "log", hosting: "node-server" }))
   })
 
   it("treats auth: false and email: false as omitted", () => {

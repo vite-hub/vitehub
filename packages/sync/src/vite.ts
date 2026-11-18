@@ -17,7 +17,7 @@ import type { Plugin, UserConfig } from "vite"
 export const SYNC_VITE_PLUGIN_NAME = "@vite-hub/sync/vite"
 
 /** The route of every Sync definition, below the app base. */
-export const syncRouteBase = "/api/_vitehub/sync"
+export const syncRouteBase = "/_vitehub/sync"
 
 /** The generated declaration of `ViteHubSyncMap`. `.vitehub/types.d.ts` references every file of `.vitehub/types`. */
 const typesEntry = ".vitehub/types/sync.d.ts"
@@ -138,7 +138,7 @@ async function writeIfChanged(file: string, contents: string): Promise<void> {
 
 /**
  * Sync in a ViteHub app: each `server/sync/<name>.ts` that default-exports `defineSync()` gets the route
- * `<base>api/_vitehub/sync/<name>`, its change log goes to the `vitehub_sync_*` tables of the Database, and
+ * `<base>_vitehub/sync/<name>`, its change log goes to the `vitehub_sync_*` tables of the Database, and
  * `useSync("<name>")` gets the row type.
  */
 export function hubSync(options: HubSyncOptions = {}): Plugin & { vitehub: { databases: (context: { projectRoot?: string, root?: string, rootDir?: string }) => Promise<unknown[]>, operations: OperationContributions } } {

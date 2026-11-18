@@ -2,12 +2,25 @@ import { describe, expect, it } from "vitest";
 import { formatDuration, initials } from "../src/internal/format.ts";
 
 describe("display formatters", () => {
-  it("formats a duration in the largest unit that keeps it short", () => {
-    expect(formatDuration(320)).toBe("320 ms");
-    expect(formatDuration(1_234)).toBe("1.2 s");
-    expect(formatDuration(30_000)).toBe("30 s");
-    expect(formatDuration(59_900)).toBe("59 s");
-    expect(formatDuration(95_000)).toBe("1 min 35 s");
+  it.each([
+    [0, "0ms"],
+    [320, "320ms"],
+    [999.4, "999ms"],
+    [999.6, "1.0s"],
+    [1_000, "1.0s"],
+    [1_150, "1.1s"],
+    [1_234, "1.2s"],
+    [1_250, "1.2s"],
+    [9_949, "9.9s"],
+    [9_960, "9.9s"],
+    [10_000, "10s"],
+    [30_000, "30s"],
+    [59_900, "59s"],
+    [60_000, "1m 0s"],
+    [95_000, "1m 35s"],
+    [3_605_000, "60m 5s"],
+  ])("formats %d ms as %s", (ms, text) => {
+    expect(formatDuration(ms)).toBe(text);
   });
 
   it("takes two letters from a name or an email address", () => {

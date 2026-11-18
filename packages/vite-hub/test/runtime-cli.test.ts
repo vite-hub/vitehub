@@ -4,12 +4,13 @@ import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+import { fileURLToPath } from "node:url"
 
 import { afterEach, expect, it } from "vitest"
 import { operationRpcReply, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts"
 
 const execFileAsync = promisify(execFile)
-const bin = new URL("../dist/bin.js", import.meta.url).pathname
+const bin = fileURLToPath(new URL("../dist/bin.js", import.meta.url))
 const cleanup: Array<() => Promise<void>> = []
 
 afterEach(async () => {

@@ -70,7 +70,7 @@ function workspaceFacade(fs: Record<string, unknown>, capabilities = { condition
 }
 
 function durableRealtimeRequest(exec: (query: string, ...bindings: unknown[]) => { toArray(): Array<Record<string, unknown>> }) {
-  const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+  const request = new Request("https://example.com/_vitehub/realtime/docs/page.md", {
     headers: { upgrade: "websocket" },
   }) as Request & { runtime?: unknown }
   request.runtime = { cloudflare: { env: {}, context: { storage: { sql: nativeSqlCarrier(exec) } } } }
@@ -86,8 +86,8 @@ describe("realtime server handler", () => {
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
     // A document can itself contain the reserved route's segments; only the first prefix identifies the route.
-    for (const room of ["page.md", "%40workspace?workspace=events", "docs/api/_vitehub/realtime/page.md"]) {
-      const response = await handler.fetch(new Request(`https://example.com${base}/api/_vitehub/realtime/docs/${room}`, {
+    for (const room of ["page.md", "%40workspace?workspace=events", "docs/_vitehub/realtime/page.md"]) {
+      const response = await handler.fetch(new Request(`https://example.com${base}/_vitehub/realtime/docs/${room}`, {
         headers: { upgrade: "websocket" },
       })) as Response & { crossws?: unknown }
       expect(response.status).toBe(426)
@@ -98,7 +98,7 @@ describe("realtime server handler", () => {
   it("rejects malformed encoded room paths", async () => {
     const handler = createRealtimeHandler(realtimeRegistry())
 
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/%E0%A4%A", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/%E0%A4%A", {
       headers: { upgrade: "websocket" },
     }))
 
@@ -108,7 +108,7 @@ describe("realtime server handler", () => {
   it.each(["%2e%2e%2fsecret", ".vitehub/secret", "docs%5csecret.md"])("rejects unsafe Workspace room path %s", async (path) => {
     const handler = createRealtimeHandler(realtimeRegistry())
 
-    const response = await handler.fetch(new Request(`https://example.com/api/_vitehub/realtime/docs/${path}`, {
+    const response = await handler.fetch(new Request(`https://example.com/_vitehub/realtime/docs/${path}`, {
       headers: { upgrade: "websocket" },
     }))
 
@@ -118,7 +118,7 @@ describe("realtime server handler", () => {
   it("ignores inherited realtime registry entries", async () => {
     const handler = createRealtimeHandler(realtimeRegistry())
 
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/constructor/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/constructor/page.md", {
       headers: { upgrade: "websocket" },
     }))
 
@@ -133,7 +133,7 @@ describe("realtime server handler", () => {
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
     }))
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const request = new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     }) as Request & { runtime?: unknown }
     request.runtime = { cloudflare: { env: {}, context } }
@@ -153,7 +153,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/inherited.md", {
+    const request = new Request("https://example.com/_vitehub/realtime/docs/inherited.md", {
       headers: { upgrade: "websocket" },
     }) as Request & { runtime?: unknown }
     request.runtime = {
@@ -177,7 +177,7 @@ describe("realtime server handler", () => {
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
     }))
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const request = new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     }) as Request & { runtime?: unknown }
     request.runtime = { cloudflare: { env: {}, context: { storage: { sql } } } }
@@ -200,7 +200,7 @@ describe("realtime server handler", () => {
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
     }))
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const request = new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     }) as Request & { runtime?: unknown }
     request.runtime = { cloudflare: { env: {}, context: { storage } } }
@@ -225,7 +225,7 @@ describe("realtime server handler", () => {
         readFile: vi.fn(),
         stat: vi.fn().mockResolvedValue(undefined),
       }))
-      const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+      const request = new Request("https://example.com/_vitehub/realtime/docs/page.md", {
         headers: { upgrade: "websocket" },
       }) as Request & { runtime?: unknown }
       request.runtime = { cloudflare: { env: {}, context: { storage: { sql: {} } } } }
@@ -251,7 +251,7 @@ describe("realtime server handler", () => {
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
     }))
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const request = new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     }) as Request & { runtime?: unknown }
     request.runtime = { cloudflare: { env: {}, context: { storage: { sql } } } }
@@ -270,7 +270,7 @@ describe("realtime server handler", () => {
     serverMocks.getSession.mockResolvedValue(null)
     const handler = createRealtimeHandler(realtimeRegistry({ auth: true }))
 
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md?history=checkpoint", {
       headers: { origin: "https://example.com" },
       method: "POST",
     }))
@@ -288,11 +288,11 @@ describe("realtime server handler", () => {
     }))
     const handler = createRealtimeHandler(realtimeRegistry({ auth: true }))
 
-    await handler.fetch(new Request("https://api.example.com/api/_vitehub/realtime/docs/page.md", {
+    await handler.fetch(new Request("https://api.example.com/_vitehub/realtime/docs/page.md", {
       headers: { origin: "https://app.example.com", upgrade: "websocket" },
     }))
 
-    expect(serverMocks.assertAuthOrigin).toHaveBeenCalledWith(expect.objectContaining({ url: "https://api.example.com/api/_vitehub/realtime/docs/page.md" }), expect.anything())
+    expect(serverMocks.assertAuthOrigin).toHaveBeenCalledWith(expect.objectContaining({ url: "https://api.example.com/_vitehub/realtime/docs/page.md" }), expect.anything())
   })
 
   it("compares the identify() origin with the origin behind a TLS-terminating proxy", async () => {
@@ -305,7 +305,7 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler({
       docs: async () => ({ default: { access: "public", document: { workspace: "test" }, identify } }),
     } as never)
-    const connect = (origin: string) => handler.fetch(new Request("http://internal:3000/api/_vitehub/realtime/docs/page.md", {
+    const connect = (origin: string) => handler.fetch(new Request("http://internal:3000/_vitehub/realtime/docs/page.md", {
       headers: { origin, upgrade: "websocket", "x-forwarded-host": "site.example, proxy", "x-forwarded-proto": "https, http" },
     })) as Promise<Response & { crossws?: unknown }>
 
@@ -328,7 +328,7 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler({
       docs: async () => ({ default: { access: "public", document: { workspace: "test" }, identify, origins } }),
     } as never)
-    const connect = (origin: string) => handler.fetch(new Request("https://app.example/api/_vitehub/realtime/docs/page.md?ticket=t", {
+    const connect = (origin: string) => handler.fetch(new Request("https://app.example/_vitehub/realtime/docs/page.md?ticket=t", {
       headers: { origin, upgrade: "websocket" },
     })) as Promise<Response & { crossws?: unknown }>
 
@@ -355,10 +355,10 @@ describe("realtime server handler", () => {
       docs: async () => ({ default: { document: { workspace: "test" }, origins: () => false } }),
     } as never)
 
-    const socket = await handler.fetch(new Request("https://app.example/api/_vitehub/realtime/docs/page.md", {
+    const socket = await handler.fetch(new Request("https://app.example/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws?: { upgrade?: () => Response } }
-    const post = await handler.fetch(new Request("https://app.example/api/_vitehub/realtime/docs/page.md?document=save", {
+    const post = await handler.fetch(new Request("https://app.example/_vitehub/realtime/docs/page.md?document=save", {
       body: new Uint8Array([0]),
       method: "POST",
     }))
@@ -382,7 +382,7 @@ describe("realtime server handler", () => {
       docs: async () => ({ default: { access: "public", document: { workspace: "test" }, origins } }),
       notes: async () => ({ default: { authorize, document: { workspace: "test" } } }),
     } as never)
-    const connect = (name: string, origin?: string) => handler.fetch(new Request(`https://app.example/api/_vitehub/realtime/${name}/page.md`, {
+    const connect = (name: string, origin?: string) => handler.fetch(new Request(`https://app.example/_vitehub/realtime/${name}/page.md`, {
       headers: origin ? { origin, upgrade: "websocket" } : { upgrade: "websocket" },
     })) as Promise<Response & { crossws?: unknown }>
 
@@ -406,7 +406,7 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
     const client = new Y.Doc()
 
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?document=save", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md?document=save", {
       body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
       method: "POST",
     }))
@@ -426,7 +426,7 @@ describe("realtime server handler", () => {
     }))
     const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
     const client = new Y.Doc()
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md?document=save", {
+    const request = new Request("https://example.com/_vitehub/realtime/docs/page.md?document=save", {
       body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
       method: "POST",
     })
@@ -451,7 +451,7 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
     const client = await markdownToYDoc("# Unsynchronized client version")
 
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md?history=checkpoint", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md?history=checkpoint", {
       body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
       method: "POST",
     }))
@@ -469,7 +469,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = {
@@ -494,7 +494,7 @@ describe("realtime server handler", () => {
       stat: vi.fn(),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const inheritedPublish = vi.fn()
@@ -521,7 +521,7 @@ describe("realtime server handler", () => {
       stat: vi.fn(),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const inheritedPublish = vi.fn()
@@ -549,7 +549,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/%40workspace?workspace=events", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/%40workspace?workspace=events", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = {
@@ -572,7 +572,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/%40workspace?workspace=events", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/%40workspace?workspace=events", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { close(peer: object): void, message(peer: object, message: object): void, open(peer: object): void } }
     const peer = {
@@ -598,7 +598,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/%40workspace?workspace=events", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/%40workspace?workspace=events", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
@@ -619,7 +619,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
@@ -639,7 +639,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
@@ -681,7 +681,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
@@ -714,7 +714,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
@@ -746,7 +746,7 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
     const client = await markdownToYDoc("# Unsynchronized client version")
 
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/%40workspace?history=checkpoint", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/%40workspace?history=checkpoint", {
       body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
       method: "POST",
     }))
@@ -767,7 +767,7 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler(realtimeRegistry())
 
     for (let index = 0; index <= 128; index++) {
-      const response = await handler.fetch(new Request(`https://example.com/api/_vitehub/realtime/docs/page-${index}.md`, {
+      const response = await handler.fetch(new Request(`https://example.com/_vitehub/realtime/docs/page-${index}.md`, {
         headers: { upgrade: "websocket" },
       })) as Response & { crossws?: { close(peer: object): void, open(peer: object): void } }
       const peer = {
@@ -796,7 +796,7 @@ describe("realtime server handler", () => {
     const update = encodeSyncUpdate(Y.encodeStateAsUpdate(updateDocument))
 
     for (let index = 0; index < 128; index++) {
-      const response = await handler.fetch(new Request(`https://example.com/api/_vitehub/realtime/docs/edited-${index}.md`, {
+      const response = await handler.fetch(new Request(`https://example.com/_vitehub/realtime/docs/edited-${index}.md`, {
         headers: { upgrade: "websocket" },
       })) as Response & { crossws: { close(peer: object): void, message(peer: object, message: object): void, open(peer: object): void } }
       const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
@@ -805,7 +805,7 @@ describe("realtime server handler", () => {
       response.crossws.close(peer)
     }
 
-    const overflow = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/overflow.md", {
+    const overflow = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/overflow.md", {
       headers: { upgrade: "websocket" },
     }))
     expect(overflow.status).toBe(503)
@@ -821,7 +821,7 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler(realtimeRegistry())
 
     for (let index = 0; index < 128; index++) {
-      const response = await handler.fetch(new Request(`https://example.com/api/_vitehub/realtime/docs/page-${index}.md`, {
+      const response = await handler.fetch(new Request(`https://example.com/_vitehub/realtime/docs/page-${index}.md`, {
         headers: { upgrade: "websocket" },
       })) as Response & { crossws: { close(peer: object): void, open(peer: object): void } }
       const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
@@ -830,10 +830,10 @@ describe("realtime server handler", () => {
     }
 
     const [reconnecting, overflow] = await Promise.all([
-      handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page-0.md", {
+      handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page-0.md", {
         headers: { upgrade: "websocket" },
       })),
-      handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/overflow.md", {
+      handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/overflow.md", {
         headers: { upgrade: "websocket" },
       })),
     ])
@@ -851,13 +851,13 @@ describe("realtime server handler", () => {
     const handler = createRealtimeHandler(realtimeRegistry({ checkpoint: true }))
 
     for (let index = 0; index < 129; index++) {
-      const response = await handler.fetch(new Request(`https://example.com/api/_vitehub/realtime/docs/rejected-${index}.md?history=checkpoint`, {
+      const response = await handler.fetch(new Request(`https://example.com/_vitehub/realtime/docs/rejected-${index}.md?history=checkpoint`, {
         method: "POST",
       }))
       expect(response.status).toBe(400)
     }
 
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/valid.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/valid.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws?: unknown }
     expect(response.crossws).toBeDefined()
@@ -893,7 +893,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry({ auth: true }))
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { origin: "https://example.com", upgrade: "websocket" },
     })) as Response & { crossws: { close(peer: object): void, message(peer: object, message: object): void, open(peer: object): void } }
     const firstPeer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
@@ -935,7 +935,7 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
     const peer = {
@@ -1257,8 +1257,8 @@ describe("realtime application paths", () => {
   it("prefixes endpoints with the configured application base URL", () => {
     vi.stubGlobal("__VITEHUB_APP_BASE_URL__", "/wiki/")
 
-    expect(resolveRealtimeApplicationPath("/api/_vitehub/realtime/docs"))
-      .toBe("/wiki/api/_vitehub/realtime/docs")
+    expect(resolveRealtimeApplicationPath("/_vitehub/realtime/docs"))
+      .toBe("/wiki/_vitehub/realtime/docs")
   })
 })
 
