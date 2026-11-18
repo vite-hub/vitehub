@@ -34,17 +34,22 @@ describe("result-tuples", () => {
   it("leaves app-provided runSchedule helpers alone", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "vitehub-result-tuples-schedule-"))
     try {
-      await mkdir(join(cwd, "server"))
-      await writeFile(join(cwd, "server/run.ts"), `import * as helpers from './helpers'
+      const route = join(cwd, "server/api/run.post.ts")
+      const source = `import * as helpers from '../utils/runSchedule'
 export async function run() {
   const first = await runSchedule('sync')
   const second = await helpers.runSchedule('sync')
   return [first.id, second.id]
 }
-`)
+`
+      await mkdir(join(cwd, "server/api"), { recursive: true })
+      await mkdir(join(cwd, "server/utils"))
+      await writeFile(join(cwd, "package.json"), '{"dependencies":{"vite-hub":"latest"}}')
+      await writeFile(join(cwd, "server/utils/runSchedule.ts"), "export function runSchedule(id: string) { return { id } }\n")
+      await writeFile(route, source)
       await expect(resultTuples.detect({ cwd })).resolves.toBeUndefined()
-      const result = await runCodemod("result-tuples", { cwd, dryRun: true })
-      expect(result.result.edits).toEqual([])
+      await runMigration({ cwd, codemods: upgradeCodemods })
+      expect(await readFile(route, "utf8")).toBe(source)
     }
     finally {
       await rm(cwd, { force: true, recursive: true })
