@@ -1,3 +1,4 @@
+import type { Result } from '@vite-hub/runtime'
 import type { SandboxNetworkPolicy, VercelSandboxNetworkPolicy, VercelSandboxSource } from '../index.ts'
 import type { SandboxTaskProject } from './project'
 import type { SandboxTaskSizeOptions } from './size'
@@ -105,9 +106,11 @@ export type SandboxTaskDefinitionFromHandler<THandler extends (...args: any[]) =
     handler: THandler
   }
 
-/** The result of a sandbox invocation. HTTP semantics are used for both
- * successful values and failures. */
-export type SandboxTaskRunResult = Response
+/**
+ * What `runSandboxTask()` returns: `[error, data]`. `data` is the value that the handler returned, such as a JSON
+ * value or a native `Response`. A failed run returns `SANDBOX_TASK_RUN_FAILED`, with the failure in `error.cause`.
+ */
+export type SandboxTaskRunResult<TResult = unknown> = Result<TResult, 'SANDBOX_TASK_RUN_FAILED'>
 
 export function getSandboxTaskFeatureDriver(config?: AgentSandboxTaskConfig | false): SandboxTaskDefinitionDriverOptions | undefined {
   if (!config || typeof config !== 'object' || typeof config.driver !== 'string')

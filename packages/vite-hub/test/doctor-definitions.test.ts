@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
 import {
-  checkResponseResults,
   definitionDefaultExport,
   definitionLocation,
   knownDefinitionNames,
@@ -163,7 +162,7 @@ describe("vitehub/no-module-scope-dispatch", () => {
 })
 
 describe("vitehub/no-destructure-non-tuples", () => {
-  it("reports tuple destructuring of values and Responses", async () => {
+  it("reports tuple destructuring of values", async () => {
     expect(await codes(noDestructureNonTuples, {
       "server/api/a.ts": [
         'import { startWorkflow, deferWorkflow } from "vite-hub/workflow"',
@@ -175,7 +174,7 @@ describe("vitehub/no-destructure-non-tuples", () => {
         "  return { error, run, failure, output }",
         "}",
       ].join("\n"),
-    })).toEqual(["VHUB0018", "VHUB0018", "VHUB0018"])
+    })).toEqual(["VHUB0018", "VHUB0018"])
   })
 
   it("accepts direct results and the tuple form of runAgent", async () => {
@@ -189,36 +188,6 @@ describe("vitehub/no-destructure-non-tuples", () => {
         '  const [failure, result] = await runAgent(agent, { prompt: "hi" }, { runtimeContext: options.runtimeContext })',
         '  const [unknown, value] = await runAgent(agent, { prompt: "hi" }, options)',
         "  return { run, error, answer, failure, result, unknown, value }",
-        "}",
-      ].join("\n"),
-    })).toEqual([])
-  })
-})
-
-describe("vitehub/check-response-results", () => {
-  it("reports data read from a Response", async () => {
-    expect(await codes(checkResponseResults, {
-      "server/api/a.ts": [
-        'import { runSandboxTask } from "vite-hub/sandbox/task"',
-        'import { runBrowser } from "vite-hub/browser"',
-        "export async function run() {",
-        '  const { width } = await runSandboxTask("resize", {})',
-        '  const page = await runBrowser("screenshot", {})',
-        '  return { width, title: page.title, size: (await runSandboxTask("resize", {})).size }',
-        "}",
-      ].join("\n"),
-    })).toEqual(["VHUB0019", "VHUB0019", "VHUB0019"])
-  })
-
-  it("accepts Response members", async () => {
-    expect(await codes(checkResponseResults, {
-      "server/api/a.ts": [
-        'import { runSandboxTask } from "vite-hub/sandbox/task"',
-        "export async function run() {",
-        '  const response = await runSandboxTask("resize", {})',
-        "  if (!response.ok) throw new Error(await response.text())",
-        "  const { width } = await response.json()",
-        "  return { width, status: response.status }",
         "}",
       ].join("\n"),
     })).toEqual([])

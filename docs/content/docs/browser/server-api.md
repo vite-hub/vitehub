@@ -36,7 +36,7 @@ Libraries and custom Vite setups import the same APIs from `@vite-hub/browser` a
 | `session.page.press(key)` | Presses a keyboard key on the page. |
 | `session.inspect()` | Returns the session id, state, features, and expiry, the same on every provider. |
 | `session.close()` | Releases the controller and provider session. Parallel calls share one cleanup. |
-| `runBrowser(name, input)` | Runs a Definition with typed input and returns a native `Response`. |
+| `runBrowser(name, input)` | Runs a Definition with typed input and returns `[error, data]`. `data` is the value that the handler returned. |
 
 ## Browser actions
 
@@ -45,10 +45,11 @@ Call a Browser action directly when you do not need a page session:
 ```ts [server/render-og.ts]
 import { runBrowserContent } from 'vite-hub/browser'
 
-const html = await runBrowserContent('https://example.com')
+const [error, html] = await runBrowserContent('https://example.com')
+if (error) throw error
 ```
 
-`runBrowserAction(action, input)` returns the raw `Response`. Provider failures return a non-2xx JSON `Response`. `runBrowserContent(input)` returns the `content` action as text and throws on failure. The input is a URL string or an object with `url` and provider options.
+`runBrowserAction(action, input)` returns the raw `Response`. Provider failures return a non-2xx JSON `Response`. `runBrowserContent(input)` returns `[error, html]`. A failed request returns [`BROWSER_CONTENT_FAILED`](/docs/browser/diagnostics/browser_content_failed). The input is a URL string or an object with `url` and provider options.
 
 Supported actions: `accessibilityTree`, `content`, `json`, `links`, `markdown`, `pdf`, `scrape`, `screenshot`, and `snapshot`.
 

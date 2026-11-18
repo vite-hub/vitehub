@@ -17,7 +17,7 @@ icon: i-lucide-circle-alert
 
 ### BROWSER_UNAVAILABLE
 
-The build does not turn on Browser, so a Browser Definition or action cannot run. `runBrowserAction()` returns it in a `500` response. `runBrowser()` and Definitions throw it. `error.details` has the `host`, the `reason`, and the `fix`. On Cloudflare, set `browser: true` in `vitehub()`. Other hosts have no Browser provider, so check `isBrowserAvailable()` first. See [Builds without Browser](/docs/browser/hosts#builds-without-browser).
+The build does not turn on Browser, so a Browser Definition or action cannot run. `runBrowserAction()` returns it in a `500` response, and `runBrowserContent()` returns `BROWSER_CONTENT_FAILED`. `runBrowser()` and `browser.open()` in a Definition throw it, because it is a config error. `error.details` has the `host`, the `reason`, and the `fix`. On Cloudflare, set `browser: true` in `vitehub()`. Other hosts have no Browser provider, so check `isBrowserAvailable()` first. See [Builds without Browser](/docs/browser/hosts#builds-without-browser).
 
 ## Production checks
 

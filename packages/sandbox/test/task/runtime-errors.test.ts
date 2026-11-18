@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Diagnostic } from "nostics"
-import { unknownExecutionAuthority } from "@vite-hub/runtime"
+import { toResponse, unknownExecutionAuthority } from "@vite-hub/runtime"
 import type { SandboxExecOptions, SandboxSession } from "@vite-hub/sandbox"
 
 const providerMocks = vi.hoisted(() => ({ open: vi.fn() }))
@@ -20,7 +20,7 @@ vi.mock("#vitehub-sandbox-task-provider-loader", () => ({
 
 import { resolveSandboxTaskRunner, runSandboxTaskRuntime } from "../../src/task/runtime/runtime.ts"
 import { toSandboxTaskError } from "../../src/task/runtime/error-normalization.ts"
-import { resetSandboxTaskRuntimeState, setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeDevelopment, setSandboxTaskRuntimeRegistry } from "../../src/task/runtime/state.ts"
+import { resetSandboxTaskRuntimeState, setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeRegistry } from "../../src/task/runtime/state.ts"
 
 // Only the provider is fake. The runtime stages, reads, decodes, and removes
 // invocation files through this in-memory session. No remote command runs.
@@ -87,6 +87,16 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+
+/** Run the task, and read its failure as a route sends it with `toResponse(error)`. */
+async function failedRun(payload?: unknown) {
+  const [error, data] = await runSandboxTaskRuntime("example", payload)
+  expect(data).toBeUndefined()
+  if (!error) throw new Error("Expected the Sandbox Task to fail.")
+  const response = toResponse(error)
+  return { error, status: response.status, body: await response.text() }
+}
+
 describe("Sandbox Task error preservation", () => {
   it("keeps the startup diagnostic and its nested cause on the real runner", async () => {
     const original = providerError()
@@ -104,11 +114,10 @@ describe("Sandbox Task error preservation", () => {
     })
     expect(original.stack).toContain("providerError")
 
-    const response = await runSandboxTaskRuntime("example")
-    expect(response.status).toBe(500)
-    const body = await response.json()
-    expect(body).toEqual({ error: { code: "SANDBOX_TASK_RUNTIME_ERROR", message: original.message, details: {} } })
-    expect(JSON.stringify(body)).not.toMatch(/private|TEST_PROVIDER_FAILURE|example\.test/)
+    const failed = await failedRun()
+    expect(failed.status).toBe(500)
+    expect(failed.error).toMatchObject({ code: "SANDBOX_TASK_RUN_FAILED", data: { code: "SANDBOX_TASK_RUNTIME_ERROR" }, cause: { message: original.message, details: {} } })
+    expect(failed.body).not.toMatch(/private|TEST_PROVIDER_FAILURE|example\.test/)
   })
 
   it("keeps non-Error rejection objects as the cause", () => {
@@ -123,10 +132,8 @@ describe("Sandbox Task error preservation", () => {
 
     const result = runSandboxTaskRuntime("example")
     await vi.advanceTimersByTimeAsync(1001)
-    const response = await result
 
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ answer: 42 })
+    expect(await result).toEqual([undefined, { answer: 42 }])
     expect(providerMocks.open).toHaveBeenCalledTimes(2)
     expect(execute).toHaveBeenCalledOnce()
   })
@@ -139,9 +146,8 @@ describe("Sandbox Task error preservation", () => {
 
     const result = runSandboxTaskRuntime("example")
     await vi.advanceTimersByTimeAsync(1001)
-    const response = await result
 
-    expect(response.status).toBe(200)
+    expect((await result)[0]).toBeUndefined()
     expect(providerMocks.open).toHaveBeenCalledTimes(2)
     expect(cleanup).toHaveBeenCalledTimes(2)
     expect(execute).toHaveBeenCalledOnce()
@@ -155,9 +161,8 @@ describe("Sandbox Task error preservation", () => {
 
     const result = runSandboxTaskRuntime("example")
     await vi.runAllTimersAsync()
-    const response = await result
 
-    expect(response.status).toBe(500)
+    expect((await result)[0]?.status).toBe(500)
     expect(providerMocks.open).toHaveBeenCalledOnce()
     expect(cleanup).toHaveBeenCalledOnce()
     expect(execute).not.toHaveBeenCalled()
@@ -165,10 +170,7 @@ describe("Sandbox Task error preservation", () => {
 
   it("returns the handler result after removing invocation files", async () => {
     const { files, session, cleanup } = createSession()
-    const response = await runSandboxTaskRuntime("example", { input: "private input" })
-
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ answer: 42 })
+    expect(await runSandboxTaskRuntime("example", { input: "private input" })).toEqual([undefined, { answer: 42 }])
     expect(files.size).toBe(0)
     expect(cleanup).toHaveBeenCalledOnce()
     expect(session.close).not.toHaveBeenCalled()
@@ -179,12 +181,11 @@ describe("Sandbox Task error preservation", () => {
     if (failure === "rejection") cleanup.mockRejectedValue(new Error("private cleanup message", { cause: providerError() }))
     else cleanup.mockResolvedValue({ ok: false, code: 1, stdout: "private stdout", stderr: "private stderr" })
 
-    const response = await runSandboxTaskRuntime("example", { input: "private input" })
+    const { error, status, body } = await failedRun({ input: "private input" })
 
-    expect(response.status).toBe(500)
-    const body = await response.json()
-    expect(body).toMatchObject({ error: { code: "SANDBOX_TASK_RUNTIME_ERROR" } })
-    expect(JSON.stringify(body)).not.toMatch(/private|TEST_PROVIDER_FAILURE|example\.test/)
+    expect(status).toBe(500)
+    expect(error.data).toEqual({ name: "example", code: "SANDBOX_TASK_RUNTIME_ERROR" })
+    expect(body).not.toMatch(/private|TEST_PROVIDER_FAILURE|example\.test/)
     expect(files.size).toBe(4)
     expect(cleanup).toHaveBeenCalledOnce()
     expect(execute).toHaveBeenCalledOnce()
@@ -196,10 +197,7 @@ describe("Sandbox Task error preservation", () => {
     const { session, cleanup } = createSession()
     cleanup.mockRejectedValue(new Error("Sandbox invocation cleanup failed."))
 
-    const response = await runSandboxTaskRuntime("example")
-
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ answer: 42 })
+    expect(await runSandboxTaskRuntime("example")).toEqual([undefined, { answer: 42 }])
     expect(cleanup).not.toHaveBeenCalled()
     expect(session.close).toHaveBeenCalledOnce()
   })
@@ -257,16 +255,14 @@ describe("Sandbox Task error preservation", () => {
     execute.mockResolvedValue({ ok: false, error: { message: "Handler failed." } })
     cleanup.mockRejectedValue(new Error("private cleanup message", { cause: providerError() }))
 
-    const response = await runSandboxTaskRuntime("example")
+    const { error, status, body } = await failedRun()
 
-    expect(response.status).toBe(500)
-    const body = await response.json()
-    expect(body).toMatchObject({ error: {
-      code: "SANDBOX_TASK_HANDLER_ERROR",
-      message: "Handler failed.",
-      details: { provider: "cloudflare" },
-    } })
-    expect(JSON.stringify(body)).not.toMatch(/private|TEST_PROVIDER_FAILURE|example\.test/)
+    expect(status).toBe(500)
+    expect(error).toMatchObject({
+      data: { code: "SANDBOX_TASK_HANDLER_ERROR" },
+      cause: { message: "Handler failed.", details: { provider: "cloudflare" } },
+    })
+    expect(body).not.toMatch(/private|TEST_PROVIDER_FAILURE|example\.test/)
     expect(execute).toHaveBeenCalledOnce()
   })
 
@@ -284,11 +280,10 @@ describe("Sandbox Task error preservation", () => {
     expect((error.cause as AggregateError).errors[0]).toMatchObject({ code: "SANDBOX_TASK_HANDLER_ERROR" })
     expect((error.cause as AggregateError).errors[1]).toBe(cleanupError)
 
-    const response = await runSandboxTaskRuntime("example")
-    expect(response.status).toBe(500)
-    const body = await response.json()
-    expect(body).toMatchObject({ error: { code: "SANDBOX_TASK_HANDLER_ERROR", message: "Handler failed." } })
-    expect(JSON.stringify(body)).not.toMatch(/private|TEST_PROVIDER_FAILURE|example\.test/)
+    const failed = await failedRun()
+    expect(failed.status).toBe(500)
+    expect(failed.error).toMatchObject({ data: { code: "SANDBOX_TASK_HANDLER_ERROR" }, cause: { message: "Handler failed." } })
+    expect(failed.body).not.toMatch(/private|TEST_PROVIDER_FAILURE|example\.test/)
   })
 
   it.each([undefined, null, false, 0])("preserves a falsy execution rejection %s when cleanup fails", async (failure) => {
@@ -344,9 +339,9 @@ describe("Sandbox Task error preservation", () => {
       else expect((combined.cause as AggregateError).errors[1].cause).toBe(failure === "invocation exit" ? cleanupResult : cleanupError)
     }
     else {
-      const response = await result as Response
-      expect(response.status).toBe(504)
-      expect(await response.json()).toMatchObject({ error: { code: "SANDBOX_TASK_TIMEOUT" } })
+      const [error] = await result as Awaited<ReturnType<typeof runSandboxTaskRuntime>>
+      expect(error).toMatchObject({ status: 504, data: { code: "SANDBOX_TASK_TIMEOUT" } })
+      expect(toResponse(error).status).toBe(504)
     }
     if (failure === "session rejection") {
       expect(session.close).toHaveBeenCalledOnce()
@@ -359,7 +354,7 @@ describe("Sandbox Task error preservation", () => {
   })
 })
 
-describe("Sandbox Task handler error Responses", () => {
+describe("Sandbox Task handler errors", () => {
   const stack = "Error: boom\n    at handler (/app/server/sandbox-tasks/crash.ts:3:9)"
   const stderr = "Error: boom\n    at handler (/app/server/sandbox-tasks/crash.ts:3:9)\nTOKEN=private-token"
 
@@ -373,46 +368,28 @@ describe("Sandbox Task handler error Responses", () => {
     })
   }
 
-  it("keeps the stack and process output out of a production Response", async () => {
+  it("keeps the stack and process output out of the route Response", async () => {
     failingHandler()
 
-    const response = await runSandboxTaskRuntime("example")
+    const { error, status, body } = await failedRun()
 
-    expect(response.status).toBe(500)
-    const body = await response.json()
-    expect(body).toEqual({ error: {
-      code: "SANDBOX_TASK_HANDLER_ERROR",
-      message: "boom",
-      details: { provider: "cloudflare", name: "Error", exitCode: 1 },
-    } })
-    expect(JSON.stringify(body)).not.toMatch(/private|crash\.ts/)
+    expect(status).toBe(500)
+    expect(JSON.parse(body)).toEqual({ code: "SANDBOX_TASK_RUN_FAILED", why: 'Sandbox Task "example" failed with SANDBOX_TASK_HANDLER_ERROR.', fix: error.fix })
+    expect(body).not.toMatch(/private|crash\.ts/)
   })
 
-  it("keeps the full details on the runner error", async () => {
-    failingHandler()
-    const runner = await resolveSandboxTaskRunner("example")
-    const error = toSandboxTaskError(await runner.run().catch((error: unknown) => error))
-
-    expect(error.details).toMatchObject({ stack, stderr, stdout: "private stdout" })
-  })
-
-  it("keeps the stack and stderr in a vite dev Response", async () => {
-    setSandboxTaskRuntimeDevelopment(true)
+  it("keeps the full details on the error cause", async () => {
     failingHandler()
 
-    const response = await runSandboxTaskRuntime("example")
+    const { error } = await failedRun()
 
-    expect(await response.json()).toMatchObject({ error: {
-      code: "SANDBOX_TASK_HANDLER_ERROR",
-      details: { stack, stderr, exitCode: 1 },
-    } })
+    expect(error.cause).toMatchObject({ message: "boom", details: { stack, stderr, stdout: "private stdout", exitCode: 1 } })
   })
 })
 
 describe("Sandbox Task incomplete output recovery", () => {
-  it.each(["production", "development", "runner"] as const)("protects recovered output at the %s boundary", async (boundary) => {
+  it.each(["route", "runner"] as const)("protects recovered output at the %s boundary", async (boundary) => {
     vi.useFakeTimers()
-    setSandboxTaskRuntimeDevelopment(boundary === "development")
     const partial = '{"ok":false,"error":{"stack":"TOKEN=private-token /app/crash.ts'
     const { session, files } = createSession()
     const read = vi.spyOn(session.files, "read")
@@ -439,17 +416,9 @@ describe("Sandbox Task incomplete output recovery", () => {
       })
     }
     else {
-      const response = await result as Response
-      expect(response.status).toBe(500)
-      const body = await response.json() as { error: { code: string, details: Record<string, unknown> } }
-      expect(body.error.code).toBe("SANDBOX_TASK_HANDLER_ERROR")
-      expect(body.error.details.provider).toBe("cloudflare")
-      if (boundary === "development")
-        expect(body.error.details.outputPreview).toBe(partial)
-      else {
-        expect(body.error.details).not.toHaveProperty("outputPreview")
-        expect(JSON.stringify(body)).not.toContain("private-token")
-      }
+      const [error] = await result as Awaited<ReturnType<typeof runSandboxTaskRuntime>>
+      expect(error).toMatchObject({ status: 500, data: { code: "SANDBOX_TASK_HANDLER_ERROR" }, cause: { details: { provider: "cloudflare", outputPreview: partial } } })
+      expect(await toResponse(error).text()).not.toContain("private-token")
     }
   })
 })

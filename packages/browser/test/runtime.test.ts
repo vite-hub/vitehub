@@ -1,3 +1,4 @@
+import { toResponse } from "@vite-hub/runtime"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -40,11 +41,33 @@ describe("Browser Definitions", () => {
     })
   })
 
-  it("returns an HTTP error response when a definition cannot run", async () => {
+  it("returns BROWSER_DEFINITION_NOT_FOUND for an unknown name", async () => {
     const name: string = "missing"
-    const response = await runBrowser(name)
-    expect(response.status).toBe(500)
-    await expect(response.json()).resolves.toMatchObject({ error: { code: "BROWSER_DEFINITION_NOT_FOUND" } })
+    const [error, data] = await runBrowser(name)
+    expect(data).toBeUndefined()
+    expect(error).toMatchObject({ code: "BROWSER_DEFINITION_NOT_FOUND", status: 404 })
+    expect(toResponse(error).status).toBe(404)
+  })
+
+  it("returns the handler value as data, and a handler failure as BROWSER_RUN_FAILED", async () => {
+    const failure = new Error("page crashed")
+    browserRegistry.title = { default: defineBrowser(async (input: { url: string }) => `title of ${input.url}`) }
+    browserRegistry.broken = { default: defineBrowser(async () => { throw failure }) }
+
+    const title: string = "title"
+    const broken: string = "broken"
+    expect(await runBrowser(title, { url: "https://example.com" })).toEqual([undefined, "title of https://example.com"])
+    const [error] = await runBrowser(broken)
+    expect(error).toMatchObject({ code: "BROWSER_RUN_FAILED", cause: failure })
+    expect(toResponse(error).status).toBe(500)
+  })
+
+  it("throws BROWSER_UNAVAILABLE in a build without a Browser provider", async () => {
+    runtimeConfig.driver = undefined
+    browserRegistry.page = { default: defineBrowser(async (_input, { browser }) => { await browser.open() }) }
+
+    const name: string = "page"
+    await expect(runBrowser(name)).rejects.toMatchObject({ code: "BROWSER_UNAVAILABLE" })
   })
 
   it("does not treat inherited registry properties as Browser Definitions", async () => {
@@ -53,10 +76,9 @@ describe("Browser Definitions", () => {
     })
 
     const name: string = "inherited"
-    const response = await runBrowser(name)
+    const [error] = await runBrowser(name)
 
-    expect(response.status).toBe(500)
-    await expect(response.json()).resolves.toMatchObject({ error: { code: "BROWSER_DEFINITION_NOT_FOUND" } })
+    expect(error).toMatchObject({ code: "BROWSER_DEFINITION_NOT_FOUND" })
   })
 
   it("rejects Browser Definitions whose run handler is inherited", async () => {
@@ -65,14 +87,10 @@ describe("Browser Definitions", () => {
     })
 
     const name: string = "inheritedRun"
-    const response = await runBrowser(name)
 
-    expect(response.status).toBe(500)
-    await expect(response.json()).resolves.toMatchObject({
-      error: {
-        code: "BROWSER_RUNTIME_ERROR",
-        message: '[vitehub:browser] Browser Definition "inheritedRun" must default-export defineBrowser().',
-      },
+    await expect(runBrowser(name)).rejects.toMatchObject({
+      code: "BROWSER_R0009",
+      message: '[vitehub:browser] Browser Definition "inheritedRun" must default-export defineBrowser().',
     })
   })
 
@@ -80,14 +98,10 @@ describe("Browser Definitions", () => {
     browserRegistry.nullDefinition = async () => null
 
     const name: string = "nullDefinition"
-    const response = await runBrowser(name)
 
-    expect(response.status).toBe(500)
-    await expect(response.json()).resolves.toMatchObject({
-      error: {
-        code: "BROWSER_RUNTIME_ERROR",
-        message: '[vitehub:browser] Browser Definition "nullDefinition" must default-export defineBrowser().',
-      },
+    await expect(runBrowser(name)).rejects.toMatchObject({
+      code: "BROWSER_R0009",
+      message: '[vitehub:browser] Browser Definition "nullDefinition" must default-export defineBrowser().',
     })
   })
 

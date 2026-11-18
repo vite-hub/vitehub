@@ -366,11 +366,11 @@ app.get("/api/workspace/read-fresh", async (event) => {
 })
 
 app.post("/api/sandbox-tasks/release-notes", async (event) => {
-  const response = await runSandboxTask("release-notes", await readBody(event))
-  if (!response.ok)
-    return response
+  const [error, result] = await runSandboxTask("release-notes", await readBody(event))
+  if (error)
+    throw error
 
-  return { result: await response.json() }
+  return { result }
 })
 
 app.get("/api/workflows/welcome", () => ({ ok: true, workflow: workflowName }))
