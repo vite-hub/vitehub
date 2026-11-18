@@ -247,7 +247,7 @@ export async function shareAudio(file: Blob) {
 
   const [uploadError, upload] = await blob.sign("private/audio.mp3", {
     method: "PUT",
-    expiresIn: 15 * 60,
+    expiresIn: "15m",
     contentType: "audio/mpeg",
     createOnly: true,
   })

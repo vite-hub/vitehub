@@ -9,7 +9,7 @@ import { docsAppPath } from "./navigation.ts"
 
 import type { AgentAdapterInstructions, AgentAdapterMetadataContext, AgentCapabilityDefinition, AgentSettings, WorkspaceAgentDefinition } from "@vite-hub/agent"
 import type { RateLimitIdentity } from "@vite-hub/agent/capabilities"
-import type { RateLimitWindow } from "@vite-hub/rate-limit"
+import type { RateLimitPolicy } from "@vite-hub/rate-limit"
 
 /** Invocation context key that holds the path of the page the reader has open. */
 export const docsPageContextKey = "docsPage"
@@ -50,7 +50,7 @@ export interface DocsRateLimitOptions {
   /** Questions per window. Defaults to 30. */
   limit?: number
   /** Defaults to `1h`. */
-  window?: RateLimitWindow
+  window?: RateLimitPolicy["window"]
   /**
    * Who shares one budget. Defaults to the whole site, because anonymous readers have no stable identity. Use `"ip"`
    * with `trustedIpHeaders` behind a proxy that sets them, or a function of the Invocation context.

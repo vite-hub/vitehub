@@ -343,8 +343,10 @@ describe("defineWebhook", () => {
   it("fails at define time for a debounce above the host limit, or a value in place of a variable name", () => {
     expect(() => defineWebhook({ url: "U", secret: "S", debounce: "25 hours" })).toThrow(expect.objectContaining({ code: "WEBHOOKS_DEBOUNCE_TOO_LONG" }))
     expect(() => defineWebhook({ url: "https://example.com/hook", secret: "S" })).toThrow(expect.objectContaining({ code: "WEBHOOKS_DEFINITION_INVALID" }))
-    expect(() => defineWebhook({ url: "U", secret: "S", debounce: "soon" })).toThrow(expect.objectContaining({ code: "WEBHOOKS_DEFINITION_INVALID" }))
+    expect(() => defineWebhook({ url: "U", secret: "S", debounce: "soon" as never })).toThrow(expect.objectContaining({ code: "RUNTIME_DURATION_INVALID" }))
+    expect(() => defineWebhook({ url: "U", secret: "S", debounce: 60_000 as never })).toThrow(expect.objectContaining({ code: "RUNTIME_DURATION_INVALID", fix: expect.stringContaining("\"1m\"") }))
     expect(defineWebhook({ url: "U", secret: "S", debounce: "30 minutes" })).toMatchObject({ debounceMs: 1_800_000, signature: "github" })
+    expect(defineWebhook({ url: "U", secret: "S", debounce: "1d" })).toMatchObject({ debounceMs: 86_400_000 })
     // @ts-expect-error `events` lists only the events that ViteHub sends by itself.
     expect(() => defineWebhook({ url: "U", secret: "S", events: ["workflow.done"] })).toThrow(expect.objectContaining({ code: "WEBHOOKS_DEFINITION_INVALID" }))
     expect(defineWebhook({ url: "U", secret: "S", events: ["schedule.failed", "schedule.failed"] })).toMatchObject({ events: ["schedule.failed"] })

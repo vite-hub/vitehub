@@ -36,8 +36,9 @@ it("sends workflow.failed when an inline run fails", async () => {
     throw Object.assign(new TypeError("card declined"), { code: "CARD_DECLINED" })
   })
 
-  const gate = Promise.withResolvers<void>()
-  const listener = vi.fn(() => gate.promise)
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => { release = resolve })
+  const listener = vi.fn(() => pending)
   const unsubscribe = onRunFailed(listener)
   const wake = vi.fn<(task: Promise<unknown>) => void>()
   try {
@@ -48,7 +49,7 @@ it("sends workflow.failed when an inline run fails", async () => {
     expect(events).toEqual([{ event: "workflow.failed", workflow: "charge-card", runId: "inline-1", error: { message: "card declined", code: "CARD_DECLINED" }, failedAt: expect.any(String) }])
   }
   finally {
-    gate.resolve()
+    release()
     await wake.mock.calls[0]?.[0]
     unsubscribe()
   }
