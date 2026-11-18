@@ -319,7 +319,7 @@ async function runResources(args: string[], context: InspectContext, plugins: re
 
 /** One server route of the production build. */
 interface RouteReport {
-  /** The handler file, relative to the project root, or absolute when it is outside the project. */
+  /** The handler file: relative to the project root, or `<package>/<file>` for a file of another package. */
   handler: string
   /** `*` when the route answers every method. */
   method: string
@@ -330,25 +330,25 @@ interface RouteReport {
   route: string
 }
 
-function readPackageName(file: string, stop: string): string | undefined {
-  for (let dir = dirname(file); dir !== stop && dir !== dirname(dir); dir = dirname(dir)) {
+function findPackage(file: string): { dir: string, name: string } | undefined {
+  for (let dir = dirname(file); dir !== dirname(dir); dir = dirname(dir)) {
     const manifest = resolve(dir, "package.json")
     if (!existsSync(manifest)) continue
     const name: unknown = Reflect.get(Object(JSON.parse(readFileSync(manifest, "utf8"))), "name")
-    if (typeof name === "string") return name
+    if (typeof name === "string") return { dir, name }
   }
 }
 
 // Generated handlers live in `.vitehub/<area>/` or `.vitehub/nitro/<area>/`.
-function routeOwner(rootDir: string, handler: string): string {
-  const generated = handler.lastIndexOf("/.vitehub/")
+function routeHandler(rootDir: string, file: string): Pick<RouteReport, "handler" | "owner"> {
+  const path = relative(rootDir, file)
+  const generated = file.lastIndexOf("/.vitehub/")
   if (generated !== -1) {
-    const [first, second] = handler.slice(generated + "/.vitehub/".length).split("/")
-    return (first === "nitro" ? second : first) || "vite-hub"
+    const [first, second] = file.slice(generated + "/.vitehub/".length).split("/")
+    return { handler: path, owner: (first === "nitro" ? second : first) || "vite-hub" }
   }
-  const path = relative(rootDir, handler)
-  if (!path.startsWith("..") && !path.split("/").includes("node_modules")) return "app"
-  return readPackageName(handler, rootDir) ?? "app"
+  const owned = path.startsWith("..") || path.split("/").includes("node_modules") ? findPackage(file) : undefined
+  return owned ? { handler: `${owned.name}/${relative(owned.dir, file)}`, owner: owned.name } : { handler: path, owner: "app" }
 }
 
 function readRoutes(rootDir: string, handlers: readonly unknown[]): RouteReport[] {
@@ -361,13 +361,10 @@ function readRoutes(rootDir: string, handlers: readonly unknown[]): RouteReport[
     const route: unknown = Reflect.get(Object(entry), "route")
     const methods: unknown = Reflect.get(Object(entry), "method")
     const method = typeof methods === "string" ? methods.toUpperCase() : Array.isArray(methods) && methods.length ? methods.map(String).join(",").toUpperCase() : "*"
-    const file = resolve(rootDir, handler)
-    const path = relative(rootDir, file)
     const report: RouteReport = {
-      handler: path.startsWith("..") ? file : path,
+      ...routeHandler(rootDir, resolve(rootDir, handler)),
       method,
       ...(middleware ? { middleware: true } : {}),
-      owner: routeOwner(rootDir, file),
       route: typeof route === "string" && route ? route : "/**",
     }
     const key = `${report.method} ${report.route} ${report.handler} ${middleware}`

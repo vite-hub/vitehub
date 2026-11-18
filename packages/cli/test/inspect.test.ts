@@ -384,7 +384,7 @@ export default {
       "METHOD    PATH            OWNER            HANDLER",
       "*         /**             auth             .vitehub/auth/access-middleware.mjs  (middleware)",
       "GET       /_blob/**       blob             .vitehub/nitro/blob/serve.mjs",
-      `GET,HEAD  /_agent/health  @vite-hub/agent  ${join(rootDir, "../packages/agent/dist/health.mjs")}`,
+      "GET,HEAD  /_agent/health  @vite-hub/agent  @vite-hub/agent/dist/health.mjs",
       "*         /status         app              server/handlers/status.ts",
       "",
     ].join("\n"))
@@ -399,7 +399,7 @@ export default {
       routes: [
         { handler: ".vitehub/auth/access-middleware.mjs", method: "*", middleware: true, owner: "auth", route: "/**" },
         { handler: ".vitehub/nitro/blob/serve.mjs", method: "GET", owner: "blob", route: "/_blob/**" },
-        { handler: join(rootDir, "../packages/agent/dist/health.mjs"), method: "GET,HEAD", owner: "@vite-hub/agent", route: "/_agent/health" },
+        { handler: "@vite-hub/agent/dist/health.mjs", method: "GET,HEAD", owner: "@vite-hub/agent", route: "/_agent/health" },
         { handler: "server/handlers/status.ts", method: "*", owner: "app", route: "/status" },
       ],
     })
