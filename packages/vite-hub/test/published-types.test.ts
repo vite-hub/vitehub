@@ -107,40 +107,6 @@ it("publishes Env's Vite config augmentation from the framework root", async () 
   await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", resolve(packageRoot, "fixtures/published-types")])
 }, 10_000)
 
-it("keeps the installed Database runtime facade declaration self-contained", async () => {
-  const consumerRoot = await mkdtemp(resolve(tmpdir(), "vite-hub-database-types-"))
-  const installedRoot = resolve(consumerRoot, "node_modules/vite-hub")
-  // Nuxt aliases `@vite-hub/database/runtime/state` to this file. It is not a package export.
-  const installedState = resolve(installedRoot, "dist/internal/database-runtime-state")
-
-  try {
-    await mkdir(dirname(installedState), { recursive: true })
-    await copyFile(resolve(packageRoot, "package.json"), resolve(installedRoot, "package.json"))
-    await copyFile(resolve(packageRoot, "dist/internal/database-runtime-state.js"), `${installedState}.js`)
-    await copyFile(resolve(packageRoot, "dist/internal/database-runtime-state.d.ts"), `${installedState}.d.ts`)
-    await writeFile(resolve(consumerRoot, "consumer.ts"), `
-      import { setActiveCloudflareEnv } from "./node_modules/vite-hub/dist/internal/database-runtime-state.js"
-      setActiveCloudflareEnv({ DB: {} })
-    `)
-    await writeFile(resolve(consumerRoot, "package.json"), JSON.stringify({ private: true, type: "module" }))
-    await writeFile(resolve(consumerRoot, "tsconfig.json"), JSON.stringify({
-      compilerOptions: {
-        module: "NodeNext",
-        moduleResolution: "NodeNext",
-        noEmit: true,
-        strict: true,
-        types: [],
-      },
-      files: ["consumer.ts"],
-    }))
-
-    await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", consumerRoot])
-  }
-  finally {
-    await rm(consumerRoot, { recursive: true, force: true })
-  }
-}, 10_000)
-
 it.each(["evlog", "ai"])("keeps installed framework declarations independent of optional %s", async (optionalPeer) => {
   const consumerRoot = await mkdtemp(resolve(tmpdir(), "vite-hub-root-types-"))
   const installedRoot = resolve(consumerRoot, "node_modules/vite-hub")

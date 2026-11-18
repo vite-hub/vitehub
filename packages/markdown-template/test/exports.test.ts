@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import ts from "typescript"
 import { expect, it } from "vitest"
@@ -30,17 +31,22 @@ it.each([
     }, host, undefined, undefined, ts.ModuleKind.ESNext)
     expect(fileResult.resolvedModule?.resolvedFileName).toBe(resolve(root, "dist/file.d.ts"))
   }
-  expect(readFileSync(resolve(root, "../vite-hub/src/markdown-template.ts"), "utf8").trim())
-    .toBe('export * from "@vite-hub/markdown-template"')
 })
 
-it("forwards the filesystem subpath through vite-hub", () => {
+it("forwards every export through vite-hub", async () => {
+  const facade: object = await import(pathToFileURL(resolve(import.meta.dirname, "../../vite-hub/src/markdown-template.ts")).href)
+  const owner = await import("../dist/index.js")
+  expect(Object.keys(facade).sort()).toEqual(Object.keys(owner).sort())
+})
+
+it("forwards the filesystem subpath through vite-hub", async () => {
   const root = resolve(import.meta.dirname, "../../vite-hub")
   const manifest = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"))
   expect(manifest.exports["./markdown-template/file"]).toMatchObject({
     types: "./dist/markdown-template/file.d.ts",
     import: "./dist/markdown-template/file.js",
   })
-  expect(readFileSync(resolve(root, "src/markdown-template/file.ts"), "utf8").trim())
-    .toBe('export * from "@vite-hub/markdown-template/file"')
+  const facade: object = await import(pathToFileURL(resolve(root, "src/markdown-template/file.ts")).href)
+  const owner = await import("../dist/file.js")
+  expect(Object.keys(facade).sort()).toEqual(Object.keys(owner).sort())
 })
