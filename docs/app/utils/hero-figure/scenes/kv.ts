@@ -67,7 +67,7 @@ export default defineScene<KvPlan>({
     const r = rng(k + 211);
     const [a, v1, v2] = pick(r, [["theme", "'dark'", "'light'"], ["plan", "'free'", "'pro'"], ["volume", "3", "7"], ["lang", "'en'", "'fr'"]]);
     const [b, bv] = pick(r, [["locale", "'en-US'"], ["cursor", "'c_812'"], ["banner", "true"], ["draft", "'v2'"]]);
-    const driver = pick(r, ["fs-lite", "redis", "upstash", "cloudflare-kv-binding", "deno-kv"]);
+    const driver = pick(r, ["fs-lite", "redis", "upstash", "cloudflare", "deno-kv"]);
     const gap = 1900, t0 = 600;
     const ops: Op[] = ([
       { op: "set", key: a, val: v1 }, { op: "set", key: b, val: bv }, { op: "get", key: a },

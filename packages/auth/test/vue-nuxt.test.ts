@@ -75,9 +75,10 @@ vi.mock("better-auth/vue", () => ({
 // The app's `auth.client.ts`, which `hubAuth()` serves as `#vitehub/auth/client`.
 vi.mock("#vitehub/auth/client", () => ({ default: { plugins: [{ id: "admin-client" }] } }))
 
-type Plugin = { setup: (app: { isHydrating?: boolean, payload: typeof mocks.payload, runWithContext?: <T>(run: () => T) => T }) => { provide: { vitehubAuthClient: ReturnType<typeof createAuthClient> } } | undefined }
+type Plugin = { setup: (app: { isHydrating?: boolean, payload: typeof mocks.payload, runWithContext?: <T>(run: () => T) => T }) => void }
 // Each test gets new modules, so the default client and its session start empty.
 let plugin: Plugin
+let authClient: typeof import("../src/vue.ts").authClient
 let Can: typeof import("../src/vue.ts").Can
 let createAuthClient: typeof import("../src/vue.ts").createAuthClient
 let setSignOutHandler: typeof import("../src/vue.ts").setSignOutHandler
@@ -89,7 +90,7 @@ const session = { session: { id: "s", token: "secret", expiresAt: "2027-01-01T00
 beforeEach(async () => {
   vi.resetModules()
   plugin = (await import("../src/runtime/vue-nuxt.ts") as { default: Plugin }).default
-  ;({ Can, createAuthClient, setSignOutHandler, useAbility, useUserSession } = await import("../src/vue.ts"))
+  ;({ authClient, Can, createAuthClient, setSignOutHandler, useAbility, useUserSession } = await import("../src/vue.ts"))
   vi.clearAllMocks()
   mocks.config = { public: { vitehubAuth: { redirects: { login: "/login", guest: "/" } } } }
   mocks.state = { value: undefined }
@@ -192,13 +193,11 @@ describe("Nuxt session and page guard", () => {
     await configure("/auth", "/app/")
     vi.stubGlobal("window", {})
     mocks.state.value = null
-    const result = await plugin.setup({ payload: mocks.payload })
-    // Nuxt adds what the plugin provides to the app as `$vitehubAuthClient`.
-    mocks.app.$vitehubAuthClient = result!.provide.vitehubAuthClient
+    await plugin.setup({ payload: mocks.payload })
     const ability = useAbility()
     // Vitest can answer two concurrent first imports of a mocked module with the real one, so load it first. The server
     // rendered the page signed out, so `useAbility()` does not load Better Auth itself.
-    await result!.provide.vitehubAuthClient.getSession()
+    await authClient.getSession()
     mocks.sessionPaths = []
     mocks.getSession.mockResolvedValue({ data: session })
 
@@ -320,11 +319,11 @@ describe("Nuxt session and page guard", () => {
     expect(mocks.createAuthClient).toHaveBeenCalledWith({ basePath: "/custom/auth" })
   })
 
-  it("provides the configured client for browser composables", async () => {
+  it("gives the default client of the browser composables the configured endpoint", async () => {
     await configure("/auth", "/app/")
     vi.stubGlobal("window", {})
-    const result = await plugin.setup({ payload: mocks.payload })
-    await result!.provide.vitehubAuthClient.getSession()
+    await plugin.setup({ payload: mocks.payload })
+    await authClient.getSession()
     expect(mocks.createAuthClient).toHaveBeenCalledWith(expect.objectContaining({ basePath: "/app/auth" }))
   })
 

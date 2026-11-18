@@ -45,7 +45,7 @@ import {
   defaultCloudflareAgentStateBinding,
   installCloudflareAgentStateEntrypoint,
 } from "./cloudflare.ts"
-import { normalizeAgentOptions } from "./config.ts"
+import { agentStateAuthTokenEnvNames, normalizeAgentOptions } from "./config.ts"
 import { agentDeploymentEnv } from "./deployment-env.ts"
 import { discoverAgentDefinitions, discoverAgentEvalFiles, discoverAgentOptionsStarts, discoverProcessHostAgentNames, isFolderAgentDefinition } from "./discovery.ts"
 import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
@@ -89,8 +89,9 @@ import type { ProviderDeploymentOutputWriter, ProviderOutputCatalog } from "@vit
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributions } from "@vite-hub/internal/operations"
 import type { CloudflareAgentStateMigration, CloudflareAgentStateRollupTarget, CloudflareAgentStateTarget } from "./cloudflare.ts"
-import type { AgentOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "./types.ts"
+import type { AgentOptions, AgentSqlStateProviderOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "./types.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { chatgptWithoutConnectionsSource, standaloneChannelDriverSource } from "./generated-sources.injected.ts"
 
 interface AgentCliContributingPlugin {
   vitehub?: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & {
@@ -517,7 +518,8 @@ function stripGeneratedAgentWorkflowRegistrySetup(code: string): string {
 
 function isGeneratedAgentWorkflowRegistryId(id: string): boolean {
   const normalizedId = id.replaceAll("\\", "/")
-  return normalizedId.includes("/.vitehub/") && normalizedId.endsWith("/workflow/registry-runtime.mjs")
+  return normalizedId.includes("/.vitehub/")
+    && (normalizedId.endsWith("/workflow/registry-runtime.mjs") || normalizedId.endsWith("/nitro/workflow/dev-registry.mjs"))
 }
 
 
@@ -636,8 +638,8 @@ type BuildWithRolldownOptions = {
     }
   }
 }
-type GeneratedLibsqlAgentStateOptions = Pick<ResolvedAgentModuleOptions["providers"]["state"], "journalMode" | "tablePrefix" | "url"> & {
-  authTokenEnvName?: string
+type GeneratedLibsqlAgentStateOptions = Pick<AgentSqlStateProviderOptions, "journalMode" | "tablePrefix" | "url"> & {
+  authTokenEnvNames?: string[]
   durableUrlRequired?: boolean
   ephemeralHosting?: "cloudflare" | "netlify" | "vercel"
 }
@@ -670,7 +672,9 @@ function resolveAgentHosting(config: unknown): "cloudflare" | "netlify" | "verce
 }
 
 // pkce-challenge, a dependency of @ai-sdk/mcp, exports only "browser" and "node" conditions, so Worker
-// conditions cannot resolve it. Its browser build uses only Web Crypto, which Workers provide.
+// conditions cannot resolve it. Its browser build uses only Web Crypto, which Workers provide. pkce-challenge 6.0.1
+// has the fix, but @ai-sdk/mcp allows only ^5.0.1. Remove when @ai-sdk/mcp allows 6.0.1 or a 5.x release has the fix
+// (https://github.com/crouchcd/pkce-challenge/pull/50#issuecomment-6941517852).
 function resolveWorkerPackageAliases(): Record<string, string> {
   try {
     const requireFromMcp = createRequire(createRequire(import.meta.url).resolve("@ai-sdk/mcp/package.json"))
@@ -689,20 +693,14 @@ function shouldInstallCloudflareAgentState(
   command?: "build" | "serve",
 ): options is ResolvedAgentModuleOptions {
   if (!options) return false
-  const { driver, url } = options.providers.state
-  if (driver === "cloudflare" || driver === "cloudflare-agents") return true
-  if (driver !== "auto") return false
-  if (url) return false
+  const state = options.providers.state
+  if (state.driver === "cloudflare") return true
+  if (state.driver !== "auto") return false
+  if (state.url) return false
   if (options.runtime === "cloudflare-agents") return true
   if (command === "serve" || (isRecord(config) && config.command === "serve")) return false
   if (options.runtime === "vercel" || options.runtime === "deno") return false
   return resolveAgentHosting(config) === "cloudflare"
-}
-
-function resolveEnvNameForValue(value: string | undefined): string | undefined {
-  if (!value) return
-  return Object.entries(process.env)
-    .find(([name, envValue]) => name && envValue === value)?.[0]
 }
 
 function resolveLibsqlAgentState(
@@ -710,11 +708,12 @@ function resolveLibsqlAgentState(
   config: unknown,
 ): GeneratedLibsqlAgentStateOptions | undefined {
   if (!options) return
-  const { authToken, driver, journalMode, tablePrefix, url } = options.providers.state
+  const state = options.providers.state
+  if (state.driver === "cloudflare" || state.driver === "memory") return
+  const { authToken, driver, journalMode, tablePrefix, url } = state
   const auto = driver === "auto"
-  if (!auto && driver !== "sqlite" && driver !== "libsql") return
   if (auto && shouldInstallCloudflareAgentState(options, config)) return
-  const authTokenEnvName = resolveEnvNameForValue(authToken)
+  const authTokenEnvNames = authToken ? agentStateAuthTokenEnvNames(authToken) : undefined
   const target = isRecord(config) ? config : {}
   const localDevelopment = target.command === "serve" && options.runtime !== "cloudflare-agents" && options.runtime !== "deno"
   const localDefaultUrl = typeof target.root === "string"
@@ -727,7 +726,7 @@ function resolveLibsqlAgentState(
     throw agentDiagnostics.AGENT_B0005({ message: `[vitehub] Agent state cannot use a file: URL on ${ephemeralHosting} because its filesystem is ephemeral. Configure a durable libSQL URL.` })
   }
   return {
-    ...(authTokenEnvName ? { authTokenEnvName } : {}),
+    ...(authTokenEnvNames ? { authTokenEnvNames } : {}),
     ...(!resolvedUrl ? { durableUrlRequired: true } : {}),
     ...(ephemeralHosting ? { ephemeralHosting } : {}),
     ...(journalMode ? { journalMode } : {}),
@@ -1261,7 +1260,7 @@ async function namedAgentChannelModules(
   return await Promise.all(names.map(async (name) => {
     const channel = channels.find(candidate => candidate.name === name)
     if (!channel) {
-      throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Agent ${file} lists the Channel "${name}", but server/channels has no Channel with that name. Channels: ${channels.map(candidate => candidate.name).join(", ") || "none"}.` })
+      throw agentDiagnostics.AGENT_CHANNEL_DEFINITION_NOT_FOUND({ agent: file, channel: name, channels: channels.map(candidate => candidate.name) })
     }
     await assertNamedChannelImportAcyclic(channel, file, channels, resolveModule)
     return channel
@@ -1359,7 +1358,7 @@ async function assertNamedChannelImportAcyclic(
     return false
   }
   if (await visit(channel.handler)) {
-    throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Agent ${agent} lists the Channel "${channel.name}", whose static imports lead back to that Agent. Use a lazy task target, agent: () => import('...'), or leave the Channel unlisted. Named Channels cannot statically import their owning Agent.` })
+    throw agentDiagnostics.AGENT_CHANNEL_IMPORT_CYCLE({ agent, channel: channel.name })
   }
 }
 
@@ -1433,9 +1432,10 @@ function generatedCloudflareChatStateHelper(): string[] {
 }
 
 function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions, typescript = false): string[] {
-  const { authTokenEnvName, durableUrlRequired, ephemeralHosting, ...stateOptions } = state
-  const configuredAuthTokenOption = authTokenEnvName
-    ? [`  ...(typeof process === 'object' && process.env[${JSON.stringify(authTokenEnvName)}] ? { authToken: process.env[${JSON.stringify(authTokenEnvName)}] } : {}),`]
+  const { authTokenEnvNames, durableUrlRequired, ephemeralHosting, ...stateOptions } = state
+  const configuredAuthToken = authTokenEnvNames?.map(name => `process.env[${JSON.stringify(name)}]`).join(" || ")
+  const configuredAuthTokenOption = configuredAuthToken
+    ? [`  ...(typeof process === 'object' && (${configuredAuthToken}) ? { authToken: ${configuredAuthToken} } : {}),`]
     : []
   return [
     "",
@@ -1517,6 +1517,8 @@ function generatedChannelsConsoleHost(routeCapabilities: { requestOption: string
   ]
 }
 
+// Nitro's Netlify presets do not pass `context.waitUntil` (https://github.com/nitrojs/nitro/issues/5143, fix in
+// https://github.com/nitrojs/nitro/pull/5144), so the generated Agent function reads it from the Netlify context.
 function generatedNetlifyRuntimeHelpers(): string[] {
   return [
     "function waitUntilFromContext(context) {",
@@ -1554,7 +1556,7 @@ function generatedHostedWorkspaceRuntimeSetup(
       `  const agent = resolveAgentModule(module)${typescript ? " as WorkspaceAgentDefinition" : ""}`,
       "  const workspace = agent?.__vitehubWorkspaceAgentOptions?.workspace",
       "  const store = workspace && typeof workspace === 'object' ? workspace.store : undefined",
-      "  return store && typeof store === 'object' && 'provider' in store && typeof store.provider === 'string' && ['cloudflare-artifacts', 'github'].includes(store.provider)",
+      "  return store && typeof store === 'object' && 'driver' in store && typeof store.driver === 'string' && ['cloudflare', 'github'].includes(store.driver)",
       "}",
       "",
       // Same env names as `hasVercelWorkspaceBlobEnv` in @vite-hub/workspace storage/provider.ts.
@@ -1563,7 +1565,7 @@ function generatedHostedWorkspaceRuntimeSetup(
       "  const workspace = agent?.__vitehubWorkspaceAgentOptions?.workspace",
       "  const store = workspace && typeof workspace === 'object' ? workspace.store : undefined",
       "  if (workspace && !store && typeof process === 'object' && (process?.env?.BLOB_STORE_ID || process?.env?.BLOB_READ_WRITE_TOKEN)) return true",
-      "  return store && typeof store === 'object' && 'provider' in store && store.provider === 'vercel-blob'",
+      "  return store && typeof store === 'object' && 'driver' in store && store.driver === 'vercel'",
       "}",
       "",
       `if ([${modules.join(", ")}].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()`,
@@ -1765,8 +1767,7 @@ async function generateAgentDeploymentCatalog(
             `const standaloneChannelAgents${typescript ? ": Record<string, AgentInput>" : ""} = {}`,
             ...standaloneChannels.flatMap((channel, index) => [
               `if (!channelHosts[${JSON.stringify(channel.name)}]) {`,
-              // Internal invariant: generated app source without the Agent catalog; the message names the Channel trigger to fix.
-              `  standaloneChannelAgents[${JSON.stringify(channel.agent)}] = defineAgent({ name: ${JSON.stringify(channel.agent)}, runtime: false, channels: { [${JSON.stringify(channel.name)}]: standaloneChannel${index} }, driver: { run() { throw new Error(${JSON.stringify(`[vitehub] The trigger of Channel "${channel.name}" must select an Agent with a task.`)}) } } })`,
+              `  standaloneChannelAgents[${JSON.stringify(channel.agent)}] = defineAgent({ name: ${JSON.stringify(channel.agent)}, runtime: false, channels: { [${JSON.stringify(channel.name)}]: standaloneChannel${index} }, driver: ${standaloneChannelDriverSource(channel.name)} })`,
               `  agentIdentities[${JSON.stringify(channel.agent)}] = { name: ${JSON.stringify(channel.agent)} }`,
               "}",
             ]),
@@ -2131,7 +2132,7 @@ async function writeAgentWebhookRouteHandler(
   })
   const standaloneChannels = options.standaloneChannels ?? discoverStandaloneChannels(root, serverDirs)
   const owner = standaloneChannels.find(channel => channel.inbound && definitions.some(definition => definition.name === channel.agent))
-  if (owner) throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Channel ${owner.handler} serves its webhooks as "${owner.agent}", which is also the name of an Agent Definition. Rename the Channel folder or the Agent.` })
+  if (owner) throw agentDiagnostics.AGENT_CHANNEL_HOST_NAME_TAKEN({ agent: owner.agent, channel: owner.handler })
   options = { ...options, standaloneChannels, explicitWebhookAliasPaths: Object.keys(options.webhookAliases || {}), webhookAliases: standaloneChannelWebhookAliases(standaloneChannels, options.webhookAliases) }
   await mkdir(dirname(handlerPath), { recursive: true })
   await writeFileIfChanged(handlerPath, await generateAgentWebhookRouteHandler(definitions, handlerPath, options))
@@ -2923,7 +2924,6 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         if (!resolved || !hasHostedAgentDefinitions(resolved.root, serverDirs ?? [join(resolved.root, "server")])) return []
         const normalized = normalizeAgentOptions(agent)
         return agentDeploymentEnv(normalized, context, {
-          authTokenEnvName: normalized ? resolveEnvNameForValue(normalized.providers.state.authToken) : undefined,
           processDiscordGateway: Boolean(frameworkOptions?.processDiscordGateway),
         })
       },
@@ -2955,8 +2955,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
     },
     load(id) {
       if (id === chatgptModelProviderWithoutConnections) {
-        // Internal invariant: generated stub source without the Agent catalog; the message names the vitehub() option to fix.
-        return `export function createOpenAI() { throw new Error(${JSON.stringify("[vitehub] The ChatGPT model needs Connections. Enable connections in vitehub() and rebuild.")}) }`
+        return chatgptWithoutConnectionsSource
       }
       // Generated code imports Agent and Workspace files by path. In `vite dev`, Node loads them, as it loads the app's imports.
       return loadNativePackageModule(id, this.environment?.name, resolved?.command ?? "build")
@@ -3198,11 +3197,11 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       if (standaloneChannels.some(channel => channel.inbound) && (denoOutput || resolveAgentHosting(config) === "netlify")) {
         const names = listedAgentChannelNames(discoverAgentDefinitions({ mode: "server-agents", scanDirs: serverDirs ?? [join(root, "server")] }))
         const unclaimed = standaloneChannels.find(channel => channel.inbound && !names.has(channel.name))
-        if (unclaimed) throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Channel ${unclaimed.handler} declares its own webhook route. Inbound Channels that no Agent lists currently require a Nitro host.` })
+        if (unclaimed) throw agentDiagnostics.AGENT_WEBHOOK_ROUTE_HOST_UNSUPPORTED({ channel: unclaimed.handler })
       }
       const webhookAliases = resolved ? standaloneChannelWebhookAliases(standaloneChannels, resolved.routes.aliases) : {}
       if (resolved && Object.keys(resolved.routes.aliases || {}).length && (denoOutput || resolveAgentHosting(config) === "netlify")) {
-        throw agentDiagnostics.AGENT_B0006({ message: "[vitehub] Webhook aliases currently require a Nitro host." })
+        throw agentDiagnostics.AGENT_WEBHOOK_ROUTE_HOST_UNSUPPORTED({})
       }
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config, environment?.command)
       installsCloudflareState ||= installCloudflareState
@@ -3299,7 +3298,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         const routes = existing.filter(isRecord).flatMap(handler => typeof handler.route === "string" ? [{ route: handler.route, middleware: handler.middleware === true }] : [])
         for (const [path, target] of Object.entries(webhookAliases)) {
           if (typeof target?.agent !== "string" || !target.agent.trim() || typeof target?.webhook !== "string" || !target.webhook.trim()) {
-            throw agentDiagnostics.AGENT_B0006({ message: "[vitehub] Webhook aliases require an Agent name and webhook name." })
+            throw agentDiagnostics.AGENT_WEBHOOK_ALIAS_TARGET_INVALID()
           }
           const route = validateAgentStaticRoute(path, [...routes, ...nitroHandlers, ...devNitroHandlers], "webhook alias")
           nitroHandlers.push({ handler: join(generatedRoot, generatedAgentWebhookRouteHandler), route })

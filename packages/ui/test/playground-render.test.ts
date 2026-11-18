@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSSRApp, h } from "vue";
 import * as playground from "../src/playground/share.ts";
 import { decodePlaygroundLink, encodePlaygroundLink, playgroundLinkLimit, readPlaygroundHash } from "../src/playground.ts";
-import { PlaygroundRender, type PlaygroundFiles, type PlaygroundPaneSlotProps, type PlaygroundResult } from "../src/index.ts";
+import { PlaygroundRender, type PlaygroundFiles, type PlaygroundPaneSlotProps, type PlaygroundPreset, type PlaygroundResult } from "../src/index.ts";
 
 const presets = [
   { files: { "config.json": "{}\n", "content.md": "# Hello\n" }, group: "Basics", id: "hello", label: "Hello" },
@@ -253,6 +253,42 @@ describe("PlaygroundRender", () => {
     await wrapper.get('[data-action="copy-link"]').trigger("click");
     await vi.waitFor(() => expect(wrapper.get('[role="status"]').text()).toContain("too big for a link"));
     expect(writeText).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it("emits load when files open, and preset-change when another preset opens", async () => {
+    const { wrapper } = mountPlayground();
+    try {
+      await vi.waitFor(() => expect(wrapper.emitted("load")).toEqual([[{ files: presets[0]!.files, preset: "hello" }]]));
+      // The opening preset is already open, so the first load changes no preset.
+      expect(wrapper.emitted("preset-change")).toBeUndefined();
+
+      await wrapper.get('[data-preset="bye"]').trigger("click");
+      expect(wrapper.emitted("preset-change")).toEqual([[{ files: presets[1]!.files, preset: "bye" }]]);
+      // A click is not a load.
+      expect(wrapper.emitted("load")).toHaveLength(1);
+
+      await wait(10);
+      const shared = await encodePlaygroundLink({ files: { ...presets[0]!.files, "content.md": "# Shared\n" }, template: "hello" }, presets[0]!.files);
+      location.hash = `code=${shared}`;
+      const files = { ...presets[0]!.files, "content.md": "# Shared\n" };
+      await vi.waitFor(() => expect(wrapper.emitted("load")?.[1]).toEqual([{ files, preset: "hello" }]));
+      expect(wrapper.emitted("preset-change")?.[1]).toEqual([{ files, preset: "hello" }]);
+    }
+    finally { wrapper.unmount(); }
+  });
+
+  it("draws group headings with the group slot", async () => {
+    const wrapper = mount(PlaygroundRender, {
+      props: { panes, presets: [...presets, { files: { "content.md": "Plain\n" }, id: "plain", label: "Plain" }], render: markdown },
+      slots: {
+        group: ({ group, presets: grouped }: { group: string; presets: PlaygroundPreset[] }) =>
+          h("span", { class: "group-heading" }, `${group} (${grouped.length})`),
+      },
+    });
+    // Presets without a group have no heading.
+    expect(wrapper.findAll(".vh-pg-group-title").map(title => title.text())).toEqual(["Basics (2)"]);
+    expect(wrapper.find(".vh-pg-group-title .group-heading").exists()).toBe(true);
     wrapper.unmount();
   });
 

@@ -4,12 +4,12 @@ import { createSource } from "@vite-hub/source"
 import type { GitHubRefTarget, GitHubSource, Source, SourceItem, SourceRevision } from "@vite-hub/source"
 import { contentHub } from "comark-content"
 import type { CacheArtifact, ComarkContent, ContentHub, ContentOptions } from "comark-content"
-import { formatDiagnostic } from "nostics"
 import type { Diagnostic } from "nostics"
 
 import { CommitMemory, commitJson, commitKey, decodeCommit, encodeCommit, parserHash, readCommitJson, withCommitDocuments } from "./commit-cache.ts"
 import { checkContentDocuments, contentCheckReason, parseContentFiles } from "./check.ts"
 import { contentSource, contentSourceDefinition, contentSourceUrl, createContentInstance } from "./content-source.ts"
+import { warnDiagnostic } from "./diagnostic-log.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { contentKV, contentKVBuild } from "./kv.ts"
 import { contentRefGrant, signContentRefToken } from "./preview.ts"
@@ -252,11 +252,6 @@ function isAllowReason(reason: ContentSourceAllowReason | ContentSourceDenyReaso
   return reason === "published" || reason === "pull" || reason === "label" || reason === "console" || reason === "token"
 }
 
-/** Whether an error is the nostics diagnostic `code`. */
-function isDiagnostic(error: unknown, code: string): boolean {
-  return error instanceof Error && Reflect.get(error, "code") === code
-}
-
 /** The KV key of a head, such as `content:head:docs`. `vitehub kv get content:head:docs` shows it. */
 function headKey(name: string): string {
   return `content:head:${name}`
@@ -292,7 +287,7 @@ type KVFailure = ReturnType<typeof contentErrorDiagnostics.CONTENT_R0022>
 
 /** The fields of a diagnostic that `head()` returns. `warn` also logs it. */
 function diagnosticOf(code: ContentSourceHeadDiagnostic["code"], error: Diagnostic<unknown>, warn = false): ContentSourceHeadDiagnostic {
-  if (warn) console.warn(formatDiagnostic(error))
+  if (warn) warnDiagnostic(error)
   return { code, message: error.message, fix: error.fix ?? "" }
 }
 
@@ -377,7 +372,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   function stateOf(name = "default"): HeadState {
     const state = states.get(name)
     if (state) return state
-    throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content source ${JSON.stringify(name)} has no head. Only github() Sources have one. Sources with a head: ${[...states.keys()].join(", ") || "none"}.` })
+    throw contentErrorDiagnostics.CONTENT_SOURCE_WITHOUT_HEAD({ source: name, heads: [...states.keys()].join(", ") || "none" })
   }
 
   function origin(state: HeadState): string {
@@ -414,7 +409,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   }
 
   function kvFailure(state: HeadState, cause: unknown): KVFailure {
-    const error = contentErrorDiagnostics.CONTENT_R0022({ source: state.name, key: headKey(state.name), reason: cause instanceof Error ? cause.message : String(cause) })
+    const error = contentErrorDiagnostics.CONTENT_R0022({ source: state.name, key: headKey(state.name), reason: cause instanceof Error ? cause.message : String(cause), cause })
     kvFailures.add(error)
     return error
   }
@@ -511,7 +506,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     catch (error) {
       failure = error
     }
-    if (failure) console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0023({ source: state.name, key, reason: failure instanceof Error ? failure.message : String(failure) })))
+    if (failure) warnDiagnostic(contentErrorDiagnostics.CONTENT_R0023({ source: state.name, key, reason: failure instanceof Error ? failure.message : String(failure) }))
   }
 
   /**
@@ -611,7 +606,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     const rejected = activeRejection(head)
     if (!rejected || state.reported.has(rejected.sha)) return
     state.reported.add(rejected.sha)
-    console.warn(formatDiagnostic(contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: rejected.sha, reason: rejected.reason, head: head?.sha ?? null })))
+    warnDiagnostic(contentErrorDiagnostics.CONTENT_R0019({ source: state.name, sha: rejected.sha, reason: rejected.reason, head: head?.sha ?? null }))
   }
 
   /**
@@ -719,7 +714,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     if (held && (parsed.kind === "commit" || Date.now() - held.at < REF_HOLD_MS)) return await held.target
     const target = (async (): Promise<ContentSourceRef> => {
       const resolve = state.definition.resolveRef
-      if (!resolve) throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content source ${JSON.stringify(state.name)} cannot open refs. Update @vite-hub/source.` })
+      if (!resolve) throw contentErrorDiagnostics.CONTENT_SOURCE_REFS_UNSUPPORTED({ source: state.name, action: "open" })
       let resolved: GitHubRefTarget | undefined
       try {
         resolved = await resolve.call(state.definition, parsed.lookup)
@@ -753,7 +748,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   }
 
   function assertActive(): void {
-    if (disposed) throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content source views have been disposed." })
+    if (disposed) throw contentErrorDiagnostics.CONTENT_SOURCE_VIEWS_DISPOSED()
   }
 
   /** The open view of one commit. Opening a view past the bound closes the least recently used one. */
@@ -823,7 +818,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   /** The GitHub facts of the public rule for one commit. A failed request becomes `CONTENT_R0032` and holds no decision. */
   function publicFacts(state: HeadState, target: ContentSourceRef) {
     const ask = async <T>(read: (() => Promise<T>) | undefined): Promise<T> => {
-      if (!read) throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content source ${JSON.stringify(state.name)} cannot check refs. Update @vite-hub/source.` })
+      if (!read) throw contentErrorDiagnostics.CONTENT_SOURCE_REFS_UNSUPPORTED({ source: state.name, action: "check" })
       try {
         return await read()
       }
@@ -865,14 +860,14 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
       if (!isKVFailure(error)) throw error
       if (!kvFailing(state)) {
         state.failed = Date.now()
-        console.warn(formatDiagnostic(error))
+        warnDiagnostic(error)
       }
       return await serve(state, fallback(state))
     }
     state.failed = undefined
     if (!head?.sha) {
       if (head?.rejected) throw contentErrorDiagnostics.CONTENT_R0019({ source: state.name, ...head.rejected, head: null })
-      throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content source ${JSON.stringify(state.name)} has no validated head. Resolve its GitHub commit, then call content.sources.advance().` })
+      throw contentErrorDiagnostics.CONTENT_SOURCE_HEAD_UNVALIDATED({ source: state.name })
     }
     await serve(state, head)
   }
@@ -896,7 +891,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     async pin(sha, source) {
       const state = stateOf(source)
       if (typeof sha !== "string" || !fullSha.test(sha)) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.sources.pin() needs a full 40-character commit SHA, received ${JSON.stringify(sha)}.` })
+        throw contentErrorDiagnostics.CONTENT_PIN_SHA_INVALID({ sha })
       }
       if (!await isLive(state)) throw contentKV() ? contentErrorDiagnostics.CONTENT_R0020({ source: state.name }) : contentErrorDiagnostics.CONTENT_R0021({ source: state.name })
       const before = await read(state)
@@ -945,7 +940,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
         target = typeof ref === "object" && ref ? givenRef(ref) : await resolveRef(state, parseContentRef(ref))
       }
       catch (error) {
-        if (isDiagnostic(error, "CONTENT_R0027") || isDiagnostic(error, "CONTENT_R0028")) return deny("missing")
+        if (contentErrorDiagnostics.CONTENT_R0027.is(error) || contentErrorDiagnostics.CONTENT_R0028.is(error)) return deny("missing")
         throw error
       }
       const grant = await contentRefGrant(request, state.name, target.ref)
@@ -963,7 +958,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
             facts = { ...target, pull: current.sha === target.sha ? current.pull : null }
           }
           catch (error) {
-            if (isDiagnostic(error, "CONTENT_R0028")) return deny("missing", target)
+            if (contentErrorDiagnostics.CONTENT_R0028.is(error)) return deny("missing", target)
             throw error
           }
         }

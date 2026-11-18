@@ -71,7 +71,7 @@ describe("Cloudflare KV limits", () => {
     const { createKVStorage } = await import("../src/runtime/create-storage.ts")
     const { default: createDriver } = await import("../src/runtime/cloudflare-kv.ts")
     const { default: createLocalDriver } = await import("../src/runtime/cloudflare-kv-local.ts")
-    const driver = host === "cloudflare" ? createDriver({ binding: "KV" }) : createLocalDriver({ driver: "cloudflare-kv-binding", binding: "KV", localBase: "/tmp/kv-batch-preflight" })
+    const driver = host === "cloudflare" ? createDriver({ binding: "KV" }) : createLocalDriver({ driver: "cloudflare", binding: "KV", localBase: "/tmp/kv-batch-preflight" })
     const storage = createKVStorage(driver)
     await storage.setItem("keep", "original")
     puts.length = 0

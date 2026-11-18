@@ -66,6 +66,14 @@ describe("teams() send", () => {
     expect(adapter.postMessage).toHaveBeenLastCalledWith(encode({ conversationId: "a:29:abc", serviceUrl: "https://smba.example" }), { markdown: "Hi" })
   })
 
+  // Since chat 4.45, the Teams adapter sends `{ adaptiveCard, fallbackText }` as a raw Adaptive Card.
+  it("passes a raw Adaptive Card to the adapter as is", async () => {
+    const { adapter, connector } = await setup()
+    const message = { adaptiveCard: { type: "AdaptiveCard", version: "1.5", body: [{ type: "Badge", text: "Draft" }] }, fallbackText: "Draft" }
+    await connector.send(message, { recipient: channel })
+    expect(adapter.postMessage).toHaveBeenLastCalledWith(channel, message)
+  })
+
   it("passes a card to the adapter as is for posts, edits, and thread roots", async () => {
     const { adapter, connector } = await setup()
     const card = { card: { type: "card" as const, title: "Build 7", children: [] }, fallbackText: "Build 7 failed" }
@@ -216,8 +224,8 @@ describe("teams() send", () => {
 
   it("rejects replace with the idempotency key of the same send or without one", async () => {
     const { adapter, connector } = await setup()
-    await expect(connector.send("x", { recipient: channel, idempotencyKey: "same", replace: "same" })).rejects.toThrow(TypeError)
-    await expect(connector.send("x", { recipient: channel, replace: "earlier" })).rejects.toThrow(TypeError)
+    await expect(connector.send("x", { recipient: channel, idempotencyKey: "same", replace: "same" })).rejects.toMatchObject({ code: "AGENT_CONNECTOR_REPLACE_INVALID" })
+    await expect(connector.send("x", { recipient: channel, replace: "earlier" })).rejects.toMatchObject({ code: "AGENT_CONNECTOR_REPLACE_INVALID" })
     expect(adapter.postMessage).not.toHaveBeenCalled()
   })
 

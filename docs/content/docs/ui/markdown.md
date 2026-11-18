@@ -13,16 +13,16 @@ icon: i-lucide-file-text
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `vite-hub/ui`:
 
 ```ts
-import { Markdown } from "@vite-hub/ui";
+import { Markdown } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```ts
-import { Markdown } from "@vite-hub/ui";
+import { Markdown } from "vite-hub/ui";
 ```
 
 ```vue
@@ -125,7 +125,7 @@ Change the class of every instance with the `markdown.class` [default](/docs/ui/
 
 ### Markdown
 
-Renders a Markdown string or parsed Content page as styled prose. The `vite-hub/ui` and `@vite-hub/ui` entries also export the `MarkdownValue` type.
+Renders a Markdown string or parsed Content page as styled prose. `vite-hub/ui` also exports the `MarkdownValue` type.
 
 #### Props
 

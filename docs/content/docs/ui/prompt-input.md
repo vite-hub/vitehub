@@ -13,16 +13,16 @@ icon: i-lucide-send
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`. The `PromptInputSubmit` type comes from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `vite-hub/ui`. The `PromptInputSubmit` type comes from `vite-hub/ui`:
 
 ```ts
-import { PromptInput, type PromptInputSubmit } from "@vite-hub/ui";
+import { PromptInput, type PromptInputSubmit } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```ts
-import { PromptInput } from "@vite-hub/ui";
+import { PromptInput } from "vite-hub/ui";
 ```
 
 ```vue
@@ -132,6 +132,7 @@ Renders a `<form>` with a textarea, attachments, and attach and submit buttons.
 | `modelValue`  | `string`                                       | `""`      | The draft text. Use `v-model`.                                   |
 | `attachments` | `boolean`                                      | `true`    | Enables the attachment picker and handling. |
 | `attachVariant` | `"outline" \| "ghost"`                       | `"outline"` | The attach button's look. `ghost` is a muted icon, for a box that has its own frame. |
+| `disabled`    | `boolean`                                      | `false`   | The prompt takes no input, such as when the user has no questions left. The field, the attach button, Send, and Retry are disabled. Stop stays pressable. |
 | `files`       | `readonly FileUIPart[]`                        | `[]`      | The attached files. Use `v-model:files`.                         |
 | `filesDisabled` | `boolean`                                     | `false`   | Disables adding and removing files. Text stays editable. |
 | `readonly`      | `boolean`                                     | `false`   | The text is being sent: the field is read-only, Enter does nothing, and Send shows a spinner. |

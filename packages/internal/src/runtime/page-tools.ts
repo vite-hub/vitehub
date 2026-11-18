@@ -29,8 +29,8 @@ export interface ViteHubPageTool extends ViteHubPageToolInfo {
   allowed(visitor: ViteHubPageToolVisitor): Promise<boolean | "lazy">
   /**
    * The roles that give a permission of this tool, such as `comments-write`. Site access in the Console offers them when
-   * someone invites a guest, and adds them to the guest's `role` of Better Auth's `admin()` plugin. The tool checks the
-   * roles itself.
+   * someone invites a guest, and adds them to the guest's `role` of Better Auth's `admin()` plugin, or to the roles of
+   * the Site access cookie in an app without Auth. The tool checks the roles itself.
    */
   grants?: readonly ViteHubPageGrant[]
 }
@@ -48,6 +48,7 @@ interface PageToolsState {
   installed: WeakSet<object>
   bases: WeakMap<object, string>
   grants?: Map<string, ViteHubPageGrant>
+  siteVisitor?: ViteHubSiteVisitorReader
   // Optional: a copy of this module from an older release may have made the slot without it.
   accounts?: WeakMap<object, ViteHubPageAccountReader>
 }
@@ -101,9 +102,54 @@ async function readAccount(nitroApp: object, request: Request): Promise<ViteHubP
   }
 }
 
+/**
+ * Whether the page tool `id` of the request's app allows this visitor, by the same check as the session route. `false`
+ * when the app has no such tool, the check throws, or the request did not come through the app's `fetch`.
+ */
+export async function viteHubPageToolAllows(request: Request, id: string): Promise<boolean> {
+  const nitroApp = state().apps.get(request)
+  const tool = nitroApp && state().tools.get(nitroApp)?.get(id)
+  if (!tool) return false
+  try {
+    return await tool.allowed({ request }) === true
+  }
+  catch (error) {
+    console.error(`[vitehub] The visitor check of the page tool "${id}" failed. The tool stays off for this request.`, error)
+    return false
+  }
+}
+
 /** The grants that the registered page tools declare, in registration order. */
 export function viteHubPageGrants(): ViteHubPageGrant[] {
   return [...state().grants?.values() ?? []]
+}
+
+/**
+ * A person that Site access in the Console signed in to an app without ViteHub Auth: a Console member, or a guest, with
+ * their roles, such as `console` and `comments-write`. The Console seals them in the `vitehub_site` cookie.
+ */
+export interface ViteHubSiteVisitor {
+  id: string
+  name: string
+  email?: string
+  image?: string
+  roles: string[]
+}
+
+/** Reads the Site access person of a request. It returns undefined without a valid, unrevoked cookie. */
+export type ViteHubSiteVisitorReader = (request: Request) => Promise<ViteHubSiteVisitor | undefined>
+
+/**
+ * Installs the reader of the Site access cookie. The Console installs it when the server starts in an app without Auth,
+ * so page tools, such as Comments, know the person without depending on the Console.
+ */
+export function installViteHubSiteVisitor(reader: ViteHubSiteVisitorReader): void {
+  state().siteVisitor = reader
+}
+
+/** The reader of the Site access cookie, or undefined in an app where the Console did not install one. */
+export function viteHubSiteVisitorReader(): ViteHubSiteVisitorReader | undefined {
+  return state().siteVisitor
 }
 
 /** The path of a URL below the app base. A path outside the base stays as it is. */

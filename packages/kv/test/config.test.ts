@@ -31,7 +31,7 @@ describe("normalizeKVOptions", () => {
 
   it("ignores REDIS_URL and the Database at build time on hosted presets", () => {
     const env = { REDIS_URL: "redis://localhost:6379" }
-    expect(normalizeKVOptions(undefined, { env, hosting: "cloudflare-module", postgresDatabase: true })?.store.driver).toBe("cloudflare-kv-binding")
+    expect(normalizeKVOptions(undefined, { env, hosting: "cloudflare-module", postgresDatabase: true })?.store.driver).toBe("cloudflare")
     expect(normalizeKVOptions(undefined, { env, hosting: "vercel", postgresDatabase: true })?.store.driver).toBe("upstash")
     expect(normalizeKVOptions(undefined, { env, hosting: "deno-deploy", postgresDatabase: true })?.store.driver).toBe("deno-kv")
   })
@@ -165,7 +165,7 @@ describe("normalizeKVOptions existing behavior", () => {
     })).toEqual({
       store: {
         binding: "KV",
-        driver: "cloudflare-kv-binding",
+        driver: "cloudflare",
         namespaceId: "namespace-from-env",
       },
     })
@@ -457,7 +457,7 @@ describe("Cloudflare integration", () => {
       }
     } = {}
     const config = normalizeKVOptions({
-      driver: "cloudflare-kv-binding",
+      driver: "cloudflare",
       namespaceId: "namespace-id",
     }, {
       env: {},
@@ -477,9 +477,9 @@ describe("Cloudflare integration", () => {
     const target: { cloudflare?: { wrangler?: { kv_namespaces?: Array<{ binding: string, id?: string }> } } } = {}
     const config = normalizeKVOptions({
       stores: {
-        default: { binding: "CACHE", driver: "cloudflare-kv-binding", namespaceName: "app-cache" },
-        pinned: { binding: "PINNED", driver: "cloudflare-kv-binding", namespaceId: "configured-id", namespaceName: "pinned" },
-        unrecorded: { binding: "UNRECORDED", driver: "cloudflare-kv-binding", namespaceName: "unrecorded" },
+        default: { binding: "CACHE", driver: "cloudflare", namespaceName: "app-cache" },
+        pinned: { binding: "PINNED", driver: "cloudflare", namespaceId: "configured-id", namespaceName: "pinned" },
+        unrecorded: { binding: "UNRECORDED", driver: "cloudflare", namespaceName: "unrecorded" },
       },
     }, {
       env: {},
@@ -534,5 +534,28 @@ describe("warnVercelKVFallback", () => {
     expect(error).toHaveBeenCalledWith(
       "Vercel hosting requires Upstash-backed KV. Set `KV_REST_API_URL` and `KV_REST_API_TOKEN`.",
     )
+  })
+})
+
+describe("renamed KV drivers", () => {
+  it("names the new driver for the former cloudflare-kv-binding", () => {
+    const expected = expect.objectContaining({
+      code: "KV_INVALID_DRIVER",
+      fix: expect.stringContaining("kv: { driver: \"cloudflare\" }"),
+      why: expect.stringContaining("renamed this driver to \"cloudflare\""),
+    })
+    // SAFETY: An app config without types passes the former driver name.
+    expect(() => normalizeKVOptions({ driver: "cloudflare-kv-binding" } as never, { env: {}, hosting: "cloudflare" })).toThrow(expected)
+    // SAFETY: An app config without types passes the former driver name.
+    expect(() => normalizeKVOptions({ stores: { default: { driver: "cloudflare-kv-binding" } } } as never, { env: {}, hosting: "cloudflare" })).toThrow(expected)
+  })
+
+  it("keeps the driver list for a name that was never a driver", () => {
+    // SAFETY: An app config without types passes an unknown driver name.
+    expect(() => normalizeKVOptions({ driver: "toString" } as never, { env: {}, hosting: "" })).toThrow(expect.objectContaining({
+      code: "KV_INVALID_DRIVER",
+      fix: expect.stringContaining("\"upstash\""),
+      why: "`kv.driver` \"toString\" is not a KV driver.",
+    }))
   })
 })

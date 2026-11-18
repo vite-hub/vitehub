@@ -245,6 +245,18 @@ describe("Agent Invocation Stream", () => {
     }
   })
 
+  it("writes every Set-Cookie value of the response", async () => {
+    const cookies = ["session=abc; HttpOnly; Path=/", "vitehub_session=1; Path=/"]
+    const res = new ServerResponse(new IncomingMessage(new Socket()))
+    vi.spyOn(res, "end").mockImplementation(() => res)
+
+    await writeResponse(res, new Response(null, { headers: [["set-cookie", cookies[0]!], ["set-cookie", cookies[1]!], ["x-test", "kept"]], status: 401 }))
+
+    expect(res.statusCode).toBe(401)
+    expect(res.getHeader("set-cookie")).toEqual(cookies)
+    expect(res.getHeader("x-test")).toBe("kept")
+  })
+
   it("only treats closed-response AbortError body failures as cleanup", async () => {
     const res = new ServerResponse(new IncomingMessage(new Socket()))
     const destroy = vi.spyOn(res, "destroy").mockImplementation(() => res)

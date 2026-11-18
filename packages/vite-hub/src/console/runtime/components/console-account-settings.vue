@@ -5,9 +5,11 @@ import type { ConsolePasskey } from "../client/account";
 import { addConsolePasskey, deleteConsolePasskey, earlyConsoleSignInState, linkConsoleGitHub, loadConsoleSignInState, renameConsoleAccount } from "../client/account";
 import { useConsoleProjects } from "../client/project-session";
 import { useConsoleToast } from "../client/toast";
+import ConsoleAccountApiKeys from "./console-account-api-keys.vue";
 import ConsoleSettingsCard from "./console-settings-card.vue";
+import Icon from "./console-icon.vue";
 
-/** The account settings of an `account` Console: the name, GitHub sign-in, and passkeys. */
+/** The account settings of an `account` Console: the name, GitHub sign-in, passkeys, and API keys. */
 const projects = useConsoleProjects();
 const toast = useConsoleToast();
 const account = computed(() => projects.account.value);
@@ -120,7 +122,7 @@ function added(value: string | undefined): string {
     <ConsoleSettingsCard title="Sign-in methods" description="Use any of them to sign in to the Console." heading-id="vitehub-settings-sign-in">
       <ul v-if="!passkeys || passkeys.length || githubAvailable || github" class="vitehub-account-list">
         <li v-if="githubAvailable || github" class="vitehub-account-list__row">
-          <UIcon name="i-lucide-github" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
+          <Icon name="i-lucide-github" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
           <span class="grid min-w-0 flex-1">
             <span class="text-sm font-medium text-highlighted">GitHub</span>
             <span class="text-xs text-muted">{{ github ? "Connected" : "Sign in with GitHub, and accept invitations sent to its email." }}</span>
@@ -138,7 +140,7 @@ function added(value: string | undefined): string {
           </li>
         </template>
         <li v-for="passkey in passkeys ?? []" :key="passkey.id" class="vitehub-account-list__row">
-          <UIcon name="i-lucide-key-round" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
+          <Icon name="i-lucide-key-round" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
           <span class="grid min-w-0 flex-1">
             <span class="truncate text-sm font-medium text-highlighted">Passkey</span>
             <span class="text-xs text-muted">{{ added(passkey.createdAt) }}{{ methodCount === 1 ? " · Only sign-in method" : "" }}</span>
@@ -176,5 +178,7 @@ function added(value: string | undefined): string {
         <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-plus" label="Add a passkey" :loading="busy === 'passkey'" @click="run('passkey', addConsolePasskey, 'Passkey added')" />
       </template>
     </ConsoleSettingsCard>
+
+    <ConsoleAccountApiKeys />
   </div>
 </template>

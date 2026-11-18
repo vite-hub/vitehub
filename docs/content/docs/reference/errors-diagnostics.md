@@ -32,7 +32,9 @@ if (error) {
 
 `Result<T, Code>` and `ResultError<Code>` from `vite-hub/runtime` type this tuple. Packages define their codes with `defineErrors()` from `vite-hub/runtime`. Each code has a `why`, a `fix`, and a page in the diagnostics of its primitive, such as [KV diagnostics](/docs/kv/diagnostics). `error.docs` opens that page. [All diagnostics](/docs/reference/diagnostics) lists every primitive.
 
-A catalog code can give static or computed `data`, which stays in memory. Each factory infers its data type. `ResultError<Code, Data>` names it; without it, `data` is `unknown`. The `toJSON()` type keeps the literal code and name and matches Nostics `Diagnostic`, so `formatDiagnostic()` accepts catalog errors. Nostics 1.3 requires `data` in its serializer type, but runtime JSON still omits it. Read `data` from the error itself.
+A catalog code can give static or computed `data`, which stays in memory. Each factory infers its data type. `ResultError<Code, Data>` names it; without it, `data` is `unknown`. The `toJSON()` type keeps the literal code and name and matches Nostics `Diagnostic`, so `formatDiagnostic()` accepts catalog errors. Nostics requires `data` in its serializer type, but runtime JSON still omits it. Read `data` from the error itself.
+
+A catalog checks its own errors. `errors.is(error)` accepts any code of the catalog, and `errors.CODE.is(error)` accepts one code. Both narrow `code` and `data`, and both accept an error from another bundled copy or realm. `InferDiagnosticCodes<typeof errors>` from `nostics` is the union of the codes.
 
 ## Diagnostic codes
 
@@ -105,6 +107,8 @@ throw errors.SEARCH_INDEX_MISSING()
 
 Add `nostics` as a direct dependency to use it. Omit reporters for throw-only catalogs. ViteHub formats the error where it is reported.
 
+Check your own errors with `errors.SEARCH_INDEX_MISSING.is(error)`, or `errors.is(error)` for any code of the catalog. These Nostics guards check that this catalog created the error, so they reject an error from another bundled copy of `nostics`. Log a diagnostic with `createConsoleReporter()` from `nostics` to print its `cause` too; `formatDiagnostic()` leaves the cause out.
+
 AI SDK tool results, Codex and Claude Code MCP tool responses, tool-step reports, and CLI output keep the code and fix, without causes or stacks.
 
 ::warning
@@ -143,7 +147,7 @@ i18n uses `AGENT_C0014` for invalid `i18n()` options, and `AGENT_R0104` when the
 
 Forge uses `AGENT_C0011` for invalid options. `AGENT_R0941` to `AGENT_R0945` cover credentials, repository access, context, requests, and tool input. See [Forge diagnostics](/docs/agents/capabilities/forge#diagnostics).
 
-The `gitlab()` and `forgejo()` Channels use `AGENT_R0946` for a missing webhook secret, failed Forge requests, and activity errors. See [Forge Channels](/docs/agents/forge-channels#limits).
+The `gitlab()` and `forgejo()` Channels use `AGENT_FORGE_WEBHOOK_SECRET_MISSING` for a missing webhook secret, `AGENT_FORGE_METADATA_FAILED` and `AGENT_FORGE_EFFECT_FAILED` for failed Forge requests, and other `AGENT_FORGE_*` codes for activity errors. See [Forge Channels](/docs/agents/forge-channels#limits).
 
 ## Agent public errors
 
@@ -253,7 +257,7 @@ pnpm --filter @vite-hub/sandbox test
 | Conflicting Rate Limit policy | Two `requireRateLimit()` calls use the same stable ID with different static policies. | Open both reported source locations. Make the policies the same, or rename one ID. |
 | Driver provides best-effort enforcement | A policy requires `strict`, but the provider cannot guarantee it. | Keep `strict` and pick another driver. Change the policy only if best-effort is acceptable. |
 | Driver does not support the window | The provider supports fewer fixed-window periods than the policy type. | Use a supported period, or pick a driver that supports the window. |
-| Production hosting requires an explicit provider | The build target is unknown or has no native Rate Limit provider. | On Cloudflare, set `provider: 'cloudflare'` with a project-unique `namespace`. Set `provider: 'memory'` only for a single-process deployment. Or build a custom Rate Limiter. |
+| Production hosting requires an explicit provider | The build target is unknown or has no native Rate Limit provider. | On Cloudflare, set `driver: 'cloudflare'` with a project-unique `namespace`. Set `driver: 'memory'` only for a single-process deployment. Or build a custom Rate Limiter. |
 | Cloudflare binding was not found | The running Worker or request context has no generated `ratelimits` output. | Inspect `wrangler.json`, then test the deployed Worker, not a separate Node process. |
 | `reason: 'unavailable'` with `allowed: true` | A `failure: 'allow'` policy let work through after a driver error. | Record the decision and check provider health before you change the budget. |
 

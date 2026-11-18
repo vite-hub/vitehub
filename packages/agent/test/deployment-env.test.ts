@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { env } from "@vite-hub/env"
+import { describe, expect, it, vi } from "vitest"
 
 import { normalizeAgentOptions } from "../src/config.ts"
 import { agentDeploymentEnv } from "../src/deployment-env.ts"
@@ -41,11 +42,12 @@ describe("agentDeploymentEnv", () => {
 
   it("keeps the state URL optional when the config sets one, and names its token variable, never its value", () => {
     const canary = "canary-token-91fd"
-    const options = normalizeAgentOptions({ providers: { state: { driver: "libsql", url: "libsql://agents.example.com", authToken: canary } }, routes: { discordGateway: false } })
-    const entries = agentDeploymentEnv(options, { host: "vercel" }, { authTokenEnvName: "TURSO_AUTH_TOKEN" })
+    vi.stubEnv("TURSO_AUTH_TOKEN", canary)
+    const options = normalizeAgentOptions({ providers: { state: { driver: "libsql", url: "libsql://agents.example.com", authToken: env({ secret: true, source: env.source(["TURSO_AUTH_TOKEN", "TURSO_FALLBACK_TOKEN"]) }) } }, routes: { discordGateway: false } })
+    const entries = agentDeploymentEnv(options, { host: "vercel" })
     expect(entries.slice(0, 3)).toEqual([
       { names: ["VITEHUB_AGENT_STATE_URL"], required: false, secret: true, hasDefault: true, owners },
-      { names: ["TURSO_AUTH_TOKEN"], required: false, secret: true, hasDefault: false, owners },
+      { names: ["TURSO_AUTH_TOKEN", "TURSO_FALLBACK_TOKEN"], required: false, secret: true, hasDefault: false, owners },
       { names: ["VITEHUB_AGENT_STATE_AUTH_TOKEN"], required: false, secret: true, hasDefault: false, owners },
     ])
     expect(names(entries)).not.toContain("VITEHUB_DISCORD_GATEWAY_SECRET")

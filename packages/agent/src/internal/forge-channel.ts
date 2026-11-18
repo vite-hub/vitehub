@@ -1,7 +1,7 @@
 import type { Comment, Cursor, ForgeProvider, Page, ReactionContent, ResolvedThreadRef, Thread } from "forges"
 import type { AgentChannelDeliveryEffectContext, AgentChannelDeliveryEffects, AgentRunInput, AgentRuntimeConfig } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-import { forgeErrorStatus } from "@vite-hub/forge"
+import { forgeErrorStatus } from "@vite-hub/internal/forge"
 import type { ForgeKind } from "@vite-hub/forge"
 import { isRuntimeRecord as isRecord } from "./runtime-type.ts"
 import { messageChannelReplyBody, setMessageChannelDeliveredReplyBody } from "./message-channel-delivery-body.ts"
@@ -35,7 +35,7 @@ export async function forgeChannelRead<T>(provider: ForgeProvider, code: Metadat
   }
   catch (error) {
     const status = forgeErrorStatus(error)
-    if (provider.forge !== "github" && status !== undefined) throw agentDiagnostics.AGENT_R0946({ message: `[vitehub] Forge metadata request failed with ${status}.`, cause: error })
+    if (provider.forge !== "github" && status !== undefined) throw agentDiagnostics.AGENT_FORGE_METADATA_FAILED({ status, cause: error })
     if (provider.forge === "github" && status !== undefined) {
       throw agentDiagnostics[code]({ message: `[vitehub] GitHub metadata request failed with ${status}.`, cause: error })
     }
@@ -49,7 +49,7 @@ export async function forgeChannelWrite<T>(provider: ForgeProvider, write: () =>
   }
   catch (error) {
     const status = forgeErrorStatus(error)
-    if (provider.forge !== "github" && status !== undefined) throw agentDiagnostics.AGENT_R0946({ message: `[vitehub] Forge delivery effect failed with ${status}.`, cause: error })
+    if (provider.forge !== "github" && status !== undefined) throw agentDiagnostics.AGENT_FORGE_EFFECT_FAILED({ status, cause: error })
     if (provider.forge === "github" && status !== undefined) {
       throw agentDiagnostics.AGENT_R0350({ message: `[vitehub] GitHub delivery effect failed with ${status}.`, cause: error })
     }
@@ -183,7 +183,7 @@ export function forgeActivityComments(provider: ForgeProvider, target: ForgeTarg
       catch (error) {
         const status = forgeErrorStatus(error)
         if (status === 404) return undefined
-        if (status !== undefined && provider.forge !== "github") throw agentDiagnostics.AGENT_R0946({ message: `[vitehub] Forge metadata request failed with ${status}.`, cause: error })
+        if (status !== undefined && provider.forge !== "github") throw agentDiagnostics.AGENT_FORGE_METADATA_FAILED({ status, cause: error })
         if (status !== undefined && provider.forge === "github") throw agentDiagnostics.AGENT_R0360({ message: `[vitehub] GitHub metadata request failed with ${status}.`, cause: error })
         throw error
       }
@@ -198,7 +198,7 @@ export async function forgeIdentity(provider: ForgeProvider, credential: { kind:
   const { data } = await provider.request("GET", "/user")
   if (provider.forge === "gitlab" && isRecord(data) && typeof data.username === "string" && data.username) return { login: data.username }
   if (isRecord(data) && typeof data.login === "string" && data.login) return { login: data.login }
-  if (provider.forge !== "github") throw agentDiagnostics.AGENT_R0946({ message: "[vitehub] Forge Agent activity could not resolve the authenticated identity." })
+  if (provider.forge !== "github") throw agentDiagnostics.AGENT_FORGE_IDENTITY_UNRESOLVED()
   throw agentDiagnostics.AGENT_R0356({ message: "[vitehub] GitHub Agent activity could not resolve the authenticated identity." })
 }
 
@@ -317,7 +317,7 @@ export function forgeDeliveryEffects<TRuntimeConfig extends AgentRuntimeConfig>(
     async update(context) {
       const target = options.target(context)
       if (!target) return
-      if (!target.commentId && target.forge !== "github") throw agentDiagnostics.AGENT_R0946({ message: "[vitehub] Forge pull request lifecycle invocations cannot update a triggering comment." })
+      if (!target.commentId && target.forge !== "github") throw agentDiagnostics.AGENT_FORGE_LIFECYCLE_UPDATE_UNSUPPORTED()
       if (!target.commentId) throw agentDiagnostics.AGENT_R0364({ message: "[vitehub] GitHub pull request lifecycle invocations cannot update a triggering comment." })
       const provider = await options.provider(context)
       const body = await bodyFor(context, provider)
@@ -334,7 +334,7 @@ export function forgeDeliveryEffects<TRuntimeConfig extends AgentRuntimeConfig>(
       const ref = forgeThreadRef(provider, target)
       if (provider.forge === "gitlab") {
         // GitLab has approvals, not reviews. An approval has no body, so the review text is a note.
-        if (review === "request_changes") throw agentDiagnostics.AGENT_R0946({ message: "[vitehub] GitLab has no request changes review. Use an approve or comment review." })
+        if (review === "request_changes") throw agentDiagnostics.AGENT_FORGE_REVIEW_UNSUPPORTED()
         if (review === "approve") await forgeChannelWrite(provider, async () => await provider.threads.createReview(ref, { event: "approve" }))
         if (body) await forgeChannelWrite(provider, async () => await provider.threads.createComment(ref, body))
         return

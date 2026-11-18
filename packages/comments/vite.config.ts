@@ -1,6 +1,6 @@
 import { defineConfig } from "vite-plus"
 
-import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
+import { browserTarget, normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
 
 export default defineConfig({
   pack: [
@@ -44,6 +44,7 @@ export default defineConfig({
       minify: true,
       outExtensions: () => ({ js: ".js" }),
       platform: "browser",
+      target: browserTarget,
       tsconfig: "tsconfig.build.json",
     },
   ],

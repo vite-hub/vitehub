@@ -31,6 +31,14 @@ export function normalizePackageExports(
   );
 }
 
+/**
+ * The browsers that ViteHub supports, as build targets: the latest two Chrome and Firefox releases and the current and
+ * previous Safari major ("Native first" in AGENTS.md). Use it for a script that a page loads as it is, with no bundler
+ * of the app between, such as the page pill. Package code that an app bundles keeps the app's own target.
+ * Raise it with the support floor. A stale target only transforms more syntax than it must.
+ */
+export const browserTarget: string[] = ["chrome157", "firefox159", "safari27.1"];
+
 /** Pack options that every published package shares. Spread them first, so the package's own options win. */
 export const packDefaults = {
   tsconfig: "tsconfig.build.json",

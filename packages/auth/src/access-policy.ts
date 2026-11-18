@@ -1,11 +1,13 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import { createAuthMiddleware } from "better-auth/api"
 import { deleteSessionCookie, parseCookies } from "better-auth/cookies"
 import { decryptOAuthToken } from "better-auth/oauth2"
 
 import type { AuthContext, BetterAuthPlugin } from "better-auth"
+import type { MembersGate } from "./members.ts"
 import type { AuthAccessPolicy, AuthAccessPolicyContext } from "./types.ts"
 
-/** The id of the Better Auth plugin that applies `access.policy`. `verifyMcpRequest()` finds the policy by it. */
+/** The id of the Better Auth plugin that applies `access.policy` and `VITEHUB_MEMBERS`. `verifyMcpRequest()` finds the policy by it. */
 export const accessPolicyPluginId = "vitehub-access-policy"
 
 const defaultRecheck = 300_000
@@ -15,6 +17,10 @@ type PolicyUser = AuthAccessPolicyContext["user"]
 export interface AccessPolicyPlugin extends BetterAuthPlugin {
   /** Whether the policy allows `user` now. A recent allowed answer for `key` is reused for `recheck` milliseconds. */
   allows: (user: PolicyUser, key: string) => Promise<boolean>
+  /** The `VITEHUB_MEMBERS` entries, for the Console. */
+  options: { members: readonly string[] }
+  /** The check of `VITEHUB_MEMBERS`, when it is set. `checkAuthMember()` uses it. */
+  members?: MembersGate
 }
 
 // Keys are SHA-256 digests, so the cache never holds a session token.
@@ -33,14 +39,16 @@ function withoutSessionCookies(headers: Headers, names: string[]): Headers {
 }
 
 /**
- * Applies `access.policy`. A session is created only when `allow` returns `true`. Each Better Auth request with a
- * session cookie or bearer credential, including every `getSession()` call and so every ViteHub guard, asks again
- * once `recheck` has passed for that session. A refusal deletes the session and its cookies, and the request continues signed out.
+ * Applies `VITEHUB_MEMBERS` and `access.policy`. A session is created only when the member list lets the user in and
+ * `allow` returns `true`. Each Better Auth request with a session cookie or bearer credential, including every
+ * `getSession()` call and so every ViteHub guard, asks again once `recheck` has passed for that session. A refusal
+ * deletes the session and its cookies, and the request continues signed out.
  */
-export function createAccessPolicyPlugin(policy: AuthAccessPolicy): AccessPolicyPlugin {
-  const recheck = policy.recheck ?? defaultRecheck
+export function createAccessPolicyPlugin({ policy, members }: { policy?: AuthAccessPolicy, members?: MembersGate }): AccessPolicyPlugin {
+  const recheck = policy?.recheck ?? defaultRecheck
   const allowedUntil = new Map<string, number>()
-  // Better Auth passes its context to `init`, and replaces `internalAdapter` on it later, so read it when a check runs.
+  // Better Auth passes its context to `init`, and replaces `internalAdapter` on it later, so read it when a check runs
+  // (https://github.com/better-auth/better-auth/issues/12711).
   let auth: AuthContext | undefined
 
   const remember = (key: string) => {
@@ -51,7 +59,8 @@ export function createAccessPolicyPlugin(policy: AuthAccessPolicy): AccessPolicy
     allowedUntil.set(key, now + recheck)
   }
 
-  const ask = async (context: AuthContext, user: PolicyUser): Promise<boolean> => {
+  const askPolicy = async (context: AuthContext, user: PolicyUser): Promise<boolean> => {
+    if (!policy) return true
     const accessToken = async (providerId: string): Promise<string | null> => {
       const account = (await context.internalAdapter.findAccounts(user.id)).find(entry => entry.providerId === providerId)
       return account?.accessToken ? await decryptOAuthToken(account.accessToken, context) : null
@@ -59,9 +68,11 @@ export function createAccessPolicyPlugin(policy: AuthAccessPolicy): AccessPolicy
     return await policy.allow({ user, accessToken }) === true
   }
 
+  const ask = async (context: AuthContext, user: PolicyUser): Promise<boolean> =>
+    (!members || await members.allows(context, user)) && await askPolicy(context, user)
+
   const allows = async (user: PolicyUser, key: string, context = auth): Promise<boolean> => {
-    // Internal invariant: Better Auth runs `init` before any request or token check reaches the plugin.
-    if (!context) throw new Error("The access policy plugin was used before Better Auth initialized it.")
+    invariant(context, "Better Auth runs `init` of the access policy plugin before a request or token check reaches it")
     const cacheKey = await digest(key)
     if ((allowedUntil.get(cacheKey) ?? 0) > Date.now()) return true
     allowedUntil.delete(cacheKey)
@@ -77,6 +88,8 @@ export function createAccessPolicyPlugin(policy: AuthAccessPolicy): AccessPolicy
   return {
     id: accessPolicyPluginId,
     allows,
+    members,
+    options: { members: members?.entries ?? [] },
     hooks: {
       before: [{
         matcher: context => Boolean(context.headers?.get("cookie") || context.headers?.get("authorization") || context.request?.headers.get("authorization")),
@@ -118,12 +131,23 @@ export function createAccessPolicyPlugin(policy: AuthAccessPolicy): AccessPolicy
       auth = context
       return { options: {
         databaseHooks: {
+          ...members?.databaseHooks(context),
           session: {
             create: {
               // Refusing here refuses every way in: social and email sign-in, sign-up, and impersonation.
-              before: async (session) => {
+              before: async (session, endpoint) => {
                 const user = await context.internalAdapter.findUserById(session.userId)
-                if (!user || !await ask(context, user)) return false
+                if (!user) return false
+                // A refused member gets a code that says why. An app policy refusal stays a plain failure.
+                if (members) {
+                  try {
+                    if (!await members.allows(context, user)) throw members.refusal()
+                  } catch (error) {
+                    await members.cleanup(context, user.id, endpoint)
+                    throw error
+                  }
+                }
+                if (!await askPolicy(context, user)) return false
               },
               after: async (session) => {
                 remember(await digest(`session:${session.token}`))

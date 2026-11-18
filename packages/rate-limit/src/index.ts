@@ -5,6 +5,7 @@ export { checkRateLimit, requireRateLimit } from "./guard.ts"
 
 export type {
   CheckRateLimitErrorCode,
+  CheckRateLimitOptions,
   CreateRateLimiterOptions,
   RateLimitConsumeInput,
   RateLimitCounterScope,
@@ -21,10 +22,10 @@ export type {
   RateLimitEnforcement,
   RateLimitFailurePolicy,
   RateLimiter,
+  RateLimitDriverName,
   RateLimitOptions,
   RateLimitPeekResult,
   RateLimitPolicy,
-  RateLimitProvider,
   RateLimitRejectedAttemptBehavior,
   RateLimitRequest,
   RateLimitRequestEvent,

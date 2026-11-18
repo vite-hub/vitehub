@@ -39,7 +39,7 @@ describe("vitehub deploy on Cloudflare", () => {
     expect(result.exitCode, result.stdout + result.stderr).toBe(0)
     const calls = await hosts.calls()
     expect(calls.map(call => [call.name, call.argv, call.stdin])).toEqual([
-      ["wrangler", ["deploy", "--config", "./server/wrangler.json"], ""],
+      ["wrangler", ["deploy", "--config", "./server/wrangler.json", "--keep-vars"], ""],
     ])
     expect(calls.every(call => call.cwd === join(root, ".output"))).toBe(true)
     expect(result.json).toEqual({
@@ -59,7 +59,7 @@ describe("vitehub deploy on Cloudflare", () => {
     await writeFile(join(root, ".output/server/my wrangler.json"), JSON.stringify({ main: "index.mjs", name: "my-app" }))
     const hosts = await fakeHosts(cloudflareEnv)
     expect((await deploy(["--no-build", "--yes"], root, hosts.env)).exitCode).toBe(0)
-    expect((await hosts.calls())[0]!.argv).toEqual(["deploy", "--config", "./server/my wrangler.json", "--containers-rollout=gradual"])
+    expect((await hosts.calls())[0]!.argv).toEqual(["deploy", "--config", "./server/my wrangler.json", "--containers-rollout=gradual", "--keep-vars"])
 
     const deployCommand = "npx wrangler deploy --config ./server/wrangler.json"
     for (const command of [
@@ -99,7 +99,7 @@ describe("vitehub deploy on Cloudflare", () => {
     expect(calls.map(call => call.argv)).toEqual([
       ["d1", "migrations", "apply", "DB", "--remote", "--config", "./server/wrangler.json"],
       ["d1", "migrations", "apply", "DB_ANALYTICS", "--remote", "--config", "./server/wrangler.json"],
-      ["deploy", "--config", "./server/wrangler.json"],
+      ["deploy", "--config", "./server/wrangler.json", "--keep-vars"],
     ])
     expect(calls.every(call => call.cwd === join(root, ".output") && call.accountId === "acc-1")).toBe(true)
     expectNoLeak(calls, result.stdout + result.stderr, tokens)
@@ -123,7 +123,7 @@ describe("vitehub deploy on Cloudflare", () => {
     const result = await deploy(["--no-build", "--yes", "--preview"], root, hosts.env)
 
     expect(result.exitCode, result.stderr).toBe(0)
-    expect((await hosts.calls()).map(call => call.argv)).toEqual([["versions", "upload", "--config", "./server/wrangler.json"]])
+    expect((await hosts.calls()).map(call => call.argv)).toEqual([["versions", "upload", "--config", "./server/wrangler.json", "--keep-vars"]])
   })
 
   it("deploys without credentials with --temporary", async () => {
@@ -133,7 +133,7 @@ describe("vitehub deploy on Cloudflare", () => {
 
     expect(result.exitCode, result.stdout + result.stderr).toBe(0)
     const calls = await hosts.calls()
-    expect(calls.map(call => call.argv)).toEqual([["deploy", "--config", "./server/wrangler.json", "--temporary"]])
+    expect(calls.map(call => call.argv)).toEqual([["deploy", "--config", "./server/wrangler.json", "--keep-vars", "--temporary"]])
     expect(await readFile(join(root, ".output/server/wrangler.json"), "utf8")).toBe(buildOutput("cloudflare")[".output/server/wrangler.json"])
     expect(result.json).toMatchObject({ temporary: { claimUrl: "https://dash.cloudflare.com/claim/abc123" } })
     expect(Date.parse(result.json.temporary!.expiresAt!) - Date.now()).toBeGreaterThan(55 * 60_000)
@@ -171,7 +171,7 @@ describe("vitehub deploy on Cloudflare", () => {
     const hosts = await fakeHosts(cloudflareEnv)
     const result = await deploy(["--no-build", "--yes", "--preview"], root, hosts.env)
     expect(result.exitCode, result.stderr).toBe(0)
-    expect((await hosts.calls())[0]!.argv).toEqual(["versions", "upload", "--config", "./server/wrangler.json"])
+    expect((await hosts.calls())[0]!.argv).toEqual(["versions", "upload", "--config", "./server/wrangler.json", "--keep-vars"])
     expect(result.json.url).toBe("https://v1-my-app.example.workers.dev")
   })
 
@@ -187,7 +187,7 @@ describe("vitehub deploy on Cloudflare", () => {
     const clean = await deploy(["--no-build", "--yes"], root, hosts.env)
     expect(clean.exitCode, clean.stderr).toBe(0)
     expect(clean.json.commit).toEqual({ dirty: false, sha })
-    expect((await hosts.calls())[0]!.argv).toEqual(["deploy", "--config", "./server/wrangler.json", "--tag", sha.slice(0, 12), "--message", `vitehub:{"commit":"${sha}","dirty":false}`])
+    expect((await hosts.calls())[0]!.argv).toEqual(["deploy", "--config", "./server/wrangler.json", "--keep-vars", "--tag", sha.slice(0, 12), "--message", `vitehub:{"commit":"${sha}","dirty":false}`])
 
     await writeFile(join(root, "changed.txt"), "x")
     const dirty = await deploy(["--no-build", "--yes"], root, hosts.env)

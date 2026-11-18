@@ -1,4 +1,5 @@
 import { redactInspectionText } from "./inspect.ts"
+import { invariant } from "./invariant.ts"
 import { isViteHubSecretEqual } from "./secret.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
@@ -96,9 +97,7 @@ function rejectDevRequest(rejection: Response): ViteHubDevRequestCheck {
  * grant. Call it in the operation that the grant authorizes.
  */
 export function assertViteHubDevRequestGrant(grant: ViteHubDevRequestGrant, request: IncomingMessage | Request): void {
-  if (devRequestGrants.get(grant) !== request) {
-    throw new TypeError("[vitehub] This dev-only operation requires the grant of a checked dev request.")
-  }
+  invariant(devRequestGrants.get(grant) === request, "owner packages pass the grant of the dev request that they checked")
 }
 
 const fileOrExtensionProtocol = /^(?:file|.+-extension):/i
@@ -204,13 +203,28 @@ export function isViteHubDevRoute(req: IncomingMessage, route: string): boolean 
   return new URL(req.url || "/", "http://localhost").pathname === route
 }
 
+/**
+ * Copies the headers of a Fetch `Response` to a Node response, and keeps each `Set-Cookie` value.
+ *
+ * `Headers` gives each `Set-Cookie` value as a separate entry, and `setHeader` replaces the previous value. A plain
+ * copy loop thus keeps only the last cookie. Node `setHeaders(headers)` keeps all cookies, but the HTTP/2 response
+ * of a Vite server with `server.https` does not have it.
+ */
+export function setViteHubDevResponseHeaders(res: Pick<ServerResponse, "setHeader">, headers: Headers): void {
+  for (const [name, value] of headers) {
+    if (name !== "set-cookie") res.setHeader(name, value)
+  }
+  const cookies = headers.getSetCookie()
+  if (cookies.length) res.setHeader("set-cookie", cookies)
+}
+
 async function writeResponse(res: ServerResponse, response: Response, stream = false, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted || res.destroyed) {
     await response.body?.cancel(signal?.reason)
     return
   }
   res.statusCode = response.status
-  for (const [name, value] of response.headers) res.setHeader(name, value)
+  setViteHubDevResponseHeaders(res, response.headers)
   if (stream && response.body) {
     // Only Vite calls this writer. Nitro guards also load this module in Worker runtimes.
     const { Readable } = await import("node:stream")
@@ -529,9 +543,7 @@ export interface ViteHubNitroDevHandlerSource {
  * contains it.
  */
 export function renderViteHubNitroDevHandler(source: ViteHubNitroDevHandlerSource): string {
-  if (!/^[A-Za-z_$][\w$]*$/.test(source.export)) {
-    throw new TypeError(`[vitehub] Nitro dev handler export ${JSON.stringify(source.export)} must be an identifier.`)
-  }
+  invariant(/^[A-Za-z_$][\w$]*$/.test(source.export), `owner packages pass an identifier as the Nitro dev handler export (${JSON.stringify(source.export)})`)
   const contextModules = Object.entries(source.contextModules ?? {})
   const context = contextModules.length
     ? `{ ...${JSON.stringify(source.context ?? {})}, ${contextModules.map(([field], index) => `${JSON.stringify(field)}: viteHubDevContext${index}`).join(", ")} }`

@@ -34,7 +34,7 @@ function commentsApi() {
           },
           readAttachment: key => files.has(key) ? new Blob([files.get(key).data], { type: files.get(key).type }) : null,
         })
-        const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, session: () => ({ id: "u1", name: "Maxi" }) }))
+        const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, session: async () => ({ id: "u1", name: "Maxi" }) }))
         const chunks = []
         for await (const chunk of req) chunks.push(chunk)
         const response = await app.fetch(new Request(`http://127.0.0.1:${port}${req.url}`, { method: req.method, headers: req.headers, body: chunks.length ? Buffer.concat(chunks) : undefined }))
@@ -81,6 +81,28 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
   await page.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
   const composer = page.locator("vitehub-comments textarea[aria-label='Comment']")
 
+  await t.test("document highlights follow CSS-only themes with a light system preference", async (t) => {
+    t.after(() => page.evaluate(() => document.documentElement.removeAttribute("style")))
+    await page.emulateMedia({ colorScheme: "light" })
+    await page.evaluate(() => document.documentElement.style.cssText = "color-scheme: dark; background: #171717; color: white")
+    const colors = () => page.evaluate(() => {
+      const context = Object.assign(document.createElement("canvas"), { width: 1, height: 1 }).getContext("2d")
+      return ["vh-comment", "vh-comment-resolved", "vh-comment-active", "vh-comment-draft"].map(name => {
+        context.clearRect(0, 0, 1, 1)
+        context.fillStyle = getComputedStyle(document.querySelector("#first"), `::highlight(${name})`).backgroundColor
+        context.fillRect(0, 0, 1, 1)
+        return [...context.getImageData(0, 0, 1, 1).data]
+      })
+    })
+    await page.waitForFunction(() => document.querySelector("vitehub-comments").dataset.theme === "dark")
+    for (const [red, , , alpha] of await colors()) assert.ok(red > 200 && alpha > 0, "dark-page highlights use light ink")
+    await page.evaluate(() => document.documentElement.style.colorScheme = "light")
+    await page.waitForFunction(() => document.querySelector("vitehub-comments").dataset.theme === "light")
+    for (const [red, , , alpha] of await colors()) assert.ok(red < 100 && alpha > 0, "light-page highlights use dark ink")
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), undefined)
+    assert.equal(await page.evaluate(() => document.documentElement.classList.contains("dark")), false)
+  })
+
   await t.test("a click on the site's own button reaches it", async () => {
     const target = await page.evaluate(() => {
       const box = document.querySelector(".menu-button").getBoundingClientRect()
@@ -102,7 +124,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await bar.waitFor({ timeout: 5000 })
     await bar.getByRole("button", { name: /Comment/ }).click()
     await composer.waitFor({ timeout: 5000 })
-    assert.equal((await highlights(page))["vitehub-comment-active"], 1)
+    assert.equal((await highlights(page))["vh-comment-draft"], 1)
     await composer.fill("Say which airport")
     // The bubble takes ViteHub's theme, as Drop does: no focus ring around it, a neutral send button, and Geist first.
     const bubble = await page.locator("vitehub-comments [data-draft='true'] > [data-slot='comment-layer-popover']").evaluate((element) => {
@@ -112,7 +134,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     })
     assert.deepEqual({ ...bubble, font: bubble.font.split(",")[0] }, { outline: "none", neutral: true, font: "\"Geist Variable\"" })
     await composer.press("Enter")
-    await page.waitForFunction(() => CSS.highlights.get("vitehub-comment")?.size === 1, undefined, { timeout: 5000 })
+    await page.waitForFunction(() => CSS.highlights.get("vh-comment")?.size === 1, undefined, { timeout: 5000 })
     const [thread] = await api.threads()
     assert.equal(thread.anchor.kind, "text")
     assert.match(thread.anchor.exact, /^Most of you/)
@@ -182,30 +204,30 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await composer.waitFor({ timeout: 5000 })
     await composer.fill("This paragraph is too long")
     await composer.press("Enter")
-    await page.waitForFunction(() => document.querySelector("vitehub-comment-areas")?.shadowRoot.querySelector(".area"), undefined, { timeout: 5000 })
+    await page.waitForFunction(() => document.querySelector("vitehub-comment-areas")?.shadowRoot.querySelector("[data-slot='comment-mark-area']"), undefined, { timeout: 5000 })
     const threads = await api.threads()
     assert.equal(threads.length, 2)
     assert.ok(threads.some(thread => thread.anchor.kind === "area"))
   })
 
-  await t.test("an area is a soft line, and its thread opens in Drop's small card behind a round face", async () => {
+  await t.test("an area is a soft grey line, and its thread opens in Drop's small card behind a round face", async () => {
     await page.keyboard.press("Escape")
     await page.mouse.move(5, 5)
-    // Once no thread is open or hovered, its area is a 1px line with no fill. The fill fades out in 120ms.
+    // Once no thread is open or hovered, its area is a 1px line with no fill.
     await page.waitForFunction(() => {
-      const area = document.querySelector("vitehub-comment-areas").shadowRoot.querySelector(".area")
+      const area = document.querySelector("vitehub-comment-areas").shadowRoot.querySelector("[data-slot='comment-mark-area']")
       const style = getComputedStyle(area)
       return area.dataset.status === "open" && style.borderTopWidth === "1px" && style.backgroundColor === "rgba(0, 0, 0, 0)"
     }, undefined, { timeout: 5000 })
-    // The line is the comment blue, as in Drop, not grey or black.
-    const [red, green, blue] = await page.evaluate(() => {
-      const color = getComputedStyle(document.querySelector("vitehub-comment-areas").shadowRoot.querySelector(".area")).borderTopColor
+    // The line is a soft neutral tint of the ink, not the comment blue, so a page with many areas stays calm.
+    const [red, green, blue, alpha] = await page.evaluate(() => {
+      const color = getComputedStyle(document.querySelector("vitehub-comment-areas").shadowRoot.querySelector("[data-slot='comment-mark-area']")).borderTopColor
       const context = Object.assign(document.createElement("canvas"), { width: 1, height: 1 }).getContext("2d")
       context.fillStyle = color
       context.fillRect(0, 0, 1, 1)
       return [...context.getImageData(0, 0, 1, 1).data]
     })
-    assert.ok(blue > red + 60 && blue > green, `the area line is rgb(${red}, ${green}, ${blue})`)
+    assert.ok(Math.max(red, green, blue) - Math.min(red, green, blue) <= 4 && alpha > 20 && alpha < 90, `the area line is rgba(${red}, ${green}, ${blue}, ${alpha})`)
     const pin = page.locator("vitehub-comments [data-slot='comment-layer-item'][data-kind='area'] [data-slot='comment-pin']")
     const corners = await pin.evaluate(element => [element, element.querySelector("[data-slot='avatar-stack-item']")].map(node => getComputedStyle(node).borderRadius))
     assert.deepEqual(corners, ["14px", "14px"])
@@ -213,6 +235,12 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     const thread = page.locator("vitehub-comments [data-slot='comment-layer-popover'] [data-slot='comment-thread']")
     await thread.waitFor({ timeout: 5000 })
     assert.equal(await thread.getAttribute("data-size"), "sm")
+    // Drop's card: 340px, and the one small corner is the one nearest the pin. offsetWidth ignores the pop-in scale.
+    const card = await thread.evaluate((element) => {
+      const style = getComputedStyle(element.parentElement)
+      return { corners: [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius].sort(), width: element.parentElement.offsetWidth }
+    })
+    assert.deepEqual(card, { corners: ["16px", "16px", "16px", "6px"], width: 340 })
     await page.keyboard.press("Escape")
   })
 
@@ -533,7 +561,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       await touch.evaluate(() => addEventListener("pointerdown", () => getSelection().removeAllRanges(), { capture: true }))
       await button.tap()
       await touch.locator("vitehub-comments textarea[aria-label='Comment']").waitFor({ timeout: 5000 })
-      assert.equal((await highlights(touch))["vitehub-comment-active"], 1)
+      assert.equal((await highlights(touch))["vh-comment-draft"], 1)
     }
     finally {
       await touch.close()
@@ -592,7 +620,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await page.keyboard.press("Escape")
     await page.mouse.move(5, 5)
     const items = page.locator("vitehub-comments [data-slot='comment-layer-item']:not([data-draft])")
-    const areas = () => page.evaluate(() => document.querySelector("vitehub-comment-areas").shadowRoot.querySelectorAll(".area").length)
+    const areas = () => page.evaluate(() => document.querySelector("vitehub-comment-areas").shadowRoot.querySelectorAll("[data-slot='comment-mark-area']").length)
     const all = await items.count()
     assert.ok(all >= 3, `${all} pins before the eye`)
     if (evidence) await page.screenshot({ path: `${evidence}/hidden-0-all.png` })
@@ -601,7 +629,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.equal(await eye.getAttribute("aria-pressed"), "true")
     await page.waitForFunction(() => document.querySelectorAll("vitehub-comments").length && !document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-layer-item']"), undefined, { timeout: 5000 })
     assert.equal(await areas(), 0)
-    assert.equal((await highlights(page))["vitehub-comment"] ?? 0, 0)
+    assert.equal((await highlights(page))["vh-comment"] ?? 0, 0)
     assert.equal(await page.evaluate(() => localStorage.getItem("vitehub-comments-visibility")), "hidden")
     if (evidence) await page.screenshot({ path: `${evidence}/hidden-1-eye.png` })
 
@@ -641,7 +669,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.ok(leave, `the pin popped out: ${JSON.stringify(log)}`)
     // Shown since the send, then 180ms of pop-out.
     assert.ok(leave.at >= 1800 && leave.at < 3000, `the new comment showed for ${leave.at}ms`)
-    assert.equal(leave.animation, "vh-comment-leave")
+    assert.equal(leave.animation, "vh-comment-mark-leave")
     const gone = log.at(-1).at - leave.at
     assert.ok(gone >= 150 && gone < 500, `the pop-out took ${gone}ms`)
     assert.ok(log.every(entry => entry.count <= 1), "no other pin showed")

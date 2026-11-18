@@ -10,6 +10,7 @@ import cliPackageManifest from "../package.json" with { type: "json" }
 
 import { runViteHubCli, runViteHubCliEntrypoint } from "../src/index.ts"
 import { setupCommands } from "../src/setup/commands.ts"
+import { cliProcess } from "./setup-deploy-helpers.ts"
 import { setupCommandNames } from "@vite-hub/internal/operations"
 
 import type { HostCliRun } from "@vite-hub/internal/host-credentials"
@@ -529,6 +530,34 @@ export default ({ mode }) => ({
     expect(stderr.output()).toBe("")
   })
 
+  it("answers project help from a help namespace without loading the project config", async () => {
+    const stdout = stream()
+    const stderr = stream()
+    const migrate = vi.fn((args: string[], context: { stdout: { write: (chunk: string) => unknown } }) => {
+      context.stdout.write(args.includes("--help") ? "Usage: vitehub database migrate\n" : "migrated\n")
+      return 0
+    })
+    const loadConfig = vi.fn(async () => ({
+      plugins: [{ vitehub: { cli: { namespaces: [{ features: [{ name: "migrate", run: migrate }, { name: "custom", run: () => 0 }], name: "database" }] } } }],
+      root: "/repo",
+    }))
+    const helpNamespaces = { database: vi.fn(async () => ({ description: "Database development workflows.", features: [{ name: "migrate", run: migrate }], name: "database" })) }
+
+    expect(await runViteHubCli({ args: ["database", "migrate", "--help"], cwd: "/app", helpNamespaces, loadConfig, stderr, stdout })).toBe(0)
+    expect(await runViteHubCli({ args: ["database", "-h"], cwd: "/app", helpNamespaces, loadConfig, stderr, stdout })).toBe(0)
+    expect(loadConfig).not.toHaveBeenCalled()
+    expect(stdout.output()).toContain("Usage: vitehub database migrate\n")
+    expect(stdout.output()).toContain("Usage: vitehub database <feature>")
+    expect(migrate).toHaveBeenCalledWith(["--help"], expect.objectContaining({ cwd: "/app", rootDir: "/app" }))
+
+    // A feature that only the project contributes, and a run without help, load the project.
+    expect(await runViteHubCli({ args: ["database", "custom", "--help"], cwd: "/app", helpNamespaces, loadConfig, stderr, stdout })).toBe(0)
+    expect(await runViteHubCli({ args: ["database", "migrate"], cwd: "/app", helpNamespaces, loadConfig, stderr, stdout })).toBe(0)
+    expect(loadConfig).toHaveBeenCalledTimes(2)
+    expect(stdout.output()).toContain("migrated\n")
+    expect(stderr.output()).toBe("")
+  })
+
   it("runs a runtime feature without the project config and loads it for the other features", async () => {
     const stdout = stream()
     const runtime = vi.fn(() => 0)
@@ -1005,6 +1034,36 @@ export default function (_options, nuxt) {
       fromEnv: directory === undefined ? undefined : "https://env.production.example.com",
       publicUrl: directory === undefined ? `https://${stage ?? "development"}.example.com` : "https://env.production.example.com",
     })
+  })
+
+  // Vite reads DEBUG when it is first imported, so the CLI runs in its own process.
+  it("prints no env value with DEBUG=vite:env when it loads a Nuxt --stage config", { timeout: 60_000 }, async () => {
+    const rootDir = await createTempDir()
+    const canary = "stage-secret-canary-7f3a"
+    await mkdir(join(rootDir, "node_modules"))
+    await symlink(resolve(import.meta.dirname, "../node_modules/nuxt"), join(rootDir, "node_modules/nuxt"), "dir")
+    await writeFile(join(rootDir, "package.json"), "{}\n")
+    await writeFile(join(rootDir, ".env.production"), `VITEHUB_TEST_STAGE_SECRET=${canary}\n`)
+    await writeFile(join(rootDir, "nuxt.config.ts"), `export default { modules: ["./discovery-module.ts"] }\n`)
+    await writeFile(join(rootDir, "discovery-module.ts"), `
+export default function (_options, nuxt) {
+  const loaded = process.env.VITEHUB_TEST_STAGE_SECRET?.length
+  nuxt.options.vite.plugins ||= []
+  nuxt.options.vite.plugins.push({
+    name: "fixture-stage-secret",
+    vitehub: { cli: { namespaces: [{ name: "channels", features: [{ name: "sync", run: (_args, context) => {
+      context.stdout.write(JSON.stringify({ loaded }))
+      return 0
+    } }] }] } },
+  })
+}
+`)
+
+    const result = await cliProcess(["channels", "sync", "--stage", "production"], rootDir, { ...process.env, DEBUG: "vite:env", VITEHUB_TEST_STAGE_SECRET: undefined }).exited
+
+    expect(result.code, result.stderr).toBe(0)
+    expect(JSON.parse(result.stdout)).toEqual({ loaded: canary.length })
+    expect(result.stderr).not.toContain(canary)
   })
 
   it("fails closed when provision credentials are missing", async () => {

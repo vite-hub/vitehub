@@ -83,7 +83,7 @@ const mergeNoExternal = createNoExternalAddition(blobPackageName)
 function describeDevelopmentStore(store: ResolvedBlobStoreConfig): string {
   if (store.remote) return "Remote. `vite dev` uses the real store, so writes change real data."
   if (store.driver === "fs") return `Local. \`vite dev\` uses the \`fs\` driver in ${store.base}.`
-  if (store.driver === "cloudflare-r2" && store.localFallback) {
+  if (store.driver === "cloudflare" && store.localFallback) {
     return `Local. \`vite dev\` uses the R2 binding of the dev runner, or the \`fs\` driver in ${store.localFallback.base} when the runner has none.`
   }
   return `\`vite dev\` uses the configured \`${store.driver}\` driver.`
@@ -168,7 +168,7 @@ function isGeneratedNitroRegistration(value: unknown, generatedPath: string): bo
 /** True when a store uses the `fs` driver, also as the local store of `vite dev`. Its signed links need the signed route. */
 function hasLocalStore(blob: BlobViteRuntimeConfig["blob"]): boolean {
   if (!blob) return false
-  return Object.values(blob.stores ?? { default: blob.store }).some(store => store.driver === "fs" || (store.driver === "cloudflare-r2" && Boolean(store.localFallback)))
+  return Object.values(blob.stores ?? { default: blob.store }).some(store => store.driver === "fs" || (store.driver === "cloudflare" && Boolean(store.localFallback)))
 }
 
 /** Merges the generated Blob registrations into the Nitro config. */
@@ -219,10 +219,12 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: 
     imageModule === "sharp" ? "import * as vitehubSharp from 'sharp'" : undefined,
     `import { ${setters.filter(Boolean).join(", ")} } from ${JSON.stringify(runtimeStateModule)}`,
     "",
-    cloudflare ? `const blobConfig = ${JSON.stringify(blob)}` : undefined,
+    // Contextual typing keeps driver literals and mutable arrays in the generated config.
+    cloudflare ? `const blobConfig: Parameters<typeof setBlobRuntimeConfig>[0] = ${JSON.stringify(blob)}` : undefined,
     "",
     "export default function vitehubBlobPlugin() {",
-    cloudflareGlobals ? "  setActiveCloudflareEnv(vitehubEnv)" : undefined,
+    // `Cloudflare.Env` has no index signature, so the generated middleware casts it the same way.
+    cloudflareGlobals ? "  setActiveCloudflareEnv(vitehubEnv as unknown as Record<string, unknown>)" : undefined,
     imageModule === "sharp" ? "  setBlobSharpModule(vitehubSharp)" : undefined,
     // A literal dynamic import lets Nitro bundle Photon and its WebAssembly module in a chunk that loads on the first variant.
     imageModule === "photon"
@@ -500,12 +502,12 @@ function assertDriverSdksInstalled(blob: BlobViteRuntimeConfig["blob"], nativeCl
   // The native module is selected only when every configured R2 store has a
   // binding. Keep the SDK check for mixed configurations that still import
   // the HTTP/S3 implementation.
-  const cloudflareR2Stores = stores.filter(store => store.driver === "cloudflare-r2")
+  const cloudflareR2Stores = stores.filter(store => store.driver === "cloudflare")
   const nativeR2 = nativeCloudflareR2
     && cloudflareR2Stores.length > 0
     && cloudflareR2Stores.every(store => Boolean(store.bucketName))
   const skipDrivers = nativeR2
-    ? ["cloudflare-r2" as const]
+    ? ["cloudflare" as const]
     : []
   const missing = findMissingFilesSdkPeers(stores.map(store => store.driver), undefined, skipDrivers)
   if (!missing.length) return
@@ -541,9 +543,10 @@ export function hubBlob(options?: BlobOptions, internalOptions: InternalBlobModu
       // The Console, `vitehub blob`, and agents run these.
       operations: [{ export: "blobOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).blobOperations, module: operationsModule }],
       cli: async () => {
-        const { createBlobCliNamespaces } = await import(/* @vite-ignore */ "./cli.js")
+        const { createBlobCliNamespaces, createBlobCliSeeds } = await import(/* @vite-ignore */ "./cli.js")
         return {
           namespaces: createBlobCliNamespaces(),
+          seeds: createBlobCliSeeds({ projectRoot: () => rootDir }),
           provision: [createBlobCloudflareProvisionStep(() => blob), createBlobVercelProvisionStep(() => blob)],
         }
       },

@@ -1,7 +1,8 @@
 import { runInNewContext } from "node:vm";
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server";
 import { expect, it } from "vitest";
-import { installConsoleInvocationFallback, resolveConsoleInvocations } from "../src/console/internal.ts";
+import { resolveConsoleInvocations } from "../src/console/internal.ts";
+import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts";
 import { getLogSource, installLogSource } from "../src/logs/host.ts";
 import { createLogBuffer } from "../src/logs/memory.ts";
 
@@ -22,7 +23,7 @@ it("installs Logs for another project without rebinding Console invocations", ()
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() });
   const source = createLogBuffer().source;
   const resolved = inRealm(realm, () => {
-    installConsoleInvocationFallback(invocations, "/first");
+    installConsoleInvocations("/first", invocations);
     installLogSource("/second", source);
     return { invocations: resolveConsoleInvocations(), logs: getLogSource() };
   });

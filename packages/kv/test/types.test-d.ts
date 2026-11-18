@@ -30,7 +30,7 @@ describe("types", () => {
     const config = {
       store: {
         binding: "KV",
-        driver: "cloudflare-kv-binding",
+        driver: "cloudflare",
       },
     } satisfies ResolvedKVModuleOptions
 
@@ -63,7 +63,7 @@ describe("types", () => {
     expectTypeOf(kv.increment).returns.toEqualTypeOf<Promise<Result<number, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>>()
     expectTypeOf(kv.keys).returns.toEqualTypeOf<Promise<Result<string[], "KV_OPERATION_FAILED">>>()
     expectTypeOf(kv.list).returns.toEqualTypeOf<Promise<Result<KVListPage, "KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_OPERATION_FAILED">>>()
-    expectTypeOf(kv.setIfAbsent<string>).returns.toEqualTypeOf<Promise<Result<boolean, "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>>()
+    expectTypeOf(kv.setIfAbsent<string>).returns.toEqualTypeOf<Promise<Result<boolean, "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_INVALID_VALUE" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>>()
     expectTypeOf(kv.setIfAbsent<string>).parameter(2).toEqualTypeOf<KVSetOptions | undefined>()
     expectTypeOf(kv.set<string>).parameter(2).toEqualTypeOf<KVSetOptions | undefined>()
     expectTypeOf(kv.set<string>).returns.toEqualTypeOf<Promise<Result<void, "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED" | "KV_VALUE_TOO_LARGE">>>()
@@ -96,7 +96,7 @@ describe("types", () => {
       void (incrementError.code === "KV_INVALID_CURSOR")
     }
 
-    expectTypeOf<KVErrorCode>().toEqualTypeOf<"KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_INVALID_WAIT" | "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION" | "KV_VALUE_TOO_LARGE">()
+    expectTypeOf<KVErrorCode>().toEqualTypeOf<"KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_INVALID_VALUE" | "KV_INVALID_WAIT" | "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION" | "KV_VALUE_TOO_LARGE">()
   })
 
   it("types kv.lock() results and lists the drivers that support it", async () => {

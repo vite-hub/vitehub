@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/env",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Safe build and runtime environment variables for ViteHub.",
   "keywords": [
     "env",
@@ -118,12 +118,14 @@
     "vitest": "catalog:tooling",
     "drizzle-orm": "catalog:database",
     "@libsql/client": "catalog:database",
-    "miniflare": "4.20260730.0"
+    "miniflare": "4.20260730.0",
+    "nitro": "catalog:unjs"
   },
   "peerDependencies": {
     "vite": "catalog:vite-compat",
     "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
-    "@vite-hub/agent": "^0.1.0"
+    "@vite-hub/agent": "*",
+    "nitro": "catalog:nitro-compat"
   },
   "peerDependenciesMeta": {
     "vite": {

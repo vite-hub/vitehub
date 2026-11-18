@@ -9,14 +9,16 @@ import { basename, join } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { build, readBuildOutput } from "./build-output.ts"
+import { formatFailedChecks, rollbackFor, runDeployChecks, submitIndexNow } from "./deploy/after.ts"
 import { checkoutPushError, formatDeployCheckouts, prepareDeployCheckouts, pushDeployCheckouts } from "./deploy/checkouts.ts"
 import { cloudflareAdapter } from "./deploy/cloudflare.ts"
 import { denoAdapter, denoOrganization } from "./deploy/deno.ts"
 import { createDeployRun, readDeployCommit } from "./deploy/host.ts"
+import { readLiveDeployment } from "./deployments.ts"
 import { netlifyAdapter } from "./deploy/netlify.ts"
 import { provisionForDeploy } from "./deploy/provision.ts"
 import { hasVercelLogin, vercelAdapter } from "./deploy/vercel.ts"
-import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { setupExitCodes, type SetupFailure, setupFailure, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { checkDeployEnv } from "./env.ts"
 import { addSetupLink, ensureViteHubGitignore, hostRequired, readSetupLinks, selectSetupLink, writeSeparateResourcesNote } from "./link.ts"
 import { readSetupProject } from "./project.ts"
@@ -24,8 +26,9 @@ import { setupStatus } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { HostCredentials } from "@vite-hub/internal/host-credentials"
+import type { DeployCheckResult, DeployIndexNowOutput, DeployRollback } from "./deploy/after.ts"
 import type { DeployCheckouts, DeployCheckoutsOutput } from "./deploy/checkouts.ts"
-import type { DeployAdapter, DeployCommit, DeployContext, DeployHost, DeployResult } from "./deploy/host.ts"
+import type { DeployAdapter, DeployCommit, DeployContext, DeployHost, DeployResult, DeployRun, HostDeployment } from "./deploy/host.ts"
 import type { DeployEnvOutput } from "./env.ts"
 import type { DeployProvisionOutput } from "./deploy/provision.ts"
 import type { SetupLink, SetupLinks } from "./link.ts"
@@ -34,7 +37,7 @@ import type { SetupProject } from "./project.ts"
 const deployHosts: readonly DeployHost[] = ["cloudflare", "vercel", "netlify", "deno"]
 const temporaryHosts: readonly DeployHost[] = ["cloudflare", "vercel"]
 
-const usage = "vitehub deploy [--host <host>] [--preview] [--push-env] [--no-build] [--no-provision] [--no-push] [--temporary] [--yes] [--json]"
+const usage = "vitehub deploy [--host <host>] [--preview] [--push-env] [--no-build] [--no-provision] [--no-push] [--no-check] [--no-index-now] [--temporary] [--yes] [--json]"
 
 const help = `--host picks a host target of .vitehub/link.json. Without it, deploy uses the default target. The build runs
 with VITEHUB_HOST set to that host, which wins over \`host\` in vitehub(). Each host has its own resources, such as D1,
@@ -54,6 +57,11 @@ local value, or nothing is deployed. Deploy sets the names that the host lacks f
 also replaces the names that the host has. Cloudflare gets the values with the new version through --secrets-file.
 Cloudflare always re-supplies local stage values and needs a local value for every existing Worker secret, so an
 omitted secret cannot inherit from another stage. With --yes, a missing VITEHUB_SECRET is generated and set.
+
+After the upload, deploy requests the paths of \`deploy.check\` in vitehub(), and the health route with \`health\`, on
+the deployed URL. When one does not answer with a 2xx status, deploy exits with 1 and prints the command that rolls
+production back to the deployment it replaced. --no-check skips the checks. With \`deploy.indexNow\`, a production
+deploy that passed its checks then sends the URLs of /sitemap.xml to IndexNow. --no-index-now skips it.
 `
 
 export interface SetupDeployArgs {
@@ -67,6 +75,10 @@ export interface SetupDeployArgs {
   provision: boolean
   /** False with --no-push. A preview deploy never pushes. */
   push: boolean
+  /** False with --no-check: do not request the `deploy.check` paths after the upload. */
+  check: boolean
+  /** False with --no-index-now: do not send the sitemap URLs to IndexNow. */
+  indexNow: boolean
   temporary: boolean
   yes: boolean
   json: boolean
@@ -87,6 +99,12 @@ export interface SetupDeployOutput {
   checkouts?: DeployCheckoutsOutput
   /** The env names that the deploy checked and set. Never a value. */
   env: DeployEnvOutput
+  /** The `deploy.check` paths and how the deployed app answered. Missing when the build has none, or with --no-check. */
+  checks?: DeployCheckResult[]
+  /** How to roll production back. Only when a check failed. */
+  rollback?: DeployRollback
+  /** The IndexNow submission. Missing when the build has no `deploy.indexNow`, for a preview, and with --no-index-now. */
+  indexNow?: DeployIndexNowOutput
 }
 
 export function readDeployArgs(args: readonly string[]): SetupDeployArgs {
@@ -98,6 +116,8 @@ export function readDeployArgs(args: readonly string[]): SetupDeployArgs {
         "host": { type: "string" },
         "json": { type: "boolean", default: false },
         "no-build": { type: "boolean", default: false },
+        "no-check": { type: "boolean", default: false },
+        "no-index-now": { type: "boolean", default: false },
         "no-provision": { type: "boolean", default: false },
         "no-push": { type: "boolean", default: false },
         "preview": { type: "boolean", default: false },
@@ -107,7 +127,7 @@ export function readDeployArgs(args: readonly string[]): SetupDeployArgs {
       },
       strict: true,
     })
-    return { build: !values["no-build"], help: values.help, ...(values.host === undefined ? {} : { host: values.host }), json: values.json, preview: values.preview, pushEnv: values["push-env"], provision: !values["no-provision"], push: !values["no-push"], temporary: values.temporary, yes: values.yes }
+    return { build: !values["no-build"], check: !values["no-check"], help: values.help, indexNow: !values["no-index-now"], ...(values.host === undefined ? {} : { host: values.host }), json: values.json, preview: values.preview, pushEnv: values["push-env"], provision: !values["no-provision"], push: !values["no-push"], temporary: values.temporary, yes: values.yes }
   }
   catch (error: unknown) {
     throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${error instanceof Error ? error.message : String(error)} Usage: ${usage}` })
@@ -115,12 +135,12 @@ export function readDeployArgs(args: readonly string[]): SetupDeployArgs {
 }
 
 function rerunCommand(args: SetupDeployArgs, extra: { provision?: boolean, temporary?: boolean } = {}): string {
-  return ["vitehub deploy", ...(args.host ? [`--host ${args.host}`] : []), ...(args.preview ? ["--preview"] : []), ...(args.pushEnv ? ["--push-env"] : []), ...(args.build ? [] : ["--no-build"]), ...(args.provision && extra.provision !== false ? [] : ["--no-provision"]), ...(args.push ? [] : ["--no-push"]), ...(args.temporary || extra.temporary ? ["--temporary"] : []), "--yes", ...(args.json ? ["--json"] : [])].join(" ")
+  return ["vitehub deploy", ...(args.host ? [`--host ${args.host}`] : []), ...(args.preview ? ["--preview"] : []), ...(args.pushEnv ? ["--push-env"] : []), ...(args.build ? [] : ["--no-build"]), ...(args.provision && extra.provision !== false ? [] : ["--no-provision"]), ...(args.push ? [] : ["--no-push"]), ...(args.check ? [] : ["--no-check"]), ...(args.indexNow ? [] : ["--no-index-now"]), ...(args.temporary || extra.temporary ? ["--temporary"] : []), "--yes", ...(args.json ? ["--json"] : [])].join(" ")
 }
 
 function supportedHost(host: string): DeployHost {
   const found = deployHosts.find(item => item === host)
-  if (!found) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_HOST_UNSUPPORTED({ host }), setupExitCodes.conflict)
+  if (!found) throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_HOST_UNSUPPORTED({ host }), setupExitCodes.conflict)
   return found
 }
 
@@ -139,7 +159,7 @@ function deployTarget(project: SetupProject, links: SetupLinks, option: string |
 }
 
 function temporaryUnsupported(reason: string): SetupFailure {
-  return new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_TEMPORARY_UNSUPPORTED({ reason }), setupExitCodes.conflict)
+  return setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_TEMPORARY_UNSUPPORTED({ reason }), setupExitCodes.conflict)
 }
 
 /** Cloudflare: Wrangler refuses `--temporary` with a login. Vercel: the CLI refuses it in CI and in a linked folder. */
@@ -158,7 +178,7 @@ function credentialsMissing(host: DeployHost, credentials: Extract<HostCredentia
   const offer = temporary
     ? ` Or deploy without an account: run \`${rerunCommand(args, { temporary: true })}\`${host === "cloudflare" ? " and claim the Worker within 60 minutes" : " and claim the deployment with the link that it prints"}.`
     : ""
-  return new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CREDENTIALS_MISSING({ fix: `${credentials.fix}${offer}`, host }), setupExitCodes.inputNeeded, {
+  return setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CREDENTIALS_MISSING({ fix: `${credentials.fix}${offer}`, host }), setupExitCodes.inputNeeded, {
     missing: credentials.missing.map(field => ({ field })),
     ...(temporary ? { rerun: rerunCommand(args, { temporary: true }) } : {}),
   })
@@ -201,6 +221,7 @@ function writeDeployed(output: SetupDeployOutput, name: string, context: ViteHub
   if (output.deploymentId) context.stdout.write(`Deployment: ${output.deploymentId}\n`)
   if (output.version) context.stdout.write(`Version: ${output.version}\n`)
   if (output.commit) context.stdout.write(`Commit: ${output.commit.sha}${output.commit.dirty ? " (with uncommitted changes)" : ""}\n`)
+  for (const check of output.checks ?? []) context.stdout.write(`Checked ${check.path}: ${check.status ?? check.error}\n`)
   if (output.temporary) {
     const window = output.host === "cloudflare" ? "within 60 minutes" : output.temporary.expiresAt ? `before ${output.temporary.expiresAt}` : "soon"
     context.stdout.write(`This is a temporary deploy. Claim it ${window}, or the host deletes it. Do not share the claim link:\n${output.temporary.claimUrl}\n`)
@@ -216,7 +237,7 @@ async function pushCheckouts(checkouts: DeployCheckouts, deployed: SetupDeployOu
   }
   catch (error: unknown) {
     const failure = checkoutPushError(error)
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PUSH_FAILED({ fix: failure.fix, message: `${failure.code}: ${failure.message}`, url: deployed.url }), setupExitCodes.error, {
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PUSH_FAILED({ fix: failure.fix, message: `${failure.code}: ${failure.message}`, url: deployed.url }), setupExitCodes.error, {
       data: { ...deployed, checkouts: { error: failure } },
       rerun: "vitehub push",
     })
@@ -227,7 +248,7 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   const project = await readSetupProject(context.rootDir, context.env)
   const links = await readSetupLinks(project.root)
   const { host, link } = deployTarget(project, links, args.host, context.env)
-  if (args.preview && host === "deno") throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PREVIEW_UNSUPPORTED({ host }), setupExitCodes.conflict)
+  if (args.preview && host === "deno") throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PREVIEW_UNSUPPORTED({ host }), setupExitCodes.conflict)
   const credentials = await resolveHostCredentials(host, { cwd: project.root, env: context.env, ...(context.runHostCli ? { run: context.runHostCli } : {}) })
   const vercelLogin = host === "vercel" && !credentials.ok && await hasVercelLogin(project.root, context)
   if (args.temporary && vercelLogin) throw temporaryUnsupported("It is for a machine without a vercel login, and a saved CLI login was found.")
@@ -237,10 +258,10 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   const interactive = !args.json && !!process.stdin.isTTY && !!process.stderr.isTTY
   if (!args.yes) {
     if (!interactive) {
-      throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] `vitehub deploy` publishes the app and was not confirmed. Without a terminal, pass --yes." }), setupExitCodes.inputNeeded, { rerun: rerunCommand(args) })
+      throw setupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] `vitehub deploy` publishes the app and was not confirmed. Without a terminal, pass --yes." }), setupExitCodes.inputNeeded, { rerun: rerunCommand(args) })
     }
     if (!await confirmDeploy(link?.project.name ?? basename(project.root), host, args.preview)) {
-      throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The deploy was not confirmed. Nothing was deployed." }), setupExitCodes.error)
+      throw setupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The deploy was not confirmed. Nothing was deployed." }), setupExitCodes.error)
     }
   }
 
@@ -257,16 +278,18 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   if (args.build) await build(project, host, context)
   const output = await readBuildOutput(project.root, host)
   const projectName = link?.project.name ?? output.identityName
-  if (!projectName) throw new SetupFailure(cliErrorDiagnostics.SETUP_LINK_NAME_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "project" }], rerun: "vitehub link --project <name>" })
+  if (!projectName) throw setupFailure(cliErrorDiagnostics.SETUP_LINK_NAME_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "project" }], rerun: "vitehub link --project <name>" })
   const secrets = credentials.ok ? [credentials.token] : []
   const run = createDeployRun(context.stderr, secrets)
   // After provisioning and the build, the Env gate runs before runtime host writes: `env.apply()` and the D1 migrations of `adapter.deploy()` come after it.
   const env = await checkDeployEnv({
     context,
     entries: output.env,
+    envDir: output.envDir,
     host,
     interactive,
     link: args.temporary ? undefined : link,
+    outputDir: output.outputDir,
     preview: args.preview,
     pushEnv: args.pushEnv,
     root: project.root,
@@ -291,8 +314,12 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   }
   const adapter = await hostAdapter(host, deployContext)
   await env.apply()
+  const checkPaths = args.check ? output.deploy.check : []
+  // Read before the deploy replaces it: the rollback target of a failed check. A preview does not replace production.
+  const previous = checkPaths.length && !args.preview && !args.temporary ? await previousDeployment(project.root, link, credentials, context, run) : undefined
   const result = await adapter.deploy()
   if (!link && !args.temporary) await recordLink(project.root, host, result, projectName)
+  const checks = checkPaths.length ? await runDeployChecks(result.url, checkPaths, deployContext.fetch) : undefined
 
   const deployed: SetupDeployOutput = {
     host,
@@ -303,11 +330,44 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
     ...(deployContext.commit ? { commit: deployContext.commit } : {}),
     env: env.output,
     ...(provisioned ? { provision: provisioned } : {}),
+    ...(checks ? { checks } : {}),
   }
+  if (checks?.some(check => !check.ok)) throw checkFailed(deployed, host, previous, projectName, link, result, args.preview)
   if (!args.json) writeDeployed(deployed, projectName, context)
-  const final = checkouts ? await pushCheckouts(checkouts, deployed, args, context) : deployed
+  const pushed = checkouts ? await pushCheckouts(checkouts, deployed, args, context) : deployed
+  const indexNow = output.deploy.indexNow && args.indexNow && !args.preview && !args.temporary ? await submitIndexNow(output.deploy.indexNow, deployContext.fetch) : undefined
+  if (indexNow && !args.json) context.stderr.write("submitted" in indexNow ? `IndexNow: sent ${indexNow.submitted} URLs (${indexNow.status}).\n` : `IndexNow: nothing was sent. ${indexNow.error} The deploy is done.\n`)
+  const final = indexNow ? { ...pushed, indexNow } : pushed
   if (args.json) writeSetupJson(context, final)
   return setupExitCodes.done
+}
+
+type PreviousDeployment = { deployment: HostDeployment | undefined } | { failed: string }
+
+/** The deployment that serves production before this deploy. Without a link or a token there is nothing to read. */
+async function previousDeployment(root: string, link: SetupLink | undefined, credentials: HostCredentials, context: ViteHubCliContext, run: DeployRun): Promise<PreviousDeployment> {
+  if (!link) return { failed: "the project was not linked before this deploy." }
+  if (!credentials.ok) return { failed: `deploy used the saved ${link.host} CLI login, which gives no API token.` }
+  try {
+    return { deployment: await readLiveDeployment(root, link, credentials, context, run) }
+  }
+  catch (error: unknown) {
+    return { failed: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/** A deployed app that failed a check. Production now serves it, so the error says how to roll back. */
+function checkFailed(deployed: SetupDeployOutput, host: DeployHost, previous: PreviousDeployment | undefined, projectName: string, link: SetupLink | undefined, result: DeployResult, preview: boolean): SetupFailure {
+  const rollback = preview
+    ? { note: "This was a preview deploy, so production did not change." }
+    : rollbackFor(host, {
+        previous: previous && "deployment" in previous ? previous.deployment : undefined,
+        projectName: link?.project.name ?? result.project?.name ?? projectName,
+        ...(previous && "failed" in previous ? { lookupFailed: previous.failed } : {}),
+        ...(host === "netlify" && (link?.project.id ?? result.project?.id) ? { siteId: link?.project.id ?? result.project?.id } : {}),
+      })
+  const failure = cliErrorDiagnostics.SETUP_DEPLOY_CHECK_FAILED({ failed: formatFailedChecks(deployed.checks ?? []), rollback: rollback.command ? `Run \`${rollback.command}\` to put the previous deployment back on production.` : rollback.note, url: deployed.url })
+  return setupFailure(failure, setupExitCodes.error, { data: { ...deployed, rollback } })
 }
 
 export const deployCommand: ViteHubCliCommand = {

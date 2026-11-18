@@ -227,7 +227,7 @@ describe("workspace operations", { timeout: 30_000 }, () => {
   })
 
   it("names the Blob + Database Store when the Workspace Store keeps no history", async () => {
-    registerWorkspace("content", { store: { provider: "memory" } })
+    registerWorkspace("content", { store: { driver: "memory" } })
 
     for (const [name, input] of [["history", { workspace: "content" }], ["refs", { workspace: "content" }], ["show", { target: "main", workspace: "content" }]] as const) {
       expect(await call(name, input)).toMatchObject({ code: "WORKSPACE_R0069", message: expect.stringContaining("Blob + Database Store"), ok: false, status: 409 })
