@@ -2,10 +2,11 @@ import { toArray } from "@vite-hub/internal/arrays"
 import { isPlainObject } from "@vite-hub/internal/object"
 import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { blobErrorDiagnostics, blobErrors } from "../error-diagnostics.ts"
+import { bareETag } from "../internal/etag.ts"
 import isBlob from "../internal/is-blob.ts"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedBlobStoreConfig } from "../types.ts"
-import type { Adapter, FileInfo, Files, ListOptions, ListResult } from "files-sdk"
+import type { Adapter, FileInfo, Files, ListOptions, ListResult, UploadCondition } from "files-sdk"
 
 type FilesCtor = typeof import("files-sdk").Files
 type FilesInstance = Files<Adapter>
@@ -102,6 +103,10 @@ function mapUploadResult(result: FileInfo, fallback: BlobPutOptions): BlobObject
   }
 }
 
+function unsupportedCondition(driver: string, cause?: unknown) {
+  return blobErrorDiagnostics.BLOB_PUT_CONDITION_UNSUPPORTED({ cause, driver })
+}
+
 function unsupportedSign(driver: string, reason: string) {
   return blobErrorDiagnostics.BLOB_R0025({ message: `Blob driver "${driver}" cannot sign this request: ${reason}.` })
 }
@@ -164,6 +169,25 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
       throw error
     })
     return await filesPromise
+  }
+
+  async function upload(client: FilesInstance, pathname: string, body: BlobPutBody, putOptions: BlobPutOptions, condition?: UploadCondition): Promise<BlobObject> {
+    const contentType = putOptions.contentType || (isBlob(body) ? body.type : undefined)
+    const uploadOptions = {
+      contentLength: putOptions.contentLength,
+      contentType,
+      metadata: putOptions.customMetadata,
+    }
+    // A conditional upload sends one request with a known body, so it takes no `contentLength`.
+    const result = condition
+      ? await client.upload(pathname, body as never, { condition, contentType, metadata: putOptions.customMetadata })
+      : await client.upload(pathname, body as never, uploadOptions)
+    return {
+      ...mapUploadResult(result, putOptions),
+      pathname: result.key,
+      contentType: result.contentType || contentType,
+      url: await getUploadUrl(client, result.key),
+    }
   }
 
   const driver: BlobDriverAdapter<TOptions> = {
@@ -319,19 +343,26 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
       return await driver.head(to)
     },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
+      return await upload(await files(), pathname, body, putOptions)
+    },
+    async putIf(pathname, body, putOptions, condition) {
       const client = await files()
-      const uploadOptions = {
-        contentLength: putOptions.contentLength,
-        contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
-        metadata: putOptions.customMetadata,
+      // files-sdk turns conditions off where the provider may not honor them, such as an S3-compatible endpoint.
+      if (!client.capabilities.conditional[condition.type]) throw unsupportedCondition(options.driver)
+      try {
+        // A conditional upload refuses a stream body.
+        const bytes = body instanceof ReadableStream ? await new Response(body as ReadableStream<Uint8Array>).arrayBuffer() : body
+        return await upload(client, pathname, bytes, putOptions, condition.type === "create" ? condition : { etag: bareETag(condition.etag), type: "replace" })
       }
-      const result = await client.upload(pathname, body as never, uploadOptions)
-
-      return {
-        ...mapUploadResult(result, putOptions),
-        pathname: result.key,
-        contentType: result.contentType || putOptions.contentType || (isBlob(body) ? body.type : undefined),
-        url: await getUploadUrl(client, result.key),
+      catch (error) {
+        const code = (error as { code?: unknown } | null)?.code
+        const cause = (error as { cause?: { name?: string, Code?: string } } | null)?.cause
+        const providerCode = cause?.name ?? cause?.Code
+        // S3 also maps a missing bucket's 404 to NotFound. Only a missing key refuses a replacement.
+        const missingTarget = code === "NotFound" && (!providerCode || providerCode === "NoSuchKey" || providerCode === "NotFound")
+        if (code === "Conflict" || (condition.type === "replace" && missingTarget)) return null
+        if (code === "Unsupported") throw unsupportedCondition(options.driver, error)
+        throw error
       }
     },
     async sign(pathname, signOptions) {

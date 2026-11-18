@@ -1,3 +1,5 @@
+import { getEventListeners } from "node:events"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { abortable } from "../src/abort.ts"
@@ -38,8 +40,7 @@ describe("abortable", () => {
 
   it("removes its abort listener when the task settles", async () => {
     const controller = new AbortController()
-    const removeEventListener = vi.spyOn(controller.signal, "removeEventListener")
     await abortable(controller.signal, "interrupted", async () => "done")
-    expect(removeEventListener).toHaveBeenCalledWith("abort", expect.any(Function))
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(0)
   })
 })

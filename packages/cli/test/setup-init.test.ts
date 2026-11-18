@@ -108,11 +108,11 @@ describe("vitehub init", () => {
     expect(status.json.stack).toEqual({ command })
   })
 
-  it("refuses the removed --console flag", async () => {
+  it("refuses an unknown flag before any write", async () => {
     const parent = await createProject()
-    const result = await init(["app", "--host", "node", "--features", "", "--console", "p_1:sha256:abc", "--yes"], parent)
+    const result = await init(["app", "--host", "node", "--features", "", "--nope", "--yes"], parent)
     expect(result.exitCode).not.toBe(0)
-    expect(result.json.error).toMatchObject({ code: "CLI_R0003" })
+    expect(result.json.error).toMatchObject({ code: "CLI_R0003", message: expect.stringContaining('Unknown argument "--nope"') })
     expect(existsSync(join(parent, "app"))).toBe(false)
   })
 

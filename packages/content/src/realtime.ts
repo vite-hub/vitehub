@@ -2,6 +2,7 @@ import { RealtimeDocumentConflict } from "@vite-hub/realtime"
 import { isWorkspaceConflict } from "@vite-hub/workspace/files"
 
 import { contentRealtimeEditor } from "./editor.ts"
+import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { contentLiveSession } from "./live.ts"
 
 import type {
@@ -117,7 +118,7 @@ export function contentDocument(collection: AnyContentCollection, options: Conte
       }
       if (!result.editing && result.holder) {
         const holder = result.holder.user.name ?? result.holder.user.id
-        throw new Error(`${holder} is editing this document alone. Live edits save once they stop or someone takes over.`)
+        throw contentErrorDiagnostics.CONTENT_LIVE_DOCUMENT_HELD({ holder })
       }
     },
     async release(context) {
@@ -179,7 +180,7 @@ export function contentRealtime(content: ContentLiveRuntime, options: ContentRea
   const adapters = new Map<string, RealtimeDocumentAdapter>()
   function target(context: RealtimeDocumentContext) {
     const found = contentLiveTarget(content, context.documentId)
-    if (!found) throw new Error(`No Content Markdown document matches the live room ${JSON.stringify(context.documentId)}.`)
+    if (!found) throw contentErrorDiagnostics.CONTENT_LIVE_ROOM_UNKNOWN({ documentId: context.documentId })
     return found
   }
   function adapter(context: RealtimeDocumentContext): { adapter: RealtimeDocumentAdapter, context: RealtimeDocumentContext } {

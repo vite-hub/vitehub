@@ -66,12 +66,28 @@ export async function readReceipt(text: string) {
 | Option | Description |
 | --- | --- |
 | `model` | An AI SDK model, such as `languageModel(gateway, modelId)` for any gateway, or an AI SDK gateway model ID. |
-| `schema` | A [Standard Schema](https://standardschema.dev) that converts to JSON Schema: Zod 4, ArkType, or Valibot wrapped with `toStandardJsonSchema()` from `@valibot/to-json-schema`. |
+| `schema` | A [Standard Schema](https://standardschema.dev) that converts to JSON Schema: Zod 4, ArkType, or Valibot wrapped with `toStandardJsonSchema()` from `@valibot/to-json-schema`. Without `schema`, `data` is the answer text. |
 | `instructions` | System instructions. |
 | `signal` | Cancels the request. |
 | `onUsage` | Gets the `model`, `provider`, and token `usage` of the request. |
 
-`error` is [`GATEWAYS_ASK_MODEL_FAILED`](/docs/gateways/diagnostics/gateways_ask_model_failed) when the request fails, and [`GATEWAYS_ASK_OUTPUT_INVALID`](/docs/gateways/diagnostics/gateways_ask_output_invalid) when the answer is not JSON that the schema accepts. A setup error, such as a missing key or a schema without JSON Schema, throws. The AI SDK retries a failed request two times.
+`error` is [`GATEWAYS_ASK_MODEL_FAILED`](/docs/gateways/diagnostics/gateways_ask_model_failed) when the request fails, and [`GATEWAYS_ASK_OUTPUT_INVALID`](/docs/gateways/diagnostics/gateways_ask_output_invalid) when the answer is not JSON that the schema accepts, or has no text. A setup error, such as a missing key or a schema without JSON Schema, throws. The AI SDK retries a failed request two times.
+
+Leave out `schema` to get text, such as a summary:
+
+```ts [server/utils/summarize-run.ts]
+import { ask, cliproxy } from 'vite-hub/gateways'
+import { languageModel } from 'vite-hub/gateways/ai-sdk'
+
+export async function summarizeRun(log: string) {
+  const [error, summary] = await ask(log, {
+    instructions: 'Summarize this eval run in three sentences.',
+    model: languageModel(cliproxy(), 'claude-opus-5-5'),
+  })
+  if (error) throw error
+  return summary // string
+}
+```
 
 `ask()` sends one request and calls no tools. Use an [Agent](/docs/agents) when the model must call tools, keep a conversation, or run in the background.
 

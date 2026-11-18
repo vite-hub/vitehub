@@ -39,7 +39,6 @@ Add `kv: true`. On the `node` host, KV stores values in files under
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: "node",
     kv: true,
   },
 })
@@ -55,7 +54,6 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       kv: true,
     }),
     nitro(),
@@ -72,7 +70,6 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       kv: true,
     }),
   ],

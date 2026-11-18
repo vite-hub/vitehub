@@ -5,6 +5,7 @@ import { typesetCss } from "comark-ui";
 import { chooseFiles, uploadKey, uploadPlugin, type UploadOptions } from "comark-ui/editor";
 import { useComarkEditor, type UseComarkEditorOptions } from "comark-ui/editor/vue";
 import { computed, defineComponent, h, provide, ref, shallowRef, watch, watchEffect, type PropType } from "vue";
+import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { createEditorHandlers, editorHandlersKey, type EditorHandlers } from "../editor/handlers.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
 import type { EditorSuggestionMenuItem, EditorToolbarItem } from "../ui-sdk/editor.ts";
@@ -19,7 +20,7 @@ export type MarkdownEditorUpload = (file: File, progress: (fraction: number) => 
 export function blobUpload(route: string): MarkdownEditorUpload {
   return async (file, progress) => {
     const [object] = await uploadFiles(route, [file], { onProgress: (percent) => progress(percent / 100) });
-    if (!object?.url) throw new Error(`${route} stored ${file.name} without a URL. Serve the Blob store with \`blob.serve\` so the editor can link it.`);
+    if (!object?.url) throw uiErrorDiagnostics.UI_MARKDOWN_UPLOAD_URL_MISSING({ route, file: file.name });
     return object.url;
   };
 }
