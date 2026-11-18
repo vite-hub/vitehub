@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { restoreLinksScript, snapshotLinksFile } from "../src/links.ts"
 import { lockedAliases, withoutTarballIntegrity } from "../src/lockfile.ts"
-import { createNodeModulesSnapshot, SnapshotLockfileMismatchError } from "../src/snapshot.ts"
+import { createNodeModulesSnapshot } from "../src/snapshot.ts"
 import { readTree } from "../src/tree.ts"
 
 const run = promisify(execFile)
@@ -114,7 +114,7 @@ describe("snapshot lockfiles", () => {
     await writeFile(join(project, "local-dep/package.json"), '{"name":"local-dep","version":"1.0.0"}')
     const manifest = '{"private":true,"dependencies":{"local-dep":"file:./local-dep"}}\n'
     await writeFile(join(project, "package.json"), manifest)
-    await expect(createNodeModulesSnapshot({ dir: project, lockfile: '{"lockfileVersion":3,"packages":{"":{}}}' })).rejects.toBeInstanceOf(SnapshotLockfileMismatchError)
+    await expect(createNodeModulesSnapshot({ dir: project, lockfile: '{"lockfileVersion":3,"packages":{"":{}}}' })).rejects.toMatchObject({ code: "WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH", fix: expect.stringContaining("frozenLockfile: false") })
     expect(await readFile(join(project, "package.json"), "utf8")).toBe(manifest)
   })
 

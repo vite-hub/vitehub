@@ -1,13 +1,10 @@
 {
   "rawErrors": {
-    "packages/ui/src/components/copy-button.ts": 1,
-    "packages/ui/src/components/markdown-editor.ts": 1,
     "packages/ui/src/internal/icon-shapes.ts": 2,
-    "packages/ui/src/motion/spring.ts": 1,
-    "packages/ui/src/playground/share.ts": 1,
-    "packages/ui/src/playground/zip.ts": 1,
-    "packages/ui/src/standalone/vite.ts": 1
+    "packages/ui/src/motion/spring.ts": 1
   },
   "codesWithoutFix": [],
-  "invariants": {}
+  "invariants": {
+    "packages/ui/src/standalone/vite.ts": 1
+  }
 }

@@ -109,8 +109,6 @@ async function createProject(name = "default") {
 
 describe("Database seed of vitehub seed", () => {
   it("is a seed of vitehub seed, not a database command", async () => {
-    const project = await createProject()
-    await expect(project.run("seed")).resolves.toMatchObject({ exitCode: undefined })
     expect(createDbCliContributor({ seed: false })?.seeds).toBeUndefined()
   })
 

@@ -392,7 +392,8 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
     if (!session) throw workspaceErrorDiagnostics.WORKSPACE_R0042({ message: "Workspace Dev Session did not start." })
     result = input.args
       ? await session.exec(command, input.args, execOptions)
-      : await session.exec("sh", ["-lc", command], execOptions)
+      // Not a login shell: a profile, such as Debian's /etc/profile, would set PATH again and drop the session's PATH.
+      : await session.exec("sh", ["-c", command], execOptions)
     const diff = result.exitCode === 0 ? await session.diff() : undefined
     if (diff?.entries.length) {
       const commit = definition ? resolveWorkspaceAutoCommit(definition, diff) : undefined

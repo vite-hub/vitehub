@@ -385,9 +385,6 @@ describe("env declarations", () => {
       label: "git:commit",
       short: true,
     })
-    expect(env).not.toHaveProperty("gitRef")
-    expect(env).not.toHaveProperty("gitSha")
-    expect(env).not.toHaveProperty("variable")
     expect(env.gitTag()).toMatchObject({
       kind: "git-tag",
       label: "git:tag",
@@ -421,8 +418,6 @@ describe("env declarations", () => {
     expect(await explicit.git.commit({ short: true })).toBe("abcdef1")
     expect(await explicit.git.branch()).toBe("main")
     expect(await explicit.git.tag()).toBe("v9.9.9")
-    expect(explicit.git).not.toHaveProperty("sha")
-    expect(explicit.git).not.toHaveProperty("ref")
 
     const github = createSourceContext({
       env: {

@@ -1,4 +1,7 @@
+import { askOnce } from "./ask-model.ts"
 import { gatewayDiagnostics } from "./diagnostics.ts"
+
+import type { AskCall } from "./ask-model.ts"
 
 /** A JSON value that TypeSafe Jev can read. */
 export type AskJson = string | number | boolean | null | AskJson[] | { [key: string]: AskJson }
@@ -152,17 +155,30 @@ function each<T, Q extends AskQuestion>(
 }
 
 /**
- * Builds TypeSafe Jev questions for `gateway.ask()` and `defineAgent({ driver: { ask } })`.
+ * Asks a model one question and returns validated, typed data as `[error, data]`: `ask(prompt, { model, schema })`.
+ * Use it for one structured answer, such as extracted fields, without an Agent. Leave out `schema` to get the answer as text.
+ *
+ * Its properties build TypeSafe Jev questions for `gateway.ask()` and `defineAgent({ driver: { ask } })`.
  * Each builder returns a plain question object. The Driver sends questions in deterministic sequential batches when needed; the combined serialized shared state and each question must fit below 30,000 bytes, including request overhead.
+ *
+ * @example
+ * import * as z from 'zod'
+ * import { ask, openrouter } from '@vite-hub/gateways'
+ * import { languageModel } from '@vite-hub/gateways/ai-sdk'
+ *
+ * const [error, receipt] = await ask('MERCADONA 23.10 -34.90 EUR', {
+ *   model: languageModel(openrouter(), 'google/gemini-3-flash'),
+ *   schema: z.object({ merchant: z.string(), amount: z.number() }),
+ * })
  */
-export const ask: {
+export const ask: AskCall & {
   chance: typeof chance
   choice: typeof choice
   each: typeof each
   if: typeof askIf
   score: typeof score
   switch: typeof askSwitch
-} = {
+} = Object.assign(askOnce, {
   /** A yes or no question. Answers `{ chance }`, the probability of yes. */
   chance,
   /** Selects one option. Answers `{ choice, confidence, probabilities }`. */
@@ -175,4 +191,4 @@ export const ask: {
   score,
   /** Selects one option. Answers with the selected label only. */
   switch: askSwitch,
-}
+})

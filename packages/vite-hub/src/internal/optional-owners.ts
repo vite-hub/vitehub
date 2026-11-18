@@ -29,6 +29,7 @@ export type OptionalOwnerPackage
     | "@vite-hub/content"
     | "@vite-hub/database"
     | "@vite-hub/decisions"
+    | "@vite-hub/device"
     | "@vite-hub/email"
     | "@vite-hub/forge"
     | "@vite-hub/forms"
@@ -44,6 +45,7 @@ export type OptionalOwnerPackage
     | "@vite-hub/sandbox"
     | "@vite-hub/schedule"
     | "@vite-hub/shell"
+    | "@vite-hub/sync"
     | "@vite-hub/ui"
     | "@vite-hub/webhooks"
     | "@vite-hub/workflow"
@@ -74,6 +76,8 @@ export const optionalFeaturePackages = {
   // Database also needs `drizzle-kit` as a development dependency, which `@vite-hub/database` declares.
   "database": features.database.packages,
   "decisions": ["@vite-hub/decisions"],
+  // `vite-hub/device`: stored reads in the browser.
+  "device": ["@vite-hub/device"],
   "email": features.email.packages,
   // `vite-hub/forge`: `useForge()` and the Forge helpers.
   "forge": ["@vite-hub/forge"],
@@ -94,6 +98,8 @@ export const optionalFeaturePackages = {
   "sandboxTask": features.sandboxTask.packages,
   "schedule": features.schedule.packages,
   "shell": ["@vite-hub/shell"],
+  // `server/sync/` turns Sync on, and its change log goes to the Database.
+  "sync": ["@vite-hub/sync"],
   "ui": ["@vite-hub/ui"],
   // `server/webhooks/` turns Webhooks on. It needs `queue` and `database`.
   "webhooks": ["@vite-hub/webhooks"],

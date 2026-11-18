@@ -44,6 +44,27 @@ describe("routeRuleRedirects", () => {
     ])
   })
 
+  it("writes one line for each path, from the most specific route, because Cloudflare rejects a second one", () => {
+    const { lines } = routeRuleRedirects({
+      "/old": moved("/new"),
+      "/old/": moved("/new"),
+      "/moved/": moved("/here"),
+      "/blog/**": moved("/posts/**"),
+      "/blog": moved("/news"),
+    }, "/")
+    expect(lines).toEqual([
+      "/old /new 301",
+      "/old/ /new 301",
+      "/blog /news 301",
+      "/blog/ /news 301",
+      "/moved /here 301",
+      "/moved/ /here 301",
+      "/blog/* /posts/:splat 301",
+    ])
+    const sources = lines.map(line => line.split(" ")[0])
+    expect(sources).toEqual([...new Set(sources)])
+  })
+
   it("adds the base URL to the source only, as Nitro does", () => {
     expect(routeRuleRedirects({ "/old": moved("/docs/new") }, "/docs/").lines).toEqual(["/docs/old /docs/new 301", "/docs/old/ /docs/new 301"])
   })
@@ -80,6 +101,10 @@ describe("addRedirectsToFile", () => {
     expect(addRedirectsToFile("# moved by hand\n/home / 301\n", ["/old /new 301"])).toBe("# moved by hand\n/home / 301\n/old /new 301\n")
     expect(addRedirectsToFile("", ["/old /new 301"])).toBe("/old /new 301\n")
     expect(addRedirectsToFile("/old /new 301\n", ["/old /new 301"])).toBe("/old /new 301\n")
+  })
+
+  it("adds no second rule for a path that the file already has", () => {
+    expect(addRedirectsToFile("/old /by-hand 302\n", ["/old /new 301", "/old/ /new 301"])).toBe("/old /by-hand 302\n/old/ /new 301\n")
   })
 
   it("adds nothing when the file would pass Cloudflare's limits", () => {

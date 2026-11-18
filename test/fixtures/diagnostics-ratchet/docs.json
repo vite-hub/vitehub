@@ -1,13 +1,6 @@
 {
   "rawErrors": {
-    "packages/docs/src/assistant-nuxt.ts": 1,
-    "packages/docs/src/check-links.ts": 2,
-    "packages/docs/src/comments-nuxt.ts": 1,
-    "packages/docs/src/manifest.ts": 2,
-    "packages/docs/src/markdown.ts": 1,
-    "packages/docs/src/nuxt.ts": 1,
-    "packages/docs/src/redirects.ts": 1,
-    "packages/docs/src/seo-audit.ts": 1
+    "packages/docs/src/nuxt.ts": 1
   },
   "codesWithoutFix": [],
   "invariants": {

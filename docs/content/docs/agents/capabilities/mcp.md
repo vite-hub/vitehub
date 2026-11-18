@@ -76,7 +76,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: {
       server: {
         analyticsToken: env({ optional: true, secret: true }),
@@ -96,7 +95,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         analyticsToken: env({ optional: true, secret: true }),
@@ -115,7 +113,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         analyticsToken: env({ optional: true, secret: true }),
@@ -228,13 +225,13 @@ mcp({
 Outside an Agent, `callMcpTool()` from `vite-hub/agent/mcp` calls one tool through the Connection as the `server` actor. Allow it with `access: { server: { read: true, write: ['fetch'] } }`. It returns a `Result` from `vite-hub/runtime`, `[error, undefined]` or `[undefined, value]`, and does not reject for a failed call. `value` is the tool's `structuredContent`, or its text content parsed as JSON when possible.
 
 ```ts [server/api/crm/search.get.ts]
-import { createError, defineEventHandler, getQuery } from 'h3'
+import { defineEventHandler, getQuery, HTTPError } from 'h3'
 import { callMcpTool } from 'vite-hub/agent/mcp'
 
 export default defineEventHandler(async (event) => {
   const { query } = getQuery(event)
   const [error, result] = await callMcpTool({ connection: 'crm' }, 'search', { query }, { retries: 2 })
-  if (error) throw createError({ statusCode: 502, message: error.message })
+  if (error) throw new HTTPError({ status: 502, message: error.message })
   return result
 })
 ```

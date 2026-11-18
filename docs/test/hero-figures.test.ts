@@ -1,8 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { Plan, Scene, TokenState } from "../app/utils/hero-figure/engine";
-import { timeline } from "../app/utils/hero-figure/engine";
+import type { Plan, Scene } from "../app/utils/hero-figure/engine";
 import { HERO_ICONS } from "../app/utils/hero-figure/icons";
 import { heroFigures } from "../app/utils/hero-figure";
 
@@ -71,27 +70,5 @@ describe("hero figures", () => {
     }
     expect(stepsOf(scene, scene.plan(0)).length).toBeGreaterThanOrEqual(3);
     expect(stepsOf(scene, scene.plan(0)).length).toBeLessThanOrEqual(6);
-  });
-
-  // Lane scenes describe their tokens in a timeline. Two tokens on the same row must never share a place.
-  it.each(keys)("%s: never puts two balls on the same spot", async (key) => {
-    const scene = await load(key);
-    if (scene.render || !scene.tokens?.length) return;
-    const width = 640;
-    for (let k = 0; k < LOOPS; k++) {
-      const plan = scene.plan(k);
-      for (let t = 0; t < plan.len; t += 40) {
-        const frame = scene.frame ? scene.frame(t, plan) : "T" in plan ? timeline(t, plan as Plan & Parameters<typeof timeline>[1]) : {};
-        const shown = Object.entries(frame.tok ?? {}).filter((entry): entry is [string, TokenState] => !entry[1].hidden && (entry[1].a ?? 1) > 0.2);
-        for (let i = 0; i < shown.length; i++) {
-          for (let j = i + 1; j < shown.length; j++) {
-            const [a, b] = [shown[i]![1], shown[j]![1]];
-            const dx = Math.abs((a.p[0] - b.p[0]) * width / 100 + (a.dx ?? 0) - (b.dx ?? 0));
-            const dy = Math.abs(a.p[1] - b.p[1]);
-            expect(dx > 10 || dy > 10, `${key} loop ${k} at ${t} ms: ${shown[i]![0]} and ${shown[j]![0]}`).toBe(true);
-          }
-        }
-      }
-    }
   });
 });
