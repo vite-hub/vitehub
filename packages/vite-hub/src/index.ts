@@ -40,6 +40,7 @@ export type {
   SecurityOptions,
   SeoOptions,
   SystemdOptions,
+  ViteHubDeviceOptions,
   ViteHubNodeOptions,
   ViteHubOptions,
   ViteHubQueueOptions,

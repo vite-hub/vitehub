@@ -163,6 +163,8 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/content": true,
   "@vite-hub/database": true,
   "@vite-hub/decisions": true,
+  // Browser-only: generated server code never imports it.
+  "@vite-hub/device": false,
   "@vite-hub/docs": true,
   "@vite-hub/email": true,
   "@vite-hub/env": true,
@@ -446,6 +448,14 @@ export type ConnectionsOptions = Omit<ConnectionsVitePluginOptions, "database" |
   database?: string
 }
 
+/** Options of the Nuxt client plugin of `@vite-hub/device`. */
+export interface ViteHubDeviceOptions {
+  /** The `version` of `openDevice()`. A change deletes the stored copies. Default: none, so a deploy keeps them. */
+  version?: string
+  /** `false`: the plugin does not name the account from Auth, and the app calls `setDeviceAccount()`. */
+  account?: false
+}
+
 export interface ViteHubNodeOptions {
   /**
    * The number of server instances that run this build. The server fails at boot when it is greater than 1 and a
@@ -541,6 +551,14 @@ export interface ViteHubOptions {
   bundle?: boolean
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   database?: boolean | DatabaseOptions
+  /**
+   * Stored reads in Nuxt, when the app installs `@vite-hub/device`. A client plugin opens the device: after hydration on
+   * a page that the server rendered, else before the app mounts. With Auth, it names the account of `useUserSession()`
+   * and waits for the copies to go on `signOut()`. `useStoredData`, `useStoredFetch`, `setDeviceAccount`, `clearDevice`,
+   * and `inspectDevice` are auto-imported. `version` deletes the copies of another version. `account: false` leaves the
+   * account to the app. `false` turns it off. A Vite app calls `openDevice()` itself.
+   */
+  device?: false | ViteHubDeviceOptions
   email?: boolean | EmailOptions
   /**
    * Public Env, Server Env, and build-time replacements in `public`, `server`, and `define`, with the options that resolve
