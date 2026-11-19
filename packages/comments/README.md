@@ -124,7 +124,7 @@ On a preview, `forge: { provider: "github" }` posts each thread to the pull requ
 | Import | Purpose |
 | --- | --- |
 | `@vite-hub/comments` | `defineComments()` and types. `installComments()` is in `@vite-hub/comments/server`. |
-| `@vite-hub/comments/client` | Framework-free client, transport types, `createAnchor()`, and `resolveAnchor()`. |
+| `@vite-hub/comments/client` | Framework-free client, transport types, `createAnchor()`, `resolveAnchor()`, and `createCommentSend()`, the state of the Send segment that hands a member's waiting comments to their agent. |
 | `@vite-hub/comments/testing` | In-memory client transport for tests and examples. |
 | `@vite-hub/comments/anchor` | DOM anchoring: `createAnchor()`, `placeAnchor()`, `selectorOf()`, `labelOf()`. |
 | `@vite-hub/comments/database` | `commentsSchema`, the Drizzle tables, and `commentsTables`, the statements that create them. |
@@ -285,6 +285,10 @@ const client = createCommentsClient({ transport, user: ana });
 ```
 
 `transport.as(user)` gives another person on the same store, and `transport.reconnect()` sends `reconnected` to the listeners.
+
+### Send
+
+`createCommentSend(transport)` is the state of the **Send** segment of a comment pill, without a framework. Its states are `idle`, `pairing`, `confirm`, `sending`, `sent`, `working`, `failed`, and `limited`. `send.state` holds the state and its data, and `send.onChange()` reports each change. The transport has `status()`, `startPairing()`, `pollPairing(code)`, `allow(code)`, `cancel(code)`, `send()`, and an optional `subscribe()`. `CommentSend` of `@vite-hub/ui` renders it. See [Send to an agent](https://vitehub.dev/docs/ui/comments#send-to-an-agent).
 
 ## Errors
 

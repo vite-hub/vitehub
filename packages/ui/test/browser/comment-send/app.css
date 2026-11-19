@@ -1,0 +1,72 @@
+@import "../../../styles.css";
+
+/* A Vue app's own pill, as Drop's: dark glass, Nuxt UI tokens of a dark surface, and a Comments track. */
+.app-host {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 16px;
+  display: flex;
+  justify-content: center;
+}
+
+.app-pill {
+  color-scheme: dark;
+  --ui-text: #fafafa;
+  --ui-text-highlighted: #fafafa;
+  --ui-text-muted: #a3a3a3;
+  --ui-text-toned: #d4d4d4;
+  --ui-bg-inverted: #fafafa;
+  --ui-text-inverted: #0a0a0a;
+  --ui-error: oklch(0.704 0.191 22.216);
+  --ui-warning: #fbbf24;
+  --ui-success: #34d399;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 12px;
+  background: rgb(17 17 17 / 92%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
+  color: #d4d4d4;
+  font: 500 12px/1 ui-sans-serif, system-ui, sans-serif;
+  white-space: nowrap;
+}
+
+.app-pill-track {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 10px;
+  background: rgb(255 255 255 / 7%);
+}
+
+.app-pill-button {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 8px;
+}
+
+.app-pill-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.app-pill-square {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+
+.app-pill-count {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: #262626;
+  font-size: 10px;
+  line-height: 17px;
+}

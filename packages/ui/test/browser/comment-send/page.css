@@ -1,0 +1,40 @@
+/* A plain site under the pill, as joyandmaxi.com. */
+body {
+  margin: 0;
+  background: #fbfaf7;
+  color: #2b2925;
+  -webkit-font-smoothing: antialiased;
+}
+
+.post {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 28px 24px 120px;
+  font: 16px/1.65 Charter, "Iowan Old Style", Georgia, serif;
+}
+
+.post nav {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 28px;
+  font: 500 13px/1 ui-sans-serif, system-ui, sans-serif;
+  color: #6b6558;
+}
+
+.post nav b {
+  margin-right: auto;
+  color: #2b2925;
+}
+
+.post .kicker {
+  font: 500 12px/1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #8a8375;
+}
+
+.post h1 {
+  margin: 8px 0 16px;
+  font-size: 32px;
+  line-height: 1.15;
+}

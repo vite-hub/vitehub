@@ -10,6 +10,8 @@
 @import "./comment-marks.css" layer(components);
 /* The cross-fade of CopyButton's icons. Drop's page frame loads the same file without a framework. */
 @import "./icon-swap.css" layer(components);
+/* CommentSend, the Send segment of a comment pill. The ViteHub pill loads the same file in its toolbar. */
+@import "./comment-send.css" layer(components);
 
 /*
  * Theme tokens. Set `--vh-ui-*` on any element to change the parts inside it; the package sets none of them. The parts
