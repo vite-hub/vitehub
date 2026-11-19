@@ -285,7 +285,7 @@ export function missingFeaturePackagesError(features: readonly OptionalFeature[]
  * and warns when another installed package is outside its range. `hostPackages` adds the packages that the host or a
  * provider needs, from `hostFeaturePackages`.
  */
-export function assertFeaturePackages(features: readonly OptionalFeature[], hostPackages: FeatureHostPackages = {}): void {
+export function assertFeaturePackages(features: readonly OptionalFeature[], hostPackages: FeatureHostPackages = {}, reportVersionError = true): void {
   const isMissing = (feature: OptionalFeature) => !packagesOf(feature, hostPackages).every(name => isFeaturePackageInstalled(feature, name))
   if (features.some(isMissing)) {
     // The app can install a package after an earlier check, such as after this error in a dev session. Check again.
@@ -293,7 +293,7 @@ export function assertFeaturePackages(features: readonly OptionalFeature[], host
     const missing = features.filter(isMissing)
     if (missing.length) throw missingFeaturePackagesError(missing, hostPackages)
   }
-  checkPackageVersions(features.flatMap(feature => packagesOf(feature, hostPackages)))
+  checkPackageVersions(features.flatMap(feature => packagesOf(feature, hostPackages)), reportVersionError)
 }
 
 /**
@@ -426,7 +426,7 @@ let viteHubManifest: unknown
  * package in range is checked only the first time. A package out of range stays unchecked, so the next check throws
  * again until the app installs a supported version. A `vite-hub` manifest that the check cannot read turns it off.
  */
-function checkPackageVersions(packages: readonly string[]): void {
+function checkPackageVersions(packages: readonly string[], reportVersionError: boolean): void {
   const unchecked = [...new Set(packages)].filter(name => !checkedPackageVersions.has(name))
   if (!unchecked.length) return
   if (viteHubManifest === undefined) {
@@ -440,7 +440,7 @@ function checkPackageVersions(packages: readonly string[]): void {
   const error = unsupportedViteHubPackagesError(unchecked, installedPackageVersion, viteHubManifest)
   if (error) {
     // Vite and Nitro print the message of a build error, not its fix. The fix names the install command and pnpm `overrides`.
-    console.error(formatDiagnostic(error))
+    if (reportVersionError) console.error(formatDiagnostic(error))
     throw error
   }
   for (const name of unchecked) checkedPackageVersions.add(name)

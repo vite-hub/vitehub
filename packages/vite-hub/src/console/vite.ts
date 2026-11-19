@@ -475,7 +475,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         const http = server.httpServer
         http.once("listening", () => {
           const notice = consoleDevAccessNotice(consoleAccess()?.mode, http.address())
-          if (notice) server.config.logger[notice.level](notice.message)
+          if (notice) server.config.logger.warn(notice)
         })
       }
       const refresh = async () => {
