@@ -427,8 +427,8 @@ export function createGitHubPullRequestOperations(
     if (pullRequest.baseRefOid === options.expectedBaseOid) return options.expectedBaseOid
     // A busy default branch moves every few minutes. CI evidence for the assigned commit stays valid while the
     // base branch still contains it. Compare with the branch, not the PR's `baseRefOid`: GitHub stops moving that
-    // on a conflicted PR, while a conflict repair is assigned the live branch tip. On 2026-11-14, 17 conflicted
-    // vite-hub/vitehub PRs had a recorded base up to 45 commits behind it, and every repair pass was refused.
+    // on a conflicted PR, while a conflict repair is assigned the live branch tip. A recorded base can be
+    // many commits behind, and an exact match would refuse every repair pass.
     const { provider } = await forge()
     const comparison = (await provider.request<unknown>("GET", `/repos/${repository}/compare/${options.expectedBaseOid}...${pullRequest.baseRefName}`, { query: { per_page: 1 }, signal })).data
     if (isRecord(comparison) && (comparison.status === "ahead" || comparison.status === "identical") && comparison.behind_by === 0) return options.expectedBaseOid
@@ -532,8 +532,8 @@ export function createGitHubPullRequestOperations(
       // A finding closed without a code change needs its reason on the thread: it is the record the
       // author and the reviewer read, and the outcome marker is what review metrics count.
       if (outcome !== undefined && outcome !== "fixed" && !reason) throw presetsErrorDiagnostics.PRESETS_REVIEW_REASON_REQUIRED({ outcome })
-      // From 2026-11-07 to 11-13 workers declined 40 findings they classed P0 or P1, mostly because the
-      // review push budget was spent, and those PRs merged with the bugs.
+      // A worker must not decline a P0 or P1 finding, for example because the review push budget is spent:
+      // the PR would merge with the bug.
       if (outcome === "declined" && severeDeclineReason.test(reason ?? "")) throw presetsErrorDiagnostics.PRESETS_REVIEW_SEVERE_DECLINED()
       const body = outcome === undefined ? undefined : `${options.commentPrefix ?? ""}<!-- vitehub-babysitter-outcome:${outcome} -->\n**${reviewThreadOutcomes[outcome]}.**${reason ? ` ${reason}` : ""}`
       if (body !== undefined && options.restrictCommentMentions && await hasGitHubMention(body)) throw presetsErrorDiagnostics.PRESETS_REVIEW_MENTION_FORBIDDEN()
@@ -548,8 +548,8 @@ export function createGitHubPullRequestOperations(
       if (found.resolved && body === undefined) return { held: false }
       const thread = body === undefined ? undefined : await threadComments(id)
       const answered = body === undefined || thread!.comments.some(comment => comment.author?.login === thread!.viewer && comment.body === body)
-      // A worker may class a reviewer's P0 or P1 lower, but that call needs a person: on 2026-11-03
-      // vite-hub/vitehub#3278 merged an admin takeover a worker had relabeled P2. A person's reply releases it.
+      // A worker may class a reviewer's P0 or P1 lower, but that call needs a person: a wrong relabel lets a
+      // security bug merge. A person's reply releases it.
       const [opening, ...replies] = thread?.comments ?? []
       const held = outcome === "declined" && reviewerLabeledSevere(opening?.body)
         && !replies.some(comment => comment.author && comment.author.login !== thread!.viewer && comment.author.__typename !== "Bot")

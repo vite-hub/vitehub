@@ -1,8 +1,8 @@
 # @vite-hub/docs
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fdocs&icon=npm)](https://www.npmjs.com/package/@vite-hub/docs)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs/docs-site)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/docs)](https://www.npmjs.com/package/@vite-hub/docs)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs/docs-site)
 
 `@vite-hub/docs` turns a folder of Markdown files into a documentation site. It is a Nuxt module. It gives you the docs shell, four page layouts, search, a Markdown copy of each page for agents, llms.txt, an MCP server, and an optional docs assistant. [vitehub.dev](https://vitehub.dev) runs on it.
 
@@ -71,7 +71,7 @@ content/
 
 A page's URL is its path in the folder. With a `content/docs/` folder, the docs are at `/docs`. Without one, the docs are the whole site: `content/index.md` is `/`, and each folder in `content/` is a section. `content/docs/index.md` is the page at `/docs`. Without it, `/docs` is not found, and the Docs links open the first section. Each folder under `content/docs/` is a section: one entry in the rail and its own sidebar. A site with three sections or fewer, or with no section icons, has no rail: the sidebar lists every section with its pages. Pages outside `content/docs/`, such as `about.md`, render as plain articles under the site header. `dir` changes the content folder, and `base` sets the URL prefix of the sections when the default does not fit.
 
-The module reads the folder at build time. In development it watches the folder: a body edit shows on the next page load, and a new page, title, or order restarts the app.
+The module reads the folder at build time. In development it watches the folder. A body edit, a new or removed page, a title, or an order shows on the next page load without a restart, and the server code reloads once. The app restarts when adding or removing `content/docs/` changes the inferred base, or when a new page changes a route that the module adds at startup: the first page outside `/docs`, a page outside `/docs`, or any new page of an app with an `app.baseURL`, whose Markdown routes list each page. It also restarts for a new page when Nitro does not run in Vite (`experimental.nitroViteEnvironment: false`).
 
 ### Multiple sources and Markdown components
 
@@ -204,8 +204,8 @@ Most changes are options in `nuxt.config.ts`:
 | `sitemap` | `[]` | More paths for `/sitemap.xml`. Every docs page is listed already. |
 | `mcp` | On | `{ name, guide }`, or `false` to turn off the MCP server. |
 | `llms` | None | `{ details, sections }`. Text under the description of `/llms.txt`, and sections of links before the page sections. |
-| `linkChecker` | On | `false` turns off `nuxt-link-checker`, which fails the build on detected link errors in prerendered pages. Fragments on other pages are checked against the final built HTML. Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build checks that the rule leads to a docs page instead. Set the app's own `linkChecker` options to change it. |
-| `seoAudit` | `"warn"` | The search check of prerendered pages. `"warn"` logs the problems, `"error"` or `true` stops the build with `DOCS_SEO_FAILED`, and `false` turns it off. It reports a sitemap URL that is not a prerendered page, a title or description that is missing, shared, or outside 10 to 60 and 70 to 160 characters, a page that has no single `h1`, skips a heading level, has fewer than 150 words, or has no link to it, an indexed page without `og:title`, `og:type`, `og:image`, and `og:url`, a page over 2 MB of HTML, which Googlebot cuts, and links to a redirect page or to `/mcp`. A page without a share image (`seo.image: false`, or `ogImage: false`) needs no `og:image`, and a site without `site.url` needs no `og:url`. |
+| `linkChecker` | On | `false` turns off the link checks. The build first runs `vitehub content check` on the Markdown of every page, also the pages it does not prerender, and stops with `DOCS_LINKS_BROKEN` on a link to a missing page, named by file and line. Then `nuxt-link-checker` fails the build on detected link errors in prerendered pages, such as links in the navigation and app pages. Fragments on other pages are checked against the final built HTML. Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build checks that the rule leads to a docs page instead. Set the app's own `linkChecker` options to change it. |
+| `seoAudit` | `"warn"` | The search check of prerendered pages. `"warn"` logs the problems, `"error"` or `true` stops the build with `DOCS_SEO_FAILED`, and `false` turns it off. The audit checks the rendered title and description, including duplicates across indexed pages. When the rendered title or description has the same problem in `vitehub content check`, the audit includes the frontmatter file and line. It also checks sitemap URLs, `h1` and heading order, word count, inbound links, Open Graph tags, HTML over 2 MB, and links to redirects or `/mcp`. A page without a share image (`seo.image: false`, or `ogImage: false`) needs no `og:image`, and a site without `site.url` needs no `og:url`. |
 | `ogImage` | On | Share images. `{ component }` renders the app's own template from `components/OgImage/`, or `false` turns them off. See [Search and share](#search-and-share). |
 | `assistant` | `false` | `true`, or `{ agent }`. See [Docs assistant](#docs-assistant). |
 | `comments` | On with `vite-hub/nuxt` | `false` turns Comments off, or `{ database, dialect, overlay }`. See [Comments](#comments). |

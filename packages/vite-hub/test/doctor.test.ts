@@ -506,7 +506,7 @@ describe("vitehub/destructure-result-tuples dropped results", () => {
         "async function enqueueNext(subscriber: Subscriber) {",
         "  if (!subscriber.next_lesson_day || !subscriber.next_send_at)",
         "    return",
-        "  await sendQueue('daily-lessons', { day: subscriber.next_lesson_day, email: subscriber.email }, { delaySeconds: 60 })",
+        "  await sendQueue('daily-lessons', { day: subscriber.next_lesson_day, email: subscriber.email }, { delay: '1m' })",
         "}",
       ].join("\n"),
     }, "nuxt")).toEqual(["VHUB0003", "VHUB0003"])

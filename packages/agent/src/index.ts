@@ -1293,7 +1293,7 @@ async function runAgentAsWorkflow<
   try {
     workflowName = resolveAgentWorkflowName(agent, binding, context)
     handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS, TOutput>(agent, workflowName, hostDiscovered(context))
-    // ponytail: AbortSignal is live process state and cannot cross a durable Workflow payload.
+    // AbortSignal is live process state and cannot cross a durable Workflow payload.
     parsedInput = hasAgentDefinition(agent)
       ? await withParsedAgentMessageMeta<TRuntimeConfig, CALL_OPTIONS>(agent, input, context.run)
       : input

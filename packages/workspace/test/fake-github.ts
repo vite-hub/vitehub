@@ -291,7 +291,12 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
     const head = commits.get(String(variables.sha))
     if (!head) return json({ data: { repository: { object: null } } })
     const changed = ancestors(head.sha).map(commit => ({ commit, paths: [...treeChanges(commits.get(commit.parents[0] ?? "")?.tree ?? [], commit.tree).keys()] }))
-    const object: Record<string, unknown> = {}
+    const object: Record<string, unknown> = {
+      recent: { nodes: changed.slice(0, 100).map(({ commit }) => ({
+        oid: commit.sha,
+        parents: { nodes: commit.parents.slice(0, 2).map(oid => ({ oid })) },
+      })) },
+    }
     for (const [alias, path] of Object.entries(variables)) {
       if (!/^p\d+$/.test(alias)) continue
       const latest = changed.find(entry => entry.paths.some(name => name === path || name.startsWith(`${String(path)}/`)))?.commit
