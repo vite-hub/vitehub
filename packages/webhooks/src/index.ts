@@ -12,6 +12,7 @@ export { createMemberEndpoint, disableMemberEndpoint, enableMemberEndpoint, getM
 export type { CreateMemberEndpointOptions, MemberEndpointWithLastDelivery, SendToMemberEndpointOptions, SendToMemberEndpointResult } from "./members.ts"
 export type { MemberEndpoint, MemberEndpointKind, MemberLastDelivery } from "./database.ts"
 export { checkWebhookUrl } from "./url-guard.ts"
+export { sealWebhooksText, unsealWebhooksText } from "./sealing.ts"
 export type { CheckWebhookUrlOptions } from "./url-guard.ts"
 
 /** The webhooks of `server/webhooks/`. The generated `.vitehub/webhooks.d.ts` adds one key for each file. */
