@@ -226,12 +226,11 @@ export const noModuleScopeDispatch: DoctorRule = createRule({
 })
 
 /** A non-tuple result of a call, or `undefined` when the call is not one of these APIs. */
-function nonTupleResult(r: Resolver, call: unknown): { name: string, kind: "response" | "value" } | undefined {
+function nonTupleResult(r: Resolver, call: unknown): { name: string } | undefined {
   const reference = r.callee(call)
   if (!reference) return
-  if (isExport(reference, ["sandbox/task"], "runSandboxTask") || isExport(reference, ["browser"], "runBrowser")) return { name: reference.name, kind: "response" }
   if (isExport(reference, ["workflow"], "deferWorkflow")
-    || isExport(reference, ["queue"], "useQueue")) return { name: reference.name, kind: "value" }
+    || isExport(reference, ["queue"], "useQueue")) return { name: reference.name }
 }
 
 function arrayPatternTarget(awaited: unknown): AstNode | undefined {
@@ -256,61 +255,9 @@ export const noDestructureNonTuples: DoctorRule = createRule({
         const pattern = result && arrayPatternTarget(node)
         if (!result || !pattern) return
         ctx.report(diagnostics.VHUB0018({
-          why: result.kind === "response"
-            ? `\`${result.name}()\` returns a Web \`Response\`, not an \`[error, value]\` tuple. A \`Response\` is not iterable, so this destructuring throws.`
-            : `\`${result.name}()\` returns its value and throws on failure. It does not return an \`[error, value]\` tuple, so this destructuring throws or reads the wrong values.`,
-          fix: result.kind === "response"
-            ? `Read the response: \`const response = await ${result.name}(...)\`, check \`response.ok\`, then call \`await response.json()\`.`
-            : `Assign the result directly: \`const value = await ${result.name}(...)\`. Use \`try\`/\`catch\` to handle failures.`,
+          why: `\`${result.name}()\` returns its value and throws on failure. It does not return an \`[error, value]\` tuple, so this destructuring throws or reads the wrong values.`,
+          fix: `Assign the result directly: \`const value = await ${result.name}(...)\`. Use \`try\`/\`catch\` to handle failures.`,
         }), { range: ctx.range(pattern) })
-      },
-    }
-  },
-})
-
-const responseMembers = new Set(["arrayBuffer", "blob", "body", "bodyUsed", "bytes", "clone", "formData", "headers", "json", "ok", "redirected", "status", "statusText", "text", "type", "url"])
-
-function responseCall(r: Resolver, node: unknown): string | undefined {
-  const target = unwrap(node)
-  if (!isNodeType(target, "AwaitExpression")) return
-  const result = nonTupleResult(r, unwrap(target.argument))
-  return result?.kind === "response" ? result.name : undefined
-}
-
-export const checkResponseResults: DoctorRule = createRule({
-  meta: {
-    id: "vitehub/check-response-results",
-    title: "Read Sandbox Task and Browser results as a Response",
-    category: "correctness",
-    severity: "error",
-    requires: { script: true },
-  },
-  create(ctx) {
-    const r = resolver(ctx)
-    function report(node: unknown, name: string, member: string) {
-      ctx.report(diagnostics.VHUB0019({
-        why: `\`${name}()\` returns a Web \`Response\`. \`${member}\` is not a \`Response\` property, so it is \`undefined\`. A failed run also returns a \`Response\` with an error status, not your data.`,
-        fix: `Check \`response.ok\`, then read the data: \`const data = await response.json()\`.`,
-      }), { range: ctx.range(node) })
-    }
-    return {
-      VariableDeclarator(node) {
-        if (!isNodeType(node.id, "ObjectPattern")) return
-        const name = responseCall(r, node.init)
-        if (!name) return
-        const properties = Array.isArray(node.id.properties) ? node.id.properties.filter(isNode) : []
-        const member = properties.map(property => propertyName(property)).find(key => key !== undefined && !responseMembers.has(key))
-        if (member) report(node.id, name, member)
-      },
-      MemberExpression(node) {
-        if (node.computed === true || !isIdentifier(node.property) || responseMembers.has(node.property.name)) return
-        const object = unwrap(node.object)
-        let name = responseCall(r, object)
-        if (!name && isIdentifier(object)) {
-          const binding = r.binding(object)
-          if (binding && !binding.origin && isNodeType(binding.declaration, "VariableDeclarator") && isIdentifier(binding.declaration.id)) name = responseCall(r, binding.init)
-        }
-        if (name) report(node, name, node.property.name)
       },
     }
   },
@@ -514,7 +461,7 @@ export const manualScheduleRun: DoctorRule = createRule({
   },
 })
 
-const chatAdapterNames = ["channelAdapter", "discord", "forgejo", "github", "gitlab", "gmail", "http", "slack", "teams", "telegram", "webChat"]
+const chatAdapterNames = ["channelAdapter", "discord", "forgejo", "github", "gitlab", "gmail", "slack", "teams", "telegram", "webChat"]
 
 export const validChannel: DoctorRule = createRule({
   meta: {
@@ -562,7 +509,6 @@ export const rules: DoctorRule[] = [
   queuePayloadOptions,
   noModuleScopeDispatch,
   noDestructureNonTuples,
-  checkResponseResults,
   workflowStepNames,
   validScheduleCron,
   manualScheduleRun,

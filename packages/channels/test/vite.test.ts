@@ -33,6 +33,16 @@ afterEach(async () => {
 })
 
 describe("hubChannels", () => {
+  it("limits the registry to the configured root instead of the host server directories", async () => {
+    const root = await createTempProject()
+    const expected = await writeChannel(root, "custom/server/channels/alerts.ts")
+    await writeChannel(root, "server/channels/ignored.ts")
+    const plugin = hubChannels({ projectRoot: "custom" })
+    const config = { root, configFile: false as const, plugins: [plugin], [VITEHUB_SERVER_DIRS]: [join(root, "server")] }
+    await resolveConfig(config, "serve")
+    expect(plugin.api.getDefinitions().map(definition => definition.handler)).toEqual([expected])
+  })
+
   it("aliases the discovered Channel registry into Nitro builds", async () => {
     const root = await createTempProject()
     const definition = await writeChannel(root, "server/channels/alerts.ts")
@@ -83,7 +93,7 @@ describe("hubChannels", () => {
     await writeFile(join(root, path), source)
     const configure = (plugins: Array<{ name: string }>) => (hubChannels().configResolved as unknown as (config: { plugins: Array<{ name: string }>, root: string }) => Promise<void>)({ plugins, root })
 
-    await expect(configure([])).rejects.toMatchObject({ code: "CHANNELS_B0001", message: expect.stringContaining('The Channel "payments" receives webhooks') })
+    await expect(configure([])).rejects.toMatchObject({ code: "CHANNELS_WEBHOOK_HOST_OFF", message: expect.stringContaining('The Channel "payments" receives webhooks') })
     await expect(configure([{ name: "@vite-hub/agent/vite" }])).resolves.toBeUndefined()
   })
 
