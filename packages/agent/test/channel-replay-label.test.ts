@@ -15,7 +15,7 @@ function fixture() {
     channels: { mailbox: channelAdapter("mailbox", {
       messages: false,
       history: { collection: defineCollection(async () => [{ id: "m1", thread: "t1" }], { route: false, cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id, thread: item => item.thread },
-      webhooks: { secretHeader: "x-signature", secretToken: "secret", signature: "github-sha256" },
+      webhooks: { secretHeader: "x-signature", secret: () => "secret", signature: "github" },
       triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string(), thread: v.string() }), invoke }) },
     }) },
   })
