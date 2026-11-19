@@ -15,6 +15,7 @@ import { findNearestFile } from "pkg-types"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { addViteHubDevPeerDevHandler, addViteHubDevPeerUpgradeSigner, type ViteHubDevPeerUpgradeServer } from "@vite-hub/internal/dev-peer"
 import { getResolvedFeatureOptions, resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PREPARE, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
+import { reportViteHubHint, startViteHubHints, VITEHUB_NUXT_HINTS, type ViteHubHintsConfig } from "@vite-hub/internal/hints"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { generatedModules } from "./internal/generated-modules.ts"
@@ -159,7 +160,7 @@ type NuxtLike = {
     }) => Promise<void> | void): void
     (name: "close" | "nitro:config", callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>)): void
     (name: "listen", callback: (server: unknown, listener: { url: string }) => void): void
-    (name: "build:before" | "modules:done", callback: () => void): void
+    (name: "build:before" | "modules:done" | "nitro:build:before", callback: () => void): void
   }
   options: {
     _installedModules?: Array<{ meta: { name?: string } }>
@@ -340,6 +341,7 @@ const nitroConfigResolvedNames = new Set([
   ...nitroRuntimeResolverNames,
   "@vite-hub/content/vite",
   "@vite-hub/sandbox/task/vite",
+  "@vite-hub/schedule/vite",
   "@vite-hub/workflow/vite",
 ])
 
@@ -499,6 +501,23 @@ export default defineNuxtPlugin({
 }
 
 /**
+ * Restarts the dev server when a file of `server/sync/` comes or goes. Sync reads the folder when the server starts, for
+ * the routes and the types of `useSync()`, so a new definition answers `SYNC_UNKNOWN_NAME` until a restart.
+ */
+function restartOnSyncDefinitions(nuxt: NuxtLike, projectRoot: string): void {
+  const folders = (resolveNuxtServerDirs(nuxt.options) ?? ["server"]).map(directory => resolve(projectRoot, directory, "sync"))
+  // SAFETY: Nuxt's hook overload includes builder:watch with this callback contract.
+  const hookBuilderWatch = nuxt.hook as unknown as ((name: "builder:watch", callback: (event: string, path: string) => Promise<void>) => void) | undefined
+  hookBuilderWatch?.("builder:watch", async (event, path) => {
+    if (event !== "add" && event !== "unlink" && event !== "addDir" && event !== "unlinkDir") return
+    const file = resolve(projectRoot, path)
+    // Sync reads `<name>.ts`, `.mts`, `.js`, and `.mjs` files, not declarations.
+    const definition = event.endsWith("Dir") ? folders.includes(file) : folders.includes(dirname(file)) && /\.m?[jt]s$/.test(file) && !file.endsWith(".d.ts")
+    if (definition) await nuxt.callHook?.("restart")
+  })
+}
+
+/**
  * Adds the client plugin that forgets the synced rows after a sign-out of ViteHub Auth, so the next person on the device
  * does not see them. The plugin goes to `.vitehub/sync/`, because Nuxt clears its build directory after modules run.
  */
@@ -600,7 +619,7 @@ async function installConsole({
     Reflect.apply(nuxt.hook, nuxt, ["listen", (server: ViteHubDevPeerUpgradeServer & { address?: () => { address: string, port?: number } | string | null }) => {
       addViteHubDevPeerUpgradeSigner(server)
       const notice = consoleDevAccessNotice(access?.mode, server.address?.())
-      if (notice) console[notice.level](notice.message)
+      if (notice) console.warn(notice)
     }])
   }
   const documentEditorSections = (await Promise.all(consoleDocumentEditorSectionIds.map(async (section) => {
@@ -780,6 +799,7 @@ async function applyNitroConfig(
   nitroConfig: Record<string, unknown>,
   nuxt: NuxtLike,
   projectRoot: string,
+  deferHint: Exclude<ViteHubHintsConfig[typeof VITEHUB_NUXT_HINTS], true | undefined>,
 ) {
   const incomingNoExternals = typeof nitroConfig.noExternals === "boolean" ? nitroConfig.noExternals : undefined
   const environment = {
@@ -799,6 +819,7 @@ async function applyNitroConfig(
   }, nuxt.options.vite ?? {}) as UserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
+    [VITEHUB_NUXT_HINTS]?: typeof deferHint
     [VITEHUB_PREPARE]?: true
     [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
@@ -814,6 +835,7 @@ async function applyNitroConfig(
   const restoreReplayOwnership = () => {
     config[VITEHUB_GENERATED_ROOT] = generatedRoot
     config[VITEHUB_NITRO_CONFIG_CONTEXT] = true
+    config[VITEHUB_NUXT_HINTS] = deferHint
     config[VITEHUB_PROJECT_ROOT] = projectRoot
     config[VITEHUB_APP_BASE_URL] = nuxt.options.app?.baseURL || "/"
     if (serverDirs) config[VITEHUB_SERVER_DIRS] = serverDirs
@@ -1186,6 +1208,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const viteConfig = nuxt.options.vite as UserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
+    [VITEHUB_NUXT_HINTS]?: true
     [VITEHUB_PREPARE]?: true
     [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
@@ -1412,6 +1435,18 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   viteConfig[VITEHUB_GENERATED_ROOT] = join(nuxt.options.buildDir, "vitehub")
   viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT] = true
+  viteConfig[VITEHUB_NUXT_HINTS] = true
+  const hints: ViteHubHintsConfig = { root: projectRoot, [VITEHUB_PROJECT_ROOT]: projectRoot, command: nuxt.options.dev ? "serve" : "build" }
+  let replayHints: Parameters<typeof reportViteHubHint>[1][] = []
+  const startHints = () => {
+    if (!nuxt.options._prepare && !nuxt.options.vitehubCliDiscovery) startViteHubHints(hints, nuxt)
+  }
+  nuxt.hook?.("build:before", startHints)
+  nuxt.hook?.("nitro:build:before", () => {
+    if (nuxt.options._prepare || nuxt.options.vitehubCliDiscovery) return
+    startHints()
+    for (const hint of replayHints) reportViteHubHint(hints, hint)
+  })
   viteConfig[VITEHUB_PROJECT_ROOT] = projectRoot
   viteConfig[VITEHUB_APP_BASE_URL] = nuxt.options.app?.baseURL || "/"
   const viteServerDirs = resolveNuxtServerDirs(nuxt.options)
@@ -1460,11 +1495,13 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const previousExternalList = nitro3ExternalLists.get(config)
     if (previousExternalList && config.noExternals === previousExternalList) config.noExternals = false
     const incomingNoExternals = config.noExternals
+    const nextHints: typeof replayHints = []
     const {
       config: replayConfig,
       hasReplayedDatabaseDiscoveryRoot,
       replayedDatabaseDiscoveryRoot,
-    } = await applyNitroConfig(replayPlugins, config, nuxt, projectRoot)
+    } = await applyNitroConfig(replayPlugins, config, nuxt, projectRoot, hint => nextHints.push(hint))
+    replayHints = nextHints
     if (options.env !== false) await envPlugin?.api?.prepareTypes?.(envPlugin.api.resolveDeclarations?.(replayConfig), viteRoot)
     // The replayed hooks can write declarations, such as the Blob store names. `nuxt prepare` builds nothing after this
     // hook, so reference them in `.vitehub/types.d.ts` now.
@@ -1629,6 +1666,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     addVueImports(nuxt, "vite-hub/sync/client", ["clearSync"])
     if (effectiveAuth) await addSyncSignOutPlugin(nuxt, projectRoot)
   }
+  if (nuxt.options.dev && isPackageInstalled("@vite-hub/sync")) restartOnSyncDefinitions(nuxt, projectRoot)
   if (options.i18n) {
     await requireOptionalOwner(ownerModules.i18nNuxt, "i18n").installI18nNuxt({ options: { plugins: (nuxt.options.plugins ??= []) } }, { importBase: "vite-hub/i18n", nitroMajorVersion: 3, projectRoot })
     addVueImports(nuxt, "vite-hub/i18n/vue", ["useLocale"])

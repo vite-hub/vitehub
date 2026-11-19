@@ -307,7 +307,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
       if (segment === ".navigation.yml") return segment
       const extension = index === segments.length - 1 ? ".md" : ""
       const name = stripOrder(extension ? segment.slice(0, -extension.length) : segment).name
-      if (!/^(?:[a-z\d]+(?:-[a-z\d]+)*|v?\d+(?:\.\d+)+)$/.test(name)) {
+      if (!/^(?:[a-z\d]+(?:-[a-z\d]+)*|v?\d+(?:\.\d+)+|\d+(?:\.\d+)*\.x)$/.test(name)) {
         throw codemodError(`${contentDir}/${file}: Rename this page or folder to its existing Docus URL slug before migrating.`)
       }
       return name + extension

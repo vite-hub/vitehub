@@ -32,7 +32,7 @@ describe("createSync in the browser", () => {
     }, "/docs/")
     await store.refresh()
     expect(store.getState()).toMatchObject({ status: "ready", persisted: false, rows: [{ id: "a" }] })
-    expect(urls[0]).toBe("/docs/_vitehub/sync/todos")
+    expect(urls[0]).toBe("/docs/_vitehub/sync/todos?paged=1")
   })
 
   it("shares one store for one name, until the last user destroys it", async () => {
@@ -182,7 +182,8 @@ describe("createSync in the browser", () => {
     }
     vi.stubGlobal("indexedDB", {})
     const indexedDBStorage = vi.spyOn(indexeddb, "createIndexedDBStorage").mockReturnValue(storage)
-    vi.useFakeTimers()
+    const jitter = vi.spyOn(Math, "random").mockReturnValue(1 - Number.EPSILON)
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     try {
       server.offline = true
       const store = createSync("todos", { baseURL, fetch, interval: false, where: { listId: "open" } })
@@ -192,7 +193,8 @@ describe("createSync in the browser", () => {
       server.offline = false
       window.dispatchEvent(new Event("online"))
       await store.refresh()
-      await vi.waitFor(async () => expect(await storage.queuedIds()).toEqual([]), { timeout: 2000 })
+      await vi.runOnlyPendingTimersAsync()
+      expect(await storage.queuedIds()).toEqual([])
       window.dispatchEvent(new Event("online"))
       await store.refresh()
       expect(await storage.queuedIds()).toEqual([])
@@ -201,6 +203,7 @@ describe("createSync in the browser", () => {
     }
     finally {
       vi.useRealTimers()
+      jitter.mockRestore()
       indexedDBStorage.mockRestore()
       vi.unstubAllGlobals()
     }

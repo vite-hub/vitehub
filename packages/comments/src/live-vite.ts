@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { addViteHubPageToolRoutes, viteHubPageToolsBase, viteHubPageToolsIndexHtml } from "@vite-hub/internal/build/page-tools"
 import { argumentExpression, objectProperties, scanModule, staticValue, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig } from "@vite-hub/internal/build/vite"
+import { reportViteHubHint, startViteHubHints } from "@vite-hub/internal/hints"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { includedNitro } from "@vite-hub/internal/build/included-nitro"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -434,7 +435,6 @@ async function standaloneDatabase(projectRoot: string, options: CommentsOptions,
   const where = options.database || undefined
   // Reject static SQLite locations before generating a Node connector for workerd development.
   const location = parseDatabaseLocation(where, "comments", { node: command !== "serve" || !workerd })
-  if (where && /[?&]authToken=/.test(where)) console.warn("[vitehub] The token in `comments({ database })` ends up in the build. Use `env:` with a variable instead.")
   if (command !== "serve") return { ...(where ? { where } : {}), node: location.kind === "file" }
   if (location.kind === "file") return { where, node: true }
   if (workerd) return { where: where ?? "d1:COMMENTS", ...(location.kind === "env" ? { fallback: "d1:COMMENTS" } : {}), node: false }
@@ -528,6 +528,11 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
   const integration: CommentsVitePlugin = {
     name: options.standalone ? "@vite-hub/comments" : "@vite-hub/comments/vite",
     configEnvironment: options.standalone ? { order: "post", handler: workerdDependencyConfig } : undefined,
+    // Nitro installs modules in Vite's `config` hook, before the hints of the build start, so the hint is reported here.
+    configResolved: options.standalone ? (config) => {
+      startViteHubHints(config)
+      if (/[?&]authToken=/.test(options.standalone?.database ?? "")) reportViteHubHint(config, commentsErrorDiagnostics.COMMENTS_DATABASE_TOKEN_IN_BUILD())
+    } : undefined,
     nitro: options.standalone ? {
       async setup(nitro) {
         if (!projectRoot || !options.standalone) return

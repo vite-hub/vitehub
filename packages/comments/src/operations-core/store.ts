@@ -108,6 +108,7 @@ function threadOf(row: ThreadRow, messages: CommentMessage[]): CommentThread {
     ...(metadata ? { metadata } : {}),
     ...(context ? { context } : {}),
     ...(row.revision === null ? {} : { revision: row.revision }),
+    ...(row.requestId === null ? {} : { requestId: row.requestId }),
   }
 }
 
@@ -178,7 +179,7 @@ export interface CommentsStore {
   createThread: (input: NewThread) => Promise<CommentThread>
   /**
    * Adds a message. A resolved thread takes it only with `allowResolved`; otherwise it fails with `COMMENTS_R0016`,
-   * checked in the same statement as the insert.
+   * checked in the same statement as the insert. A message id that is already stored fails with `COMMENTS_R0022`.
    */
   addMessage: (threadId: string, input: NewMessage, options?: { allowResolved?: boolean }) => Promise<CommentThread>
   editMessage: (threadId: string, messageId: string, input: { body: string, mentions: string[], now: number }) => Promise<CommentThread>
@@ -250,8 +251,8 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
 
   // SAFETY: Drizzle's libSQL, D1, and Postgres databases have these methods. The store passes the builders it made.
   const driver = db as unknown as {
-    batch?: (statements: unknown[]) => Promise<unknown>
-    transaction?: (run: (target: CommentsDatabase) => Promise<void>) => Promise<unknown>
+    batch?: (statements: unknown[]) => Promise<unknown[]>
+    transaction?: <Result>(run: (target: CommentsDatabase) => Promise<Result>) => Promise<Result>
   }
   /**
    * Whether the driver can run several writes as one unit: `batch()` on libSQL and D1, a transaction on Postgres. Read
@@ -263,18 +264,14 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
    * Runs the writes together where the driver can. Otherwise they run in order, and the caller orders them so that a
    * failure leaves nothing visible.
    */
-  async function together(build: (target: CommentsDatabase) => PromiseLike<unknown>[]): Promise<void> {
-    if (typeof driver.batch === "function") {
-      await driver.batch(build(db))
-      return
+  async function together(build: (target: CommentsDatabase) => PromiseLike<unknown>[]): Promise<unknown[]> {
+    if (typeof driver.batch === "function") return driver.batch(build(db))
+    async function run(target: CommentsDatabase) {
+      const results: unknown[] = []
+      for (const statement of build(target)) results.push(await statement)
+      return results
     }
-    if (typeof driver.transaction === "function") {
-      await driver.transaction(async (target) => {
-        for (const statement of build(target)) await statement
-      })
-      return
-    }
-    for (const statement of build(db)) await statement
+    return typeof driver.transaction === "function" ? driver.transaction(run) : run(db)
   }
 
   // Each mutation needs a newer snapshot even when the clock has not advanced.
@@ -418,8 +415,9 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     },
     async addMessage(threadId, input, { allowResolved = false } = {}) {
       const before = await one(threadId)
+      if (before.messages.some(message => message.id === input.id)) throw commentsErrorDiagnostics.COMMENTS_R0022()
       if (before.status === "resolved" && !allowResolved) throw commentsErrorDiagnostics.COMMENTS_R0016()
-      await together(target => [
+      const [, inserted] = await together(target => [
         // Lock the thread before reading its messages. Deletion takes the same lock, and an insert after deletion
         // selects no thread. This also serializes replies so their timestamps preserve insertion order. A resolved
         // thread that takes no replies keeps its activity time.
@@ -428,11 +426,14 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
           ${input.id}, ${threadId}, ${input.body}, ${input.author.id}, ${input.author.name ?? null}, ${input.author.image ?? null},
           ${input.actor ? JSON.stringify(input.actor) : null}, ${JSON.stringify(input.mentions)}, ${JSON.stringify(input.attachments)},
           ${threads.updatedAt}, null
-          from ${threads} where ${threads.id} = ${threadId}${allowResolved ? sql`` : sql` and ${threads.status} = 'open'`}`),
-      ])
+          from ${threads} where ${threads.id} = ${threadId}${allowResolved ? sql`` : sql` and ${threads.status} = 'open'`}`).returning({ id: messages.id }),
+      ]).catch((error: unknown) => {
+        // A retry of the same reply won the race: its id is the primary key.
+        throw isUniqueViolation(error) ? commentsErrorDiagnostics.COMMENTS_R0022() : error
+      }) as [unknown, Array<{ id: string }>]
       const after = await one(threadId)
-      // Someone resolved the thread between the read and the insert: the insert selected no row.
       if (!after.messages.some(message => message.id === input.id)) throw commentsErrorDiagnostics.COMMENTS_R0016()
+      if (!inserted.length) throw commentsErrorDiagnostics.COMMENTS_R0022()
       return after
     },
     async editMessage(threadId, messageId, input) {

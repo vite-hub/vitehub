@@ -37,6 +37,6 @@ export const wordGateway: { ask: AiGatewayAsk } = {
     })
 
     // SAFETY: The answers follow the question keys that defineChoices() builds.
-    return answers as never
+    return [undefined, answers as never]
   },
 }

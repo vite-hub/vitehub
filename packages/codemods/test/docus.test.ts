@@ -64,6 +64,7 @@ describe("docus content", () => {
     [{ "content.config.ts": "export default {}\n" }, /custom Docus collections/],
     [{ "content/Getting Started.md": "# Intro\n" }, /existing Docus URL slug/],
     [{ "content/index.md": "# Home\n[Setup](./1.setup.md)\n", "content/1.setup.md": "# Setup\n" }, /local Markdown file links/],
+    [{ "content/index.md": "# Home\n[Setup](\n  ./1.setup.md#install\n)\n", "content/1.setup.md": "# Setup\n" }, /local Markdown file links/],
     [{ "content/index.md": "# Home\n[Guide](<./Getting Started.md>)\n" }, /local Markdown file links/],
     [{ "content/index.md": "# Home\n[Guide][guide]\n\n[guide]: <./Getting Started.md#setup>\n" }, /local Markdown file links/],
     [{ "content/index.md": "# Home\n\n>```md\n>Example\n\n[Setup](./1.setup.md)\n" }, /local Markdown file links/],
@@ -167,6 +168,7 @@ describe("docus content", () => {
     expect(stripOrder("index")).toEqual({ name: "index" })
     expect(stripOrder("v1.2")).toEqual({ name: "v1.2" })
     expect(stripOrder("1.2")).toEqual({ name: "1.2" })
+    expect(stripOrder("1.x")).toEqual({ name: "1.x" })
   })
 
   it("keeps a page that already has the docs fields", () => {

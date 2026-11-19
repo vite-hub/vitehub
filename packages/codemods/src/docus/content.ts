@@ -12,7 +12,7 @@ const layouts = new Set(["article", "tutorial", "landing", "home"])
 const localMarkdownLink = /(?:\]\(|\]:\s*|href\s*=\s*["'])\s*(?:<(?![a-z][\w+.-]*:|\/\/)[^<>\n]+\.md(?:[?#][^<>\n]*)?>|(?![a-z][\w+.-]*:|\/\/)[^\s<)>"']+\.md(?:[\s)>"'#?]|$))/i
 
 export function stripOrder(segment: string): { name: string, order?: number } {
-  const match = /^\d+(?:\.\d+)+$/.test(segment) ? null : /^(\d+)\.(.+)$/.exec(segment)
+  const match = /^\d+(?:\.\d+)*(?:\.x)?$/.test(segment) ? null : /^(\d+)\.(.+)$/.exec(segment)
   return match ? { name: match[2]!, order: Number(match[1]) } : { name: segment }
 }
 
@@ -123,7 +123,8 @@ export function movePage(file: string, code: string, order: number | undefined):
       return [text]
     }
     if (/^(?: {4}|\t)/.test(text)) return [text]
-    if (localMarkdownLink.test(text)) {
+    const linkText = /(?:\]\(|\]:)[ \t]*\r?$/.test(text) ? `${text}\n${lines[index + 1] ?? ""}` : text
+    if (localMarkdownLink.test(linkText)) {
       throw codemodError(`${file}:${firstBodyLine + index}: Convert local Markdown file links to their Nuxt Content page URLs before migrating.`)
     }
     const heading = /^ {0,3}# +(.+?)(?: +#+)?\s*$/.exec(text)
