@@ -20,8 +20,10 @@ afterEach(async () => {
 })
 
 export async function createProject(files: Record<string, string>): Promise<string> {
-  // Inside the package so the app resolves `vite-hub` and its dependencies like an installed app.
-  const root = await mkdtemp(join(import.meta.dirname, "..", ".content-cms-"))
+  // Resolve workspace dependencies from the repository, without putting disposable files in the package another build may copy.
+  const cache = join(import.meta.dirname, "../../../../.cache")
+  await mkdir(cache, { recursive: true })
+  const root = await mkdtemp(join(cache, "content-cms-"))
   roots.push(root)
   for (const [file, content] of Object.entries(files)) {
     await mkdir(join(root, file, ".."), { recursive: true })
@@ -102,4 +104,3 @@ export type RunResult = {
   ids: string[]
   published: Array<{ change: string, collection: string, id: string }>
 }
-

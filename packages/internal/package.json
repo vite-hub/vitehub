@@ -13,6 +13,11 @@
       "import": "./dist/abort.js",
       "default": "./dist/abort.js"
     },
+    "./browser-environment": {
+      "types": "./dist/browser-environment.d.ts",
+      "import": "./dist/browser-environment.js",
+      "default": "./dist/browser-environment.js"
+    },
     "./channel-archive": {
       "types": "./dist/channel-archive.d.ts",
       "import": "./dist/channel-archive.js",
