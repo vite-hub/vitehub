@@ -91,19 +91,10 @@ function requestBody(values: Record<string, unknown> | FormData, page: string | 
 }
 
 /**
- * The key of the last failed send of each route, with its body. A retry with the same body sends the same key, since the
- * server may have stored the message before the answer got lost.
+ * The latest send on each route owns its retry key. A retry with the same body sends the same key, since the server
+ * may have stored the message before the answer got lost.
  */
-const failedSends = new Map<string, { body: string, key: string }>()
-
-function idempotencyKey(url: string, body: string): string | undefined {
-  const failed = failedSends.get(url)
-  if (failed?.body === body) return failed.key
-  // Other values are another message: the failed one is not retried, so its key must not come back later.
-  failedSends.delete(url)
-  // `randomUUID()` exists only in a secure context, such as HTTPS or localhost. Without it, the server makes the id.
-  return globalThis.crypto?.randomUUID?.()
-}
+const latestSends = new Map<string, { retry: { body: string, key: string } | undefined }>()
 
 /**
  * Sends the values of a form to its route. Returns `[undefined, { id }]`, or `[error]` where `error.issues` holds
@@ -115,9 +106,17 @@ export async function submitForm(name: string, values: Record<string, unknown> |
   const page = options.page ?? (here ? `${here.pathname}${here.search}` : undefined)
   const request = requestBody(values, page, options.anchor)
   const url = options.url ?? formRoute(name, options.base)
-  const key = options.idempotencyKey ?? idempotencyKey(url, request.body)
+  const previous = latestSends.get(url)?.retry
+  const retry = previous?.body === request.body ? previous : undefined
+  // `randomUUID()` exists only in a secure context, such as HTTPS or localhost. Without it, the server makes the id.
+  const key = options.idempotencyKey ?? retry?.key ?? globalThis.crypto?.randomUUID?.()
+  const send = { retry: key === retry?.key ? retry : undefined }
+  latestSends.set(url, send)
   const failed = (error: FormSubmitError): [FormSubmitError, undefined] => {
-    if (key) failedSends.set(url, { body: request.body, key })
+    if (latestSends.get(url) === send) {
+      if (key) send.retry = { body: request.body, key }
+      else latestSends.delete(url)
+    }
     return [error, undefined]
   }
   let response: Response
@@ -134,7 +133,7 @@ export async function submitForm(name: string, values: Record<string, unknown> |
   }
   const body: unknown = await response.json().catch(() => undefined)
   if (response.ok) {
-    failedSends.delete(url)
+    if (latestSends.get(url) === send) latestSends.delete(url)
     const id: unknown = body && typeof body === "object" ? Reflect.get(body, "id") : undefined
     return [undefined, typeof id === "string" ? { id } : {}]
   }

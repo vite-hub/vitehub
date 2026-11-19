@@ -99,6 +99,44 @@ describe("submitForm", () => {
     expect(await store.list()).toHaveLength(3)
   })
 
+  it.each([true, false])("keeps the latest retry state when the older send finishes last (older response lost: %s)", async (olderLost) => {
+    const store = createMemoryFormsStore()
+    const keys: (string | null)[] = []
+    let signalStored!: () => void
+    const olderStored = new Promise<void>(resolve => { signalStored = resolve })
+    let releaseOlder!: () => void
+    const finishOlder = new Promise<void>(resolve => { releaseOlder = resolve })
+    const fetchForm: typeof fetch = async (input, init) => {
+      const index = keys.push(new Headers(init?.headers).get("idempotency-key"))
+      const response = await server(store)(input, init)
+      if (index === 1) {
+        signalStored()
+        await finishOlder
+      }
+      if ((index === 1 && olderLost) || (index === 2 && !olderLost)) throw new TypeError("network error")
+      return response
+    }
+    const options = { fetch: fetchForm, page: "/docs", url: formRoute("overlapping") }
+    const first = { message: "First note" }
+    const second = { message: "Second note" }
+    const older = submitForm("feedback", first, options)
+    await olderStored
+    await submitForm("feedback", second, options)
+    releaseOlder()
+    await older
+    const [error, result] = await submitForm("feedback", olderLost ? first : second, options)
+    expect(error).toBeUndefined()
+    if (olderLost) {
+      expect(new Set(keys).size).toBe(3)
+      expect(await store.list()).toHaveLength(3)
+    }
+    else {
+      expect(keys[2]).toBe(keys[1])
+      expect(result?.id).toBe(keys[1])
+      expect(await store.list()).toHaveLength(2)
+    }
+  })
+
   it("builds the route below the app base", () => {
     expect(formRoute("contact")).toBe("/_vitehub/forms/contact")
     expect(formRoute("bug report", "/docs")).toBe("/docs/_vitehub/forms/bug%20report")
