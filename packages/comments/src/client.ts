@@ -277,7 +277,7 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
     get: input => transport.get(input),
     create: async input => outbox ? outbox.create(input) : upsert(await transport.create(input)),
     reply: async (input) => {
-      const waiting = await outbox?.reply(input)
+      const waiting = outbox ? await outbox.reply(input) : null
       return waiting ?? mutate(input.threadId, async () => upsert(await transport.reply(input)))
     },
     // A comment or reply that has not gone out changes in the outbox, and sends nothing.

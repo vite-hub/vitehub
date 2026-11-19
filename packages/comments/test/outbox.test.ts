@@ -157,6 +157,27 @@ describe("the comments outbox", () => {
     expect(client.threads).toHaveLength(1)
   })
 
+  it("shows a reply once when its answer was lost, and the resend adds no second message", async () => {
+    const { browser, server, client } = setup()
+    const thread = await client.create({ subject, anchor, body: "Wrong price" })
+    await vi.waitFor(() => expect(client.outbox.entries).toHaveLength(0))
+    const stored = client.threads[0]!
+    server.plan.push("lost")
+    await client.reply({ threadId: stored.id, body: "Yearly too" })
+    await vi.waitFor(() => expect(browser.waits).toHaveLength(1))
+
+    await client.refresh()
+    await vi.waitFor(() => expect(client.threads[0]!.messages.map(message => message.body)).toEqual(["Wrong price", "Yearly too"]))
+    expect(client.threads[0]!.messages[1]!.delivery).toBeUndefined()
+
+    browser.runTimers()
+    await vi.waitFor(() => expect(client.outbox.entries).toHaveLength(0))
+    expect(server.replies).toHaveLength(2)
+    expect(server.memory.threads[0]!.messages).toHaveLength(2)
+    expect(client.threads[0]!.messages).toHaveLength(2)
+    expect(thread.id).not.toBe(stored.id)
+  })
+
   it("sends from one tab when two tabs share the lock", async () => {
     const browser = createBrowser()
     const server = createServer()

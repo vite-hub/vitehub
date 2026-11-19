@@ -174,9 +174,7 @@ export interface CommentMessage {
   /** Milliseconds since the epoch. */
   createdAt: number
   editedAt?: number
-  /** The retry key of the reply that made it, when it had one. The client matches its own waiting reply by it. */
-  requestId?: string
-  /** Set only by the client's outbox: the message is not on the server yet. */
+  /** Set only by the client's outbox: the message is not on the server yet. Its `id` is the `requestId`. */
   delivery?: CommentDelivery
 }
 

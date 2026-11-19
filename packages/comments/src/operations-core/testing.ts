@@ -1,3 +1,4 @@
+import { replyMessageId } from "../reply-id.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
 import type {
   CommentEvent,
@@ -180,15 +181,14 @@ function view(store: Store, user: CommentUser): MemoryTransport {
     },
     async reply(input) {
       const found = copy(thread(store, input.threadId))
-      const request = input.requestId === undefined ? undefined : JSON.stringify(["reply", input.threadId, input.requestId])
-      const earlier = request === undefined ? undefined : found.messages.find(entry => entry.id === store.requests.get(request))
+      // As on the server: a retry key gives the message an id of its own, so a second try finds the first message.
+      const id = input.requestId === undefined ? undefined : await replyMessageId(found.id, input.requestId)
+      const earlier = found.messages.find(entry => entry.id === id)
       if (earlier) {
         if (earlier.author.id !== user.id) throw commentsErrorDiagnostics.COMMENTS_R0022()
         return found
       }
-      const added = message(store, user, { ...input, attachments: attachmentsOf(input) })
-      if (request !== undefined) store.requests.set(request, added.id)
-      found.messages.push(added)
+      found.messages.push({ ...message(store, user, { ...input, attachments: attachmentsOf(input) }), ...(id === undefined ? {} : { id }) })
       return save(found)
     },
     async edit(input) {

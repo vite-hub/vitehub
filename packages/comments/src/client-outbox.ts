@@ -2,6 +2,8 @@
 // shows, and goes to the server one at a time, in order, with its `requestId` as the retry key. One tab sends at a time.
 import { backoffDelay, createBrowserEnvironment, randomUUID } from "@vite-hub/internal/browser-environment"
 
+import { replyMessageId } from "./reply-id.ts"
+
 import type { BrowserEnvironment } from "@vite-hub/internal/browser-environment"
 import type {
   CommentCreateInput,
@@ -102,8 +104,8 @@ export interface CommentsOutboxHost {
 
 export interface CommentsOutboxEngine extends CommentsOutbox {
   create: (input: CommentCreateInput & CommentFiles) => Promise<CommentThread>
-  /** `undefined` when the client does not hold the thread, so there is nothing to show the reply in. */
-  reply: (input: CommentReplyInput & CommentFiles) => Promise<CommentThread | undefined>
+  /** `null` when the client does not hold the thread, so there is nothing to show the reply in, and nothing was saved. */
+  reply: (input: CommentReplyInput & CommentFiles) => Promise<CommentThread | null>
   /** The server threads with the waiting replies in them, and the waiting comments as threads of their own. */
   overlay: (threads: readonly CommentThread[]) => { server: CommentThread[], local: CommentThread[] }
   /** Whether the outbox holds the comment `threadId`, or the reply `messageId`. */
@@ -265,6 +267,19 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
   let entries: CommentsOutboxEntry[] = []
   // The server id of each comment that went out, by its `requestId`, for the replies that name the local id.
   const sent = new Map<string, string>()
+  // The id that the server gives each waiting reply, by thread and `requestId`. A hash, so it is ready after a tick.
+  const replyIds = new Map<string, string>()
+  const replyId = (threadId: string, requestId: string): string | undefined => {
+    const key = JSON.stringify([threadId, requestId])
+    if (!replyIds.has(key)) {
+      replyIds.set(key, "")
+      void replyMessageId(threadId, requestId).then((id) => {
+        replyIds.set(key, id)
+        host.changed()
+      })
+    }
+    return replyIds.get(key) || undefined
+  }
   let loading: Promise<void> = Promise.resolve()
   // The run of `kick` that leads or waits for the lock. Its `giveUp` stops it.
   let leading: { giveUp: () => void } | undefined
@@ -312,7 +327,6 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     mentions: entry.input.mentions ?? [],
     attachments: entry.input.attachments ?? [],
     createdAt: entry.createdAt,
-    requestId: entry.requestId,
     delivery: delivery(entry),
   })
 
@@ -329,33 +343,39 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       const waiting = replies.get(thread.id)
       if (!waiting) return thread
       // A reply that the server has, whose answer was lost, shows once.
-      const have = new Set(thread.messages.flatMap(message => message.requestId ? [message.requestId] : []))
-      const added = waiting.filter(entry => !have.has(entry.requestId)).map(entry => localMessage(entry, thread.id))
+      const have = new Set(thread.messages.map(message => message.id))
+      const added = waiting.filter((entry) => {
+        const id = thread.delivery ? undefined : replyId(thread.id, entry.requestId)
+        return !(id && have.has(id))
+      }).map(entry => localMessage(entry, thread.id))
       return added.length ? { ...thread, messages: [...thread.messages, ...added] } : thread
     }
     const server = threads.map(withReplies)
     const local: CommentThread[] = []
     for (const entry of entries) {
       if (entry.kind !== "create" || onServer.has(entry.requestId) || sent.has(entry.requestId)) continue
-      const { input } = entry
-      local.push(withReplies({
-        id: entry.requestId,
-        scope: "",
-        n: 0,
-        subject: input.subject,
-        anchor: input.anchor,
-        status: "open",
-        author: author(),
-        messages: [localMessage(entry, entry.requestId)],
-        ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
-        ...(input.revision === undefined ? {} : { revision: input.revision }),
-        createdAt: entry.createdAt,
-        updatedAt: entry.createdAt,
-        requestId: entry.requestId,
-        delivery: delivery(entry),
-      }))
+      local.push(withReplies(localThread(entry)))
     }
     return { server, local }
+  }
+  const localThread = (entry: CommentsOutboxEntry & { kind: "create" }): CommentThread => {
+    const { input } = entry
+    return {
+      id: entry.requestId,
+      scope: "",
+      n: 0,
+      subject: input.subject,
+      anchor: input.anchor,
+      status: "open",
+      author: author(),
+      messages: [localMessage(entry, entry.requestId)],
+      ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
+      ...(input.revision === undefined ? {} : { revision: input.revision }),
+      createdAt: entry.createdAt,
+      updatedAt: entry.createdAt,
+      requestId: entry.requestId,
+      delivery: delivery(entry),
+    }
   }
 
   /** The first entry that may go out now. A reply waits while its comment has not gone out. */
@@ -398,6 +418,8 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       return false
     }
     attempt = 0
+    // The server copy goes in before the entry leaves, so the client always shows one of them.
+    host.upsert(thread)
     if (entry.kind === "create") {
       sent.set(entry.requestId, thread.id)
       // Replies to the comment wait in the store with its local id. They get the server id before they go.
@@ -406,7 +428,6 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       }
     }
     await store.delete([entry.requestId])
-    host.upsert(thread)
     await reload()
     post({ type: "sent", account, requestId: entry.requestId, thread })
     return true
@@ -478,20 +499,20 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     async create({ files, requestId, ...input }) {
       const entry = { ...fields(requestId, files), kind: "create" as const, input }
       await enqueue(entry)
-      // SAFETY: `enqueue` loaded the entries after it stored this one, and nothing sends before `kick`.
-      const thread = overlay([]).local.find(local => local.id === entry.requestId)!
       kick()
-      return thread
+      // A tab that sends already may have sent it by now. The caller still gets the comment as it was saved.
+      return localThread(entry)
     },
     async reply({ files, requestId, subject: _subject, ...input }) {
       const threadId = realId(input.threadId)
       const shown = () => serverThread(threadId)
-      if (!shown() && !entries.some(entry => entry.kind === "create" && entry.requestId === threadId)) return undefined
+      if (!shown() && !entries.some(entry => entry.kind === "create" && entry.requestId === threadId)) return null
       await enqueue({ ...fields(requestId, files), kind: "reply", input: { ...input, threadId } })
-      const thread = shown()
-      const view = thread ? overlay([thread]).server[0] : overlay([]).local.find(local => local.id === threadId)
       kick()
-      return view
+      // The comment shows as its waiting entry until the server copy is in the client, so one of them is here.
+      const thread = serverThread(realId(threadId))
+      // SAFETY: the waiting comment leaves `entries` only after its server copy is in the client.
+      return thread ? overlay([thread]).server[0]! : overlay([]).local.find(local => local.id === threadId)!
     },
     async retry(requestId) {
       held = false
