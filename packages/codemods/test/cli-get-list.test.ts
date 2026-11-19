@@ -101,4 +101,18 @@ describe("cli-get-list", () => {
     expect(updated.jobs.test.steps).toEqual([parse(workflow).jobs.test.steps[0], { name: "vitehub content show", run: "vitehub content get docs intro" }])
     expect(await readFile(join(cwd, "fixture.sh"), "utf8")).toBe(shell)
   })
+
+  it("leaves complex shell expansions alone", async () => {
+    const scripts = {
+      fallback: 'printf "%s\\n" ${message:-read; vitehub content show docs intro}',
+      quotedFallback: 'printf "%s\\n" "${message:-"read; vitehub content show docs intro"}"',
+      read: 'vitehub workflow get "${RUN_ID}"',
+    }
+    const cwd = await project({ "package.json": JSON.stringify({ scripts }) })
+    await runCodemod("cli-get-list", { cwd, dryRun: false })
+    expect(JSON.parse(await readFile(join(cwd, "package.json"), "utf8")).scripts).toEqual({
+      ...scripts,
+      read: 'vitehub workflow runs get --json "${RUN_ID}"',
+    })
+  })
 })

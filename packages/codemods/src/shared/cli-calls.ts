@@ -18,7 +18,7 @@ export interface ShellWord {
 type Rewrite = (args: string, words: readonly ShellWord[]) => string | { message: string }
 
 function rewriteShell(shell: string, rewrite: Rewrite, followUp: (message: string, offset: number) => void, changed: () => void): string {
-  if (/\$\(|`|<<|\\\r?\n/.test(shell)) return shell
+  if (/\$\(|`|<<|\\\r?\n/.test(shell) || /\$\[|\$\{(?![A-Za-z_]\w*\})/.test(shell)) return shell
   const token = /[ \t\r]+|\n|#[^\n]*|&&|\|\||[;&|()<>]|(?:'[^']*'|"(?:\\[\s\S]|[^"\\])*"|\\[^\n]|[^\s'"\\;&|()<>])+/gy
   const edits = new MagicString(shell)
   const commands: ShellWord[][] = [[]]

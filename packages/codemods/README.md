@@ -390,7 +390,7 @@ npx @vite-hub/codemods access-spellings [dir] [--dry-run]
 | `vitehub project info` | `vitehub project get` |
 | `vitehub definitions list` | `vitehub inspect definitions --kind <kind>` for local definitions; use the Console for runtime records |
 
-The codemod updates simple shell invocations and reports calls that need a manual change. `env status` without `--url` asked the dev server; pass that URL explicitly rather than reading the local stage. Review old `env status` calls using `--timeout` or `--input`, which `env list` does not accept. For `workflow runs show --input`, rename `id` to `runId` in the JSON. Review `definitions list` calls to choose between local inspection and the Console.
+The codemod updates simple shell invocations. It skips scripts and steps with complex shell syntax, such as command substitutions or parameter defaults, to avoid editing text that is not a command. It reports recognized calls that need a manual change. `env status` without `--url` asked the dev server; pass that URL explicitly rather than reading the local stage. Review old `env status` calls using `--timeout` or `--input`, which `env list` does not accept. For `workflow runs show --input`, rename `id` to `runId` in the JSON. Review `definitions list` calls to choose between local inspection and the Console.
 
 ```sh
 npx @vite-hub/codemods cli-get-list [dir] [--dry-run]
