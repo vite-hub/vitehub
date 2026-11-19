@@ -40,7 +40,7 @@ pnpm vitehub agent info --agent support --json
 
 The output shows the Driver (the code that runs the Agent), its execution authority, tools, visible Workspace files and Sources, instructions, Invoker Profiles, warnings, and metadata status.
 Execution authority is a snapshot of what the Agent can reach: filesystem, network, environment, credentials, processes, and isolation. `unknown` means the runtime or provider cannot prove that part during inspection. It does not mean restricted or denied. The snapshot describes the inspected context. It is not an enforcement decision or proof of safety.
-`--json` gives the structured contract at `config.driver.executionAuthority`. Use `--url` when Vite is not on `http://localhost:5173`.
+`--json` gives the structured contract at `config.driver.executionAuthority`. Without `--url`, the command uses the dev server of this project. It never guesses a port.
 With more than one Agent, `--agent` is required.
 `agent info` reads from the guarded Agent Dev Loop endpoint of `hubAgent()`.
 
@@ -59,7 +59,7 @@ pnpm vitehub agent invocations cancel ainv_0123 --json
 ainv_0123 cancel requested, not enforced by run
 ```
 
-`hubAgent()` adds a guarded `/__vitehub/agent/invocations/dev` endpoint to the dev server. It forwards the request into the Nitro dev environment, where the Agent Definitions and `invocations` journals are the same objects that run the app's Invocations. So the cancel reaches the running Invocation with any store, including `createMemoryAgentInvocationStore()`. The endpoint accepts only local hosts and same-origin requests. Without `--server`, the command uses the dev server of this project from `.vitehub/dev-server.json`, then `VITEHUB_DEV_SERVER_URL`, then `http://localhost:5173`. Use `--timeout` to change the timeout. With `--url`, the command cancels through the app's Console instead.
+`hubAgent()` adds a guarded `/__vitehub/agent/invocations/dev` endpoint to the dev server. It forwards the request into the Nitro dev environment, where the Agent Definitions and `invocations` journals are the same objects that run the app's Invocations. So the cancel reaches the running Invocation with any store, including `createMemoryAgentInvocationStore()`. The endpoint accepts only local hosts and same-origin requests. Without `--url`, the command uses the dev server of this project from `.vitehub/dev-server.json`, then `VITEHUB_DEV_SERVER_URL`, and fails with `AGENT_INVOCATIONS_NO_DEV_SERVER` when there is none. Use `--timeout` to change the timeout. With `--url`, the command cancels through the app's Console. A localhost app without the Console gets the cancel through this endpoint.
 
 Nuxt runs Nitro outside the Vite process, and plain Vite has no Nitro. There the endpoint returns `501`, and the command prints the reason and exits with status 1.
 
@@ -92,7 +92,7 @@ Each command posts one birpc call to `/_vitehub/rpc` under the app URL, and [sig
 
 `--url` is the app URL, as in every `vitehub` command: `https://app.example.com`, or `http://localhost:3000` for a local production build or a dev server. Remote URLs must use HTTPS, without credentials, a query, or a fragment. The command does not follow redirects. A `401` or a redirect reports a refused signature.
 
-Two old forms still work until the next minor version, and print `AGENT_R1053`: a Console URL, such as `http://localhost:3000/_vitehub`, and a localhost URL with no Console, which the command reads as a local invocation endpoint, or as the dev server for `cancel`. Pass the app URL instead, or `--server` for the dev server.
+`--url` is the app URL. A Console URL, such as `http://localhost:3000/_vitehub`, fails with the app URL to pass instead. A localhost app without the Console is read through its dev server.
 
 The Console has no status filter, so `list --status` reads pages until it has `--limit` matches (default 50). `tail` asks only for observations after the last one it printed. Cancel outcomes and exit statuses are the same as in development.
 

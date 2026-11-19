@@ -9,6 +9,9 @@ import { runWorkspaceDevCli } from "../src/cli.ts"
 import { readWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevTokenHeader } from "../src/server.ts"
 import { hubWorkspace } from "../src/vite.ts"
 
+/** The dev server of the project. The CLI never guesses a port, so each test names it. */
+const devServerEnv: NodeJS.ProcessEnv = { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" }
+
 function stream() {
   let value = ""
   return {
@@ -91,7 +94,7 @@ describe("workspace CLI", () => {
 
     const exitCode = await runWorkspaceDevCli(["--help"], {
       cwd: process.cwd(),
-      env: {},
+      env: { ...devServerEnv },
       rootDir: process.cwd(),
       stderr,
       stdout,
@@ -126,7 +129,7 @@ describe("workspace CLI", () => {
         "docs",
       ], {
         cwd: rootDir,
-        env: {},
+        env: { ...devServerEnv },
         rootDir,
         stderr,
         stdout,
@@ -156,7 +159,7 @@ describe("workspace CLI", () => {
 
     await expect(runWorkspaceDevCli(["docs", "exec", "echo", "ok"], {
       cwd: process.cwd(),
-      env: {},
+      env: { ...devServerEnv },
       rootDir: process.cwd(),
       stderr,
       stdout,
@@ -225,7 +228,7 @@ describe("workspace CLI", () => {
         "README.md",
       ], {
         cwd: rootDir,
-        env: {},
+        env: { ...devServerEnv },
         rootDir,
         stderr,
         stdout,
@@ -271,7 +274,7 @@ describe("workspace CLI", () => {
 
     const exitCode = await runWorkspaceDevCli(["docs", "cat", "README.md"], {
       cwd: process.cwd(),
-      env: {},
+      env: { ...devServerEnv },
       rootDir: process.cwd(),
       stderr,
       stdout,

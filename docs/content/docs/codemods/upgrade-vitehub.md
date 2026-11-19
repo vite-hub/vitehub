@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, and `access-spellings`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, and `cli-url-flag`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -342,3 +342,18 @@ The codemod also changes default-export objects in `server/realtime/` and `serve
 A Realtime definition with both `auth: true` and `authorize()` stays as it is, and the report lists it. `authorize()` now also runs for signed-out callers, with `user: null`, so remove `auth` and return `false` when `user` is `null`. Until then, the server rejects the definition with [`REALTIME_INVALID_ACCESS`](/docs/realtime/limits-and-errors#realtime_invalid_access).
 
 If your browser app and Realtime API use different origins, keep the app origin in the Auth Definition's `trustedOrigins`. With no custom `identify()` or `origins()`, `authorize()` uses the same Auth origin check as `authorize: true`. Do not add `origins()` to pass the Auth session: an origin admitted by that hook does not get the session user.
+
+## cli-url-flag
+
+`cli-url-flag` changes `--server <url>` to `--url <url>` in the `vitehub` calls of `package.json` scripts, `.github/workflows/*.yml`, and `*.sh` files. `--url` is the app URL in every command:
+
+```bash [Terminal]
+npx @vite-hub/codemods cli-url-flag [dir] [--dry-run]
+```
+
+```diff [package.json]
+-    "cancel": "vitehub agent invocations cancel --server http://localhost:3000"
++    "cancel": "vitehub agent invocations cancel --url http://localhost:3000"
+```
+
+A `--url` that names the Console, such as `http://localhost:3000/_vitehub`, now fails with the app URL to pass. A command without `--url` uses the dev server of the project, and fails with `INTERNAL_DEV_SERVER_NOT_FOUND` when none runs. It never guesses `localhost:5173`.

@@ -5,8 +5,9 @@ import {
   discoverViteHubDevServer,
   fetchViteHubDevEndpoint,
   readViteHubDevTargetOption,
-  resolveViteHubDevServerUrl,
+  requireViteHubDevServerUrl,
 } from "@vite-hub/internal/cli"
+import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 
@@ -164,7 +165,7 @@ function writeDevUsage(context: AgentCliContext): void {
     "  --trigger <id>    Agent Trigger to invoke. Defaults to chat.message when available.",
     "  --cli <name>      Run a Capability CLI command attached to the Agent.",
     "  --input <json|@file>  Agent Trigger payload as a JSON object, or @file to read it from a file.",
-    "  --url <url>       Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
+    "  --url <url>       App URL, such as http://localhost:3000. Defaults to the dev server of this project.",
     "  --timeout <ms>    Stream inactivity timeout; command deadline. Defaults to 90000.",
     "  -h, --help        Show this help.",
     "",
@@ -638,14 +639,12 @@ const agentDevTargetErrors = {
   invalidInlineTimeout: (message: string) => agentDiagnostics.AGENT_R0394({ message }),
   invalidTimeout: (message: string) => agentDiagnostics.AGENT_R0393({ message }),
   missingValue: (message: string) => agentDiagnostics.AGENT_R0385({ message }),
+  unknownOption: (message: string) => agentDiagnostics.AGENT_R0395({ message }),
 }
 
-function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
+function parseDevArgs(args: string[], env: NodeJS.ProcessEnv, rootDir: string): ParsedDevArgs {
   const message: string[] = []
-  const parsed: ParsedDevArgs = {
-    help: false,
-    url: resolveViteHubDevServerUrl(env),
-  }
+  const parsed: Omit<ParsedDevArgs, "url"> & { url?: string } = { help: false }
 
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!
@@ -731,7 +730,8 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
     throw agentDiagnostics.AGENT_R0397({ message: "Pass either --cli or Agent message/trigger input, not both." })
   }
   if (text) parsed.message = text
-  return parsed
+  // Help needs no server. Without --url, the command uses the dev server of this project and never guesses a port.
+  return { ...parsed, url: parsed.url ?? (parsed.help ? "" : requireViteHubDevServerUrl([...new Set([rootDir, resolveViteHubProjectRoot(rootDir)])], env, "agent dev")) }
 }
 
 function isFileNotFound(error: unknown): boolean {
@@ -1220,7 +1220,7 @@ export async function runAgentDevCli(
 ): Promise<number> {
   let parsed: ParsedDevArgs
   try {
-    parsed = parseDevArgs(args, context.env)
+    parsed = parseDevArgs(args, context.env, context.rootDir)
   }
   catch (error) {
     context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)

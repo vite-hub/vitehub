@@ -483,7 +483,7 @@ export default ({ mode }) => ({
     const stdout = stream()
     const stderr = stream()
     const exitCode = await runViteHubCli({
-      runHostCli: noHostCli, args: ["provision", "run"],
+      runHostCli: noHostCli, args: ["provision", "run", "--host", "netlify"],
       cwd: "/repo",
       loadConfig,
       runtimeNamespaces,
@@ -717,19 +717,20 @@ export default ({ mode }) => ({
     expect(stderr.output()).toContain("No ViteHub integration contributed the \"kv\" commands")
   })
 
-  it("requires a host for provision", async () => {
+  it("resolves the provision host like deploy, and names --host when that host has no provision", async () => {
+    const rootDir = await createTempDir()
+    await writeFile(join(rootDir, "package.json"), `${JSON.stringify({ name: "app" })}\n`)
     const stdout = stream()
     const stderr = stream()
     const exitCode = await runViteHubCli({
-      runHostCli: noHostCli, args: ["provision", "run"],
-      loadConfig: async () => ({ plugins: [], root: "/repo" }),
+      runHostCli: noHostCli, args: ["provision", "run"], cwd: rootDir,
+      loadConfig: async () => ({ plugins: [], root: rootDir }),
       stderr,
       stdout,
     })
 
     expect(exitCode).toBe(1)
-    expect(stderr.output()).toContain("--host cloudflare|vercel")
-    expect(stderr.output()).toContain("Usage: vitehub provision run")
+    expect(stderr.output()).toMatch(/The host of this project is \S+, and provision supports cloudflare and vercel\. Pass --host cloudflare\|vercel/)
     expect(stdout.output()).toBe("")
   })
 

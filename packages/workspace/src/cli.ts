@@ -4,8 +4,9 @@ import {
   discoverViteHubDevServer,
   fetchViteHubDevEndpoint,
   readViteHubDevTargetOption,
-  resolveViteHubDevServerUrl,
+  requireViteHubDevServerUrl,
 } from "@vite-hub/internal/cli"
+import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 
 import {
   readWorkspaceDevToken,
@@ -99,6 +100,7 @@ const workspaceDevTargetErrors = {
   invalidInlineTimeout: (message: string) => workspaceErrorDiagnostics.WORKSPACE_R0006({ message }),
   invalidTimeout: (message: string) => workspaceErrorDiagnostics.WORKSPACE_R0005({ message }),
   missingValue: (message: string) => workspaceErrorDiagnostics.WORKSPACE_R0004({ message }),
+  unknownOption: (message: string) => workspaceErrorDiagnostics.WORKSPACE_R0007({ message }),
 }
 
 const workspaceCommandFeedbackIntervalMs = 15_000
@@ -189,7 +191,7 @@ function writeWorkspaceDevUsage(context: WorkspaceCliContext): void {
     "Omit exec to open the interactive command loop.",
     "",
     "Options:",
-    "  --url <url>       Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
+    "  --url <url>       App URL, such as http://localhost:3000. Defaults to the dev server of this project.",
     "  --timeout <ms>    Workspace command timeout.",
     "  --path <path>     Workspace path to materialize for command sessions. Repeatable.",
     "  -h, --help        Show this help.",
@@ -203,11 +205,8 @@ function readOptionValue(args: string[], index: number, flag: string): string {
   return value
 }
 
-function parseWorkspaceDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedWorkspaceDevArgs {
-  const parsed: ParsedWorkspaceDevArgs = {
-    help: false,
-    url: resolveViteHubDevServerUrl(env),
-  }
+function parseWorkspaceDevArgs(args: string[], env: NodeJS.ProcessEnv, rootDir: string): ParsedWorkspaceDevArgs {
+  const parsed: Omit<ParsedWorkspaceDevArgs, "url"> & { url?: string } = { help: false }
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!
@@ -245,7 +244,8 @@ function parseWorkspaceDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedWo
     }
     throw workspaceErrorDiagnostics.WORKSPACE_R0009({ message: `Unexpected argument: ${arg}. Use exec <command...> for one-shot commands.` })
   }
-  return parsed
+  // Help needs no server. Without --url, the command uses the dev server of this project and never guesses a port.
+  return { ...parsed, url: parsed.url ?? (parsed.help ? "" : requireViteHubDevServerUrl([...new Set([rootDir, resolveViteHubProjectRoot(rootDir)])], env, "workspace dev")) }
 }
 
 async function readWorkspaceDiscovery(parsed: ParsedWorkspaceDevArgs, context: WorkspaceCliContext, fetchImpl: typeof fetch): Promise<WorkspaceDevTarget | undefined> {
@@ -358,7 +358,7 @@ export async function runWorkspaceDevCli(
 ): Promise<number> {
   let parsed: ParsedWorkspaceDevArgs
   try {
-    parsed = parseWorkspaceDevArgs(args, context.env)
+    parsed = parseWorkspaceDevArgs(args, context.env, context.rootDir)
   }
   catch (error) {
     context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)

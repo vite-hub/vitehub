@@ -1,5 +1,7 @@
+import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { resolveHostCredentials } from "@vite-hub/internal/host-credentials"
 import { mergeProvisionState, PROVISION_STATE_FILE, readProvisionState, writeProvisionState } from "@vite-hub/internal/provision-state"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { planProvisionSteps, resolveCloudflareProvisionConfig, resolveVercelProvisionConfig } from "@vite-hub/internal/provision"
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliProvision } from "@vite-hub/internal/cli"
@@ -36,8 +38,8 @@ const HOST_CREDENTIALS = {
   vercel: "VERCEL_TOKEN",
 } as const satisfies Record<ProvisionProvider, string>
 const USAGE = {
-  run: "vitehub provision run --host <cloudflare|vercel> [--dry-run] [--json]",
-  status: "vitehub provision status --host <cloudflare|vercel> [--json]",
+  run: "vitehub provision run [--host <cloudflare|vercel>] [--dry-run] [--json]",
+  status: "vitehub provision status [--host <cloudflare|vercel>] [--json]",
 } as const satisfies Record<ProvisionCommand, string>
 
 /** Whether ViteHub can provision resources on `host`. Only Cloudflare and Vercel have Provision Steps. */
@@ -122,7 +124,8 @@ function writeUsage(command: ProvisionCommand, stream: ProvisionFeatureContext["
         "Never deletes resources. Changes an existing resource only for a planned update, such as D1 read replication.",
         "",
         "Options:",
-        "  --host <name>      Target host: cloudflare or vercel (required).",
+        "  --host <name>      Target host: cloudflare or vercel. Without it, the host of `vitehub deploy`:",
+        "                     the default target of .vitehub/link.json, else the only one, else `host` in vitehub().",
         "  --dry-run          Print the plan without applying it.",
         "  --json             Print one JSON result to stdout.",
         "  -h, --help         Show this help.",
@@ -135,7 +138,7 @@ function writeUsage(command: ProvisionCommand, stream: ProvisionFeatureContext["
         "Never creates or deletes provider resources, and never writes Provision State.",
         "",
         "Options:",
-        "  --host <name>      Target host: cloudflare or vercel (required).",
+        "  --host <name>      Target host: cloudflare or vercel. Without it, the host of `vitehub deploy`.",
         "  --json             Print one JSON result to stdout.",
         "  -h, --help         Show this help.",
       ]
@@ -143,7 +146,7 @@ function writeUsage(command: ProvisionCommand, stream: ProvisionFeatureContext["
 }
 
 // Resolves the arguments shared by every provision command. Returns an exit code on failure or help.
-function resolveHost(command: ProvisionCommand, parsed: ParsedProvisionArgs, context: ProvisionFeatureContext): { exitCode: number } | { host: ProvisionProvider } {
+async function resolveHost(command: ProvisionCommand, parsed: ParsedProvisionArgs, context: ProvisionFeatureContext): Promise<{ exitCode: number } | { host: ProvisionProvider }> {
   if (parsed.help) {
     writeUsage(command, context.stdout)
     return { exitCode: 0 }
@@ -153,12 +156,28 @@ function resolveHost(command: ProvisionCommand, parsed: ParsedProvisionArgs, con
     writeUsage(command, context.stderr)
     return { exitCode: 1 }
   }
-  if (!isProvisionHost(parsed.host)) {
+  let host = parsed.host
+  if (host === undefined) {
+    // The same host as `vitehub deploy`. The setup module loads only when --host is missing.
+    const { resolveDefaultDeployHost } = await import("./setup/deploy.ts")
+    try {
+      host = await resolveDefaultDeployHost(resolveViteHubProjectRoot(context.rootDir), context.env, `vitehub provision ${command}`)
+    }
+    catch (error) {
+      context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+      return { exitCode: 1 }
+    }
+    if (!isProvisionHost(host)) {
+      context.stderr.write(`The host of this project is ${host}, and provision supports cloudflare and vercel. Pass --host cloudflare|vercel to provision another host.\n`)
+      return { exitCode: 1 }
+    }
+  }
+  if (!isProvisionHost(host)) {
     context.stderr.write("Provision requires --host cloudflare|vercel.\n")
     writeUsage(command, context.stderr)
     return { exitCode: 1 }
   }
-  return { host: parsed.host }
+  return { host }
 }
 
 function hasHostCredentials(host: ProvisionProvider, env: ProvisionFeatureContext["env"]): boolean {
@@ -286,7 +305,7 @@ export function writeProvisionActions(actions: readonly PlannedProvisionAction[]
 
 async function runProvision(args: string[], cliContext: ProvisionFeatureContext, load: LoadProvision): Promise<number> {
   const parsed = parseArgs("run", args)
-  const resolved = resolveHost("run", parsed, cliContext)
+  const resolved = await resolveHost("run", parsed, cliContext)
   if ("exitCode" in resolved) return resolved.exitCode
   const { host: provider } = resolved
   const { env = cliContext.env, rootDir, steps } = await load(provider)
@@ -350,7 +369,7 @@ async function runProvision(args: string[], cliContext: ProvisionFeatureContext,
 
 async function runProvisionStatus(args: string[], cliContext: ProvisionFeatureContext, load: LoadProvision): Promise<number> {
   const parsed = parseArgs("status", args)
-  const resolved = resolveHost("status", parsed, cliContext)
+  const resolved = await resolveHost("status", parsed, cliContext)
   if ("exitCode" in resolved) return resolved.exitCode
   const { host: provider } = resolved
   const { env = cliContext.env, rootDir, steps } = await load(provider)
