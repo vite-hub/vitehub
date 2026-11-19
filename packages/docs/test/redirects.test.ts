@@ -1,9 +1,11 @@
-import { resolve } from "node:path"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
 import { createDocsManifest } from "../src/manifest.ts"
-import { docsRedirectProblems, docsRedirects } from "../src/redirects.ts"
+import { docsRedirectProblems, docsRedirects, docsServerRoutes } from "../src/redirects.ts"
 
 const manifest = await createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" })
 
@@ -79,5 +81,46 @@ describe("docsRedirectProblems", () => {
     const root = await createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content/docs"), base: "/" })
     expect(docsRedirectProblems(root, [{ from: "/old", to: "/kv/removed" }])).toHaveLength(1)
     expect(docsRedirectProblems(root, [{ from: "/old", to: "/playground" }])).toEqual([])
+  })
+
+  it("passes a target that a server route of the app answers, also inside a section", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "docs-redirects-"))
+    try {
+      await mkdir(join(dir, "api"))
+      await writeFile(join(dir, "api/index.md"), "---\ntitle: API\n---\n\nThe API.\n")
+      await writeFile(join(dir, "api/.navigation.yml"), "title: API\n")
+      const site = await createDocsManifest({ dir, base: "/" })
+      const routes = ["/api/auth/**", "/api/files/:id", "/api/feed.xml"]
+      expect(docsRedirectProblems(site, [
+        { from: "/sign-in", to: "/api/auth/sign-in?redirect=/api" },
+        { from: "/sign-out", to: "/api/auth" },
+        { from: "/file", to: "/api/files/1" },
+        { from: "/feed", to: "/api/feed.xml" },
+      ], routes)).toEqual([])
+      // A route does not cover a docs path it does not match, and a query does not hide a missing page.
+      expect(docsRedirectProblems(site, [
+        { from: "/files", to: "/api/files/1/raw" },
+        { from: "/old", to: "/api/removed?tab=1" },
+      ], routes)).toEqual([
+        "The redirect from /files goes to /api/files/1/raw, which is not a docs page. Point it to a page, or remove the route rule.",
+        "The redirect from /old goes to /api/removed?tab=1, which is not a docs page. Point it to a page, or remove the route rule.",
+      ])
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("docsServerRoutes", () => {
+  it("reads the route of each handler, but not middleware, catch-all routes, or the handlers of the docs", () => {
+    expect(docsServerRoutes([
+      { route: "/api/auth/**", handler: "/app/.vitehub/auth/route.ts" },
+      { route: "/api/feed.xml", handler: "/app/server/routes/api/feed.xml.get.ts" },
+      { route: "/**", middleware: true, handler: "/app/.vitehub/auth/access.ts" },
+      { route: "/**", handler: "/app/server/routes/[...].ts" },
+      { route: "/raw/**", handler: "/docs/dist/runtime/server/raw.js" },
+      { handler: "/app/server/plugins/log.ts" },
+    ], "/docs/dist/runtime")).toEqual(["/api/auth/**", "/api/feed.xml"])
   })
 })

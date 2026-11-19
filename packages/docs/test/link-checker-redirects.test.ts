@@ -11,7 +11,7 @@ import type { Nuxt, NuxtConfig } from "nuxt/schema"
 
 interface LinkReport { route: string, reports: Array<{ link: string, error: Array<{ name: string }>, warning: Array<{ name: string }> }> }
 
-async function buildSite(links: string, routeRules: NonNullable<NuxtConfig["routeRules"]>, moduleRules: NonNullable<NuxtConfig["routeRules"]> = {}, { nitroRules = {}, buildApp = true }: { nitroRules?: NitroConfig["routeRules"], buildApp?: boolean } = {}) {
+async function buildSite(links: string, routeRules: NonNullable<NuxtConfig["routeRules"]>, moduleRules: NonNullable<NuxtConfig["routeRules"]> = {}, { nitroRules = {}, nitroHandlers = [], files = {}, buildApp = true }: { nitroRules?: NitroConfig["routeRules"], nitroHandlers?: NonNullable<NitroConfig["handlers"]>, files?: Record<string, string>, buildApp?: boolean } = {}) {
   // Inside the package, so the build resolves Tailwind and Nuxt UI as an installed app does.
   const root = await mkdtemp(join(import.meta.dirname, ".tmp-redirects-"))
   const docs = (await import(pathToFileURL(join(import.meta.dirname, "../dist/nuxt.js")).href)).default as never
@@ -22,6 +22,10 @@ async function buildSite(links: string, routeRules: NonNullable<NuxtConfig["rout
     await writeFile(join(root, "content/docs/guide/index.md"), "---\ntitle: Guide\n---\nHello\n")
     await writeFile(join(root, "content/docs/guide/install.md"), "---\ntitle: Install\n---\n## Install\n\nInstall\n")
     await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({})\n")
+    for (const [file, content] of Object.entries(files)) {
+      await mkdir(join(root, file, ".."), { recursive: true })
+      await writeFile(join(root, file), content)
+    }
     const config: NuxtConfig & { linkChecker: object } = {
       dev: false,
       devtools: { enabled: false },
@@ -30,6 +34,7 @@ async function buildSite(links: string, routeRules: NonNullable<NuxtConfig["rout
         nuxt.options.routeRules = { ...moduleRules, ...nuxt.options.routeRules }
         Reflect.apply(nuxt.hook, nuxt, ["nitro:config", (nitro: NitroConfig) => {
           nitro.routeRules = { ...nitroRules, ...nitro.routeRules }
+          nitro.handlers = [...nitro.handlers ?? [], ...nitroHandlers.map(handler => ({ ...handler, handler: join(root, handler.handler) }))]
         }])
       }],
       linkChecker: { report: { json: true, storage: join(root, "report") } },
@@ -102,3 +107,18 @@ it("accepts a chain completed by a later module's Nitro config hook", async () =
     buildApp: false,
   })).resolves.toEqual([])
 }, 30_000)
+
+it("accepts a redirect into a docs section that a server route of the app answers", async () => {
+  // A module adds the route to the Nitro config, as Auth does for `/api/auth/**`, and a file in `server/routes/` adds the other.
+  const route = "export default () => \"ok\"\n"
+  const files = { "server/auth.ts": route, "server/routes/docs/guide/feed.xml.get.ts": route }
+  const nitroHandlers = [{ route: "/docs/guide/auth/**", handler: "server/auth.ts" }]
+  await expect(buildSite("", {
+    "/sign-in": { redirect: "/docs/guide/auth/sign-in?redirect=/docs/guide" },
+    "/feed": { redirect: "/docs/guide/feed.xml" },
+  }, {}, { nitroHandlers, files, buildApp: false })).resolves.toEqual([])
+  // A server route outside the target keeps the check strict.
+  await expect(buildSite("", { "/old": { redirect: "/docs/guide/removed?tab=1" } }, {}, { nitroHandlers, files, buildApp: false })).rejects.toThrow(
+    "The redirect from /old goes to /docs/guide/removed?tab=1, which is not a docs page.",
+  )
+}, 60_000)
