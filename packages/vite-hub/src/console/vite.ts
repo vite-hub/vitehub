@@ -22,6 +22,7 @@ import { addConsolePageToolRoutes, addConsoleRpcHandler } from "./nitro.ts"
 import { consoleOperationFeaturesFilter, transformConsoleOperationFeatures } from "./operation-features.ts"
 import { consoleDevAccessNotice } from "./dev-access-notice.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
+import { installedPackageVersion } from "../internal/optional-owners.ts"
 
 const generatedConsolePlugin = ".vitehub/nitro/console/plugin.mjs"
 const generatedDevelopmentConsolePlugin = ".vitehub/nitro/console/plugin-dev.mjs"
@@ -148,6 +149,8 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
 export interface ConsoleVitePluginOptions {
   /** The `name` option of `vitehub()`, which `project.get` reports. */
   name?: string
+  /** The host that `vitehub()` builds for, which `project.get` reports with the build. */
+  host?: NonNullable<ConsoleNitroPluginOptions["target"]>["host"]
   /** Serve the development RPC and Setup without the full Console. */
   rpcOnly?: boolean
   contentImportBase?: string
@@ -299,6 +302,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       name: options.name,
       runtimeCapabilityImports: options.runtimeCapabilityImports,
       sections,
+      // `vitehub()` in a Vite config builds a Nitro server. Nuxt writes its own plugin and names itself.
+      ...(development ? {} : { target: { ...(options.host ? { host: options.host } : {}), framework: { name: "nitro" as const, version: installedPackageVersion("nitro") } } }),
       navigationSections: options.rpcOnly ? sections.filter(section => section === "setup") : undefined,
       ...(options.rpcOnly || resolvedConsoleConfiguration?.pill === false ? {} : { pageTool: { base: applicationBase } }),
     }

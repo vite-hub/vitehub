@@ -7,7 +7,7 @@ import { useCopy } from "@vite-hub/ui";
 import type { ConsoleAccountAppStatus, ConsoleAccountCheck, ConsoleAccountProject } from "../client/account";
 import { accountAppStatusLabels, loadConsoleTeam } from "../client/account";
 import { consoleAppIdentity } from "../client/app-identity";
-import { consoleCommentsSiteUrl } from "../client/project-link";
+import { consoleAuthorAvatarUrl, consoleCommentsSiteUrl } from "../client/project-link";
 import { accountProjectPath, canManageConsoleProjects, consoleProjectDisplayName, linkAccountProject, openAccountProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost, consoleProjectTarget } from "../client/projects";
 import ConsoleAccountRename from "./console-account-rename.vue";
@@ -39,7 +39,8 @@ const filter = ref("");
 const rows = computed(() => apps.value.map((app) => {
   const check = props.checks?.[app.id];
   const build = check?.build;
-  const deploy = build && { author: build.commit?.author, message: build.commit?.message, sha: build.commit?.sha.slice(0, 7), time: build.time };
+  const login = build?.commit?.login;
+  const deploy = build && { author: build.commit?.author ?? login, avatar: login && consoleAuthorAvatarUrl(login), message: build.commit?.message, sha: build.commit?.sha.slice(0, 7), time: build.time };
   const site = `${consoleProjectTarget(app).url}/`;
   return {
     app,
@@ -221,7 +222,8 @@ async function link(): Promise<void> {
               </td>
               <td class="vitehub-apps__deploy max-sm:hidden">
                 <span v-if="row.deploy" class="flex min-w-0 items-center gap-2" :title="row.deploy.message">
-                  <span v-if="row.deploy.author" class="vitehub-apps__avatar" :title="row.deploy.author" aria-hidden="true">{{ row.deploy.author.charAt(0).toUpperCase() }}</span>
+                  <img v-if="row.deploy.avatar" :src="row.deploy.avatar" alt="" width="18" height="18" class="vitehub-apps__avatar" :title="row.deploy.author" loading="lazy" referrerpolicy="no-referrer">
+                  <span v-else-if="row.deploy.author" class="vitehub-apps__avatar" :title="row.deploy.author" aria-hidden="true">{{ row.deploy.author.charAt(0).toUpperCase() }}</span>
                   <ConsoleRelativeTime :value="row.deploy.time" class="shrink-0 text-default" />
                   <template v-if="row.deploy.sha">
                     <span class="shrink-0 text-dimmed" aria-hidden="true">·</span>

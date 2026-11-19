@@ -1668,6 +1668,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
     const invocationRootState = {}
     const consolePlugin = consoleVitePlugin({
       name: options.name,
+      host: { name: plan.host, preset: plan.host === "deno" ? "deno-server" : plan.nitroPreset },
       contentImportBase: "vite-hub/content",
       blobStores: blobStoreNames,
       console: configuredConsole || undefined,
