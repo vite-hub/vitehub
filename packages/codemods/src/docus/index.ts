@@ -201,6 +201,9 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const config = await readNuxtConfig(cwd)
   const entry = docusEntry(config)
   if (!entry) throw codemodError(`${config.fileName} does not extend the docus layer. Docus apps write extends: ['docus'].`)
+  if (!staticOptionsObject(config.root)) {
+    throw codemodError(`${config.fileName}:${line(config.root)}: Resolve computed or duplicate Nuxt options before migrating. The codemod cannot verify the published page set.`)
+  }
   const followUps: FollowUp[] = []
   const edits: FileEdit[] = []
   const editor = new ConfigEditor(config)
@@ -234,6 +237,9 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   if (llms && llmsObject) {
     assertStaticStrings(config.fileName, llmsObject, "llms", ["domain"])
     const domain = stringOption(llmsObject, "domain")
+    if (domain && options.site.url && domain !== options.site.url) {
+      throw codemodError(`${config.fileName}:${line(llms)}: llms.domain and site.url are different. Move these settings by hand: Docs uses docs.site.url for both.`)
+    }
     if (domain) options.site.url ??= domain
     const other = llmsObject.properties.filter(property => property.type !== "ObjectProperty" || keyName(property.key, property.computed) !== "domain")
     if (other.length) followUps.push({ file: config.fileName, line: line(llms), message: "Extra llms settings were kept in nuxt.config. Move extra llms.txt text to docs.llms.details or docs.llms.sections." })

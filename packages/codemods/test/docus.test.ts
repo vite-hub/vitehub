@@ -92,6 +92,18 @@ describe("docus content", () => {
     expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toBe(config)
   })
 
+  it.each([
+    ["extends: ['docus'], ...overrides", /computed or duplicate Nuxt options/],
+    ["extends: ['docus'], site: { url: 'https://docs.example' }, llms: { domain: 'https://llms.example' }", /different.*docs.site.url/],
+  ])("leaves the project intact when config cannot be moved: %s", async (options, message) => {
+    const config = `const overrides = { content: { experimental: {} } }\nexport default defineNuxtConfig({ ${options} })\n`
+    const page = "# Home\n"
+    const cwd = await createApp({ "nuxt.config.ts": config, "content/index.md": page })
+    await expect(runCodemod("docus", { cwd })).rejects.toThrow(message)
+    expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toBe(config)
+    expect(await readFile(join(cwd, "content/index.md"), "utf8")).toBe(page)
+  })
+
   it("keeps unmapped settings in the original config", async () => {
     const cwd = await createApp({
       "nuxt.config.ts": "export default defineNuxtConfig({ extends: ['docus'], llms: { domain: 'https://docs.example', description: 'Help' } })\n",
