@@ -410,6 +410,7 @@ export const docsLegacyFragmentRedirects = {
     "what-the-mcp-client-keeps": "/docs/console/mcp-client#keep-connections-across-restarts",
     "one-time-links": "/docs/console/site-access#one-time-links",
     "site-access-from-the-terminal": "/docs/console/site-access#site-access-from-the-terminal",
+    "site-access-without-auth": "/docs/console/site-access#site-access-without-auth",
     "give-browsers-site-access": "/docs/console/site-access#sign-browsers-in",
     "links-to-the-console": "/docs/console/site-access#link-to-the-console",
     "open-the-console-from-your-pages": "/docs/console/site-access#open-the-console-from-your-pages",
