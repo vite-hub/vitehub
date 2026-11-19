@@ -79,6 +79,22 @@ describe("createRestTransport", () => {
     expect(await ada.list({ subject })).toEqual([])
   })
 
+  it("binds queued creates and uploads to the author of each request", async () => {
+    const files = new Map<string, Blob>()
+    const { as } = await setup({}, files)
+    const subject = { kind: "drop", id: "42" }
+    const draft = { subject, anchor: { kind: "page" } as const, body: "Saved offline", requestId: "saved" }
+    const outbox = { account: "ada", uploaded: vi.fn(async () => {}) }
+    const screenshot = new File(["image"], "shot.png", { type: "image/png" })
+    await expect(as("ben").create({ ...draft, outbox, files: [screenshot] })).rejects.toMatchObject({ code: "COMMENTS_OUTBOX_ACCOUNT_CHANGED", status: 401 })
+    expect(files.size).toBe(0)
+    await expect(as("ben").create({ ...draft, outbox })).rejects.toMatchObject({ code: "COMMENTS_OUTBOX_ACCOUNT_CHANGED", status: 401 })
+    const created = await as("ada").create({ ...draft, outbox, files: [screenshot] })
+    expect(created.author.id).toBe("ada")
+    expect(outbox.uploaded).toHaveBeenCalledWith(created.messages[0]?.attachments[0])
+    expect(files.size).toBe(1)
+  })
+
   it("paginates beyond the first 200 page threads", async () => {
     const { comments, as } = await setup()
     const subject = { kind: "page", id: "/many" }

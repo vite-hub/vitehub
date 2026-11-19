@@ -174,7 +174,7 @@ export interface CommentMessage {
   /** Milliseconds since the epoch. */
   createdAt: number
   editedAt?: number
-  /** Set only by the client's outbox: the message is not on the server yet. Its `id` is the `requestId`. */
+  /** Set only by the client's outbox: the message has a local `id` and is not on the server yet. */
   delivery?: CommentDelivery
 }
 
@@ -207,7 +207,7 @@ export interface CommentThread {
   updatedAt: number
   /** The retry key of the `create` that started it, when it had one. The client matches its own waiting comment by it. */
   requestId?: string
-  /** Set only by the client's outbox: the thread is not on the server yet. Its `id` is the `requestId` and its `n` is 0. */
+  /** Set only by the client's outbox: the thread has a local `id` and its `n` is 0. */
   delivery?: CommentDelivery
 }
 
@@ -288,13 +288,6 @@ export interface CommentReplyInput {
   requestId?: string
 }
 
-/** Files that a transport stores before the message, and adds to its `attachments`. */
-export interface CommentFiles {
-  files?: Blob[]
-  /** The subject of the thread, for the upload of the files of a reply. `create` has it in its input. */
-  subject?: CommentSubject
-}
-
 export interface CommentEditInput {
   threadId: string
   messageId: string
@@ -351,6 +344,15 @@ export type CommentEvent =
  * The seam between the browser and the server. Each method has the name and the input of one `comments.*` operation.
  * A mutation returns the thread as it is afterwards, and `delete` returns `null` when the thread is gone.
  */
+export interface CommentFiles {
+  /** Files that the transport stores and adds to `attachments` before sending the message. */
+  files?: Blob[]
+  /** The subject of the thread for reply file uploads. */
+  subject?: CommentSubject
+  /** For queued writes, check the authenticated author on every write and save each completed upload before the next request. */
+  outbox?: { account: string, uploaded: (key: string) => Promise<void> }
+}
+
 export interface CommentsTransport {
   /** Whether the server accepts attachment keys. Defaults to true for custom transports. */
   supportsAttachments?: boolean

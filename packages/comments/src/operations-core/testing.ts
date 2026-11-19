@@ -22,6 +22,10 @@ export interface MemoryTransportOptions {
   now?: () => number
 }
 
+function checkOutboxAccount(input: { outbox?: { account: string } }, user: CommentUser): void {
+  if (input.outbox && input.outbox.account !== user.id) throw Object.assign(commentsErrorDiagnostics.COMMENTS_OUTBOX_ACCOUNT_CHANGED(), { status: 401 })
+}
+
 export interface MemoryTransport extends CommentsTransport {
   readonly user: CommentUser
   /** A copy of every thread in the store. */
@@ -93,12 +97,12 @@ function thread(store: Store, id: string): CommentThread {
   return found
 }
 
-function message(store: Store, user: CommentUser, input: { threadId: string, body: string, mentions?: string[], attachments?: string[] }): CommentMessage {
+function message(store: Store, user: CommentUser, input: { id?: string, threadId: string, body: string, mentions?: string[], attachments?: string[] }): CommentMessage {
   const body = input.body.trim()
   // A message of files alone, such as a pasted screenshot, has no text.
   if (!body && !input.attachments?.length) throw commentsErrorDiagnostics.COMMENTS_R0005()
   return {
-    id: `message-${crypto.randomUUID()}`,
+    id: input.id ?? `message-${crypto.randomUUID()}`,
     threadId: input.threadId,
     body,
     author: copy(user),
@@ -151,6 +155,7 @@ function view(store: Store, user: CommentUser): MemoryTransport {
       return found ? copy(found) : null
     },
     async create(input) {
+      checkOutboxAccount(input, user)
       const scope = store.scope(input.subject)
       const request = input.requestId === undefined ? undefined : JSON.stringify([scope, input.requestId])
       const earlier = request === undefined ? undefined : store.threads.get(store.requests.get(request) ?? "")
@@ -179,16 +184,20 @@ function view(store: Store, user: CommentUser): MemoryTransport {
         updatedAt: first.createdAt,
       })
     },
-    async reply(input) {
+    async reply(draft) {
+      checkOutboxAccount(draft, user)
+      const id = draft.requestId === undefined ? undefined : await replyMessageId(draft.threadId, draft.requestId)
+      const input = { ...draft, id, attachments: attachmentsOf(draft) }
       const found = copy(thread(store, input.threadId))
-      // As on the server: a retry key gives the message an id of its own, so a second try finds the first message.
-      const id = input.requestId === undefined ? undefined : await replyMessageId(found.id, input.requestId)
-      const earlier = found.messages.find(entry => entry.id === id)
+      const request = input.requestId === undefined ? undefined : JSON.stringify(["reply", input.threadId, input.requestId])
+      const earlier = request === undefined ? undefined : found.messages.find(entry => entry.id === store.requests.get(request))
       if (earlier) {
         if (earlier.author.id !== user.id) throw commentsErrorDiagnostics.COMMENTS_R0022()
         return found
       }
-      found.messages.push({ ...message(store, user, { ...input, attachments: attachmentsOf(input) }), ...(id === undefined ? {} : { id }) })
+      const added = message(store, user, input)
+      if (request !== undefined) store.requests.set(request, added.id)
+      found.messages.push(added)
       return save(found)
     },
     async edit(input) {

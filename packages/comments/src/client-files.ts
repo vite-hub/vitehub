@@ -1,4 +1,6 @@
-import type { CommentAttachment, CommentSubject, CommentUploadInput } from "./client-types.ts"
+import type { CommentAttachment, CommentFiles, CommentSubject, CommentUploadInput } from "./client-types.ts"
+
+export const outboxAccountHeader = "x-vitehub-comments-outbox-account"
 
 /** The file as Base64, the form that `comments.upload` takes. */
 export async function base64(file: Blob): Promise<string> {
@@ -20,13 +22,25 @@ export async function uploadFiles(
   files: readonly Blob[],
   subject: CommentSubject | undefined,
   upload: (input: CommentUploadInput) => Promise<CommentAttachment>,
+  uploaded?: (key: string) => Promise<void>,
 ): Promise<string[]> {
   const keys: string[] = []
   for (const file of files) {
     const stored = await upload({ name: fileName(file), type: file.type || "application/octet-stream", data: await base64(file), ...(subject ? { subject } : {}) })
+    await uploaded?.(stored.key)
     keys.push(stored.key)
   }
   return keys
+}
+
+export async function withCommentFiles<T extends { attachments?: string[] }>(
+  input: T,
+  { files, outbox }: CommentFiles,
+  subject: CommentSubject | undefined,
+  upload: (input: CommentUploadInput) => Promise<CommentAttachment>,
+): Promise<T> {
+  if (!files?.length) return input
+  return { ...input, attachments: [...(input.attachments ?? []), ...await uploadFiles(files, subject, upload, outbox?.uploaded)] }
 }
 
 /** The `Retry-After` of an answer in milliseconds: seconds, or an HTTP date. */

@@ -63,9 +63,9 @@ export interface CommentsClient {
   query: CommentListQuery
   refresh: () => Promise<readonly CommentThread[]>
   get: (input: CommentGetInput) => Promise<CommentThread | null>
-  /** With an outbox, returns the waiting thread once it is saved: its `id` is its `requestId` and it has `delivery`. */
+  /** With an outbox, returns the waiting thread once it is saved, with a local `id` and `delivery`. */
   create: (input: CommentCreateInput & CommentFiles) => Promise<CommentThread>
-  /** With an outbox, returns the thread with the waiting reply, whose `id` is its `requestId`, once it is saved. */
+  /** With an outbox, returns a thread view with the waiting reply once it is saved. */
   reply: (input: CommentReplyInput & CommentFiles) => Promise<CommentThread>
   edit: (input: CommentEditInput) => Promise<CommentThread>
   delete: (input: CommentDeleteInput) => Promise<CommentThread | null>
@@ -274,12 +274,14 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
       publish()
     },
     refresh,
-    get: input => transport.get(input),
-    create: async input => outbox ? outbox.create(input) : upsert(await transport.create(input)),
-    reply: async (input) => {
-      const waiting = outbox ? await outbox.reply(input) : null
-      return waiting ?? mutate(input.threadId, async () => upsert(await transport.reply(input)))
+    get: async (input) => {
+      const thread = await transport.get(input)
+      if (!thread || !outbox) return thread
+      upsert(thread)
+      return shown(thread.id) ?? thread
     },
+    create: async input => outbox ? outbox.create(input) : upsert(await transport.create(input)),
+    reply: input => outbox ? outbox.reply(input) : mutate(input.threadId, async () => upsert(await transport.reply(input))),
     // A comment or reply that has not gone out changes in the outbox, and sends nothing.
     edit: async (input) => {
       if (outbox?.owns(input.threadId, input.messageId)) {

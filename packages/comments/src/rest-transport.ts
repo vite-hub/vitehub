@@ -1,5 +1,5 @@
 import { commentsAnswerError, commentsUnansweredError } from "./client-diagnostics.ts"
-import { retryAfterOf, uploadFiles } from "./client-files.ts"
+import { outboxAccountHeader, retryAfterOf, withCommentFiles } from "./client-files.ts"
 import { commentsRoute } from "./page.ts"
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
@@ -14,7 +14,6 @@ import type {
   CommentReplyInput,
   CommentsTransport,
   CommentStatusInput,
-  CommentSubject,
   CommentThread,
   CommentUploadInput,
   CommentUser,
@@ -140,7 +139,11 @@ export interface RestTransport extends CommentsTransport {
 }
 
 const thread = (id: string) => `/threads/${encodeURIComponent(id)}`
-const post = (body?: unknown): RequestInit => ({ method: "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+const post = (body?: unknown, account?: string): RequestInit => ({
+  method: "POST",
+  ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  ...(account === undefined ? {} : { headers: { [outboxAccountHeader]: encodeURIComponent(account) } }),
+})
 
 /**
  * A transport over the Comments API at `<base>/_vitehub/comments`: the routes that the overlay uses. The server
@@ -151,12 +154,7 @@ const post = (body?: unknown): RequestInit => ({ method: "POST", ...(body === un
 export function createRestTransport(options: RestTransportOptions = {}): RestTransport {
   const request = createCommentsRestRequest(options)
   const base = (options.base ?? "").replace(/\/+$/, "")
-  const upload = async (input: CommentUploadInput) => (await request<CommentAttachment>("/attachments", post(input))).data
-  // Files go first, one upload each, and the message names their keys.
-  const withFiles = async <T extends { attachments?: string[] }>({ files, ...input }: T & CommentFiles, subject?: CommentSubject): Promise<Omit<T, "files">> => {
-    if (!files?.length) return input
-    return { ...input, attachments: [...(input.attachments ?? []), ...await uploadFiles(files, subject, upload)] }
-  }
+  const upload = async (input: CommentUploadInput, account?: string) => (await request<CommentAttachment>("/attachments", post(input, account))).data
   return {
     async list(query: CommentListQuery) {
       return (await request<RestCommentThread[]>(`/threads?${listSearch(query)}`)).data
@@ -165,11 +163,13 @@ export function createRestTransport(options: RestTransportOptions = {}): RestTra
       const path = "id" in input ? thread(input.id) : `/scopes/${encodeURIComponent(input.scope)}/threads/${input.n}`
       return (await request<RestCommentThread | null>(path)).data
     },
-    async create(input: CommentCreateInput & CommentFiles) {
-      return (await request<RestCommentThread>("/threads", post(await withFiles(input, input.subject)))).data
+    async create({ files, outbox, ...input }: CommentCreateInput & CommentFiles) {
+      const body = await withCommentFiles(input, { files, outbox }, input.subject, data => upload(data, outbox?.account))
+      return (await request<RestCommentThread>("/threads", post(body, outbox?.account))).data
     },
-    async reply({ threadId, subject, ...input }: CommentReplyInput & CommentFiles) {
-      const answer = await request<unknown>(`${thread(threadId)}/comments`, post(await withFiles(input, subject)))
+    async reply({ threadId, subject, files, outbox, ...input }: CommentReplyInput & CommentFiles) {
+      const body = await withCommentFiles(input, { files, outbox }, subject, data => upload(data, outbox?.account))
+      const answer = await request<unknown>(`${thread(threadId)}/comments`, post(body, outbox?.account))
       if (!answer.thread) throw commentsUnansweredError(200)
       return answer.thread
     },
@@ -196,7 +196,7 @@ export function createRestTransport(options: RestTransportOptions = {}): RestTra
       }
       return (await request<CommentUser[]>(`/people?${params}`)).data
     },
-    upload,
+    upload: input => upload(input),
     attachmentUrl: key => commentAttachmentUrl(key, base),
   }
 }

@@ -23,7 +23,7 @@ export const comments = createCommentsClient({
 comments.start()
 ```
 
-`account` is who writes, such as the user id or a guest id. The outbox sends only the entries of its account, so a comment never goes out as another person.
+`account` is the Comments author ID. Use the signed-in user's ID or the full guest author ID. The server checks the author on each upload and write. If the session changes, the old entries wait until that author signs in and calls `retry()`.
 
 Now `create()` and `reply()` return as soon as the entry is saved, also with no network:
 
@@ -46,7 +46,7 @@ A waiting comment is a thread in `comments.threads`, after the threads of the se
 
 | Field | On a waiting thread or message |
 | --- | --- |
-| `id` | The `requestId`, until the server copy replaces it. |
+| `id` | The local draft ID, until the server copy replaces it. Use it for outbox actions. |
 | `n` | `0`: the server gives the number. |
 | `delivery.status` | `pending` while it waits or goes out. `failed` when the server refused it. |
 | `delivery.error` | Why the last try did not go out: `status`, `why`, and `code` and `fix` when the server sent them. |
@@ -64,7 +64,7 @@ The outbox sends one entry at a time, in the order they were written. Each one c
 | `401` | Waits for `retry()`, such as after a sign-in. |
 | Any other `4xx` | Moves the entry to `failures`. The next entries go on. |
 
-A reply to a waiting comment waits until the comment is on the server, then goes to its server id. A refused comment holds its replies until you retry or dismiss it.
+A reply to a waiting comment waits until the comment is on the server, then goes to its server ID. A refused comment holds its replies until you retry or dismiss it. Replies are saved even if the thread is outside the current list. For an uncached thread, the returned view contains the waiting reply only; it does not add a thread to the list.
 
 When the app is open in several tabs, one tab sends. The others hear each change and show the same entries.
 
@@ -72,19 +72,19 @@ When the app is open in several tabs, one tab sends. The others hear each change
 
 | Field | What it holds |
 | --- | --- |
-| `entries` | Every entry of the account, in order. Each has `requestId`, `kind` (`create` or `reply`), `input`, `files`, `status`, and `error`. |
+| `entries` | Every entry of the account, in order. Each has a local `id`, a `requestId`, a `kind` (`create` or `reply`), `input`, `files`, `status`, and an optional `error`. |
 | `queued` | The entries that wait or go out now. |
 | `failures` | The entries that the server refused. |
 | `persisted` | `true` when the entries are in IndexedDB. `false` when they live only in this page, such as in a private window without IndexedDB. |
 
 | Method | Does |
 | --- | --- |
-| `retry(requestId?)` | Sends the entry again now. Without `requestId`, the whole queue tries again. |
-| `edit(requestId, body, mentions?)` | Changes the text before it goes out. A refused entry goes back in the queue. |
-| `dismiss(requestId)` | Removes the entry. A comment takes its waiting replies with it. |
-| `clear()` | Removes every entry of the account, such as at sign-out. |
+| `retry(id?)` | Sends the entry again now. Without `id`, resumes pending entries. |
+| `edit(id, body, mentions?)` | Changes the text before it goes out. A refused entry goes back in the queue. |
+| `dismiss(id)` | Removes the entry. A comment takes its waiting replies with it. |
+| `clear()` | Removes every entry of the account, such as at sign-out. It cannot cancel a request already sent. |
 
-`edit` and `dismiss` return `false` while the entry is on its way. `comments.edit()` and `comments.delete()` on a waiting comment or reply change the entry and send nothing. While it is on its way, they fail with `COMMENTS_OUTBOX_SENDING`.
+`edit` and `dismiss` return `false` while the entry is on its way or if the server may already have it after a lost answer. In those cases, `comments.edit()` and `comments.delete()` fail with `COMMENTS_OUTBOX_SENDING`. Wait for the server copy, then edit or delete it.
 
 `comments.onChange()` tells every change of the outbox. `comments.start()` also sends what an earlier page saved.
 
@@ -106,7 +106,7 @@ addEventListener('beforeunload', (event) => {
 
 ## Custom transports
 
-A transport gets the `requestId` and the `files` in `create()` and `reply()`, and `subject` in `reply()` for the upload. `createRestTransport()` and `createRpcTransport()` upload each file, then send the keys in `attachments`. A transport of your own does the same, and sends the same thread back for a repeated `requestId`.
+A transport gets the `requestId`, the remaining `files`, and `outbox` in `create()` and `reply()`. It gets `subject` in `reply()` for the upload. On each upload and message write, the server must check that the current author matches `outbox.account`. A custom transport must await `outbox.uploaded(key)` after each successful upload, then send the keys in `attachments`. The next attempt gets those keys and skips the saved uploads, even after a reload. Send the first thread back for a repeated `requestId` on the same target.
 
 Set `status` on a thrown error so the outbox knows whether to wait, and `retryAfter` in milliseconds to ask for a wait. An error without `status` counts as no answer.
 

@@ -9,6 +9,8 @@ const anchor = { kind: "element", selector: "#cta", x: 500, y: 500 } as const
 
 /** One browser: tabs that share one lock and one channel, one network switch, and timers that run when the test says. */
 function createBrowser() {
+  let now = Date.now()
+  vi.spyOn(Date, "now").mockImplementation(() => now)
   const listeners = new Set<(event: "online" | "offline" | "visible" | "hidden") => void>()
   const channels = new Set<(message: CommentsOutboxMessage) => void>()
   const timers: Array<{ ms: number, task: () => void, cancelled: boolean }> = []
@@ -25,7 +27,9 @@ function createBrowser() {
     },
     /** Runs every timer that is due. */
     runTimers() {
-      for (const timer of timers.splice(0)) if (!timer.cancelled) timer.task()
+      const ready = timers.splice(0).filter(timer => !timer.cancelled)
+      now += Math.max(0, ...ready.map(timer => timer.ms))
+      for (const timer of ready) timer.task()
     },
     tab(): CommentsOutboxEnvironment {
       const own = new Set<(message: CommentsOutboxMessage) => void>()
@@ -117,6 +121,7 @@ function setup(options: { store?: CommentsOutboxStore, browser?: ReturnType<type
 const stops: Array<() => void> = []
 afterEach(() => {
   for (const stop of stops.splice(0)) stop()
+  vi.restoreAllMocks()
 })
 
 describe("the comments outbox", () => {
@@ -140,9 +145,11 @@ describe("the comments outbox", () => {
     const { browser, server, client } = setup()
     await vi.waitFor(() => expect(client.status).toBe("ready"))
     server.plan.push("lost")
-    await client.create({ subject, anchor, body: "Typo in the title" })
+    const draft = await client.create({ subject, anchor, body: "Typo in the title" })
     await vi.waitFor(() => expect(browser.waits).toHaveLength(1))
     expect(client.outbox.queued[0]).toMatchObject({ status: "pending", error: { status: 0 } })
+    await expect(client.edit({ threadId: draft.id, messageId: draft.id, body: "Corrected" })).rejects.toMatchObject({ code: "COMMENTS_OUTBOX_SENDING" })
+    await expect(client.outbox.dismiss(draft.id)).resolves.toBe(false)
 
     // The server has it. A refresh lists it while the outbox still waits to resend.
     await client.refresh()
@@ -155,6 +162,105 @@ describe("the comments outbox", () => {
     expect(server.creates).toHaveLength(2)
     expect(server.memory.threads).toHaveLength(1)
     expect(client.threads).toHaveLength(1)
+  })
+
+  it("isolates reused keys and returns the first result for a replay", async () => {
+    const browser = createBrowser()
+    browser.online = false
+    const first = setup({ browser })
+    const other = setup({ browser, store: first.store, account: "ben" })
+    const input = { subject, anchor, body: "First draft", requestId: "same-key" }
+    const draft = await first.client.create(input)
+    expect(await first.client.create({ ...input, body: "Do not replace the draft" })).toEqual(draft)
+    await other.client.create({ ...input, body: "Other account" })
+    expect((await first.store.list(ana.id))[0]?.input.body).toBe("First draft")
+    expect((await first.store.list("ben"))[0]?.input.body).toBe("Other account")
+    other.stop()
+    browser.online = true
+    await vi.waitFor(() => expect(first.client.outbox.entries).toHaveLength(0))
+    expect(await first.client.create(input)).toEqual(first.server.memory.threads[0])
+    expect(first.server.creates).toHaveLength(1)
+  })
+
+  it("queues a reply to a thread opened by id and persists its subject", async () => {
+    const { browser, server, client, store, stop } = setup()
+    const target = { kind: "page", id: "/not-in-the-list" }
+    const thread = await server.memory.create({ subject: target, anchor, body: "Outside the list" })
+    await client.get({ id: thread.id })
+    browser.online = false
+    const reply = await client.reply({ threadId: thread.id, body: "Offline reply", files: [new Blob(["file"])] })
+    expect(reply.messages.at(-1)?.delivery?.status).toBe("pending")
+    expect(server.replies).toHaveLength(0)
+    expect((await store.list(ana.id))[0]).toMatchObject({ kind: "reply", subject: target })
+    stop()
+    const reloaded = setup({ browser, server, store })
+    browser.online = true
+    await vi.waitFor(() => expect(server.replies[0]).toMatchObject({ threadId: thread.id, subject: target }))
+    await vi.waitFor(() => expect(reloaded.client.outbox.entries).toHaveLength(0))
+  })
+
+  it("keeps completed uploads across reload and a lost write response", async () => {
+    const browser = createBrowser()
+    const server = createServer()
+    const store = createMemoryOutboxStore()
+    const send = server.transport.create
+    let uploads = 0
+    server.transport.create = async ({ files, outbox, ...input }) => {
+      const attachments = [...(input.attachments ?? [])]
+      for (const _file of files ?? []) {
+        const key = `files/${++uploads}.png`
+        await outbox?.uploaded(key)
+        attachments.push(key)
+      }
+      return send({ ...input, attachments })
+    }
+    server.plan.push(failure(429, 7000), "lost")
+    const first = setup({ browser, server, store })
+    await first.client.create({ subject, anchor, body: "Screenshot", files: [new Blob(["pixels"])] })
+    await vi.waitFor(() => expect(first.client.outbox.entries[0]?.error?.status).toBe(429))
+    expect(uploads).toBe(1)
+    first.stop()
+
+    const second = setup({ browser, server, store })
+    await second.client.outbox.retry()
+    await vi.waitFor(() => expect(second.client.outbox.entries[0]?.error?.status).toBe(0))
+    await second.client.outbox.retry()
+    await vi.waitFor(() => expect(second.client.outbox.entries).toHaveLength(0))
+    expect(uploads).toBe(1)
+    expect(server.creates).toHaveLength(3)
+    expect(server.memory.threads).toHaveLength(1)
+    expect(server.memory.threads[0]?.messages[0]?.attachments).toEqual(["files/1.png"])
+  })
+
+  it("shares the auth hold and delay across tab handoffs", async () => {
+    const first = setup()
+    const second = setup(first)
+    first.server.plan.push(failure(429, 7000), failure(401))
+    await first.client.create({ subject, anchor, body: "Queued" })
+    await vi.waitFor(() => expect(second.client.outbox.entries[0]?.error?.status).toBe(429))
+    expect(first.server.creates).toHaveLength(1)
+    first.stop()
+    first.browser.runTimers()
+    await vi.waitFor(() => expect(second.client.outbox.entries[0]?.error?.status).toBe(401))
+    const reloaded = setup(first)
+    await vi.waitFor(() => expect(reloaded.client.outbox.entries[0]?.error?.status).toBe(401))
+    expect(first.server.creates).toHaveLength(2)
+    await reloaded.client.outbox.retry()
+    await vi.waitFor(() => expect(second.client.outbox.entries).toHaveLength(0))
+    expect(first.server.creates).toHaveLength(3)
+  })
+
+  it("does not restore an entry cleared while a send is pending", async () => {
+    const { server, client, store } = setup()
+    let refuse!: (reason: Error) => void
+    server.plan.push(new Promise<void>((_, reject) => refuse = reject))
+    await client.create({ subject, anchor, body: "Discard on sign-out" })
+    await vi.waitFor(() => expect(server.creates).toHaveLength(1))
+    await client.outbox.clear()
+    refuse(failure(503))
+    await client.outbox.retry()
+    expect(await store.list(ana.id)).toEqual([])
+    expect(client.threads).toEqual([])
   })
 
   it("shows a reply once when its answer was lost, and the resend adds no second message", async () => {
