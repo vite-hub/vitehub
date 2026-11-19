@@ -20,11 +20,15 @@ afterEach(async () => {
 })
 
 export async function createProject(files: Record<string, string>): Promise<string> {
-  const scratch = join(import.meta.dirname, "../../../../.cache")
-  await mkdir(scratch, { recursive: true })
-  const root = await mkdtemp(join(scratch, "content-cms-"))
+  // Keep disposable files outside the package another build may copy, and link the dependencies that are only installed in the package.
+  const cache = join(import.meta.dirname, "../../../../.cache")
+  await mkdir(cache, { recursive: true })
+  const root = await mkdtemp(join(cache, "content-cms-"))
   roots.push(root)
-  await symlink(join(import.meta.dirname, "../../node_modules"), join(root, "node_modules"), "junction")
+  await mkdir(join(root, "node_modules/@vite-hub"), { recursive: true })
+  for (const name of ["@vite-hub/content", "vue"]) {
+    await symlink(join(import.meta.dirname, "../../node_modules", name), join(root, "node_modules", name), "dir")
+  }
   for (const [file, content] of Object.entries(files)) {
     await mkdir(join(root, file, ".."), { recursive: true })
     await writeFile(join(root, file), content.replaceAll("<root>", root))

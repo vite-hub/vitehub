@@ -30,7 +30,7 @@ A Definition file in the server directory turns its feature on. You do not add a
 | `server/agents/` | Agent |
 | `server/auth.ts` | Auth |
 | `server/browsers/` | Browser |
-| `server/channels/` | Channels |
+| `server/channels/` | Channels, and Agent for a Channel that receives webhooks |
 | `server/connections/` | Connections |
 | `server/queues/` | Queue |
 | `server/realtime/` | Realtime |

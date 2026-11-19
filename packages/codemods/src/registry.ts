@@ -1,5 +1,8 @@
 import { accessSpellings } from "./access-spellings/index.ts"
 import { agentSurface } from "./agent-surface/index.ts"
+import { authAccessors } from "./auth-accessors/index.ts"
+import { authSignIn } from "./auth-sign-in/index.ts"
+import { channels } from "./channels/index.ts"
 import { defineForms } from "./define-forms/index.ts"
 import { docus } from "./docus/index.ts"
 import { driverKey } from "./driver-key/index.ts"
@@ -29,7 +32,6 @@ import type { Codemod } from "./types.ts"
 export const codemods: readonly Codemod[] = [
   nuxthub,
   nuxtSafeRuntimeConfig,
-  driverKey,
   t3Env,
   resend,
   rootAccessors,
@@ -43,11 +45,15 @@ export const codemods: readonly Codemod[] = [
   defineForms,
   oneEntryImports,
   vitehubOptions,
+  driverKey,
   agentSurface,
   renamedApis,
   tsconfigPaths,
   shellDriver,
   accessSpellings,
+  authSignIn,
+  channels,
+  authAccessors,
 ]
 
 /**
@@ -74,4 +80,7 @@ export const upgradeCodemods: readonly Codemod[] = [
   tsconfigPaths,
   shellDriver,
   accessSpellings,
+  authSignIn,
+  channels,
+  authAccessors,
 ]
