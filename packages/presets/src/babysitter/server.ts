@@ -51,7 +51,7 @@ import { dailyPassResumeAt, nextReviewPushBudget, repairPushAllowance, type Prog
 import { createForgeQuota, createProviderQuota } from "./provider-quota.ts";
 import { baseFixedSinceFailure, staleBaseOverlap, type BaseFreshnessReader } from "./base-freshness.ts";
 import { currentActionRuns, failedOwnActions, inheritedBypassSafety, inheritedCheckEvaluation, jobFailureFacts, parseFailedActionOutput, sameActionFailure, unrelatedFailureWait, type FailedActionOutput, type FailureCause, type InheritedCheckEvaluation, type JobFailureFacts } from "./ci-attribution.ts";
-import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety, sameRepositoryBranches, stackChildBaseDeletion, foldParent, foldMethod } from "./stack.ts";
+import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety, sameRepositoryBranches, stackChildBaseDeletion, foldParent, foldMethod, isForkHead } from "./stack.ts";
 import { babysitterModelAdmission, type BabysitterAdmissionResult } from "./admission.ts";
 import { boundedMergeReady } from "./merge-ready.ts";
 import { createBabysitterInstaller } from "./install.ts";
@@ -551,8 +551,46 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   }
 
   /**
-   * A required check that never reported gets a fresh run: a branch behind its base is updated, and a
-   * current one has its head's Actions runs rerun. Once per head every six hours.
+   * Pushes a fork PR's head to its `merge.forkHeadBranches` branch, so required checks that run only on
+   * pushes to the repository report on it. Push workflows run the fork's code, so only a head that passes
+   * the merge gate is pushed. Once per head; a failed push is tried again after an hour.
+   */
+  async function pushForkHead(snapshot: Snapshot, owner: Record<string, unknown>, missing: string[], signal: AbortSignal): Promise<boolean> {
+    const { repository, number } = snapshot;
+    const head = snapshot.pr?.head?.sha;
+    const template = merge.mode === "direct" ? merge.forkHeadBranches?.get(repository.toLowerCase()) : undefined;
+    if (!template || !head || !isForkHead(snapshot.pr, repository)) return false;
+    const key = `fork-head-push:${repository}#${number}`;
+    const previous = await pullRequestInbox.meta(key);
+    if (isRuntimeRecord(previous) && previous.head === head && (previous.pushed === true || Number(previous.at) > Date.now() - 60 * 60_000)) return false;
+    if (!await directMergeWakeAllowed(snapshot, "pending")) {
+      schedulerEvent("babysitter.fork_head.skipped", { ...owner, missing, reason: "merge gate" });
+      return false;
+    }
+    const branch = template.replaceAll("{number}", String(number));
+    try {
+      const { provider } = await forge(repository, signal);
+      const ref = await provider.request<unknown>("GET", `/repos/${repository}/git/ref/heads/${branch}`, { signal }).then(response => response.data, error => {
+        if (forgeErrorStatus(error) === 404) return undefined;
+        throw error;
+      });
+      if (isRuntimeRecord(ref)) await provider.request("PATCH", `/repos/${repository}/git/refs/heads/${branch}`, { body: { sha: head, force: true }, signal });
+      else await provider.request("POST", `/repos/${repository}/git/refs`, { body: { ref: `refs/heads/${branch}`, sha: head }, signal });
+    } catch (error) {
+      await noteForgeQuota(error, "fork-head-push");
+      await pullRequestInbox.setMeta(key, { head, at: Date.now(), pushed: false });
+      schedulerEvent("babysitter.fork_head.push_failed", { ...owner, missing, branch, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+      return false;
+    }
+    await pullRequestInbox.setMeta(key, { head, at: Date.now(), pushed: true });
+    schedulerEvent("babysitter.fork_head.pushed", { ...owner, missing, branch, head_sha: head });
+    return true;
+  }
+
+  /**
+   * A required check that never reported gets a fresh run: an approved fork head is pushed to its
+   * `merge.forkHeadBranches` branch, a branch behind its base is updated, and a current one has its
+   * head's Actions runs rerun. Once per head every six hours.
    */
   async function retestMissingRequiredChecks(snapshot: Snapshot, owner: Record<string, unknown>, signal: AbortSignal): Promise<boolean> {
     const { repository, number } = snapshot;
@@ -562,6 +600,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (!head || !baseRef || pr.draft || conflicted(snapshot)) return false;
     const missing = missingRequiredChecks(snapshot, await requiredCheckEvaluation(snapshot, signal));
     if (!missing.length) return false;
+    if (await pushForkHead(snapshot, owner, missing, signal)) return true;
     const key = `missing-check-retest:${repository}#${number}`;
     const previous = await pullRequestInbox.meta(key);
     if (isRuntimeRecord(previous) && previous.head === head && Number(previous.at) > Date.now() - 6 * 60 * 60_000) return false;
@@ -1038,7 +1077,25 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       terminal: true,
     });
     schedulerEvent("babysitter.owner.merged", { ...owner, head_sha: decision.head, avoided_invocation: true });
+    await deleteForkHeadBranch(repository, number, owner, signal);
     return "merged";
+  }
+
+  /** Deletes the `merge.forkHeadBranches` branch that the host pushed for a merged fork PR. */
+  async function deleteForkHeadBranch(repository: string, number: number, owner: Record<string, unknown>, signal: AbortSignal): Promise<void> {
+    const template = merge.mode === "direct" ? merge.forkHeadBranches?.get(repository.toLowerCase()) : undefined;
+    const key = `fork-head-push:${repository}#${number}`;
+    const previous = await pullRequestInbox.meta(key);
+    if (!template || !isRuntimeRecord(previous) || previous.pushed !== true) return;
+    const branch = template.replaceAll("{number}", String(number));
+    try {
+      const { provider } = await forge(repository, signal);
+      await provider.request("DELETE", `/repos/${repository}/git/refs/heads/${branch}`, { signal });
+      await pullRequestInbox.setMeta(key, { ...previous, pushed: false });
+    } catch (error) {
+      await noteForgeQuota(error, "fork-head-delete");
+      schedulerEvent("babysitter.fork_head.delete_failed", { ...owner, branch, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+    }
   }
 
   /**

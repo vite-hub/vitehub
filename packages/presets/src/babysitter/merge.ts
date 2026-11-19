@@ -60,6 +60,14 @@ export type BabysitterMerge =
      */
     markDraftsReady?: readonly string[];
     /**
+     * A branch, by repository (`owner/name`), that receives a fork PR's head when a required check never
+     * reported on it, such as `{ "acme/app": "preview/pr-{number}" }`. Checks that run only on pushes to
+     * the repository itself, like pkg.pr.new, then report on the head. `{number}` is the PR number. The
+     * host pushes only a head that passes the merge gate, because push workflows run the fork's code with
+     * the repository's permissions. List a repository only when its push workflows on that branch get no secrets.
+     */
+    forkHeadBranches?: Record<string, string>;
+    /**
      * Merge a ready pull request into its parent's branch when its base is the head branch of another
      * open pull request in the same repository, so the stack lands with the parent. Default `true`.
      */
@@ -77,6 +85,8 @@ export type ResolvedBabysitterMerge =
     foldStacks: boolean;
     /** Lowercase check names by lowercase repository. */
     bypassInheritedChecks?: ReadonlyMap<string, ReadonlySet<string>>;
+    /** Branch templates by lowercase repository. */
+    forkHeadBranches?: ReadonlyMap<string, string>;
   };
 
 export type MergeDecision = { ready: true; head: string } | { ready: false; reason: string };
@@ -295,7 +305,18 @@ export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge 
         if (checks.length) bypassInheritedChecks.set(repository.toLowerCase(), new Set(checks.map((check: string) => check.toLowerCase())));
       }
     }
-    return { mode: "direct", method, foldStacks: merge.foldStacks ?? true, ...ready ? { ready } : {}, ...drafts?.length ? { markDraftsReady: new Set(drafts.map(login => login.trim().toLowerCase())) } : {}, ...bypassInheritedChecks.size ? { bypassInheritedChecks } : {} };
+    const forkHeadBranches = new Map<string, string>();
+    if (merge.forkHeadBranches !== undefined) {
+      const expected = 'an object of branch names by repository, such as { "acme/app": "preview/pr-{number}" }';
+      if (!isRuntimeRecord(merge.forkHeadBranches) || Array.isArray(merge.forkHeadBranches)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "merge.forkHeadBranches", expected });
+      for (const [repository, branch] of Object.entries(merge.forkHeadBranches)) {
+        if (!hasRuntimeType(branch, "string") || !branch.includes("{number}") || !/^[\w.{}/-]+$/.test(branch)) {
+          throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: `merge.forkHeadBranches["${repository}"]`, expected: 'a branch name with {number}, such as "preview/pr-{number}"' });
+        }
+        forkHeadBranches.set(repository.toLowerCase(), branch);
+      }
+    }
+    return { mode: "direct", method, foldStacks: merge.foldStacks ?? true, ...ready ? { ready } : {}, ...drafts?.length ? { markDraftsReady: new Set(drafts.map(login => login.trim().toLowerCase())) } : {}, ...bypassInheritedChecks.size ? { bypassInheritedChecks } : {}, ...forkHeadBranches.size ? { forkHeadBranches } : {} };
   }
   throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "merge", expected: 'false, "auto", "direct", or { strategy: "direct" }' });
 }

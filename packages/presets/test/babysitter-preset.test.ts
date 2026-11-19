@@ -2484,6 +2484,75 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
+  describe("merge.forkHeadBranches", () => {
+    const forkFixture = async (options: { approved?: boolean; ref?: "missing" | "present" } = {}) => {
+      const f = await fixture(false, false, {
+        merge: { strategy: "direct", forkHeadBranches: { "acme/app": "preview/pr-{number}" }, ...options.approved === false ? { ready: () => "a maintainer's approval" } : {} },
+        result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) },
+      });
+      const command = f.command.getMockImplementation()!;
+      const finished = new Date(Date.now() - 60 * 60_000).toISOString();
+      f.command.mockImplementation(async (args, request) => {
+        const text = args.join(" ");
+        // "preview" runs only on pushes to acme/app, so it never reports on the fork's head.
+        if (text.includes("/rules/branches/")) return { stdout: JSON.stringify({ type: "required_status_checks", parameters: { required_status_checks: [{ context: "test" }, { context: "preview" }] } }), stderr: "" };
+        if (text.includes("check-runs")) return { stdout: JSON.stringify({ id: 1, name: "test", head_sha: f.pr().head.sha, status: "completed", conclusion: "success", started_at: finished, completed_at: finished }), stderr: "" };
+        if (text.includes("git/ref/heads/preview/pr-12")) {
+          if (options.ref === "present") return { stdout: JSON.stringify({ ref: "refs/heads/preview/pr-12", object: { type: "commit", sha: "e".repeat(40) } }), stderr: "" };
+          throw new Error("HTTP 404: Not Found");
+        }
+        if (text.includes("repos/acme/app/git/refs")) return { stdout: JSON.stringify({ ref: "refs/heads/preview/pr-12", object: { sha: f.pr().head.sha } }), stderr: "" };
+        const result = await command(args, request);
+        if (/^repos\/acme\/app\/pulls\/12$/.test(args.find(arg => arg.startsWith("repos/")) ?? "") || text.includes("pulls?state")) {
+          return { stdout: result.stdout.split("\n").filter(Boolean).map(line => {
+            const value = JSON.parse(line);
+            return JSON.stringify(value.number === 12 ? { ...value, head: { ...value.head, repo: { full_name: "contributor/app" } } } : value);
+          }).join("\n"), stderr: "" };
+        }
+        return result;
+      });
+      return f;
+    };
+    // The first reconcile reviews the head. The retry after it finds the required check still missing.
+    const reviewAndRetry = async (f: Awaited<ReturnType<typeof fixture>>) => {
+      await f.reconcile();
+      const finished = new Date(Date.now() - 60 * 60_000).toISOString();
+      await f.runtime.inbox.ingest("test-finished", "check_run", { repository: { full_name: "acme/app" }, action: "completed",
+        check_run: { id: 1, name: "test", head_sha: f.pr().head.sha, status: "completed", conclusion: "success", started_at: finished, completed_at: finished, app: { id: 1 }, pull_requests: [{ number: 12 }] } });
+      const reviewed = await f.runtime.inbox.get("acme/app", 12);
+      expect(reviewed?.wait?.retryAt).toBeTypeOf("number");
+      const now = vi.spyOn(Date, "now").mockReturnValue(reviewed!.wait!.retryAt! + 1);
+      try { await f.reconcile(); } finally { now.mockRestore(); }
+    };
+    const refCalls = (f: Awaited<ReturnType<typeof fixture>>) => f.command.mock.calls.map(([args]) => args).filter(args => args.some(arg => arg.startsWith("repos/acme/app/git/refs")));
+
+    it("pushes an approved fork head to its branch when a required check never reported", async () => {
+      const f = await forkFixture();
+      try {
+        await reviewAndRetry(f);
+        expect(refCalls(f)).toEqual([["api", "-X", "POST", "repos/acme/app/git/refs", "ref=refs/heads/preview/pr-12", `sha=${"a".repeat(40)}`]]);
+        expect(f.events).toHaveBeenCalledWith("babysitter.fork_head.pushed", expect.objectContaining({ branch: "preview/pr-12", missing: ["preview"] }));
+        expect(f.command.mock.calls.some(([args]) => args.some(arg => arg.includes("update-branch")))).toBe(false);
+      } finally { await f.runtime.inbox.close(); }
+    });
+
+    it("moves an existing branch to the fork head", async () => {
+      const f = await forkFixture({ ref: "present" });
+      try {
+        await reviewAndRetry(f);
+        expect(refCalls(f)).toEqual([["api", "-X", "PATCH", "repos/acme/app/git/refs/heads/preview/pr-12", `sha=${"a".repeat(40)}`, "force=true"]]);
+      } finally { await f.runtime.inbox.close(); }
+    });
+
+    it("does not push a fork head that fails the merge gate", async () => {
+      const f = await forkFixture({ approved: false });
+      try {
+        await reviewAndRetry(f);
+        expect(refCalls(f)).toEqual([]);
+      } finally { await f.runtime.inbox.close(); }
+    });
+  });
+
   it("updates a green branch that is only behind a base requiring up-to-date branches", async () => {
     const f = await fixture(false, false, { merge: "direct", mergeableState: "behind" });
     try {
