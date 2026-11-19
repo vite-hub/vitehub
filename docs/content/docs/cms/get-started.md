@@ -60,7 +60,7 @@ export default defineConfig({
 ::::
 :::
 
-`console: { auth: false }` turns on the [Console](/docs/development/console) endpoint without signed calls, so the `vitehub` commands can call the dev server. Use it only on your own computer.
+`console: { auth: false }` turns on the [Console](/docs/console) endpoint without signed calls, so the `vitehub` commands can call the dev server. Use it only on your own computer.
 
 ::
 
