@@ -373,9 +373,9 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
     let threadId = `pass-${passes.length}`;
     let finishTurn!: () => void;
     const turnSent = new Promise<void>(resolve => { finishTurn = resolve });
-    const configuredEndpoint = options.settings?.launchArgs?.match(/mcp_servers\.t3-code\.url=("[^"]+")/)?.[1];
+    const configuredEndpoint = options.settings?.launchArgs?.match(/mcp_servers\.vitehub-invocation\.url=("[^"]+")/)?.[1];
     let mcp: { endpoint: string; authorizationHeader: string } | undefined = configuredEndpoint
-      ? { endpoint: JSON.parse(configuredEndpoint), authorizationHeader: `Bearer ${options.environment?.T3_MCP_BEARER_TOKEN}` }
+      ? { endpoint: JSON.parse(configuredEndpoint), authorizationHeader: `Bearer ${options.environment?.VITEHUB_MCP_BEARER_TOKEN}` }
       : undefined;
     // Codex receives driver instructions as `developer_instructions` (#2636) and gets an empty AGENTS.md.
     // The runtime unescapes these characters inside a double-quoted argument; Codex parses the value as TOML.

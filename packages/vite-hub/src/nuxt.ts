@@ -600,7 +600,7 @@ async function installConsole({
     Reflect.apply(nuxt.hook, nuxt, ["listen", (server: ViteHubDevPeerUpgradeServer & { address?: () => { address: string, port?: number } | string | null }) => {
       addViteHubDevPeerUpgradeSigner(server)
       const notice = consoleDevAccessNotice(access?.mode, server.address?.())
-      if (notice) console[notice.level](notice.message)
+      if (notice) console.warn(notice)
     }])
   }
   const documentEditorSections = (await Promise.all(consoleDocumentEditorSectionIds.map(async (section) => {

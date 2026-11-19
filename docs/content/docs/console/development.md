@@ -19,7 +19,7 @@ pnpm vitehub kv list
 
 Once the dev server has a key in its environment, it takes only signed calls, like a deployment. You can also set `console: { auth: false }` for development only; a production build refuses it.
 
-The dev server then prints a note at startup, or a warning when it listens beyond loopback, as with `--host`. An unsigned call must come from the app origin, or send `x-vitehub-console: 1` with no `Origin` header. Otherwise it gets `403` with `CONSOLE_ORIGIN_REJECTED`, so browsers on other origins cannot call it.
+The dev server prints a warning at startup when it listens beyond loopback, as with `--host`. An unsigned call must come from the app origin, or send `x-vitehub-console: 1` with no `Origin` header. Otherwise it gets `403` with `CONSOLE_ORIGIN_REJECTED`, so browsers on other origins cannot call it.
 
 ## Only this machine
 
