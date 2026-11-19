@@ -1,5 +1,5 @@
 import { onReducedMotionChange, prefersReducedMotion } from "./reduced-motion.ts";
-import { defineMotionEffect, listMotionEffects, motionStateAttributes, onMotionEffectsChange } from "./registry.ts";
+import { claimMotionLayer, defineOwnEffect, listMotionEffects, motionStateAttributes, onMotionEffectsChange, otherMotionLayer } from "./registry.ts";
 import type { MotionContentChange, MotionEffect, MotionPress, MotionStateAttribute } from "./registry.ts";
 import { settleSprings } from "./spring.ts";
 
@@ -259,12 +259,31 @@ export interface InstallMotionOptions {
  * It is safe to call more than once. Returns a function that stops this install. The layer stops when every install
  * has stopped. On the server it does nothing. `installMotion(root?)` of `@vite-hub/ui/motion` is this function with
  * every built-in effect.
+ *
+ * When another copy of the module installed first, this install and these effects go to that copy, the shared layer,
+ * so an element that both copies cover moves once.
  */
 export function installMotion(root: MotionRoot, options: InstallMotionOptions): () => void {
   if (typeof document === "undefined") return () => {};
+  const shared = otherMotionLayer();
+  if (shared) {
+    // The effects that the app defined on this copy before it installed, such as one that replaces a built-in effect.
+    for (const effect of listMotionEffects()) shared.define(effect);
+    return shared.install(root, options.effects);
+  }
+  claimMotionLayer(sharedLayer);
+  return installOwn(root, options.effects);
+}
+
+const sharedLayer = {
+  define: defineOwnEffect,
+  install: installOwn,
+};
+
+function installOwn(root: MotionRoot, effects: readonly MotionEffect[]): () => void {
   // An effect that an app defined with the same name, to replace a built-in one, stays.
   const defined = new Set(listMotionEffects().map(effect => effect.name));
-  for (const effect of options.effects) if (!defined.has(effect.name)) defineMotionEffect(effect);
+  for (const effect of effects) if (!defined.has(effect.name)) defineOwnEffect(effect);
   if (!roots.size) startDocument();
   const entry = roots.get(root);
   if (entry) entry.installs++;

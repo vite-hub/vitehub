@@ -76,10 +76,42 @@ const effects = new Map<string, MotionEffect>();
 const changeListeners = new Set<() => void>();
 
 /**
+ * A page can load more than one copy of this module, such as the app's, the one in the bundle of the page pill, and the
+ * one that Comark UI inlines in a document. The first copy that installs is the shared layer: the copies that install
+ * after it give it their effects and their installs, so one set of listeners and one observer serve every copy, and
+ * an element that two copies cover moves once.
+ */
+export interface SharedMotionLayer {
+  define(effect: MotionEffect): () => void;
+  install(root: Document | ShadowRoot | Element, effects: readonly MotionEffect[]): () => void;
+}
+
+const sharedKey = Symbol.for("vite-hub.motion.layer");
+let ownLayer: SharedMotionLayer | undefined;
+
+/** The shared layer of another copy of this module, when that copy installed first. */
+export function otherMotionLayer(): SharedMotionLayer | undefined {
+  const shared: unknown = Reflect.get(globalThis, sharedKey);
+  if (!shared || shared === ownLayer || typeof shared !== "object" || !("define" in shared) || !("install" in shared)) return undefined;
+  // SAFETY: only copies of this module write the key, with an object of this shape.
+  return shared as SharedMotionLayer;
+}
+
+/** Makes this copy the shared layer when no copy is yet. */
+export function claimMotionLayer(layer: SharedMotionLayer): void {
+  ownLayer = layer;
+  if (!Reflect.get(globalThis, sharedKey)) Reflect.set(globalThis, sharedKey, layer);
+}
+
+/**
  * Adds an effect to the motion layer. Every installed layer runs it from the next interaction on. Returns a function
- * that removes it.
+ * that removes it. When another copy of the module is the shared layer, the effect goes to that copy.
  */
 export function defineMotionEffect(effect: MotionEffect): () => void {
+  return otherMotionLayer()?.define(effect) ?? defineOwnEffect(effect);
+}
+
+export function defineOwnEffect(effect: MotionEffect): () => void {
   effects.set(effect.name, effect);
   for (const listener of changeListeners) listener();
   return () => {

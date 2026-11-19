@@ -31,6 +31,7 @@ Label or icon changes with state: copy, save, deploy       → Label morph with 
 A number changes                                           → Digit roll
 Something appears next to its trigger: tooltip, hint       → Rises from behind its trigger, widens to fit, then slides between triggers
 Something arrives on its own: toast, banner, new message   → Comes in from its edge; the others make room with a spring
+Something moves to a new place: a picture that zooms         → It travels from its old box to its new one, position and size on springs
 Something the person reads opens: menu, popover, dialog    → Opens at once; only the trigger reacts
 Show or hide content: details, a collapsible section       → The chevron turns with a spring; the content opens at once
 A panel opens beside the page: a sidebar                   → Its width follows a spring, and the page makes room
@@ -61,7 +62,7 @@ When a component does something that is not in this list, add the interaction an
 
 A surface that draws its own motion, such as a hero figure or a canvas, sets `data-motion="none"` on its root. The motion layer then skips that element and everything inside it. When the files of such a figure animate by hand, they go on the "own-motion figures" list of `test/design-rules.test.ts`, with the reason. A figure is a picture that is not a control: a label, a list, a button, or a disclosure next to it still gets its motion from the layer. A plain TypeScript surface, such as the page pill, the page tools, or the comments overlay, imports `installMotion` from `@vite-hub/ui/motion` (it has no Vue) and passes its host element and each of its shadow roots, so the layer also sees the state attributes inside them. It does not install the document: the page that it is on keeps its own motion, or none. A surface that ships its own small bundle, such as the page pill, imports `installMotion` from `@vite-hub/ui/motion/core` instead and lists the effects that it runs: `installMotion(host, { effects: [pressEffect, appearEffect] })`. Only those effects go in its bundle. Effects are shared by the installs of one copy of the module, so the comments overlay, which uses `@vite-hub/ui/motion`, brings every effect.
 
-A page can load more than one copy of `@vite-hub/ui/motion`, such as the app's and the one in the bundle of the page pill. Each copy moves only what its installs cover, and the copy that starts a press marks the event, so a press squashes once.
+A page can load more than one copy of `@vite-hub/ui/motion`, such as the app's, the one in the bundle of the page pill, and the one that Comark UI inlines in a document that it renders. The first copy that installs is the shared layer: a copy that installs after it gives that copy its effects and its installs, so one set of listeners and one observer serve every copy, and an element that two copies cover moves once. Effects keep the springs of their own copy, so `setMotionSlowFactor()` and `forceReducedMotion()` act on the effects of the copy that you call them on. A copy from before this rule moves only what its installs cover, and the copy that starts a press marks the event, so a press squashes once.
 
 ### What the layer does
 
@@ -105,6 +106,7 @@ Each helper has a Vue component in `@vite-hub/ui` and a plain function in `@vite
 | A number changes | `<RollNumber :value :format>` | `rollNumber(element, value, format?)` | Rule 6. Only the changed digits roll, up when the number grows and down when it shrinks. The width follows. |
 | An action finished | `v-ring="done"` | `ring(element)` | Rule 7. A 5px ring in `--ui-border-accented` grows and fades in 720ms. |
 | A box refuses an action | | `shake(element)` | The box shakes once from side to side, out to 5px, in 400ms. Under reduced motion it does nothing: show the refusal with a color, as the comment box flashes its frame. |
+| A thing moves to a new place | | `travel(element, { from, to })` | Rule 8. The page puts the element at its new place, and the element travels there from `from`, its old box, with `translate` and `scale` on `snappy` springs. With `to`, it travels from where it is to `to` and stays there, as a zoomed picture goes back to its place in the page before the page removes the copy. A new travel in the middle of one keeps the speed. `done` is true when it lands. Under reduced motion it is at its place at once. |
 
 A helper can be called again in the middle of its motion and continues from where it is. The element keeps the final text in a visually hidden copy, and the moving letters are `aria-hidden`, so the accessible name is the new text at once. When the motion ends, the element holds plain text again. Under reduced motion a label, an icon, or a digit crossfades in 150ms, and there is no ring. Inside `data-motion="none"` the change happens at once.
 
