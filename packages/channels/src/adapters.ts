@@ -1,13 +1,16 @@
+import type { Duration } from "@vite-hub/runtime"
+
 import type { ChannelWebhookSecret, WebhookAdapterOptions, WebhookChannelAdapter } from "./types.ts"
 
 /**
  * Receives webhooks from any HTTP sender. ViteHub checks the signature, stores the delivery, deduplicates it by
- * delivery ID, and retries the `on` target until it succeeds. Set `signature` and `secret`. Only `secret: false`
- * accepts requests without verification.
+ * delivery ID, and retries the `on` target until it succeeds. Set `signature` and `secret`, the name of the server
+ * variable that holds the secret, or a function that returns it. Only `secret: false` accepts requests without
+ * verification.
  *
  * @example
  * export default defineChannel({
- *   adapter: webhook({ signature: 'bearer', secret: () => useServerEnv().prefect.webhookSecret }),
+ *   adapter: webhook({ signature: 'github', secret: 'PREFECT_WEBHOOK_SECRET' }),
  *   on: { webhook: event => sendQueue('triage', event.data) },
  * })
  */
@@ -33,18 +36,17 @@ export interface StripeEvent<TObject = Record<string, unknown>> {
 }
 
 export interface StripeAdapterOptions {
-  /** The endpoint's signing secret (`whsec_...`). Defaults to the `STRIPE_WEBHOOK_SECRET` environment variable. */
+  /**
+   * The name of the server variable that holds the endpoint's signing secret (`whsec_...`), or a function that returns
+   * the secret. Defaults to `"STRIPE_WEBHOOK_SECRET"`.
+   */
   secret?: ChannelWebhookSecret
   /** Another route next to `/_vitehub/channels/<name>`. A string literal. */
   path?: string
   /** The old webhook State and queue scope to keep when this Channel moves. */
   stateScope?: WebhookAdapterOptions<StripeEvent>["stateScope"]
-  /** Maximum age of the signed timestamp in seconds. Defaults to 300. */
-  toleranceSeconds?: number
-}
-
-function stripeWebhookSecret(): string | undefined {
-  return typeof process === "undefined" ? undefined : process.env.STRIPE_WEBHOOK_SECRET
+  /** Maximum age of the signed timestamp, such as `"10m"`. Defaults to `"5m"`. */
+  tolerance?: Duration
 }
 
 /**
@@ -61,8 +63,8 @@ export function stripe(options: StripeAdapterOptions = {}): WebhookChannelAdapte
     kind: "stripe",
     ...(options.path === undefined ? {} : { path: options.path }),
     ...(options.stateScope === undefined ? {} : { stateScope: options.stateScope }),
-    signature: options.toleranceSeconds === undefined ? "stripe-sha256" : { preset: "stripe-sha256", toleranceSeconds: options.toleranceSeconds },
-    secret: options.secret ?? stripeWebhookSecret,
+    signature: options.tolerance === undefined ? "stripe" : { type: "stripe", tolerance: options.tolerance },
+    secret: options.secret ?? "STRIPE_WEBHOOK_SECRET",
     event: payload => typeof payload?.type === "string" ? payload.type : undefined,
     id: payload => typeof payload?.id === "string" ? payload.id : undefined,
   })

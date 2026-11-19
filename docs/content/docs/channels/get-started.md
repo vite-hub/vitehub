@@ -113,14 +113,22 @@ Create `server/channels/builds.ts`. A webhook is an HTTP request that a service 
 import { defineChannel, webhook } from 'vite-hub/channels'
 
 export default defineChannel({
-  adapter: webhook<{ id: string }>({ signature: 'bearer', secret: 'local-secret' }),
+  adapter: webhook<{ id: string }>({ signature: 'bearer', secret: 'BUILDS_WEBHOOK_SECRET' }),
   on: {
     webhook: event => console.log(`build ${event.data.id} finished (delivery ${event.id})`),
   },
 })
 ```
 
+- `secret` is the name of the server variable that holds the secret, not the secret itself.
 - `webhook()` checks the secret in the `Authorization: Bearer <secret>` header.
+
+Set the variable in `.env` and restart the dev server:
+
+```bash [.env]
+BUILDS_WEBHOOK_SECRET=local-secret
+```
+
 - `on.webhook` runs the handler for each delivery. `webhook` is the default event name.
 
 Every Channel that receives webhooks has the route `/_vitehub/channels/<name>`. Send the same body twice:

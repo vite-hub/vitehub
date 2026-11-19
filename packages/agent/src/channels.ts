@@ -121,7 +121,8 @@ import {
 import type { GmailClient, GmailLabelSettings, GmailMessage, GmailModifyInput, GmailSettings } from "./internal/gmail-channel.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
-import { consoleInvocationUrl, createExecutionContext, createRuntimeContext, encodeRouteSegment, resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime"
+import { consoleInvocationUrl, createExecutionContext, createRuntimeContext, encodeRouteSegment, parseDuration, resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime"
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 import type { Adapter, AdapterPostableMessage, FileUpload } from "chat"
 import { importOptionalKV } from "./internal/optional-kv.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
@@ -4223,16 +4224,46 @@ const defaultSignatureHeaders: Record<string, string> = {
   "stripe-sha256": "stripe-signature",
 }
 
+type AgentWebhookSignature = NonNullable<AgentChannelWebhookRegistrationDefinition["signature"]>
+
+/** The Agent webhook signature of a `webhook({ signature })` name. Channels use the names of `defineWebhook()`. */
+function agentWebhookSignature(signature: WebhookChannelAdapter["webhook"]["signature"]): AgentWebhookSignature | undefined {
+  if (signature === undefined || signature === "token") return undefined
+  if (signature === "github") return "github-sha256"
+  if (signature === "stripe") return "stripe-sha256"
+  if (typeof signature === "string" || "verify" in signature) return signature
+  if (signature.type === "hmac-sha256") {
+    const { type: _type, ...format } = signature
+    return { preset: "hmac-sha256", ...format }
+  }
+  return signature.tolerance === undefined
+    ? "stripe-sha256"
+    : { preset: "stripe-sha256", toleranceSeconds: parseDuration(signature.tolerance, "tolerance") / 1000 }
+}
+
+/** The value of a server variable: Node's `process.env`, the Cloudflare bindings, and the values of `setEnv()` in app tests. */
+function serverVariable(name: string): string | undefined {
+  const env: Record<string, unknown> = {
+    ...(typeof process === "object" && process?.env ? process.env : {}),
+    ...getActiveCloudflareEnv(),
+    ...getViteHubTestMode()?.env,
+  }
+  const value = env[name]
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
+}
+
 function webhookAdapterRegistration<TRuntimeConfig extends AgentRuntimeConfig>(webhook: WebhookChannelAdapter["webhook"]): AgentChannelWebhookRegistrationDefinition<TRuntimeConfig> {
-  const signature = webhook.signature
+  const signature = agentWebhookSignature(webhook.signature)
   const preset = typeof signature === "string" ? signature : isRecord(signature) && "preset" in signature ? signature.preset : undefined
   const header = webhook.header ?? (preset ? defaultSignatureHeaders[preset] : undefined)
+  const secret = webhook.secret
   return {
     ...(webhook.path === undefined ? {} : { path: webhook.path }),
     ...(webhook.aliases === undefined ? {} : { aliases: [...webhook.aliases] }),
     // `token` compares the header with the secret, which a registration without `signature` does.
-    ...(signature === undefined || signature === "token" ? {} : { signature }),
-    ...(webhook.secret === undefined ? {} : { secretToken: webhook.secret as AgentWebhookSecretToken<TRuntimeConfig> }),
+    ...(signature === undefined ? {} : { signature }),
+    // A string `secret` names the server variable that holds the secret. It is read for each request.
+    ...(secret === undefined ? {} : { secretToken: typeof secret === "string" ? () => serverVariable(secret) : secret as AgentWebhookSecretToken<TRuntimeConfig> }),
     ...(header === undefined ? {} : { secretHeader: header }),
     ...(webhook.stateScope === undefined ? {} : { stateScope: webhook.stateScope }),
     ...(webhook.durableState === undefined ? {} : { durableState: webhook.durableState }),

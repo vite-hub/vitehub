@@ -127,7 +127,7 @@ export default defineChannel({
 });
 ```
 
-`webhook()` needs `signature` and `secret`, such as `webhook({ signature: "bearer", secret: () => process.env.HOOK_SECRET })`. `defineChannel()` throws `CHANNELS_C0011` when one of them is missing. Use `webhook({ secret: false })` only for a route that anyone can call.
+`webhook()` needs `signature` and `secret`, such as `webhook({ signature: "bearer", secret: "HOOK_SECRET" })`. A string `secret` is the name of the server variable that holds the secret; a function returns the secret. The signature names follow Webhooks: `"github"`, `"stripe"`, `{ type: "hmac-sha256" }`, and `{ type: "stripe", tolerance: "5m" }`. `defineChannel()` throws `CHANNELS_C0011` when one of them is missing. Use `webhook({ secret: false })` only for a route that anyone can call.
 
 `on` maps event names to targets: a handler, or a trigger from `defineChannelTrigger()` in `@vite-hub/agent/channels`. A handler that throws or returns a failed `Result` runs again. Chat adapters, such as `slack()` and `teams()`, come from `@vite-hub/agent/channels` because they need the Chat SDK.
 

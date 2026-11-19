@@ -26,7 +26,7 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
       "import { defineChannelTrigger } from '@vite-hub/agent/channels'",
       "import other from '../agents/other'",
       "export default defineChannel({",
-      "  adapter: webhook({ signature: 'bearer', secret: 'secret', path: '/hooks', aliases: ['/old-hooks'] }),",
+      "  adapter: webhook({ signature: 'bearer', secret: () => 'secret', path: '/hooks', aliases: ['/old-hooks'] }),",
       "  on: { webhook: defineChannelTrigger({ invoke: context => Response.json({ agent: context.agentName, channel: context.trigger.channelId, other: other.description }) }) },",
       "})",
     ].join("\n"))
@@ -47,7 +47,7 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
     await writeFile(join(root, "server/channels/tasks.ts"), [
       "import { defineChannel, webhook } from '@vite-hub/channels'",
       "import { defineChannelTrigger } from '@vite-hub/agent/channels'",
-      "export default defineChannel({ adapter: webhook({ signature: 'bearer', secret: 'secret', path: '/task-hooks' }), on: { webhook: defineChannelTrigger({",
+      "export default defineChannel({ adapter: webhook({ signature: 'bearer', secret: () => 'secret', path: '/task-hooks' }), on: { webhook: defineChannelTrigger({",
       "  tasks: { reply: { agent: () => import('../agents/support'), prepare: context => Response.json({ agent: context.agentName, channel: context.trigger.channelId }) } },",
       "  invoke: () => ({ task: 'reply', input: { prompt: 'reply' } }),",
       "}) } })",
