@@ -180,7 +180,7 @@ export default defineWorkspace({
 ```ts
 import { useWorkspace } from "@vite-hub/workspace"
 
-const workspace = useWorkspace("drop", { mode: "write" })
+const workspace = useWorkspace("notes", { mode: "write" })
 const revision = await workspace.history.commit({
   ifHead: (await workspace.history.head())?.id ?? null,
   files: { "index.html": "<h1>Hello</h1>" },
