@@ -20,15 +20,17 @@ function mapping(value: unknown): value is Record<string, unknown> {
 }
 
 function readMapping(file: string, code: string): Record<string, unknown> {
-  try {
-    const document = parseDocument(code, { stringKeys: true })
-    if (document.errors.length || document.warnings.length) throw new Error("Unsupported YAML")
-    const value: unknown = document.toJS({ maxAliasCount: 0 })
+  const document = parseDocument(code, { stringKeys: true })
+  if (!document.errors.length && !document.warnings.length) {
+    let value: unknown
+    try {
+      value = document.toJS({ maxAliasCount: 0 })
+    }
+    catch {
+      // An alias over the limit: report the original file rather than a partial rewrite.
+    }
     if (value === null && !document.contents) return {}
     if (mapping(value)) return value
-  }
-  catch {
-    // Report the original file rather than a partial rewrite.
   }
   throw codemodError(`${file}:1: Expected a YAML mapping that can be migrated. No files changed.`)
 }
