@@ -38,6 +38,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks()
+  vi.useRealTimers()
   await Promise.all(pending.splice(0))
   client.close()
   installCommentsRuntime(() => { throw new Error("not installed") })
@@ -218,14 +219,21 @@ it("filters comments.threads and comments.list by a full URL of the page, and re
 
 it("says how many threads authorize hid, and never answers \"No open threads.\" then", async () => {
   setup(defineComments({ authorize: ({ action, thread }) => action !== "read" || !thread || thread.messages[0]?.body === "visible" }))
-  for (let index = 0; index < 3; index++) await create()
+  // Threads list newest first, then by random id. Give each thread its own `updatedAt`, so the order is fixed.
+  vi.useFakeTimers({ toFake: ["Date"] })
+  let now = Date.UTC(2026, 0, 1)
+  const createLater = (...args: Parameters<typeof create>) => {
+    vi.setSystemTime(now += 1000)
+    return create(...args)
+  }
+  for (let index = 0; index < 3; index++) await createLater()
   const listed = await call("comments.threads", {})
   expect(listed).toEqual({ ok: true, value: { status: "open", threads: [], hidden: 3, note: "`authorize` hid 3 threads from this caller." } })
   expect(threadsText(listed)).toBe("No open threads that this caller may read. `authorize` hid 3 threads from this caller.")
 
   // Paging on from the last readable thread counts each hidden thread once.
-  const visible = await create(member, { ...input, body: "visible" })
-  for (let index = 0; index < 2; index++) await create()
+  const visible = await createLater(member, { ...input, body: "visible" })
+  for (let index = 0; index < 2; index++) await createLater()
   expect(await call("comments.threads", { limit: 1 })).toMatchObject({ ok: true, value: { threads: [{ id: visible.id }], hidden: 2 } })
   expect(await call("comments.threads", { search: "nothing" })).toMatchObject({ ok: true, value: { threads: [], hidden: 5 } })
 })
