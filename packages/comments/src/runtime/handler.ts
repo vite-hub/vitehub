@@ -4,6 +4,7 @@ import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import * as v from "valibot"
 
+import { outboxAccountHeader } from "../client-files.ts"
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
 import { resolveCommentsRuntime } from "../installed.ts"
@@ -553,6 +554,9 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
       if (method === "POST" && action === "comments" && !messageId) {
         const parsed = v.safeParse(replyBody, await readJson(request))
         if (!parsed.success) return invalid(parsed.issues)
+        if (request.headers.has(outboxAccountHeader) && !("requestId" in parsed.output && parsed.output.requestId)) {
+          return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "Queued replies need server support for requestId." }))
+        }
         // The overlay reads the message as `data`; other clients read the thread as `thread`.
         return await act(request, "write", who => commentActions.reply({ ...parsed.output, threadId }, who), async ({ message, thread }, who) => json({
           data: message,
