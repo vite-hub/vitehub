@@ -30,7 +30,9 @@ import { isBrowserAvailable, runBrowserContent } from 'vite-hub/browser'
 
 export default defineEventHandler(async () => {
   if (!isBrowserAvailable()) return { html: null }
-  return { html: await runBrowserContent('https://example.com') }
+  const [error, html] = await runBrowserContent('https://example.com')
+  if (error) throw error
+  return { html }
 })
 ```
 

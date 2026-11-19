@@ -86,6 +86,10 @@ interface Held {
   cursor?: number | undefined
   scope?: string | undefined
   version?: string | undefined
+  /** The client takes a snapshot in pages. */
+  paged?: boolean | undefined
+  /** The key after which the snapshot of the client goes on. */
+  after?: SyncKey | undefined
 }
 
 const compactions = new WeakMap<SyncServices, Map<string, number>>()
@@ -284,13 +288,54 @@ function floorQuery(db: SyncDatabase, table: string) {
   return db.select({ floor: syncState.floor }).from(syncState).where(eq(syncState.tableName, table))
 }
 
-/** A full snapshot of the scope, with the newest `seq` of the table as its cursor. */
-function snapshotPart(scoped: Scoped): Part<SyncPullResponse> {
+/** The rows of the scope after `after`, by key, at most one page and one row more. */
+function pageQuery(scoped: Scoped, after: SyncKey | undefined) {
+  const keyColumn = column(scoped.table, scoped.table.key)
+  return scoped.db.select().from(scoped.table.table)
+    .where(and(scopeSql(scoped.table, scoped.scope.values), after === undefined ? undefined : gt(keyColumn, after)))
+    .orderBy(asc(keyColumn))
+    .limit(pageSize + 1)
+}
+
+/** One page of rows, and the `after` of the next page, or `null` after the last one. */
+function pageOf(rows: Record<string, unknown>[], key: string): { rows: Record<string, unknown>[], after: SyncKey | null } {
+  const page = rows.slice(0, pageSize)
+  return { rows: page, after: rows.length > pageSize ? String(page.at(-1)![key]) : null }
+}
+
+/**
+ * A full snapshot of the scope, with the newest `seq` of the table as its cursor. A paged snapshot holds the first page
+ * of rows by key.
+ */
+function snapshotPart(scoped: Scoped, paged = false): Part<SyncPullResponse> {
   const { db, scope, account, version } = scoped
   const { table, name, key, defaults } = scoped.table
+  const answer = (state: { floor: number }[], last: { seq: number | null }[]) => ({ key, scope, account, version, defaults, cursor: Math.max(last[0]?.seq ?? 0, state[0]?.floor ?? 0), reset: true, deleted: [] })
+  if (paged) {
+    return part([floorQuery(db, name), headQuery(db, name), pageQuery(scoped, undefined)], ([state, last, rows]) => {
+      const page = pageOf(rows, key)
+      return { ...answer(state, last), ...page, more: page.after !== null }
+    })
+  }
   return part([floorQuery(db, name), headQuery(db, name), db.select().from(table).where(scopeSql(scoped.table, scope.values))], ([state, last, rows]) => (
-    { key, scope, account, version, defaults, cursor: Math.max(last[0]?.seq ?? 0, state[0]?.floor ?? 0), reset: true, rows, deleted: [], more: false }
+    { ...answer(state, last), rows, more: false }
   ))
+}
+
+/**
+ * The next page of a paged snapshot, as the rows are now. It keeps the cursor of the client: the changes since then
+ * come with the next pull, so a row that changed during the snapshot is never missed.
+ */
+function snapshotPagePart(scoped: Scoped, cursor: number, after: SyncKey): Part<SyncPullResponse | undefined> {
+  const { db, scope, account, version } = scoped
+  const { name, key, defaults } = scoped.table
+  return part([floorQuery(db, name), headQuery(db, name), pageQuery(scoped, after)], ([state, last, rows]) => {
+    const lowest = state[0]?.floor ?? 0
+    const highest = Math.max(last[0]?.seq ?? 0, lowest)
+    if (cursor < lowest || cursor > highest) return undefined
+    const page = pageOf(rows, key)
+    return { key, scope, account, version, defaults, cursor, reset: false, ...page, deleted: [], more: page.after !== null || highest > cursor }
+  })
 }
 
 /**
@@ -301,7 +346,8 @@ function pullPart(scoped: Scoped, held: Held): Part<SyncPullResponse | undefined
   const { db, scope, account, version } = scoped
   const { table, name, key, defaults } = scoped.table
   const { cursor } = held
-  if (cursor === undefined || held.scope !== scope.id || held.version !== version) return snapshotPart(scoped)
+  if (cursor === undefined || held.scope !== scope.id || held.version !== version) return snapshotPart(scoped, held.paged)
+  if (held.paged && held.after !== undefined) return snapshotPagePart(scoped, cursor, held.after)
   const keyColumn = column(scoped.table, key)
   const where = scopeSql(scoped.table, scope.values)
   return part([
@@ -355,7 +401,7 @@ function pullPart(scoped: Scoped, held: Held): Part<SyncPullResponse | undefined
  */
 async function pullAll(db: SyncDatabase, pulls: readonly { scoped: Scoped, held: Held }[]): Promise<{ answers: SyncPullResponse[], calls: number }> {
   const answers = await runParts(db, pulls.map(({ scoped, held }) => pullPart(scoped, held)))
-  const snapshots = await runParts(db, pulls.flatMap(({ scoped }, index) => answers[index] ? [] : [snapshotPart(scoped)]))
+  const snapshots = await runParts(db, pulls.flatMap(({ scoped, held }, index) => answers[index] ? [] : [snapshotPart(scoped, held.paged)]))
   const calls = (pulls.length ? 1 : 0) + (snapshots.length ? 1 : 0)
   return { answers: answers.map(answer => answer ?? snapshots.shift()!), calls }
 }
@@ -839,6 +885,8 @@ const pushSchema = v.object({
   scope: v.optional(v.string()),
   version: v.optional(v.string()),
   where: v.optional(v.unknown()),
+  paged: v.optional(v.boolean()),
+  after: v.optional(v.pipe(v.string(), v.minLength(1))),
   mutations: v.array(v.unknown()),
 })
 
@@ -906,6 +954,7 @@ const liveSchema = v.object({
     cursor: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
     scope: v.optional(v.string()),
     version: v.optional(v.string()),
+    paged: v.optional(v.boolean()),
   })),
 })
 
@@ -940,7 +989,7 @@ export async function handleSyncLiveRequest(request: Request, services: SyncLive
   const once: SyncServices = identify ? { ...services, identify: request => caller ??= identify(request) } : services
   const entries: LiveEntry[] = []
   const refusals: SyncLiveEvent[] = []
-  for (const { name, where, cursor, scope, version } of body.output.pulls) {
+  for (const { name, where, cursor, scope, version, paged } of body.output.pulls) {
     const store = { name, ...(where ? { where } : {}) }
     const refuse = (error: Diagnostic) => refusals.push({ type: "error", ...store, error: wire({ error }) })
     const definition = Object.hasOwn(definitions, name) ? definitions[name] : undefined
@@ -960,7 +1009,7 @@ export async function handleSyncLiveRequest(request: Request, services: SyncLive
     }
     const [stopped, scoped] = await resolveScope(resolved, request, once, subset)
     if (stopped) refuse(stopped.error)
-    else entries.push({ scoped, held: { cursor, scope, version }, store, more: false })
+    else entries.push({ scoped, held: { cursor, scope, version, paged }, store, more: false })
   }
   // The highest `seq` of the change log that the stream read.
   let seen = 0
@@ -1000,8 +1049,9 @@ export async function handleSyncLiveRequest(request: Request, services: SyncLive
       calls += pulled.calls
       for (const [index, entry] of due.entries()) {
         const answer = pulled.answers[index]!
-        entry.held = { cursor: answer.cursor, scope: answer.scope.id, version: answer.version }
-        entry.more = answer.more
+        entry.held = { cursor: answer.cursor, scope: answer.scope.id, version: answer.version, paged: entry.held.paged }
+        // The client pulls the other pages of a snapshot itself.
+        entry.more = answer.after ? false : answer.more
         if (answer.reset || answer.rows.length || answer.deleted.length) events.push({ type: "pull", ...entry.store, pull: answer })
       }
       return { events, again: entries.some(entry => entry.more) }
@@ -1037,14 +1087,15 @@ export async function handleSyncRequest<TTable, TRow, TArgs>(name: string, defin
     if (wrong !== undefined) return badRequest(wrong)
     const [stopped, scoped] = await resolveScope(resolved, request, services, subset)
     if (stopped) return fail(stopped.status, stopped.error)
-    return json(200, await pull(scoped, { cursor, scope: url.searchParams.get("scope") ?? undefined, version: url.searchParams.get("version") ?? undefined }))
+    const after = url.searchParams.get("after") || undefined
+    return json(200, await pull(scoped, { cursor, scope: url.searchParams.get("scope") ?? undefined, version: url.searchParams.get("version") ?? undefined, paged: url.searchParams.get("paged") === "1", after }))
   }
 
   const [refused, raw] = await readJson(request, "push", "Send fewer mutations in one push.")
   if (refused) return refused
   const body = v.safeParse(pushSchema, raw)
   if (!body.success) return badRequest("The body must be a `SyncPushRequest`: `{ account, cursor?, scope?, version?, where?, mutations }`.")
-  const { account, cursor, scope: clientScope, version, mutations: input } = body.output
+  const { account, cursor, scope: clientScope, version, paged, after, mutations: input } = body.output
   if (input.length > syncPushLimit) return fail(413, syncErrors.SYNC_TOO_MANY_MUTATIONS({ count: input.length, limit: syncPushLimit }))
   const mutations: SyncMutation[] = []
   for (const item of input) {
@@ -1068,5 +1119,5 @@ export async function handleSyncRequest<TTable, TRow, TArgs>(name: string, defin
     for (const name of [table.name, ...touched]) wakeLiveStreams(services.db, name)
     await maybeCompact(scoped, services)
   }
-  return json(200, { results, pull: await pull(scoped, { cursor, scope: clientScope, version }) })
+  return json(200, { results, pull: await pull(scoped, { cursor, scope: clientScope, version, paged, after }) })
 }

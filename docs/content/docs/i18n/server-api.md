@@ -139,29 +139,34 @@ On the server, `setLocale()` switches only the current request, for example to a
 
 `useTranslations()` from `vite-hub/i18n/server` reads, saves, and publishes translations in the Workspace of [`i18n.workspace`](/docs/i18n/configure#store-translations-in-a-workspace). A save goes to the `draft` ref, so people and Agents can prepare translations without changing the site. `publish()` copies the changed drafts to `published` in one revision, and the server uses them on the next request.
 
-```ts [server/routes/translations.post.ts]
-import { useTranslations } from 'vite-hub/i18n/server'
+Run this server code only after checking that the caller may edit translations and publish **all pending drafts**. Editing a draft alone should not grant publish access.
 
-export default async () => {
+```ts fragment
+import { useTranslations } from 'vite-hub/i18n/server'
+import { toResponse } from 'vite-hub/runtime'
+
+async function saveAndPublish() {
   const translations = useTranslations()
   const [error] = await translations.save({ locale: 'es', source: 'Payment received', translation: 'Pago recibido', by: 'ana' })
-  if (error) return { error }
+  if (error) return toResponse(error)
   return await translations.publish({ message: 'Spanish checkout' })
 }
 ```
 
+`toResponse(error)` answers with the status of the error, such as 409 for a conflict, and `{ code, why, fix }`.
+
 | Method | Returns |
 | --- | --- |
-| `save({ locale, source, context?, translation, review?, by? })` | `[error, { id, revision }]`. `review` defaults to `edited`. A translation with broken ICU or other placeholders returns [`I18N_INVALID_TRANSLATION`](/docs/i18n/limits-and-errors#i18n_invalid_translation). |
+| `save({ locale, source, context?, translation, review?, by? })` | `[error, { id, revision }]`. `review` defaults to `edited`. A translation with broken ICU or other placeholders, or a review step that Diglot refuses, returns [`I18N_INVALID_TRANSLATION`](/docs/i18n/limits-and-errors#i18n_invalid_translation). Another save at the same time returns [`I18N_SAVE_CONFLICT`](/docs/i18n/diagnostics/i18n_save_conflict). |
 | `status()` | For each translated locale: `{ locale, messages, published, drafted, missing }`. |
 | `missing(locale, { limit?, cursor? })` | `[error, { items, total, cursor }]`. Each item has `id`, `source`, `context`, `origins`, and `previous`, the translation of an older version of the message. |
 | `list(locale, { ref? })` | `[error, records]` by message ID. `ref: "draft"` shows the published records with the drafts on top. |
 | `publish({ message? })` | `{ revision, published }`. With no changed drafts, `published` is `0`. |
 | `revision()` | The published revision that the server uses, or `build` before the first publish. |
 
-`save()` and `list()` return [`I18N_UNKNOWN_LOCALE`](/docs/i18n/limits-and-errors#i18n_unknown_locale) for the source locale or a locale that is not in `i18n.locales`. Without `i18n.workspace`, `useTranslations()` throws [`I18N_NO_WORKSPACE`](/docs/i18n/limits-and-errors#i18n_no_workspace). Workspace errors, such as a conflict with another save at the same time, throw. The [`i18n()` Agent Capability](/docs/i18n/agent-capability) calls the same methods.
+`save()` and `list()` return [`I18N_UNKNOWN_LOCALE`](/docs/i18n/limits-and-errors#i18n_unknown_locale) for the source locale or a locale that is not in `i18n.locales`. Without `i18n.workspace`, `useTranslations()` throws [`I18N_NO_WORKSPACE`](/docs/i18n/limits-and-errors#i18n_no_workspace). Other Workspace errors, such as a store that is down, throw. The [`i18n()` Agent Capability](/docs/i18n/agent-capability) calls the same methods.
 
-`save()` keeps the `source`, `context`, and `translation` input names. It stores a Diglot record with `context` as `salt` and `translation` as `text`. New or changed machine text has `origin: "mt"` and `review: "none"`. A human edit has `origin: "human"`. Verification and rejection keep the text's origin and last editor, and record the reviewer in `verifiedBy` or `rejectedBy`. Saving the same text as `machine` does not reset its origin or review. An `edited` save can reopen a rejected record, even with the same text. A rejected record must be edited before it can be verified. A changed verified save edits the text first, then verifies it. A refused Diglot transition throws before any revision is committed.
+`save()` keeps the `source`, `context`, and `translation` input names. It stores a Diglot record with `context` as `salt` and `translation` as `text`. New or changed machine text has `origin: "mt"` and `review: "none"`. A human edit has `origin: "human"`. Verification and rejection keep the text's origin and last editor, and record the reviewer in `verifiedBy` or `rejectedBy`. Saving the same text as `machine` does not reset its origin or review. An `edited` save can reopen a rejected record, even with the same text. A rejected record must be edited before it can be verified. A changed verified save edits the text first, then verifies it. A refused Diglot transition returns `I18N_INVALID_TRANSLATION` before any revision is committed.
 
 An empty translation marks the record as rejected and keeps its last text, or the source text if no translation exists. The site then uses its build or source fallback. Rejected records and records with invalid ICU arguments do not override the build catalog.
 

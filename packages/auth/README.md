@@ -173,9 +173,9 @@ export default defineAuth(({ env, requestOrigin }) => ({
     routes: ["/app", "/app/**"],
     signIn: {
       provider: "github",
-      callbackURL: "/app",
       errorCallbackURL: "/app?auth_error=github",
     },
+    afterSignIn: "/app",
   },
   socialProviders: {
     github: {
@@ -192,9 +192,9 @@ Behind a proxy that ends TLS, set Better Auth's `advanced.trustedProxyHeaders: t
 
 Each Auth request or route guard runs its Definition callback once, then once more with the forwarded origin if the effective options trust proxy headers and that origin differs. If the second run disables trust, Auth keeps the request URL's origin and disables proxy trust. The guard uses the same resolved options for session lookup, route authorization, and automatic provider sign-in. A later request resolves fresh options. Requests with equal resolved options share one Better Auth instance. Plain values compare by value. Functions, adapters, and bindings compare by identity, so an instance never keeps an object that another request created. `authDatabase()` adapters compare by Database name. A change to a variable that the instance uses, such as `VITEHUB_SECRET`, `BETTER_AUTH_SECRET`, `VITEHUB_ADMINS`, or `VITEHUB_MEMBERS`, gives a new instance on the next request. A callback that creates plugins or other adapters on each call builds a new instance on each request, so create them outside the callback when they do not depend on the request. All guards of one request share one session lookup: access routes, `requireAuth()`, `requireAuthorization()`, `withAuth()`, `withAuthorization()`, and `withAnonymousAuthorization()`.
 
-With `access.signIn`, the Auth route also answers `GET /api/auth/sign-in?redirect=/docs` and `GET /api/auth/sign-out?redirect=/`, below the Auth Base Path. The sign-in path starts `access.signIn` and comes back to `redirect` (default: `access.signIn.callbackURL`, or `/`). A signed-in visitor goes to `redirect` at once. The sign-out path ends the session and goes to `redirect` (default `/`). It refuses a request from another site (`Sec-Fetch-Site` `cross-site` or `same-site`) and a prefetch or prerender (`Sec-Purpose`) with `403`. `redirect` must be a path of the app, below `app.baseURL` like the page guard's `?redirect=`, or the answer is `400`. Without `access.signIn`, Better Auth answers these paths with `404`.
+With a provider in `access.signIn`, the Auth route also answers `GET /api/auth/sign-in?redirect=/docs` and `GET /api/auth/sign-out?redirect=/`, below the Auth Base Path. The sign-in path starts `access.signIn` and comes back to `redirect` (default: `access.afterSignIn`, or `/`). A signed-in visitor goes to `redirect` at once. The sign-out path ends the session and goes to `redirect` (default `/`). It refuses a request from another site (`Sec-Fetch-Site` `cross-site` or `same-site`) and a prefetch or prerender (`Sec-Purpose`) with `403`. `redirect` must be a path of the app, below `app.baseURL` like the page guard's `?redirect=`, or the answer is `400`. Without a provider in `access.signIn`, Better Auth answers these paths with `404`.
 
-The generated Nitro middleware uses `access.signIn` when one of the configured `access.routes` needs a browser redirect. Route objects can add an `authorize` callback when a valid session is not sufficient:
+The generated Nitro middleware starts the provider of `access.signIn` when one of the configured `access.routes` needs a browser redirect. A sign-in page, such as `signIn: "/login"`, is for the Nuxt page guard: server guards answer `401`. Route objects can add an `authorize` callback when a valid session is not sufficient:
 
 ```ts
 import { defineAuth } from "@vite-hub/auth"
@@ -215,13 +215,13 @@ Generated route middleware uses `createAuthAccessHandler(routes, definition?, pu
 
 The Nitro build fails with `AUTH_B0002` when a route rule caches or prerenders a path that `access.routes` guards for `GET` or `HEAD`: `swr`, `cache`, `isr`, `prerender`, or `static`. A cached response is made for one visitor and served to others. Set `cache: false` or `prerender: false` on the guarded pattern to turn off a wider rule. In development, a route rule update that caches a guarded path logs `AUTH_B0002` as a warning.
 
-`access.public` lists paths that no access route guards, in the same form as `access.routes`. With `routes: ["/**"]`, every other path needs a session, so the app is private by default. Keep `/api/auth/**` public, so people can sign in. A route rule that caches only public paths passes `AUTH_B0002`. Write the list inline: the Vite plugin reads it at build time, and other values fail with `AUTH_C0064`.
+`access.public` lists paths that no access route guards, in the same form as `access.routes`. With `routes: ["/**"]`, every other path needs a session, so the app is private by default. The Auth route, `<basePath>/**` (`/api/auth/**` by default), is always public, so people can sign in. A route rule that caches only public paths passes `AUTH_B0002`. Write the list inline: the Vite plugin reads it at build time, and other values fail with `AUTH_C0064`.
 
 ```ts
 import { defineAuth } from "@vite-hub/auth";
 
 export default defineAuth({
-  access: { routes: ["/**"], public: ["/", "/login", "/api/auth/**"] },
+  access: { routes: ["/**"], public: ["/", "/login"] },
 });
 ```
 
@@ -508,22 +508,23 @@ const { data: sessions } = await useAsyncData("sessions", async () => {
 
 | `auth` | Who may open the page | Others go to |
 | --- | --- | --- |
-| `'user'` or `true` | Visitors with a session | `redirects.login` (default `/login`), with `?redirect=<the page>` |
-| `'guest'` | Visitors without a session, such as on the login page | `redirects.guest` (default `/`) |
+| `'user'` or `true` | Visitors with a session | `access.signIn` (default `/login`), with `?redirect=<the page>`. A provider opens `<basePath>/sign-in`. |
+| `'guest'` | Visitors without a session, such as on the login page | `access.afterSignIn` (default `/`) |
 | `{ only, redirectTo }` | `only` is `'user'` or `'guest'` | `redirectTo` |
 | `false` or unset | Everyone | |
 
 ```ts
-// nuxt.config.ts
-export default defineNuxtConfig({
-  modules: ["vite-hub/nuxt"],
-  vitehub: { auth: { redirects: { login: "/sign-in", guest: "/app" } } },
+// server/auth.ts
+import { defineAuth } from "@vite-hub/auth"
+
+export default defineAuth({
+  access: { signIn: "/sign-in", afterSignIn: "/app" },
 })
 ```
 
 On client navigation, the guard reads the session into the same state as `useUserSession()` and `useSession()`. When the guard finds that the session ended, such as after a sign-out in another tab, every component shows the visitor as signed out before the redirect.
 
-The guard runs when the route changes. A sign-out does not change the route, so `signOut()` of `useUserSession()` does the guard's work: on a `'user'` page, it sends the visitor to the login page of that page, with `?redirect=<the page>`. `redirectTo` takes priority. Other pages stay open.
+The guard runs when the route changes. On a `'user'` page, `signOut()` of `useUserSession()` sends the visitor to its sign-in page, with `?redirect=<the page>`. `redirectTo` takes priority. With provider sign-in and no `redirectTo`, Nuxt shows a signed-out page instead of starting OAuth again: even `/` might be protected. Pass `signOut({ redirectTo: '/goodbye' })` to send the visitor to a public page of your choice. Other pages stay open by default.
 
 The page guard decides where the browser goes. Protect data in server routes with `withAuth()`, `requireAuth()`, or `access.routes`. Read [Protect pages in Nuxt](https://vitehub.dev/docs/auth/protect-pages) for the full task.
 
@@ -645,7 +646,7 @@ Opt in with `events: { store: createDatabaseAuthEventStore({ db }) }` in `define
 
 The default retention is 90 days and 100,000 records, with cleanup after each append. Override `retention.maxAgeMs` or `retention.maxRecords`, or use `retention: false`. IP addresses are discarded. User agents become a coarse device class. Admin updates store field names, not secret values.
 
-Use `listAuthEvents(filters)` and `aggregateAuthEvents({ from, to })` from `@vite-hub/auth/server`, or use the store directly. Lists use cursor pagination and one SQL query after initialization. Aggregates use one statement for a consistent snapshot and count distinct users over the whole window. `@vite-hub/auth/runtime/console` exports these readers for the Console. No Console UI is added.
+Use `listAuthEvents(filters)` and `aggregateAuthEvents({ from, to })` from `@vite-hub/auth/server`, or use the store directly. The readers return `[error, data]`: `AUTH_EVENT_QUERY_INVALID` for invalid filters and `AUTH_EVENT_READ_FAILED` for a store failure. Lists use cursor pagination and one SQL query after initialization. Aggregates use one statement for a consistent snapshot and count distinct users over the whole window. `@vite-hub/auth/runtime/console` exports these readers for the Console. No Console UI is added.
 
 For `vitehub auth events`, configure `events.authorize`. The read endpoint requires a session and an explicit `true` result. Give the CLI the Auth base URL with `--url`, and the session cookie through `VITEHUB_AUTH_COOKIE`.
 
