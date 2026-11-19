@@ -66,7 +66,7 @@ interface SyncStoreOptions {
 interface SyncStoreWithReset<TRow, TArgs = Record<string, unknown>> extends SyncStore<TRow, TArgs> {
   /**
    * Forgets the rows and the queue in memory, and rejects the writes that wait. With `keepWrites`, the writes of an
-   * account stay in storage and their promises stay pending, until a reload reads them again.
+   * account stay in storage and their promises stay pending until the writes settle.
    */
   forget: (keepWrites?: boolean) => void
   /** Adds the optimistic functions of a later `createSync()` call that the store does not have yet. */
@@ -461,7 +461,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     return true
   }
 
-  function settleHandles(handlesById: Map<string, PendingWrite[]>, queue: readonly SyncQueuedWrite[], rows: ReadonlyMap<SyncKey, SyncRow>, waiting: ReadonlySet<string>): void {
+  function settleHandles(handlesById: Map<string, PendingWrite[]>, queue: readonly SyncQueuedWrite[], rows: ReadonlyMap<SyncKey, SyncRow>, waiting: ReadonlySet<string>, actionResults = results): void {
     if (!handlesById.size) return
     const stored = new Map(queue.map(write => [write.id, write]))
     // Actions that another tab sent. Their results wait in storage.
@@ -480,12 +480,12 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
           if (handle.op !== "action") handle.settle("applied", rows.get(handle.key))
         }
         if (!actions.length) continue
-        if (!results.has(mutationId)) {
+        if (!actionResults.has(mutationId)) {
           sentElsewhere.push([mutationId, actions])
           continue
         }
-        const result = results.get(mutationId)
-        results.delete(mutationId)
+        const result = actionResults.get(mutationId)
+        actionResults.delete(mutationId)
         for (const handle of actions) handle.settle("applied", result)
       }
     }
@@ -641,8 +641,25 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       if (shown.status !== shownStatus() || shown.error !== error) publish()
       return
     }
+    const priorWrites = writes
+    const priorRows = confirmed
+    const actionResults = change.remove?.length && results.size ? new Map(results) : undefined
     const result = await storage.write(id, change)
-    if (passGeneration !== generation) throw cancelled
+    if (passGeneration !== generation) {
+      if (parked.size && (change.remove?.length || change.update?.length)) {
+        const terminal = new Set([...change.remove ?? [], ...change.update?.filter(write => write.error).map(write => write.seq) ?? []])
+        const completed = new Map<string, PendingWrite[]>()
+        for (const write of priorWrites) {
+          const handles = parked.get(write.id)
+          if (!handles || !terminal.has(write.seq)) continue
+          parked.delete(write.id)
+          completed.set(write.id, handles)
+        }
+        if (completed.size) settleHandles(completed, applyQueueChange(priorWrites, change, result), applyRowChange(priorRows, change), storing, actionResults)
+        if (stopped && !parked.size) stopMessages()
+      }
+      throw cancelled
+    }
     meta = change.meta ?? meta
     confirmed = applyRowChange(confirmed, change)
     release(released)
