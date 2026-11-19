@@ -546,14 +546,14 @@ describe("the browser with a Workspace", () => {
     }
   })
 
-  it.each([
+  it.each<[string, unknown]>([
     ["messages that are not a record", { revision: "rev-2", messages: "Publica tu agente" }],
     ["a message that is not compiled", { revision: "rev-2", messages: { [deploy.id]: 42 } }],
     ...[
       [], ["n", "plural", null], ["n", "select", { other: [null] }],
       ["n", "plural", { other: [["n", "selectordinal", null]] }],
       ["n", "plural", { one: ["one"] }], ["n", "plural", { offset: "bad", other: ["many"] }],
-    ].map(token => ["a malformed placeholder", { revision: "rev-2", messages: { [deploy.id]: [token] } }]),
+    ].map<[string, unknown]>(token => ["a malformed placeholder", { revision: "rev-2", messages: { [deploy.id]: [token] } }]),
     ["a revision that is not a string", { revision: 2, messages: {} }],
     ["a body that is not an object", ["Publica tu agente"]],
   ])("keeps the build catalog and warns I18N_LIVE_CATALOG_INVALID for %s", async (_name, body) => {
