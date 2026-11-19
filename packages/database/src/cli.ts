@@ -61,9 +61,10 @@ function writeGenerateUsage(context: ViteHubCliContext): void {
     "                     Definitions instead, for SQL that changes the tables to them.",
     "  --hints <json>     Answer the rename or create questions of Drizzle Kit ahead of",
     "                     time, as a JSON array. --hints-file <file> reads it from a file.",
-    "  --non-interactive  Never ask. Without a terminal, or with CI set, this is the default.",
-    "                     A question that has no hint fails with",
-    "                     DATABASE_GENERATE_AMBIGUOUS_CHANGE and exit code 2.",
+    "",
+    "Without a terminal, or with CI set, it never asks. A question that has no hint fails",
+    "with DATABASE_GENERATE_AMBIGUOUS_CHANGE and exit code 2.",
+    "",
     "  -h, --help         Show this help.",
     "",
   ].join("\n"))
@@ -128,7 +129,7 @@ function writeUpUsage(context: ViteHubCliContext): void {
 
 const upUsage = "vitehub database up"
 
-const generateUsage = "vitehub database generate [--name <name>] [--custom [--schema-snapshot]] [--hints <json> | --hints-file <file>] [--non-interactive]"
+const generateUsage = "vitehub database generate [--name <name>] [--custom [--schema-snapshot]] [--hints <json> | --hints-file <file>]"
 
 const exportUsage = "vitehub database export [--remote] [--stage <name>] [--database <name>] [--output <file>]"
 
@@ -264,7 +265,7 @@ function writeSqlUsage(context: ViteHubCliContext): void {
   ].join("\n"))
 }
 
-const dropUsage = "vitehub database drop [--remote] [--stage <name>] [--database <name>] [--force]"
+const dropUsage = "vitehub database drop [--remote] [--stage <name>] [--database <name>] [--yes]"
 
 function writeDropUsage(context: ViteHubCliContext): void {
   context.stdout.write([
@@ -272,7 +273,7 @@ function writeDropUsage(context: ViteHubCliContext): void {
     "",
     "Drops every table and view of a database, and the migrations table with them, in one",
     "transaction. Run `vitehub database migrate` to create the tables again. It asks before it",
-    "drops. Without a terminal to ask, it needs `--force`. Without `--remote`, it uses the local",
+    "drops. Without a terminal to ask, it needs `--yes`. Without `--remote`, it uses the local",
     "SQLite file or PGlite folder that `vitehub database migrate` uses.",
     "",
     "Options:",
@@ -280,13 +281,13 @@ function writeDropUsage(context: ViteHubCliContext): void {
     "  --stage <name>     Load Vite env files for this mode. Variables from the current",
     "                     process take precedence.",
     "  --database <name>  The database to drop. Needed when the app has several.",
-    "  --force            Drop without asking.",
+    "  --yes              Drop without asking.",
     "  -h, --help         Show this help.",
     "",
   ].join("\n"))
 }
 
-const resetUsage = "vitehub database reset [--remote] [--stage <name>] [--database <name>] [--force]"
+const resetUsage = "vitehub database reset [--remote] [--stage <name>] [--database <name>] [--yes]"
 
 function writeResetUsage(context: ViteHubCliContext): void {
   context.stdout.write([
@@ -294,7 +295,7 @@ function writeResetUsage(context: ViteHubCliContext): void {
     "",
     "Drops every table and view of a database, like `vitehub database drop`, then applies all",
     "of its migrations again, like `vitehub database migrate`. It asks before it drops. Without",
-    "a terminal to ask, it needs `--force`. Without `--remote`, it uses the local SQLite file or",
+    "a terminal to ask, it needs `--yes`. Without `--remote`, it uses the local SQLite file or",
     "PGlite folder that `vitehub database migrate` uses.",
     "",
     "Options:",
@@ -302,7 +303,7 @@ function writeResetUsage(context: ViteHubCliContext): void {
     "  --stage <name>     Load Vite env files for this mode. Variables from the current",
     "                     process take precedence.",
     "  --database <name>  The database to reset. Needed when the app has several.",
-    "  --force            Reset without asking.",
+    "  --yes              Reset without asking.",
     "  -h, --help         Show this help.",
     "",
   ].join("\n"))
@@ -340,6 +341,7 @@ function parseTargetArgs(args: string[], flags: readonly string[]): (TargetArgs 
       parsed.flags.add(arg)
       continue
     }
+    if (arg === "--force" && flags.includes("--yes")) return "--force is now --yes. Run the command again with --yes."
     const option = (["--database", "--stage"] as const).find(name => arg === name || arg.startsWith(`${name}=`))
     if (!option) return `Unknown option: ${arg}`
     const value = arg === option ? args[++index] : arg.slice(option.length + 1)
@@ -444,7 +446,7 @@ function jsonValue(_key: string, value: unknown): unknown {
 }
 
 async function runDrop(args: string[], context: ViteHubCliContext, getConfig: ResolvedDBViteConfigProvider | undefined, io: DbCliIo): Promise<number> {
-  const parsed = parseTargetArgs(args, ["--force"])
+  const parsed = parseTargetArgs(args, ["--yes"])
   if (typeof parsed === "string" || parsed.positionals.length) {
     context.stderr.write(`[vitehub] ${typeof parsed === "string" ? parsed : `Unknown argument: ${parsed.positionals[0]}`}\n`)
     writeDropUsage(context)
@@ -456,7 +458,7 @@ async function runDrop(args: string[], context: ViteHubCliContext, getConfig: Re
 }
 
 async function runReset(args: string[], context: ViteHubCliContext, getConfig: ResolvedDBViteConfigProvider | undefined, io: DbCliIo): Promise<number> {
-  const parsed = parseTargetArgs(args, ["--force"])
+  const parsed = parseTargetArgs(args, ["--yes"])
   if (typeof parsed === "string" || parsed.positionals.length) {
     context.stderr.write(`[vitehub] ${typeof parsed === "string" ? parsed : `Unknown argument: ${parsed.positionals[0]}`}\n`)
     writeResetUsage(context)
@@ -492,7 +494,7 @@ async function runReset(args: string[], context: ViteHubCliContext, getConfig: R
   return await runDrizzleKit("migrate", ["--allow-data-loss"], { ...context, env }, getConfig, database.name)
 }
 
-/** Drops every table of the target after the person confirms, or with `--force`. Returns the exit code. */
+/** Drops every table of the target after the person confirms, or with `--yes`. Returns the exit code. */
 async function dropTables(
   command: "drop" | "reset",
   parsed: TargetArgs & { flags: Set<string> },
@@ -520,7 +522,7 @@ async function dropTables(
       context.stdout.write(`[vitehub] Database "${database.name}" (${connection.target}): it has no tables to drop.\n`)
       return 0
     }
-    if (!parsed.flags.has("--force")) {
+    if (!parsed.flags.has("--yes")) {
       const objects = `${plan.objects.length} ${plan.objects.length === 1 ? "table or view" : "tables and views"}`
       const question = command === "drop"
         ? `Drop ${objects} of the database "${database.name}" (${connection.target})? All their data is lost. [y/N] `
@@ -543,7 +545,7 @@ async function dropTables(
   }
 }
 
-const viteHubFlags = new Set(["--allow-data-loss", "--dry-run", "--non-interactive", "--schema-snapshot"])
+const viteHubFlags = new Set(["--allow-data-loss", "--dry-run", "--schema-snapshot"])
 
 function forwardDrizzleArgs(args: string[]) {
   return args.filter(arg => arg !== "-h" && arg !== "--help" && !viteHubFlags.has(arg))
@@ -616,6 +618,10 @@ async function runDrizzleKit(
   /** Runs only this database, such as the one that `reset` dropped. */
   only?: string,
 ): Promise<number> {
+  if (feature === "generate" && args.includes("--non-interactive")) {
+    context.stderr.write("[vitehub] --non-interactive was removed. Without a terminal, or with CI set, `vitehub database generate` never asks. Run it with CI=1 to never ask in a terminal.\n")
+    return 1
+  }
   const schemaSnapshot = feature === "generate" && args.includes("--schema-snapshot")
   if (schemaSnapshot && !args.includes("--custom")) {
     context.stderr.write("[vitehub] --schema-snapshot works only with --custom. A migration without --custom already writes the snapshot of the current Database Definitions.\n")
@@ -1055,7 +1061,6 @@ function withDrizzleKitErrorExit(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 
 // Drizzle Kit asks rename-or-create questions only when its stdin is a terminal.
 function generateCanAsk(args: string[], env: NodeJS.ProcessEnv): boolean {
-  if (args.includes("--non-interactive")) return false
   if (env.CI && env.CI !== "0" && env.CI !== "false") return false
   return !!process.stdin.isTTY
 }

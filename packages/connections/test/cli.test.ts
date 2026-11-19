@@ -294,9 +294,12 @@ describe("vitehub connections", () => {
     expect(await harness.run("approvals", ["approve", approval!.id])).toBe(0)
     expect(harness.output.stdout).toContain("executed")
 
+    // Vitest has no terminal, so nothing can confirm.
     expect(await harness.run("revoke", ["mail"])).toBe(1)
-    expect(harness.output.stderr).toContain("--confirm mail")
-    expect(await harness.run("revoke", ["mail", "--confirm", "mail"])).toBe(0)
+    expect(harness.output.stderr).toContain("run it again with --yes")
+    expect(await harness.run("revoke", ["mail", "--confirm", "mail"])).toBe(1)
+    expect(harness.output.stderr).toContain("--confirm <name> is now --yes")
+    expect(await harness.run("revoke", ["mail", "--yes"])).toBe(0)
     expect(harness.output.stdout).toContain("revoked")
   })
 
