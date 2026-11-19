@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { runViteHubCli } from "@vite-hub/cli"
 
 import { loadViteHubCliConfig } from "../src/internal/cli-config.ts"
-import { isAgentCliEnabled, loadConfigScanner } from "../src/internal/runtime-feature-guard.ts"
+import { isAgentCliEnabled, loadConfigScanner, readAgentJournalStateUrl } from "../src/internal/runtime-feature-guard.ts"
 import { operationRpcReply, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts";
 import { consoleTestKey } from "./support/console-signature.ts";
 
@@ -81,6 +81,37 @@ describe("ViteHub CLI config loading", () => {
       export default { plugins: [plugin({ agent: false })] }
     `, "utf8")
     await expect(isAgentCliEnabled(root)).resolves.toBe(true)
+  })
+
+  // The babysitter app's config: the Agent CLI must open the journal that the server writes next to this State.
+  const state = "providers: { state: { driver: 'sqlite', url: 'file:.vitehub/agent-state.db' } }"
+  const vite = (options: string, before = "") => `import { vitehub } from 'vite-hub'\n${before}export default { plugins: [vitehub({ ${options} })] }\n`
+  it.each([
+    ["vite.config.ts", vite(`host: 'node', agent: { ${state} }`), {}, "file:.vitehub/agent-state.db"],
+    ["vite.config.ts", `import { defineConfig } from 'vite'\nimport { vitehub as hub } from 'vite-hub'\nexport default defineConfig({ plugins: [hub({ host: 'node', agent: { ${state} } })] })`, {}, "file:.vitehub/agent-state.db"],
+    ["nuxt.config.ts", `export default defineNuxtConfig({ vitehub: { host: 'node', agent: { invocations: {}, providers: { state: { url: 'file:/srv/app/state.db' } } } } })\n`, {}, "file:/srv/app/state.db"],
+    // Without `host`, the build environment picks the host, and only Node puts the journal next to State.
+    ["vite.config.ts", vite(`agent: { ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'vercel', agent: { ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { ${state} }`), { VITEHUB_HOST: "deno" }, undefined],
+    ["vite.config.ts", vite(`host: 'node', dataDir: '/data', agent: { ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { invocations: { databaseUrl: 'file:x.sqlite' }, ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { invocations: 'database', ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { providers: { state: { url: process.env.STATE_URL } } }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { ...agent, ${state} }`, "const agent = {}\n"), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { providers: { state: { url: 'libsql://db.example.com' } } }`), {}, undefined],
+    // Only the options that take effect count: a second `vitehub()` call, Nuxt module options, or a spread config.
+    ["vite.config.ts", vite(`host: 'node', agent: { ${state} }`, "const other = vitehub(options)\n"), {}, undefined],
+    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nconst unused = vitehub({ host: 'node', agent: { ${state} } })\nexport default { plugins: [] }`, {}, undefined],
+    ["nuxt.config.ts", `export default defineNuxtConfig({ modules: [['vite-hub/nuxt', { host: 'node', agent: { providers: { state: { url: 'file:prod/state.db' } } } }]], vitehub: { host: 'node', agent: { providers: { state: { url: 'file:dev/state.db' } } } } })\n`, {}, undefined],
+    ["nuxt.config.ts", `const moduleName = 'vite-hub/nuxt'\nexport default defineNuxtConfig({ modules: [[moduleName, { agent: { providers: { state: { url: 'file:prod/state.db' } } } }]], vitehub: { host: 'node', agent: { ${state} } } })`, {}, undefined],
+    ["nuxt.config.ts", `export default defineNuxtConfig({ nitro: { preset: 'deno-server' }, vitehub: { agent: { ${state} } } })`, {}, undefined],
+    ["nuxt.config.ts", `export default defineNuxtConfig({ vitehub: { host: 'node', agent: { ${state} } }, ...shared })\n`, {}, undefined],
+  ])("reads the file: Agent State URL of %s for the Invocation journal: %#", async (file, source, env, expected) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, file), source, "utf8")
+    await expect(readAgentJournalStateUrl(root, env)).resolves.toBe(expected)
   })
 
   it("does not treat an unrelated local vitehub function as the ViteHub plugin", async () => {

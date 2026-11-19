@@ -18,6 +18,7 @@ import {
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, shouldSkipViteProviderBuild } from "@vite-hub/internal/build/vite"
+import { reportViteHubHint, startViteHubHints, VITEHUB_NUXT_HINTS, type ViteHubHintsConfig } from "@vite-hub/internal/hints"
 import { isPlainObject } from "@vite-hub/internal/object"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
@@ -27,7 +28,7 @@ import { configureCloudflareKV } from "./integrations/cloudflare.ts"
 import { inspectKVResources, inspectKVStores } from "./inspect.ts"
 import { createKVCloudflareProvisionStep } from "./provision.ts"
 import { resolveUpstashRuntimeValues } from "./runtime/upstash.ts"
-import { kvRedisEnvWarning } from "./config.ts"
+import { kvRedisEnvHint } from "./config.ts"
 import { kvDeploymentEnv } from "./deployment-env.ts"
 
 import type { KVResolutionInput } from "./config.ts"
@@ -414,8 +415,6 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
   // `vite dev` keeps a store local unless it sets `remote: true`. Builds ignore `remote`.
   const resolutionInput = (): KVResolutionInput => ({ dev: command === "serve", env: command === "serve" ? viteEnv : undefined, hosting: input.hosting, postgresDatabase: postgresDatabase() })
   let nitroOwned = false
-  // A build runs `buildStart` once per Vite environment. The warning prints once.
-  let redisEnvWarned = false
   let nitroOptions: NitroCloudflareKVTarget | undefined
   const ownedNitroNamespaces = new Set<{ binding: string, id?: string }>()
   let resolved: ResolvedConfig | undefined
@@ -424,6 +423,10 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
   let projectRoot = process.cwd()
   const getConfig = () => runtimeConfig ??= resolveKVViteConfig(options, resolutionInput())
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
+  function reportRedisEnvHint(config: ViteHubHintsConfig): void {
+    const hint = kvRedisEnvHint(options, { ...resolutionInput(), env: { ...viteEnv, ...process.env }, hosting: getConfig().hosting })
+    if (hint) reportViteHubHint(config, hint)
+  }
 
   return {
     name: KV_VITE_PLUGIN_NAME,
@@ -499,6 +502,7 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
       order: "pre",
       async handler(config) {
         resolved = config
+        startViteHubHints(config)
         // The Nuxt replay passes a Vite config without `command`; the `config` hook already set it.
         if (config.command) command = config.command
         mode = config.mode ?? mode
@@ -512,6 +516,7 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
         if (hasNitroConfigContext(config) || isPlainObject(getResolvedNitroConfig(config))) {
           nitroOwned = configureNitroCloudflareKV(config, options, resolutionInput(), ownedNitroNamespaces, provisionState)
         }
+        if (!config.command && command === "build" && Reflect.get(config, VITEHUB_NUXT_HINTS)) reportRedisEnvHint({ ...config, command })
       },
     },
     configureServer(server) {
@@ -563,11 +568,10 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
         // Resolve again now that the Database integration has resolved its Definitions.
         runtimeConfig = undefined
         providerOutputGenerations.capture(this, providerOutput)
-        if (command !== "build" || redisEnvWarned) return
-        redisEnvWarned = true
-        // Vite's `.env` files can hold the URL too, so the warning reads them with the process env.
-        const warning = kvRedisEnvWarning(options, { ...resolutionInput(), env: { ...viteEnv, ...process.env }, hosting: getConfig().hosting })
-        if (warning) console.warn(warning)
+        if (command !== "build" || !resolved) return
+        // Vite's `.env` files can hold the URL too, so the hint reads them with the process env. A build runs
+        // `buildStart` once per Vite environment, and the hint prints once.
+        reportRedisEnvHint(resolved)
       },
     },
     buildEnd: {
