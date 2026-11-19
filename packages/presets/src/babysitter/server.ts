@@ -635,6 +635,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (!failing.length) return [];
     const tip = baseSha ?? await liveBaseTip(repository, baseRef, signal);
     if (!tip) return [];
+    // The merge gate asks on every evaluation of a failing PR; a new base tip or failure changes the key.
+    const key = JSON.stringify([repository.toLowerCase(), tip, head, failureKeys(snapshot)]);
+    const cached = inheritedFailures.get(key);
+    if (cached && cached.expiresAt > Date.now()) return cached.ids;
     const runs = await baseActionRuns(repository, tip, signal);
     const ids: number[] = [];
     for (const check of failing) {
@@ -643,8 +647,12 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       const [own, tested] = await Promise.all([jobFailure(repository, check, signal), jobFailure(repository, base, signal)]);
       if (sameActionFailure(own?.output, tested?.output)) ids.push(Number(check.id));
     }
+    if (inheritedFailures.size >= 128) inheritedFailures.delete(inheritedFailures.keys().next().value!);
+    inheritedFailures.set(key, { ids, expiresAt: Date.now() + 5 * 60_000 });
     return ids;
   }
+
+  const inheritedFailures = new Map<string, { ids: number[]; expiresAt: number }>();
 
   async function inheritedBaseFailures(snapshot: Snapshot, signal: AbortSignal): Promise<number[]> {
     try {

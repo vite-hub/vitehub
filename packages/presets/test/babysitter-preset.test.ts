@@ -1369,6 +1369,7 @@ describe("Babysitter preset runtime", () => {
   });
 
   it("does not settle a failing head when its assigned base failed but the live tip passed", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
     const liveBase = "e".repeat(40);
     const f = await fixture(false, false, { baseBranchHead: liveBase,
       merge: { strategy: "direct", bypassInheritedChecks: { "acme/app": ["test"] } }, options: { ciRecovery: false },
@@ -1389,10 +1390,11 @@ describe("Babysitter preset runtime", () => {
       const current = (await f.runtime.inbox.get("acme/app", 12))!;
       expect(current.status).toBe("ready");
       await f.runtime.inbox.setMeta("review-assessment:acme/app#12", { version: 2, head: f.pr().head.sha, evidenceKey: mergeReviewEvidenceKey(current), feedback: [] });
+      vi.setSystemTime(current.nextAt + 1);
       await f.reconcile();
       expect(f.passes).toHaveLength(2);
       expect(f.command.mock.calls.some(([args]) => args.includes("repos/acme/app/pulls/12/merge-async"))).toBe(false);
-    } finally { await f.runtime.inbox.close(); }
+    } finally { await f.runtime.inbox.close(); vi.useRealTimers(); }
   });
 
   it("recovers claimed execution and wait evaluation from stalled readiness", async () => {
