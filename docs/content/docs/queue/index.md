@@ -2,7 +2,7 @@
 title: Queue
 layout: landing
 navigation.title: Overview
-description: Send slow work to a queue so your route can reply at once, and run that work later on Cloudflare or Vercel.
+description: Send slow work to a queue so your route replies at once, and run jobs in the background on Cloudflare or Vercel.
 navigation.order: 1
 icon: i-lucide-list-ordered
 ---
@@ -103,27 +103,27 @@ export default defineConfig({
 
 ::product-features
   :::product-feature-item{title="One file per queue" icon="i-lucide-file-code-2" to="/docs/queue/configure#define-a-queue"}
-  Add a file to `server/queues`. The file name is the queue name, and its function runs each job.
+  Create a file in `server/queues`. The file name is the queue name, and its handler runs each job.
   :::
 
   :::product-feature-item{title="Reply first, work later" icon="i-lucide-list-ordered" to="/docs/queue/server-api#enqueue-work"}
-  `sendQueue()` returns when the queue accepts the job. The job runs after your route replies.
+  `sendQueue()` returns once the queue accepts the job. The job runs after your route replies.
   :::
 
   :::product-feature-item{title="Wait before a job runs" icon="i-lucide-clock-3" to="/docs/queue/server-api#queue-enqueue-options"}
-  Set `delay`, such as `'10m'`, to start a job later.
+  Pass `delay`, like `'10m'`, to start a job later.
   :::
 
   :::product-feature-item{title="Typed names and data" icon="i-lucide-shield-check" to="/docs/queue/server-api#definition-owned-dispatch-types"}
-  A wrong queue name or wrong job data is a type error in your editor.
+  A wrong queue name or bad job data is a type error in your editor.
   :::
 
   :::product-feature-item{title="Failed jobs run again" icon="i-lucide-refresh-cw" to="/docs/queue/server-api#handle-failures"}
-  A failed job can run again, so make a second run safe.
+  Queues retry failed jobs, so write handlers that are safe to run twice.
   :::
 
   :::product-feature-item{title="Node, Cloudflare, or Vercel" icon="i-lucide-cloud-cog" to="/docs/queue/configure#drivers"}
-  On Node, jobs run in the server process, on one instance only. On Cloudflare and Vercel, they run on Cloudflare Queues or Vercel Queues.
+  On Node, jobs run in the server process, on one instance only. Cloudflare and Vercel use Cloudflare Queues or Vercel Queues.
   :::
 ::
 
