@@ -697,7 +697,7 @@ export async function summary(name: string) {
   return await promptStep(name)
 }
 `)
-  await writeFile(join(workflowDir, "summarize.ts"), 'import { summary } from "./summary.ts"\nexport default { handler: async () => undefined, options: { native: summary } }\n')
+  await writeFile(join(workflowDir, "summarize.ts"), 'import { summary } from "./summary.ts"\nexport default { handler: async () => undefined, native: summary }\n')
 
   await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), rootDir, workflow: { driver: "vercel" } })
 
@@ -734,7 +734,7 @@ async function summary() {
   "use workflow"
   return await summarizeStep()
 }
-export default { handler: async () => undefined, options: { native: summary } }
+export default { handler: async () => undefined, native: summary }
 `)
 
   await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), rootDir, workflow: { driver: "vercel" } })
@@ -761,7 +761,7 @@ async function summary() {
   "use workflow"
   return await summarizeStep()
 }
-export default { handler: async () => undefined, options: { native: summary } }
+export default { handler: async () => undefined, native: summary }
 `)
 
   vi.stubEnv("WORKFLOW_DISCOVER_NODE_MODULES", "0")
