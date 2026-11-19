@@ -181,7 +181,7 @@ function runIn<T>(scope: EffectScope | undefined, run: () => T): T | undefined {
   return scope ? scope.run(run) : run()
 }
 
-/** The session state of one client in one app, which `useSession()`, `useUserSession()`, and the page guard share. */
+/** The session state of one client in one app, which `useUserSession()`, `useAbility()`, and the page guard share. */
 interface SessionStore {
   state: Readonly<Ref<SessionState>>
   /** Reads the session, updates `state`, and returns the session. Callers at the same time share one read. */
@@ -595,7 +595,7 @@ export function useAuthClient(): typeof authClient {
   return (client ?? nuxtApp?.$vitehubAuthClient ?? authClient) as typeof authClient
 }
 
-export interface AuthSessionState<Client extends AuthClientLike = typeof authClient> {
+interface AuthSessionState<Client extends AuthClientLike = typeof authClient> {
   data: Client["$Infer"]["Session"] | null
   error: BetterFetchError | null
   isPending: boolean
@@ -605,11 +605,8 @@ export interface AuthSessionState<Client extends AuthClientLike = typeof authCli
 
 type AuthSessionRef<Client extends AuthClientLike = typeof authClient> = DeepReadonly<Ref<AuthSessionState<Client>>>
 
-/**
- * The session of `client`. Every call for the same client in the same app returns the same ref, so a list of
- * components that call it costs one watcher. In Nuxt, the page guard reads the session into the same ref.
- */
-export function useSession<Client extends AuthClientLike = typeof authClient>(client: Client = useAuthClient() as Client): AuthSessionRef<Client> {
+/** The session state of `client`, which `useUserSession()`, `useAbility()`, and the page guard share. */
+function sessionState<Client extends AuthClientLike = typeof authClient>(client: Client = useAuthClient() as Client): AuthSessionRef<Client> {
   // SAFETY: the store holds the state of Better Auth's `useSession()` for this client.
   return sessionStore(client).state as unknown as AuthSessionRef<Client>
 }
@@ -830,7 +827,7 @@ async function authorizedUser(client: Pick<typeof authClient, "getSession">, sta
  * await authorize("posts.edit", loadedPost)
  */
 export function useAbility(client: AuthClientLike = useAuthClient()): Ability {
-  const state = useSession(client)
+  const state = sessionState(client)
   const allows = (name: string, args: unknown[]) => {
     const refusal = abilityRefusal(state.value, name, args)
     return refusal === undefined ? undefined : refusal === null
@@ -889,7 +886,7 @@ const abilityProps = {
 
 /** The refusal of the rule that the props name. It follows the session, and is `undefined` while `pending` is `true`. */
 function usePropsRefusal(props: { do: string, with: unknown, args?: unknown[], pending: boolean }): ComputedRef<AbilityCheckRefusal | null | undefined> {
-  const state = useSession()
+  const state = sessionState()
   return computed(() => {
     if (props.pending) return undefined
     // `with` is the one argument of the rule. Without it, an optional argument stays absent, as in `can(name)`.

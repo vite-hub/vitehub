@@ -131,13 +131,3 @@ export async function checkGitHubOrgMember(accessToken: string | null | undefine
   }
   return result
 }
-
-/**
- * Returns `true` when the GitHub user of `accessToken` is an active member of `org`. The token needs the `read:org` scope.
- * Every failure returns `false`. Use `checkGitHubOrgMember()` to know why.
- */
-export async function isGitHubOrgMember(accessToken: string | null | undefined, org: string, options: GitHubOrgMemberOptions = {}): Promise<boolean> {
-  if (!org) return false
-  const [error] = await checkGitHubOrgMember(accessToken, org, options)
-  return !error
-}
