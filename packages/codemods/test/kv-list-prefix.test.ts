@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 
 import { afterAll, describe, expect, it } from "vitest"
 
-import { detectCodemods, runCodemod, upgradeCodemods } from "../src/index.ts"
+import { detectCodemods, runCodemod, runMigration, upgradeCodemods } from "../src/index.ts"
 
 const scratch = fileURLToPath(new URL("../.tmp/kv-list-prefix-test/", import.meta.url))
 
@@ -69,5 +69,51 @@ describe("kv-list-prefix", () => {
     const run = await runCodemod("kv-list-prefix", { cwd, dryRun: true })
     expect(run.result.edits).toEqual([])
     expect(run.result.followUps.map(followUp => followUp.line)).toEqual([3, 4])
+  })
+
+  it("keeps the separator before a query suffix and preserves literal escapes", async () => {
+    const file = "server/api/drafts.ts"
+    const cwd = await project({ [file]: [
+      "import { kv } from 'vite-hub/kv'",
+      "const [error, keys] = await kv.keys('drafts?view=old')",
+      "await kv.clear('drafts?view=old')",
+      "await kv.clear('owner\\'s')",
+      "await kv.clear(`owner\\`s`)",
+    ].join("\n") })
+    const run = await runCodemod("kv-list-prefix", { cwd, dryRun: false })
+    expect(run.result.followUps).toEqual([])
+    const output = await readFile(join(cwd, file), "utf8")
+    expect(output).toContain('kv.list({ prefix: "drafts:" })')
+    expect(output).toContain('kv.clear({ prefix: "drafts:" })')
+    expect(output).toContain("kv.clear({ prefix: 'owner\\'s:' })")
+    expect(output).toContain("kv.clear({ prefix: `owner\\`s:` })")
+  })
+
+  it("migrates the Nuxt server auto-import but not a shadowing parameter", async () => {
+    const file = "server/api/drafts.ts"
+    const cwd = await project({
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['vite-hub/nuxt'] })\n",
+      [file]: "const [error, keys] = await kv.keys('drafts')\nawait kv.clear('drafts')\nconst local = (kv: Map<string, unknown>) => kv.clear()\nconst other = (kv: { clear(base: string): void }) => kv.clear('drafts')\n",
+    })
+    await runMigration({ cwd, codemods: upgradeCodemods })
+    const output = await readFile(join(cwd, file), "utf8")
+    expect(output).toContain("kv.list({ prefix: 'drafts:' })")
+    expect(output).toContain("await kv.clear({ prefix: 'drafts:' })")
+    expect(output).toContain("=> kv.clear('drafts')")
+  })
+
+  it("detects the ViteHub KV import introduced by the NuxtHub migration", async () => {
+    const file = "server/api/drafts.ts"
+    const cwd = await project({
+      "package.json": JSON.stringify({ dependencies: { "@nuxthub/core": "^0.10.0", nuxt: "^5.0.0" } }),
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { kv: true } })\n",
+      [file]: "import { kv } from 'hub:kv'\nconst [error, keys] = await kv.keys('drafts')\nawait kv.clear('drafts')\n",
+    })
+    const migration = await runMigration({ cwd })
+    expect(migration.steps.map(step => step.codemod.name)).toEqual(expect.arrayContaining(["nuxthub", "kv-list-prefix"]))
+    const output = await readFile(join(cwd, file), "utf8")
+    expect(output).toContain("vite-hub/kv")
+    expect(output).toContain("kv.list({ prefix: 'drafts:' })")
+    expect(output).toContain("kv.clear({ prefix: 'drafts:' })")
   })
 })

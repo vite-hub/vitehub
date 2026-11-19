@@ -4,7 +4,7 @@ import { readEnv } from "@vite-hub/internal/env"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { normalizeKVOptions } from "../config.ts"
-import { kvKeyLimitCodes, kvListLimitInvalid, kvResult, kvWriteLimitCodes, listKVKeys } from "../errors.ts"
+import { kvClearOptionsError, kvKeyLimitCodes, kvListLimitInvalid, kvResult, kvWriteLimitCodes, listKVKeys } from "../errors.ts"
 import type { Result } from "@vite-hub/runtime"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 import type { KVDriver, KVErrorCode, KVOperation, KVSetOptions, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
@@ -141,7 +141,11 @@ function readSetTTL(operation: "set" | "setIfAbsent" | "setMany", options: KVSet
 
 function createKVStorage(name = "default"): KVStorage {
   return {
-    async clear(options) { return runKVOperation("clear", name, async storage => storage.clear(options?.prefix)) },
+    async clear(options) {
+      const error = kvClearOptionsError(options)
+      if (error) return [error, undefined]
+      return runKVOperation("clear", name, async storage => storage.clear(options?.prefix))
+    },
     async delete(key, options) { return runKVOperation("delete", name, async storage => storage.removeItem(key, options), kvKeyLimitCodes) },
     async deleteIfEquals(key, expected) {
       return runKVOperation("deleteIfEquals", name, async (storage) => {

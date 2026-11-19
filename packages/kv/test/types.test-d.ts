@@ -55,7 +55,7 @@ describe("types", () => {
   })
 
   it("exposes the intended kv runtime surface", () => {
-    expectTypeOf(kv.clear).returns.toEqualTypeOf<Promise<Result<void, "KV_OPERATION_FAILED">>>()
+    expectTypeOf(kv.clear).returns.toEqualTypeOf<Promise<Result<void, "KV_INVALID_CLEAR_OPTIONS" | "KV_OPERATION_FAILED">>>()
     expectTypeOf(kv.delete).returns.toEqualTypeOf<Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>>()
     expectTypeOf(kv.get<string>).returns.toEqualTypeOf<Promise<Result<string | null, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>>()
     expectTypeOf(kv.getAndDelete<string>).returns.toEqualTypeOf<Promise<Result<string | null, "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>>()
@@ -99,7 +99,7 @@ describe("types", () => {
       void (incrementError.code === "KV_INVALID_CURSOR")
     }
 
-    expectTypeOf<KVErrorCode>().toEqualTypeOf<"KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_INVALID_VALUE" | "KV_INVALID_WAIT" | "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION" | "KV_VALUE_TOO_LARGE">()
+    expectTypeOf<KVErrorCode>().toEqualTypeOf<"KV_INVALID_CLEAR_OPTIONS" | "KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_INVALID_OPTION" | "KV_INVALID_TTL" | "KV_INVALID_VALUE" | "KV_INVALID_WAIT" | "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION" | "KV_VALUE_TOO_LARGE">()
   })
 
   it("types kv.lock() results and lists the drivers that support it", async () => {

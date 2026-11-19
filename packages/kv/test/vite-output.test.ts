@@ -283,6 +283,56 @@ describe("KV Vite output", () => {
     expect(puts).toMatchObject([{ key: "nitro-cache:nitro:functions:stars.json", options: { expirationTtl: 60 } }])
   })
 
+  it("validates generated clear options and clears a named Workers binding by prefix", async () => {
+    const rootDir = await createConsumerRoot()
+    const entry = join(rootDir, "src", "worker.ts")
+    const workersModule = join(rootDir, "src", "workers.mjs")
+    const [{ build }, { hubKV }] = await Promise.all([import("vite"), import("../src/vite.ts")])
+    await writeFile(entry, `export { kv } from '@vite-hub/kv'\n`)
+    await writeFile(workersModule, `
+      const values = new Set(['drafts:1', 'drafts-old:1'])
+      export const env = { KV: {
+        get: async (key) => values.has(key) ? 'true' : null,
+        put: async (key) => { values.add(key) },
+        delete: async (key) => { values.delete(key) },
+        list: async ({ prefix = '' }) => ({
+          keys: [...values].filter(key => key.startsWith(prefix)).map(name => ({ name })),
+          list_complete: true,
+        }),
+      } }
+    `)
+    await build({
+      appType: "custom",
+      build: {
+        outDir: "dist",
+        rolldownOptions: { input: entry, output: { entryFileNames: "worker.js" } },
+        ssr: entry,
+      },
+      configFile: false,
+      logLevel: "silent",
+      plugins: [hubKV({ driver: "cloudflare", namespaceId: "namespace-id" })],
+      root: rootDir,
+    })
+
+    await execFileAsync(process.execPath, ["--input-type=module", "--eval", `
+      import assert from 'node:assert/strict'
+      import { registerHooks } from 'node:module'
+      registerHooks({
+        resolve(specifier, context, nextResolve) {
+          if (specifier === 'cloudflare:workers') return { shortCircuit: true, url: ${JSON.stringify(pathToFileURL(workersModule).href)} }
+          return nextResolve(specifier, context)
+        },
+      })
+      const { kv } = await import('./dist/worker.js')
+      const [error] = await kv.clear('drafts')
+      assert.equal(error?.code, 'KV_INVALID_CLEAR_OPTIONS')
+      assert.deepEqual(await kv.get('drafts:1'), [undefined, true])
+      assert.deepEqual(await kv.get('drafts-old:1'), [undefined, true])
+      assert.deepEqual(await kv.clear({ prefix: 'drafts:' }), [undefined, undefined])
+      assert.deepEqual(await kv.list(), [undefined, { keys: ['drafts-old:1'] }])
+    `], { cwd: rootDir })
+  })
+
   it("bundles selected runtime config into server output", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")

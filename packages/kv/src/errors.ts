@@ -5,6 +5,15 @@ import type { Result, ResultError } from "@vite-hub/runtime"
 import type { KVErrorCode, KVListOptions, KVListPage, KVOperation, KVPageOptions } from "./types.ts"
 import { kvConfigErrorCodes, kvErrorDiagnostics } from "./error-diagnostics.ts"
 
+export function kvClearOptionsError(options: unknown): ResultError<"KV_INVALID_CLEAR_OPTIONS"> | undefined {
+  if (options === undefined) return
+  if (typeof options !== "object" || options === null || Array.isArray(options)
+    || Object.keys(options).some(key => key !== "prefix")
+    || ("prefix" in options && options.prefix !== undefined && typeof options.prefix !== "string")) {
+    return kvErrorDiagnostics.KV_INVALID_CLEAR_OPTIONS()
+  }
+}
+
 function hasCode<TCode extends KVErrorCode>(error: { code: string }, codes: readonly TCode[]): error is { code: TCode } {
   return codes.some(code => code === error.code)
 }

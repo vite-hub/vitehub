@@ -83,18 +83,18 @@ onSignOut(() => localStorage.removeItem('drafts'))
 
 ### Sign in and out with a link
 
-When `access.signIn` is set, the Auth route also answers two `GET` paths below the Auth Base Path. Link to them from any page:
+When `access.signIn` is a provider, the Auth route also answers two `GET` paths below the Auth Base Path. Link to them from any page:
 
 ```html
 <a href="/api/auth/sign-in?redirect=/docs">Sign in with GitHub</a>
 <a href="/api/auth/sign-out?redirect=/">Sign out</a>
 ```
 
-- `/api/auth/sign-in` starts the `access.signIn` sign-in and comes back to `redirect`. Without `redirect`, it comes back to `access.signIn.callbackURL`, or `/`. A visitor who is signed in goes to `redirect` at once.
+- `/api/auth/sign-in` starts the `access.signIn` sign-in and comes back to `redirect`. Without `redirect`, it comes back to `access.afterSignIn`, or `/`. A visitor who is signed in goes to `redirect` at once.
 - `/api/auth/sign-out` ends the session and goes to `redirect`, or `/`. It refuses a request from another site with `403`, so a link on another site cannot sign out your visitors. The browser's `Sec-Fetch-Site` header tells where the request comes from. A prefetch or prerender of the link also gets `403`, so the session ends only on a click.
 - `redirect` must be a path of the app, such as `/docs?tab=api`. A full URL, `//host`, or `/\host` gets `400`. Below Nuxt's `app.baseURL`, such as `/app/`, `redirect=/docs` opens `/app/docs`, the same path that the page guard sends.
-- The paths are below the Auth Base Path and Nuxt's `app.baseURL`, so they never collide with a page of the app. The Nuxt page guard sends a visitor to the login page with `?redirect=<the page>`, so a login page can pass it on to `/api/auth/sign-in`.
-- Without `access.signIn`, Better Auth answers these paths with `404`.
+- The paths are below the Auth Base Path and Nuxt's `app.baseURL`, so they never collide with a page of the app. The Nuxt page guard sends a visitor to `/api/auth/sign-in?redirect=<the page>` itself.
+- Without a provider in `access.signIn`, Better Auth answers these paths with `404`.
 
 For a sign-out route of your own, call `signOut(event)` from `vite-hub/auth/server`. It ends the session and returns the response that clears the session cookies:
 
@@ -356,14 +356,14 @@ import { defineAuth } from 'vite-hub/auth'
 export default defineAuth({
   access: {
     routes: ['/**'],
-    public: ['/', '/login', '/api/auth/**', '/api/health'],
+    public: ['/', '/login', '/api/health'],
     signIn: { provider: 'github' },
   },
 })
 ```
 
 - Write public routes like access routes: an exact path, or a path that ends in `/**`. Write the list inline, so the Vite plugin can read it at build time.
-- Keep `/api/auth/**` public. Sign-in and the OAuth callback are below it.
+- The Auth route, `<basePath>/**` (`/api/auth/**` by default), is always public. Sign-in and the OAuth callback are below it.
 - Make public the files that the browser loads before sign-in, such as `/_nuxt/**` and `/favicon.ico` in a Nuxt app.
 - A route rule that caches or prerenders only public paths does not stop the build ([`AUTH_B0002`](/docs/auth/limits-and-errors#auth_b0002)).
 

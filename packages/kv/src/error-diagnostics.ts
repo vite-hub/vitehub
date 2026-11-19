@@ -17,6 +17,10 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/kv/diagnostics",
   codes: {
     // Runtime errors. KV operations return them as `[error, undefined]`.
+    KV_INVALID_CLEAR_OPTIONS: {
+      why: "`kv.clear()` needs an options object with a string `prefix`, or no argument.",
+      fix: "Use `kv.clear({ prefix: 'drafts:' })` to clear the keys below `drafts`, or `kv.clear()` to clear the whole store.",
+    },
     KV_INVALID_CURSOR: {
       why: ({ problem }: { problem: KVCursorProblem }) => cursorProblems[problem],
       fix: "Pass the `cursor` of the previous page once, to the same store. If it fails, start again without `cursor`.",

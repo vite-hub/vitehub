@@ -66,8 +66,11 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
   const driverOptions = typeof bindingName === "string"
     ? { ...options, get binding() { return getActiveCloudflareBinding<CloudflareKVNamespace>(bindingName) ?? bindingName } }
     : options
-  // SAFETY: The unstorage Cloudflare driver exposes getInstance and this adapter installs listKeys before returning.
-  const driver = createDriver(driverOptions) as KVRuntimeDriver & { getInstance: () => CloudflareKVNamespace }
+  // SAFETY: The unstorage Cloudflare driver supplies getInstance and removeItem; this adapter installs listKeys.
+  const driver = createDriver(driverOptions) as KVRuntimeDriver & {
+    getInstance: () => CloudflareKVNamespace | Promise<CloudflareKVNamespace>
+    removeItem: NonNullable<KVRuntimeDriver["removeItem"]>
+  }
   installCloudflareKVLimits(driver)
   driver.validateBatch = validateCloudflareKVBatch
   driver.getItems = async (items) => {
@@ -119,7 +122,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     try {
       if (continuation.providerCursor) listOptions.cursor = continuation.providerCursor
       const cursors = continuation.history
-      const page = await driver.getInstance().list(listOptions)
+      const page = await (await driver.getInstance()).list(listOptions)
       if (!isCloudflareKVListPage(page)) {
         throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Cloudflare KV list returned an invalid page." })
       }
@@ -143,8 +146,6 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
   }
   // The unstorage driver clears the keys below a base. KV clears the keys that start with `prefix` as text, as `list()`
   // matches them. It lists every key first, so a delete never moves a listing cursor.
-  const removeItem = driver.removeItem
-  invariant(removeItem, "the unstorage Cloudflare KV driver deletes keys")
   driver.clear = async (prefix = "") => {
     const keys: string[] = []
     let cursor: string | undefined
@@ -153,7 +154,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
       keys.push(...page.keys)
       cursor = page.cursor
     } while (cursor)
-    for (const key of keys) await removeItem.call(driver, key, {})
+    for (const key of keys) await driver.removeItem(key, {})
   }
   return driver
 }

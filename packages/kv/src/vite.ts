@@ -231,7 +231,7 @@ function createCloudflareKVWranglerConfig(kv: KVViteRuntimeConfig["kv"], provisi
 function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
   return [
     `import { createCloudflareKVStorage } from ${JSON.stringify(CLOUDFLARE_KV_RUNTIME_IMPORT_ID)};`,
-    `import { kvInvalidLimitError, kvKeyLimitCodes, kvListLimitInvalid, kvResult, kvStoreNotFoundError, kvStoreWithMode, kvUnsupportedOperationError, kvWriteLimitCodes, listKVKeys } from ${JSON.stringify(KV_ERRORS_IMPORT_ID)};`,
+    `import { kvClearOptionsError, kvInvalidLimitError, kvKeyLimitCodes, kvListLimitInvalid, kvResult, kvStoreNotFoundError, kvStoreWithMode, kvUnsupportedOperationError, kvWriteLimitCodes, listKVKeys } from ${JSON.stringify(KV_ERRORS_IMPORT_ID)};`,
     "",
     `const kvConfig = ${JSON.stringify(config, null, 2)}`,
     "const storages = new Map();",
@@ -265,7 +265,11 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
     "// kvResult throws config errors, for example an unknown store, and returns the other errors.",
     "function createKVStorage(name = \"default\") {",
     "  return {",
-    "    async clear(options) { return kvResult(\"clear\", name, async () => { await resolveStorage(name).clear(options?.prefix); }); },",
+    "    async clear(options) {",
+    "      const error = kvClearOptionsError(options);",
+    "      if (error) return [error, undefined];",
+    "      return kvResult(\"clear\", name, async () => { await resolveStorage(name).clear(options?.prefix); });",
+    "    },",
     "    async delete(key, options) { return kvResult(\"delete\", name, async () => { await resolveStorage(name).removeItem(key, options); }, kvKeyLimitCodes); },",
     "    async deleteIfEquals() { return unsupported(\"deleteIfEquals\", name); },",
     "    async get(key, options) { return kvResult(\"get\", name, () => resolveStorage(name).getItem(key, options), kvKeyLimitCodes); },",

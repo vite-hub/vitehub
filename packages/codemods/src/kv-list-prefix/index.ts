@@ -7,6 +7,7 @@ import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
 import { bindingResolver } from "../shared/binding-resolver.ts"
+import { findNuxtConfigName } from "../shared/nuxt-config.ts"
 
 import type { CallExpression, Expression, File, Identifier } from "@babel/types"
 import type { Node } from "@vite-hub/internal/ast"
@@ -47,35 +48,35 @@ function kvBindings(program: File): Set<Identifier> {
 }
 
 /** True for `kv`, `kv.store(name)`, or a variable that holds `kv.store(name)`. */
-function isKV(node: Node, names: ReadonlySet<Identifier>, resolve: (node: Identifier) => Identifier | undefined, handles: ReadonlySet<Identifier>): boolean {
+function isKV(node: Node, names: ReadonlySet<Identifier>, resolve: (node: Identifier) => Identifier | undefined, handles: ReadonlySet<Identifier>, autoImport: boolean): boolean {
   if (node.type === "Identifier") {
     const binding = resolve(node)
-    return binding !== undefined && (names.has(binding) || handles.has(binding))
+    return binding ? names.has(binding) || handles.has(binding) : autoImport && node.name === "kv"
   }
   return node.type === "CallExpression" && node.callee.type === "MemberExpression" && !node.callee.computed
-    && node.callee.property.type === "Identifier" && node.callee.property.name === "store" && isKV(node.callee.object, names, resolve, handles)
+    && node.callee.property.type === "Identifier" && node.callee.property.name === "store" && isKV(node.callee.object, names, resolve, handles, autoImport)
 }
 
 /** The text of a prefix that keeps the old meaning, the keys below `base`: a string literal gets a `:` at its end. */
 function belowPrefix(block: Block, argument: Expression): string | undefined {
-  if (argument.type === "StringLiteral") {
-    const value = argument.value
-    const quote = block.code[start(argument)]!
-    return value === "" || /[:/\\]$/.test(value) ? block.code.slice(start(argument), end(argument)) : `${quote}${value}:${quote}`
-  }
-  if (argument.type === "TemplateLiteral" && argument.expressions.length === 0) {
-    const value = argument.quasis[0]?.value.cooked ?? ""
-    return value === "" || /[:/\\]$/.test(value) ? block.code.slice(start(argument), end(argument)) : `\`${value}:\``
-  }
-  return undefined
+  const value = argument.type === "StringLiteral" ? argument.value
+    : argument.type === "TemplateLiteral" && argument.expressions.length === 0 ? argument.quasis[0]?.value.cooked : undefined
+  if (value == null) return
+  const path = value.split("?", 1)[0] ?? ""
+  const needsSeparator = path !== "" && !/[:/\\]$/.test(path)
+  if (path !== value) return JSON.stringify(needsSeparator ? `${path}:` : path)
+  const literal = block.code.slice(start(argument), end(argument))
+  return needsSeparator ? `${literal.slice(0, -1)}:${literal.slice(-1)}` : literal
 }
 
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const edits: FileEdit[] = []
   const followUps: FollowUp[] = []
+  const nuxt = Boolean(findNuxtConfigName(cwd))
   for (const file of (await glob(sourcePatterns, { cwd, ignore: ignoredPatterns })).sort()) {
     const code = await readFile(join(cwd, file), "utf8")
-    if (!code.includes("vite-hub/kv") || !/\.(?:keys|clear)\(/.test(code)) continue
+    const autoImport = nuxt && file.startsWith("server/") && !file.endsWith(".vue")
+    if ((!autoImport && !code.includes("vite-hub/kv")) || !/\.(?:keys|clear)\s*\(/.test(code)) continue
     const output = new MagicString(code)
     let changed = false
     for (const block of scriptBlocks(file, code)) {
@@ -87,11 +88,11 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
         continue
       }
       const names = kvBindings(program)
-      if (!names.size) continue
+      if (!names.size && !autoImport) continue
       const resolve = bindingResolver(program)
       const handles = new Set<Identifier>()
       walk(program, (node) => {
-        if (node.type === "VariableDeclarator" && node.id.type === "Identifier" && node.init && isKV(node.init, names, resolve, handles)) handles.add(node.id)
+        if (node.type === "VariableDeclarator" && node.id.type === "Identifier" && node.init && isKV(node.init, names, resolve, handles, autoImport)) handles.add(node.id)
       })
       const overwrite = (node: Node, text: string) => {
         output.overwrite(block.offset + start(node), block.offset + end(node), text)
@@ -111,7 +112,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
         const callee = node.callee
         const property = node.callee.property
         const method = property.name
-        if ((method !== "keys" && method !== "clear") || !isKV(callee.object, names, resolve, handles)) return
+        if ((method !== "keys" && method !== "clear") || !isKV(callee.object, names, resolve, handles, autoImport)) return
         const call: CallExpression = node
         const [argument, ...rest] = call.arguments
         if (rest.length || argument?.type === "SpreadElement" || argument?.type === "ArgumentPlaceholder") {
@@ -159,6 +160,7 @@ export const kvListPrefix: Codemod = {
   name: "kv-list-prefix",
   description: "Move `kv.keys(base)` to `kv.list({ prefix })` and `kv.clear(base)` to `kv.clear({ prefix })`, with the prefix of the keys below `base`",
   usage: "[dir]",
+  detectAfterEdits: true,
   async detect({ cwd }) {
     const result = await migrate({ cwd })
     const [edit] = result.edits

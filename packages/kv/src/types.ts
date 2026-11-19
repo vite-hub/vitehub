@@ -179,6 +179,7 @@ export type KVOperation = "clear" | "delete" | "deleteIfEquals" | "get" | "getAn
 /** Codes that KV operations return in the `[error, data]` tuple. Config errors throw instead. */
 export type KVErrorCode =
   | "KV_INVALID_CURSOR"
+  | "KV_INVALID_CLEAR_OPTIONS"
   | "KV_INVALID_LIMIT"
   | "KV_INVALID_OPTION"
   | "KV_INVALID_TTL"
@@ -289,7 +290,7 @@ export interface KVListPage {
  * Config errors, for example an unknown store name, throw.
  */
 export interface KVStorage {
-  clear(options?: KVClearOptions): Promise<Result<void, "KV_OPERATION_FAILED">>
+  clear(options?: KVClearOptions): Promise<Result<void, "KV_INVALID_CLEAR_OPTIONS" | "KV_OPERATION_FAILED">>
   delete(key: string, options?: unknown): Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
   /**
    * Deletes the key only when its value equals `expected`, in one atomic step. Returns `true` when this call deleted it.

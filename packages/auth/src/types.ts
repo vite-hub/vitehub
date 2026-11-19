@@ -3,7 +3,6 @@ import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult
 import type { ViteHubContext } from "@vite-hub/runtime/internal/h3"
 import type { Auth, BetterAuthOptions, DBAdapter, Session, User } from "better-auth"
 import type { AuthEventsConfiguration } from "./events.ts"
-import type { AuthRedirects } from "./nuxt-types.ts"
 import type { AuthConsoleOptions } from "./console-types.ts";
 import type { AuthPreset } from "./presets.ts"
 import type { AuthSchemaOptions } from "./table-specs.ts"
@@ -79,8 +78,9 @@ export type AuthRuntimeOptions = Partial<Omit<BetterAuthOptions, "basePath" | "d
   events?: AuthEventsConfiguration | false
 }
 
+/** A provider sign-in that the Auth route starts at `GET <basePath>/sign-in`. */
 export interface AuthSignInConfiguration {
-  callbackURL?: string
+  /** Where Better Auth sends the visitor when the provider sign-in fails. */
   errorCallbackURL?: string
   provider: string
   requestSignUp?: boolean
@@ -141,7 +141,17 @@ export interface AuthAccessConfiguration {
   /** Paths that no access route guards, in the same form as `routes`. With `routes: ['/**']`, these are the only paths a signed-out visitor reaches. */
   public?: string[]
   policy?: AuthAccessPolicy
-  signIn?: AuthSignInConfiguration
+  /**
+   * Where a signed-out visitor signs in: the path of a sign-in page, such as `"/login"`, or a provider, such as
+   * `{ provider: "github" }`, that the Auth route starts. The Nuxt page guard sends visitors there, with
+   * `?redirect=<the page>`. Default: `"/login"`.
+   */
+  signIn?: string | AuthSignInConfiguration
+  /**
+   * Where a visitor goes after a provider sign-in without `?redirect=`, and where the Nuxt page guard sends a signed-in
+   * user from an `auth: 'guest'` page. Default: `"/"`.
+   */
+  afterSignIn?: string
 }
 
 /** The Better Auth adapter of `authDatabase()`. `vitehubDatabase` names the app Database that holds the Auth tables. */
@@ -217,6 +227,10 @@ export interface ResolvedAuthViteConfig {
     routes: ResolvedAuthAccessRoute[]
     /** Paths that the access middleware leaves to the handler. Set only when the Definition lists some. */
     public?: string[]
+    /** `access.signIn`: a sign-in page, or a provider that the Auth route starts. Set only when the Definition has it. */
+    signIn?: { page: string } | { provider: true }
+    /** `access.afterSignIn`. Set only when the Definition has it. */
+    afterSignIn?: string
   }
   basePath: string
   /**
@@ -280,9 +294,5 @@ export type AuthFor<TDefinition extends AuthDefinition> = ViteHubAuth<Extract<Om
 export type RegisteredAuth<TRegistry = ViteHub.AuthRegistry> = TRegistry extends { definition: infer TDefinition extends AuthDefinition }
   ? AuthFor<TDefinition>
   : ViteHubAuth
-export interface AuthObjectOptions {
-  /** Where the Nuxt page guard of `definePageMeta({ auth })` sends visitors. Vite apps without Nuxt ignore it. */
-  redirects?: AuthRedirects
-}
-
-export type AuthOptions = false | AuthObjectOptions
+/** `false` turns Auth off. `server/auth.ts` turns it on, and `defineAuth()` holds every Auth option. */
+export type AuthOptions = false

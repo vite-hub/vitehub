@@ -42,6 +42,7 @@ Configuration errors throw instead, such as an unknown store name or a missing `
 | --- | --- | --- |
 | `KV_INVALID_CURSOR` | `list()` | |
 | `KV_INVALID_LIMIT` | `list()` | |
+| `KV_INVALID_CLEAR_OPTIONS` | `clear()` | No keys are deleted. |
 | `KV_INVALID_TTL` | `increment()`, `lock()`, `set()`, `setMany()`, `setIfAbsent()` | |
 | `KV_INVALID_WAIT` | `lock()` | |
 | `KV_KEY_TOO_LONG` | `delete()`, `get()`, `has()`, `set()` | |
@@ -69,6 +70,10 @@ Cloudflare KV needs an expiration of at least 60 seconds. ViteHub raises a `ttl`
 ### KV_INVALID_CURSOR
 
 The `cursor` of `kv.list()` expired, is in use, belongs to another store, or is not valid. `fs-lite` and Upstash keep some cursors in process memory, so a restart or `disposeKVStores()` expires them. Cloudflare KV and Deno KV cursors carry the provider cursor, so another isolate or a restarted process can continue the listing. List again without `cursor`.
+
+### KV_INVALID_CLEAR_OPTIONS
+
+Pass `kv.clear({ prefix: 'drafts:' })` to clear only the keys below `drafts`, or `kv.clear()` to clear the whole store. A legacy string argument is rejected before any keys are deleted.
 
 ### KV_INVALID_LIMIT
 
