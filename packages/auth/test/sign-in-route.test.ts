@@ -8,7 +8,7 @@ import { requestEvent } from "./request-event.ts"
 const origin = "http://localhost:3000"
 const db: Record<string, Record<string, unknown>[]> = {}
 const options = {
-  access: { signIn: { provider: "github", callbackURL: "/home" } },
+  access: { signIn: { provider: "github" }, afterSignIn: "/home" },
   database: memoryAdapter(db),
   emailAndPassword: { enabled: true },
   secret: "vitehub-sign-in-route-secret-3f9a1c7e5b",
@@ -74,7 +74,7 @@ describe("GET <basePath>/sign-in", () => {
 
   it("encodes the configured callback URL for a signed-in visitor", async () => {
     const cookie = await signUp()
-    const localized = defineFixedAuth({ ...options, access: { signIn: { provider: "github", callbackURL: "/日本語?q=%C3%BC" } } })
+    const localized = defineFixedAuth({ ...options, access: { signIn: { provider: "github" }, afterSignIn: "/日本語?q=%C3%BC" } })
     const response = await handleAuthRequest(localized, new Request(`${origin}/api/auth/sign-in`, { headers: { cookie } }))
 
     expect(response.status).toBe(302)

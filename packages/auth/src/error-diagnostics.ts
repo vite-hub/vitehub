@@ -59,6 +59,20 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Pass a path that starts with one `/`, for example `signOut(event, { redirectTo: '/login' })`. A value from the query string can point to another site, so check it against your own pages first.",
     },
 
+    // Sign-in config errors. `defineAuth()`, `hubAuth()`, and the Nuxt module throw them.
+    AUTH_AFTER_SIGN_IN_INVALID: {
+      why: "`defineAuth()` access.afterSignIn must be an inline path of the app that starts with one `/`.",
+      fix: "Set `access.afterSignIn` to a string literal path, for example `afterSignIn: '/dashboard'`. The Nuxt page guard reads it at build time.",
+    },
+    AUTH_REDIRECTS_MOVED: {
+      why: "`vitehub({ auth })` takes only `true` or `false`. The `redirects` option moved to the Auth Definition.",
+      fix: "Remove the object from `auth` in `vitehub()`. In `server/auth.ts`, set `access: { signIn: '/login', afterSignIn: '/' }`: `redirects.login` is now `signIn`, and `redirects.guest` is now `afterSignIn`. `vitehub migrate` moves them.",
+    },
+    AUTH_SIGN_IN_CALLBACK_URL_MOVED: {
+      why: "`defineAuth()` access.signIn.callbackURL moved to `access.afterSignIn`.",
+      fix: "Move the value to `access.afterSignIn`, for example `access: { signIn: { provider: 'github' }, afterSignIn: '/dashboard' }`. The page guard also sends signed-in users there from `auth: 'guest'` pages. `vitehub migrate` moves it.",
+    },
+
     // Test errors. `signIn()` of `@vite-hub/auth/test` throws them.
     AUTH_TEST_SIGN_IN_STATELESS: {
       why: "`signIn()` writes the user and the session to the Auth database, and a Definition with the `stateless()` preset has none.",
@@ -86,7 +100,7 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_C0024: withFix("Remove `secondaryStorage` from the static options. Return a Better Auth `secondaryStorage` adapter, an object with `get`, `set`, and `delete`, from the Definition callback."),
     AUTH_C0026: withFix("Set the option to a non-empty string, for example `provider: 'github'` or `method: 'GET'`."),
     AUTH_C0027: withFix("Start the path with `/`, for example `/admin/**` or `/auth`."),
-    AUTH_C0028: withFix("Set `access.signIn` to an object, for example `signIn: { provider: 'github' }`."),
+    AUTH_C0028: withFix("Set `access.signIn` to the inline path of a sign-in page, for example `signIn: '/login'`, or to a provider, for example `signIn: { provider: 'github' }`."),
     AUTH_C0029: withFix("Set `access.signIn.requestSignUp` to `true` or `false`, or remove it."),
     AUTH_C0030: withFix("Set `access.signIn.scopes` to an array of strings, for example `scopes: ['read:org']`."),
     AUTH_C0031: withFix("Write each entry of `access.routes` as a route string or an object, for example `'/admin/**'` or `{ route: '/api/admin/**', authorize }`."),

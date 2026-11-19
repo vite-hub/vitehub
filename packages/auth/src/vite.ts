@@ -9,6 +9,7 @@ import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 
 import { assertNoCachedAccessRoutes } from "./access-route-cache.ts"
+import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveAuthViteConfig } from "./config.ts"
 import { authDeploymentEnv } from "./deployment-env.ts"
 import { authMemoryDatabaseError } from "./database-options.ts"
@@ -388,6 +389,9 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
 }
 
 export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModuleOptions = {}): AuthVitePlugin {
+  // `vitehub({ auth: { redirects } })` was the only object form. Its pages are in `access` of `server/auth.ts` now.
+  const configured: unknown = options
+  if (configured !== undefined && configured !== false) throw authErrorDiagnostics.AUTH_REDIRECTS_MOVED()
   const importBase = internalOptions.importBase ?? authPackageName
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedAuthViteConfig | undefined

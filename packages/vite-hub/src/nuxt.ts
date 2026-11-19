@@ -1156,7 +1156,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     invariant(configuredConsole, "resolveConsoleOptions() returns options for a console option that is set")
     if (!nuxt.options.vitehubCliDiscovery) {
       const appAuth = effectiveAuth
-        ? requireOptionalOwner(ownerModules.authVite, "auth").resolveAuthViteConfig(effectiveAuth === true ? undefined : effectiveAuth, viteRoot, { serverDirs: resolveNuxtServerDirs(nuxt.options) })
+        ? requireOptionalOwner(ownerModules.authVite, "auth").resolveAuthViteConfig(undefined, viteRoot, { serverDirs: resolveNuxtServerDirs(nuxt.options) })
         : undefined;
       consoleHasPrimaryAuth = Boolean(appAuth);
       const authIndex = consoleSections.indexOf("auth");
