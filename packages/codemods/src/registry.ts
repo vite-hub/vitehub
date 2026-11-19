@@ -1,6 +1,7 @@
 import { accessSpellings } from "./access-spellings/index.ts"
 import { agentSurface } from "./agent-surface/index.ts"
 import { authSignIn } from "./auth-sign-in/index.ts"
+import { channels } from "./channels/index.ts"
 import { cliGetList } from "./cli-get-list/index.ts"
 import { defineForms } from "./define-forms/index.ts"
 import { driverKey } from "./driver-key/index.ts"
@@ -47,6 +48,7 @@ export const codemods: readonly Codemod[] = [
   shellDriver,
   accessSpellings,
   authSignIn,
+  channels,
   cliGetList,
 ]
 
@@ -75,5 +77,6 @@ export const upgradeCodemods: readonly Codemod[] = [
   shellDriver,
   accessSpellings,
   authSignIn,
+  channels,
   cliGetList,
 ]

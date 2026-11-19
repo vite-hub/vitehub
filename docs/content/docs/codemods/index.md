@@ -41,6 +41,7 @@ The command finds every module in the app that a codemod supports and runs those
 | [`shell-driver`](/docs/codemods/upgrade-vitehub#shell-driver) | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()` |
 | [`access-spellings`](/docs/codemods/upgrade-vitehub#access-spellings) | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: 'public'` |
 | [`auth-sign-in`](/docs/codemods/upgrade-vitehub#auth-sign-in) | `vitehub({ auth: { redirects } })` and `access.signIn.callbackURL` to `access: { signIn, afterSignIn }` in `server/auth.ts` |
+| [`channels`](/docs/codemods/upgrade-vitehub#channels) | Replace simple Agent `http()` calls with `channelAdapter('http')` |
 | [`cli-get-list`](/docs/codemods/upgrade-vitehub#cli-get-list) | `vitehub` read commands in scripts and CI: `show` and `info` to `get`, `env inspect` and `env status` to `env list`, `schedule runs` to `runs list` |
 
 The codemods do not upgrade Nuxt or install packages. ViteHub supports Nuxt 5 and Nitro 3 only.
