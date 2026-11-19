@@ -10,6 +10,8 @@ import { defineAuth } from "../src/index.ts"
 import { deleteUnusedMcpClients, mcpOAuth, serveMcpOAuthDiscovery, verifyMcpRequest } from "../src/mcp.ts"
 import { createAuthForRequest, requireCaller } from "../src/internal/server.ts"
 
+import type { BetterAuthPlugin } from "better-auth"
+
 import type { AuthAccessPolicy } from "../src/index.ts"
 import type { McpOAuthAuth, McpOAuthOptions } from "../src/mcp.ts"
 
@@ -23,7 +25,7 @@ afterEach(() => {
 })
 
 /** A real Better Auth on SQLite with `mcpOAuth()`, as an app's `server/auth.ts` defines it. */
-async function setup(options: Partial<McpOAuthOptions> = {}, rateLimit = false, policy?: AuthAccessPolicy, trustedProxyHeaders = false) {
+async function setup(options: Partial<McpOAuthOptions> = {}, rateLimit = false, policy?: AuthAccessPolicy, trustedProxyHeaders = false, plugins: BetterAuthPlugin[] = mcpOAuth({ loginPage: "/oauth", resource, ...options })) {
   const database = new DatabaseSync(":memory:")
   databases.push(database)
   const definition = defineAuth(() => ({
@@ -31,7 +33,7 @@ async function setup(options: Partial<McpOAuthOptions> = {}, rateLimit = false, 
     baseURL: app,
     database,
     emailAndPassword: { enabled: true },
-    plugins: mcpOAuth({ loginPage: "/oauth", resource, ...options }),
+    plugins,
     ...(rateLimit ? { rateLimit: { enabled: true } } : {}),
     ...(policy ? { access: { policy } } : {}),
     secret: "test-secret-at-least-32-bytes-long",
@@ -366,6 +368,29 @@ describe("requireCaller", () => {
     const [error] = await requireCaller(apiRequest({ authorization: "Bearer not-an-mcp-token" }), definition)
 
     expect(error?.code).toBe("AUTH_SIGNED_OUT")
+  })
+
+  it("returns an agent caller for a plain oauthProvider() with resources, as verifyMcpRequest() does", async () => {
+    // The OAuth plugins of Better Auth, without mcpOAuth(): the setup that the AUTH_MCP_OAUTH_MISSING check accepts.
+    const auth = await setup({}, false, undefined, false, [
+      jwt(),
+      oauthProvider({
+        allowDynamicClientRegistration: true,
+        allowUnauthenticatedClientRegistration: true,
+        clientRegistrationDefaultApplicationType: "infer",
+        clientRegistrationDefaultResources: [resource],
+        consentPage: "/oauth",
+        loginPage: "/oauth",
+        resources: [resource],
+      }),
+    ])
+    const { accessToken, clientId } = await signInAgent(auth)
+    expect((await verifyMcpRequest(mcpRequest(accessToken), { auth: auth.auth }))[0]).toBeUndefined()
+
+    const [error, caller] = await requireCaller(apiRequest({ authorization: `Bearer ${accessToken}` }), auth.definition)
+
+    expect(error).toBeUndefined()
+    expect(caller).toMatchObject({ client: { id: clientId, name: "Claude Code" }, kind: "agent", user: { email: "ada@example.com" } })
   })
 
   it("accepts a session bearer when the OAuth provider is not configured by mcpOAuth()", async () => {

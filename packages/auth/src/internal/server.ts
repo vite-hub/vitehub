@@ -59,7 +59,7 @@ import { notMemberError } from "../members.ts"
 import type { AuthMemberErrorCode } from "../members.ts"
 import type { Result } from "@vite-hub/runtime"
 import { signedOutError } from "../caller.ts"
-import { mcpRegistrationPluginId } from "../mcp-config.ts"
+import { mcpResourcesOf } from "../mcp-config.ts"
 import type { AuthCaller, AuthCallerErrorCode, AuthCallerUser } from "../caller.ts"
 
 export { createBetterAuthOptions, getAuthForDefinition } from "../auth-instance.ts"
@@ -1024,7 +1024,8 @@ const callerReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<Result<A
 
 /**
  * Return who calls: a person with an Auth Session (`kind: "browser"`), or an Agent with an MCP access token of
- * `mcpOAuth()` (`kind: "agent"`), checked like `verifyMcpRequest()` for any `mcpOAuth()` resource of the origin.
+ * `mcpOAuth()` (`kind: "agent"`), checked like `verifyMcpRequest()` for any `mcpOAuth()` resource of the origin. Like
+ * `verifyMcpRequest()`, it accepts an `oauthProvider()` with `resources` that the app adds without `mcpOAuth()`.
  * Returns `AUTH_SIGNED_OUT` without either, and `AUTH_MCP_TOKEN_INVALID` for a bearer token that fails a check.
  * `requireAuth()` stays session-only.
  *
@@ -1057,8 +1058,9 @@ async function readCaller(event: AuthRequestInput, definition: AuthDefinition): 
   if (token) {
     const auth = authForRequest(request, authRequestEvent(event), definition)
     const { options } = await auth.$context
-    // Without `mcpOAuth()`, a bearer token is Better Auth's, such as a session token of `bearer()`.
-    if (options.plugins?.some(plugin => plugin.id === mcpRegistrationPluginId)) {
+    // Without MCP OAuth (`oauthProvider()` with `resources`), a bearer token is Better Auth's, such as a session token of
+    // `bearer()`. This is the rule of `verifyMcpRequest()`.
+    if (mcpResourcesOf(options.plugins).length) {
       const { verifyAppAccessToken } = await import("../mcp-token.ts")
       const url = new URL(request.url)
       const origin = trustsProxyHeaders(options) ? forwardedRequestOrigin(request) : url.origin
