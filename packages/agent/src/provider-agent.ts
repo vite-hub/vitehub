@@ -2697,6 +2697,7 @@ function providerEvent(event: ProviderRuntimeEvent, tools: AgentToolSet | undefi
     case "content.delta":
       if (event.payload.streamKind === "assistant_text") return [{ id: providerTextDeltaId(event), messageId: event.itemId ?? event.turnId ?? "provider", phase: isSubAgentText(event) ? "commentary" : event.itemId ? messagePhases.get(event.itemId) ?? "final" : "final", text: event.payload.delta, type: "text-delta" }]
       if (event.payload.streamKind === "command_output") return [providerDataEvent(event)]
+      if (event.payload.streamKind === "reasoning_text" || event.payload.streamKind === "reasoning_summary_text") return [{ id: providerTextDeltaId(event), text: event.payload.delta, type: "reasoning-delta" }]
       return [{ id: providerTextDeltaId(event), phase: "commentary", text: event.payload.delta, type: "text-delta" }]
     case "item.started": {
       const details = providerToolDetails(event)

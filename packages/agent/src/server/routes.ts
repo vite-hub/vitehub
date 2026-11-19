@@ -2464,7 +2464,11 @@ function createManualDeliveryProgressUpdater(
 
   const textFromEvent = (event: unknown): string | undefined => {
     if (options?.updates === "commentary") {
-      if (!isRecord(event) || event.type !== "text-delta" || event.phase !== "commentary" || typeof event.text !== "string") return
+      // Codex sends most of its live progress as reasoning summaries, such as "**Inspecting the config**".
+      // Only a provider Driver emits `reasoning-delta`; reasoning text that a custom Driver marks with a phase stays hidden.
+      const progress = isRecord(event) && typeof event.text === "string"
+        && ((event.type === "text-delta" && event.phase === "commentary") || event.type === "reasoning-delta")
+      if (!progress) return
       // Show the current step, not the whole run: a new commentary segment replaces the previous one.
       if (event.id !== undefined) {
         if (commentaryId !== undefined && event.id !== commentaryId) commentary = ""
