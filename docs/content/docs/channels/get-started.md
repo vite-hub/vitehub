@@ -18,50 +18,13 @@ In this tutorial, you create an `alerts` Channel that writes "Build finished." t
 ::tutorial-step{title="Install and enable Channels"}
 ## Install and enable Channels
 
-Install Channels along with the Agent and Workflow packages that receive webhooks:
+Add Channels and the Agent package, which serves the webhook route:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/channels @vite-hub/agent @vite-hub/workflow
+pnpm add @vite-hub/channels @vite-hub/agent
 ```
 
-Add `agent: true` to your ViteHub options in `nuxt.config.ts` or `vite.config.ts`, keeping your other options.
-
-:::tabs{sync="framework"}
-::::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: { agent: true },
-})
-```
-::::
-
-::::tabs-item{label="Nitro"}
-```ts [vite.config.ts]
-import { nitro } from 'nitro/vite'
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ agent: true }), nitro()],
-})
-```
-::::
-
-::::tabs-item{label="Vite"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ agent: true })],
-})
-```
-::::
-:::
-
-- You do not add a `channels` option. The Channel files in `server/channels` turn on Channels.
-- `agent: true` serves the webhook route for Channels that receive messages.
+You add no option. The Channel files in `server/channels` turn on Channels, and a Channel that receives webhooks turns on the webhook route of the Agent package. Keep `vitehub()` in `vite.config.ts`, or `vite-hub/nuxt` in `nuxt.config.ts`, as in [Installation](/docs/getting-started/installation).
 
 
 :::details{summary="How ViteHub finds Channel files"}
@@ -150,15 +113,25 @@ Create `server/channels/builds.ts`. A webhook is an HTTP request that a service 
 import { defineChannel, webhook } from 'vite-hub/channels'
 
 export default defineChannel({
-  adapter: webhook<{ id: string }>({ signature: 'bearer', secret: 'local-secret' }),
+  adapter: webhook<{ id: string }>({ signature: 'bearer', secret: 'BUILDS_WEBHOOK_SECRET' }),
   on: {
     webhook: event => console.log(`build ${event.data.id} finished (delivery ${event.id})`),
   },
 })
 ```
 
+- `secret` is the name of the server variable that holds the secret, not the secret itself.
 - `webhook()` checks the secret in the `Authorization: Bearer <secret>` header.
+
+Set the variable in `.env` and restart the dev server:
+
+```bash [.env]
+BUILDS_WEBHOOK_SECRET=local-secret
+```
+
 - `on.webhook` runs the handler for each delivery. `webhook` is the default event name.
+
+Stop the dev server and run `pnpm dev` again. ViteHub enables the webhook host at startup when it finds your first inbound Channel.
 
 Every Channel that receives webhooks has the route `/_vitehub/channels/<name>`. Send the same body twice:
 

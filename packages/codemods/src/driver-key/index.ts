@@ -144,7 +144,7 @@ function resolveApis(program: File) {
 /** Renames the key of `property` to `driver`. A shorthand `{ provider }` becomes `{ driver: provider }`. */
 function renameKey(context: FileContext, property: ObjectProperty) {
   if (property.shorthand) context.output.appendLeft(start(property), "driver: ")
-  else context.output.overwrite(start(property.key), end(property.key), "driver")
+  else context.output.overwrite(start(property.key), end(property.key), property.computed ? quoteString("driver", context.style) : "driver")
   context.changed = true
 }
 
@@ -248,7 +248,7 @@ function rewriteProgram(context: FileContext, program: File) {
   })
 }
 
-async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
+async function migrate({ cwd }: CodemodContext, { reportParseErrors } = { reportParseErrors: true }): Promise<CodemodResult> {
   const files = (await glob(sourcePatterns, { cwd, ignore: ignoredPatterns, dot: false })).sort()
   const edits: FileEdit[] = []
   const followUps: FollowUp[] = []
@@ -261,7 +261,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
       program = parseProgram(source, { jsx: /\.[jt]sx$/.test(file), typescript: !/\.(?:c|m)?jsx?$/.test(file) })
     }
     catch (error) {
-      followUps.push({ file, message: `The codemod could not parse this file (${error instanceof Error ? error.message : String(error)}). Rename its backend keys to \`driver\` by hand.` })
+      if (reportParseErrors) followUps.push({ file, message: `The codemod could not parse this file (${error instanceof Error ? error.message : String(error)}). Rename its backend keys to \`driver\` by hand.` })
       continue
     }
     const context: FileContext = { changed: false, file, followUps, output: new MagicString(source), style: detectStyle(source, program) }
@@ -282,7 +282,14 @@ export const driverKey: Codemod = {
   name: "driver-key",
   description: "Rename provider and authority options to driver, and name host drivers cloudflare and vercel",
   usage: "[dir]",
-  // This upgrade runs by name; it does not migrate a third-party module.
-  detect: async () => undefined,
+  detectAfterEdits: true,
+  async detect(context) {
+    const result = await migrate(context, { reportParseErrors: false })
+    const [edit] = result.edits
+    if (edit) return { reason: `${edit.path} uses a former backend key or driver name` }
+    const [followUp] = result.followUps
+    if (followUp) return { reason: `${followUp.file} needs a driver key migration` }
+    return undefined
+  },
   run: migrate,
 }
