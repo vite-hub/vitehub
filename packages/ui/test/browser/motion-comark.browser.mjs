@@ -1,5 +1,5 @@
-// Two copies of the motion layer on one page, as an app and a document that Comark UI renders load them, and the
-// `travel` helper, in Chromium. The copies are the source of `@vite-hub/ui/motion` copied to two folders, so each has
+// What Comark UI needs from the motion layer, in Chromium: two copies of the layer on one page, as an app and a document
+// that Comark UI renders load them, the `travel` helper, and a divider whose line is a child beside its grip. The copies are the source of `@vite-hub/ui/motion` copied to two folders, so each has
 // its own registry, listeners, and springs, as two bundles do.
 // Run: pnpm --filter @vite-hub/ui test:motion
 import assert from "node:assert/strict"
@@ -36,6 +36,12 @@ writeFileSync(join(root, "index.html"), `<!doctype html>
   <button role="tab" aria-selected="false">Two<span data-motion-indicator></span></button>
 </div>
 <div id="frame"></div>
+<div id="pair" style="position:fixed;left:100px;top:560px;width:400px;height:200px;background:#eee">
+  <div id="split" role="separator" aria-orientation="vertical" tabindex="0" style="position:absolute;left:0;top:0;bottom:0;width:0;cursor:ew-resize">
+    <span id="line" style="position:absolute;inset:0 auto 0 -1px;width:2px;background:#fff"></span>
+    <span id="grip" style="position:absolute;top:50%;left:-16px;width:32px;height:32px;border-radius:50%;background:#fff"></span>
+  </div>
+</div>
 <script type="module">
   import * as a from "./a/motion.ts"
   import * as b from "./b/motion.ts"
@@ -109,6 +115,31 @@ describe("copies of the motion layer", () => {
     // A 40px button squashes by 3%: once is 0.97, twice from two copies would write over each other or go further.
     const value = Number(scale.split(" ")[0])
     assert.ok(value < 0.995 && value > 0.965, `one squash of 3%: ${scale}`)
+    await context.close()
+  })
+})
+
+describe("divider", () => {
+  test("a divider whose line is a child hides only the line while it bends, so its grip stays", async () => {
+    const { context, errors, page } = await open()
+    await page.evaluate(() => window.copies.a.installMotion())
+    const grip = await page.locator("#grip").boundingBox()
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2)
+    await page.mouse.down()
+    // The divider sits at its limit, the left edge of the pair, so a pull to the left bends its line.
+    await page.mouse.move(grip.x - 60, grip.y + grip.height / 2, { steps: 8 })
+    await page.waitForTimeout(100)
+    const pulled = await page.evaluate(() => ({
+      bent: Boolean(document.querySelector("[data-motion=bend]")),
+      line: getComputedStyle(document.querySelector("#line")).opacity,
+      handle: getComputedStyle(document.querySelector("#split")).opacity,
+      grip: getComputedStyle(document.querySelector("#grip")).opacity,
+    }))
+    await page.mouse.up()
+    assert.deepEqual(pulled, { bent: true, line: "0", handle: "1", grip: "1" })
+    await page.waitForFunction(() => !document.querySelector("[data-motion=bend]"), null, { timeout: 5000 })
+    assert.equal(await page.evaluate(() => document.querySelector("#line").style.opacity), "", "the line shows again when it is straight")
+    assert.deepEqual(errors, [])
     await context.close()
   })
 })
