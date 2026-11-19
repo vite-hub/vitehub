@@ -16,7 +16,7 @@ pnpm add @vite-hub/queue
 pnpm add -D @vite-hub/cli vite
 ```
 
-The package requires Node.js 22.19 or newer. Vite is an optional peer dependency and is required for definition discovery and provider output. The ViteHub CLI provides the `vitehub provision` command used by the host guides.
+The package requires Node.js 24.15 or newer. Vite is an optional peer dependency and is required for definition discovery and provider output. The ViteHub CLI provides the `vitehub provision` command used by the host guides.
 
 For Vercel Queues, also install the provider package and the ambient types used by generated functions:
 
@@ -35,8 +35,10 @@ Define the handler in a discoverable file:
 // src/welcome-email.queue.ts
 import { defineQueue } from "@vite-hub/queue";
 
-export default defineQueue<{ email: string }>(async ({ payload }) => {
-  console.log(`Send welcome email to ${payload.email}`);
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload }) => {
+    console.log(`Send welcome email to ${payload.email}`);
+  },
 });
 ```
 

@@ -161,7 +161,7 @@ describe("hubComments", () => {
     expect(source).toContain('import { commentsPostgresSchema as schema } from "vite-hub/comments/database/postgres"')
     expect(source).toContain('dialect: "postgresql"')
     // The page tool stays unless the app turns the overlay off.
-    expect(source).toContain('overlay: "/api/_vitehub/comments/assets/overlay.js')
+    expect(source).toContain('overlay: "/_vitehub/comments/assets/overlay.js')
     const off = hubComments({ overlay: false })
     await configHook(off)({ nitro: { plugins: [] }, root })
     expect(await readFile(file, "utf8")).toContain("overlay: false")

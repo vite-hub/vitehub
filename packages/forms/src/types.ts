@@ -159,4 +159,6 @@ export interface FormsStore {
   list(options?: ListFormSubmissionsOptions): Promise<FormSubmission[]>
   get(id: string): Promise<FormSubmission | undefined>
   setStatus(id: string, status: FormStatus, now: number): Promise<FormSubmission | undefined>
+  /** Deletes the submissions that this signed-in user sent. Auth calls it when the user deletes the account. */
+  deleteUser(userId: string): Promise<void>
 }

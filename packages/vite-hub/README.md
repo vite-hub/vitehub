@@ -23,7 +23,7 @@ If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages f
 
 | Feature | Add these packages |
 | --- | --- |
-| `agent` | `@vite-hub/agent @vite-hub/workflow` (Agents run on Workflow) |
+| `agent` | `@vite-hub/agent` |
 | `auth` | `@vite-hub/auth better-auth` |
 | `blob` | `@vite-hub/blob` |
 | `browser` | `@vite-hub/browser` |
@@ -56,7 +56,7 @@ If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages f
 
 A build with an enabled feature whose package is missing fails with the `pnpm add` command to run. When an installed package is outside the range that `vite-hub` supports, the build continues and warns with the `pnpm add` command that installs a supported version. Vercel Workflow requires `@vercel/functions` for all definitions; add `workflow` and `@workflow/builders` for native durable definitions. See the [Workflow hosts guide](https://vitehub.dev/docs/workflows/hosts) for installation. Other provider SDKs, such as `@vercel/sandbox` for Sandbox Tasks, stay with their feature guides.
 
-You need Node.js 22.22 or newer, Vite 8 or newer, and an ESM package with `"type": "module"` or a `vite.config.mts` file. Hosted primitives and model providers can also require credentials, network access, and billed accounts. Their feature guides list those requirements before the first provider call.
+You need Node.js 24.15 or newer, Vite 8 or newer, and an ESM package with `"type": "module"` or a `vite.config.mts` file. Hosted primitives and model providers can also require credentials, network access, and billed accounts. Their feature guides list those requirements before the first provider call.
 
 ## Configure ViteHub
 
@@ -96,33 +96,31 @@ Custom H3 and Nuxt routes can import `getRuntimeContext` from
 Standard Context (`event["~standard"]`): request, bindings, host `waitUntil`,
 and a fresh memo cache. Without a real host lifetime API, await the
 returned `flushWaitUntil()` before responding. See the
-[Runtime Context guide](https://vitehub.dev/docs/reference/runtime-context).
+[Runtime Context guide](https://vitehub.dev/docs/runtime/context).
 
 The public hosts are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters. The build fails when `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOST` selects a different host than `host`. In Nuxt, without `host`, the host comes from `nitro.preset` when it names one, such as `cloudflare-module`. `vitehub deploy --host <host>` is the exception: it builds with `VITEHUB_HOST=<host>` and `VITEHUB_HOST_SOURCE=cli`, and that host wins over `host`.
 
 ViteHub derives one deployment identity from the nearest `package.json` name, falling back to the Vite root directory name. Set `name` to pin the identity explicitly. Cloudflare Workers Builds supplies its connected Worker through `WRANGLER_CI_OVERRIDE_NAME`; the Cloudflare host uses it after explicit `name` and fails when the two resolve to different values because the connected Worker remains the deployment target. Cloudflare uses the resolved identity for the default Worker, Blob bucket, Queue prefix, Rate Limit namespace, Sandbox, and Container names. Explicit Wrangler Worker names remain authoritative outside Workers Builds, while explicit Blob bucket, driver, and store options still win. The Workers Builds fallback derives deterministic names but does not provision the corresponding R2 bucket or Queue.
 
-Blob, Agent, Auth, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace are opt-in. Enabling Agent also enables Workflow for discovered Agent Definitions; set `workflow: false` only when every Agent must stay inline:
+A Definition file turns its feature on, with no key: `server/agents/`, `server/auth.ts`, `server/browsers/`, `server/channels/`, `server/connections/`, `server/queues/`, `server/realtime/`, `server/schedules/`, `server/workflows/`, and `server/workspaces/`. Set the key to `false` to keep the feature off, or to an object to set its options. When the package of the feature is missing, the build fails with `VITE_HUB_DEFINITION_PACKAGE_MISSING` and the `pnpm add` command.
+
+Agents run inline when Workflow is off. An Agent Definition does not turn Workflow on. Set `workflow: true` or add a Workflow Definition to use the configured Workflow driver. OpenWorkflow and Cloudflare Workflows make discovered Agent turns durable; the default Vercel driver still runs Agent turns inline.
+
+Blob, Database, Email, KV, Rate Limit, and Sandbox Task have no Definition files to find, so they are opt-in with their key:
 
 ```ts
 import { vitehub } from "vite-hub"
 
 vitehub({
-  agent: true,
   blob: true,
   host: "cloudflare",
-  auth: true,
   database: true,
   email: {
     driver: "resend",
   },
   kv: true,
-  queue: true,
   rateLimit: true,
   sandboxTask: true,
-  schedule: true,
-  workflow: true,
-  workspace: true,
 });
 ```
 
@@ -157,11 +155,11 @@ Nitro output includes `.vitehub/nitro/error-log.mjs`. It logs each unhandled req
 
 `vitehub({ redirects: { host: "example.com", https: true, trailingSlash: "remove" } })` sends every request to one canonical address in one redirect: `301` for `GET` and `HEAD`, `308` for other methods. `trailingSlash` changes page paths only. `vite dev`, local names, IP addresses, and preview hosts such as `*.workers.dev` (add more with `previewHosts`) keep their host and scheme. On Cloudflare, ViteHub sets `assets.run_worker_first` so static files redirect too. Move single pages with Nitro `routeRules`. On Cloudflare, ViteHub also writes their redirects to the static `_redirects` file, after the lines of `public/_redirects`. See [Redirect to one canonical address](https://vitehub.dev/docs/frameworks-hosts/redirects).
 
-`vitehub({ health: true })` adds `/api/_vitehub/health` for load balancers and container health checks, on every host. It answers `{ ok: true, version, commit, vitehub }`, where `version` is the app's `package.json` version, `commit` is the commit of the build from the CI or host variables, else from Git, else `null`, and `vitehub` is the installed `vite-hub` version. It checks each Database (`SELECT 1`) and each KV and Blob store (one read) of the app, with 2 seconds for each, and answers `503` with `ok: false` when one fails, for example `{ ok: false, commit, vitehub, checks: { database: { default: true }, kv: { default: false } } }`. The error goes to the server log, never to the response. `health: { route: "/api/health" }` moves the route.
+`vitehub({ health: true })` adds `/_vitehub/health` for load balancers and container health checks, on every host. It answers `{ ok: true, version, commit, vitehub }`, where `version` is the app's `package.json` version, `commit` is the commit of the build from the CI or host variables, else from Git, else `null`, and `vitehub` is the installed `vite-hub` version. It checks each Database (`SELECT 1`) and each KV and Blob store (one read) of the app, with 2 seconds for each, and answers `503` with `ok: false` when one fails, for example `{ ok: false, commit, vitehub, checks: { database: { default: true }, kv: { default: false } } }`. The error goes to the server log, never to the response. `health: { route: "/api/health" }` moves the route.
 
 `vitehub({ publicUrl, seo: { sitemap: true } })` serves `/sitemap.xml` and `/robots.txt` on every host. The sitemap lists the Nuxt pages without a dynamic part, the static prerender routes, the published Content pages with a URL, and the pages that `server/sitemap.ts` returns with `defineSitemap()` from `vite-hub/seo`. `exclude` leaves path prefixes out, and `pages: false` keeps only Content and `server/sitemap.ts` entries. URLs start with `publicUrl`, else the request origin; a build that prerenders the files needs `publicUrl` (`SEO_PUBLIC_URL_MISSING`). `robots: { disallow }` adds `Disallow` lines. ViteHub keeps the app's own `public/robots.txt`, and a server route for `/sitemap.xml` fails the build with `SEO_SITEMAP_ROUTE_EXISTS`. See [Sitemap and robots.txt](https://vitehub.dev/docs/frameworks-hosts/sitemap).
 
-`vitehub({ deploy: { check: ["/", "/api/products"] } })` makes `vitehub deploy` request those paths, and the health route with `health`, on the deployed URL after each deploy. A path that does not answer with a `2xx` status fails the deploy with the rollback command of the host. `deploy: { indexNow: true }` with a string `publicUrl` serves an IndexNow key file and sends the sitemap URLs to IndexNow after each production deploy. See [Check the deployed app](https://vitehub.dev/docs/development/cli#check-the-deployed-app).
+`vitehub({ deploy: { check: ["/", "/api/products"] } })` makes `vitehub deploy` request those paths, and the health route with `health`, on the deployed URL after each deploy. A path that does not answer with a `2xx` status fails the deploy with the rollback command of the host. `deploy: { indexNow: true }` with a string `publicUrl` serves an IndexNow key file and sends the sitemap URLs to IndexNow after each production deploy. See [Check the deployed app](https://vitehub.dev/docs/cli/project#check-the-deployed-app).
 
 `vitehub({ trustProxy: true })` trusts a proxy that ends TLS: when the server sees `http:` and the first `X-Forwarded-Proto` value is `https`, the request URL becomes `https:` before any middleware or route runs. It never reads `X-Forwarded-Host`. `vitehub({ sameOriginWrites: true })` answers `403` to a write with cookies whose `Sec-Fetch-Site` is `same-site` or `cross-site`, or whose `Origin` is not the app's origin; `exclude` lists path prefixes that take writes from other sites. See [Run behind a reverse proxy](https://vitehub.dev/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy).
 
@@ -214,7 +212,7 @@ pnpm vitehub task list
 pnpm vitehub task run db:seed '{"title":"First note"}' --yes
 ```
 
-`vitehub inspect definitions --kind task` lists the task files without a running server. Read the [CLI guide](https://vitehub.dev/docs/development/cli#run-app-tasks) for payload options and limits.
+`vitehub inspect definitions --kind task` lists the task files without a running server. Read the [CLI guide](https://vitehub.dev/docs/cli/primitives#run-app-tasks) for payload options and limits.
 
 ## Configure TypeScript
 
@@ -318,7 +316,7 @@ Add `authorize: "./server/console-authorize.ts"` to decide who may use the Conso
 
 Set `console.mcpClient: true` to add the MCP client section. It runs on the server. It connects to the app's own `/mcp` and to other MCP servers with OAuth or a bearer token, as the Console caller, and it can hold several accounts of one server at once. Tokens and MCP sessions stay on the server and never reach the browser: in memory, or sealed in the app's KV store with `VITEHUB_CONSOLE_MCP_KEY`. See [Connect to MCP servers](https://vitehub.dev/docs/development/console#connect-to-mcp-servers).
 
-`invoke` defaults to `true` on the development server and `false` in a production build. Invocation also enables the Schedules page **Run now** button and the `schedule.run` operation (`vitehub schedule run <name>`) for Static Schedule Definitions that set `manual: true`; see [Run Schedules on demand](https://vitehub.dev/docs/development/cli#run-a-schedule-on-demand).
+`invoke` defaults to `true` on the development server and `false` in a production build. Invocation also enables the Schedules page **Run now** button and the `schedule.run` operation (`vitehub schedule run <name>`) for Static Schedule Definitions that set `manual: true`; see [Run Schedules on demand](https://vitehub.dev/docs/cli/primitives#run-a-schedule-on-demand).
 
 `impersonation: true` adds the `auth.impersonate` and `auth.stop-impersonating` operations. Each returns a one-time link, `GET /_vitehub/rpc?ticket=<ticket>`, that the browser opens on the app. The browser's app session must belong to the email of the signed Console person and have Better Auth's `impersonate` permission. It is off by default. It needs app Auth with Better Auth's admin plugin and `events.store`. The session lasts one hour by default and cannot create credentials.
 
@@ -352,7 +350,7 @@ Console image uploads require invocation to be enabled. The Console fixes the Ag
 
 Logs are part of `observability`. Turn them on with `vitehub({ console: { auth: false }, observability: { logs: true } })` during local development. It attaches a bounded buffer to Evlog's existing drain and reuses an installed Evlog Nitro module. Pass `observability: { evlog: { redact: true }, logs: { maxEntries: 256 } }` to configure Evlog when ViteHub owns its setup. If another integration already installed Evlog, configure the options there.
 
-`observability: { browserErrors: true }` sends uncaught browser errors to `POST /api/_vitehub/browser-errors`, and the server logs each one as an error on the Evlog event of that request. A Vite app gets a script in `index.html`, and a Nuxt app a client plugin that also reports `vue:error` and `app:error`. Report an error that the app catches with the browser's `reportError(error)`. The route takes same-origin requests only, 16 KiB at most, and 20 reports a minute from one address. It is off by default. See [Log browser errors](https://vitehub.dev/docs/logs/configure#log-browser-errors).
+`observability: { browserErrors: true }` sends uncaught browser errors to `POST /_vitehub/browser-errors`, and the server logs each one as an error on the Evlog event of that request. A Vite app gets a script in `index.html`, and a Nuxt app a client plugin that also reports `vue:error` and `app:error`. Report an error that the app catches with the browser's `reportError(error)`. The route takes same-origin requests only, 16 KiB at most, and 20 reports a minute from one address. It is off by default. See [Log browser errors](https://vitehub.dev/docs/logs/configure#log-browser-errors).
 
 For production, use `observability: { logs: { source: './server/logs.ts' } }`. That server module must default-export a `LogSource` from `vite-hub/logs/source` that reads the existing backend. Without `observability.service`, this form starts no logger, buffer, SDK, or exporter. `logs: true` fails a production build because a temporary process buffer cannot provide shared production history. The source owns retention and cursor semantics and must apply each advertised filter.
 

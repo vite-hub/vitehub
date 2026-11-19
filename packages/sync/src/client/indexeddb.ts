@@ -1,7 +1,7 @@
 // A small IndexedDB storage for Sync, with no dependency. One database holds every Sync store of the origin: `rows` by
 // [store, key], `meta` by store, `outbox` in insertion order, with the store in `store`, and `results` of actions by
 // mutation id. Each change is one transaction. A store is a route plus a subset, such as
-// `/api/_vitehub/sync/comments?{"issueId":"i1"}`.
+// `/_vitehub/sync/comments?{"issueId":"i1"}`.
 import { resultLifetime } from "./storage.ts"
 
 import type { SyncKey, SyncRow } from "../protocol.ts"

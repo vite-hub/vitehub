@@ -2,15 +2,14 @@
 title: Render your first Markdown template
 description: "Install the Markdown Template package, bind data, and return rendered Markdown."
 layout: tutorial
-navigation.title: Tutorial
-navigation.order: 52
-navigation.group: Application APIs
+navigation.title: Get started
+navigation.order: 2
 icon: i-lucide-rocket
 ---
 
 Build a short release note from a Markdown template and a data object. You insert the version and status as text, then add a trusted Markdown list. You get a Markdown string to print or pass to an Agent.
 
-You need Node.js 22.18 or newer and pnpm. Set `"type": "module"` in `package.json` so Node.js reads `import` and `export`. You need no Vite server, account, or network access.
+You need Node.js 24.15 or newer and pnpm. Set `"type": "module"` in `package.json` so Node.js reads `import` and `export`. You need no Vite server, account, or network access.
 
 ::tutorial-step{title="Install the package"}
 ## Install the package
@@ -55,7 +54,7 @@ console.log(markdown);
 ::tutorial-step{title="Run and check the result"}
 ## Run and check the result
 
-Run the file with Node.js 22.18 or newer:
+Run the file with Node.js 24.15 or newer:
 
 ```sh [commands/verify]
 node server/render-release.ts
@@ -74,5 +73,5 @@ Status: ready
 
 To keep the template in a file, import a `*.template.md` file. In a framework app, `vitehub()` loads it. In a modular Vite config, add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`.
 
-Next, read [Markdown templates](/docs/reference/markdown-templates) for conditions, file imports, and migration. [Agent Instructions](/docs/agents/instructions) shows how to use rendered Markdown as lasting Agent guidance.
+Next, read [Markdown templates](/docs/markdown-template) for conditions, file imports, and migration. [Agent Instructions](/docs/agents/instructions) shows how to use rendered Markdown as lasting Agent guidance.
 ::

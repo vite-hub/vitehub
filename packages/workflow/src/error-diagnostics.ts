@@ -170,6 +170,10 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ seconds }: { seconds: number }) => `Another server held the OpenWorkflow schema setup lock for ${seconds} seconds. This server did not start the schema setup.`,
       fix: "Check the server that holds the setup lock and let its migration finish. The worker retries automatically. If you start a worker yourself, retry after the lock is released.",
     },
+    WORKFLOW_PAYLOAD_JSON_INVALID: {
+      why: "[vitehub] The request has the `application/json` content type, but its body is not valid JSON.",
+      fix: "Send a JSON body with `content-type: application/json`, or send another content type to read the body as text. Read `error.cause` for the parse error.",
+    },
     WORKFLOW_R0001: {
       ...dynamicError,
       fix: "Remove `workflow.binding` and `workflow.name`, which apply only to an app with one Workflow, or keep one Workflow under `server/workflows/`.",
@@ -303,8 +307,8 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Write the duration as a number, one space, and a unit: second, minute, hour, day, week, month, or year, with or without a final `s`. For example `context.sleep('2 hours')`, `context.sleep(5_000)`, or `context.sleep(new Date(payload.remindAt))`.",
     },
     WORKFLOW_START_DELAY_INVALID: {
-      why: ({ delay }: { delay: string }) => `[vitehub] \`startWorkflow()\` does not accept the delay ${JSON.stringify(delay)}. A delay is a number of milliseconds of 0 or more, a duration such as \`"30 minutes"\` or \`"3 days"\`, or a valid \`Date\`.`,
-      fix: "Pass `{ delay: 60_000 }`, `{ delay: \"1 hour\" }`, or `{ delay: new Date(\"2026-12-01T09:00:00Z\") }`. The duration units are ms, seconds, minutes, hours, days, and weeks. For a month or a calendar time, pass a `Date`.",
+      why: ({ delay }: { delay: string }) => `[vitehub] \`startWorkflow()\` does not accept the delay ${JSON.stringify(delay)}. A delay is a duration such as \`"30m"\` or \`"3 days"\`, or a valid \`Date\`, that ends before the year 275760.`,
+      fix: "Pass `{ delay: \"1h\" }`, `{ delay: \"3 days\" }`, or `{ delay: new Date(\"2026-12-01T09:00:00Z\") }`. For a month or a calendar time, pass a `Date`.",
     },
     WORKFLOW_STEP_OPTIONS_INVALID: {
       why: ({ option, step, value }: { option: string, step: string, value: string }) => `[vitehub] The Workflow step ${JSON.stringify(step)} sets \`${option}\` to ${value}. A step takes \`retries: { limit, delay, backoff }\` and \`timeout\`.`,

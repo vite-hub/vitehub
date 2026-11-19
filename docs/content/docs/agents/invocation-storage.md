@@ -500,7 +500,9 @@ const invocations = defineAgentInvocations({
 
 The byte limit counts the UTF-8 observations array after privacy filtering, not provider output, the live trace log, or process memory. A resumed record keeps its limits.
 
-At a limit, the journal marks `observationsTruncated` and keeps lifecycle outcomes before ordinary observations, stripping large outcome content if needed. A shortened or dropped value adds `vitehub.observation.truncated: true` and the attribute names in `vitehub.observation.truncatedAttributes`. Metadata strings keep 512 characters, and `agent.run.id` the content string limit. When an input history loses only part data it does not show, such as a message header, the list names `input.messages.parts` instead of `input.messages`.
+At a limit, the journal marks `observationsTruncated` and keeps lifecycle outcomes before ordinary observations, stripping large outcome content if needed. A shortened or dropped value adds `vitehub.observation.truncated: true` and the attribute names in `vitehub.observation.truncatedAttributes`. Metadata strings keep 512 characters, and `agent.run.id` the content string limit. When an input history loses only part data it does not show, such as a deeply nested part field, the list names `input.messages.parts` instead of `input.messages`.
+
+The input history has its own budget of 256 messages and four times the content string limit. The journal fills it from the newest message back and keeps each message whole, so the messages next to the trigger survive. When older messages do not fit, it leaves them out and records `input.messages.omitted` and `input.messages.total`. `input.trigger.message` keeps the message that started the run, whole: the message with the run's `messageId`, else the last user message.
 
 `flushTimeoutMs` sets how long finish waits for queued observations. A longer drain helps a long queue of working writes, not an unavailable store.
 
@@ -530,7 +532,7 @@ vitehub agent invocations tail INVOCATION_ID
 
 Without `--url`, the CLI uses the dev server of this project, found in `.vitehub/dev-server.json`, as every `vitehub` command does, and reads through its Console. When no dev server runs, it fails with `AGENT_INVOCATIONS_NO_DEV_SERVER`: start the dev server, pass `--url`, or read the journal file with `--database`. `VITEHUB_AGENT_INVOCATIONS_URL` still names an invocation endpoint. An explicitly configured `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` selects a local journal file instead of dev server discovery. Use `--json` for scripts. `vitehub agent invocations cancel INVOCATION_ID` cancels inside the Nitro runtime of a Vite + Nitro Development Server. With `--url` and the app URL, such as `https://app.example.com` or `http://localhost:3000`, `list`, `show`, `tail`, and `cancel` use that app's Console, as every `vitehub` command does.
 
-See [Cancel an Agent Invocation](/docs/development/cli#cancel-an-agent-invocation) and [Inspect and cancel on a deployed app](/docs/development/cli#inspect-and-cancel-on-a-deployed-app).
+See [Cancel an Agent Invocation](/docs/cli/agents#cancel-an-agent-invocation) and [Inspect and cancel on a deployed app](/docs/cli/agents#inspect-and-cancel-on-a-deployed-app).
 
 Before a rollout, wait until nothing is pending or running, so the restart interrupts no work:
 

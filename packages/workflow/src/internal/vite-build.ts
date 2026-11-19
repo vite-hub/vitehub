@@ -2,7 +2,7 @@ import { isRuntimeRecord } from "./runtime-type.ts"
 import { workflowRuntimeModule, type WorkflowRuntimeModuleName } from "./runtime-modules.ts"
 import { createHash, randomUUID } from "node:crypto"
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
-import { cp, mkdir, readFile, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
+import { cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -17,6 +17,7 @@ import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/verc
 import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
+import type { WorkflowManifest } from "@workflow/builders"
 import { buildSync, transform } from "esbuild"
 import type { Plugin } from "esbuild"
 
@@ -131,19 +132,58 @@ const optionalViteDevtoolsPattern = /^@vitejs\/devtools-(?:oxc|rolldown|vite|vit
 interface VercelWorkflowBuilders {
   VercelBuildOutputAPIBuilder: typeof import("@workflow/builders").VercelBuildOutputAPIBuilder
   applySwcTransform: typeof import("@workflow/builders").applySwcTransform
-  createSwcPlugin: (options: { mode: "workflow", projectRoot: string }) => Plugin
+  createPseudoPackagePlugin: () => Plugin
+  createSwcPlugin: (options: { mode: "step" | "workflow", moduleSpecifierRoot?: string, projectRoot: string, sideEffectEntries?: string[], workflowManifest?: WorkflowManifest }) => Plugin
   detectWorkflowPatterns: typeof import("@workflow/builders").detectWorkflowPatterns
   shouldTransformFile: typeof import("@workflow/builders").shouldTransformFile
 }
 
+function packageNameOf(specifier: string): string {
+  const [scope, name] = specifier.split("/")
+  return scope!.startsWith("@") && name ? `${scope}/${name}` : scope!
+}
+
+/** Reads the optional peers that the package of `file` declares, from the nearest `package.json` that has a name. */
+function createOptionalPeerReader(): (file: string) => ReadonlySet<string> {
+  const peersByDirectory = new Map<string, ReadonlySet<string>>()
+  const read = (directory: string): ReadonlySet<string> => {
+    const cached = peersByDirectory.get(directory)
+    if (cached) return cached
+    let peers: ReadonlySet<string> = new Set()
+    const manifest = join(directory, "package.json")
+    // Node and esbuild accept a manifest that starts with a byte order mark, so drop it before parsing.
+    const metadata: unknown = existsSync(manifest) ? JSON.parse(readFileSync(manifest, "utf8").replace(/^\uFEFF/, "")) : undefined
+    if (isRuntimeRecord(metadata) && typeof metadata.name === "string") {
+      const meta = isRuntimeRecord(metadata.peerDependenciesMeta) ? metadata.peerDependenciesMeta : {}
+      peers = new Set(Object.entries(meta).filter(([, value]) => isRuntimeRecord(value) && value.optional === true).map(([name]) => name))
+    }
+    else if (dirname(directory) !== directory) {
+      peers = read(dirname(directory))
+    }
+    peersByDirectory.set(directory, peers)
+    return peers
+  }
+  return file => read(dirname(file))
+}
+
+/** Tells whether a `node_modules` folder on the way up from `directory` holds the package, as Node looks it up. */
+function packageInstalledFrom(directory: string, name: string): boolean {
+  for (let current = directory; ; current = dirname(current)) {
+    if (existsSync(join(current, "node_modules", name))) return true
+    if (dirname(current) === current) return false
+  }
+}
+
 /**
  * Lets a Workflow bundle import optional packages that the app did not install. Vite DevTools becomes an empty
- * module. `@vite-hub/kv`, an optional peer that Agents load only when a Chat connector runs, becomes a module that
- * fails on import, as the missing package would.
+ * module. `@vite-hub/kv`, an optional peer that Agents load only when a Chat connector runs, and any optional peer
+ * that a package loads with `import()`, such as `@modelcontextprotocol/sdk` in `@vite-hub/source/mcp`, become a
+ * module that fails on import, as the missing package would.
  */
 export function createOptionalPackagesPlugin(rootDir: string): Plugin {
   const require = createRequire(join(rootDir, "package.json"))
   const namespace = "vitehub-optional-package"
+  const optionalPeersOf = createOptionalPeerReader()
   return {
     name: namespace,
     setup(build) {
@@ -162,6 +202,14 @@ export function createOptionalPackagesPlugin(rootDir: string): Plugin {
         if (args.pluginData === namespace) return
         const resolved = await build.resolve(args.path, { importer: args.importer, kind: args.kind, pluginData: namespace, resolveDir: args.resolveDir })
         return resolved.errors.length ? { namespace, path: args.path } : resolved
+      })
+      build.onResolve({ filter: /^[^./#]/ }, async (args) => {
+        if (args.kind !== "dynamic-import" || args.pluginData === namespace || !isAbsolute(args.importer)) return
+        const name = packageNameOf(args.path)
+        if (!optionalPeersOf(args.importer).has(name)) return
+        // An installed peer keeps esbuild's own error, such as a subpath that the peer does not export.
+        if (packageInstalledFrom(args.resolveDir, name)) return
+        return { namespace, path: args.path }
       })
       build.onLoad({ filter: /.*/, namespace }, args => ({
         contents: optionalViteDevtoolsPattern.test(args.path)
@@ -607,18 +655,64 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
     ...definitions.map(definition => dirname(definition.handler)),
     ...nativeFiles.map(file => dirname(file)),
   ])]
-  // The native builder has no esbuild define option. Transform both intermediate
-  // bundles before it embeds the VM code and combines the step registrations.
-  class ConfiguredWorkflowBuilder extends builders.VercelBuildOutputAPIBuilder {
-    protected override async createStepsBundle(options: { inputFiles: string[], outfile: string }) {
-      const result = await super.createStepsBundle(options)
-      if (!Object.keys(bundleDefines).length) return result
-      const source = await readFile(options.outfile, "utf8")
-      const output = await transform(source, { define: bundleDefines, sourcefile: options.outfile, sourcemap: "inline" })
-      await writeFile(options.outfile, output.code)
-      return result
+  const { createPseudoPackagePlugin, createSwcPlugin, VercelBuildOutputAPIBuilder } = builders
+  class ConfiguredWorkflowBuilder extends VercelBuildOutputAPIBuilder {
+    /**
+     * Workflow DevKit bundles steps with its own esbuild plugins only. Steps import app code, so ViteHub bundles them:
+     * Workflow DevKit writes the step registration imports, and ViteHub bundles them with its own resolution, as the
+     * server bundle does. A step can import a `?markdown-template` file or a package that loads an optional peer the app
+     * did not install, such as `@vite-hub/kv` in `@vite-hub/agent`.
+     */
+    protected override async createStepsBundle(options: Parameters<InstanceType<typeof VercelBuildOutputAPIBuilder>["createStepsBundle"]>[0]) {
+      const discoveredEntries = options.discoveredEntries ?? await this.discoverEntries(options.inputFiles, dirname(options.outfile), options.tsconfigPath)
+      const entryFile = `${options.outfile}.entry.mjs`
+      const manifest: WorkflowManifest = {}
+      const registeredFiles = [...discoveredEntries.discoveredSteps, ...discoveredEntries.discoveredSerdeFiles]
+      const swcPlugin = createSwcPlugin({
+        mode: "step",
+        moduleSpecifierRoot: this.moduleSpecifierRoot,
+        projectRoot: this.transformProjectRoot,
+        // Keeps step files whose package declares `"sideEffects": false`: only their imports register the steps.
+        sideEffectEntries: await Promise.all(registeredFiles.map(file => realpath(file).catch(() => file))),
+        workflowManifest: manifest,
+      })
+      try {
+        await this.createStepSourceRegistrationFile({ discoveredEntries, inputFiles: options.inputFiles, outfile: entryFile, tsconfigPath: options.tsconfigPath })
+        const tsconfigPath = options.tsconfigPath
+        const tsconfigOptions = tsconfigPath && (await lstat(tsconfigPath)).isSymbolicLink()
+          ? { tsconfigRaw: await readFile(tsconfigPath, "utf8") }
+          : { tsconfig: tsconfigPath }
+        await bundleEsmEntry(entryFile, options.outfile, {
+          ...tsconfigOptions,
+          define: bundleDefines,
+          extensions: [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],
+          external: ["bun", "bun:*", ...(this.config.externalPackages ?? [])],
+          format: "esm",
+          keepNames: true,
+          platform: "node",
+          plugins: [
+            createPseudoPackagePlugin(),
+            createOptionalPackagesPlugin(rootDir),
+            {
+              ...swcPlugin,
+              // The SWC step transform drops the bare imports of the registration entry. Workflow DevKit passes it as stdin.
+              setup: build => swcPlugin.setup({
+                ...build,
+                onLoad: (onLoadOptions, callback) => build.onLoad(onLoadOptions, args => args.path === entryFile ? undefined : callback(args)),
+              }),
+            },
+          ],
+          rootDir,
+          workingDir: this.config.workingDir,
+        })
+      }
+      finally {
+        await rm(entryFile, { force: true })
+      }
+      return { context: undefined, manifest }
     }
 
+    // The native builder has no esbuild define option. Transform the VM bundle before the builder embeds it.
     protected override async createWorkflowsBundle(options: { inputFiles: string[], outfile: string }) {
       const result = await super.createWorkflowsBundle(options)
       if (result.interimBundleText && Object.keys(bundleDefines).length) {

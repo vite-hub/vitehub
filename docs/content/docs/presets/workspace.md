@@ -1,8 +1,7 @@
 ---
 title: Workspace preset
 description: Read mounted Sources and cite files at their resolved GitHub revision.
-navigation.order: 92
-navigation.group: Presets
+navigation.order: 3
 icon: i-lucide-folder-search
 navigation.kind: Guides
 ---
@@ -58,7 +57,7 @@ The preset adds no tools or workflow options. Codex reads the Workspace through 
 The instructions tell the Agent to map each cited path to its Source and link to GitHub at the resolved revision. The link includes the Source root, encodes each path segment, and adds a line anchor when known. For the example above:
 
 ```text
-https://github.com/vite-hub/vitehub/blob/<resolved-commit>/docs/content/docs/agents/presets.md#L10
+https://github.com/vite-hub/vitehub/blob/<resolved-commit>/docs/content/docs/presets/index.md#L10
 ```
 
 The Agent omits a link when it cannot map a file to an exact revision. Local Sources without GitHub data get no guessed URL.

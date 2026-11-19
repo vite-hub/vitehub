@@ -160,15 +160,15 @@ To only poll, stop here. For push, continue:
      --role=roles/pubsub.publisher
    ```
 
-6. Create a service account that signs push requests, and a push subscription with OIDC authentication to the Agent's webhook route, `/api/_vitehub/agents/<agent>/webhooks/<channel>`.
+6. Create a service account that signs push requests, and a push subscription with OIDC authentication to the Agent's webhook route, `/_vitehub/agents/<agent>/webhooks/<channel>`.
 
    ```sh
    gcloud iam service-accounts create gmail-push-invoker
    gcloud pubsub subscriptions create gmail-push \
      --topic=gmail-push \
-     --push-endpoint=https://mail.example.com/api/_vitehub/agents/labeller/webhooks/gmail \
+     --push-endpoint=https://mail.example.com/_vitehub/agents/labeller/webhooks/gmail \
      --push-auth-service-account=gmail-push-invoker@my-project.iam.gserviceaccount.com \
-     --push-auth-token-audience=https://mail.example.com/api/_vitehub/agents/labeller/webhooks/gmail \
+     --push-auth-token-audience=https://mail.example.com/_vitehub/agents/labeller/webhooks/gmail \
      --ack-deadline=600 \
      --min-retry-delay=10s \
      --max-retry-delay=600s
@@ -316,7 +316,7 @@ pnpm vitehub channels sync --stage production --channel gmail
 pnpm vitehub channels sync --stage production --channel gmail --apply
 ```
 
-The first command prints the plan: labels to create, labels whose color or visibility changes, unmanaged labels to hide (with `hideUnmanagedLabels`), and the watch. `--apply` makes the changes. No `--url` is needed, because the resources belong to the Gmail account, not the deployment. See [CLI channel synchronization](/docs/development/cli#synchronize-channel-webhooks).
+The first command prints the plan: labels to create, labels whose color or visibility changes, unmanaged labels to hide (with `hideUnmanagedLabels`), and the watch. `--apply` makes the changes. No `--url` is needed, because the resources belong to the Gmail account, not the deployment. See [CLI channel synchronization](/docs/cli/agents#synchronize-channel-webhooks).
 
 Gmail allows one active watch per mailbox. `channels sync` reads the mailbox profile first and stops before any change if you select more than one Gmail Channel for the same mailbox, even with different credentials.
 
@@ -461,4 +461,4 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-To move old labelled mail to Trash on a Schedule, use the [Labeller preset](/docs/agents/labeller#clean-up-old-mail) and its `cleanup` option.
+To move old labelled mail to Trash on a Schedule, use the [Labeller preset](/docs/presets/labeller#clean-up-old-mail) and its `cleanup` option.

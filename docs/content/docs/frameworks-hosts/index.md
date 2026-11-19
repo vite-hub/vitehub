@@ -100,7 +100,10 @@ app picks the default.
 | `deno` | [Deno](/docs/frameworks-hosts/deno) | `.output/server/index.mjs` | KV Deno KV | Blob, Queue, Rate Limit, Sandbox, Schedule |
 
 - A rejected feature fails the build. It does not fall back to another provider.
-- Browser and `email: true` require the `cloudflare` host.
+- Browser requires the `cloudflare` host.
+- `email: true` uses Cloudflare Email on `cloudflare`. On other hosts, it logs
+  each message in `vite dev`, and a production build fails until you set
+  `email.driver`.
 - Blob without an explicit store requires a host with a Blob provider.
 - KV without an explicit driver uses Upstash Redis on every host except
   `deno` when `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set at build time.

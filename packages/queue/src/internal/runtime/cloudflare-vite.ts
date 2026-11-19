@@ -89,8 +89,8 @@ export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOption
         }
 
         await createCloudflareQueueBatchHandler({
-          concurrency: definition.options?.concurrency,
-          onError: definition.options?.onError,
+          concurrency: definition.concurrency,
+          onError: definition.onError,
           onMessage: async (message, currentBatch) => {
             await runWithQueueRuntimeEvent(runtimeEvent, async () => {
               await runInRunScopes(() => definition.handler(createQueueJob(message, currentBatch)))

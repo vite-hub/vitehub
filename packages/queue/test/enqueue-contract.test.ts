@@ -35,7 +35,7 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
         },
       })
   setQueueRuntimeConfig({ driver: provider }, async () => client)
-  setQueueRuntimeRegistry({ audit: async () => defineQueue(() => {}) })
+  setQueueRuntimeRegistry({ audit: async () => defineQueue({ handler: () => {} }) })
 
   const payloads = [
     { payload: "event" },

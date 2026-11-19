@@ -47,7 +47,7 @@ import {
 } from "./cloudflare.ts"
 import { agentStateAuthTokenEnvNames, normalizeAgentOptions } from "./config.ts"
 import { agentDeploymentEnv } from "./deployment-env.ts"
-import { discoverAgentDefinitions, discoverAgentEvalFiles, discoverAgentOptionsStarts, discoverProcessHostAgentNames, isFolderAgentDefinition } from "./discovery.ts"
+import { assertAgentDefaultExport, discoverAgentDefinitions, discoverAgentEvalFiles, discoverAgentOptionsStarts, discoverProcessHostAgentNames, isFolderAgentDefinition } from "./discovery.ts"
 import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 import { resolveProviderRuntimePackages } from "./internal/provider-runtime-packages.ts"
 import { isPortableAgentWorkflowCapability } from "./internal/final-channel-output.ts"
@@ -150,8 +150,8 @@ export function agentRuntimeModule(entry: AgentRuntimeModule): string {
   return ownModule(import.meta.url, entry)
 }
 const providerAgentWorkerStub = /\/runtime\/provider-agent-worker\.[jt]s$/
-const agentProcessHostDrainRoute = "/api/_vitehub/host/drain"
-const agentProcessHostHealthRoute = "/api/_vitehub/host/health"
+const agentProcessHostDrainRoute = "/_vitehub/host/drain"
+const agentProcessHostHealthRoute = "/_vitehub/host/health"
 const mergeNoExternal = createNoExternalAddition(agentPackageName, "@t3tools/provider-runtime")
 const generatedAgentDenoServer = "agent/deno-server.ts"
 const generatedAgentDiscordGatewayRouteHandler = "agent/discord-gateway-route.ts"
@@ -162,7 +162,7 @@ const generatedAgentPreparationPlugin = "agent/preparation-plugin.ts"
 const generatedAgentPreparationHandler = "agent/preparation-route.ts"
 /** Readiness route for hosts with a webhook queue and no Workspace preparation. */
 const generatedAgentReadyHandler = "agent/ready-route.ts"
-const agentReadyRoute = "/api/_vitehub/ready"
+const agentReadyRoute = "/_vitehub/ready"
 const generatedAgentWebhookQueuePlugin = "agent/webhook-queue-plugin.ts"
 const webhookQueueStartDelayMs = 1000
 const generatedAgentProcessHosts = "agent/process-hosts.ts"
@@ -249,8 +249,8 @@ interface InternalAgentModuleOptions extends AgentOptions {
   processDiscordGateway?: boolean
   providerImportAliases?: Record<string, string>
   runtimeCapabilityImports?: Record<string, false | string>
-  /** The Workflow modules that generated code loads, when Workflow is on. */
-  workflowModules?: AgentWorkflowModules
+  /** Workflow module specifiers, or false when the facade disables Workflow. */
+  workflowModules?: AgentWorkflowModules | false
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
 }
 
@@ -266,7 +266,7 @@ interface AgentGeneratedImportOptions {
   runtimeCapabilities?: GeneratedAgentRuntimeCapability[]
   sourceRootDir?: string
   standaloneChannels?: readonly StandaloneChannel[]
-  workflowModules?: AgentWorkflowModules
+  workflowModules?: AgentWorkflowModules | false
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
 }
 
@@ -523,7 +523,7 @@ function isGeneratedAgentWorkflowRegistryId(id: string): boolean {
 }
 
 
-function getWorkflowModules(options: AgentOptions | false | undefined, fallback?: InternalAgentModuleOptions): AgentWorkflowModules | undefined {
+function getWorkflowModules(options: AgentOptions | false | undefined, fallback?: InternalAgentModuleOptions): AgentWorkflowModules | false | undefined {
   return getInternalAgentOptions(options)?.workflowModules ?? fallback?.workflowModules
 }
 
@@ -599,10 +599,10 @@ function hasHostedAgentDefinitions(root: string, serverDirs = [join(root, "serve
 }
 
 function generatedAgentWorkflowRuntime(options: AgentGeneratedImportOptions) {
-  if (!options.workflowModules) return { imports: [] as string[], setup: [] as string[] }
+  if (options.workflowModules === undefined) return { imports: [] as string[], setup: [] as string[] }
   return {
     imports: [`import { setAgentWorkflowRuntimeLoaders as vitehubSetAgentWorkflowRuntimeLoaders } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`],
-    setup: [
+    setup: options.workflowModules === false ? ["vitehubSetAgentWorkflowRuntimeLoaders(false)", ""] : [
       "vitehubSetAgentWorkflowRuntimeLoaders({",
       `  state: () => import(${JSON.stringify(options.workflowModules.state)}),`,
       `  workflow: () => import(${JSON.stringify(options.workflowModules.index)}),`,
@@ -1486,7 +1486,7 @@ function generatedWebhookWarmupHelper(routeCapabilities: { requestOption: string
     "  name,",
     `  () => handler.warm({ agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver }),`,
     "])))",
-    "/** Warms every webhook handler once. `/api/_vitehub/ready` answers 503 until it finishes. */",
+    "/** Warms every webhook handler once. `/_vitehub/ready` answers 503 until it finishes. */",
     "export const warmWebhookRoutes = () => webhookWarmup.warm()",
     "export const webhookRoutesReadiness = () => webhookWarmup.readiness()",
     "export const webhookRoutesReadyResponse = (method?: string) => webhookWarmup.response(method)",
@@ -1896,7 +1896,7 @@ async function generateAgentWebhookRouteHandler(
           "  const running = Promise.all(Object.entries(discordGatewayHandlers).map(async ([name, handler]) => {",
           "    while (!controller.signal.aborted) {",
           "      try {",
-          `        const response = await handler(new Request("http://vitehub.local/api/_vitehub/agents/" + encodeURIComponent(name) + "/discord/gateway"), { agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}${gatewayStateOption}abortSignal: controller.signal, durationMs: discordGatewayDurationMs })`,
+          `        const response = await handler(new Request("http://vitehub.local/_vitehub/agents/" + encodeURIComponent(name) + "/discord/gateway"), { agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}${gatewayStateOption}abortSignal: controller.signal, durationMs: discordGatewayDurationMs })`,
           "        if (!response.ok) throw vitehubAgentRuntimeError('AGENT_R0896', `Discord Gateway listener failed with ${response.status}.`)",
           "      }",
           "      catch (error) {",
@@ -2286,7 +2286,7 @@ async function writeAgentWebhookRouteHandler(
             "  // first requests, or at once when a request loads them. Invocations that started before this process are",
             "  // interrupted unless a queued delivery runs them again or a live run in another process holds their claim.",
             "  // The warm-up builds registrations, secrets, and State before the first delivery needs them.",
-            "  // /api/_vitehub/ready starts it at once and answers 503 until it finishes.",
+            "  // /_vitehub/ready starts it at once and answers 503 until it finishes.",
             "  function startNow() {",
             "    clearTimeout(startTimer)",
             "    if (closed || stop) return",
@@ -2747,7 +2747,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         channelSimulationPreviousValue = env[channelSimulationEnv]
         if (env[channelSimulationEnv] !== "simulate") {
           env[channelSimulationEnv] = "simulate"
-          config?.logger.info("[vitehub] Simulated Channels: Slack, Discord, Teams, and Telegram run on a simulated chat. Open /api/_vitehub/agents/<agent>/webhooks/<channel> in a browser to chat, or POST an AI SDK chat request to it.")
+          config?.logger.info("[vitehub] Simulated Channels: Slack, Discord, Teams, and Telegram run on a simulated chat. Open /_vitehub/agents/<agent>/webhooks/<channel> in a browser to chat, or POST an AI SDK chat request to it.")
         }
       }
       channelSimulationOwners.add(channelSimulationOwner)
@@ -2811,6 +2811,9 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           ...discoverAgentDefinitions({ mode: "server-agents", scanDirs: definitionServerDirs }),
         ]
       : []
+    // Before the registry and routes import a file that exports no Agent. Discovery itself still lists the file, so
+    // inventory callers such as Vite Doctor can report it.
+    for (const definition of registryDefinitions) await assertAgentDefaultExport(definition)
     await writeAgentRuntimeRegistry(generatedRoot, registryDefinitions, {
       agentHost: Boolean(normalized && hasHostedAgents && normalized.runtime !== "deno"),
     })
@@ -3300,7 +3303,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           if (typeof target?.agent !== "string" || !target.agent.trim() || typeof target?.webhook !== "string" || !target.webhook.trim()) {
             throw agentDiagnostics.AGENT_WEBHOOK_ALIAS_TARGET_INVALID()
           }
-          const route = validateAgentStaticRoute(path, [...routes, ...nitroHandlers, ...devNitroHandlers], "webhook alias")
+          const route = validateAgentStaticRoute(path, [...routes, ...nitroHandlers, ...devNitroHandlers], "webhook alias", "/_vitehub/channels")
           nitroHandlers.push({ handler: join(generatedRoot, generatedAgentWebhookRouteHandler), route })
         }
       }
@@ -3312,7 +3315,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           ...routes,
           ...nitroHandlers.filter(handler => handler.handler !== join(generatedRoot, generatedAgentPreparationHandler)),
           ...devNitroHandlers,
-        ])
+        ], "readiness", agentReadyRoute)
       }
       if (devNitroHandlers.length) {
         const existing = Array.isArray(nitro.handlers) ? nitro.handlers : []

@@ -15,7 +15,7 @@ icon: i-lucide-code-2
 | `createWorkflow` from `vite-hub/workflow` | Create an inline Workflow Handle in your own code. |
 | `ViteHubError` from `vite-hub/runtime` | Throw your own Workflow failures with stable codes. |
 | `NonRetryableError` from `vite-hub/workflow` | Fail a run at once, with no more retries, on every provider. |
-| `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `vite-hub/workflow` | Read provider request payloads in custom runtime entry points. |
+| `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `vite-hub/workflow` | Read provider request payloads in custom runtime entry points. `readRequestPayload()` returns `unknown`: check it with `validatePayload()`, or call `readValidatedPayload()`. |
 | `hubWorkflow` from `@vite-hub/workflow/vite` | Add Workflow discovery and host output. |
 
 `vite-hub/workflow` also exports the Provider, Definition, Run, Step, Start Options, and Integration Options types.
@@ -43,7 +43,7 @@ Pass the run id in the options. Use a stable id when the provider accepts your o
 
 ## Start a run later
 
-Pass `delay` to start the run later. Use milliseconds, a duration such as `'30 minutes'` or `'3 days'`, or a `Date` that the run must not start before. A `Date` in the past starts the run now. Durations use ms, seconds, minutes, hours, days, and weeks. Use a `Date` for a month or a calendar time. For a negative or unknown value, `startWorkflow()` returns the error `WORKFLOW_START_DELAY_INVALID`.
+Pass `delay` to start the run later. Use a duration such as `'30m'` or `'3 days'`, or a `Date` that the run must not start before. A `Date` in the past starts the run now. Durations use `ms`, `s`, `m`, `h`, `d`, and `w`, or their long names. Use a `Date` for a month or a calendar time. `startWorkflow()` returns `RUNTIME_DURATION_INVALID` for an invalid duration, including a bare number, and `WORKFLOW_START_DELAY_INVALID` for an invalid or out-of-range start time.
 
 ```ts [server/api/signup.post.ts]
 import { defineEventHandler, readBody } from 'h3'

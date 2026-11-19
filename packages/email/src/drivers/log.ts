@@ -13,7 +13,7 @@ export default function logEmailDriver(): EmailDriver {
     send(message) {
       const to = addresses(message.to).map(formatAddress).join(", ")
       console.info(`[vitehub] Email log driver. Not sent to ${to}: ${message.subject}\n${message.text ?? message.html}`)
-      return { data: { at: new Date(), driver: "log", id: `log-${crypto.randomUUID()}` }, error: null }
+      return [undefined, { at: new Date(), driver: "log", id: `log-${crypto.randomUUID()}` }]
     },
   }
 }

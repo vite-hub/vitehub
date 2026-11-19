@@ -78,7 +78,7 @@ describe("Comments activation from the Console", () => {
         await Reflect.apply(typeof hook === "function" ? hook : hook.handler, {}, [config, { command: "build", mode: "production" }])
       }
       const route = config.nitro!.handlers.find(handler => handler.route.endsWith("/comments/**"))!.route.slice(0, -3)
-      expect(route).toBe(`${mount}/api/_vitehub/comments`)
+      expect(route).toBe(`${mount}/_vitehub/comments`)
       expect(config.nitro!.handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: `${mount}/_vitehub/page/session` })]))
 
       // The hosted Console opens no page session of the app. Comments keeps its own route.

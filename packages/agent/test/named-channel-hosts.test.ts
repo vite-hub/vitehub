@@ -73,7 +73,7 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
       await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
       output = join(root, ".netlify/v1/functions/vitehub-agent.mjs")
       const source = await readFile(output, "utf8")
-      for (const path of ["/api/_vitehub/channels/hooks", "/hooks", "/old-hooks", "/custom", "/old-custom", "/custom-two", "/chat", "/old-chat"]) expect(source).toContain(JSON.stringify(path))
+      for (const path of ["/_vitehub/channels/hooks", "/hooks", "/old-hooks", "/custom", "/old-custom", "/custom-two", "/chat", "/old-chat"]) expect(source).toContain(JSON.stringify(path))
     }
     else {
       await rm(join(root, "server"), { recursive: true })
@@ -91,8 +91,8 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
       "globalThis.Deno = { args: [], serve: callback => { handler = callback; return { finished: Promise.resolve() } } }",
       "const module = await import(process.argv[1])",
       "handler ||= module.default",
-      "for (const path of ['/api/_vitehub/channels/hooks', '/hooks', '/old-hooks', '/api/_vitehub/agents/support/webhooks/hooks', '/custom', '/old-custom', '/custom-two', '/task-hooks']) {",
-      "  const context = { params: path.startsWith('/api/_vitehub/agents/') ? { agent: 'support', webhook: 'hooks' } : {} }",
+      "for (const path of ['/_vitehub/channels/hooks', '/hooks', '/old-hooks', '/_vitehub/agents/support/webhooks/hooks', '/custom', '/old-custom', '/custom-two', '/task-hooks']) {",
+      "  const context = { params: path.startsWith('/_vitehub/agents/') ? { agent: 'support', webhook: 'hooks' } : {} }",
       "  const denied = await handler(new Request('https://example.com' + path, { method: 'POST', body: '{}' }), context)",
       "  if (denied.status !== 401) throw new Error('Expected signature verification for ' + path + ', received ' + denied.status)",
       "  const response = await handler(new Request('https://example.com' + path, { method: 'POST', body: '{}', headers: { authorization: 'Bearer secret' } }), context)",

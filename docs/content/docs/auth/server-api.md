@@ -23,6 +23,7 @@ icon: i-lucide-code-2
 | `withAuth` from `vite-hub/auth/server` | Run a handler only when a session exists. |
 | `withAuthorization` from `vite-hub/auth/server` | Run a handler only after `true` or an `authorize` callback accepts the request. Never redirects to sign-in. |
 | `requireAuth`, `requireAuthorization` from `vite-hub/auth/server` | Check the session inside a handler. They return the checked session or throw an HTTP error. |
+| `requireCaller` from `vite-hub/auth/server` | Return who calls: a person with a session or an Agent with an [MCP access token](/docs/auth/configure#sign-mcp-clients-in). See [Tell a person from an Agent](#tell-a-person-from-an-agent). |
 | `requireServiceToken`, `checkServiceToken` from `vite-hub/env` | Check the bearer token of a route that a script or a runner calls. No session and no Auth setup. See [Service tokens](/docs/env/service-tokens). |
 | `defineAbilities`, `deny`, `guest` from `vite-hub/auth/abilities` | Write the rules of `shared/abilities.ts`. See [Abilities](/docs/auth/abilities). |
 | `requireAbility`, `can`, `AbilityError` from `vite-hub/auth/server` | Check a rule of `shared/abilities.ts` in server code. |
@@ -80,7 +81,22 @@ import { onSignOut } from 'vite-hub/auth/vue'
 onSignOut(() => localStorage.removeItem('drafts'))
 ```
 
-To sign out from a link or from server code, call `signOut(event)` from `vite-hub/auth/server`. It ends the session and returns the response that clears the session cookies:
+### Sign in and out with a link
+
+When `access.signIn` is set, the Auth route also answers two `GET` paths below the Auth Base Path. Link to them from any page:
+
+```html
+<a href="/api/auth/sign-in?redirect=/docs">Sign in with GitHub</a>
+<a href="/api/auth/sign-out?redirect=/">Sign out</a>
+```
+
+- `/api/auth/sign-in` starts the `access.signIn` sign-in and comes back to `redirect`. Without `redirect`, it comes back to `access.signIn.callbackURL`, or `/`. A visitor who is signed in goes to `redirect` at once.
+- `/api/auth/sign-out` ends the session and goes to `redirect`, or `/`. It refuses a request from another site with `403`, so a link on another site cannot sign out your visitors. The browser's `Sec-Fetch-Site` header tells where the request comes from. A prefetch or prerender of the link also gets `403`, so the session ends only on a click.
+- `redirect` must be a path of the app, such as `/docs?tab=api`. A full URL, `//host`, or `/\host` gets `400`. Below Nuxt's `app.baseURL`, such as `/app/`, `redirect=/docs` opens `/app/docs`, the same path that the page guard sends.
+- The paths are below the Auth Base Path and Nuxt's `app.baseURL`, so they never collide with a page of the app. The Nuxt page guard sends a visitor to the login page with `?redirect=<the page>`, so a login page can pass it on to `/api/auth/sign-in`.
+- Without `access.signIn`, Better Auth answers these paths with `404`.
+
+For a sign-out route of your own, call `signOut(event)` from `vite-hub/auth/server`. It ends the session and returns the response that clears the session cookies:
 
 ```ts [server/routes/logout.get.ts]
 import { signOut } from 'vite-hub/auth/server'
@@ -170,6 +186,35 @@ export default defineHandler(async (event) => {
 })
 ```
 
+### Tell a person from an Agent
+
+`requireAuth()` accepts only a session. When your app also signs MCP clients in with [`mcpOAuth()`](/docs/auth/configure#sign-mcp-clients-in), call `requireCaller(event)`. It returns `[error, caller]`. `caller.kind` is `'browser'` for a person with a session, and `'agent'` for an MCP client with the person's access token:
+
+```ts [server/api/notes/[id].delete.ts]
+import { defineHandler, HTTPError } from 'h3'
+import { requireCaller } from 'vite-hub/auth/server'
+
+export default defineHandler(async (event) => {
+  const [error, caller] = await requireCaller(event)
+  if (error) throw new HTTPError({ status: 401, message: error.why })
+  if (caller.kind === 'agent') {
+    throw new HTTPError({ status: 403, message: `${caller.client.name ?? 'An Agent'} cannot delete notes. Do it in the browser.` })
+  }
+  return { deletedBy: caller.user.id }
+})
+```
+
+| `caller.kind` | Fields |
+| --- | --- |
+| `'browser'` | `user`, the Better Auth user with the fields of your plugins, and `session`. |
+| `'agent'` | `user`, the person who approved the client. `client: { id, name }`, such as `Claude Code`. `scopes`, the scopes the person approved. |
+
+- A request with an `Authorization: Bearer` header is checked as an MCP access token, with the checks of [`verifyMcpRequest()`](/docs/auth/configure#check-the-token-of-an-mcp-request). The token works on every route of the app, not only on the MCP resource. A cookie next to the token does not count.
+- Without `mcpOAuth()`, `requireCaller()` reads only the session.
+- Both caller kinds omit user fields marked `returned: false`. With `advanced.trustedProxyHeaders` enabled, Auth uses the forwarded origin to match MCP resources.
+- Errors are `AUTH_SIGNED_OUT` without a session or a token, and `AUTH_MCP_TOKEN_INVALID` for a token that fails a check.
+- All calls for one request share one read, so middleware and the handler can both call it.
+
 ## Server helpers
 
 | Helper | Description |
@@ -177,7 +222,7 @@ export default defineHandler(async (event) => {
 | `auth` | Proxy to the discovered Better Auth instance. |
 | `getAuth()` | Returns the discovered Better Auth instance. |
 | `useAuth(event)` | Returns the Better Auth instance of the app's Auth Definition for a request event or a Web `Request`. |
-| `handleAuth(input)` | Handles an Auth HTTP request. `input` is a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 2 event in a ViteHub app. Auth reads the client address and the Cloudflare bindings from the Standard Context of the Request. A Request that Nitro did not create gets one that reads srvx `ip` and `runtime.cloudflare`. |
+| `handleAuth(input)` | Handles an Auth HTTP request. `input` is a Web `Request` or a request event with [Standard Context](/docs/runtime/context#standard-context) properties, such as an H3 2 event in a ViteHub app. Auth reads the client address and the Cloudflare bindings from the Standard Context of the Request. A Request that Nitro did not create gets one that reads srvx `ip` and `runtime.cloudflare`. |
 | `signOut(event, { redirectTo }?)` | Ends the session of the request. Returns a `303` redirect to `redirectTo`, or `204`, with the cookies that clear the session. |
 | `createAuthHandler(definition)` | Creates a handler called as `handler(request, { clientAddress }?)`. Manual hosts pass the peer address for rate limiting and session IPs. |
 | `withAuth(handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when a session exists. Else it returns JSON `401` with the code `SIGNED_OUT`, or the sign-in redirect for an HTML request. |
@@ -185,6 +230,7 @@ export default defineHandler(async (event) => {
 | `withAnonymousAuthorization(authorize, handler, definition?)` | Like `withAuthorization()`, but a signed-out caller also reaches `authorize`, with `session` and `user` set to `null`. `false` returns JSON `401` (`SIGNED_OUT`) for a signed-out caller and `403` (`FORBIDDEN`) for a signed-in one. |
 | `requireAuth(event, definition?)` | Returns the checked `authorization` when a session exists. Otherwise it throws an `HTTPError` with the status and headers of the `withAuth()` response. |
 | `requireAuthorization(event, authorize, definition?)` | Returns the checked `authorization` when allowed. Otherwise it throws an `HTTPError` with the status and headers of the `withAuthorization()` response. |
+| `requireCaller(event, definition?)` | Returns `[error, caller]`: a person with a session (`kind: 'browser'`) or an Agent with an MCP access token (`kind: 'agent'`). See [Tell a person from an Agent](#tell-a-person-from-an-agent). |
 | `requireAbility(event, name, ...args)` | Returns `authorization` when the [ability](/docs/auth/abilities) allows the caller. Else throws `AbilityError`, which H3 sends with status `401`, `403`, or the status of `deny()`, and `{ code, details }` in `data`. |
 | `can(event, name, ...args)` | Returns `true` when the ability allows the caller, else `false`. |
 | `checkAuthMember(userId, event?)` | Checks [`VITEHUB_MEMBERS`](/docs/auth/configure#choose-who-can-sign-in) for a user without a session. See [Check a member without a session](#check-a-member-without-a-session). |
@@ -323,7 +369,7 @@ export default defineAuth({
 
 ### Decide who can stay signed in
 
-`access.policy` decides in code who can use the app. For a list of accounts, emails, domains, or GitHub organizations, set [`VITEHUB_MEMBERS`](/docs/auth/configure#choose-who-can-sign-in) instead. Auth calls `allow` when it creates a session, so a refused person cannot sign in. It calls `allow` again when `recheck` milliseconds have passed for a session, on the next Better Auth request with that session cookie. Every guard and every `getSession()` call is such a request.
+`access.policy` decides in code who can use the app. For a list of accounts, emails, domains, or GitHub organizations, set [`VITEHUB_MEMBERS`](/docs/auth/configure#choose-who-can-sign-in) instead. Auth calls `allow` when it creates a session, so a refused person cannot sign in. It calls `allow` again when the `recheck` time has passed for a session, on the next Better Auth request with that session cookie. Every guard and every `getSession()` call is such a request.
 
 ```ts [server/auth.ts]
 import { checkGitHubOrgMember, defineAuth } from 'vite-hub/auth'
@@ -340,7 +386,7 @@ export default defineAuth({
         if (error?.code === 'AUTH_GITHUB_UNAVAILABLE') throw error
         return !error
       },
-      recheck: 300_000,
+      recheck: '5m',
     },
   },
 })
@@ -348,13 +394,13 @@ export default defineAuth({
 
 | `allow` | Result |
 | --- | --- |
-| Returns `true` | The person signs in, or the session continues. Auth keeps the answer for `recheck` milliseconds. |
+| Returns `true` | The person signs in, or the session continues. Auth keeps the answer for the `recheck` time. |
 | Returns another value | Auth refuses the sign-in, or deletes the session and its cookies. The request continues signed out, so a guard answers `401`. |
 | Throws | The request fails. The session stays, and Auth asks again on the next request. |
 
 - `allow` gets the `user` and `accessToken(providerId)`, which returns the access token of the user's account with that provider, or `null`.
 - Use [`checkGitHubOrgMember()`](#github-organization-membership), which tells a refusal from a GitHub outage. `isGitHubOrgMember()` returns `false` for both, so a recheck while GitHub is down ends every session.
-- `recheck` defaults to `300000`, five minutes. With `0`, Auth asks on each request. The answers are in memory, so each server process or Worker isolate keeps its own.
+- `recheck` is a duration such as `'30s'` or `'5m'`. The default is `'5m'`. With `'0s'`, Auth asks on each request. A number fails with `RUNTIME_DURATION_INVALID`. The answers are in memory, so each server process or Worker isolate keeps its own.
 - [`verifyMcpRequest()`](/docs/auth/configure#check-the-token-of-an-mcp-request) also asks `allow`, so an MCP client loses access with its person.
 - The policy needs stored sessions: a Better Auth `database` or `secondaryStorage` adapter. With `stateless()`, Auth fails with `AUTH_C0066`.
 - Define `allow` outside the Definition callback. A new function on each call builds a new Better Auth instance on each request.
