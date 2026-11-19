@@ -29,6 +29,7 @@ const serverConfig = "import { defineServerAuth } from '@nuxtjs/better-auth/conf
 describe("nuxt-better-auth", () => {
   it.each([
     ["nuxt.config.ts", "export default defineNuxtConfig({ vitehub: { auth: false } })", "Auth is disabled"],
+    ["nuxt.config.ts", "export default defineNuxtConfig({ $production: { vitehub: { auth: false } } })", "Nuxt environment override $production"],
     ["server/auth.config.ts", serverConfig, "Multiple source server configs"],
     ["app/auth.config.ts", "export default defineClientAuth({ plugins: [twoFactorClient()] })", "only the app's app/auth.client.ts"],
   ])("leaves the app unchanged when a nested layer has %s", async (file, source, message) => {
@@ -54,6 +55,8 @@ describe("nuxt-better-auth", () => {
     ["routeRules: { '/team/**': { auth: 'user' }, '/team/staff': { auth: { redirectTo: '/login' } } }", "overlap"],
     ["routeRules: { '/team/staff': { auth: { only: 'user', redirectTo: loginPath } } }", "literal redirectTo"],
     ["vitehub: { auth: false }", "Auth is disabled"],
+    ["$production: { vitehub: { auth: false } }", "Nuxt environment override $production"],
+    ["$env: { staging: { routeRules: { '/api/reports': { auth: 'user' } } } }", "Nuxt environment override $env"],
     ["extends: ['some-remote-layer']", "cannot verify the Auth configuration"],
     ["routeRules: { [loginPath]: { auth: 'user' } }", "routeRules are not a static object"],
   ])("leaves the app unchanged for %s", async (config, message) => {
@@ -61,6 +64,18 @@ describe("nuxt-better-auth", () => {
     const cwd = await createApp({ "nuxt.config.ts": source, "server/auth.config.ts": serverConfig })
     await expect(runCodemod("nuxt-better-auth", { cwd })).rejects.toThrow(message)
     expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toBe(source)
+    expect(await readFile(join(cwd, "server/auth.config.ts"), "utf8")).toBe(serverConfig)
+  })
+
+  it("leaves the app unchanged when an extends entry overrides Auth", async () => {
+    const config = "export default defineNuxtConfig({ modules: ['@nuxtjs/better-auth', 'vite-hub/nuxt'], extends: [['./base', { overrides: { vitehub: { auth: false } } }]], routeRules: { '/api/reports': { auth: 'user' } } })"
+    const cwd = await createApp({
+      "nuxt.config.ts": config,
+      "base/nuxt.config.ts": "export default defineNuxtConfig({})",
+      "server/auth.config.ts": serverConfig,
+    })
+    await expect(runCodemod("nuxt-better-auth", { cwd })).rejects.toThrow("extends overrides")
+    expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toBe(config)
     expect(await readFile(join(cwd, "server/auth.config.ts"), "utf8")).toBe(serverConfig)
   })
 

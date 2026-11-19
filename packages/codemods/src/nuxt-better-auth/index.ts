@@ -80,6 +80,13 @@ async function readLayers(cwd: string, root: NuxtConfigFile, strict = true): Pro
     const value = unwrapExpression(property.value)
     for (const entry of value.type === "ArrayExpression" ? value.elements : [value]) {
       const source = entry?.type === "ArrayExpression" ? entry.elements[0] : entry
+      const options = entry?.type === "ArrayExpression" ? entry.elements[1] : undefined
+      if (strict && options) {
+        const object = staticOptionsObject(options)
+        if (!object || findProperty(object, "overrides")) {
+          throw codemodError(`${posix.join(layer.dir, layer.config.fileName)}:${line(options)}: The codemod cannot verify Auth with extends overrides or computed layer options. Migrate Auth by hand.`)
+        }
+      }
       const path = source && literalValue(source)
       const dir = typeof path === "string" && path.startsWith(".") ? posix.join(layer.dir, path) : undefined
       if (!dir || dir === ".." || dir.startsWith("../") || !findNuxtConfigName(join(cwd, dir))) {
@@ -191,6 +198,13 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const redirects: Record<string, string> = {}
   for (const layer of layers) {
     const file = posix.join(layer.dir, layer.config.fileName)
+    for (const property of layer.config.root.properties) {
+      if (property.type !== "ObjectProperty") continue
+      const key = keyName(property.key, property.computed)
+      if (key?.startsWith("$") && key !== "$meta") {
+        throw codemodError(`${file}:${line(property)}: Nuxt environment override ${key} can change the Auth policy. Migrate Auth by hand for each environment.`)
+      }
+    }
     if (["srcDir", "serverDir", "dir", "hooks"].some(key => findProperty(layer.config.root, key))) {
       throw codemodError(`${file}: The codemod cannot verify Auth discovery with custom Nuxt directories or hooks. Migrate the Auth config by hand.`)
     }

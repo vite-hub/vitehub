@@ -285,7 +285,7 @@ The codemod moves a Nuxt app from `@nuxtjs/better-auth` to ViteHub Auth. It read
 - In server code, `serverAuth(event)` becomes `useAuth(event)` and `requireUserSession(event)` becomes `requireAuth(event)`. Optional session reads use Better Auth's `getSession()` and forward its session cookies.
 - `package.json` loses `@nuxtjs/better-auth` and gets `vite-hub`, `@vite-hub/auth`, and `better-auth` `^1.7.15`.
 
-The codemod stops without editing Auth when it cannot preserve the source policy. For example, it stops on user-field checks, overlapping page rules, path-dependent page rules, guest-only API rules, and computed route redirects. It checks nested local layers and stops if it cannot inspect an `extends` entry, ViteHub Auth is disabled, or it cannot move the source configs to Definitions that ViteHub can load.
+The codemod stops without editing Auth when it cannot preserve the source policy. For example, it stops on user-field checks, overlapping page rules, path-dependent page rules, guest-only API rules, and computed route redirects. It checks nested local layers. It stops for Nuxt environment overrides such as `$production` or `$env`, `extends` overrides, and `extends` entries it cannot inspect. It also stops when ViteHub Auth is disabled or the source configs cannot move to Definitions that ViteHub can load.
 
 The report lists manual changes for `requireUserSession()` with options, client composables such as `useSignIn()` and `fetchSession()`, unsupported module options and helpers, `#nuxt-better-auth` types, and `NUXT_BETTER_AUTH_SECRET` in env files.
 
