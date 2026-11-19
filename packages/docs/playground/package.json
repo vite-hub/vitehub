@@ -36,6 +36,6 @@
     "@iconify-json/simple-icons": "catalog:ui",
     "@iconify-json/vscode-icons": "catalog:ui",
     "drizzle-kit": "catalog:database",
-    "wrangler": "4.160.1"
+    "wrangler": "catalog:"
   }
 }
