@@ -7,7 +7,7 @@ import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 
 import { readQueueTimes } from "../duration.ts"
 import { createQueueMessageId, normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { queueProviderResult, queueUnsupportedOptionsError } from "../errors.ts"
+import { queueProviderResult, queueRemovedOptionsError, queueUnsupportedOptionsError } from "../errors.ts"
 import { createQueueDeliveryErrorReport, isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
 import { checkQueueHandlerResponse } from "../internal/handler-response.ts"
 import { delayMs, localQueueDeadLimit, localQueueDeliveryRules } from "./local.ts"
@@ -542,6 +542,8 @@ export function createPostgresQueueClient(engine: PostgresQueueEngine, queue: st
       return [undefined, { messageId: ids[0], status: "queued" }]
     },
     async sendBatch(items, options) {
+      const removed = queueRemovedOptionsError("postgres", options, items)
+      if (removed) return [removed, undefined]
       const entries: LocalQueueEntry[] = []
       for (const item of items) {
         const [timeError, times] = readQueueTimes({ delay: item.delay ?? options?.delay })

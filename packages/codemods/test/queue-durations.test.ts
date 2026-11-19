@@ -27,7 +27,6 @@ describe("queue-durations", () => {
     const input = join(fixtures, "input")
     const run = await runCodemod("queue-durations", { cwd: input, dryRun: true })
     expect(run.result.edits.map(edit => edit.path)).toEqual([
-      "server/api/nuxt.post.ts",
       "server/api/signup.post.ts",
       "server/queues/sync.ts",
       "server/queues/welcome-email.ts",
@@ -66,5 +65,22 @@ describe("queue-durations", () => {
     })
     expect(after["server/a.ts"]).toBeUndefined()
     expect(run.result.followUps.map(entry => entry.file)).toEqual(["server/a.ts"])
+  })
+
+  it("does not rewrite mutable clients or retry objects that onError does not return", async () => {
+    const source = [
+      "import { defineQueue, useQueue } from 'vite-hub/queue'",
+      "let queue = await useQueue('welcome')",
+      "queue = anotherClient",
+      "queue.send({}, { delaySeconds: 1 })",
+      "defineQueue({ onError() {",
+      "  audit({ retry: { delaySeconds: 2 } })",
+      "  function nested() { return { retry: { delaySeconds: 3 } } }",
+      "  return { retry: { delaySeconds: 4 } }",
+      "} })",
+    ].join("\n")
+    const { after, run } = await migrate({ "server/a.ts": source })
+    expect(after["server/a.ts"]).toBe(source.replace("delaySeconds: 4", "delay: '4s'"))
+    expect(run.result.followUps.map(entry => entry.line)).toEqual([4, 6, 7])
   })
 })

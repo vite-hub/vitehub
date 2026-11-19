@@ -1,6 +1,6 @@
 import { readQueueTimes } from "../duration.ts"
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { queueUnsupportedOptionsError } from "../errors.ts"
+import { queueRemovedOptionsError, queueUnsupportedOptionsError } from "../errors.ts"
 
 import type { ViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 import type { LocalQueueClient, NormalizedQueueEnqueueInput, QueueEnqueueOptions, QueueDriver } from "../types.ts"
@@ -42,6 +42,8 @@ export function createTestQueueClient(test: ViteHubTestMode, queue: string, prov
       return [undefined, recordQueueTestMessage(test, queue, input)]
     },
     async sendBatch(items: ({ body: unknown } & QueueEnqueueOptions)[], options: QueueEnqueueOptions = {}) {
+      const removed = queueRemovedOptionsError(provider, options, items)
+      if (removed) return [removed, undefined]
       const inputs = items.map(({ body, ...itemOptions }) => normalizeQueueEnqueueInput(body, {
         ...options,
         ...Object.fromEntries(Object.entries(itemOptions).filter(([, value]) => value !== undefined)),

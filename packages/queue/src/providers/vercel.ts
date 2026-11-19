@@ -1,6 +1,6 @@
 import { readQueueTimes } from "../duration.ts"
 import { createQueueMessageId, normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { queueProviderResult, queueUnsupportedOptionsError } from "../errors.ts"
+import { queueProviderResult, queueRemovedOptionsError, queueUnsupportedOptionsError } from "../errors.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveVercelQueueRegion } from "../internal/vercel-region.ts"
 
@@ -178,6 +178,8 @@ export async function createVercelQueueClient(provider: VercelQueueDriverOptions
       return [undefined, { status: "queued", messageId }]
     },
     async sendBatch(items, options) {
+      const removed = queueRemovedOptionsError("vercel", options, items)
+      if (removed) return [removed, undefined]
       const messages: { delaySeconds?: number, idempotencyKey: string, payload: unknown, retentionSeconds?: number }[] = []
       for (const item of items) {
         const [timeError, times] = readQueueTimes({ delay: item.delay ?? options?.delay, retention: item.retention ?? options?.retention }, "ceil")

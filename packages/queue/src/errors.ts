@@ -19,6 +19,11 @@ const unsupportedEnqueueOptions = {
 
 const removedEnqueueOptions = ["delaySeconds", "id", "retentionSeconds"] as const
 
+export function queueRemovedOptionsError(provider: QueueDriver, options?: object, items: readonly object[] = []): ResultError<"QUEUE_UNSUPPORTED_OPTION"> | undefined {
+  const removed = removedEnqueueOptions.filter(name => (options && Object.hasOwn(options, name)) || items.some(item => Object.hasOwn(item, name)))
+  if (removed.length) return queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: formatQueueOptionNames(removed), provider })
+}
+
 /** Shared pre-dispatch option validation for provider clients and the test backend. */
 export function queueUnsupportedOptionsError(options: QueueEnqueueOptions, provider: QueueDriver, names: readonly (keyof QueueEnqueueOptions)[] = unsupportedEnqueueOptions[provider]): ResultError<"QUEUE_UNSUPPORTED_OPTION"> | undefined {
   // JavaScript callers can still pass removed options: `id`, and `delaySeconds` and `retentionSeconds`, which are now
