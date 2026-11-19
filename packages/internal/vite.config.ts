@@ -95,6 +95,7 @@ export default defineConfig({
       "src/runtime/request-origin.ts",
       "src/runtime/time-zone.ts",
       "src/runtime/user-agent.ts",
+      "src/runtime/user-data.ts",
       "src/runtime/vercel-hosted.ts",
     ],
     outExtensions: () => ({

@@ -492,6 +492,8 @@ describe("built-in host integration", () => {
           `import { telegram } from "vite-hub/agent/channels"`,
           `import * as channelFactories from "vite-hub/agent/channels"`,
           source,
+          // The build reads the default export of every Agent file. Server Env discovery reads every defineAgent() call.
+          `export default {}`,
         ].join("\n"))
         expect((requiredSecrets(await resolve()) ?? []).includes("TELEGRAM_BOT_TOKEN"), source).toBe(required)
       }

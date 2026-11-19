@@ -15,7 +15,7 @@ export interface ServedSkillSummary {
   files: number
 }
 
-// Keep published codes stable. Each code has a heading on https://vitehub.dev/docs/development/skills.
+// Keep published codes stable. Each code has a row in the Errors table of https://vitehub.dev/docs/console/skills.
 const servedSkillsErrors = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/development/diagnostics",
   codes: {

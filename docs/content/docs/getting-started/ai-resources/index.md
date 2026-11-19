@@ -16,7 +16,7 @@ gives it a process, and the MCP server gives it live lookups.
 | Task | Resource | Setup |
 | --- | --- | --- |
 | Build or change a ViteHub application | ViteHub skill | [Add the ViteHub skill](/docs/getting-started/ai-resources/agent-instructions-skills) |
-| Let the agent search and read the docs as it works | Docs MCP server | [Connect the docs MCP server](/docs/getting-started/ai-resources/mcp-server) |
+| Let the agent search and read the docs, or work on your apps | ViteHub MCP | [Connect the ViteHub MCP](/docs/console/mcp) |
 | Ask a chat tool about one page | Page actions and raw Markdown | [Copy a page for an LLM](/docs/getting-started/ai-resources/markdown-pages) |
 | Give a tool without skills or MCP a documentation map | `llms.txt` indexes | [Load a documentation index](#load-a-documentation-index) |
 
@@ -35,7 +35,7 @@ Then ask for a result, not a package recipe:
 Add durable rate limiting to this server route with ViteHub and prove it locally.
 ```
 
-For Cursor, VS Code, Windsurf, and Codex, the [skill page](/docs/getting-started/ai-resources/agent-instructions-skills) and the [MCP page](/docs/getting-started/ai-resources/mcp-server) have a snippet for each.
+For Cursor, VS Code, Windsurf, and Codex, the [skill page](/docs/getting-started/ai-resources/agent-instructions-skills) and the [MCP page](/docs/console/mcp) have a snippet for each.
 
 ## Load a documentation index
 
@@ -66,7 +66,7 @@ Use `llms-full.txt` for a broad audit, not routine work. One raw page usually gi
 | [ViteHub OpenAPI document](https://vitehub.dev/openapi.json) | Describes the resources `vitehub.dev` serves. |
 | [Skill index](https://vitehub.dev/.well-known/skills/index.json) | Lists the skills `vitehub.dev` publishes. The skills CLI reads it. |
 | [ViteHub Agent Skill](https://vitehub.dev/.well-known/skills/vitehub/SKILL.md) | The entry file of the ViteHub skill. |
-| [ViteHub MCP server](/docs/getting-started/ai-resources/mcp-server) | `https://vitehub.dev/mcp`, the Streamable HTTP endpoint for MCP clients. |
+| [ViteHub MCP server](/docs/console/mcp) | `https://vitehub.dev/mcp`, the Streamable HTTP endpoint for MCP clients. |
 | [ViteHub CLI on npm](https://www.npmjs.com/package/vite-hub) | The `vite-hub` package includes the official `vitehub` command. |
 
 The OpenAPI document describes `vitehub.dev`, not a hosted runtime API.

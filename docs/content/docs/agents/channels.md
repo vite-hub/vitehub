@@ -519,7 +519,7 @@ export default defineAgent({
 
 Conversations are private. Every surface answers `CHANNELS_THREAD_UNKNOWN` (404) for a thread with no Invocation of this Channel and no transcript. The check runs before the provider is asked, so nobody can use the bot token to read another chat. A group thread with a transcript but no Invocation is not found. Admitted-Invocation evidence is kept in State, so group transcripts stay readable without the journal. Rejected messages do not make a group known.
 
-On the Console, the CLI, and the [ViteHub MCP](/docs/development/mcp), anyone allowed into the `channels` section reads every thread. `console.authorize` decides who. An Agent using `operations()` reads nothing until the Capability (a feature you give the Agent) sets `conversations`:
+On the Console, the CLI, and the [ViteHub MCP](/docs/console/mcp), anyone allowed into the `channels` section reads every thread. `console.authorize` decides who. An Agent using `operations()` reads nothing until the Capability (a feature you give the Agent) sets `conversations`:
 
 ```ts [server/agents/support.ts] fragment
 operations({ include: ['channels.*', 'conversations.export'], conversations: 'participant' })
@@ -550,7 +550,7 @@ pnpm vitehub conversations export support telegram telegram:456 > chat.md
 pnpm vitehub conversations export support telegram telegram:456 --format json --output ./chat
 ```
 
-Without `--output`, the export goes to stdout without attachments. `--output <directory>` writes the file and a `media/` directory in the `channels history` layout, refusing server file names or paths that leave the directory. Add `--url <origin>` for a deployed app. See the [CLI](/docs/development/cli#export-a-channel-conversation).
+Without `--output`, the export goes to stdout without attachments. `--output <directory>` writes the file and a `media/` directory in the `channels history` layout, refusing server file names or paths that leave the directory. Add `--url <origin>` for a deployed app. See the [CLI](/docs/cli/agents#export-a-channel-conversation).
 
 The Markdown export is safe to open: each message sits in a fence longer than any backtick run in it, names in headings and links are escaped, and only `http(s)` URLs and export files become links.
 
@@ -647,7 +647,7 @@ export default defineAgent({
 })
 ```
 
-Set `history.trigger` when the Channel has several triggers. Replay from the terminal with [`vitehub channels replay`](/docs/development/cli#download-channel-history):
+Set `history.trigger` when the Channel has several triggers. Replay from the terminal with [`vitehub channels replay`](/docs/cli/agents#download-channel-history):
 
 ```sh
 pnpm vitehub channels replay --agent labeller --channel mailbox --folder archive --dry-run
@@ -684,7 +684,7 @@ An authenticated replay uses the saved item, so it needs no provider signature. 
 
 ### How replay avoids duplicate runs
 
-Each item gets the run ID `channel:<channel>:<key>`, with percent signs and colons escaped. A live message [dispatched](#start-several-invocations-from-one-webhook) with the same key gets the same ID. This needs an Invocation journal: configure `invocations` or turn on the [Console](/docs/development/console).
+Each item gets the run ID `channel:<channel>:<key>`, with percent signs and colons escaped. A live message [dispatched](#start-several-invocations-from-one-webhook) with the same key gets the same ID. This needs an Invocation journal: configure `invocations` or turn on the [Console](/docs/console).
 
 - Replay skips terminal and running Invocations and confirmed Workflow dispatches.
 - An active claim stops one item from running twice at once.
@@ -1096,7 +1096,7 @@ const { messages, status, sendMessage, stop } = useChat(agent)
 </script>
 ```
 
-`useChat()` also gives a reactive `invocationId`, set when the route accepts a request. Link to the run in the Console with it: pass the path `/agents/~support/invocations/<invocationId>` to `hostedConsoleUrl()` from `vite-hub/runtime`. See [Links to the Console](/docs/development/console#links-to-the-console).
+`useChat()` also gives a reactive `invocationId`, set when the route accepts a request. Link to the run in the Console with it: pass the path `/agents/~support/invocations/<invocationId>` to `hostedConsoleUrl()` from `vite-hub/runtime`. See [Links to the Console](/docs/console/site-access#link-to-the-console).
 
 `route.admission.authenticate` requires authentication. ViteHub reads the raw body once, verifies the UI-message format, and after authentication copies only the fields that `route.input.trust` names.
 
@@ -1222,7 +1222,7 @@ pnpm vitehub channels sync \
   --json
 ```
 
-The command is a dry run by default. Apply a reviewed plan with `--apply` and the exact `--confirm-origin`. See [CLI channel synchronization](/docs/development/cli#synchronize-channel-webhooks) for the safeguards on deletion and secrets.
+The command is a dry run by default. Apply a reviewed plan with `--apply` and the exact `--confirm-origin`. See [CLI channel synchronization](/docs/cli/agents#synchronize-channel-webhooks) for the safeguards on deletion and secrets.
 
 ## Control admission and delivery
 

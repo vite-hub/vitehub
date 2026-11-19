@@ -94,6 +94,6 @@ const codes: Record<RuntimeErrorCode, RuntimeCodeDefinition> = {
 }
 
 export const runtimeErrorDiagnostics: Diagnostics<typeof codes, []> = /*#__PURE__*/ defineDiagnostics({
-  docsBase: "https://vitehub.dev/docs/development/diagnostics",
+  docsBase: "https://vitehub.dev/docs/runtime/diagnostics",
   codes,
 })

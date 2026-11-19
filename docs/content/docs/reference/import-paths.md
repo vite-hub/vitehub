@@ -21,7 +21,7 @@ the same behavior.
 | `vite-hub` | `vitehub()`, the framework Vite plugin. |
 | `vite-hub` | `detectHost()`: the host `vitehub()` detects when `host` is omitted. Use it for host-specific config. |
 | `vite-hub/seo` | `defineSitemap()` for the pages of `server/sitemap.ts`. See [Sitemap and robots.txt](/docs/frameworks-hosts/sitemap). |
-| `vite-hub/skills` | Define and serve [Agent Skills](/docs/development/skills) through HTTP discovery and MCP. |
+| `vite-hub/skills` | Define and serve [Agent Skills](/docs/console/skills) through HTTP discovery and MCP. |
 | `vite-hub/agent/vite` | Process Agent host and generated health and Workspace routes for Vite. |
 | `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Invoker APIs. |
 | `vite-hub/agent/capabilities` | Official Capability factories. |
@@ -56,10 +56,10 @@ the same behavior.
 | `vite-hub/i18n/runtime` and `vite-hub/i18n/server` | The i18n runtime and the Nitro request scope that the generated i18n code imports. Apps do not import them. |
 | `vite-hub/gateways` | [AI Gateways](/docs/gateways): routes for Codex and Claude Code model requests, and `ask()` for TypeSafe Jev questions. Re-exports `@vite-hub/gateways`. |
 | `vite-hub/gateways/ai-sdk` | [`languageModel()`](/docs/gateways/server-api#use-a-model-with-the-ai-sdk): an AI SDK model that sends requests through a gateway. Re-exports `@vite-hub/gateways/ai-sdk`. |
-| `vite-hub/presets/babysitter` | Composable Babysitter repair-loop preset. |
+| `vite-hub/presets/babysitter` | Composable [Babysitter](/docs/presets/babysitter) repair-loop preset. |
 | `vite-hub/presets/babysitter/server` | Babysitter host runtime integration. |
-| `vite-hub/presets/labeller` | Gmail labelling preset with ordered rules, Jev fallback, and allowlisted message actions. |
-| `vite-hub/presets/workspace` | Opt-in workspace source-provenance citation preset. |
+| `vite-hub/presets/labeller` | [Gmail labelling preset](/docs/presets/labeller) with ordered rules, Jev fallback, and allowlisted message actions. |
+| `vite-hub/presets/workspace` | Opt-in [workspace source-provenance citation preset](/docs/presets/workspace). |
 | `vite-hub/agent/invocations` | Durable Agent Invocation stores: Cloudflare D1 with its schema statements, and libSQL-compatible SQLite. |
 | `vite-hub/agent/invocations/database` | Agent Invocation Journal backed by a ViteHub SQLite database. |
 | `vite-hub/agent/invocations/drizzle` | `getAgentInvocationsDatabase()`: Drizzle over the default Agent Invocation journal. Needs `drizzle-orm`. |
@@ -125,10 +125,10 @@ the same behavior.
 | `vite-hub/env/seal` | AES-GCM `sealWithKey`, `unsealWithKey`, `importSealKey`, and `sealKeyId` in the Env Bridge database store format. To seal an app value with `VITEHUB_SECRET`, use `seal` and `unseal` from `vite-hub/env`. |
 | `vite-hub/forge` | [Forge](/docs/forge): `useForge()` for GitHub App installation tokens and GitHub, GitLab, and Forgejo clients. Needs `@vite-hub/forge`. |
 | `vite-hub/kv` | KV Runtime Helper. |
-| `vite-hub/markdown-template` | Portable Markdown rendering from template strings. |
+| `vite-hub/markdown-template` | Portable Markdown rendering from template strings. See [Markdown templates](/docs/markdown-template). |
 | `vite-hub/markdown-template/file` | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |
 | `vite-hub/mcp` | `defineMcpTool()`, `defineMcpPrompt()`, and `defineMcpResource()` for the tools, prompts, and resources of the app's MCP server in `server/mcp/tools/`, `server/mcp/prompts/`, and `server/mcp/resources/`, and `defineMcpHooks()` for `server/mcp.ts`. Requires `@vite-hub/mcp`. See [MCP server](/docs/mcp). |
-| `vite-hub/operations` | `defineOperation()` and its types. See [Operations](/docs/development/operations). |
+| `vite-hub/operations` | `defineOperation()` and its types. See [Operations](/docs/console/operations). |
 | `vite-hub/queue` | Queue Definitions and dispatch helpers. |
 | `vite-hub/rate-limit` | Rate Limit handles declared in your source, and direct Rate Limiters. |
 | `vite-hub/rate-limit/drivers/memory` | `memoryRateLimitDriver()`: fixed windows in one process, for local runs and tests. |
@@ -138,7 +138,7 @@ the same behavior.
 | `vite-hub/realtime/bus` | Node room fanout through Postgres or Redis, bus selection, and shutdown hooks for manual server integration. |
 | `vite-hub/realtime/client` | `connectRealtimeRoom()`: presence in one room without an editor or Vue. |
 | `vite-hub/realtime/agent` | `agentRealtime`, the Realtime handle that ViteHub passes to the Agent [`page()`](/docs/agents/capabilities/page) Capability. Apps do not import it. |
-| `vite-hub/runtime` | `getHostBinding()` for raw host bindings, `detectHost()` for host-specific config, Runtime Host Context, `getRuntimeContext()` and `getStandardContext()` for a Fetchable `Request`, policy, approval, trace, and capability APIs. |
+| `vite-hub/runtime` | `getHostBinding()` for raw host bindings, `detectHost()` for host-specific config, Runtime Host Context, `getRuntimeContext()` and `getStandardContext()` for a Fetchable `Request`, policy, approval, trace, and capability APIs. See [Runtime](/docs/runtime). |
 | `vite-hub/runtime/durability` | `getDurabilityReport()` and the `Durability` type: where each primitive of a Node server keeps its state. See [Durability and instances](/docs/frameworks-hosts/node-self-hosted#durability-and-instances). |
 | `vite-hub/sandbox/task` | Sandbox Task Definitions and `runSandboxTask()`. |
 | `vite-hub/schedule` | Static Schedule Definitions and `runSchedule()`. |

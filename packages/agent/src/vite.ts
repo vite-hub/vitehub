@@ -47,7 +47,7 @@ import {
 } from "./cloudflare.ts"
 import { agentStateAuthTokenEnvNames, normalizeAgentOptions } from "./config.ts"
 import { agentDeploymentEnv } from "./deployment-env.ts"
-import { discoverAgentDefinitions, discoverAgentEvalFiles, discoverAgentOptionsStarts, discoverProcessHostAgentNames, isFolderAgentDefinition } from "./discovery.ts"
+import { assertAgentDefaultExport, discoverAgentDefinitions, discoverAgentEvalFiles, discoverAgentOptionsStarts, discoverProcessHostAgentNames, isFolderAgentDefinition } from "./discovery.ts"
 import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 import { resolveProviderRuntimePackages } from "./internal/provider-runtime-packages.ts"
 import { isPortableAgentWorkflowCapability } from "./internal/final-channel-output.ts"
@@ -2811,6 +2811,9 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           ...discoverAgentDefinitions({ mode: "server-agents", scanDirs: definitionServerDirs }),
         ]
       : []
+    // Before the registry and routes import a file that exports no Agent. Discovery itself still lists the file, so
+    // inventory callers such as Vite Doctor can report it.
+    for (const definition of registryDefinitions) await assertAgentDefaultExport(definition)
     await writeAgentRuntimeRegistry(generatedRoot, registryDefinitions, {
       agentHost: Boolean(normalized && hasHostedAgents && normalized.runtime !== "deno"),
     })

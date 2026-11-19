@@ -14,7 +14,7 @@ In this tutorial, you write a tool that adds two numbers, and you call it from C
 > [!NOTE] Before you start
 > Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. To connect an Agent, you need [Claude Code](https://code.claude.com) or another MCP client.
 
-This is not the [ViteHub MCP](/docs/development/mcp) of the Console, which gives the operations of your apps to the people of your Console team.
+This is not the [ViteHub MCP](/docs/console/mcp) of the Console, which gives the operations of your apps to the people of your Console team.
 
 ::tutorial-step{title="Turn it on"}
 ## Turn it on

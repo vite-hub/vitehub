@@ -89,9 +89,9 @@ export async function sync(event: ViteHubContext) {
 
 ## Set the values on the host
 
-The build writes the host variable names of each `env.server` declaration to `deployment.json`, never the values. `vitehub env diff` shows which names the linked host lacks, and `vitehub env push` sets them from the shell and `.env.<stage>` with the host CLI. See [Check and push host env](https://vitehub.dev/docs/development/cli#check-and-push-host-env).
+The build writes the host variable names of each `env.server` declaration to `deployment.json`, never the values. `vitehub env diff` shows which names the linked host lacks, and `vitehub env push` sets them from the shell and `.env.<stage>` with the host CLI. See [Check and push host env](https://vitehub.dev/docs/cli/primitives#check-and-push-host-env).
 
-To keep the values in git, encrypt `.env.<stage>` with [dotenvx](https://dotenvx.com/encryption) and keep the private key out of git. `vitehub env push` decrypts `encrypted:` values with `DOTENV_PRIVATE_KEY_<STAGE>` from the shell or `.env.keys`. See [Encrypted env files](https://vitehub.dev/docs/development/cli#encrypted-env-files).
+To keep the values in git, encrypt `.env.<stage>` with [dotenvx](https://dotenvx.com/encryption) and keep the private key out of git. `vitehub env push` decrypts `encrypted:` values with `DOTENV_PRIVATE_KEY_<STAGE>` from the shell or `.env.keys`. See [Encrypted env files](https://vitehub.dev/docs/cli/primitives#encrypted-env-files).
 
 ## Derive secrets from one root secret
 
@@ -163,21 +163,24 @@ It compares in constant time. A wrong or missing token throws a `401` HTTP error
 
 ## Verify a webhook
 
-`verifyWebhook(event, { provider, secret })` from `vite-hub/env` checks the signature of a Stripe, GitHub, or other HMAC-SHA256 webhook in a plain route. `secret` is the name of the server variable with the signing secret. It reads the raw body once, compares in constant time, and returns `[error, body]` with the parsed JSON body.
+`verifyWebhook(event, { provider, secret, schema })` from `vite-hub/env` checks the signature of a Stripe, GitHub, or other HMAC-SHA256 webhook in a plain route. `secret` is the name of the server variable with the signing secret. It reads the raw body once, compares in constant time, and returns `[error, body]` with the parsed JSON body. `schema` is a Standard Schema, such as a Valibot or Zod schema: it checks the body and types it. Without `schema`, `body` is `unknown`.
 
 ```ts
 // server/api/stripe/webhook.post.ts
 import { defineEventHandler, HTTPError } from "h3";
+import * as v from "valibot";
 import { verifyWebhook } from "vite-hub/env";
 
+const schema = v.object({ type: v.string() });
+
 export default defineEventHandler(async (event) => {
-  const [error, stripeEvent] = await verifyWebhook<{ type: string }>(event, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" });
+  const [error, stripeEvent] = await verifyWebhook(event, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET", schema });
   if (error) throw new HTTPError({ status: 400, message: error.message });
   return { received: stripeEvent.type };
 });
 ```
 
-`provider` is `"stripe"` (`Stripe-Signature`, at most `toleranceSeconds` old, default 300), `"github"` (`X-Hub-Signature-256`, with a JSON or form body), or `"hmac"` with a `header` and optional `prefix`, `encoding`, and `secretEncoding`. The codes are `ENV_WEBHOOK_SIGNATURE_INVALID`, `ENV_WEBHOOK_SECRET_UNSET`, and `ENV_WEBHOOK_BODY_INVALID`. The variable holds one secret, or a comma-separated list while you rotate. See [Verify webhooks](https://vitehub.dev/docs/env/webhooks).
+`provider` is `"stripe"` (`Stripe-Signature`, at most `toleranceSeconds` old, default 300), `"github"` (`X-Hub-Signature-256`, with a JSON or form body), or `"hmac"` with a `header` and optional `prefix`, `encoding`, and `secretEncoding`. The codes are `ENV_WEBHOOK_SIGNATURE_INVALID`, `ENV_WEBHOOK_SECRET_UNSET`, `ENV_WEBHOOK_BODY_INVALID`, and `ENV_WEBHOOK_SCHEMA_MISMATCH`. The variable holds one secret, or a comma-separated list while you rotate. See [Verify webhooks](https://vitehub.dev/docs/env/webhooks).
 
 `signWebhook(body, { provider, secret })` signs an outgoing body and returns the headers to send with it. `provider` is `"github"` (`x-hub-signature-256: sha256=<hex>`) or `"stripe"` (`stripe-signature: t=<unix>,v1=<hex>`). Here `secret` is the secret itself, not a variable name. Send the exact body that you signed, so `verifyWebhook()` and other standard receivers accept it.
 

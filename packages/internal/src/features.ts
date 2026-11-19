@@ -274,7 +274,7 @@ export default defineAgent({
     title: "Connections",
   }),
   console: feature({
-    docs: "/docs/development/console",
+    docs: "/docs/console",
     hosts: everywhere("nitro", "Nitro"),
     id: "console",
     // The Console app is hosted at console.vitehub.dev. The app serves only its Operations endpoint and MCP.
@@ -388,8 +388,10 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
   queue: feature({
     definition: starter("server/queues", name => `import { defineQueue } from "vite-hub/queue"
 
-export default defineQueue<{ id: string }>(async ({ payload }) => {
-  console.log("${name}", payload.id)
+export default defineQueue<{ id: string }>({
+  handler: async ({ payload }) => {
+    console.log("${name}", payload.id)
+  },
 })
 `, { suffix: "queue" }),
     docs: "/docs/queue",
