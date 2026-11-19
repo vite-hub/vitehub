@@ -432,7 +432,7 @@ export default defineQueue<{ id: string }>({
     definition: starter("server/realtime", name => `import { defineRealtime } from "vite-hub/realtime"
 
 export default defineRealtime({
-  auth: true,
+  authorize: true,
   document: { workspace: "${name}" },
 })
 `),
@@ -496,10 +496,12 @@ export default defineSchedule({
     title: "Schedule",
   }),
   workflow: feature({
-    definition: starter("server/workflows", name => `import { defineWorkflow } from "vite-hub/workflow"
+    definition: starter("server/workflows", () => `import { defineWorkflow } from "vite-hub/workflow"
 
-export default defineWorkflow(${JSON.stringify(name)}, async (payload: { id: string }) => {
-  return { id: payload.id }
+export default defineWorkflow<{ id: string }>({
+  handler: async ({ payload }) => {
+    return { id: payload.id }
+  },
 })
 `, { folder: "index", suffix: "workflow" }),
     docs: "/docs/workflows",

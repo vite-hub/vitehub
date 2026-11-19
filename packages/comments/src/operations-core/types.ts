@@ -186,6 +186,8 @@ export interface CommentThread {
   anchor: CommentAnchor
   status: CommentStatus
   resolvedBy?: CommentUser
+  /** The agent that resolved it for `resolvedBy`, such as through an MCP client. Like `actor` for the author. */
+  resolvedActor?: CommentActor
   resolvedAt?: number
   author: CommentUser
   actor?: CommentActor

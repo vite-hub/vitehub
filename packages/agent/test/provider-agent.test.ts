@@ -323,13 +323,13 @@ describe("Provider Agent Driver", () => {
     try {
       await createProviderAgentAdapter({
         provider: "codex", gateway: chatgpt(),
-        env: { NODE_OPTIONS: `--require=${probe}`, NODE_PATH: root, LD_PRELOAD: "", LD_LIBRARY_PATH: root, DYLD_INSERT_LIBRARIES: "", BASH_ENV: probe, PATH: root, PATHEXT: ".CALLER", T3_MCP_BEARER_TOKEN: "capability-token" },
+        env: { NODE_OPTIONS: `--require=${probe}`, NODE_PATH: root, LD_PRELOAD: "", LD_LIBRARY_PATH: root, DYLD_INSERT_LIBRARIES: "", BASH_ENV: probe, PATH: root, PATHEXT: ".CALLER", VITEHUB_MCP_BEARER_TOKEN: "capability-token" },
       }).generate(context(threadId) as never)
       await expect(readFile(gitMarker, "utf8")).rejects.toThrow()
       await expect(access(marker)).rejects.toThrow()
       const options = createProviderRuntime.mock.lastCall?.[0]
       const environment = JSON.parse(await readFile(output, "utf8"))
-      expect(environment).toMatchObject({ VITEHUB_CHATGPT_ACCESS_TOKEN: "", VITEHUB_BROWSER_ACTIVE: "0", T3_MCP_BEARER_TOKEN: "" })
+      expect(environment).toMatchObject({ VITEHUB_CHATGPT_ACCESS_TOKEN: "", VITEHUB_BROWSER_ACTIVE: "0", VITEHUB_MCP_BEARER_TOKEN: "" })
       expect(environment.VITEHUB_CHATGPT_ACCESS_TOKEN).not.toBe("startup-test-token")
       expect(options?.environment?.PATH).toBe((process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter))
       expect(environment.PATH).toBe((process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter))
@@ -463,7 +463,7 @@ describe("Provider Agent Driver", () => {
         const url = /base_url=\\"([^"\\]+)\\"/.exec(String(options?.settings?.launchArgs))?.[1]
         const configuration = JSON.parse(input.mcp!.authorizationHeader)
         expect(options?.environment?.VITEHUB_CHATGPT_ACCESS_TOKEN).toBe("")
-        expect(options?.environment?.T3_MCP_BEARER_TOKEN).toBe("")
+        expect(options?.environment?.VITEHUB_MCP_BEARER_TOKEN).toBe("")
         expect(JSON.stringify(options)).not.toContain(configuration.key)
         await writeFile(executable, `
           const { createInterface } = require("node:readline")
@@ -474,7 +474,7 @@ describe("Provider Agent Driver", () => {
               const config = message.params.config
               const authorization = config["model_providers.openai_chatgpt_plan.http_headers"].Authorization
               const response = await fetch(${JSON.stringify(url)} + "/responses", { method: "POST", headers: { authorization } })
-              const mcp = config.mcp_servers["t3-code"]
+              const mcp = config.mcp_servers["vitehub-invocation"]
               process.stderr.write(authorization.slice(7) + "\\n" + (mcp?.http_headers.Authorization.slice(7) || "") + "\\n")
               console.log(JSON.stringify({ id: message.id, result: { status: response.status, authorization, mcp, environment: process.env } }))
             }
@@ -491,7 +491,7 @@ describe("Provider Agent Driver", () => {
         ].map(message => JSON.stringify(message)).join("\n") + "\n")
         expect(await once(launched, "close")).toEqual([0, null])
         const result = JSON.parse(stdout).result
-        expect(result).toMatchObject({ status: 200, authorization: "Bearer [REDACTED]", environment: { VITEHUB_CHATGPT_ACCESS_TOKEN: "", T3_MCP_BEARER_TOKEN: "" } })
+        expect(result).toMatchObject({ status: 200, authorization: "Bearer [REDACTED]", environment: { VITEHUB_CHATGPT_ACCESS_TOKEN: "", VITEHUB_MCP_BEARER_TOKEN: "" } })
         expect(result.mcp).toEqual(tools ? { url: configuration.mcp.url, http_headers: { Authorization: "[REDACTED]" }, tools: { "release:check": { approval_mode: "approve" } } } : undefined)
         expect(stderr.trim().split("\n")).toEqual(tools ? ["[REDACTED]", "[REDACTED]"] : ["[REDACTED]"])
         expect(stdout + stderr).not.toContain(configuration.key)
@@ -930,7 +930,7 @@ describe("Provider Agent Driver", () => {
     await createProviderAgentAdapter({ launch, provider: "codex" }).generate(invocation as never)
 
     expect(launch).toHaveBeenCalledWith(expect.objectContaining({
-      requiredEnvironment: ["VITEHUB_BROWSER_ACTIVE", "T3_MCP_BEARER_TOKEN"],
+      requiredEnvironment: ["VITEHUB_BROWSER_ACTIVE", "VITEHUB_MCP_BEARER_TOKEN"],
     }))
   })
 
@@ -944,7 +944,7 @@ describe("Provider Agent Driver", () => {
         const binaryPath = String(options?.settings?.binaryPath)
         const launched = spawnSync(binaryPath, [], {
           encoding: "utf8",
-          env: { ...options?.environment, T3_MCP_BEARER_TOKEN: secret },
+          env: { ...options?.environment, VITEHUB_MCP_BEARER_TOKEN: secret },
         })
         expect(launched.status).toBe(5)
         const persisted = await readFile(join(binaryPath, "..", "provider-launch-failure.json"), "utf8")
@@ -962,7 +962,7 @@ describe("Provider Agent Driver", () => {
         env: { SHORT_TOKEN: shortSecret },
         gateway: defineAiGateway({ name: "proxy", baseURL: { codex: "http://127.0.0.1:8317/v1" }, apiKey: "gateway-proxy-secret" }),
         launch: {
-          args: ["-e", 'process.stderr.write(`runner failed token=${process.env.T3_MCP_BEARER_TOKEN} short=${process.env.SHORT_TOKEN} label=ordinary-value proxy=${process.env.VITEHUB_GATEWAY_API_KEY}\\n`);process.exit(5)'],
+          args: ["-e", 'process.stderr.write(`runner failed token=${process.env.VITEHUB_MCP_BEARER_TOKEN} short=${process.env.SHORT_TOKEN} label=ordinary-value proxy=${process.env.VITEHUB_GATEWAY_API_KEY}\\n`);process.exit(5)'],
           command: process.execPath,
         },
         provider: "codex",
@@ -1410,6 +1410,13 @@ describe("Provider Agent Driver", () => {
       // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
       context("thread-dynamic-launch-args") as never,
     )).rejects.toThrow("resolved driver.env.T3CODE_CODEX_LAUNCH_ARGS")
+    await expect(createProviderAgentAdapter({
+      env: () => ({ T3_MCP_BEARER_TOKEN: "token" }),
+      provider: "codex",
+    }).generate(
+      // SAFETY: This fixture intentionally supplies the minimal provider request context under test.
+      context("thread-dynamic-old-mcp-token") as never,
+    )).rejects.toMatchObject({ code: "AGENT_MCP_BEARER_TOKEN_RENAMED" })
     await expect(createProviderAgentAdapter({
       // SAFETY: This invalid fixture exercises the runtime launch validation boundary.
       launch: () => ({ args: [1], command: "wrapper" } as never),
@@ -3027,11 +3034,13 @@ cli_auth_credentials_store = "keyring"
       tools: { pushRepair: { inputSchema: { type: "object", properties: {} }, execute: async () => ({ pushed: true }) } },
     }) as never);
     const args = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs);
-    expect(args).toContain('mcp_servers.t3-code.tools={"pushRepair"={approval_mode="approve"}}');
-    expect(args).toContain('bearer_token_env_var="T3_MCP_BEARER_TOKEN"');
-    expect(args).toContain('shell_environment_policy.set.T3_MCP_BEARER_TOKEN=""');
+    expect(args).toMatch(/mcp_servers\.vitehub-invocation\.url="http:\/\/127\.0\.0\.1:\d+\/mcp"/);
+    expect(args).toContain('mcp_servers.vitehub-invocation.tools={"pushRepair"={approval_mode="approve"}}');
+    expect(args).toContain('mcp_servers.vitehub-invocation.bearer_token_env_var="VITEHUB_MCP_BEARER_TOKEN"');
+    expect(args).not.toContain("mcp_servers.vitehub.");
+    expect(args).toContain('shell_environment_policy.set.VITEHUB_MCP_BEARER_TOKEN=""');
     expect(args).not.toContain("shell_environment_policy.exclude=");
-    expect(createProviderRuntime.mock.lastCall?.[0].environment?.T3_MCP_BEARER_TOKEN).toEqual(expect.any(String));
+    expect(createProviderRuntime.mock.lastCall?.[0].environment?.VITEHUB_MCP_BEARER_TOKEN).toEqual(expect.any(String));
     expect(args).not.toContain("default_tools_approval_mode");
     expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ runtimeMode: "auto-accept-edits", approvalPolicy: "never", mcp: undefined }));
   });
@@ -3068,7 +3077,7 @@ cli_auth_credentials_store = "keyring"
 
     expect(events.map(item => item.type)).toEqual([
       "data-agent-event",
-      "text-delta",
+      "reasoning-delta",
       "tool-call",
       "tool-result",
       "approval-request",
@@ -3077,7 +3086,7 @@ cli_auth_credentials_store = "keyring"
       "usage",
       "finish",
     ])
-    expect(events[1]).toMatchObject({ phase: "commentary", text: "thinking" })
+    expect(events[1]).toEqual({ id: "reasoning_text:turn-1:0", text: "thinking", type: "reasoning-delta" })
     expect(events[6]).toMatchObject({ phase: "final", text: "done" })
     expect(events[7]).toMatchObject({ usageRecord: { usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } } })
     expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ runtimeMode: "approval-required", threadId }))
@@ -3398,10 +3407,35 @@ cli_auth_credentials_store = "keyring"
     ])
 
     const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as StreamEvent[]
-    expect(events.filter(event => event.type === "text-delta")).toEqual([
-      { id: "reasoning_summary_text:reasoning-1:0", phase: "commentary", text: "**Reading related facts**", type: "text-delta" },
+    expect(events.filter(event => event.type === "text-delta" || event.type === "reasoning-delta")).toEqual([
+      { id: "reasoning_summary_text:reasoning-1:0", text: "**Reading related facts**", type: "reasoning-delta" },
       { id: "assistant_text:message-1:0", messageId: "message-1", phase: "commentary", text: "I’m also applying the evidence skill.", type: "text-delta" },
     ])
+  })
+
+  it("labels Codex reasoning text as reasoning, keeps it out of the result, and keeps other progress as commentary", async () => {
+    const threadId = "thread-reasoning-phase"
+    runtime(threadId, [
+      event("content.delta", threadId, { delta: "**Previewing old output**", streamKind: "reasoning_text" }, { itemId: "rs-1", turnId: "turn-1" }),
+      event("content.delta", threadId, { delta: "- Read the files", streamKind: "plan_text" }, { itemId: "plan-1", turnId: "turn-1" }),
+      event("content.delta", threadId, { delta: "Done.", streamKind: "assistant_text" }, { itemId: "answer", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+
+    const events = await collect(await adapter.stream!(context(threadId) as never)) as StreamEvent[]
+    expect(events.filter(event => event.type === "text-delta" || event.type === "reasoning-delta")).toEqual([
+      { id: "reasoning_text:rs-1:0", text: "**Previewing old output**", type: "reasoning-delta" },
+      { id: "plan_text:plan-1:0", phase: "commentary", text: "- Read the files", type: "text-delta" },
+      { id: "assistant_text:answer:0", messageId: "answer", phase: "final", text: "Done.", type: "text-delta" },
+    ])
+
+    runtime("thread-reasoning-result", [
+      event("content.delta", "thread-reasoning-result", { delta: "**Previewing old output**", streamKind: "reasoning_summary_text" }, { itemId: "rs-1", turnId: "turn-1" }),
+      event("content.delta", "thread-reasoning-result", { delta: "Done.", streamKind: "assistant_text" }, { itemId: "answer", turnId: "turn-1" }),
+      event("turn.completed", "thread-reasoning-result", { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    await expect(adapter.generate(context("thread-reasoning-result") as never)).resolves.toMatchObject({ text: "Done." })
   })
 
   it("preserves a shared message identity across final content segments", async () => {
@@ -3800,7 +3834,7 @@ cli_auth_credentials_store = "keyring"
       "agent.message.delta",
       "agent.stream.finish",
     ])
-    expect(traceLog.entries()[0]?.attributes?.["message.content"]).toBe("Inspecting files")
+    expect(traceLog.entries()[0]?.attributes).toMatchObject({ "message.content": "Inspecting files", "message.phase": "reasoning" })
     expect(traceLog.entries().find(entry => entry.name === "agent.tool.output")?.attributes).toMatchObject({
       "step.id": "tool-1",
       "tool.id": "tool-1",
@@ -5422,7 +5456,7 @@ cli_auth_credentials_store = "keyring"
       PATH: "/managed/bin:/caller/bin",
       LD_LIBRARY_PATH: "/managed/lib:/caller/lib",
       DRIVER_COMMAND_VALUE: "custom",
-      ...(useChatGPT ? { VITEHUB_CHATGPT_ACCESS_TOKEN: "", T3_MCP_BEARER_TOKEN: "" } : {}),
+      ...(useChatGPT ? { VITEHUB_CHATGPT_ACCESS_TOKEN: "", VITEHUB_MCP_BEARER_TOKEN: "" } : {}),
       TMPDIR: expect.stringMatching(/vitehub-provider-tmp-/),
     }) }))
   })

@@ -208,6 +208,12 @@ export async function generatedDeclarations(pageSnippets) {
     definition.steps.push(snippet.file)
     workflows.set(match[1], definition)
   }
+  // The `index.ts` that the page shows types the payload of the Workflow in `WorkflowRegistry`.
+  for (const snippet of pageSnippets) {
+    const index = /(?:^|\/)workflows\/(.+)\/index\.m?ts$/.exec(snippet.label ?? "")
+    const definition = index && isAppFile(snippet) ? workflows.get(index[1]) : undefined
+    if (definition) definition.handler = snippet.file
+  }
   const declarations = [...await registryDeclarations(pageSnippets), ...await envDeclarations(pageSnippets), ...await emailTemplateDeclarations(pageSnippets)]
   if (!workflows.size) return declarations
   const { createWorkflowTypes } = await import(pathToFileURL(join(packagesRoot, "workflow/dist/vite.js")).href)

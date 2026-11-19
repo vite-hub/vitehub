@@ -100,7 +100,7 @@ it("captures Cloudflare cancellations", async () => {
 
 it("rejects caller run IDs for native Vercel Workflows but captures supported starts and cancellations", async () => {
   setWorkflowRuntimeConfig({ driver: "vercel" })
-  setWorkflowRuntimeRegistry({ onboarding: async () => ({ handler, options: { native: handler } }) })
+  setWorkflowRuntimeRegistry({ onboarding: async () => ({ handler, native: handler }) })
   expect(await startWorkflow("onboarding", {}, { id: "custom" })).toMatchObject([{ code: "WORKFLOW_RUN_ID_UNSUPPORTED" }, undefined])
   expect(mode.peek("workflow")).toBeUndefined()
   const run = await unwrap(startWorkflow("onboarding", {}))

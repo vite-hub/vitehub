@@ -82,7 +82,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     const kv = await open()
     const keys: DenoKVKey[] = []
 
-    // ponytail: Deno KV lists structured keys; scan/filter keeps ViteHub string-prefix keys correct.
+    // Deno KV lists structured keys; scan/filter keeps ViteHub string-prefix keys correct.
     for await (const entry of kv.list({ prefix: [] })) {
       const key = fromDenoKey(entry.key)
       if (key?.startsWith(base)) keys.push(entry.key)

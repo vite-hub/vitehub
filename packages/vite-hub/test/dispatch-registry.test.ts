@@ -58,7 +58,7 @@ it.each([
     await writeFile(join(root, "consumer.mts"), [
       'import { sendQueue, useQueue } from "vite-hub/queue"',
       'const [error] = await sendQueue("welcome", { email: "ada@example.test" })',
-      'if (error) error.code satisfies "QUEUE_PROVIDER_FAILED" | "QUEUE_PROVIDER_INVALID_RESPONSE" | "QUEUE_UNSUPPORTED_OPTION"',
+      'if (error) error.code satisfies "QUEUE_PROVIDER_FAILED" | "QUEUE_PROVIDER_INVALID_RESPONSE" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID"',
       'await (await useQueue("welcome")).send({ email: "ada@example.test" })',
       '// @ts-expect-error Queue payload comes from the generated public map.',
       'await sendQueue("welcome", { count: 1 })',

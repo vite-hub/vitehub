@@ -8,7 +8,7 @@ it("requires input only when the Workflow requires it", () => {
   expectTypeOf<Parameters<WorkflowHandle<{ message: string }>["start"]>>().toEqualTypeOf<[payload: { message: string }, options?: WorkflowStartOptions]>()
   expectTypeOf<Parameters<WorkflowHandle<{ message: string } | undefined>["defer"]>>().toEqualTypeOf<[payload?: { message: string }, options?: WorkflowStartOptions]>()
   expectTypeOf<Parameters<WorkflowHandle<void>["start"]>>().toEqualTypeOf<[payload?: void, options?: WorkflowStartOptions]>()
-  const required = createWorkflow("required", (payload: { message: string }) => payload.message)
+  const required = createWorkflow<{ message: string }, string>("required", ({ payload }) => payload.message)
   void required.start({ message: "hello" })
   void required.defer({ message: "hello" }, { id: "job-1" })
   void required.start({ message: "hello" }, { delay: "1 hour", id: "job-2" })
@@ -23,7 +23,7 @@ it("requires input only when the Workflow requires it", () => {
   void required.defer()
   // @ts-expect-error Undefined is not a required payload.
   void required.start(undefined)
-  const optional = createWorkflow<{ message: string } | undefined>("optional", (payload) => payload?.message)
+  const optional = createWorkflow<{ message: string } | undefined>("optional", ({ payload }) => payload?.message)
   void optional.start()
   void optional.defer(undefined, { id: "job-2" })
   const noInput = createWorkflow<void>("no-input", () => "done")

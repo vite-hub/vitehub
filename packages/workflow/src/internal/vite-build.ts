@@ -1092,7 +1092,7 @@ function renderAgentWorkflowRegistryEntry(
     "    if (cached) return cached",
     `    const loaded = await ${renderRegistryImport(registryFile, definition.handler)}`,
     `    const agent = workspaceAgentWithSourceRoot(agentWithColocatedSkills(agentWithColocatedInstructions("default" in loaded ? loaded.default : loaded, ${JSON.stringify(instructions)}), ${JSON.stringify(readAgentSkills(definition.handler))}), ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(instructions)})`,
-    `    const entry = { options: { rootStep: false }, handler: async (_payload, context) => await runAgentWorkflowDefinition(agent, { ...context, payload: { ...context.payload, agentIdentity: context.payload?.agentIdentity || { name: ${JSON.stringify(definition.agentIdentity || definition.name)} } } }, runAgentInline)${definition.source === "agent-workflow-recovery" ? ", internalAgentInvocationRecovery: true" : ""} }`,
+    `    const entry = { rootStep: false, handler: async (context) => await runAgentWorkflowDefinition(agent, { ...context, payload: { ...context.payload, agentIdentity: context.payload?.agentIdentity || { name: ${JSON.stringify(definition.agentIdentity || definition.name)} } } }, runAgentInline)${definition.source === "agent-workflow-recovery" ? ", internalAgentInvocationRecovery: true" : ""} }`,
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
     "    return entry",
     `  }, ${definition.source === "agent-workflow-recovery" ? "{ internalAgentInvocationRecovery: true }" : "{}"}),`,
@@ -1178,7 +1178,7 @@ function renderWorkflowRegistryEntry(
     : ""
   const handler = hasIndex
     ? `index.default?.handler ? index.default : takeInlineWorkflowDefinitionForModule(${JSON.stringify(definition.name)}, index) || { handler: index.default }`
-    : "{ handler: async (payload, context) => { let value = payload; for (const step of Object.values(context.steps)) value = await step(value); return value } }"
+    : "{ handler: async ({ payload, steps }) => { let value = payload; for (const step of Object.values(steps)) value = await step(value); return value } }"
 
   return [
     `  [${JSON.stringify(definition.name)}]: async () => {`,
@@ -1190,10 +1190,10 @@ function renderWorkflowRegistryEntry(
     `    const definition = ${handler}`,
     "    const entry = {",
     "      ...definition,",
-    `      options: { ...definition.options, rootStep: false${nativeImport ? ", native" : ""} },`,
-    "      handler: async (payload, context) => {",
+    `      rootStep: false,${nativeImport ? " native," : ""}`,
+    "      handler: async (context) => {",
     "        const workflowSteps = createWorkflowSteps(context, steps)",
-    "        return await definition.handler(payload, { ...context, steps: workflowSteps })",
+    "        return await definition.handler({ ...context, steps: workflowSteps })",
     "      },",
     "    }",
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,

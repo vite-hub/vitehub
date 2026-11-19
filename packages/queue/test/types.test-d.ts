@@ -50,17 +50,18 @@ it("types Queue error codes", () => {
     | "QUEUE_PROVIDER_FAILED"
     | "QUEUE_PROVIDER_INVALID_RESPONSE"
     | "QUEUE_UNSUPPORTED_OPTION"
+    | "RUNTIME_DURATION_INVALID"
   >()
-  expectTypeOf<CloudflareQueueErrorCode>().toEqualTypeOf<"QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION">()
+  expectTypeOf<CloudflareQueueErrorCode>().toEqualTypeOf<"QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID">()
   expectTypeOf<VercelQueueErrorCode>().toEqualTypeOf<QueueErrorCode>()
 })
 
 it("types the codes of each method", () => {
   expectTypeOf(sendQueue<"welcome">).returns.toEqualTypeOf<Promise<Result<QueueSendResult, QueueErrorCode>>>()
   expectTypeOf(dynamicQueue.send).returns.toEqualTypeOf<Promise<Result<QueueSendResult, QueueErrorCode>>>()
-  expectTypeOf<CloudflareQueueClient["send"]>().returns.toEqualTypeOf<Promise<Result<QueueSendResult, "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION">>>()
-  expectTypeOf<CloudflareQueueClient["sendBatch"]>().returns.toEqualTypeOf<Promise<Result<QueueSendResult[], "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION">>>()
-  expectTypeOf<VercelQueueClient["send"]>().returns.toEqualTypeOf<Promise<Result<QueueSendResult, "QUEUE_PROVIDER_FAILED" | "QUEUE_PROVIDER_INVALID_RESPONSE" | "QUEUE_UNSUPPORTED_OPTION">>>()
+  expectTypeOf<CloudflareQueueClient["send"]>().returns.toEqualTypeOf<Promise<Result<QueueSendResult, "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID">>>()
+  expectTypeOf<CloudflareQueueClient["sendBatch"]>().returns.toEqualTypeOf<Promise<Result<QueueSendResult[], "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID">>>()
+  expectTypeOf<VercelQueueClient["send"]>().returns.toEqualTypeOf<Promise<Result<QueueSendResult, "QUEUE_PROVIDER_FAILED" | "QUEUE_PROVIDER_INVALID_RESPONSE" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID">>>()
   expectTypeOf(deferQueue<"welcome">).returns.toEqualTypeOf<void>()
 })
 
@@ -78,7 +79,7 @@ it("narrows Queue results by the error element", async () => {
   if (client.provider === "cloudflare") {
     const [sendError] = await client.send({ email: "ada@example.test" })
     if (sendError) {
-      expectTypeOf(sendError.code).toEqualTypeOf<"QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION">()
+      expectTypeOf(sendError.code).toEqualTypeOf<"QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID">()
       // @ts-expect-error A Cloudflare send never returns an invalid provider response.
       void (sendError.code === "QUEUE_PROVIDER_INVALID_RESPONSE")
     }
@@ -96,7 +97,13 @@ declare module "../src/types.ts" {
 }
 
 it("checks dispatch against the selected Queue Definition", async () => {
-  await sendQueue("welcome", { email: "ada@example.test" }, { delaySeconds: 1 })
+  await sendQueue("welcome", { email: "ada@example.test" }, { delay: "1s" })
+  await sendQueue("welcome", { email: "ada@example.test" }, { retention: 3600 })
+  await sendQueue("welcome", { email: "ada@example.test" }, { retention: "1 hour" })
+  // @ts-expect-error `delay` is a duration string such as "1m". A number of seconds is only for a lifetime.
+  await sendQueue("welcome", { email: "ada@example.test" }, { delay: 60 })
+  // @ts-expect-error `delaySeconds` is now `delay`.
+  await sendQueue("welcome", { email: "ada@example.test" }, { delaySeconds: 60 })
   deferQueue("audit", { payload: "event", region: "business", id: "row-1" })
   const client = await useQueue("welcome")
   // @ts-expect-error ViteHub generates the message ID. Use `idempotencyKey` to deduplicate.
@@ -104,7 +111,7 @@ it("checks dispatch against the selected Queue Definition", async () => {
   // @ts-expect-error Payload belongs to welcome, not audit.
   await sendQueue("welcome", { payload: "event", region: "business", id: "row-1" })
   // @ts-expect-error No envelope form remains.
-  await sendQueue("welcome", { payload: { email: "ada@example.test" }, delaySeconds: 1 })
+  await sendQueue("welcome", { payload: { email: "ada@example.test" }, delay: "1s" })
   // @ts-expect-error Named clients retain their definition's payload.
   await client.send({ count: 1 })
   if (client.provider === "cloudflare") {
