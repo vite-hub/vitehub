@@ -90,19 +90,31 @@ describe("docsRedirectProblems", () => {
       await writeFile(join(dir, "api/index.md"), "---\ntitle: API\n---\n\nThe API.\n")
       await writeFile(join(dir, "api/.navigation.yml"), "title: API\n")
       const site = await createDocsManifest({ dir, base: "/" })
-      const routes = ["/api/auth/**", "/api/files/:id", "/api/feed.xml"]
+      const routes = [
+        { route: "/api/auth/**", handler: "/app/.vitehub/auth/route.ts" },
+        { route: "/api/files/:id", method: "get", handler: "/app/server/api/files/[id].get.ts" },
+        { route: "/api/feed.xml", handler: "/app/server/api/feed.xml.ts" },
+        { route: "/api/export", handler: "/app/server/api/export/index.ts" },
+        { route: "/api/form", method: "post", handler: "/app/server/api/form.post.ts" },
+      ]
       expect(docsRedirectProblems(site, [
         { from: "/sign-in", to: "/api/auth/sign-in?redirect=/api" },
         { from: "/sign-out", to: "/api/auth" },
         { from: "/file", to: "/api/files/1" },
         { from: "/feed", to: "/api/feed.xml" },
+        { from: "/export", to: "/api/export#csv" },
       ], routes)).toEqual([])
-      // A route does not cover a docs path it does not match, and a query does not hide a missing page.
+      // A route does not answer a path it does not match, a POST route does not answer a navigation, Nitro serves no
+      // `/index` path, and a query does not hide a missing page.
       expect(docsRedirectProblems(site, [
         { from: "/files", to: "/api/files/1/raw" },
+        { from: "/form", to: "/api/form" },
+        { from: "/export-index", to: "/api/export/index" },
         { from: "/old", to: "/api/removed?tab=1" },
       ], routes)).toEqual([
         "The redirect from /files goes to /api/files/1/raw, which is not a docs page. Point it to a page, or remove the route rule.",
+        "The redirect from /form goes to /api/form, which is not a docs page. Point it to a page, or remove the route rule.",
+        "The redirect from /export-index goes to /api/export/index, which is not a docs page. Point it to a page, or remove the route rule.",
         "The redirect from /old goes to /api/removed?tab=1, which is not a docs page. Point it to a page, or remove the route rule.",
       ])
     }
@@ -113,14 +125,16 @@ describe("docsRedirectProblems", () => {
 })
 
 describe("docsServerRoutes", () => {
-  it("reads the route of each handler, but not middleware, catch-all routes, or the handlers of the docs", () => {
+  it("keeps the routes that answer a GET, but not root catch-alls or the handlers of the docs", () => {
     expect(docsServerRoutes([
       { route: "/api/auth/**", handler: "/app/.vitehub/auth/route.ts" },
-      { route: "/api/feed.xml", handler: "/app/server/routes/api/feed.xml.get.ts" },
-      { route: "/**", middleware: true, handler: "/app/.vitehub/auth/access.ts" },
-      { route: "/**", handler: "/app/server/routes/[...].ts" },
-      { route: "/raw/**", handler: "/docs/dist/runtime/server/raw.js" },
-      { handler: "/app/server/plugins/log.ts" },
-    ], "/docs/dist/runtime")).toEqual(["/api/auth/**", "/api/feed.xml"])
+      { route: "/api/feed.xml", method: "GET", handler: "/app/server/routes/api/feed.xml.get.ts" },
+      { route: "/**/feed.xml", method: "get", handler: "/app/server/routes/[...]/feed.xml.get.ts" },
+      { route: "/api/form", method: "post", handler: "/app/server/routes/api/form.post.ts" },
+      { route: "/**", handler: "/nuxt/dist/runtime/handlers/renderer.js" },
+      { route: "/**:slug", handler: "/app/server/routes/[...slug].ts" },
+      { route: "/:slug(.*)", handler: "/app/server/routes/[...slug].ts" },
+      { route: "/raw/**", method: "get", handler: "/docs/dist/runtime/server/raw.js" },
+    ], "/docs/dist/runtime").map(route => route.route)).toEqual(["/api/auth/**", "/api/feed.xml", "/**/feed.xml"])
   })
 })

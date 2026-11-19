@@ -37,7 +37,7 @@ import { docsAppManifest, docsAppManifestSource, docsAppPanelSource, readDocsCon
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawPath, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { docsContentSource } from "./agent-copy.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
-import { docsRedirectError, docsRedirectProblems, docsRedirects, docsServerRoutes, type DocsRouteRule, type DocsServerHandler } from "./redirects.ts"
+import { docsRedirectError, docsRedirectProblems, docsRedirects, docsServerRoutes, type DocsRouteRule, type DocsServerRoute } from "./redirects.ts"
 import { docsSeoError, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type DocsSeoPage } from "./seo-audit.ts"
 import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi, type DocsThemeUi } from "./theme.ts"
 import { docsThemeCss } from "./theme-css.ts"
@@ -251,8 +251,7 @@ interface PrerenderRoute {
 
 interface NitroInstance {
   options: NitroOptions & { output?: { publicDir: string } }
-  /** The handlers of the files in `server/routes/`, `server/api/`, and `server/middleware/`. */
-  scannedHandlers?: DocsServerHandler[]
+  routing?: { routes: { routes: DocsServerRoute[] } }
   hooks?: {
     hook(name: "compiled" | "prerender:done", handler: () => void): void
     hook(name: "prerender:generate", handler: (route: PrerenderRoute) => void): void
@@ -275,7 +274,7 @@ interface NitroOptions {
   runtimeConfig?: DiscoveryRuntime
   routeRules?: Record<string, DocsRouteRule & { headers?: Record<string, string>, prerender?: boolean }>
   alias?: Record<string, string>
-  handlers?: Array<DocsServerHandler & { method?: string }>
+  handlers?: Array<{ route: string, method?: string, handler: string }>
   virtual?: Record<string, string | (() => string | Promise<string>)>
   publicAssets?: Array<{ baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }>
   prerender?: { crawlLinks?: boolean, autoSubfolderIndex?: boolean, routes?: string[], ignore?: Array<string | RegExp | ((path: string) => boolean | null | undefined)> }
@@ -958,7 +957,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // All nitro:config hooks have run, including those registered by modules installed after the docs module.
       if (options.linkChecker !== false && building) {
         // A target that a server route of the app answers, such as Auth's `/api/auth/**`, is no missing page.
-        const serverRoutes = docsServerRoutes([...nitro.options.handlers ?? [], ...nitro.scannedHandlers ?? []], resolver.resolve("./runtime"))
+        const serverRoutes = docsServerRoutes(nitro.routing?.routes.routes ?? [], resolver.resolve("./runtime"))
         const problems = docsRedirectProblems(manifest, docsRedirects(nitro.options.routeRules ?? {}), serverRoutes)
         if (problems.length) throw docsRedirectError(problems)
         nitro.hooks?.hook("compiled", () => {
