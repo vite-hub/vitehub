@@ -626,19 +626,19 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   }
 
   /** Current-head Actions checks that repeat the same job failure on the live base tip. */
-  async function readInheritedBaseFailures(snapshot: Snapshot, signal: AbortSignal, baseSha?: string): Promise<number[]> {
+  async function readInheritedBaseFailures(snapshot: Snapshot, signal: AbortSignal, verificationBaseSha?: string): Promise<number[]> {
     const { repository } = snapshot;
     const head = snapshot.pr?.head?.sha;
     const baseRef = snapshot.pr?.base?.ref;
     if (!head || !baseRef || conflicted(snapshot) || checksStillRunning(snapshot)) return [];
     const failing = currentActionRuns(snapshot, waitPolicy.pendingReviewChecks).filter(check => failedConclusions.has(String(check.conclusion)));
     if (!failing.length) return [];
-    const tip = baseSha ?? await liveBaseTip(repository, baseRef, signal);
+    const tip = verificationBaseSha ?? await liveBaseTip(repository, baseRef, signal);
     if (!tip) return [];
     // The merge gate asks on every evaluation of a failing PR; a new base tip or failure changes the key.
     const key = JSON.stringify([repository.toLowerCase(), tip, head, failureKeys(snapshot)]);
     const cached = inheritedFailures.get(key);
-    if (cached && cached.expiresAt > Date.now()) return cached.ids;
+    if (!verificationBaseSha && cached && cached.expiresAt > Date.now()) return cached.ids;
     const runs = await baseActionRuns(repository, tip, signal);
     const ids: number[] = [];
     for (const check of failing) {

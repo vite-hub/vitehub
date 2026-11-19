@@ -1368,6 +1368,26 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
+  it("does not bypass a required check after the same base tip passes on rerun", async () => {
+    const f = await fixture(false, false, { merge: { strategy: "direct", bypassInheritedChecks: { "acme/app": ["test"] } }, options: { ciRecovery: false },
+      admission: async () => ({ accepting: false, hostOnly: true, reason: "token-budget-hourly" }) });
+    inheritFailure(f, failedLog([" FAIL  test/a.test.ts > adds"]));
+    const command = f.command.getMockImplementation()!;
+    let baseRerunPassed = false;
+    f.command.mockImplementation(async (args, request) => {
+      if (args.includes(`repos/acme/app/commits/${f.pr().head.sha}/check-runs?per_page=100`)) baseRerunPassed = true;
+      if (baseRerunPassed && args.includes(`repos/acme/app/commits/${f.pr().base.sha}/check-runs?per_page=100`)) {
+        return { stdout: JSON.stringify({ id: 3, name: "test", head_sha: f.pr().base.sha, status: "completed", conclusion: "success", app: { slug: "github-actions", id: 15368 } }), stderr: "" };
+      }
+      return command(args, request);
+    });
+    try {
+      await f.reconcile();
+      expect(baseRerunPassed).toBe(true);
+      expect(f.command.mock.calls.some(([args]) => args.includes("repos/acme/app/pulls/12/merge-async"))).toBe(false);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
   it("does not settle a failing head when its assigned base failed but the live tip passed", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const liveBase = "e".repeat(40);
