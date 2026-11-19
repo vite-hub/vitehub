@@ -302,7 +302,7 @@ describe("migrate", () => {
 
 describe("upgradeCodemods", () => {
   /** Codemods that move an app from another module to ViteHub. They are not release upgrades. */
-  const fromOtherModules = ["nuxthub", "nuxt-safe-runtime-config", "t3-env", "resend", "nuxt-cron"]
+  const fromOtherModules = ["nuxthub", "nuxt-safe-runtime-config", "t3-env", "resend", "nuxt-cron", "docus", "nuxt-content"]
 
   it("holds every codemod that is not a move from another module", () => {
     // A new codemod must land in one of the two lists, so `vitehub migrate` cannot miss an upgrade.

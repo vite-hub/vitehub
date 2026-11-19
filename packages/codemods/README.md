@@ -48,6 +48,8 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `queue-workflow-verbs` | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
 | `result-tuples` | `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, the Workflow handle methods, and `runSchedule()` to `[error, data]` reads. `vitehub migrate` runs it. |
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
+| `docus` | A Docus site to `@vite-hub/docs`: the module, the site options, and the page frontmatter |
+| `nuxt-content` | Nuxt Content collections in `content.config.ts` to ViteHub Content Sources through `vite-hub/nuxt` |
 | `runtime-contracts` | `vite-hub/runtime/h3` and `vite-hub/runtime/node` imports, Evlog names from `vite-hub/logs`, and `checkRateLimit()` calls to the new contracts |
 | `root-accessors` | `db`, `schema`, `useDatabase`, `email`, `runSchedule`, and the Env accessors to the root of their primitive |
 | `agent-surface` | A ViteHub app from the old Agent names to `invoker`, `loadAgent()`, `agentWorkflow()`, `extends`, and the merged Agent entries |
@@ -272,6 +274,31 @@ The codemod moves each `defineCronHandler()` job from `server/<jobsDir>` to `ser
 Jobs with six-field crons, computed times or time zones, or a shape the codemod cannot read stay with `nuxt-cron`, which stays installed, and the report says why. A computed module time zone keeps each job that does not override it with a literal. The report also lists `runOnInit`, which Schedule does not have.
 
 Jobs that map to the same Schedule name all stay unchanged, including names from existing files with another source extension or an `index` file. Configuration and module options must be object literals with explicit, unique property names. Opaque option objects, spreads, dynamic keys, or accessors stop the migration without edits; jobs with such options stay with `nuxt-cron`. Inline `vite-hub/nuxt` options take precedence over root `vitehub` options. Existing root or inline Schedule options require a manual migration; the codemod stops without edits. It also stops when the effective host or jobs directory is computed, or the host is `deno`, whose Nuxt integration cannot provide Schedule. On Node it enables KV when absent, and stops if KV is explicitly disabled: configure a default KV store before retrying.
+
+## `docus`
+
+The codemod moves a site that extends the `docus` layer to `@vite-hub/docs`:
+
+- `extends: ['docus']` goes, and `@vite-hub/docs/nuxt` joins `modules`. `site.name`, `site.url`, `llms.domain`, and the app config `seo`, `github`, and `socials` become `docs.site`, `docs.github`, and `docs.socials`.
+- Files in `content/` lose the `1.` order prefix of Nuxt Content, and the order goes to `navigation.order`, or `order` in the folder's `.navigation.yml`. Page URLs stay the same.
+- Frontmatter keeps only the fields that `@vite-hub/docs` reads, because another field fails its build. `seo.ogImage` becomes `seo.image`, `navigation.icon` becomes `icon`, and a page without `title` takes its first `# Heading`. `::callout` becomes `::note`.
+- `package.json` loses `docus`, `@nuxt/content`, and `better-sqlite3`, and gets `@vite-hub/docs` and its peers.
+
+The report lists what it does not move: Nuxt UI page components in Markdown, such as `::u-page-hero`, Vue components in `components/content/`, frontmatter fields such as `links`, and the app config keys and Docus module options without an equivalent.
+
+```sh
+npx @vite-hub/codemods docus [dir] [--dry-run]
+```
+
+## `nuxt-content`
+
+The codemod moves the collections of `content.config.ts` to `server/content.ts`. Each collection becomes a `glob()` Source with the same files and paths, and a `schema` goes through `contentSource()`. `source.prefix` and `source.exclude` keep their paths. `z` from `@nuxt/content` becomes `z` from `zod`. Content serves the Sources with `access: 'public'`, as Nuxt Content did. `@nuxt/content` becomes `vite-hub/nuxt`, and `package.json` gets `vite-hub` and `@vite-hub/content`.
+
+The report lists what it does not move: `queryCollection()` reads and `<ContentRenderer>`, because ViteHub Content reads with `content.get(path)` and `content.list()`, data collections, which need the `json()` or `yaml()` plugin, `source.repository`, the `content` options of `nuxt.config`, and file names with order prefixes. A Docus site moves with `docus` instead.
+
+```sh
+npx @vite-hub/codemods nuxt-content [dir] [--dry-run]
+```
 
 ## `agent-surface`
 

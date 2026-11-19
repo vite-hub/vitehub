@@ -1,0 +1,15 @@
+{
+  "name": "tide-charts-docs",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@comark/html": "^0.9.0",
+    "@comark/vue": "^0.9.0",
+    "@nuxt/ui": "^4.11.0",
+    "@vite-hub/docs": "^<version>",
+    "comark": "^0.9.0",
+    "comark-ui": "^0.12.0",
+    "nuxt": "^5.0.0",
+    "tailwindcss": "^4.1.0"
+  }
+}
