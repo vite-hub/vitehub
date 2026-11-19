@@ -380,6 +380,8 @@ export interface WorkspaceHistoryCommitBase extends WorkspaceHistoryRefOptions {
   ifHead: string | null
   /** Expected heads of other refs that must remain unchanged for the commit. */
   ifHeads?: Record<string, string | null>
+  /** Observe a rejection of this commit's own `ifHead` condition. The commit still throws the error. */
+  onHeadConflict?: (error: unknown) => void
   /**
    * With `ifHead: null`, start the new ref from this revision instead of from the ref that `history.forksFrom(ref)`
    * names. Only Stores with `forksFrom` accept it. The caller has read the files of that revision.

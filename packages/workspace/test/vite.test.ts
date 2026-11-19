@@ -1110,6 +1110,24 @@ describe("hubWorkspace", () => {
     expect(pluginSource).not.toContain('"token": "********"')
   })
 
+  it("keeps the repository root of a GitHub store with `root: ''` on Cloudflare", async () => {
+    const root = await createViteRoot()
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({
+      hosting: "cloudflare-module",
+      store: { driver: "github", repository: () => process.env.WORKSPACE_REPO, root: "", token: () => process.env.WORKSPACE_TOKEN },
+    } as never)
+    const config = mergedConfigHook(plugin.config) as (
+      config: { root: string },
+      env: { command: "build", mode: string },
+    ) => Promise<unknown>
+    await config({ root }, { command: "build", mode: "production" })
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("configureHostedWorkspaceRuntime")
+    expect(pluginSource).toContain('"root": ""')
+  })
+
   it.each([
     ["VITEHUB_HOST", undefined],
     ["NITRO_PRESET", undefined],
