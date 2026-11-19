@@ -31,7 +31,8 @@ import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { comarkBlocksSource } from "./comark-blocks.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
-import { checkDocsLinks, type DocsLinkCheckOptions } from "./check-links.ts"
+import { checkDocsLinks, docsLinkError, type DocsLinkCheckOptions } from "./check-links.ts"
+import { checkDocsContent, docsAppPageLinks, docsContentLinkProblems, docsContentSeoProblems } from "./content-check.ts"
 import { docsDevFilesModule, docsFilesModule } from "./files.ts"
 import { docsAppManifest, docsAppManifestSource, docsAppPanelSource, readDocsContent, resolveDocsSources } from "./manifest.ts"
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawPath, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
@@ -42,7 +43,7 @@ import { docsSeoError, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type 
 import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi, type DocsThemeUi } from "./theme.ts"
 import { docsThemeCss } from "./theme-css.ts"
 
-import type { ContentLlmsSection } from "@vite-hub/content"
+import type { ContentCheckResult, ContentLlmsSection } from "@vite-hub/content"
 import type { Nuxt, PublicRuntimeConfig } from "nuxt/schema"
 
 import type { DocsContentSnapshot, DocsSourceInput } from "./manifest.ts"
@@ -252,7 +253,7 @@ interface PrerenderRoute {
 interface NitroInstance {
   options: NitroOptions & { output?: { publicDir: string } }
   hooks?: {
-    hook(name: "compiled" | "prerender:done", handler: () => void): void
+    hook(name: "compiled" | "prerender:done", handler: () => void | Promise<void>): void
     hook(name: "prerender:generate", handler: (route: PrerenderRoute) => void): void
   }
 }
@@ -765,7 +766,10 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     addPlugin({ src: join(runtime, "app/plugins/comark-css.ts"), mode: "all" })
     addPlugin({ src: join(runtime, "app/plugins/icon-stroke.ts"), mode: "all" })
     addRouteMiddleware({ name: "docs-layout", path: join(runtime, "app/middleware/docs-layout.ts"), global: true })
+    /** Link patterns of the app's own pages, which the Content check of the docs links accepts. */
+    let appPageLinks: string[] = []
     extendPages((pages) => {
+      appPageLinks = docsAppPageLinks(pages)
       // The docs page answers below the docs mount only, such as `/docs/:slug(.*)*`. An app catch-all page at the same
       // prefix replaces it. Vue Router prefers the longer static prefix, so a root catch-all of the app does not hide it.
       const mount = docsMount(manifest)
@@ -828,12 +832,33 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // Nuxt types Nitro hooks only when Nitro's types load.
     Reflect.apply(nuxt.hook, nuxt, ["nitro:init", (nitro: NitroInstance) => {
       const building = !nuxt.options.dev && !Reflect.get(nuxt.options, "_prepare")
+      const seoAudit = options.seoAudit ?? "warn"
+      /**
+       * `vitehub content check` of the docs pages: links to missing pages, and the title and description rules of
+       * `seoAudit`, from the Markdown of every page. The link checker and `seoAudit` read it, and the built HTML only for
+       * what Markdown does not show, such as fragments, the navigation, and Open Graph tags. One run serves both.
+       */
+      let contentCheck: Promise<ContentCheckResult> | undefined
+      const checkContent = () => contentCheck ??= checkDocsContent(manifestOptions, manifest, {
+        ignoreLinks: [
+          ...appPageLinks,
+          ...(options.linkChecker || {}).excludeLinks ?? [],
+          ...docsRedirects(nitro.options.routeRules ?? {}).map(redirect => redirect.from),
+          ...config.mcp ? ["/mcp"] : [],
+        ],
+        ...config.site.url ? { site: config.site.url } : {},
+        titleTemplate: `%s · ${config.site.name}`,
+      })
       // All nitro:config hooks have run, including those registered by modules installed after the docs module.
       if (options.linkChecker !== false && building) {
         const problems = docsRedirectProblems(manifest, docsRedirects(nitro.options.routeRules ?? {}))
         if (problems.length) throw docsRedirectError(problems)
-        nitro.hooks?.hook("compiled", () => {
+        nitro.hooks?.hook("compiled", async () => {
           if (!nitro.options.output) return
+          const checked = await checkContent()
+          const broken = docsContentLinkProblems(checked)
+          if (broken.length) throw docsLinkError(broken)
+          useLogger("@vite-hub/docs").info?.(`Checked the links of ${checked.sources.reduce((pages, source) => pages + source.pages, 0)} Markdown pages with \`vitehub content check\``)
           const redirects = docsRedirects(nitro.options.routeRules ?? {})
           const settings = options.linkChecker || {}
           const result = checkDocsLinks({ dir: nitro.options.output.publicDir, siteUrl: config.site.url || "https://docs.local", appBase: config.appBase, ...settings, isRuntimePath: docsRuntimePath(nitro.options, config.appBase, docsMount(manifest)), excludeLinks: [
@@ -847,7 +872,6 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           useLogger("@vite-hub/docs").info?.(`Checked links and fragments of ${result.pages} pages`)
         })
       }
-      const seoAudit = options.seoAudit ?? "warn"
       if (seoAudit && building) {
         // Only what the check needs stays in memory, not the HTML of every page.
         const origin = `${config.site.url || "http://docs.invalid"}${config.appBase.replace(/\/+$/, "")}`
@@ -858,8 +882,17 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           if (route.route === "/sitemap.xml") sitemap = docsSitemapPaths(route.contents, origin)
           else if (route.fileName?.endsWith(".html") && route.contentType?.includes("text/html")) pages.push(readDocsSeoPage(route.route, route.contents, origin))
         })
-        nitro.hooks?.hook("prerender:done", () => {
-          const problems = docsSeoProblems(pages, sitemap, { endpoints: config.mcp ? ["/mcp"] : [], siteUrl: Boolean(config.site.url) })
+        // A Source with a `frontmatter` adapter gives the page other fields than its file, so the HTML check keeps them.
+        const adapted = new Set((sources ?? []).flatMap((source, index) => source.frontmatter ? [`docs-${index}`] : []))
+        nitro.hooks?.hook("prerender:done", async () => {
+          const rendered = new Set(pages.map(page => page.path))
+          // A page of the app at the same path, such as its own home page, renders instead of the Markdown.
+          const appPages = new Set(appPageLinks)
+          const checked = new Set(docsManifestPages(manifest).filter(page => rendered.has(page.path) && !appPages.has(page.path) && !(page.source && adapted.has(page.source))).map(page => page.path))
+          const problems = [
+            ...checked.size ? docsContentSeoProblems(await checkContent(), checked) : [],
+            ...docsSeoProblems(pages, sitemap, { endpoints: config.mcp ? ["/mcp"] : [], siteUrl: Boolean(config.site.url), checked }),
+          ]
           if (!problems.length) return
           const error = docsSeoError(problems)
           if (seoAudit === "error" || seoAudit === true) throw error
