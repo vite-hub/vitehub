@@ -88,7 +88,7 @@ When a model calls a known tool with arguments that fail its input schema, an AI
 
 Pass the imported Agent Definition as `extends`. Set its typed options with `options` or its named configuration block.
 
-Choose a [ready-made preset](/docs/agents/presets), or [publish your own](/docs/agents/agent-presets#presets-from-a-package) with typed options and a `configure` callback.
+Choose a [ready-made preset](/docs/presets), or [publish your own](/docs/agents/agent-presets#presets-from-a-package) with typed options and a `configure` callback.
 
 ## Return structured output
 

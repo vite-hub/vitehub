@@ -131,7 +131,7 @@ export async function listIssues() {
 
 `useServerEnv()` checks every declared value, not only the ones you read. If a required value is missing, every call throws `ENV_REQUIRED_MISSING` with its path. If the app can run without a value, mark it `optional: true`, or give it a default. Defaults go into the generated server code, so never give a secret one. Run `vitehub env check` before a release to list missing values.
 
-On Cloudflare, Server Env also reads Worker bindings. Pass the request event, as in `useServerEnv(event)`, to read the bindings in its [Standard Context](/docs/reference/runtime-context#standard-context). Without it, Server Env uses the active request. `loadServerEnv()`, `inspectServerEnv()`, and `runWithServerEnv()` take the same event. Pass it as `{ event }` to `deriveSecret()`.
+On Cloudflare, Server Env also reads Worker bindings. Pass the request event, as in `useServerEnv(event)`, to read the bindings in its [Standard Context](/docs/runtime/context#standard-context). Without it, Server Env uses the active request. `loadServerEnv()`, `inspectServerEnv()`, and `runWithServerEnv()` take the same event. Pass it as `{ event }` to `deriveSecret()`.
 
 ## Read external Env storage
 
@@ -280,7 +280,7 @@ The Console Env section shows this metadata behind Console access. Host variable
 
 `inspectServerEnv()` loads providers the same way. It reports only paths, variable names, the variable `name` that supplied an env value, source kinds, provider aliases, masking, required flags, and a status: `available`, `defaulted`, `missing`, `invalid`, or `error`. It never returns values, hashes, lengths, provider keys, or provider errors. Paths match `describeServerEnv()`. `isBlockingServerEnvEntry()` returns `true` when an entry makes `loadServerEnv()` fail: a missing required value, an invalid value, or a failed provider.
 
-From the terminal, run `vitehub env inspect` or `vitehub env check`. `env check` exits with `1` for any blocking entry, so CI can run it before a release. Both load the stage's Vite env files and never print values. See [CLI](/docs/development/cli#inspect-server-env) for options.
+From the terminal, run `vitehub env inspect` or `vitehub env check`. `env check` exits with `1` for any blocking entry, so CI can run it before a release. Both load the stage's Vite env files and never print values. See [CLI](/docs/cli/primitives#inspect-server-env) for options.
 
 To check a running app, such as a deployment, call the `env.inspect` [operation](/docs/development/operations) on its signed RPC endpoint: `vitehub env status --url <app URL>`. It needs the `env` Console section and returns the same entries with `secret`, `blocking`, an overall `ok`, and the `host` that the app runs on, never values. The Console Env section runs it when it opens, for an app in the app's Console and for each linked app in a hosted Console. It shows each entry's host variable names, the name that supplied the value, its status, and a fix for blocking values, such as `vitehub env push --host cloudflare` for a missing variable. An Agent connected to the ViteHub MCP of a Console calls `read_operation` with `env.inspect`.
 

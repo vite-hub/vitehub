@@ -71,7 +71,7 @@ describe("docs product navigation", () => {
     }
     // Every section has a known category, so the rail has one group per category that it keeps.
     expect(rail.map(group => group[0]?.category)).toEqual(categories.filter(category => !railExclude.includes(category)));
-    expect(rail.find(group => group[0]?.category === "Agents")?.map(candidate => candidate.id)).toEqual(["agents"]);
+    expect(rail.find(group => group[0]?.category === "Agents")?.map(candidate => candidate.id)).toEqual(["agents", "presets"]);
     expect(rail.find(group => group[0]?.category === "UI")?.map(candidate => candidate.id)).toEqual(["ui", "docs-site"]);
   });
 
@@ -87,7 +87,7 @@ describe("docs product navigation", () => {
       .flatMap(group => group.sections.map(candidate => candidate.id))
       .sort();
     expect(productIds).toEqual(serverPrimitiveSections);
-    expect(catalog.find(group => group.category === "Agents")?.sections.map(candidate => candidate.id)).toEqual(["agents"]);
+    expect(catalog.find(group => group.category === "Agents")?.sections.map(candidate => candidate.id)).toEqual(["agents", "presets"]);
     expect(catalog.find(group => group.category === "UI")?.sections.map(candidate => candidate.id)).toEqual(["ui", "docs-site"]);
   });
 
@@ -159,7 +159,7 @@ describe("docs product navigation", () => {
   });
 
   it("groups every navigable page of a large section", () => {
-    for (const sectionId of ["agents", "development", "frameworks-hosts", "reference", "ui"]) {
+    for (const sectionId of ["agents", "cli", "development", "frameworks-hosts", "reference", "runtime", "ui"]) {
       const groups = docsSidebarGroups(section(sectionId));
 
       expect(groups.length, sectionId).toBeGreaterThan(0);

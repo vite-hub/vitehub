@@ -1,9 +1,9 @@
 ---
 title: Runtime Helpers and stable imports
-navigation.title: Runtime Helpers and stable imports
+navigation.title: Runtime Helpers
 description: Learn which ViteHub imports your server code calls at runtime, and how to fix import failures.
-navigation.order: 51.5
-navigation.group: Setup
+navigation.order: 2
+navigation.group: Start
 icon: i-lucide-code-2
 ---
 
@@ -56,6 +56,6 @@ await startWorkflow('reminder', payload, { delay: '3 days' })
 | `w` | `week`, `weeks` |
 
 - A lifetime, such as KV and `seal()` `ttl`, Blob `sign({ expiresIn })`, and Auth `stateless({ maxAge })`, also takes a number. The number is seconds, so `{ ttl: 60 }` is one minute.
-- Workflow `delay`, Webhooks `debounce`, and Auth `recheck` do not take a bare number. A number fails with [`RUNTIME_DURATION_INVALID`](/docs/development/diagnostics/runtime_duration_invalid), and its fix shows the string to write. Workflow `delay` also takes a `Date`.
+- Workflow `delay`, Webhooks `debounce`, and Auth `recheck` do not take a bare number. A number fails with [`RUNTIME_DURATION_INVALID`](/docs/runtime/diagnostics/runtime_duration_invalid), and its fix shows the string to write. Workflow `delay` also takes a `Date`.
 - Rate Limit `window` requires a duration string. A non-string fails with `RATE_LIMIT_R0031` at runtime or `RATE_LIMIT_R0001` during discovery.
 - `parseDuration()` and the `Duration` type from `vite-hub/runtime` read the same strings, for your own options. `parseDuration('5m')` returns `300000` milliseconds.

@@ -89,9 +89,9 @@ export async function sync(event: ViteHubContext) {
 
 ## Set the values on the host
 
-The build writes the host variable names of each `env.server` declaration to `deployment.json`, never the values. `vitehub env diff` shows which names the linked host lacks, and `vitehub env push` sets them from the shell and `.env.<stage>` with the host CLI. See [Check and push host env](https://vitehub.dev/docs/development/cli#check-and-push-host-env).
+The build writes the host variable names of each `env.server` declaration to `deployment.json`, never the values. `vitehub env diff` shows which names the linked host lacks, and `vitehub env push` sets them from the shell and `.env.<stage>` with the host CLI. See [Check and push host env](https://vitehub.dev/docs/cli/primitives#check-and-push-host-env).
 
-To keep the values in git, encrypt `.env.<stage>` with [dotenvx](https://dotenvx.com/encryption) and keep the private key out of git. `vitehub env push` decrypts `encrypted:` values with `DOTENV_PRIVATE_KEY_<STAGE>` from the shell or `.env.keys`. See [Encrypted env files](https://vitehub.dev/docs/development/cli#encrypted-env-files).
+To keep the values in git, encrypt `.env.<stage>` with [dotenvx](https://dotenvx.com/encryption) and keep the private key out of git. `vitehub env push` decrypts `encrypted:` values with `DOTENV_PRIVATE_KEY_<STAGE>` from the shell or `.env.keys`. See [Encrypted env files](https://vitehub.dev/docs/cli/primitives#encrypted-env-files).
 
 ## Derive secrets from one root secret
 

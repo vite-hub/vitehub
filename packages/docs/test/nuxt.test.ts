@@ -384,14 +384,22 @@ describe("docs Nuxt setup", () => {
   it("tells the link checker module that indexed pages exist, but still checks them in the compiled output", async () => {
     const options = await setupDocs({})
     // A build that prerenders some routes must not fetch a new page from the live site.
-    expect(Reflect.get(options, "linkChecker")).toMatchObject({ excludeLinks: expect.arrayContaining(["/docs/kv/configure"]) })
+    const { excludeLinks } = Reflect.get(options, "linkChecker") as { excludeLinks: Array<string | RegExp> }
+    const excluded = (path: string) => excludeLinks.some(rule => typeof rule === "string" ? rule === path : rule.test(path))
+    expect(excluded("/docs/kv/configure")).toBe(true)
+    expect(excluded("/docs/kv/configure#missing")).toBe(true)
+    expect(excluded("/docs/kv/configure?tab=node#missing")).toBe(true)
+    expect(excluded("/docs/kv/configure-extra#missing")).toBe(false)
     const publicDir = join(options.buildDir, "public")
     mkdirSync(publicDir)
-    writeFileSync(join(publicDir, "index.html"), `<a href="/docs/kv/configure">Configure</a>`)
+    writeFileSync(join(publicDir, "index.html"), `<a href="/docs/kv/configure#missing">Configure</a>`)
     const compiled: Array<() => void> = []
     const nitro = { options: { routeRules: {}, output: { publicDir } }, hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) } }
     for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
     expect(() => compiled[0]!()).toThrow(/\/docs\/kv\/configure, which has no page or file/)
+    mkdirSync(join(publicDir, "docs/kv"), { recursive: true })
+    writeFileSync(join(publicDir, "docs/kv/configure.html"), `<h2 id="present">Present</h2>`)
+    expect(() => compiled[0]!()).toThrow(/has no element with id "missing"/)
   })
 
   it.each(["/", "/portal/"])("combines Docs and app link exclusions in the compiled output under %s", async (appBase) => {
