@@ -215,13 +215,13 @@ Generated route middleware uses `createAuthAccessHandler(routes, definition?, pu
 
 The Nitro build fails with `AUTH_B0002` when a route rule caches or prerenders a path that `access.routes` guards for `GET` or `HEAD`: `swr`, `cache`, `isr`, `prerender`, or `static`. A cached response is made for one visitor and served to others. Set `cache: false` or `prerender: false` on the guarded pattern to turn off a wider rule. In development, a route rule update that caches a guarded path logs `AUTH_B0002` as a warning.
 
-`access.public` lists paths that no access route guards, in the same form as `access.routes`. With `routes: ["/**"]`, every other path needs a session, so the app is private by default. Keep `/api/auth/**` public, so people can sign in. A route rule that caches only public paths passes `AUTH_B0002`. Write the list inline: the Vite plugin reads it at build time, and other values fail with `AUTH_C0064`.
+`access.public` lists paths that no access route guards, in the same form as `access.routes`. With `routes: ["/**"]`, every other path needs a session, so the app is private by default. The Auth route, `<basePath>/**` (`/api/auth/**` by default), is always public, so people can sign in. A route rule that caches only public paths passes `AUTH_B0002`. Write the list inline: the Vite plugin reads it at build time, and other values fail with `AUTH_C0064`.
 
 ```ts
 import { defineAuth } from "@vite-hub/auth";
 
 export default defineAuth({
-  access: { routes: ["/**"], public: ["/", "/login", "/api/auth/**"] },
+  access: { routes: ["/**"], public: ["/", "/login"] },
 });
 ```
 

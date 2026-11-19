@@ -356,14 +356,14 @@ import { defineAuth } from 'vite-hub/auth'
 export default defineAuth({
   access: {
     routes: ['/**'],
-    public: ['/', '/login', '/api/auth/**', '/api/health'],
+    public: ['/', '/login', '/api/health'],
     signIn: { provider: 'github' },
   },
 })
 ```
 
 - Write public routes like access routes: an exact path, or a path that ends in `/**`. Write the list inline, so the Vite plugin can read it at build time.
-- Keep `/api/auth/**` public. Sign-in and the OAuth callback are below it.
+- The Auth route, `<basePath>/**` (`/api/auth/**` by default), is always public. Sign-in and the OAuth callback are below it.
 - Make public the files that the browser loads before sign-in, such as `/_nuxt/**` and `/favicon.ico` in a Nuxt app.
 - A route rule that caches or prerenders only public paths does not stop the build ([`AUTH_B0002`](/docs/auth/limits-and-errors#auth_b0002)).
 

@@ -216,9 +216,14 @@ function renderAuthRouteHandler(): string {
   ].join("\n")
 }
 
+/** `access.public`, and the Auth route: sign-in and the OAuth callback must work without a session. */
+function accessPublicRoutes(config: ResolvedAuthViteConfig): string[] {
+  return [authRoutePattern(config.basePath), ...config.access.public ?? []]
+}
+
 function renderAuthAccessMiddlewareHandler(config: ResolvedAuthViteConfig | undefined, importBase = authPackageName): string {
   const routes = JSON.stringify(config?.access.routes ?? [])
-  const publicRoutes = config?.access.public?.length ? `, ${JSON.stringify(config.access.public)}` : ""
+  const publicRoutes = config?.access.routes.length ? `, ${JSON.stringify(accessPublicRoutes(config))}` : ""
   return [
     `import { createLazyAuthAccessHandler } from ${JSON.stringify(privateAuthImport(importBase, "runtime/server"))}`,
     "",
@@ -364,7 +369,8 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
   if (!dev && config.implicitMemory) modules.push(memoryDatabaseGuard)
   if (modules.length || Array.isArray(merged.modules)) merged.modules = modules
   if (config.access.routes.length > 0) {
-    const { routes, public: publicRoutes = [] } = config.access
+    const { routes } = config.access
+    const publicRoutes = accessPublicRoutes(config)
     merged.modules = [...modules, {
       name: cachedAccessRouteGuardName,
       setup(nitro: NitroBuild) {
