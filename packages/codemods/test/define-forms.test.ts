@@ -282,6 +282,20 @@ describe("define-forms edge cases", () => {
       expect(after).toBe(`${header}export default defineWorkflow({ handler: async ({ payload }) => payload, rootStep: false })\n`)
     })
 
+    it.each(["", ", { rootStep: false }"])("moves the oldest form with a local handler and options %s", async (options) => {
+      const declarations = `${header}import type { WorkflowExecutionContext } from 'vite-hub/workflow'\nconst handler = ({ payload }: WorkflowExecutionContext<string>) => payload\n`
+      const { after, followUps } = await run(`${declarations}export default defineWorkflow<string>(handler${options})\n`)
+      expect(after).toBe(`${declarations}export default defineWorkflow<string>({ handler${options ? ", rootStep: false" : ""} })\n`)
+      expect(followUps).toEqual([])
+    })
+
+    it("moves the oldest form with an imported handler and literal options", async () => {
+      const declarations = `${header}import { onboard } from './onboard'\n`
+      const { after, followUps } = await run(`${declarations}export default defineWorkflow(onboard, { rootStep: false })\n`)
+      expect(after).toBe(`${declarations}export default defineWorkflow({ handler: onboard, rootStep: false })\n`)
+      expect(followUps).toEqual([])
+    })
+
     it("wraps a handler that a name references and reports it", async () => {
       const { after, followUps } = await run(`${header}async function onboard(payload: { email: string }) { return payload.email }\nexport default defineWorkflow('onboard-user', onboard)\n`)
       expect(after).toContain("defineWorkflow<Parameters<typeof onboard>[0]>({ handler: workflowContext => onboard(workflowContext.payload) })")

@@ -161,13 +161,18 @@ export function rewriteWorkflows(file: SourceFile, parsed: ParsedFile, output: M
     if (node.type !== "CallExpression" || node.callee.type !== "Identifier") return
     if (defineNames.has(node.callee.name)) {
       const args = node.arguments
-      if (!args.length || args[0]?.type === "ObjectExpression") return
+      const [first, second] = args
+      if (!first || first.type === "ObjectExpression") return
       if (args.some(arg => arg.type === "SpreadElement")) {
         followUps.push(followUpAt(file.path, node, "`defineWorkflow(name, handler, options)` was removed. Rewrite this call as `defineWorkflow({ handler, ...options })` by hand."))
         return
       }
       // `defineWorkflow(handler, options)` came before `defineWorkflow(name, handler, options)`, and its handler took one object.
-      const oldest = isFunction(args[0])
+      const firstBinding = first.type === "Identifier" ? resolveBinding(first) : undefined
+      const oldest = isFunction(first) || args.length <= 2 && (
+        firstBinding !== undefined && handlers.has(firstBinding)
+        || first.type === "Identifier" && second?.type === "ObjectExpression"
+      )
       const [handler, options, ...rest] = oldest ? args : args.slice(1)
       if (!handler || rest.length || handler.type === "SpreadElement" || options?.type === "SpreadElement") {
         followUps.push(followUpAt(file.path, node, "`defineWorkflow(name, handler, options)` was removed. Rewrite this call as `defineWorkflow({ handler, ...options })` by hand."))
@@ -186,7 +191,7 @@ export function rewriteWorkflows(file: SourceFile, parsed: ParsedFile, output: M
       if (options?.type === "ObjectExpression") {
         fields.push(...options.properties.filter((_, index) => optionKeys[index] !== "id").map(text))
       }
-      output.overwrite(start(args[0]!), end(args.at(-1)!), `{ ${fields.join(", ")} }`)
+      output.overwrite(start(first), end(args.at(-1)!), `{ ${fields.join(", ")} }`)
 
       // The old type arguments were `<Name, Payload, Result>`. The name goes away.
       const types = typeArguments(file.code, node)
