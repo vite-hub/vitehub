@@ -99,10 +99,18 @@ export type AuthAccessAuthorizationContext<TEvent = ViteHubContext> = AccessAuth
 export type AuthAccessAuthorizeResult = AccessAuthorizeResult
 export type AuthAccessAuthorize<TEvent = ViteHubContext> = AccessAuthorize<TEvent>
 
-/** The checked request, Session, and user that a guarded handler receives. Only Auth guards create it. */
-export type AuthAuthorization = Readonly<Omit<AuthAccessAuthorizationContext, "event"> & {
+/** The Session and user that the app's Auth Definition returns, with the fields of its plugins and `additionalFields`. */
+type RegisteredSession<TRegistry> = RegisteredAuth<TRegistry>["$Infer"]["Session"]
+
+/**
+ * The checked request, Session, and user that a guarded handler receives. Only Auth guards create it.
+ * `session` and `user` have the types of the app's Auth Definition, from the generated Auth registry.
+ */
+export type AuthAuthorization<TRegistry = ViteHub.AuthRegistry> = Readonly<{
+  request: AuthAccessAuthorizationContext["request"]
   /** `impersonatedBy` is the id of the administrator who opened this session as `user`. Better Auth's admin plugin sets it. */
-  session: AuthAccessAuthorizationContext["session"] & { impersonatedBy?: string | null }
+  session: RegisteredSession<TRegistry>["session"] & { impersonatedBy?: string | null }
+  user: RegisteredSession<TRegistry>["user"]
 }>
 
 /** A server handler that runs only after an Auth guard accepts the request. */

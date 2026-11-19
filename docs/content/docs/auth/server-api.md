@@ -182,7 +182,7 @@ import { defineHandler } from 'h3'
 
 export default defineHandler(async (event) => {
   const { user } = await requireAuth(event)
-  return { id: user.id }
+  return { id: user.id, email: user.email, name: user.name }
 })
 ```
 
@@ -237,7 +237,7 @@ export default defineHandler(async (event) => {
 
 `useAuth()`, `auth`, and `getAuth()` return the instance typed from your Auth Definition, with the endpoints and fields of its plugins. The Vite plugin registers the type of `server/auth.ts` in `.vitehub/types/auth.d.ts`, so `useAuth(event).api.listUsers` type-checks when the definition uses the `admin()` plugin, without a cast. `AuthFor<typeof definition>` from `vite-hub/auth` names the instance type of another definition.
 
-The `authorization` argument and the `requireAuth()` result are a frozen `{ request, session, user }` object. Only the guards create it. A caller cannot pass its own value to the returned handler.
+The `authorization` argument and the `requireAuth()` result are a frozen `{ request, session, user }` object. `user` and `session` have the types of your Auth Definition, with the fields of its plugins and `additionalFields`, such as `user.role` of `admin()`. Only the guards create it. A caller cannot pass its own value to the returned handler.
 
 ### GitHub organization membership
 

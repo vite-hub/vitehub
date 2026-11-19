@@ -586,6 +586,13 @@ async function readRequestSession(input: AuthRequestInput, definition: AuthDefin
   return { auth, event, options: resolved.options, refusal, request, session }
 }
 
+function checkedAuthorization(request: AuthAuthorization["request"], session: Record<string, unknown>, user: Record<string, unknown> & { id: string }): AuthAuthorization {
+  // SAFETY: `session` and `user` are the `getSession()` answer of the app's Auth instance, so they have the fields of
+  // the registered Auth Definition. An access identity has no Session, but its authorization only reaches the route
+  // `authorize` callbacks of the access handler, which read the plain `AccessAuthorizationContext`.
+  return Object.freeze({ request, session, user }) as AuthAuthorization
+}
+
 type AuthCheck =
   | { authorization: AuthAuthorization, response?: undefined }
   | { authorization?: undefined, response: Response }
@@ -823,11 +830,7 @@ async function checkAuthRequest(
   const identity = await resolveIdentity?.(toRequest(request), input, Boolean(session))
   if (isRuntimeResponse(identity)) return reject(identity)
   if (identity || session) {
-    const authorization: AuthAuthorization = Object.freeze({
-      request,
-      session: identity ? {} : session!.session,
-      user: identity ?? session!.user,
-    })
+    const authorization = checkedAuthorization(request, identity ? {} : session!.session, identity ?? session!.user)
     if (routeIndexes === undefined) return { authorization }
 
     const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
@@ -870,7 +873,7 @@ async function checkAuthorizeRequest<TInput extends AuthRequestInput>(
   const { refusal: providerRefusal, request, session } = await readRequestSession(input, definition)
   if (providerRefusal) return reject(createProviderRefusalResponse(providerRefusal))
   if (!session) return reject(createRefusalResponse("SIGNED_OUT"))
-  const authorization: AuthAuthorization = Object.freeze({ request, session: session.session, user: session.user })
+  const authorization = checkedAuthorization(request, session.session, session.user)
   if (authorize === true) return { authorization }
   const rejection = await runAccessAuthorize(authorize, { ...authorization, event: authRequestEvent(input) })
   return rejection.response ? reject(rejection.response) : { authorization }
@@ -896,7 +899,7 @@ export function withAnonymousAuthorization<TInput extends AuthRequestInput, TRes
     const { refusal: providerRefusal, request, session } = await readRequestSession(input, definition ?? resolveDefaultDefinition())
     if (providerRefusal) return sendSessionCookies(input, createProviderRefusalResponse(providerRefusal))
     const authorization: AuthAuthorization | AuthAnonymousAuthorization = session
-      ? Object.freeze({ request, session: session.session, user: session.user })
+      ? checkedAuthorization(request, session.session, session.user)
       : Object.freeze({ request, session: null, user: null })
     // `false` keeps the status that withAuthorization() returns for the same caller.
     const deny = session ? undefined : () => createRefusalResponse("SIGNED_OUT")
@@ -1075,8 +1078,8 @@ async function readCaller(event: AuthRequestInput, definition: AuthDefinition): 
   }
   const { session } = await readRequestSession(event, definition)
   if (!session) return [signedOutError(), undefined]
-  // SAFETY: Better Auth's `getSession()` returns the Auth user row of the session.
-  return [undefined, Object.freeze({ kind: "browser", session: session.session, user: session.user as AuthCallerUser })]
+  // SAFETY: Better Auth's `getSession()` returns the Session and the Auth user row of the app's Auth instance.
+  return [undefined, Object.freeze({ kind: "browser", session: session.session as AuthAuthorization["session"], user: session.user as AuthCallerUser })]
 }
 
 // One session read per request, however many abilities the handler checks.
@@ -1088,7 +1091,7 @@ function readAbilityAuthorization(input: AuthRequestInput): Promise<AuthAuthoriz
     pending = readRequestSession(input, resolveDefaultDefinition()).then(({ refusal, request, session }) => {
       if (refusal) throw authenticationRefusalError(refusal)
       return session
-        ? Object.freeze({ request, session: session.session, user: session.user })
+        ? checkedAuthorization(request, session.session, session.user)
         : Object.freeze({ request, session: null, user: null })
     })
     // A failed read is not kept, so a later check reads again.
