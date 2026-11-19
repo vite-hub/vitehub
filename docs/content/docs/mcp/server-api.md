@@ -30,7 +30,7 @@ export default defineMcpTool({
 | `input` | The arguments: a Standard Schema that also gives its JSON Schema, such as a Zod 4 object or a Valibot schema in `toStandardJsonSchema()`. `tools/list` shows its JSON Schema. |
 | `annotations` | The MCP tool annotations that clients read before a call: `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint`. |
 | `_meta` | Metadata that `tools/list` shows for the client, not the model, such as `{ ui: { resourceUri } }`. See [Show a UI in the chat](#show-a-ui-in-the-chat). |
-| `public` | Set `true` to let anyone call the tool without sign-in, with `mcp.auth: 'optional'` or on `mcp.publicRoute`. Without one of them, the server fails with `MCP_R0001`. See [Public tools](/docs/mcp/configure#let-anyone-call-some-tools). |
+| `access` | Set `'public'` to let anyone call the tool without sign-in, with `mcp.auth: 'optional'` or on `mcp.publicRoute`. Without one of them, the server fails with `MCP_R0001`. See [Public tools](/docs/mcp/configure#let-anyone-call-some-tools). |
 | `scopes` | The OAuth scopes that a signed-in caller needs, such as `['lessons:write']`. With `auth: true`, a caller without them does not see the tool, and a call gets `403` with an `insufficient_scope` challenge. With `auth: 'optional'`, a call gets a tool error with that challenge. |
 | `handler` | Runs the call. |
 
@@ -76,7 +76,7 @@ export default defineMcpPrompt({
 | `description` | What the prompt does. Clients show it. |
 | `title` | A short name for people. |
 | `input` | The arguments: an object Standard Schema with string fields. `prompts/list` shows each field as an argument, with its description, and marks the fields that are not optional as required. |
-| `public` | Set `true` to let anyone get the prompt without sign-in. |
+| `access` | Set `'public'` to let anyone get the prompt without sign-in. |
 | `handler` | Makes the messages. It gets the checked input and `{ event, caller }`, as a tool handler does. |
 
 A string becomes one user message. Return an array of `{ role, content }` messages for more messages, or `{ description, messages }` for the full result. Invalid arguments get JSON-RPC `-32602`, and so does a thrown error with a 4xx `status`.
@@ -122,7 +122,7 @@ export default defineMcpResource({
 | `title`, `description` | What the resource is. |
 | `mimeType` | The MIME type of the contents, such as `text/markdown`. |
 | `_meta` | Metadata of the resource in `resources/list`, and of the contents that a string or `Uint8Array` handler returns. |
-| `public` | Set `true` to let anyone read the resource without sign-in. An MCP App sets it on its `ui://` resource when its tool is public. |
+| `access` | Set `'public'` to let anyone read the resource without sign-in. An MCP App sets it on its `ui://` resource when its tool is public. |
 | `handler` | Reads the resource. It gets the URI and `{ event, caller, variables }`. |
 
 | Return | Result |
