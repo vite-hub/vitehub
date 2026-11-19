@@ -39,6 +39,8 @@ export interface FakeSyncServer {
   refuse: ((mutation: SyncMutation) => SyncWireError | undefined) | undefined
   /** The most changes in one pull. */
   pageSize: number
+  /** The most mutations that one push applies, as a server that stops at its call budget. The answer has their results only. */
+  pushSize: number
   /** The most rows in one page of a paged snapshot. */
   snapshotPageSize: number
   /** `false` ignores `paged` and `after`, as a server without paged snapshots. */
@@ -107,6 +109,7 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
     failWith: undefined,
     refuse: undefined,
     pageSize: 500,
+    pushSize: Number.POSITIVE_INFINITY,
     snapshotPageSize: 500,
     paging: true,
     rows,
@@ -156,7 +159,7 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
       }
       if (!body) return error(400, { code: "SYNC_BAD_REQUEST", message: "No body." })
       if (body.account !== account) return error(409, { code: "SYNC_ACCOUNT_CHANGED", message: "The writes were made for another account." })
-      const results = body.mutations.map(mutation => apply(mutation, scope.values, user))
+      const results = body.mutations.slice(0, server.pushSize).map(mutation => apply(mutation, scope.values, user))
       const answer = json({ results, pull: pull(scope, account, body.cursor, body.scope, body.version, body.paged === true, body.after) })
       if (server.loseNextResponse) {
         server.loseNextResponse = false
