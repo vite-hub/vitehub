@@ -10,7 +10,7 @@ import { createMemoryTransport } from "@vite-hub/comments/testing";
 import { createRpcTransport } from "@vite-hub/comments/rpc";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
-import { defineComponent, h, ref, type Component } from "vue";
+import { defineComponent, h, ref, Teleport, type Component } from "vue";
 import {
   CommentComposer,
   CommentLayer,
@@ -333,7 +333,7 @@ describe("composer attachments", () => {
 
   it("revokes previews a moment after a controlled file list is cleared or mutated, and at once on unmount", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    onTestFinished(() => vi.useRealTimers());
+    onTestFinished(() => { vi.useRealTimers(); });
     const files = ref([shot, notes]);
     const wrapper = keep(mount(defineComponent({ setup: () => () => h(CommentComposer, { autofocus: false, files: files.value }) }), { global }));
     await flushPromises();
@@ -510,6 +510,40 @@ describe("posted messages", () => {
     expect(wrapper.get("[data-slot=comment-reply-image]").attributes("aria-label")).toBe("Preview shot.webp");
     expect(wrapper.get("[data-slot=comment-reply-image] img").attributes("src")).toBe("/files/drop1");
     expect(wrapper.get("[data-slot=comment-reply-attachments] a").text()).toBe("notes");
+  });
+
+  it("retries both the thumbnail and the open preview when the image URL changes", async () => {
+    const modal = defineComponent({ props: { open: Boolean }, setup: (props, { slots }) => () => props.open ? slots.content?.() : null });
+    const wrapper = keep(mount(CommentReply, {
+      global: { components: { ...global.components, UModal: modal } },
+      props: { attachmentUrl: () => "/broken.png", message: message("m1", { attachments: ["shot.png"] }) },
+    }));
+    const tile = wrapper.get("[data-slot=comment-reply-image]");
+    await tile.trigger("click");
+    await wrapper.get(".vh-image-dialog__image").trigger("error");
+    expect(tile.text()).toContain("Image unavailable");
+    expect(wrapper.get(".vh-image-dialog__error").text()).toContain("Image unavailable");
+    await wrapper.setProps({ attachmentUrl: () => "/working.png" });
+    expect(tile.get("img").attributes("src")).toBe("/working.png");
+    expect(wrapper.get(".vh-image-dialog__image").attributes("src")).toBe("/working.png");
+  });
+
+  it("treats gallery controls teleported by a thread as inside that thread", async () => {
+    const modal = defineComponent({ props: { open: Boolean }, setup: (props, { slots }) => () => props.open ? h(Teleport, { to: "body" }, slots.content?.()) : null });
+    const wrapper = keep(mount(CommentThread, {
+      attachTo: document.body,
+      global: { components: { ...global.components, UModal: modal } },
+      props: { attachmentUrl: (key: string) => `/files/${key}`, thread: thread(1, { messages: [message("m1", { attachments: ["a.png", "b.png"] })] }) },
+    }));
+    await wrapper.get("[data-slot=comment-reply-image]").trigger("click");
+    const next = document.querySelector<HTMLButtonElement>('button[aria-label="Next picture"]')!;
+    next.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    expect(wrapper.emitted("close")).toBeUndefined();
+    next.click();
+    await flushPromises();
+    expect(document.querySelector(".vh-image-dialog__name")?.textContent).toBe("b.png");
+    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    expect(wrapper.emitted("close")).toHaveLength(1);
   });
 
   it("puts the avatar, the name, and the time on one row above the text", () => {

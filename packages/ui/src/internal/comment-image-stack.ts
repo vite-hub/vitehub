@@ -15,10 +15,6 @@ export interface CommentStackImage {
 
 // How long the fan stays open after the pointer leaves it, so a pointer that slips off a card doesn't close it.
 const closeDelay = 250;
-// The size of a card in the fan and the space between two cards, in rem. The fan squeezes the cards together when the
-// box is too narrow for them side by side.
-const fanCard = 3.5;
-const fanGap = 0.375;
 
 /**
  * The pictures of a comment box as one stack of cards beside the text, with their count. Hover or focus fans them out
@@ -44,44 +40,65 @@ export const CommentImageStack = defineComponent({
     const root = ref<HTMLElement>();
     const cards = ref<HTMLElement>();
     const fanned = ref(false);
-    const step = ref(fanCard + fanGap);
+    const bounds = ref({ left: 0, width: 0, scrollable: false });
+    let observer: ResizeObserver | undefined;
     let list: MotionList | undefined;
     let closer: ReturnType<typeof setTimeout> | undefined;
     // The pointer opened the fan, so a click on the stack under it keeps the fan open instead of folding it.
     let hovered = false;
+    let focused = false;
     // Esc gives the focus back to the toggle, which must not fan the cards out again.
     let refocus = false;
     // The places of the cards before the fan opens or closes. The update after that travels each card from it.
     let fanFrom: Map<HTMLElement, DOMRect> | undefined;
 
-    const cardElements = () => [...(cards.value?.children ?? [])].filter((child): child is HTMLElement => child instanceof HTMLElement && child.hasAttribute("data-key"));
+    const cardElements = () => [...(cards.value?.children ?? [])].filter((child): child is HTMLElement => child instanceof HTMLElement && child.hasAttribute("data-key") && !child.hasAttribute("data-motion-ghost"));
+    function measureBounds() {
+      const stack = root.value;
+      if (!stack) return;
+      const box = stack.closest("[data-slot=comment-composer-box]") ?? stack;
+      const rect = box.getBoundingClientRect();
+      const left = Math.max(0, rect.left);
+      const documentRoot = stack.ownerDocument.documentElement;
+      const width = Math.max(0, Math.min(documentRoot.clientWidth, rect.right) - left);
+      const offset = left - stack.getBoundingClientRect().left;
+      const rem = Number.parseFloat(getComputedStyle(documentRoot).fontSize) || 16;
+      const scrollable = width < (props.images.length * 4 + 0.5) * rem;
+      if (bounds.value.left !== offset || bounds.value.width !== width || bounds.value.scrollable !== scrollable) {
+        bounds.value = { left: offset, width, scrollable };
+      }
+    }
     function setFanned(value: boolean) {
       clearTimeout(closer);
       if (value && props.images.length === 0) value = false;
       if (fanned.value === value) return;
       fanFrom = new Map(cardElements().map((card) => [card, card.getBoundingClientRect()]));
-      if (value) {
-        const box = root.value?.closest("[data-slot=comment-composer-box]") ?? root.value?.parentElement;
-        const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-        const room = (box?.clientWidth ?? 0) / rem - 0.5;
-        const count = props.images.length;
-        step.value = count > 1 ? Math.max(1, Math.min(fanCard + fanGap, (room - fanCard) / (count - 1))) : fanCard + fanGap;
-      }
+      if (value) measureBounds();
       fanned.value = value;
     }
     const closeSoon = () => {
       clearTimeout(closer);
-      closer = setTimeout(() => setFanned(false), closeDelay);
+      closer = setTimeout(() => {
+        if (!focused && !hovered) setFanned(false);
+      }, closeDelay);
     };
 
     onMounted(() => {
       if (cards.value) list = createMotionList(cards.value);
+      const box = root.value?.closest("[data-slot=comment-composer-box]");
+      if (box && typeof ResizeObserver !== "undefined") {
+        observer = new ResizeObserver(() => {
+          if (fanned.value) measureBounds();
+        });
+        observer.observe(box);
+      }
     });
     onBeforeUpdate(() => {
       if (!fanFrom) list?.measure();
     });
     onUpdated(() => {
       if (props.images.length === 0 && fanned.value) setFanned(false);
+      if (fanned.value) measureBounds();
       const from = fanFrom;
       fanFrom = undefined;
       if (!from) return list?.play({ origin: props.origin?.() ?? undefined });
@@ -89,6 +106,7 @@ export const CommentImageStack = defineComponent({
     });
     onBeforeUnmount(() => {
       clearTimeout(closer);
+      observer?.disconnect();
       list?.destroy();
     });
 
@@ -103,11 +121,14 @@ export const CommentImageStack = defineComponent({
           "data-slot": "comment-image-stack",
           // Only the keyboard fans out on focus: a click focuses the toggle too, and the click fans out itself.
           onFocusin: (event: FocusEvent) => {
+            focused = true;
             if (refocus) return;
             if (event.target instanceof Element && event.target.matches(":focus-visible")) setFanned(true);
           },
           onFocusout: (event: FocusEvent) => {
-            if (!(event.relatedTarget instanceof Node) || !root.value?.contains(event.relatedTarget)) closeSoon();
+            if (event.relatedTarget instanceof Node && root.value?.contains(event.relatedTarget)) return;
+            focused = false;
+            closeSoon();
           },
           // Esc folds the fan first, and leaves the box and its text alone.
           onKeydown: (event: KeyboardEvent) => {
@@ -132,12 +153,19 @@ export const CommentImageStack = defineComponent({
           ref: root,
           role: "group",
           "aria-label": `Attached ${label.value}`,
-          style: { "--vh-stack-step": `${step.value}rem` },
+          style: { "--vh-fan-left": `${bounds.value.left}px`, "--vh-fan-room": `${bounds.value.width}px`, "--vh-fan-count": count },
         },
         [
+          h("button", {
+            "aria-expanded": String(fanned.value),
+            "aria-label": `Show ${label.value}`,
+            "data-slot": "comment-image-stack-toggle",
+            onClick: () => setFanned(hovered || !fanned.value),
+            type: "button",
+          }),
           h(
             "div",
-            { "data-slot": "comment-image-stack-cards", ref: cards },
+            { "data-slot": "comment-image-stack-cards", "data-scrollable": fanned.value && bounds.value.scrollable ? "true" : undefined, ref: cards },
             props.images.map((image, index) =>
               h(
                 "div",
@@ -147,7 +175,7 @@ export const CommentImageStack = defineComponent({
                   // The stack hides the cards behind the toggle, so a click on it fans them out instead of opening one.
                   inert: fanned.value ? undefined : true,
                   key: image.key,
-                  style: { "--vh-stack-depth": count - 1 - index, "--vh-stack-index": index },
+                  style: { "--vh-stack-depth": count - 1 - index },
                 },
                 [
                   h(ImagePreview, { alt: image.name, compact: true, src: image.url }),
@@ -166,13 +194,6 @@ export const CommentImageStack = defineComponent({
               ),
             ),
           ),
-          h("button", {
-            "aria-expanded": String(fanned.value),
-            "aria-label": `Show ${label.value}`,
-            "data-slot": "comment-image-stack-toggle",
-            onClick: () => setFanned(hovered || !fanned.value),
-            type: "button",
-          }),
           count > 1 ? h(RollNumber, { "aria-hidden": "true", "data-slot": "comment-image-stack-count", value: count }) : null,
         ],
       );

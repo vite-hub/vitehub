@@ -1,7 +1,8 @@
-import { computed, defineComponent, h, nextTick, onBeforeUnmount, type PropType, ref } from "vue";
+import { computed, defineComponent, h, inject, nextTick, onBeforeUnmount, type PropType, ref, watch } from "vue";
 import { RollNumber } from "../components/motion.ts";
 import { useViteHubUIIcons } from "../config.ts";
 import { type Travel, type TravelBox, travel } from "../motion/helpers/travel.ts";
+import { commentThreadPortals } from "./comment-outside.ts";
 import { useUIComponent } from "./nuxt-ui.ts";
 
 /** A picture of a message: its key, its name, and its URL. */
@@ -40,13 +41,22 @@ export const ImageGallery = defineComponent({
     const icons = useViteHubUIIcons();
     const current = ref<number | null>(null);
     const closing = ref(false);
-    const failed = ref(new Set<string>());
+    const failed = ref(new Map<string, string>());
+    const body = ref<HTMLElement>();
+    const portals = inject(commentThreadPortals, undefined);
+    portals?.add(body);
     const tiles: HTMLElement[] = [];
     const picture = ref<HTMLImageElement | null>(null);
     let flight: Travel | undefined;
 
     const tileOf = (index: number) => tiles[Math.min(index, tileCount - 1)];
     const shown = computed(() => (current.value === null ? undefined : props.images[current.value]));
+    watch(() => props.images, (images) => {
+      failed.value = new Map(images.filter(({ key, src }) => failed.value.get(key) === src).map(({ key, src }) => [key, src]));
+    });
+    const markFailed = ({ key, src }: GalleryImage) => {
+      if (props.images.some((image) => image.key === key && image.src === src)) failed.value.set(key, src);
+    };
 
     // The picture lays out full size first, then travels from its tile. It waits for its size when it isn't loaded yet.
     async function flyIn(index: number) {
@@ -83,12 +93,16 @@ export const ImageGallery = defineComponent({
       flight?.stop();
       current.value = (current.value + step + props.images.length) % props.images.length;
     }
-    onBeforeUnmount(() => flight?.stop());
+    onBeforeUnmount(() => {
+      flight?.stop();
+      portals?.delete(body);
+    });
 
     return () => {
       const count = props.images.length;
       tiles.length = 0;
       const many = count > 1;
+      const active = shown.value;
       return h("div", { "data-count": Math.min(count, tileCount), "data-slot": "comment-reply-images" }, [
         ...props.images.slice(0, tileCount).map((image, index) =>
           h(
@@ -107,12 +121,13 @@ export const ImageGallery = defineComponent({
               type: "button",
             },
             [
-              failed.value.has(image.key)
+              failed.value.get(image.key) === image.src
                 ? h("span", { class: "vh-image-unavailable" }, "Image unavailable")
                 : h("img", {
                     alt: "",
                     loading: "lazy",
-                    onError: () => (failed.value = new Set(failed.value).add(image.key)),
+                    key: image.src,
+                    onError: () => markFailed(image),
                     src: image.src,
                   }),
               index === tileCount - 1 && count > tileCount
@@ -139,6 +154,7 @@ export const ImageGallery = defineComponent({
             // The arrow keys step through the pictures of the message wherever the focus is in the preview.
             content: () => h("div", {
               class: "vh-image-gallery__body",
+              ref: body,
               onKeydown: (event: KeyboardEvent) => {
                 if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
                 event.preventDefault();
@@ -191,15 +207,15 @@ export const ImageGallery = defineComponent({
                         variant: "solid",
                       })
                     : null,
-                  shown.value && failed.value.has(shown.value.key)
+                  active && failed.value.get(active.key) === active.src
                     ? h("p", { class: "vh-image-dialog__error", role: "status" }, "Image unavailable. The file may have been moved or deleted.")
                     : h("img", {
-                        alt: shown.value?.name ?? "",
+                        alt: active?.name ?? "",
                         class: "vh-image-dialog__image",
-                        key: shown.value?.key,
-                        onError: () => shown.value && (failed.value = new Set(failed.value).add(shown.value.key)),
+                        key: active?.src,
+                        onError: () => active && markFailed(active),
                         ref: picture,
-                        src: shown.value?.src,
+                        src: active?.src,
                       }),
                   many
                     ? h(UButton, {

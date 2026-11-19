@@ -4,12 +4,12 @@
 import { addCollection } from "@iconify/vue";
 import lucide from "@iconify-json/lucide/icons.json";
 import "@fontsource-variable/geist";
-import type { CommentMessage } from "@vite-hub/comments/client";
+import type { CommentMessage, CommentThread as Thread } from "@vite-hub/comments/client";
 import UButton from "@nuxt/ui/components/Button.vue";
 import { createApp, h, ref } from "vue";
 
 import { CommentComposer } from "../../../src/components/comment-composer.ts";
-import { CommentReply } from "../../../src/components/comment-thread.ts";
+import { CommentReply, CommentThread } from "../../../src/components/comment-thread.ts";
 import { createViteHubUI } from "../../../src/config.ts";
 import { forceReducedMotion, getMotionSlowFactor, prefersReducedMotion, setMotionSlowFactor } from "../../../src/motion.ts";
 import "./attachments.css";
@@ -57,6 +57,14 @@ async function start(): Promise<void> {
     mentions: [],
     threadId: "t1",
   };
+  const params = new URLSearchParams(location.search);
+  const inThread = params.has("thread");
+  const threadOpen = ref(true);
+  const attachmentUrl = (key: string) => ({ name: key, type: "image/png", url: urls.get(key) ?? "" });
+  const thread: Thread = {
+    anchor: { kind: "page" }, author: message.author, createdAt: message.createdAt, id: message.threadId,
+    messages: [message], n: 1, scope: "site", status: "open", subject: { id: "/", kind: "page" }, updatedAt: message.createdAt,
+  };
   const app = createApp({
     setup: () => () =>
       h("div", { class: "page" }, [
@@ -69,7 +77,7 @@ async function start(): Promise<void> {
             accept: "image/*",
             autofocus: false,
             files: files.value,
-            layout: "row",
+            layout: params.has("box") ? "box" : "row",
             modelValue: text.value,
             size: "sm",
             variant: "reply",
@@ -78,7 +86,9 @@ async function start(): Promise<void> {
           }),
         ]),
         h("div", { class: "card", "data-test": "thread" }, [
-          h(CommentReply, { attachmentUrl: (key: string) => ({ name: key, type: "image/png", url: urls.get(key) ?? "" }), message, size: "sm" }),
+          inThread
+            ? (threadOpen.value ? h(CommentThread, { attachmentUrl, thread, onClose: () => (threadOpen.value = false) }) : null)
+            : h(CommentReply, { attachmentUrl, message, size: "sm" }),
         ]),
       ]),
   });

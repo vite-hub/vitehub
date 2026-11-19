@@ -1,7 +1,8 @@
 import type { CommentMessage, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
-import { type Component, computed, defineComponent, h, nextTick, type PropType, ref, type SlotsType, type VNode } from "vue";
+import { type Component, computed, defineComponent, h, nextTick, type PropType, provide, ref, type Ref, type SlotsType, type VNode } from "vue";
 import { RollNumber } from "./motion.ts";
 import {
+  commentThreadPortals,
   consumedPointerEvents,
   pathOf,
   shakeDirtyComposers,
@@ -366,6 +367,8 @@ export const CommentThread = defineComponent({
     const sending = ref(false);
     const failure = ref<string | undefined>();
     const composer = ref<{ focus: () => void } | null>(null);
+    const portals = new Set<Ref<HTMLElement | undefined>>();
+    provide(commentThreadPortals, portals);
 
     const user = computed(() => props.user ?? comments?.user.value);
     // Mentions in a reply or an edit go in this thread, so the search asks for the people that may be mentioned there.
@@ -385,6 +388,7 @@ export const CommentThread = defineComponent({
     useDocumentPointerDown((event) => {
       const path = pathOf(event);
       if (props.preview || !props.dismissible || !root.value || path.includes(root.value)) return;
+      for (const portal of portals) if (portal.value && path.includes(portal.value)) return;
       if (path.some((element) => element.matches("[data-slot='comment-pin']")) || consumedPointerEvents.has(event)) return;
       consumedPointerEvents.add(event);
       const where = root.value.getRootNode();

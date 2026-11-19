@@ -27,7 +27,8 @@ it("stacks the pictures of a comment box, and fans them out as 3.5rem cards with
   expect(card).toMatch(/\[data-slot="comment-image-stack-remove"\] \{[^}]*visibility: hidden;/);
   const fanned = /\[data-slot="comment-image-stack"\]\[data-fanned="true"\] \[data-slot="comment-image-stack-card"\] \{([\s\S]*?)\n  \}\n/.exec(stylesheet)?.[1];
   expect(fanned).toContain("width: 3.5rem;");
-  expect(fanned).toContain("left: calc(var(--vh-stack-index) * var(--vh-stack-step));");
+  expect(fanned).toContain("flex: none;");
+  expect(stylesheet).toMatch(/\[data-fanned="true"\] \[data-slot="comment-image-stack-cards"\] \{[^}]*&\[data-scrollable="true"\] \{\s*overflow-x: auto;/);
   expect(fanned).toMatch(/\[data-slot="comment-image-stack-remove"\] \{[^}]*visibility: visible;/);
   // The badge is a Nuxt UI button, so its rule is outside the layers to win over Nuxt UI's classes.
   const badge = /\n\[data-slot="comment-image-stack-remove"\] \{([^}]*)/.exec(stylesheet)?.[1];

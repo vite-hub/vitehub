@@ -40,13 +40,13 @@ after(async () => {
   await server.close()
 })
 
-async function open() {
-  const context = await browser.newContext({ viewport: { width: 900, height: 900 }, deviceScaleFactor: 2 })
+async function open(query = "", width = 900) {
+  const context = await browser.newContext({ viewport: { width, height: 900 }, deviceScaleFactor: 2 })
   const page = await context.newPage()
   const errors = []
   page.on("pageerror", error => errors.push(error.message))
   page.on("console", message => message.type() === "error" && errors.push(message.text()))
-  await page.goto(`${base}attachments.html`)
+  await page.goto(`${base}attachments.html${query}`)
   await page.waitForFunction(() => window.ready, undefined, { timeout: 60_000 })
   return { context, errors, page }
 }
@@ -80,6 +80,47 @@ async function traceCards(page, start, frames = 70) {
 }
 
 describe("the stack of a comment box", () => {
+  test("all Remove badges in a crowded fan are reachable without overlap", async () => {
+    for (const [query, count] of [["", 10], ["?box", 2]]) {
+      const { context, page } = await open(query, 390)
+      try {
+        await page.evaluate(() => window.reduce(true))
+        await pick(page, 0, count)
+        await page.locator("[data-slot=comment-image-stack-toggle]").hover()
+        for (let index = 1; index <= count; index++) {
+          const remove = page.getByRole("button", { name: `Remove Screenshot ${index}.png`, exact: true })
+          await remove.click({ trial: true, timeout: 2000 })
+        }
+        await page.getByRole("button", { name: `Remove Screenshot ${count}.png`, exact: true }).click()
+        assert.equal((await page.evaluate(() => window.files())).length, count - 1)
+      } finally {
+        await context.close()
+      }
+    }
+  })
+
+  test("Tab enters the fan, pointer exit keeps focus, and Escape returns to the toggle", async () => {
+    const { context, page } = await open()
+    try {
+      await pick(page, 0, 2)
+      const toggle = page.locator("[data-slot=comment-image-stack-toggle]")
+      await toggle.focus()
+      await page.keyboard.press("Tab")
+      assert.equal(await page.locator(".vh-image-preview:focus").count(), 1)
+      await page.keyboard.press("Tab")
+      const remove = page.getByRole("button", { name: "Remove Screenshot 1.png" })
+      assert.equal(await remove.evaluate(button => button.matches(":focus")), true)
+      await toggle.hover()
+      await page.mouse.move(0, 0)
+      await page.waitForTimeout(350)
+      assert.equal(await remove.evaluate(button => button.matches(":focus")), true)
+      await page.keyboard.press("Escape")
+      assert.equal(await toggle.getAttribute("aria-expanded"), "false")
+      assert.equal(await toggle.evaluate(button => button.matches(":focus")), true)
+    } finally {
+      await context.close()
+    }
+  })
   test("a picked picture comes out of the attach button into the stack, and the count rolls", async () => {
     const { context, errors, page } = await open()
     await pick(page, 0, 1)
@@ -157,6 +198,22 @@ describe("the stack of a comment box", () => {
 })
 
 describe("the mosaic of a message", () => {
+  test("a dismissible thread keeps its gallery controls inside, but still closes on outside clicks", async () => {
+    const { context, page } = await open("?thread")
+    try {
+      await page.evaluate(() => window.reduce(true))
+      await page.getByRole("button", { name: "Preview Screenshot 1.png" }).click()
+      await page.getByRole("button", { name: "Next picture" }).click()
+      assert.equal(await page.locator(".vh-image-dialog__name").innerText(), "Screenshot 2.png")
+      await page.getByRole("button", { name: "Close image preview" }).click()
+      await page.waitForSelector(".vh-image-gallery", { state: "detached" })
+      assert.equal(await page.locator("[data-slot=comment-thread]").count(), 1)
+      await page.mouse.click(5, 5)
+      await page.waitForSelector("[data-slot=comment-thread]", { state: "detached" })
+    } finally {
+      await context.close()
+    }
+  })
   test("six pictures show four tiles, the last with +3", async () => {
     const { context, errors, page } = await open()
     const images = page.locator("[data-test=thread] [data-slot=comment-reply-images]")

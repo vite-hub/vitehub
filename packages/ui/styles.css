@@ -2625,14 +2625,33 @@
     }
   }
 
+  [data-slot="comment-image-stack"][data-fanned="true"] [data-slot="comment-image-stack-cards"] {
+    --vh-fan-width: min(var(--vh-fan-room), calc(var(--vh-fan-count) * 4rem + 0.5rem));
+    bottom: 100%;
+    box-sizing: border-box;
+    display: flex;
+    gap: 0.5rem;
+    inset-inline: auto;
+    left: clamp(var(--vh-fan-left), -0.5rem, calc(var(--vh-fan-left) + var(--vh-fan-room) - var(--vh-fan-width)));
+    padding: 0.5rem;
+    top: auto;
+    width: var(--vh-fan-width);
+    z-index: 20;
+
+    &[data-scrollable="true"] {
+      overflow-x: auto;
+    }
+  }
+
   [data-slot="comment-image-stack"][data-fanned="true"] [data-slot="comment-image-stack-card"] {
-    bottom: calc(100% + 0.5rem);
+    flex: none;
     height: 3.5rem;
-    left: calc(var(--vh-stack-index) * var(--vh-stack-step));
+    left: auto;
     opacity: 1;
+    position: relative;
     top: auto;
     width: 3.5rem;
-    z-index: calc(20 + var(--vh-stack-index));
+    z-index: auto;
 
     & [data-slot="comment-image-stack-remove"] {
       visibility: visible;
