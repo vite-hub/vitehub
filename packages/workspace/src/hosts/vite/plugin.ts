@@ -716,7 +716,8 @@ function runtimeWorkspaceConfig(
     if (typeof store[key] === "function") {
       runtimeStore[key] = store[key]
     }
-    else if (isAbsent(store[key])) {
+    // `root: ""` is the repository root, a value and not a missing option.
+    else if (isAbsent(store[key]) && !(key === "root" && store.root === "")) {
       delete runtimeStore[key]
     }
   }
