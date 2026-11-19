@@ -70,7 +70,7 @@ function openDatabase(): Promise<IDBDatabase> {
 
 function readMeta(record: MetaRecord | undefined): SyncMeta | undefined {
   if (!record) return undefined
-  return { scope: record.scope, key: record.key, cursor: record.cursor, account: record.account, version: record.version, defaults: record.defaults }
+  return { scope: record.scope, key: record.key, cursor: record.cursor, account: record.account, version: record.version, defaults: record.defaults, ...(record.after === undefined ? {} : { after: record.after }) }
 }
 
 function readWrites(records: OutboxRecord[]): SyncQueuedWrite[] {

@@ -39,7 +39,7 @@ const defaultFetch: typeof fetch = (input, init) => globalThis.fetch(input, init
 // The open stores of the page, so an optimistic action can change the stores of another name with `local.sync(name)`.
 const page: SyncPage = { stores: new Set(), version: 0 }
 
-const idleState: SyncState<never> = Object.freeze({ rows: Object.freeze([]), status: "idle", error: null, queued: 0, failures: Object.freeze([]), persisted: false, live: false })
+const idleState: SyncState<never> = Object.freeze({ rows: Object.freeze([]), status: "idle", complete: false, error: null, queued: 0, failures: Object.freeze([]), persisted: false, live: false })
 
 function isBrowser(): boolean {
   return typeof window !== "undefined"
@@ -239,8 +239,6 @@ async function clearSync(options: ClearSyncOptions = {}): Promise<void> {
   const keepWrites = options.keepWrites === true
   for (const { store } of shared.values()) store.forget(keepWrites)
   for (const store of draining.keys()) store.forget(keepWrites)
-  // A cleared store stays paused, so the stored writes of its subset go out with the next store that sends them.
-  draining.clear()
   await Promise.all([memoryStorage?.clear({ keepWrites }), indexedDBStorage?.clear({ keepWrites })])
   postClear(keepWrites)
 }

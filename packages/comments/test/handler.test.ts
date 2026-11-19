@@ -302,6 +302,10 @@ describe("Comments API", () => {
     const id = created.body.data.id
     const reply = await call(`/threads/${id}/comments`, { method: "POST", json: { body: "Agreed" } })
     expect(reply.body.data.body).toBe("Agreed")
+    const keyed = { method: "POST", json: { body: "Fixed", requestId: "reply-1" } }
+    const first = await call(`/threads/${id}/comments`, keyed)
+    expect((await call(`/threads/${id}/comments`, keyed)).body.data).toEqual(first.body.data)
+    expect((await call(`/threads/${id}`)).body.data.messages).toHaveLength(3)
     expect((await call("/threads?page=/pricing")).body.data).toHaveLength(1)
     expect((await call(`/threads/${id}/resolve`, { method: "POST" })).body.data.status).toBe("resolved")
     expect((await call(`/threads/${id}/comments/${reply.body.data.id}`, { method: "DELETE" })).response.status).toBe(200)

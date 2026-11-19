@@ -15,6 +15,7 @@ export default defineConfig({
       "src/agent-workflow.ts",
       "src/arrays.ts",
       "src/ast.ts",
+      "src/browser-environment.ts",
       "src/channel-archive.ts",
       "src/cli.ts",
       "src/config-edit.ts",

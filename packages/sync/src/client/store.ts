@@ -1,8 +1,10 @@
+import { backoffDelay, randomUUID } from "@vite-hub/internal/browser-environment"
+
 import { syncErrors } from "../errors.ts"
 import { syncPushLimit } from "../protocol.ts"
 import { addedWrites, applyQueueChange, applyRowChange } from "./storage.ts"
 import { SyncError } from "./types.ts"
-import { backoffDelay, buildView, clientError, generationOf, isActive, isOwnFailure, isPull, keyColumnOf, linkWrite, linkWrites, mergeTarget, pullChange, pushChange, randomUUID, readError, toMutation, toWireError, whereKey } from "./view.ts"
+import { buildView, clientError, generationOf, isActive, isOwnFailure, isPull, keyColumnOf, linkWrite, linkWrites, mergeTarget, pullChange, pushChange, readError, toMutation, toWireError, whereKey } from "./view.ts"
 
 import type { SyncKey, SyncPullResponse, SyncPushRequest, SyncPushResponse, SyncRow, SyncValues } from "../protocol.ts"
 import type { SyncEnvironment } from "./environment.ts"
@@ -95,6 +97,14 @@ function isRetryable(error: SyncError): boolean {
   return error.code === "SYNC_NETWORK" || error.code === "SYNC_SERVER_ERROR"
 }
 
+/**
+ * `true` when a server answered the next page of a snapshot with changes instead, as a server without paged snapshots
+ * does. The rows after the page then never come, so the client starts the snapshot again.
+ */
+function ignoredPage(sentAfter: string | undefined, pull: SyncPullResponse): boolean {
+  return sentAfter !== undefined && !pull.reset && pull.after === undefined
+}
+
 function isPush(value: unknown): value is SyncPushResponse {
   return Boolean(value) && typeof value === "object" && Array.isArray(Reflect.get(value as object, "results")) && isPull(Reflect.get(value as object, "pull"))
 }
@@ -111,6 +121,7 @@ function isUnchanged(meta: SyncMeta | undefined, change: SyncStorageChange): boo
     && meta!.scope.id === change.meta!.scope.id
     && meta!.account === change.meta!.account
     && meta!.version === change.meta!.version
+    && meta!.after === change.meta!.after
     && !change.reset
     && !change.put?.length && !change.delete?.length && !change.add?.length && !change.update?.length && !change.remove?.length
     && !change.results?.length
@@ -198,8 +209,10 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   const results = new Map<string, unknown>()
   // Ids of writes on their way to storage. A new update does not merge into them.
   const storing = new Set<string>()
-  // The promises of the writes that `clearSync({ keepWrites: true })` kept, until a reload reads the writes again.
+  // The promises of the writes that `clearSync({ keepWrites: true })` kept.
   const parked = new Map<string, PendingWrite[]>()
+  // A server ignored the page of a snapshot, so the next pull starts a new snapshot.
+  let freshSnapshot = false
 
   let meta: SyncMeta | undefined
   let confirmed = new Map<SyncKey, SyncRow>()
@@ -363,7 +376,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     }
     state = Object.freeze({
       rows: Object.freeze([...view.rows.values()].map(freezeRow)),
-      status,
+      status: shownStatus(),
+      complete: isComplete(),
       error,
       queued,
       failures: Object.freeze(failures),
@@ -373,10 +387,20 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     return state
   }
 
+  /** `true` once every page of a snapshot is stored. A stored `after` means that a page is still to come. */
+  function isComplete(): boolean {
+    return meta !== undefined && meta.after === undefined
+  }
+
+  /** A store with part of a snapshot is still loading, also when its last request succeeded. */
+  function shownStatus(): SyncStatus {
+    return status === "ready" && !isComplete() ? "loading" : status
+  }
+
   function publish(): void {
     dirty = true
     baseDirty = true
-    settlePending()
+    if (pending.size) settleHandles(pending, writes, confirmed, new Set(local.map(write => write.id)))
     for (const listener of listeners) listener()
     changePage()
   }
@@ -437,24 +461,23 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     return true
   }
 
-  function settlePending(): void {
-    if (!pending.size) return
-    const stored = new Map(writes.map(write => [write.id, write]))
-    const waiting = new Set(local.map(write => write.id))
+  function settleHandles(handlesById: Map<string, PendingWrite[]>, queue: readonly SyncQueuedWrite[], rows: ReadonlyMap<SyncKey, SyncRow>, waiting: ReadonlySet<string>): void {
+    if (!handlesById.size) return
+    const stored = new Map(queue.map(write => [write.id, write]))
     // Actions that another tab sent. Their results wait in storage.
     const sentElsewhere: [string, PendingWrite[]][] = []
-    for (const [mutationId, handles] of pending) {
+    for (const [mutationId, handles] of handlesById) {
       if (waiting.has(mutationId)) continue
       const queued = stored.get(mutationId)
       if (queued?.error) {
-        pending.delete(mutationId)
+        handlesById.delete(mutationId)
         for (const handle of handles) handle.settle("rejected", new SyncError(queued.error.code, queued.error.message, queued.error.issues ? { issues: queued.error.issues } : {}))
       }
       else if (!queued) {
-        pending.delete(mutationId)
+        handlesById.delete(mutationId)
         const actions = handles.filter(handle => handle.op === "action")
         for (const handle of handles) {
-          if (handle.op !== "action") handle.settle("applied", confirmed.get(handle.key))
+          if (handle.op !== "action") handle.settle("applied", rows.get(handle.key))
         }
         if (!actions.length) continue
         if (!results.has(mutationId)) {
@@ -472,6 +495,11 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
         for (const handle of handles) handle.settle("applied", found.get(mutationId))
       }
     })
+  }
+
+  function settleParked(queue: readonly SyncQueuedWrite[], rows: ReadonlyMap<SyncKey, SyncRow>): void {
+    settleHandles(parked, queue, rows, storing)
+    if (stopped && !parked.size) stopMessages()
   }
 
   function rejectPending(reason: SyncError): void {
@@ -583,6 +611,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
         for (const handle of parked.get(write.id) ?? []) handle.settle("rejected", reason)
         parked.delete(write.id)
       }
+      if (stopped && !parked.size) stopMessages()
       if (at !== generation) return
       const ids = new Set(batch.map(write => write.id))
       local = local.filter(write => !ids.has(write.id))
@@ -609,7 +638,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
         return
       }
       const shown = current()
-      if (shown.status !== status || shown.error !== error) publish()
+      if (shown.status !== shownStatus() || shown.error !== error) publish()
       return
     }
     const result = await storage.write(id, change)
@@ -619,6 +648,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     release(released)
     if (!change.reset) changedKeys.push(...change.put?.map(([key]) => key) ?? [])
     writes = applyQueueChange(writes, change, result)
+    settleParked(writes, confirmed)
     version++
     followGeneration()
     publish()
@@ -630,8 +660,9 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     for (;;) {
       const at = version
       const stored = await storage.read(id)
-      if (paused) return
       if (at !== version) continue
+      if (parked.size) settleParked(stored.writes, new Map(stored.rows))
+      if (paused) return
       // Another tab sent the actions that left the queue without an error: the server applied them.
       const kept = new Set(stored.writes.map(write => write.id))
       handOver(new Set(writes.filter(write => write.op === "action" && !write.error && !kept.has(write.id)).map(write => write.id)))
@@ -640,10 +671,6 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       const removed = new Set(removals)
       writes = stored.writes.filter(write => !removed.has(write.seq))
       local = local.filter(write => !stored.writes.some(item => item.id === write.id))
-      // The writes that `clearSync({ keepWrites: true })` kept settle as any other write: a write that left the queue,
-      // such as one that another tab sent, applied.
-      for (const [mutationId, handles] of parked) pending.set(mutationId, [...pending.get(mutationId) ?? [], ...handles])
-      parked.clear()
       loaded = true
       if (status === "idle") status = "loading"
       version++
@@ -690,23 +717,30 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   /** The query of a pull: where the client is, and its subset. */
   function pullQuery(): string {
     const query = new URLSearchParams()
-    if (meta) {
+    if (meta && !freshSnapshot) {
       query.set("cursor", String(meta.cursor))
       query.set("scope", meta.scope.id)
       query.set("version", meta.version)
+      if (meta.after !== undefined) query.set("after", meta.after)
     }
     if (subset) query.set("where", subset)
-    const text = query.toString()
-    return text ? `?${text}` : ""
+    query.set("paged", "1")
+    return `?${query.toString()}`
   }
 
   async function pull(): Promise<boolean> {
     // The writes held before the pull started are in its answer.
     const mark = holdMark
     for (;;) {
+      const sentAfter = freshSnapshot ? undefined : meta?.after
       const answer = await request(`${url}${pullQuery()}`, { method: "GET", headers: { accept: "application/json" } })
       if (!answer.ok) return fail(answer.error)
       if (!isPull(answer.body)) return fail(clientError(syncErrors.SYNC_SERVER_ERROR({ message: "The Sync route answered without a pull." })))
+      if (ignoredPage(sentAfter, answer.body)) {
+        freshSnapshot = true
+        continue
+      }
+      if (answer.body.reset) freshSnapshot = false
       recover()
       await commit(pullChange(meta, answer.body, writes), answer.body.more ? undefined : mark)
       pulled = true
@@ -721,6 +755,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       scope: sentMeta.scope.id,
       version: sentMeta.version,
       ...(subset ? { where } : {}),
+      paged: true,
+      ...(sentMeta.after === undefined ? {} : { after: sentMeta.after }),
       mutations: sent.map(write => toMutation(write, sentMeta)),
     }
     const answer = await request(url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body) })
@@ -752,6 +788,13 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     const sentIds = new Set(sent.map(write => write.id))
     const pulled = pullChange(meta, answer.body.pull, writes.filter(write => !sentIds.has(write.id)))
     const done: SyncStorageChange = { remove: settled.remove, ...(stored.length ? { results: stored } : {}) }
+    if (ignoredPage(sentMeta.after, answer.body.pull)) {
+      await commit({ update: settled.update })
+      freshSnapshot = true
+      if (!(await pull())) return false
+      await commit(done)
+      return true
+    }
     if (!answer.body.pull.more) {
       await commit({ ...pulled, ...done, update: [...settled.update, ...pulled.update ?? []] })
       return true
@@ -836,12 +879,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       finally {
         running = undefined
         // A destroyed store stops when its writes are sent, or a failure that is not retried stopped them.
-        if (destroyed && !cancelRetry && !stopped) {
-          stopped = true
-          stopMessages()
-          page?.stores.delete(link)
-          options.onStop?.()
-        }
+        if (destroyed && !cancelRetry) stopDraining()
       }
     })()
     return running
@@ -884,7 +922,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     held() {
       if (!meta) return undefined
       streamGeneration = generationOf(meta, subset)
-      return { cursor: meta.cursor, scope: meta.scope.id, version: meta.version }
+      return { cursor: meta.cursor, scope: meta.scope.id, version: meta.version, paged: true }
     },
     live: setLive,
     pull(next, base) {
@@ -1009,6 +1047,14 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   tick()
   void schedule(true)
 
+  function stopDraining(): void {
+    if (stopped) return
+    stopped = true
+    page?.stores.delete(link)
+    options.onStop?.()
+    if (!parked.size) stopMessages()
+  }
+
   function forget(keepWrites = false): void {
     const reason = new SyncError("SYNC_CLEARED", "The Sync data was cleared before the server confirmed this write.")
     if (keepWrites) {
@@ -1035,6 +1081,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     version++
     rejectPending(reason)
     meta = undefined
+    pulled = false
+    freshSnapshot = false
     confirmed = new Map()
     writes = []
     local = []
@@ -1047,6 +1095,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     error = null
     wantPull = true
     stopLive()
+    if (destroyed) stopDraining()
+    if (stopped && !parked.size) stopMessages()
     publish()
   }
 
@@ -1121,7 +1171,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       stopLive()
       cancelTick?.()
       listeners.clear()
-      void schedule(false)
+      if (paused) stopDraining()
+      else void schedule(false)
     },
     forget,
     addActions(actions) {
