@@ -379,7 +379,7 @@ const chatgptLaunchEnvironmentKeys = new Set<string>([
   providerPassEnvironmentKey,
   "CODEX_HOME",
   chatgptTokenEnvironment,
-  "T3_MCP_BEARER_TOKEN",
+  "VITEHUB_MCP_BEARER_TOKEN",
   "VITEHUB_BROWSER_ACTIVE",
   "AGENT_BROWSER_SESSION",
   "AGENT_BROWSER_SOCKET_DIR",
@@ -2931,7 +2931,7 @@ async function* runProvider<
     const base = chatgptCommandEnvironment ?? providerRuntimeEnvironment
     return workspaceBrowserEnvironment(
       browserRuntimeEnvironment(context.context),
-      base ? { ...base, ...environment, ...(chatgptExpiry ? { [chatgptTokenEnvironment]: "", T3_MCP_BEARER_TOKEN: "" } : {}) } : environment,
+      base ? { ...base, ...environment, ...(chatgptExpiry ? { [chatgptTokenEnvironment]: "", VITEHUB_MCP_BEARER_TOKEN: "" } : {}) } : environment,
     )
   }
   let developerInstructionsDigest: string | undefined
@@ -3201,6 +3201,9 @@ async function* runProvider<
       && providerEnvironmentOverrides?.T3CODE_CODEX_LAUNCH_ARGS !== undefined) {
       throw agentDiagnostics.AGENT_R0714({ message: "[vitehub] Codex reasoning options cannot be combined with resolved driver.env.T3CODE_CODEX_LAUNCH_ARGS." })
     }
+    if (options.provider === "codex" && providerEnvironmentOverrides?.T3_MCP_BEARER_TOKEN !== undefined && providerEnvironmentOverrides.VITEHUB_MCP_BEARER_TOKEN === undefined) {
+      throw agentDiagnostics.AGENT_MCP_BEARER_TOKEN_RENAMED()
+    }
     const finalizeLateRuntimeCreation = async () => {
       releaseDeferredRuntimeStopped?.()
       await workspaceCleanup
@@ -3266,13 +3269,13 @@ async function* runProvider<
         lateToolServer => lateToolServer.close(),
         observeLateCleanup,
       )
-      if (!gateway?.chatgpt) providerRuntimeEnvironment.T3_MCP_BEARER_TOKEN = toolServer.mcp.authorizationHeader.slice("Bearer ".length)
+      if (!gateway?.chatgpt) providerRuntimeEnvironment.VITEHUB_MCP_BEARER_TOKEN = toolServer.mcp.authorizationHeader.slice("Bearer ".length)
     }
     let providerLauncher: string | undefined
     let chatgptHome: string | undefined
     if (gateway?.chatgpt) {
       if (!launchRoot || typeof providerCommand !== "string") throw agentDiagnostics.AGENT_R1015()
-      providerRuntimeEnvironment.T3_MCP_BEARER_TOKEN = ""
+      providerRuntimeEnvironment.VITEHUB_MCP_BEARER_TOKEN = ""
       chatgptCommandEnvironment = { ...providerRuntimeEnvironment, [chatgptTokenEnvironment]: "" }
       chatgptHome = join(launchRoot, "codex-home")
       await mkdir(chatgptHome, { mode: 0o700 })
@@ -3283,8 +3286,8 @@ async function* runProvider<
       providerRuntimeEnvironment.PATH = (process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter)
       delete providerRuntimeEnvironment.PATHEXT
       if (process.env.PATHEXT !== undefined) providerRuntimeEnvironment.PATHEXT = process.env.PATHEXT
-      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, [chatgptTokenEnvironment, "T3_MCP_BEARER_TOKEN"])
-      const launcher = await materializeProviderLauncher(launchRoot, { command: process.execPath, args: [providerCommand] }, providerLaunchSecretEnvironmentKeys, [], providerCwd, undefined, gateway.chatgpt.clientInfo, [...Object.keys(providerRuntimeEnvironment), "T3_MCP_BEARER_TOKEN"])
+      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, [chatgptTokenEnvironment, "VITEHUB_MCP_BEARER_TOKEN"])
+      const launcher = await materializeProviderLauncher(launchRoot, { command: process.execPath, args: [providerCommand] }, providerLaunchSecretEnvironmentKeys, [], providerCwd, undefined, gateway.chatgpt.clientInfo, [...Object.keys(providerRuntimeEnvironment), "VITEHUB_MCP_BEARER_TOKEN"])
       providerLauncher = launcher.path
       providerLaunchDiagnosticPath = launcher.diagnosticPath
     }
@@ -3295,7 +3298,7 @@ async function* runProvider<
       const requiredEnvironment = Object.freeze([
         "VITEHUB_BROWSER_ACTIVE",
         ...(codexCredentialHome ? ["CODEX_HOME"] : []),
-        ...(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : []),
+        ...(Object.keys(context.tools || {}).length ? ["VITEHUB_MCP_BEARER_TOKEN"] : []),
         ...Object.keys(gateway?.environment || {}),
       ])
       providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, requiredEnvironment)
@@ -3504,7 +3507,7 @@ async function* runProvider<
       if (claudeSandboxPromptFile) claudePromptFile = posix.join(providerSandbox.home, claudeSandboxPromptFile)
       const explicitEnvironment = Object.keys(providerEnvironmentOverrides || {})
       const preparedEnvironment = { ...providerRuntimeEnvironment }
-      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : [])
+      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, Object.keys(context.tools || {}).length ? ["VITEHUB_MCP_BEARER_TOKEN"] : [])
       providerLaunchDiagnosticPath = join(launchRoot, "sandbox-diagnostic.json")
       providerSandboxRelay = await startProviderSandboxRelay({
         sandbox: providerSandbox,
@@ -3547,14 +3550,14 @@ async function* runProvider<
       // reject them before the host receives the request. Shell policy stays intact.
       ...(nativeUnattendedTools && !gateway?.chatgpt
         ? [
-          ...(toolServer ? [`-c 'mcp_servers.t3-code.url=${JSON.stringify(toolServer.mcp.endpoint)}'`] : []),
-          '-c \'mcp_servers.t3-code.bearer_token_env_var="T3_MCP_BEARER_TOKEN"\'',
+          ...(toolServer ? [`-c 'mcp_servers.vitehub-invocation.url=${JSON.stringify(toolServer.mcp.endpoint)}'`] : []),
+          '-c \'mcp_servers.vitehub-invocation.bearer_token_env_var="VITEHUB_MCP_BEARER_TOKEN"\'',
           // Clear only this invocation's transport token in native shell tools.
           // Preserve the caller's existing environment exclusions.
-          '-c \'shell_environment_policy.set.T3_MCP_BEARER_TOKEN=""\'',
+          '-c \'shell_environment_policy.set.VITEHUB_MCP_BEARER_TOKEN=""\'',
           // CLI override paths split on dots without parsing quoted TOML keys.
           // An inline table preserves the exact tool names, including punctuation.
-          `-c '${(`mcp_servers.t3-code.tools={${Object.keys(context.tools ?? {}).map(name => `${JSON.stringify(name)}={approval_mode="approve"}`).join(",")}}`).replaceAll("'", "'\\''")}'`,
+          `-c '${(`mcp_servers.vitehub-invocation.tools={${Object.keys(context.tools ?? {}).map(name => `${JSON.stringify(name)}={approval_mode="approve"}`).join(",")}}`).replaceAll("'", "'\\''")}'`,
         ]
         : []),
       // A login shell reads /etc/profile, which sets PATH again on Debian. It drops the PATH that the run sets (managed
