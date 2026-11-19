@@ -117,6 +117,7 @@ import { acknowledgeWebhookAdmission, drainDeferredWebhookAdmissions, openWebhoo
 import type { WebhookInbox } from "./webhook-inbox.ts"
 import {
   agentChannelDeliveryMessageIdentity,
+  agentChannelDeliveryMessagePayload,
   agentChannelDeliveryPayloadFingerprint,
   agentChannelDeliverySourceId,
   agentChannelDeliverySourceValue,
@@ -9869,6 +9870,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       const webhookPayload = parseWebhookPayload(rawBody)
       const messageIdentity = agentChannelDeliveryMessageIdentity(registration.provider, webhookPayload)
       const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(webhookPayload)
+      const messagePayloadFingerprint = await agentChannelDeliveryPayloadFingerprint(agentChannelDeliveryMessagePayload(registration.provider, webhookPayload))
       let channelDeliveryPromise: Promise<AgentChannelDeliveryTracker> | undefined
       const resolveChannelDelivery = async () => {
         channelDeliveryPromise ??= (async () => {
@@ -9890,8 +9892,9 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               messageIdentity.messageId,
             ).catch((error) => logChannelDeliveryAliasFailure(delivery, "message", error))
           }
-          if (payloadFingerprint) {
-            await bindAgentChannelDeliveryPayload(deliveryState.state, delivery, chatRegistrationOrigin(registration), payloadFingerprint).catch((error) =>
+          for (const fingerprint of new Set([payloadFingerprint, messagePayloadFingerprint])) {
+            if (!fingerprint) continue
+            await bindAgentChannelDeliveryPayload(deliveryState.state, delivery, chatRegistrationOrigin(registration), fingerprint).catch((error) =>
               logChannelDeliveryAliasFailure(delivery, "payload", error),
             )
           }

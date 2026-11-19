@@ -163,6 +163,17 @@ export function agentChannelDeliveryMessageIdentity(provider: string, payload: u
   }
 }
 
+/**
+ * The part of a webhook payload that a Chat adapter keeps as `message.raw`, when it is not the whole payload. The
+ * Telegram adapter keeps the message of the update, so a queued Telegram message finds its delivery by that payload.
+ */
+export function agentChannelDeliveryMessagePayload(provider: string, payload: unknown): unknown {
+  if (provider !== "telegram" || !payload || typeof payload !== "object" || Array.isArray(payload)) return
+  // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+  const record = payload as Record<string, unknown>
+  return record.message ?? record.edited_message ?? record.channel_post
+}
+
 function stablePayload(value: unknown): string {
   if (!value || typeof value !== "object") return JSON.stringify(value)
   if (Array.isArray(value)) return `[${value.map(stablePayload).join(",")}]`

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, resumeWorkflowAgentChannelDelivery, setAgentChannelDeliveryWorkflowResolver } from "../src/internal/channel-delivery.ts"
+import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliveryMessagePayload, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, resumeWorkflowAgentChannelDelivery, setAgentChannelDeliveryWorkflowResolver } from "../src/internal/channel-delivery.ts"
 
 import type { Lock, StateAdapter } from "chat"
 
@@ -28,6 +28,9 @@ describe("Agent Channel delivery source identity", () => {
     const payload = { message: { chat: { id: 456 }, message_id: 7 }, update_id: 42 }
     expect(agentChannelDeliverySourceId("telegram", payload)).toBe("42")
     expect(agentChannelDeliveryMessageIdentity("telegram", payload)).toEqual({ messageId: "7", threadId: "telegram:456" })
+    // The Telegram adapter keeps the message of the update as `message.raw`.
+    expect(agentChannelDeliveryMessagePayload("telegram", payload)).toBe(payload.message)
+    expect(agentChannelDeliveryMessagePayload("teams", { id: "activity" })).toBeUndefined()
   })
 
   it("keeps identical provider event IDs separate across Channels", async () => {

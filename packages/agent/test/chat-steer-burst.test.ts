@@ -108,6 +108,50 @@ describe("steer concurrency with debounceMs", () => {
     expect(JSON.stringify(sent[0])).toContain("One reply")
   })
 
+  it("records the run on the delivery of every message in the burst", async () => {
+    mockTelegramApi()
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const state = createLibsqlAgentState({ url: ":memory:" })
+    const model = new MockLanguageModelV3({ doGenerate: {
+      content: [{ text: "One reply", type: "text" }],
+      finishReason: { raw: "stop", unified: "stop" },
+      usage: { inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 }, outputTokens: { reasoning: 0, text: 1, total: 1 } },
+      warnings: [],
+    } })
+    const handler = createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: telegram({
+          allowedUserIds: [123],
+          botToken: "test-token",
+          messages: { concurrency: "steer", debounceMs: 100, delivery: "manual", fallbackStreamingPlaceholderText: null, state },
+          mode: "webhook",
+          webhookSecret: false,
+        }),
+      },
+      driver: { model },
+      hooks: {
+        "agent:finish"(event) {
+          return event.reply(event.text ?? "")
+        },
+      },
+      runtime: false,
+    }))
+    try {
+      await Promise.all([
+        webhook(handler, 8_201, "I had two different things"),
+        webhook(handler, 8_202, "Both!"),
+      ])
+      expect(model.doGenerateCalls).toHaveLength(1)
+      const deliveries = await handler.deliveries(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram"), "telegram", { agentName: "support" })
+      const outcomes = Object.fromEntries(deliveries.map(delivery => [delivery.sourceId, delivery.status]))
+      expect(outcomes).toEqual({ 8201: "completed", 8202: "completed" })
+      expect(deliveries.every(delivery => delivery.events.some(event => event.type === "invocation.started"))).toBe(true)
+      expect(new Set(deliveries.map(delivery => delivery.invocationId)).size).toBe(1)
+    } finally {
+      await state.disconnect()
+    }
+  })
+
   it("keeps concurrent handling without debounceMs, so a second message steers into the active run", async () => {
     mockTelegramApi()
     const started = deferred<void>()
