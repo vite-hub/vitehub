@@ -74,7 +74,7 @@ export default defineConfig({
 | `database.cli.sql` | `false` | enabled | Turns off `database sql`. |
 | `database.cli.up` | `false` | enabled | Turns off `database up`. |
 | `database.connection` | `DatabaseConnectionConfig` | local SQLite | Hosted libSQL connection for Definitions that set none. Values in a Definition win. |
-| `database.driver` | `DatabaseRuntimeD1Options['driver']` | none | `d1` selects Cloudflare D1 output for all databases. |
+| `database.driver` | `DatabaseRuntimeD1Options['driver']` | none | `cloudflare` selects Cloudflare D1 output for all databases. The former `d1` fails with [`DATABASE_UNKNOWN_DRIVER`](/docs/database/diagnostics/database_unknown_driver). |
 | `database.binding` | `string` | `DB` | D1 binding of the default database. Named databases get their own binding names. |
 | `database.databaseId` | `DatabaseConfigValue` | Provision State | Cloudflare D1 database id. |
 | `database.previewDatabaseId` | `DatabaseConfigValue` | none | Cloudflare D1 preview database id. |

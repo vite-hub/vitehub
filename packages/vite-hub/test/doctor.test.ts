@@ -170,6 +170,20 @@ describe("vitehub/destructure-result-tuples", () => {
     })).toEqual(["VHUB0003", "VHUB0003", "VHUB0003", "VHUB0003"])
   })
 
+  it("reports Browser and Sandbox Task results used as values", async () => {
+    expect(await codes(destructureResultTuples, {
+      "server/api/render.post.ts": [
+        'import { runBrowser, runBrowserContent } from "vite-hub/browser"',
+        'import { runSandboxTask } from "vite-hub/sandbox/task"',
+        "export default async () => {",
+        '  const html = await runBrowserContent("https://example.com")',
+        '  const notes = await runSandboxTask("release-notes", {})',
+        '  return { html, notes, page: await runBrowser("page-html", { url: "https://example.com" }) }',
+        "}",
+      ].join("\n"),
+    })).toEqual(["VHUB0003", "VHUB0003", "VHUB0003"])
+  })
+
   it("reports auto-imported helpers in Nuxt server files", async () => {
     expect(await codes(destructureResultTuples, {
       "server/api/settings.get.ts": "export default async () => {\n  const settings = await kv.get(\"settings\")\n  return settings\n}\n",
@@ -506,7 +520,7 @@ describe("vitehub/destructure-result-tuples dropped results", () => {
         "async function enqueueNext(subscriber: Subscriber) {",
         "  if (!subscriber.next_lesson_day || !subscriber.next_send_at)",
         "    return",
-        "  await sendQueue('daily-lessons', { day: subscriber.next_lesson_day, email: subscriber.email }, { delaySeconds: 60 })",
+        "  await sendQueue('daily-lessons', { day: subscriber.next_lesson_day, email: subscriber.email }, { delay: '1m' })",
         "}",
       ].join("\n"),
     }, "nuxt")).toEqual(["VHUB0003", "VHUB0003"])

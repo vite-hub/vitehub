@@ -1,9 +1,9 @@
 # @vite-hub/env
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=public+env">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Vite" src="https://img.shields.io/static/v1?label=Vite&amp;message=public+env&amp;color=blue">
 </p>
 
 `@vite-hub/env` declares environment values once, then generates typed public and server-oriented access plus untyped build-time replacements for Vite applications.
@@ -364,7 +364,7 @@ try {
 }
 ```
 
-Each `EnvErrorCode` owns a fixed public message and a bounded details shape. Source details use stable identifiers such as `git:branch`, `package.json`, `env`, or `custom`; raw variable names, package paths, and provider diagnostics stay behind `cause`, which `toJSON()` omits. Cancellation and existing `ViteHubError` instances pass through unchanged. Invalid declaration helper calls and schema results use package-owned `ENV_R####` diagnostics. Build integration defects use `ENV_B####` diagnostics.
+Each `EnvErrorCode` owns a public message and a bounded details shape. Source details use stable identifiers such as `git:branch`, `package.json`, `env`, or `custom`. `ENV_REQUIRED_MISSING` is the one code whose message and `details.names` name the variables to set, so the operator knows what is missing; it never holds a value. Other raw labels, package paths, and provider diagnostics stay behind `cause`, which `toJSON()` omits. Cancellation and existing `ViteHubError` instances pass through unchanged. Invalid declaration helper calls and schema results use package-owned `ENV_R####` diagnostics. Build integration defects use `ENV_B####` diagnostics.
 
 ## Generated modules
 

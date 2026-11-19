@@ -1,9 +1,9 @@
 # @vite-hub/sandbox
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fsandbox&icon=npm)](https://npmx.dev/package/@vite-hub/sandbox)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fsandbox&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/sandbox)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/sandbox)](https://npmx.dev/package/@vite-hub/sandbox)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/sandbox)](https://npmx.dev/package/@vite-hub/sandbox)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/sandbox` owns portable execution for ViteHub. A project declares environment inputs, immutable Home files, writable Home state, and boot checks; a runtime Adapter turns that declaration into an inspectable preparation plan and opens active Sandbox sessions without exposing a provider SDK.
 
@@ -411,19 +411,19 @@ export default async function releaseNotes(payload: ReleaseNotesPayload = {}) {
 }
 ```
 
-Invoke the discovered name from server code. `runSandboxTask()` returns a native Web `Response` and infers its payload from the Definition. A registered handler with a required payload requires that argument at invocation; optional and zero-argument handlers can be invoked without it. The handler's context defaults to `{}` when omitted:
+Invoke the discovered name from server code. `runSandboxTask()` returns `[error, data]` and infers its payload and decoded result from the Definition. For example, a `Date` result becomes an ISO string or `null`. A registered handler with a required payload requires that argument at invocation; optional and zero-argument handlers can be invoked without it. The handler's context defaults to `{}` when omitted:
 
 ```ts
 // src/server.ts
 import { runSandboxTask } from "@vite-hub/sandbox/task";
 
-const response = await runSandboxTask("release-notes", {
+const [error, notes] = await runSandboxTask("release-notes", {
   notes: "ship it\nadd tests",
 });
 
-if (!response.ok) throw new Error(await response.text());
+if (error) throw error;
 
-console.log(JSON.stringify(await response.json()));
+console.log(JSON.stringify(notes));
 ```
 
 Build through Vite so discovery and the runtime registry are generated, then run the server entry:
@@ -445,14 +445,14 @@ The Definition entrypoint does not import `@vite-hub/sandbox/task`. ViteHub call
 
 - Set `cpu` (vCPUs) and `memory` (MiB) next to `driver`, such as `hubSandboxTask({ driver: "cloudflare", cpu: 1, memory: 4096 })`. They are minimums, and ViteHub picks the smallest driver size that fits both. Vercel gets `resources.vcpus`: 1 or an even number up to 32, with 2048 MiB for each vCPU. Cloudflare gets the smallest instance type from `lite` to `standard-4`, and the default is `standard-1` (1/2 vCPU, 4096 MiB). On Cloudflare the size belongs to the Container class, so it applies to every task of the app. ViteHub keeps the `instance_type` of your own `containers` entry and fails the build when it is smaller than `cpu` or `memory`. `maxInstances` sets the Cloudflare Container limit (default 12).
 - Driver selection belongs to application or host configuration, not to a Definition. `hubSandboxTask({ driver: "vercel" })` and `hubSandboxTask({ driver: "cloudflare" })` are the direct-package forms. The `vite-hub` distribution infers the driver from its Vercel and Cloudflare hosts, and takes the same options in `vitehub({ sandboxTask: { ... } })`.
-- `vitehub.sandboxTask.timeout` must be a positive integer no greater than `2_147_483_647`. Without it, a run stops after 5 minutes on every driver. It bounds one execution attempt after driver startup, including package preparation, staging, and execution. Queueing, Sandbox startup, and retry delays can make the complete `runSandboxTask()` call take longer. An elapsed attempt timeout sends an internal abort signal to cancellable driver operations and returns a `SANDBOX_TASK_TIMEOUT` error in a non-2xx JSON response. On Vercel, the Sandbox session gets the task timeout plus 30 seconds, because its clock starts before Sandbox setup. ViteHub then ends the run at the task timeout, not the VM.
+- `vitehub.sandboxTask.timeout` must be a positive integer no greater than `2_147_483_647`. Without it, a run stops after 5 minutes on every driver. It bounds one execution attempt after driver startup, including package preparation, staging, and execution. Queueing, Sandbox startup, and retry delays can make the complete `runSandboxTask()` call take longer. An elapsed attempt timeout sends an internal abort signal to cancellable driver operations and returns `SANDBOX_TASK_RUN_FAILED` with `error.data.code` set to `SANDBOX_TASK_TIMEOUT` and status 504. On Vercel, the Sandbox session gets the task timeout plus 30 seconds, because its clock starts before Sandbox setup. ViteHub then ends the run at the task timeout, not the VM.
 - Pass `signal` to `runSandboxTask()` when it belongs to a request or Agent Invocation. ViteHub forwards it to Sandbox startup and execution, cancels queued Cloudflare runs and retry backoff, and preserves the caller's abort reason. A Definition timeout remains the independent bound for each execution attempt.
-- A failed run's JSON response keeps `error.code`, `error.message`, and `error.details`. Outside `vite dev`, the details do not include `stack`, `stdout`, `stderr`, their previews, `output`, `cause`, `cwd`, or `args`. `resolveSandboxTaskRunner(name).run()` throws the error with all details for server logs.
-- Vercel Sandbox sessions are closed in a `finally` block after success or failure. Cloudflare also creates and closes a unique Sandbox for each run unless you configure `sandboxId` or pass one to `runSandboxTask()`. Session cleanup failures return a non-2xx JSON response, even after a successful handler. So do Cloudflare invocation-file cleanup failures in a Sandbox that stays open after the run. A Sandbox that ViteHub closes after the run loses its files when it closes, so ViteHub does not delete them separately.
+- A failed run returns `SANDBOX_TASK_RUN_FAILED`. `error.cause` keeps the failure's code, message, and every detail for server logs. `toResponse(error)` from `@vite-hub/runtime` sends only `code`, `why`, and `fix`, so no stack or process output reaches the client. `resolveSandboxTaskRunner(name).run()` throws the same failure.
+- Vercel Sandbox sessions are closed in a `finally` block after success or failure. Cloudflare also creates and closes a unique Sandbox for each run unless you configure `sandboxId` or pass one to `runSandboxTask()`. Session cleanup failures return an error, even after a successful handler. So do Cloudflare invocation-file cleanup failures in a Sandbox that stays open after the run. A Sandbox that ViteHub closes after the run loses its files when it closes, so ViteHub does not delete them separately.
 - Cloudflare can retry the whole Task before its first command starts. After that, only the transport retries an individual command when a cold start proves it did not run. Handler errors do not replay the Task.
 - An explicit Cloudflare `sandboxId` opts into a shared Sandbox identity. ViteHub deletes invocation-local files after each attempt, caches prepared projects by digest inside that Sandbox, and serializes runs with the same ID within one runtime isolate. Separate Worker isolates can still enter the Sandbox concurrently, so use external coordination when deployment-wide serialization is required. ViteHub leaves an explicitly named Sandbox for idle shutdown after every run, also after a timeout or an abort. A timeout or an abort stops only that run's command, so runs from other isolates keep their Container. `sleepAfter` sets the idle time (default `"5m"`), and `keepAlive: true` raises it to the 6 hour Cloudflare maximum. A Sandbox without an ID still closes after each run, also with `keepAlive: true`.
 
-When `resolveSandboxTaskRunner().run()` throws, its error cause retains the original provider diagnostic. If execution and cleanup both fail, the cause chain contains an `AggregateError` with both failures. The primary error code and message stay unchanged. JSON error responses omit causes.
+When `resolveSandboxTaskRunner().run()` throws, its error cause retains the original provider diagnostic. If execution and cleanup both fail, the cause chain contains an `AggregateError` with both failures. The primary error code and message stay unchanged. `toResponse(error)` omits causes.
 
 ### Security and isolation
 

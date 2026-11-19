@@ -166,7 +166,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
   const invocationStore = createMemoryAgentInvocationStore()
   const invocations = defineAgentInvocations({ ...(options.content ? { content: "content" as const } : {}), store: invocationStore })
   const channel = options.channel ?? "telegram"
-  const webhook = { adapter: "telegram", secretHeader: "x-test-secret", secretToken: options.secretToken ?? "history-secret" }
+  const webhook = { adapter: "telegram", secretHeader: "x-test-secret", secret: options.secretToken ?? (() => "history-secret") }
   const capabilities: AgentCapabilityDefinition[] = [
     defineChatCapability({
       // SAFETY: The fake implements the Adapter methods that the chat route calls.

@@ -1379,6 +1379,37 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
     }
   }, 600_000)
 
+  it("imports packed Channels without the Agent peer", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vite-hub-channels-consumer-"))
+    const appDir = join(root, "app")
+    const packDir = join(root, "packs")
+
+    try {
+      await Promise.all([mkdir(appDir), mkdir(packDir)])
+      const specs = await packWorkspacePackages(packDir, new Set(["vite-hub", "@vite-hub/channels"]))
+      await Promise.all([
+        writeFile(join(appDir, "package.json"), JSON.stringify({
+          dependencies: { "@vite-hub/channels": specs["@vite-hub/channels"], "vite-hub": specs["vite-hub"] },
+          private: true,
+          type: "module",
+        })),
+        writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs)),
+      ])
+      await installApp(appDir, "--no-strict-peer-dependencies")
+      const installed = await readdir(join(appDir, "node_modules/.pnpm"))
+      expect(installed.some(entry => entry.startsWith("@vite-hub+agent@"))).toBe(false)
+      await run(process.execPath, ["--input-type=module", "-e", `
+        import assert from 'node:assert/strict'
+        import { defineChannel } from 'vite-hub/channels'
+        const channel = defineChannel({ adapter: { kind: 'log', send: text => ({ id: text }) } })
+        assert.deepEqual(await channel.adapter.send('sent'), { id: 'sent' })
+      `], appDir)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 120_000)
+
   it("publishes Browser actions without installing Playwright by default", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-browser-consumer-"))
     const appDir = join(root, "app")

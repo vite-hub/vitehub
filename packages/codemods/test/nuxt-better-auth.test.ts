@@ -127,6 +127,23 @@ describe("nuxt-better-auth", () => {
     expect(run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after).not.toContain("routeRules")
   })
 
+  it("moves a guest redirect into the Auth Definition without API route rules", async () => {
+    const cwd = await createApp({
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxtjs/better-auth'], auth: { redirects: { guest: '/dashboard' } } })",
+      "server/auth.config.ts": serverConfig,
+    })
+    const run = await runCodemod("nuxt-better-auth", { cwd, dryRun: true })
+    expect(run.result.edits.find(edit => edit.path === "server/auth.ts")?.after).toContain("access: { afterSignIn: '/dashboard' }")
+    expect(run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after).not.toContain("redirects")
+  })
+
+  it("leaves the app unchanged when a global redirect is not an app path", async () => {
+    const config = "export default defineNuxtConfig({ modules: ['@nuxtjs/better-auth'], auth: { redirects: { login: 'https://example.com/sign-in' } } })"
+    const cwd = await createApp({ "nuxt.config.ts": config, "server/auth.config.ts": serverConfig })
+    await expect(runCodemod("nuxt-better-auth", { cwd })).rejects.toThrow("auth.redirects.login must be a literal app path")
+    expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toBe(config)
+  })
+
   it("does not move a catch-all guard around a custom Auth basePath", async () => {
     const config = "export default defineNuxtConfig({ modules: ['@nuxtjs/better-auth'], routeRules: { '/api/**': { auth: 'user' } } })"
     const definition = "export default defineServerAuth({ basePath: '/api/login' })"

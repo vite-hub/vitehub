@@ -195,7 +195,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const plans = new Map<LayerConfig, ConfigPlan>(layers.map(layer => [layer, { layer, removals: [] }]))
 
   // Module options.
-  const redirects: Record<string, string> = {}
+  const redirects: { signIn?: string, afterSignIn?: string } = {}
   for (const layer of layers) {
     const file = posix.join(layer.dir, layer.config.fileName)
     for (const property of layer.config.root.properties) {
@@ -211,7 +211,10 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     const vitehub = findProperty(layer.config.root, "vitehub")
     if (vitehub && !staticOptionsObject(vitehub.value)) throw codemodError(`${file}: Use a static vitehub options object so the codemod can check whether Auth is enabled.`)
     const auth = findViteHubOption(layer.config, "auth")
-    if (auth && literalValue(auth.value) !== true && !staticOptionsObject(auth.value)) throw codemodError(`${file}:${line(auth)}: Auth is disabled or computed in vitehub.auth. Enable it explicitly before migrating.`)
+    if (auth && literalValue(auth.value) !== true) {
+      if (staticOptionsObject(auth.value)) throw codemodError(`${file}:${line(auth)}: The vitehub.auth options object is no longer supported. Merge its settings into server/auth.ts by hand.`)
+      throw codemodError(`${file}:${line(auth)}: Auth is disabled or computed in vitehub.auth. Enable it explicitly before migrating.`)
+    }
     for (const { object, property } of moduleOptions(layer)) {
       if (property) plans.get(layer)!.removals.push(property)
       for (const option of object.properties) {
@@ -223,9 +226,12 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
         }
         for (const [name, value] of nested ? nested.properties.flatMap(child => child.type === "ObjectProperty" ? [[`redirects.${keyName(child.key, child.computed)}`, child] as const] : []) : [[key ?? "", option] as const]) {
           const literal = literalValue(value.value)
-          if ((name === "redirects.login" || name === "redirects.guest") && typeof literal === "string") {
+          if (name === "redirects.login" || name === "redirects.guest") {
+            if (typeof literal !== "string" || !/^\/(?![/\\])/.test(literal)) {
+              throw codemodError(`${file}:${line(value)}: auth.${name} must be a literal app path, such as '/sign-in'. Migrate the redirect by hand.`)
+            }
             // The app wins over its layers.
-            redirects[name.slice("redirects.".length)] ??= literal
+            redirects[name === "redirects.login" ? "signIn" : "afterSignIn"] ??= literal
             continue
           }
           const message = optionFollowUps[name]
@@ -298,7 +304,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
       if (serverFile || configs.length > 1) throw codemodError(`${file}: Multiple source server configs can change which Auth Definition is loaded. Keep only the effective config before migrating.`)
       serverFile = file
       const before = await readText(cwd, file)
-      const moved = moveServerDefinition({ file, code: before, database, accessRoutes, publicRoutes })
+      const moved = moveServerDefinition({ file, code: before, database, accessRoutes, publicRoutes, ...redirects })
       followUps.push(...moved.followUps)
       if (moved.moved) {
         servers++
@@ -354,12 +360,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     const removed = new Set<Node>(plan.removals)
     if (layer.dir === ".") {
       const rootEntries = useViteHubModule(editor, config, layer.listsModule ? moduleName : undefined)
-      const options = []
-      if (Object.keys(redirects).length) {
-        if (findViteHubOption(config, "auth")) followUps.push({ file: config.fileName, message: `vitehub.auth exists already. Add redirects: ${JSON.stringify(redirects)} to it by hand.` })
-        else options.push({ key: "auth", label: "the Auth options", value: (indent: string) => `{\n${indent}${editor.style.indent}redirects: { ${Object.entries(redirects).map(([key, value]) => `${key}: ${quoteString(value, editor.style)}`).join(", ")} },\n${indent}}` })
-      }
-      const added = addViteHubOptions(editor, config, { options, rootEntries, removedRootProperties: removed })
+      const added = addViteHubOptions(editor, config, { options: [], rootEntries, removedRootProperties: removed })
       host = added.host
       hostNote = added.hostNote
     }

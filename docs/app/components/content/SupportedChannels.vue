@@ -7,10 +7,10 @@ const channels = [
     to: "/docs/agents/channels#add-a-channel",
   },
   {
-    name: "HTTP",
-    helper: "http()",
+    name: "Webhook",
+    helper: "webhook()",
     icon: "i-lucide-globe",
-    to: "/docs/agents/channels#add-a-channel",
+    to: "/docs/channels",
   },
   {
     name: "Slack",

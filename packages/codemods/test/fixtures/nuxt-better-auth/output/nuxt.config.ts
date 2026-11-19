@@ -12,8 +12,5 @@ export default defineNuxtConfig({
   compatibilityDate: '2026-09-03',
   vitehub: {
     host: 'node',
-    auth: {
-      redirects: { login: '/sign-in', guest: '/dashboard' },
-    },
   },
 })

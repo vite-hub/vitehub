@@ -20,7 +20,7 @@ import type { Alias, ConfigEnv, UserConfig } from "vite"
 import { describe, expect, it, vi } from "vitest"
 
 import { title } from "../src/capabilities.ts"
-import { http, telegram, webChat } from "../src/channels.ts"
+import { channelAdapter, telegram, webChat } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { agentChatApprovedTools } from "../src/internal/chat-approvals.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
@@ -119,7 +119,7 @@ function githubSignature(secret: string, body: string) {
 function testTelegram(telegram: (typeof import("../src/channels.ts"))["telegram"], options: NonNullable<Parameters<typeof telegram>[0]>) {
   return telegram({
     ...options,
-    ...(options.webhooks === undefined && options.webhookSecret === undefined ? { webhooks: { secretToken: false } } : {}),
+    ...(options.webhooks === undefined && options.webhookSecret === undefined ? { webhooks: { secret: false } } : {}),
   })
 }
 
@@ -2731,7 +2731,7 @@ export default defineAgent({
         concurrency: "parallel",
         stream: true,
       },
-      webhooks: { id: "telegram", secretToken: false },
+      webhooks: { id: "telegram", secret: false },
     }),
   },
   workspace: {},
@@ -4587,7 +4587,6 @@ describe("server helpers", () => {
 
   it("serves explicit HTTP chat routes and preserves request extensions for admission", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const message = {
       custom: { source: "portal" },
@@ -4611,7 +4610,7 @@ describe("server helpers", () => {
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       defineAgent({
         channels: {
-          portal: http({
+          portal: channelAdapter("http", {
             route: {
               admission: {
                 authenticate,
@@ -5925,7 +5924,7 @@ describe("server helpers", () => {
       channels: {
         github: github({
           triggers: { webhook: { invoke: () => response } },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run: () => "unexpected" },
@@ -6350,6 +6349,42 @@ describe("server helpers", () => {
     }
   })
 
+  it("records a failed delivery when Chat fails before a handler claims the message", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { readAgentChannelDeliveries } = await import("../src/internal/channel-delivery.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-delivery-chat-failure-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    // Chat reads the subscription before it calls a message handler.
+    state.isSubscribed = async () => {
+      throw new Error("subscription read failed")
+    }
+    const adapter = createTestChatAdapter({ deferMessageProcessing: true, isDM: false })
+    const handler = createChannelWebhookRouteHandler(
+      // SAFETY: This fixture omits host-only context that these routes do not inspect.
+      defineAgent({
+        messages: { concurrency: "steer", state, triggerHistory: "none" },
+        channels: { telegram: testTelegram(telegram, { adapter: () => adapter as never }) },
+        driver: { run: vi.fn(() => "Done.") },
+      }) as never,
+    )
+    const tasks: Promise<unknown>[] = []
+    const request = new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({ update_id: 3501, message: { chat: { id: 804, type: "group" }, from: { id: 123, username: "maxi" }, isMention: true, message_id: 3501, text: "hello" } }),
+      method: "POST",
+    })
+    try {
+      const response = await handler(request, "telegram", { agentName: "support", waitUntil: (task: Promise<unknown>) => { tasks.push(task) } })
+      expect(response.status).toBe(200)
+      while (tasks.length) await Promise.allSettled(tasks.splice(0))
+      const [delivery] = await readAgentChannelDeliveries(state)
+      expect(delivery).toMatchObject({ sourceId: "3501", status: "failed" })
+      expect(delivery?.events.at(-1)).toMatchObject({ error: "subscription read failed", type: "failed" })
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("records the webhook acknowledgement apart from the outcome of its message", { timeout: 15_000 }, async () => {
     const { readAgentChannelDeliveries } = await import("../src/internal/channel-delivery.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-delivery-ack-"))
@@ -6752,6 +6787,7 @@ describe("server helpers", () => {
             yield { id: "commentary-1", phase: "commentary", type: "text-start" }
             yield { delta: "Checking ", id: "commentary-1", type: "text-delta" }
             yield { delta: "private reasoning", id: "reasoning-1", type: "reasoning-delta" }
+            yield { id: "reasoning_summary_text:rs_1:0", text: "**Inspecting the image**", type: "reasoning-delta" }
             yield { delta: "the image.", id: "commentary-1", type: "text-delta" }
             yield { id: "commentary-1", type: "text-end" }
             yield { text: "Unknown pre-final text.", type: "text-delta" }
@@ -6810,6 +6846,7 @@ describe("server helpers", () => {
       expect.anything(),
       expect.objectContaining({ markdown: expect.stringContaining("private reasoning") }),
     )
+    expect(JSON.stringify([adapter.postMessage.mock.calls, adapter.editMessage.mock.calls])).not.toContain("Inspecting the image")
   })
 
   it("delivers final output when the commentary reply fails", async () => {
@@ -8113,7 +8150,6 @@ describe("server helpers", () => {
 
   it("routes channel webhook custom ids through the channel adapter", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(({ messages }) => {
@@ -8123,7 +8159,7 @@ describe("server helpers", () => {
     })
     const agent = defineAgent({
       channels: {
-        support: http({
+        support: channelAdapter("http", {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           adapter: () => adapter as never,
           webhooks: { id: "custom-support" },
@@ -8635,19 +8671,18 @@ describe("server helpers", () => {
 
   it("rejects unsigned chat channel webhooks before adapter dispatch", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(() => "unexpected")
     const agent = defineAgent({
       channels: {
-        support: http({
+        support: channelAdapter("http", {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           adapter: () => adapter as never,
           webhooks: {
             id: "custom-support",
             secretHeader: "x-test-secret",
-            secretToken: "secret-token",
+            secret: () => "secret-token",
           },
         }),
       },
@@ -8676,7 +8711,6 @@ describe("server helpers", () => {
 
   it("does not let an inherited webhook resolver disable verification", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(() => "unexpected")
@@ -8687,13 +8721,13 @@ describe("server helpers", () => {
     const secretToken = Object.create(prototype)
     const agent = defineAgent({
       channels: {
-        support: http({
+        support: channelAdapter("http", {
           // SAFETY: This fixture models an untrusted registration with an inherited resolver.
           adapter: () => adapter as never,
           webhooks: {
             id: "custom-support",
             secretHeader: "x-test-secret",
-            secretToken: secretToken as never,
+            secret: secretToken as never,
           },
         }),
       },
@@ -8718,7 +8752,6 @@ describe("server helpers", () => {
 
   it("rejects prototype-based webhook secret resolvers", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     class SecretResolver {
       resolve() {
@@ -8728,9 +8761,9 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter()
     const agent = defineAgent({
       channels: {
-        support: http({
+        support: channelAdapter("http", {
           adapter: () => adapter as never,
-          webhooks: { id: "custom-support", secretHeader: "x-test-secret", secretToken: new SecretResolver() as never },
+          webhooks: { id: "custom-support", secretHeader: "x-test-secret", secret: new SecretResolver() as never },
         }),
       },
       driver: { run: vi.fn() },
@@ -8747,16 +8780,15 @@ describe("server helpers", () => {
 
   it("fails closed when generated chat webhook secrets resolve empty", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(() => "unexpected")
     const agent = defineAgent({
       channels: {
-        support: http({
+        support: channelAdapter("http", {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           adapter: () => adapter as never,
-          webhooks: { id: "custom-support", secretHeader: "x-test-secret", secretToken: () => "" },
+          webhooks: { id: "custom-support", secretHeader: "x-test-secret", secret: () => "" },
         }),
       },
       driver: {
@@ -8777,7 +8809,7 @@ describe("server helpers", () => {
     expect(response.status).toBe(401)
     await expect(response.json()).resolves.toEqual({
       error:
-        '[vitehub] Webhook registration "custom-support" declares secretHeader "x-test-secret" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.',
+        '[vitehub] Webhook registration "custom-support" declares secretHeader "x-test-secret" but no secret is configured. Set secret to the name of the server variable that holds it; secret: false explicitly disables verification.',
     })
     expect(adapter.handleWebhook).not.toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
@@ -8794,7 +8826,7 @@ describe("server helpers", () => {
         telegram: testTelegram(telegram, {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           adapter: () => adapter as never,
-          webhooks: { secretToken: "secret-token" },
+          webhooks: { secret: () => "secret-token" },
         }),
       },
       driver: {
@@ -9002,7 +9034,7 @@ describe("server helpers", () => {
     expect(response.status).toBe(401)
     await expect(response.json()).resolves.toEqual({
       error:
-        '[vitehub] Webhook registration "github" declares secretHeader "x-hub-signature-256" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.',
+        '[vitehub] Webhook registration "github" declares secretHeader "x-hub-signature-256" but no secret is configured. Set secret to the name of the server variable that holds it; secret: false explicitly disables verification.',
     })
     expect(run).not.toHaveBeenCalled()
   })
@@ -9069,7 +9101,7 @@ describe("server helpers", () => {
               },
             },
           },
-          webhooks: { path: "/api/github/webhook", secretToken: "secret-token" },
+          webhooks: { path: "/api/github/webhook", secret: () => "secret-token" },
         }),
       },
       driver: {
@@ -9176,7 +9208,7 @@ describe("server helpers", () => {
               invoke: () => ({ input: { prompt: "github delivery" } }),
             },
           },
-          webhooks: { secretToken: "secret-token" },
+          webhooks: { secret: () => "secret-token" },
         }),
       },
       driver: {
@@ -9233,7 +9265,7 @@ describe("server helpers", () => {
         channels: {
           github: github({
             triggers: { webhook: { invoke: () => ({ input: { prompt: "github delivery" } }) } },
-            webhooks: { secretToken: "secret-token" },
+            webhooks: { secret: () => "secret-token" },
           }),
         },
         driver: { run: () => "accepted" },
@@ -9282,7 +9314,7 @@ describe("server helpers", () => {
               invoke: () => ({ input: { prompt: "github delivery" } }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: {
@@ -9344,7 +9376,7 @@ describe("server helpers", () => {
               invoke: () => ({ input: { prompt: "github delivery" } }),
             },
           },
-          webhooks: { secretToken: "secret-token" },
+          webhooks: { secret: () => "secret-token" },
         }),
       },
       driver: {
@@ -9403,7 +9435,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: "secret-token" },
+          webhooks: { secret: () => "secret-token" },
         }),
       },
       driver: {
@@ -9471,7 +9503,7 @@ describe("server helpers", () => {
               },
             },
           },
-          webhooks: { path: "/api/github/webhook", secretToken: "secret-token" },
+          webhooks: { path: "/api/github/webhook", secret: () => "secret-token" },
         }),
       },
       driver: {
@@ -9563,7 +9595,7 @@ describe("server helpers", () => {
               invoke,
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -9660,7 +9692,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -9722,7 +9754,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: {
@@ -9800,7 +9832,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -9855,7 +9887,7 @@ describe("server helpers", () => {
       channels: {
         github: github({
           triggers: { webhook: { invoke } },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -9930,7 +9962,7 @@ describe("server helpers", () => {
               : { comments: filterLocation === "comments" ? { filter: { draft: { allow: ["true"] } } } : true },
             reply: false,
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -10024,7 +10056,7 @@ describe("server helpers", () => {
               },
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -10097,7 +10129,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -10183,7 +10215,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -10263,7 +10295,7 @@ describe("server helpers", () => {
     const failed = vi.fn()
     const run = vi.fn()
     const agent = defineAgent({
-      channels: { github: github({ triggers: { webhook: { failed, invoke: () => new Response(null, { status: 204 }) } }, webhooks: { secretToken: false } }) },
+      channels: { github: github({ triggers: { webhook: { failed, invoke: () => new Response(null, { status: 204 }) } }, webhooks: { secret: false } }) },
       driver: { run },
     })
     await state.connect()
@@ -10374,7 +10406,7 @@ describe("server helpers", () => {
           run: { runId: "journal-webhook-invocation" },
           webhook: { concurrencyLimit: 1, deliveryId: "delivery-journal-cancel" },
         }) } },
-        webhooks: { secretToken: false },
+        webhooks: { secret: false },
       }) },
       driver: { run },
     })
@@ -10431,7 +10463,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -10555,7 +10587,7 @@ describe("server helpers", () => {
               },
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -10768,7 +10800,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -10861,7 +10893,7 @@ describe("server helpers", () => {
               },
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -10980,7 +11012,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -11042,7 +11074,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -11143,7 +11175,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -11242,7 +11274,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -11314,7 +11346,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -11403,7 +11435,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -11514,7 +11546,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run: options.run },
@@ -11758,7 +11790,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -11828,7 +11860,7 @@ describe("server helpers", () => {
                 // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
                 webhook: { invoke: () => ({ input: { prompt: "ignored" }, webhook }) as never },
               },
-              webhooks: { secretToken: false },
+              webhooks: { secret: false },
             }),
           },
           driver: { run: vi.fn() },
@@ -11880,7 +11912,7 @@ describe("server helpers", () => {
               },
             },
           },
-          webhooks: { secretToken: "secret-token" },
+          webhooks: { secret: () => "secret-token" },
         }),
       },
       driver: { run },
@@ -12009,7 +12041,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -12073,7 +12105,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -12120,7 +12152,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -12162,7 +12194,7 @@ describe("server helpers", () => {
       channels: {
         github: github({
           triggers: { webhook: { invoke: () => ({ input: { prompt: "github delivery" } }) } },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -12232,7 +12264,7 @@ describe("server helpers", () => {
             channels: {
               github: github({
                 triggers: { webhook: { invoke: () => ({ input: { prompt: "github delivery" } }) } },
-                webhooks: { secretToken: false },
+                webhooks: { secret: false },
               }),
             },
           }
@@ -12391,7 +12423,7 @@ describe("server helpers", () => {
                 : replay(),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -12522,7 +12554,7 @@ describe("server helpers", () => {
       channels: {
         github: github({
           triggers: { webhook: { invoke: () => new Response(null, { status: 204 }) } },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -12613,7 +12645,7 @@ describe("server helpers", () => {
       channels: {
         github: github({
           triggers: { webhook: { invoke: () => ({ input: { prompt: "github delivery" } }) } },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -12689,7 +12721,7 @@ describe("server helpers", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -12732,11 +12764,10 @@ describe("server helpers", () => {
 
   it("does not route channel webhook arrays by unsuffixed channel id", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const agent = defineAgent({
       channels: {
-        support: http({
+        support: channelAdapter("http", {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           adapter: () => createTestChatAdapter() as never,
           webhooks: [{ path: "/api/support/primary" }, { path: "/api/support/fallback" }],
@@ -12786,8 +12817,8 @@ describe("server helpers", () => {
             },
           },
           webhooks: [
-            { id: "primary:one", path: "/api/support/primary", secretToken: false },
-            { id: "fallback:two", path: "/api/support/fallback", secretToken: false },
+            { id: "primary:one", path: "/api/support/primary", secret: false },
+            { id: "fallback:two", path: "/api/support/fallback", secret: false },
           ],
         }),
       },
@@ -12820,17 +12851,16 @@ describe("server helpers", () => {
 
   it("does not route ambiguous provider webhook selectors", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
       channels: {
-        sales: http({
+        sales: channelAdapter("http", {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           adapter: () => createTestChatAdapter() as never,
           webhooks: { id: "sales-hook" },
         }),
-        support: http({
+        support: channelAdapter("http", {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           adapter: () => createTestChatAdapter() as never,
           webhooks: { id: "support-hook" },
@@ -12868,11 +12898,11 @@ describe("server helpers", () => {
       channels: {
         primary: github({
           triggers: { webhook: { invoke: () => ({ input: { prompt: "primary" } }) } },
-          webhooks: { id: "primary", path: "/api/github/webhook", secretToken: false },
+          webhooks: { id: "primary", path: "/api/github/webhook", secret: false },
         }),
         fallback: github({
           triggers: { webhook: { invoke: () => ({ input: { prompt: "fallback" } }) } },
-          webhooks: { id: "fallback", path: "/api/github/webhook", secretToken: false },
+          webhooks: { id: "fallback", path: "/api/github/webhook", secret: false },
         }),
       },
       driver: {
@@ -12899,15 +12929,14 @@ describe("server helpers", () => {
 
   it("uses channel ids for same-kind channel webhook state", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const prefixes: string[] = []
     const agent = defineAgent({
       channels: {
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-        sales: http({ adapter: () => createTestChatAdapter() as never }),
+        sales: channelAdapter("http", { adapter: () => createTestChatAdapter() as never }),
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-        support: http({ adapter: () => createTestChatAdapter() as never }),
+        support: channelAdapter("http", { adapter: () => createTestChatAdapter() as never }),
       },
       messages: {
         state: ({ chat }) => {
@@ -12940,7 +12969,6 @@ describe("server helpers", () => {
 
   it("scopes framework chat state by agent and channel", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-state-scope-"))
@@ -12953,9 +12981,9 @@ describe("server helpers", () => {
         defineAgent({
           channels: {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            discord: http({ adapter: () => createTestChatAdapter() as never }),
+            discord: channelAdapter("http", { adapter: () => createTestChatAdapter() as never }),
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            slack: http({ adapter: () => createTestChatAdapter() as never }),
+            slack: channelAdapter("http", { adapter: () => createTestChatAdapter() as never }),
           },
           driver: { run },
           messages: { ...(explicitState ? { state: explicitState } : {}), stream: false },
@@ -13020,7 +13048,6 @@ describe("server helpers", () => {
 
   it("shares explicit-identity transcripts across channels while isolating agents", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-transcript-scope-"))
@@ -13032,9 +13059,9 @@ describe("server helpers", () => {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           channels: {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            discord: http({ adapter: () => discordAdapter as never }),
+            discord: channelAdapter("http", { adapter: () => discordAdapter as never }),
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            slack: http({ adapter: () => slackAdapter as never }),
+            slack: channelAdapter("http", { adapter: () => slackAdapter as never }),
           },
           driver: { run: () => "ok" },
           messages: {
@@ -13122,7 +13149,7 @@ describe("server helpers", () => {
           capabilities: [title({ execute })],
           channels: {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
+            channel: channelAdapter("http", { adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
           },
           driver: { run },
           invocations: journaled ? invocations : undefined,
@@ -13232,7 +13259,6 @@ describe("server helpers", () => {
   it("releases failed title delivery claims for finish and later webhook retries", { timeout: 15_000 }, async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { title } = await import("../src/capabilities.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-title-retry-"))
@@ -13248,7 +13274,7 @@ describe("server helpers", () => {
         capabilities: [title({ execute: ({ text }) => `Title: ${text}` })],
         channels: {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-          channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
+          channel: channelAdapter("http", { adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
         },
         driver: { run: () => "ok" },
         messages: { state, stream: false, triggerHistory: "none" },
@@ -13272,7 +13298,6 @@ describe("server helpers", () => {
   it("claims concurrent Chat SDK title delivery atomically", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { title } = await import("../src/capabilities.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-title-concurrent-"))
@@ -13303,7 +13328,7 @@ describe("server helpers", () => {
           capabilities: [title({ execute })],
           channels: {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            channel: http({ adapter: () => adapter as never }),
+            channel: channelAdapter("http", { adapter: () => adapter as never }),
           },
           driver: { run: () => "ok" },
           messages: { state: messageState(prefix), stream: false, triggerHistory: "none" },
@@ -13341,7 +13366,6 @@ describe("server helpers", () => {
   it("isolates title delivery by agent and channel on shared explicit state", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { title } = await import("../src/capabilities.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-title-scope-"))
@@ -13354,7 +13378,7 @@ describe("server helpers", () => {
           capabilities: [title({ execute: () => `${channel} title` })],
           channels: {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-            [channel]: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
+            [channel]: channelAdapter("http", { adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
           },
           driver: { run: () => "ok" },
           messages: { state, stream: false, triggerHistory: "none" },
@@ -13379,7 +13403,6 @@ describe("server helpers", () => {
   it("can deliver state-backed Chat SDK titles on every invocation", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { title } = await import("../src/capabilities.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-title-always-"))
@@ -13391,7 +13414,7 @@ describe("server helpers", () => {
         capabilities: [title({ channelDelivery: "always", execute: ({ text }) => `Title: ${text}` })],
         channels: {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-          channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
+          channel: channelAdapter("http", { adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
         },
         driver: { run: () => "ok" },
         messages: { state, stream: false, triggerHistory: "none" },
@@ -13414,7 +13437,6 @@ describe("server helpers", () => {
   it("keeps Chat SDK output and best-effort title delivery when title state coordination fails", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { title } = await import("../src/capabilities.ts")
-    const { http } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-title-state-failure-"))
@@ -13439,7 +13461,7 @@ describe("server helpers", () => {
         capabilities: [title({ execute: () => "Best effort title" })],
         channels: {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-          channel: http({ adapter: () => adapter as never }),
+          channel: channelAdapter("http", { adapter: () => adapter as never }),
         },
         driver: { run: () => "ok" },
         messages: { state: failingState, stream: false, triggerHistory: "none" },
@@ -19808,6 +19830,74 @@ describe("server helpers", () => {
     }
   })
 
+  it("confirms an accepted steer without waiting for the Invocation journal", async () => {
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
+    const state = createLibsqlAgentState({ url: ":memory:" })
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    // The store holds every appended observation, as a slow remote store does.
+    const journalHeld = deferred<void>()
+    const append = invocations.appendObservation.bind(invocations)
+    vi.spyOn(invocations, "appendObservation").mockImplementation(async (...input) => {
+      await journalHeld.promise
+      return await append(...input)
+    })
+    const released = deferred<void>()
+    let runs = 0
+    const sendInput = vi.fn(async () => "accepted" as const)
+    const handler = createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => createTestChatAdapter() as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, state, timeout: 5_000 },
+        }),
+      },
+      driver: {
+        async run(context) {
+          runs += 1
+          const runId = context.run?.runId
+          if (!runId) throw new Error("Expected an invocation run ID")
+          const unregister = registerAgentInvocationInputHandler(runId, { sendInput, support: { steer: true } })
+          try {
+            await released.promise
+            return "Reply"
+          } finally {
+            unregister()
+          }
+        },
+      },
+      invocations,
+    }) as never)
+    const tasks: Promise<unknown>[] = []
+    const context = { agentIdentity: { name: "calories" }, waitUntil: (task: Promise<unknown>) => { tasks.push(task) } }
+    const request = (messageId: number) => {
+      const value = chatWebhookRequest(messageId)
+      value.headers.set("x-vitehub-delivery-id", String(messageId))
+      return value
+    }
+    const pending: Promise<Response>[] = []
+    try {
+      await state.connect()
+      pending.push(handler(request(91_210), "telegram", context))
+      await vi.waitFor(() => expect(runs).toBe(1))
+      pending.push(handler(request(91_211), "telegram", context))
+      await withDeadline(pending[1]!, 2_000, "The accepted steer waited for the journal")
+      const followUp = (await handler.deliveries(request(91_211), "telegram", context)).find(delivery => delivery.sourceId === "91211")
+      expect(followUp?.events.map(event => event.type)).toContain("accepted")
+      expect(followUp?.events.some(event => event.type === "failed")).toBe(false)
+      journalHeld.resolve()
+      released.resolve()
+      await Promise.all(pending)
+      await Promise.allSettled(tasks)
+    } finally {
+      journalHeld.resolve()
+      released.resolve()
+      await Promise.allSettled(pending)
+      await state.disconnect()
+    }
+  })
+
   it.each(["unsupported", "unavailable"] as const)("coalesces duplicate late %s steering fallbacks", async (result) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -21156,6 +21246,84 @@ describe("server helpers", () => {
     expect(adapter.editMessage).toHaveBeenLastCalledWith("telegram:456", "sent-1", { markdown: "Planning the lookup." })
   })
 
+  it("keeps provider reasoning and text marked as reasoning out of a streamed reply", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { stream: true },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { id: "reasoning_summary_text:rs_1:0", text: "**Inspecting toggle configuration**", type: "reasoning-delta" }
+            yield { id: "private", phase: "reasoning", type: "text-start" }
+            yield { delta: "Private reasoning.", id: "private", type: "text-delta" }
+            yield { id: "private", type: "text-end" }
+            yield { delta: "Done.", type: "text-delta" }
+            yield { finishReason: "stop", type: "finish" }
+          })(),
+        }),
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_803), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.editMessage).toHaveBeenLastCalledWith("telegram:456", "sent-1", { markdown: "Done." })
+    expect(JSON.stringify([adapter.postMessage.mock.calls, adapter.editMessage.mock.calls])).not.toMatch(/Inspecting|Private reasoning/)
+  })
+
+  it("shows provider reasoning titles and commentary in the loading message, but not in the final reply", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { delivery: "manual", final: { delivery: "new-message" }, loading: { text: "Thinking…", updates: "commentary" } },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { id: "reasoning_summary_text:rs_1:0", text: "**Inspecting toggle configuration**", type: "reasoning-delta" }
+            yield { id: "reasoning-1", text: "AI SDK private reasoning.", type: "reasoning-delta" }
+            yield { id: "private", phase: "reasoning", type: "text-start" }
+            yield { delta: "Private reasoning.", id: "private", type: "text-delta" }
+            yield { id: "private", type: "text-end" }
+            yield { delta: "I’ll check the toggle next.", id: "assistant_text:msg_1:0", phase: "commentary", type: "text-delta" }
+            yield { delta: "The toggle is off.", id: "assistant_text:msg_2:0", phase: "final", type: "text-delta" }
+            yield { finishReason: "stop", type: "finish" }
+          })(),
+        }),
+      },
+      hooks: { "agent:finish": event => event.reply(event.text!) },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_802), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.editMessage.mock.calls.map(call => call[2])).toEqual([
+      { markdown: "**Inspecting toggle configuration**" },
+      { markdown: "I’ll check the toggle next." },
+    ])
+    expect(adapter.postMessage).toHaveBeenLastCalledWith("telegram:456", { markdown: "The toggle is off." })
+  })
+
   it("throttles commentary queued during an in-flight loading edit", async () => {
     vi.useFakeTimers()
     const { defineAgent } = await import("../src/index.ts")
@@ -22452,7 +22620,7 @@ describe("server helpers", () => {
             fallbackStreamingPlaceholderText: "Analyzing photo…",
             timeout: 50_000,
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -22563,7 +22731,7 @@ describe("server helpers", () => {
             fallbackStreamingPlaceholderText: "Analyzing photo…",
             timeout: 50_000,
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -22614,7 +22782,7 @@ describe("server helpers", () => {
             errorFallbackText: "Please try again.",
             timeout: 50_000,
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: {
@@ -22686,7 +22854,7 @@ describe("server helpers", () => {
             errorFallbackText: "Please try again.",
             timeout: 50_000,
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -22741,7 +22909,7 @@ describe("server helpers", () => {
             stream: false,
             timeout: 50_000,
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -22814,7 +22982,7 @@ describe("server helpers", () => {
             stream: false,
             timeout: 50_000,
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run: () => ({ text: "" }) },
@@ -22866,7 +23034,7 @@ describe("server helpers", () => {
               await thread.post("Tailored fallback.")
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: {
@@ -22911,7 +23079,7 @@ describe("server helpers", () => {
                 resolveFallback = resolve
               }),
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: {
@@ -22966,7 +23134,7 @@ describe("server helpers", () => {
               await thread.post("Tailored fallback.")
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },
@@ -23425,7 +23593,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       channels: {
         // SAFETY: createTestChatAdapter implements the Channel adapter contract.
-        telegram: testTelegram(telegram, { adapter: () => adapter as never, webhooks: { secretHeader: "x-test-secret", secretToken: "history-secret" } }),
+        telegram: testTelegram(telegram, { adapter: () => adapter as never, webhooks: { secretHeader: "x-test-secret", secret: () => "history-secret" } }),
       },
       driver: { run: () => "saved" },
       messages: { stream: false },
@@ -23478,7 +23646,7 @@ describe("server helpers", () => {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           platforms: { telegram: () => adapter as never },
           stream: false,
-          webhooks: { telegram: { secretHeader: "x-test-secret", secretToken: "history-secret" } },
+          webhooks: { telegram: { secretHeader: "x-test-secret", secret: () => "history-secret" } },
         }),
       ],
       driver: { run: () => "saved" },
@@ -24078,7 +24246,14 @@ describe("server helpers", () => {
       expect(fetch).not.toHaveBeenCalled()
       expect(runs).toEqual([["", "current after stale history"]])
       expect(receivedMessages[0]?.parts).toEqual([
-        { data: { modelText: "[Wed 2026-06-10 12:00:00 +00:00 · msg 40 · file (not shown)]" }, id: "message-header", type: "data-chat-message-header" },
+        {
+          data: {
+            modelText: "[Wed 2026-06-10 12:00:00 +00:00 · msg 40 · file (not shown)]",
+            omittedAttachments: [{ id: "attachment-1", mediaType: "text/plain", name: "old.txt", reason: "not-image" }],
+          },
+          id: "message-header",
+          type: "data-chat-message-header",
+        },
       ])
     } finally {
       fetch.mockRestore()

@@ -53,6 +53,7 @@ GitHub Stores also keep other answers, so a read asks GitHub only for what chang
 - A branch head is one request. The Store keeps it for 5 seconds, then asks again with its ETag. GitHub answers `304 Not Modified` when the branch did not move, and a `304` does not count against the GitHub rate limit.
 - History pages, commits, and trees are read by commit sha, so their answers never change. Each Store keeps up to 12 MiB of them in memory. When the app enables [KV](/docs/kv) and uses Content, they also go to KV for 7 days, and a new isolate reads them there instead of from GitHub.
 - `history.open(id).preload(paths)` reads many files of one commit from one archive of the commit instead of one request per file. It reads 8 files or fewer one by one. The archive of a commit also goes to KV.
+- `history.open(id).lastChanged(paths)` checks up to 100 paths per GraphQL request. It returns changes it can confirm on the first-parent history and omits paths it cannot confirm. Confirmed answers also go to KV.
 
 One GitHub Store serves every request of an instance, and it keeps writes until `workspace.snapshot()`. When a request, a Schedule run, or a Queue job throws before its snapshot, the Store forgets its writes, so the next snapshot does not commit them. Two requests that run at the same time share their writes until one of them snapshots.
 
@@ -79,19 +80,19 @@ import { workspaceHistorySchema } from 'vite-hub/workspace/blob-database'
 export default defineDatabase({ name: 'history', schema: workspaceHistorySchema })
 ```
 
-```ts [server/workspaces/drop.ts]
+```ts [server/workspaces/notes.ts]
 import { blob } from 'vite-hub/blob'
 import { useDatabase } from 'vite-hub/database'
 import { defineWorkspace } from 'vite-hub/workspace'
 import { createBlobDatabaseWorkspaceStore } from 'vite-hub/workspace/blob-database'
 
-export const dropStore = createBlobDatabaseWorkspaceStore({
+export const notesStore = createBlobDatabaseWorkspaceStore({
   blob: blob.store('workspace-history'),
   database: () => useDatabase('history').db,
-  workspace: 'drop-123',
+  workspace: 'notes-123',
 })
 
-export default defineWorkspace({ store: dropStore })
+export default defineWorkspace({ store: notesStore })
 ```
 
 `database` takes a function that returns the Drizzle database. The Store calls it on first use, because the build loads the Workspace Definition without your Databases. Do not pass the Database Definition: it holds options only. `useDatabase('history').db` has the migrations and relations of the build. A value that is not a Drizzle database throws `WORKSPACE_R0077`.
@@ -132,7 +133,7 @@ DROP INDEX workspace_history_timeline;
 CREATE INDEX workspace_history_timeline ON workspace_history_revisions (workspace, ref, committed, sequence);
 ```
 
-To delete the workspace and all its history, check authorization in your app, then call `await dropStore.delete()`. It marks the identity with a tombstone, then removes objects and catalog rows.
+To delete the workspace and all its history, check authorization in your app, then call `await notesStore.delete()`. It marks the identity with a tombstone, then removes objects and catalog rows.
 
 ::warning
 Deletion is permanent. A replacement workspace needs a new identity.
@@ -152,7 +153,7 @@ import { defineWorkspace } from 'vite-hub/workspace'
 export default defineWorkspace({
   store: {
     driver: 'github',
-    repository: 'onmax/docs',
+    repository: 'acme/docs',
     branch: 'main',
     root: '',
     refs: { published: 'main', draft: 'vitehub/content' },

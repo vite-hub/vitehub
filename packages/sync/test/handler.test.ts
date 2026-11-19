@@ -101,10 +101,11 @@ describe("pull", () => {
   it("reads 150 changed keys in one pull, and pages after 500 changes", async () => {
     const app = await setup()
     const alice = await app.start("alice")
-    for (let start = 0; start < 150; start += 100) {
-      const mutations = Array.from({ length: Math.min(100, 150 - start) }, (_, index) => insert(`m${start + index}`, { id: `k${String(start + index).padStart(3, "0")}`, title: "x" }))
-      const { body } = await app.push("alice", { ...as(alice), mutations })
+    let queue = Array.from({ length: 150 }, (_, index) => insert(`m${index}`, { id: `k${String(index).padStart(3, "0")}`, title: "x" }))
+    while (queue.length) {
+      const { body } = await app.push("alice", { ...as(alice), mutations: queue.slice(0, 100) })
       expect(body.results.every(result => result.status === "applied")).toBe(true)
+      queue = queue.slice(body.results.length)
     }
     const { body } = await app.pull("alice", { cursor: alice.cursor, ...as(alice) })
     expect(body).toMatchObject({ reset: false, more: false })
@@ -119,6 +120,35 @@ describe("pull", () => {
     expect(second).toMatchObject({ reset: false, more: false })
     expect(second.rows).toHaveLength(20 - 1)
     expect(new Set([...first.rows, ...second.rows].map(row => row.ownerId))).toEqual(new Set(["alice"]))
+  })
+
+  it("sends a snapshot of 1200 rows in pages of 500 by key, and the rows that changed meanwhile with the next pull", async () => {
+    const app = await setup()
+    await app.db.insert(todos).values(Array.from({ length: 1200 }, (_, index) => ({ id: `r${String(index).padStart(4, "0")}`, ownerId: index % 100 === 0 ? "bob" : "alice", title: "old" })))
+    const copy = new Map<string, Todo>()
+    const first = (await app.pull("alice", { paged: true })).body
+    expect(first).toMatchObject({ reset: true, more: true, after: "r0505" })
+    expect(first.rows).toHaveLength(500)
+    for (const row of first.rows) copy.set(String(row.id), row as Todo)
+
+    await app.db.update(todos).set({ title: "changed" }).where(eq(todos.id, "r0001"))
+    await app.db.delete(todos).where(eq(todos.id, "r0002"))
+    await app.db.delete(todos).where(eq(todos.id, "r0901"))
+    const held = { cursor: first.cursor, scope: first.scope.id, version: first.version, paged: true }
+    const second = (await app.pull("alice", { ...held, after: first.after! })).body
+    expect(second).toMatchObject({ reset: false, cursor: first.cursor, more: true, after: "r1011" })
+    expect(second.rows).toHaveLength(500)
+    const third = (await app.pull("alice", { ...held, after: second.after! })).body
+    expect(third).toMatchObject({ reset: false, cursor: first.cursor, more: true, after: null })
+    expect(third.rows.length).toBeLessThan(500)
+    for (const row of [...second.rows, ...third.rows]) copy.set(String(row.id), row as Todo)
+
+    const changes = (await app.pull("alice", { ...held, paged: false })).body
+    expect(changes).toMatchObject({ reset: false, more: false })
+    for (const row of changes.rows) copy.set(String(row.id), row as Todo)
+    for (const key of changes.deleted) copy.delete(key)
+    expect([...copy.values()].sort((a, b) => a.id.localeCompare(b.id))).toEqual((await app.rows()).filter(row => row.ownerId === "alice"))
+    expect(copy.get("r0001")?.title).toBe("changed")
   })
 
   it("shows writes that server code makes with Drizzle", async () => {
@@ -226,6 +256,88 @@ describe("push", () => {
     expect(retry.status).toBe(200)
     expect(retry.body.results).toEqual([{ id: "m1", status: "duplicate" }, { id: "m2", status: "duplicate" }])
     expect(await app.rows()).toEqual([{ id: "a1", ownerId: "alice", title: "Soy milk", done: false }])
+  })
+
+  it("drains 100 writes in pushes of at most 40 Database calls, the limit of the Workers Free plan being 50", async () => {
+    const app = await setup()
+    const alice = await app.start("alice")
+    let queue = Array.from({ length: 100 }, (_, index) => insert(`m${index}`, { id: `a${index}`, title: `Card ${index}` }))
+    const calls: number[] = []
+    while (queue.length && calls.length < 20) {
+      const before = app.calls()
+      const { status, body } = await app.push("alice", { ...as(alice), mutations: queue })
+      calls.push(app.calls() - before)
+      expect(status).toBe(200)
+      expect(body.results.map(result => result.id)).toEqual(queue.slice(0, body.results.length).map(mutation => mutation.id))
+      expect(body.results.every(result => result.status === "applied")).toBe(true)
+      queue = queue.slice(body.results.length)
+    }
+    expect(queue).toEqual([])
+    expect(Math.max(...calls)).toBeLessThanOrEqual(40)
+    expect(await app.rows()).toHaveLength(100)
+    const before = app.calls()
+    const retried = await app.push("alice", { ...as(alice), mutations: Array.from({ length: 100 }, (_, index) => insert(`m${index}`, { id: `a${index}`, title: `Card ${index}` })) })
+    expect(retried.body.results).toHaveLength(100)
+    expect(retried.body.results.every(result => result.status === "duplicate")).toBe(true)
+    expect(app.calls() - before).toBeLessThanOrEqual(5)
+  })
+
+  it("keeps a push of refused updates and an action that reads 16 rows under 40 Database calls", async () => {
+    const app = await setup({
+      actions: {
+        read: async ({ get }, { ids }: { ids: string[] }) => {
+          for (const id of ids) await get(id)
+          return ids.length
+        },
+      },
+    })
+    const alice = await app.start("alice")
+    let queue: SyncMutation[] = [
+      ...Array.from({ length: 33 }, (_, index) => update(`u${index}`, `gone${index}`, { title: "x" })),
+      { id: "a1", op: "action", name: "read", args: { ids: Array.from({ length: 16 }, (_, index) => `k${index}`) } },
+    ]
+    const calls: number[] = []
+    const results: string[] = []
+    while (queue.length && calls.length < 10) {
+      const before = app.calls()
+      const { status, body } = await app.push("alice", { ...as(alice), mutations: queue })
+      calls.push(app.calls() - before)
+      expect(status).toBe(200)
+      results.push(...body.results.map(result => result.status))
+      queue = queue.slice(body.results.length)
+    }
+    expect(queue).toEqual([])
+    expect(Math.max(...calls)).toBeLessThanOrEqual(40)
+    expect(results).toEqual([...Array.from({ length: 33 }, () => "rejected"), "applied"])
+  })
+
+  it("answers `duplicate` for an id that the same push applied before", async () => {
+    const app = await setup()
+    const alice = await app.start("alice")
+    const { body } = await app.push("alice", { ...as(alice), mutations: [insert("m1", { id: "a1", title: "Milk" }), insert("m1", { id: "a1", title: "Milk" })] })
+    expect(body.results).toEqual([{ id: "m1", status: "applied" }, { id: "m1", status: "duplicate" }])
+  })
+
+  it("answers `duplicate` when another push applies an insert after the ledger read", async () => {
+    let retry: (() => Promise<void>) | undefined
+    const app = await setup({ actions: { retry: async () => await retry?.() } })
+    const alice = await app.start("alice")
+    const write = insert("m1", { id: "a1", title: "Milk" })
+    retry = async () => {
+      const { body } = await app.push("alice", { ...as(alice), mutations: [write] })
+      expect(body.results).toEqual([{ id: "m1", status: "applied" }])
+    }
+
+    const { body } = await app.push("alice", { ...as(alice), mutations: [{ id: "race", op: "action", name: "retry" }, write] })
+    expect(body.results).toEqual([{ id: "race", status: "applied" }, { id: "m1", status: "duplicate" }])
+  })
+
+  it("applies the first mutation of a push also when it passes `push.calls`", async () => {
+    const app = await setup()
+    const alice = await app.start("alice")
+    const { body } = await app.push("alice", { ...as(alice), mutations: [insert("m1", { id: "a1", title: "Milk" }), insert("m2", { id: "a2", title: "Eggs" })] }, {}, { push: { calls: 1 } })
+    expect(body.results).toEqual([{ id: "m1", status: "applied" }])
+    expect((await app.rows()).map(row => row.id)).toEqual(["a1"])
   })
 
   it("applies an insert and an update of one push in order", async () => {

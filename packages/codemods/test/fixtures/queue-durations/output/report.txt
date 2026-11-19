@@ -1,0 +1,19 @@
+queue-durations: renamed the Queue `delaySeconds` and `retentionSeconds` in 3 file(s)
+Dry run: no files were written.
+
+Files to change (3):
+  server/api/signup.post.ts
+  server/queues/sync.ts
+  server/queues/welcome-email.ts
+
+Manual follow-ups (4):
+  1. server/api/nuxt.post.ts:3 This still names `delaySeconds`. If it is a ViteHub Queue option, rename it to `delay` and write a duration string such as "60s". Cloudflare's native `message.retry()` and the `@vercel/queue` SDK keep `delaySeconds`.
+  2. server/api/nuxt.post.ts:3 This still names `retentionSeconds`. If it is a ViteHub Queue option, rename it to `retention` and write a duration such as "1h" or a number of seconds. Cloudflare's native `message.retry()` and the `@vercel/queue` SDK keep `retentionSeconds`.
+  3. server/api/signup.post.ts:10 Queue `delay` takes a duration string, such as "60s", in place of a number of seconds. The codemod cannot read `body.wait`, so write it as a duration, for example `${body.wait}s` when it is a number of seconds.
+  4. server/utils/options.ts:3 This still names `delaySeconds`. If it is a ViteHub Queue option, rename it to `delay` and write a duration string such as "60s". Cloudflare's native `message.retry()` and the `@vercel/queue` SDK keep `delaySeconds`.
+
+Notes:
+  - Queue `delay` takes a duration string, such as "60s" or "5m". `retention` takes a duration or a number of seconds. A send that still passes `delaySeconds` or `retentionSeconds` fails with `QUEUE_UNSUPPORTED_OPTION`.
+
+Next steps:
+  - Run your typecheck. It finds Queue options that other files build.

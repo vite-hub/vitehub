@@ -105,6 +105,8 @@ export interface ServerDefinitionInput {
   /** `access.routes` entries from route rules on server paths. */
   accessRoutes: string[]
   publicRoutes: string[]
+  signIn?: string
+  afterSignIn?: string
 }
 
 /**
@@ -139,8 +141,8 @@ export function moveServerDefinition(input: ServerDefinitionInput): DefinitionMo
     follow(call, "Use explicit Auth options without spreads or computed keys and return custom storage adapters from a callback.")
     return { followUps, moved: false }
   }
-  if (input.accessRoutes.length && findProperty(options, "access")) {
-    follow(call, "Merge the API route rules with the existing access option by hand.")
+  if ((input.accessRoutes.length || input.signIn || input.afterSignIn) && findProperty(options, "access")) {
+    follow(call, "Merge the Auth redirects or API route rules with the existing access option by hand.")
     return { followUps, moved: false }
   }
   const basePath = findProperty(options, "basePath")
@@ -219,11 +221,13 @@ export function moveServerDefinition(input: ServerDefinitionInput): DefinitionMo
   else if (!database) {
     follow(call, "This config sets no database. ViteHub Auth then keeps users in memory in development, and a production build fails with AUTH_C0063. Set database: authDatabase() from vite-hub/auth/database, or preset: stateless() from vite-hub/auth/presets for social sign-in without a database.")
   }
-  if (input.accessRoutes.length) {
-    const paths = (routes: string[]) => routes.map(route => quoteString(route, style)).join(", ")
-    const publicPaths = input.publicRoutes.length ? `, public: [${paths(input.publicRoutes)}]` : ""
-    entries.push(`access: { routes: [${paths(input.accessRoutes)}]${publicPaths} }`)
-  }
+  const access: string[] = []
+  const paths = (routes: string[]) => routes.map(route => quoteString(route, style)).join(", ")
+  if (input.accessRoutes.length) access.push(`routes: [${paths(input.accessRoutes)}]`)
+  if (input.publicRoutes.length) access.push(`public: [${paths(input.publicRoutes)}]`)
+  if (input.signIn) access.push(`signIn: ${quoteString(input.signIn, style)}`)
+  if (input.afterSignIn) access.push(`afterSignIn: ${quoteString(input.afterSignIn, style)}`)
+  if (access.length) entries.push(`access: { ${access.join(", ")} }`)
   if (entries.length) prependProperties(code, output, options, entries, extraIndent)
   for (const name of ["secret", "baseURL", "basePath"]) {
     const property = options && findProperty(options, name)

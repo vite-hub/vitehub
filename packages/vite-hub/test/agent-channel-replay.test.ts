@@ -36,7 +36,7 @@ export default defineAgent({ runtime: false, workspace: { mode: 'read' },
   driver: { async run({ tools, input }) { if (input.context?.skipDelivery) return 'No delivery'; await tools.send_message.execute({ message: 'Synthetic raw draft' }); return 'Synthetic final answer' } },
   capabilities: [channelDelivery({ required: true, channel: { name: 'teams', send: async () => { throw new Error('Connector must never run') } }, options: {} , format: message => 'Formatted: ' + message })],
   channels: { mailbox: channelAdapter('mailbox', { messages: false,
-    webhooks: { secretHeader: 'x-signature', secretToken: 'secret', signature: 'github-sha256' },
+    webhooks: { secretHeader: 'x-signature', secret: () => 'secret', signature: 'github' },
     history: { key: item => item.id, thread: item => item.thread, collection: {
       parseQuery: async query => { if (query.turns !== 'last') throw new Error('Expected turns query'); return query },
       page: async ({ query }) => ({ items: [{ id: query.delivery === 'skip' ? 'm2' : 'm1', thread: 't1' }], nextCursor: null }),

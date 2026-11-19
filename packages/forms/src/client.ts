@@ -37,6 +37,11 @@ export interface SubmitFormOptions {
   anchor?: FormAnchor
   fetch?: typeof fetch
   signal?: AbortSignal
+  /**
+   * The `Idempotency-Key` of this message: the server stores one message for each key. Default: a new key for each
+   * message, kept for a retry with the same values after a failure, so a retry after a lost answer stores nothing new.
+   */
+  idempotencyKey?: string
 }
 
 /** The route of a form, below the app base. */
@@ -86,6 +91,12 @@ function requestBody(values: Record<string, unknown> | FormData, page: string | 
 }
 
 /**
+ * The latest send on each route owns its retry key. A retry with the same body sends the same key, since the server
+ * may have stored the message before the answer got lost.
+ */
+const latestSends = new Map<string, { retry: { body: string, key: string } | undefined }>()
+
+/**
  * Sends the values of a form to its route. Returns `[undefined, { id }]`, or `[error]` where `error.issues` holds
  * the problem of each field for a 400. Pass `FormData` to send the controls of a `<form>`: the server decodes them
  * to the types of the schema, as it does for a post without JavaScript.
@@ -94,23 +105,38 @@ export async function submitForm(name: string, values: Record<string, unknown> |
   const here = (globalThis as { location?: { pathname: string, search: string } }).location
   const page = options.page ?? (here ? `${here.pathname}${here.search}` : undefined)
   const request = requestBody(values, page, options.anchor)
+  const url = options.url ?? formRoute(name, options.base)
+  const previous = latestSends.get(url)?.retry
+  const retry = previous?.body === request.body ? previous : undefined
+  // `randomUUID()` exists only in a secure context, such as HTTPS or localhost. Without it, the server makes the id.
+  const key = options.idempotencyKey ?? retry?.key ?? globalThis.crypto?.randomUUID?.()
+  const send = { retry: key === retry?.key ? retry : undefined }
+  latestSends.set(url, send)
+  const failed = (error: FormSubmitError): [FormSubmitError, undefined] => {
+    if (latestSends.get(url) === send) {
+      if (key) send.retry = { body: request.body, key }
+      else latestSends.delete(url)
+    }
+    return [error, undefined]
+  }
   let response: Response
   try {
-    response = await (options.fetch ?? fetch)(options.url ?? formRoute(name, options.base), {
+    response = await (options.fetch ?? fetch)(url, {
       method: "POST",
-      headers: { "content-type": request.type, accept: "application/json" },
+      headers: { "content-type": request.type, accept: "application/json", ...(key ? { "idempotency-key": key } : {}) },
       body: request.body,
       ...(options.signal ? { signal: options.signal } : {}),
     })
   }
   catch (error) {
-    return [formSubmitError(error instanceof Error ? error.message : "The message could not be sent.", 0), undefined]
+    return failed(formSubmitError(error instanceof Error ? error.message : "The message could not be sent.", 0))
   }
   const body: unknown = await response.json().catch(() => undefined)
   if (response.ok) {
+    if (latestSends.get(url) === send) latestSends.delete(url)
     const id: unknown = body && typeof body === "object" ? Reflect.get(body, "id") : undefined
     return [undefined, typeof id === "string" ? { id } : {}]
   }
   const message: unknown = body && typeof body === "object" ? Reflect.get(body, "message") : undefined
-  return [formSubmitError(typeof message === "string" ? message : `The form answered ${response.status}.`, response.status, readIssues(body)), undefined]
+  return failed(formSubmitError(typeof message === "string" ? message : `The form answered ${response.status}.`, response.status, readIssues(body)))
 }
