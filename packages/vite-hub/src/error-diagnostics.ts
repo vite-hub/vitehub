@@ -203,11 +203,11 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0113: {
       ...dynamicError,
-      fix: "Pass an Agent name of at most 512 characters, as `vitehub agents list` shows it, to `--agent` of `vitehub agents status`.",
+      fix: "Pass an Agent name of at most 512 characters, as `vitehub agent list` shows it, to `--agent` of `vitehub agent get`.",
     },
     VITE_HUB_R0114: {
       ...dynamicError,
-      fix: "Pass to `vitehub agents status --agent` the name of an Agent that `vitehub agents list` shows.",
+      fix: "Pass to `vitehub agent get` the name of an Agent that `vitehub agent list` shows.",
     },
     VITE_HUB_R0095: {
       ...dynamicError,
@@ -287,7 +287,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0046: {
       ...dynamicError,
-      fix: "Change the `agents.invoke`, `invocations.cancel`, `invocations.delete`, or `invocations.undo` call as the message says, with an Agent from `vitehub agents list` and an Invocation id from `vitehub invocations list`. A 409 names what the app lacks for the action, such as Realtime for undo or an invocation store that can delete.",
+      fix: "Change the `agents.invoke`, `invocations.cancel`, `invocations.delete`, or `invocations.undo` call as the message says, with an Agent from `vitehub agent list` and an Invocation id from `vitehub agent invocations list`. A 409 names what the app lacks for the action, such as Realtime for undo or an invocation store that can delete.",
     },
     VITE_HUB_R0047: {
       ...dynamicError,
@@ -331,15 +331,15 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0053: {
       ...dynamicError,
-      fix: "Pass an Agent name of at most 512 characters, as `vitehub agents list` shows it, to `--agent` of `vitehub invocations capabilities`.",
+      fix: "Pass an Agent name of at most 512 characters, as `vitehub agent list` shows it, to `--agent` of `vitehub agent invocations capabilities`.",
     },
     VITE_HUB_R0054: {
       ...dynamicError,
-      fix: "Pass an Invocation id that `vitehub invocations list` shows. The journal removes old Invocations after its retention limit.",
+      fix: "Pass an Invocation id that `vitehub agent invocations list` shows. The journal removes old Invocations after its retention limit.",
     },
     VITE_HUB_R0058: {
       ...dynamicError,
-      fix: "Pass the `cursor` of the last `vitehub invocations list` result without changes, or omit `cursor` to read the first page.",
+      fix: "Pass the `cursor` of the last `vitehub agent invocations list` result without changes, or omit `cursor` to read the first page.",
     },
     VITE_HUB_R0059: {
       ...dynamicError,
@@ -347,15 +347,15 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0060: {
       ...dynamicError,
-      fix: "Pass an Agent name of at most 512 characters, as `vitehub agents list` shows it, to `--agent` of `vitehub invocations list`.",
+      fix: "Pass an Agent name of at most 512 characters, as `vitehub agent list` shows it, to `--agent` of `vitehub agent invocations list`.",
     },
     VITE_HUB_R0061: {
       ...dynamicError,
-      fix: "Pass `capability` and `triggeredBy` values of at most 512 characters to `invocations.list` (`vitehub invocations list`).",
+      fix: "Pass `capability` and `triggeredBy` values of at most 512 characters to `invocations.list` (`vitehub agent invocations list`).",
     },
     VITE_HUB_R0062: {
       ...dynamicError,
-      fix: "Pass a whole number of 1 or more as `limit` to `invocations.list` (`vitehub invocations list --limit`).",
+      fix: "Pass a whole number of 1 or more as `limit` to `invocations.list` (`vitehub agent invocations list --limit`).",
     },
     VITE_HUB_R0063: {
       ...dynamicError,
@@ -363,7 +363,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0070: {
       ...dynamicError,
-      fix: "Pass an Agent name of at most 512 characters, as `vitehub agents list` shows it, to `--agent` of `vitehub agent usage`.",
+      fix: "Pass an Agent name of at most 512 characters, as `vitehub agent list` shows it, to `--agent` of `vitehub agent usage`.",
     },
     VITE_HUB_R0071: {
       ...dynamicError,

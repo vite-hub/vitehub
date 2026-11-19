@@ -34,15 +34,17 @@ Start the dev server, then print the resolved metadata of one Agent Definition.
 The command does not run the Agent.
 
 ```bash [Terminal]
-pnpm vitehub agent get --agent support
-pnpm vitehub agent get --agent support --json
+pnpm vitehub agent get support
+pnpm vitehub agent get support --json
 ```
 
 The output shows the Driver (the code that runs the Agent), its execution authority, tools, visible Workspace files and Sources, instructions, Invoker Profiles, warnings, and metadata status.
 Execution authority is a snapshot of what the Agent can reach: filesystem, network, environment, credentials, processes, and isolation. `unknown` means the runtime or provider cannot prove that part during inspection. It does not mean restricted or denied. The snapshot describes the inspected context. It is not an enforcement decision or proof of safety.
 `--json` gives the structured contract at `config.driver.executionAuthority`. Use `--url` when Vite is not on `http://localhost:5173`.
-With more than one Agent, `--agent` is required.
-`agent get` reads from the guarded Agent Dev Loop endpoint of `hubAgent()`.
+With more than one Agent, pass the name.
+`agent get` reads from the guarded Agent Dev Loop endpoint of `hubAgent()`. With the `--url` of a deployed app, it reads the `status.get` [operation](/docs/console/operations) of that app's Console instead, and prints JSON.
+
+With the Console on, `vitehub agent list` lists the Agents of the app, and `vitehub agent invoke <agent> --prompt <text>` starts an Invocation. Both take `--url` for a deployed app.
 
 `agent get`, `agent dev`, and `channels replay` send a private token to this endpoint. The dev server stores the token with user-only permissions outside the served project, and the CLI reads it locally. The discovery request needs no token. It returns Agent names, aliases, trigger names, the server root, and the token server ID, but not the token. Without the token, the endpoint rejects Agent inspection, messages, Capability CLI calls, Workspace commands, and Channel replay, also on a server exposed with `--host`. Run these commands on the dev server's machine.
 
@@ -84,6 +86,9 @@ pnpm vitehub agent invocations get ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations tail ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations cancel ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations undo ainv_0123 --change chg_… --url https://app.example.com
+pnpm vitehub agent invocations capabilities --agent support --url https://app.example.com
+pnpm vitehub agent invocations workspace ainv_0123 --url https://app.example.com
+pnpm vitehub agent invocations delete ainv_0123 --url https://app.example.com --yes
 ```
 
 `get` prints the changes an Agent made on a person's page through the [page Capability](/docs/agents/capabilities/page), with `--json` in `pageChanges` and `approvals`. `undo <id> --change <change>` asks that page, while it is open, to put one change back. It sends no value: the page restores its own record and keeps a value the person changed after the Agent. It exits 1 when the page could not put the value back.
@@ -210,11 +215,11 @@ Telegram's `getWebhookInfo` returns the URL and delivery errors, but not the sec
 
 When the app has the Channel operations, `vitehub channels list` lists Channels and their retention, `channels threads` lists a Channel's threads, and `channels conversation` reads one thread's messages in order. `vitehub channels status <agent> <channel>` shows sync health and skipped messages of a [Gmail Channel](/docs/agents/gmail#failed-messages). `vitehub channels deliveries <agent> <channel>` lists the newest messages a Channel received, with the run each one reached or [why it started none](/docs/agents/channels#why-a-message-started-no-work).
 
-`conversations export` calls the `conversations.export` [operation](/docs/console/operations) on the dev server, or on the app at `--url` with the credentials of [Run any operation](/docs/cli/inspect#run-any-operation). It needs no webhook secret, only Console access to the `channels` section.
+`agent conversations export` calls the `conversations.export` [operation](/docs/console/operations) on the dev server, or on the app at `--url` with the credentials of [Run any operation](/docs/cli/inspect#run-any-operation). It needs no webhook secret, only Console access to the `channels` section.
 
 ```bash [Terminal]
-pnpm vitehub conversations export support telegram telegram:456 > chat.md
-pnpm vitehub conversations export support telegram telegram:456 --format json --output ./chat --url https://app.example.com
+pnpm vitehub agent conversations export support telegram telegram:456 > chat.md
+pnpm vitehub agent conversations export support telegram telegram:456 --format json --output ./chat --url https://app.example.com
 ```
 
 Without `--output`, the text goes to stdout without attachments, and a retention warning goes to stderr. With `--output`, the directory must not exist. It gets the file (`history.json` or `<thread>.md`) and attachments in `media/`. `--media` and `--no-media` override the default. See [See and export a conversation](/docs/agents/channels#see-and-export-a-conversation).

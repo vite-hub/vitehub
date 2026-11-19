@@ -3,7 +3,7 @@ import { basename, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { asUnknownBoundary, isRuntimeRecord } from "./runtime-type.ts"
-import { discoverViteHubDevServer, fetchViteHubDevEndpoint, findViteHubDevServerUrl, readViteHubDevTargetOption, resolveViteHubDevServerUrl } from "@vite-hub/internal/cli"
+import { askOnTerminal, discoverViteHubDevServer, fetchViteHubDevEndpoint, findViteHubDevServerUrl, readViteHubDevTargetOption, resolveViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { callOperationRpc, type OperationRpcOutcome } from "@vite-hub/internal/operation-rpc"
 import { invocationOperationNames, operationCredentialHint, operationRpcPath, signedOperationHeaders } from "@vite-hub/internal/operations"
 import { agentInvocationsDevGuard, agentInvocationsDevRoute, agentInvocationsDevRuntimeUnavailableMessage, agentInvocationsDevTokenServerHeader } from "../invocations-dev.ts"
@@ -43,11 +43,13 @@ export interface AgentInvocationsCliOptions {
   timeout?: number
 }
 
-type Action = "compact" | "delete" | "export" | "get" | "list" | "prune" | "tail" | "undo" | "wait-idle"
+type Action = "capabilities" | "compact" | "delete" | "export" | "get" | "list" | "prune" | "tail" | "undo" | "wait-idle" | "workspace"
 
-const actions = new Set<string>(["compact", "delete", "export", "get", "list", "prune", "tail", "undo", "wait-idle"] satisfies Action[])
+const actions = new Set<string>(["capabilities", "compact", "delete", "export", "get", "list", "prune", "tail", "undo", "wait-idle", "workspace"] satisfies Action[])
 /** Actions that read or rebuild the whole journal instead of one record. */
-const journalActions = new Set<string | undefined>(["compact", "export", "list", "prune", "wait-idle"])
+const journalActions = new Set<string | undefined>(["capabilities", "compact", "export", "list", "prune", "wait-idle"])
+/** Actions that only the app's Console answers. */
+const consoleActions = new Set<string | undefined>(["capabilities", "workspace"])
 function isAction(value: string): value is Action {
   return actions.has(value)
 }
@@ -76,6 +78,8 @@ interface ParsedArgs {
   deprecated?: { form: string, use: string }
   database?: string
   dryRun: boolean
+  /** `--yes`: delete through the Console without asking. */
+  yes: boolean
   help: boolean
   id?: string
   interval: number
@@ -138,15 +142,18 @@ const durationUnits: Record<string, number> = { d: 86_400_000, h: 3_600_000, m: 
 
 function usage(context: AgentInvocationsCliContext): void {
   context.stdout.write([
-    "Usage: vitehub agent invocations <list|get|tail|export|wait-idle|cancel|undo|delete|prune|compact> [id] [options]",
+    "Usage: vitehub agent invocations <list|get|tail|export|wait-idle|cancel|undo|capabilities|workspace|delete|prune|compact> [id] [options]",
     "",
     "list, get, tail, and cancel inspect or control an application's Agent Invocation journal.",
     "wait-idle exits 0 once no Invocation is pending or running, and 1 when --timeout passes first.",
     "get prints the changes an Agent made on a person's page. undo <id> --change <change> asks that open page",
     "to put one change back, through the app's Console (--url).",
     "",
+    "capabilities lists the capabilities an Invocation can get, and workspace <id> reads the Workspace files of one,",
+    "through the app's Console.",
     "export prints one JSON line per Invocation, oldest first, for offline analysis and evals.",
-    "delete and prune remove completed, failed, and cancelled records from a SQLite or libSQL journal.",
+    "delete and prune remove completed, failed, and cancelled records from a SQLite or libSQL journal. delete <id> --url",
+    "deletes through the Console of that app, after a question or with --yes.",
     "compact rebuilds a local SQLite journal file with VACUUM, so it gives free pages back to the file system,",
     "and sets auto_vacuum = INCREMENTAL. It needs the write lock: stop the server or run it during a quiet window.",
     "With --url, list, get, tail, export, wait-idle, and cancel use the Console of that app. Without it, they use",
@@ -268,6 +275,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   const parsed: ParsedArgs = {
     activity: false,
     dryRun: false,
+    yes: false,
     help: false,
     interval: 1_000,
     json: false,
@@ -311,6 +319,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else if (argument === "-h" || argument === "--help") parsed.help = true
     else if (argument === "--json") parsed.json = true
     else if (argument === "--dry-run") parsed.dryRun = true
+    else if (argument === "--yes" || argument === "-y") parsed.yes = true
     else if (argument === "--observations") parsed.observations = true
     else if (argument === "--activity") parsed.activity = true
     else if (argument === "--change") { parsed.change = optionValue(args, index, argument); index += 1 }
@@ -358,11 +367,14 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else throw agentDiagnostics.AGENT_R0505({ message: `Unexpected argument: ${redactCliArgument(argument)}.` })
   }
 
-  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, get, tail, export, wait-idle, cancel, undo, delete, prune, or compact." })
+  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, get, tail, export, wait-idle, cancel, undo, capabilities, workspace, delete, prune, or compact." })
   if (!parsed.help && !journalActions.has(parsed.action) && !parsed.id) throw agentDiagnostics.AGENT_R0507({ message: `${parsed.action} requires an invocation id.` })
   if (!parsed.help && parsed.dryRun && parsed.action !== "prune" && parsed.action !== "compact") throw agentDiagnostics.AGENT_R0505({ message: "--dry-run is only supported for prune and compact." })
   if (!parsed.help && !waiting && staleAfterSet) throw agentDiagnostics.AGENT_R0505({ message: "--stale-after is only supported for wait-idle." })
-  if (!parsed.help && !waiting && parsed.action !== "export" && parsed.agent !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "--agent is only supported for wait-idle and export." })
+  if (!parsed.help && !waiting && parsed.action !== "export" && parsed.action !== "capabilities" && parsed.agent !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "--agent is only supported for wait-idle, export, and capabilities." })
+  if (!parsed.help && parsed.yes && parsed.action !== "delete") throw agentDiagnostics.AGENT_R0505({ message: "--yes is only supported for delete." })
+  if (!parsed.help && consoleActions.has(parsed.action) && parsed.database !== undefined) throw agentDiagnostics.AGENT_R0505({ message: `${parsed.action} reads the Console of the app. Pass --url instead of --database.` })
+  if (!parsed.help && parsed.action === "delete" && parsed.urlSet && parsed.database !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "Pass --url or --database, not both." })
   if (waiting && !intervalSet) parsed.interval = waitIdleDefaults.interval
   if (!parsed.help && parsed.urlSet && parsed.action === "compact") throw agentDiagnostics.AGENT_R0505({ message: "compact rebuilds a local SQLite file. Pass --database with the file path instead of --url or --server." })
   const exportOnly = [["--origin", parsed.origin], ["--since", parsed.since], ["--observations", parsed.observations || undefined], ["--activity", parsed.activity || undefined]] as const
@@ -374,7 +386,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   if (!parsed.help && (parsed.maxSize || parsed.maxRecords !== undefined) && parsed.action !== "prune") {
     throw agentDiagnostics.AGENT_R0505({ message: "--max-size and --max-records are only supported for prune." })
   }
-  if (!parsed.help && parsed.urlSet && !parsed.server && parsed.action !== "delete" && parsed.action !== "prune" && parsed.action !== "compact") {
+  if (!parsed.help && parsed.urlSet && !parsed.server && parsed.action !== "prune" && parsed.action !== "compact") {
     const app = appUrl(parsed.url)
     if (app) {
       parsed.console = app.base
@@ -1231,7 +1243,7 @@ function detailRecord(result: AgentInvocationDetailResult): AgentInvocationRecor
  */
 function useProjectDevServer(parsed: ParsedArgs, context: AgentInvocationsCliContext): boolean {
   if (parsed.urlSet || (parsed.database !== undefined && fileActions.has(parsed.action))) return true
-  if (parsed.action !== "cancel" && (!fileActions.has(parsed.action) || context.env.VITEHUB_AGENT_INVOCATIONS_URL)) return true
+  if (parsed.action !== "cancel" && !consoleActions.has(parsed.action) && (!fileActions.has(parsed.action) || context.env.VITEHUB_AGENT_INVOCATIONS_URL)) return true
   const rootDir = context.rootDir ?? process.cwd()
   const found = findViteHubDevServerUrl([...new Set([rootDir, resolveViteHubProjectRoot(rootDir)])], context.env)
   // cancel keeps the Vite Development Server default for hosts that do not write the file.
@@ -1291,6 +1303,24 @@ export async function runAgentInvocationsCli(
       const result = await consoleCall({ base: parsed.console!, env: context.env, fetch: fetchImpl, timeout }, "invocations.undo", { change: parsed.change!, id: parsed.id! }, parseUndoResult)
       context.stdout.write(parsed.json ? `${JSON.stringify(result, null, 2)}\n` : `${undoMessage(result)}\n`)
       return result.ok ? 0 : 1
+    }
+    if (parsed.action === "capabilities" || parsed.action === "workspace") {
+      const call = { base: parsed.console!, env: context.env, fetch: fetchImpl, timeout }
+      const value = parsed.action === "capabilities"
+        ? await consoleCall(call, "invocations.capabilities", parsed.agent === undefined ? {} : { agent: parsed.agent }, value => value)
+        : await consoleCall(call, "invocations.workspace", { id: parsed.id! }, value => value)
+      context.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
+      return 0
+    }
+    if (parsed.action === "delete" && parsed.console) {
+      const question = `Delete the Agent Invocation ${parsed.id} at ${displayUrl(parsed.console)}? [y/N] `
+      if (!parsed.yes && !(process.stdin.isTTY && process.stderr.isTTY && await askOnTerminal(question))) {
+        context.stderr.write("delete removes the Invocation from the app and was not confirmed. Answer y in a terminal, or run it again with --yes.\n")
+        return 1
+      }
+      const result = await consoleCall({ base: parsed.console, env: context.env, fetch: fetchImpl, timeout }, "invocations.delete", { id: parsed.id! }, value => value)
+      context.stdout.write(parsed.json ? `${JSON.stringify(result, null, 2)}\n` : `Deleted ${parsed.id}.\n`)
+      return 0
     }
     if (parsed.action === "delete") return await deleteInvocation(parsed, context, parsed.id!)
     if (parsed.action === "prune") return await pruneInvocations(parsed, context)

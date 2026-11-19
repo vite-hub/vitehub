@@ -2276,7 +2276,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0498: {
       ...dynamicError,
-      fix: "Put a value after the option that the message names, such as vitehub agent get --agent support.",
+      fix: "Put a value after the option that the message names, such as vitehub agent get support --url http://localhost:3000.",
     },
     AGENT_R0499: {
       ...dynamicError,
@@ -2284,7 +2284,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0500: {
       ...dynamicError,
-      fix: "Remove the extra argument. Pass the Agent with vitehub agent get --agent <name>.",
+      fix: "Remove the extra argument. Pass one Agent name: vitehub agent get <name>.",
     },
     AGENT_R0501: {
       ...dynamicError,
@@ -4365,11 +4365,11 @@ const agentDiagnosticHandles = defineDiagnostics({
         option: `Unknown option ${value}.`,
         value: `${value} requires a value.`,
       })[problem],
-      fix: "Pass the Agent, the Channel, and the thread to `vitehub conversations export <agent> <channel> <thread>`, and only the options that `vitehub conversations export --help` lists. Add `--output <directory>` when you pass `--media`.",
+      fix: "Pass the Agent, the Channel, and the thread to `vitehub agent conversations export <agent> <channel> <thread>`, and only the options that `vitehub agent conversations export --help` lists. Add `--output <directory>` when you pass `--media`.",
     },
     AGENT_CONVERSATIONS_EXPORT_DEV_SERVER_MISSING: {
       why: ({ root }: { root: string }) => `No dev server is running for ${root}. Start \`vite dev\` or pass --url <origin>.`,
-      fix: "Start `vite dev` in the app, or pass `--url <origin>` of a running app to `vitehub conversations export`.",
+      fix: "Start `vite dev` in the app, or pass `--url <origin>` of a running app to `vitehub agent conversations export`.",
     },
     AGENT_CONVERSATIONS_EXPORT_OUTPUT_EXISTS: {
       why: ({ directory }: { directory: string }) => `The output directory already exists: ${directory}`,

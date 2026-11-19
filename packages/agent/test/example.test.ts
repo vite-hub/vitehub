@@ -93,7 +93,7 @@ describe("offline Agent Vite example", () => {
       stdout: infoStdout,
     }
 
-    expect(await runAgentInfoCli(["--agent", "greeting", "--json", "--url", url], context)).toBe(0)
+    expect(await runAgentInfoCli(["greeting", "--json", "--url", url], context)).toBe(0)
     expect(infoStderr.output()).toBe("")
     expect(JSON.parse(infoStdout.output())).toMatchObject({
       config: { driver: { kind: "run" } },

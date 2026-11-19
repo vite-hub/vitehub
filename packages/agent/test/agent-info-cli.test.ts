@@ -37,7 +37,7 @@ describe("agent get CLI", () => {
       await mkdir(join(rootDir, "app"))
       writeViteHubDevServerFile(rootDir, { root: rootDir, url: "http://127.0.0.1:4731/" })
       const fetchAgentInfo = vi.fn(async () => Response.json({ inspection: { name: "docs" }, root: join(rootDir, "app") }))
-      const exitCode = await runAgentInfoCli(["--agent", "docs"], {
+      const exitCode = await runAgentInfoCli(["docs"], {
         env: { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" },
         rootDir: join(rootDir, "app"),
         stderr: stream(),
@@ -50,5 +50,24 @@ describe("agent get CLI", () => {
     finally {
       await rm(rootDir, { force: true, recursive: true })
     }
+  })
+
+  it("takes the Agent name as an argument and names it for the removed --agent", async () => {
+    const stderr = stream()
+    expect(await runAgentInfoCli(["--agent", "docs"], { env: {}, rootDir: "/app", stderr, stdout: stream() })).toBe(1)
+    expect(stderr.output).toContain("--agent is now the name argument. Run vitehub agent get docs.")
+  })
+
+  it("reads a deployed app through its status.get operation", async () => {
+    const stdout = stream()
+    const calls: string[] = []
+    const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const call = JSON.parse(String(init?.body)) as { i: string, m: string, a: unknown[] }
+      calls.push(`${String(url)} ${call.m} ${JSON.stringify(call.a)}`)
+      return Response.json({ i: call.i, r: { agent: "docs", ready: true }, t: "s" })
+    })
+    expect(await runAgentInfoCli(["docs", "--url", "https://app.example.com"], { env: {}, rootDir: "/app", stderr: stream(), stdout }, { fetch: fetch as never })).toBe(0)
+    expect(calls).toEqual(['https://app.example.com/_vitehub/rpc status.get [{"agent":"docs"}]'])
+    expect(JSON.parse(stdout.output)).toEqual({ agent: "docs", ready: true })
   })
 })

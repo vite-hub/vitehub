@@ -1,5 +1,6 @@
 import { accessSpellings } from "./access-spellings/index.ts"
 import { agentSurface } from "./agent-surface/index.ts"
+import { cliAgentTree } from "./cli-agent-tree/index.ts"
 import { cliGetList } from "./cli-get-list/index.ts"
 import { defineForms } from "./define-forms/index.ts"
 import { driverKey } from "./driver-key/index.ts"
@@ -46,6 +47,7 @@ export const codemods: readonly Codemod[] = [
   shellDriver,
   accessSpellings,
   cliGetList,
+  cliAgentTree,
 ]
 
 /**
@@ -73,4 +75,5 @@ export const upgradeCodemods: readonly Codemod[] = [
   shellDriver,
   accessSpellings,
   cliGetList,
+  cliAgentTree,
 ]

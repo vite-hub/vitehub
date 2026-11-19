@@ -87,22 +87,22 @@ Packages contribute inspection through `vitehub.inspect` on their Vite plugin. T
 
 ## Run any operation
 
-Every package [operation](/docs/console/operations) is also a command: `vitehub <namespace> <command> [positional] [--key value]`. The namespace is the operation section (or its `cli.namespace`), and the command is its verb (or its `cli.command`), so `agents.list` is `vitehub agents list`. `vitehub inspect definitions --kind operation` lists each operation and its command. `vitehub <namespace> <command> --help` shows the input.
+Every package [operation](/docs/console/operations) is also a command: `vitehub <namespace> <command> [positional] [--key value]`. The namespace is the operation section (or its `cli.namespace`), and the command is its verb (or its `cli.command`), so `agents.list` is `vitehub agent list`. `vitehub inspect definitions --kind operation` lists each operation and its command. `vitehub <namespace> <command> --help` shows the input.
 
 ```bash [Terminal]
-pnpm vitehub agents list
-pnpm vitehub agents status --agent support
-pnpm vitehub invocations list --limit 10
-pnpm vitehub invocations get ainv_123 --json
-pnpm vitehub invocations delete ainv_123 --yes
-pnpm vitehub invocations list --url https://app.example.com
+pnpm vitehub agent list
+pnpm vitehub agent get support
+pnpm vitehub agent invocations list --limit 10
+pnpm vitehub agent invocations get ainv_123 --json
+pnpm vitehub agent invocations delete ainv_123 --yes
+pnpm vitehub agent invocations list --url https://app.example.com
 ```
 
 The generated commands need the Console RPC. `vitehub()` installs it. Standalone `hubKV()`, `hubBlob()`, `hubEmail()`, and `hubRateLimit()` install a local development RPC for their storage commands. Other standalone plugins, such as `hubWorkflow()`, `hubSchedule()`, and `hubQueue()`, need a running app with an operation RPC.
 
 Operations that run app code (`workflow.start`, `workflow.resume`, `queue.send`, `task.run`, `schedule.run`, and `schedule.start`) exist only when `console.invoke` is on. It is on in development and off in a production build, so on a deployment these commands answer "Console operation not found" until you set `console: { invoke: true }`. `task.run` is `destructive`: the command asks for `--yes`, and agents and MCP need approval.
 
-The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|undo|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get|has|set|delete`, `vitehub database tables|rows`, `vitehub env get`, `vitehub project get`, `vitehub search query`, `vitehub sections list`, `vitehub site sessions|revoke|invite|invites|revoke-invite|grants|open`, `vitehub agent usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A hand-written command of the same name, such as `vitehub blob list`, wins.
+The built-in commands are `vitehub agent list|invoke|usage`, `vitehub blob list`, `vitehub kv list|get|has|set|delete`, `vitehub database tables|rows`, `vitehub env get`, `vitehub project get`, `vitehub search query`, `vitehub sections list`, `vitehub site sessions|revoke|invite|invites|revoke-invite|grants|open`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A hand-written command of the same name, such as `vitehub blob list`, wins. `vitehub agent get` and `vitehub agent invocations` are hand-written: they call the `status.get` and `invocations.*` operations of the Console.
 
 | Option | Use it for |
 | --- | --- |

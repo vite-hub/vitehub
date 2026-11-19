@@ -54,6 +54,7 @@ describe("agent CLI", () => {
           expect.objectContaining({ name: "eval" }),
           expect.objectContaining({ name: "get" }),
           expect.objectContaining({ name: "dev" }),
+          expect.objectContaining({ name: "conversations" }),
           expect.objectContaining({ name: "invocations" }),
         ],
         name: "agent",
@@ -61,10 +62,6 @@ describe("agent CLI", () => {
         description: "External Channel registration workflows.",
         features: [expect.objectContaining({ name: "history" }), expect.objectContaining({ name: "replay" }), expect.objectContaining({ name: "sync" })],
         name: "channels",
-      }, {
-        description: "Export Channel conversations.",
-        features: [expect.objectContaining({ name: "export" })],
-        name: "conversations",
       }],
     })
   })
@@ -77,6 +74,7 @@ describe("agent CLI", () => {
         features: [
           expect.objectContaining({ name: "get" }),
           expect.objectContaining({ name: "dev" }),
+          expect.objectContaining({ name: "conversations" }),
           expect.objectContaining({ name: "invocations" }),
         ],
         name: "agent",
@@ -84,10 +82,6 @@ describe("agent CLI", () => {
         description: "External Channel registration workflows.",
         features: [expect.objectContaining({ name: "history" }), expect.objectContaining({ name: "replay" }), expect.objectContaining({ name: "sync" })],
         name: "channels",
-      }, {
-        description: "Export Channel conversations.",
-        features: [expect.objectContaining({ name: "export" })],
-        name: "conversations",
       }],
     })
     await rm(rootDir, { force: true, recursive: true })
@@ -1583,7 +1577,7 @@ describe("agent CLI", () => {
 
   it("preserves static capacity wording when no adaptive limit is reported", async () => {
     const stdout = stream()
-    const exitCode = await runAgentInfoCli(["--agent", "support"], {
+    const exitCode = await runAgentInfoCli(["support"], {
       cwd: "/repo",
       env: {},
       rootDir: "/repo",
@@ -1623,7 +1617,7 @@ describe("agent CLI", () => {
       },
     }))
 
-    const exitCode = await runAgentInfoCli(["--agent", "support", "--json"], {
+    const exitCode = await runAgentInfoCli(["support", "--json"], {
       cwd: "/repo",
       env: {},
       rootDir: "/repo",
