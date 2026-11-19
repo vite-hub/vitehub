@@ -108,7 +108,9 @@ export default defineConfig({
 :::
 ::
 
-Keep `host: 'cloudflare'` in development too. `vite dev` and `nuxt dev` run the server on Node, and ViteHub gives the code it generates for Cloudflare a Node version of `cloudflare:workers`, whose `env` reads `process.env`. Set `NITRO_DEV_RUNNER=miniflare` to run the dev server in workerd instead.
+Keep `host: 'cloudflare'` in development too. With the Vite configurations above, `vite dev` runs Nitro on Node by default. ViteHub supplies Node stubs for `cloudflare:workers` and `cloudflare:email`, as it does in `nuxt dev`. The `cloudflare:workers` stub reads request bindings and `process.env`.
+
+In plain Vite, select the `miniflare` runner with `NITRO_DEV_RUNNER=miniflare` or `nitro.devServer.runner: 'miniflare'` to use the native modules in workerd. The `cloudflare-module` Nitro preset already selects Miniflare for `vite dev`. This runner selection does not remove the stubs in Nuxt.
 
 D1 metadata belongs to each Database Definition, because a Vite app can have several Named Databases.
 

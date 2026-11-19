@@ -1595,7 +1595,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   plugins.push(devDefinesVitePlugin())
   plugins.push(standardContextVitePlugin())
   plugins.push(vitestInlinePlugin())
-  plugins.push(cloudflareNodeDevPlugin(plan.host))
+  if (plan.host === "cloudflare") plugins.push(cloudflareNodeDevPlugin())
   const providerImportAliases: Record<string, string> = {}
   const configuredKV = options.kv && options.kv !== true ? options.kv : undefined
   // hubKV() gets the preset only when `kv` is enabled; through the cache alone, it infers the host from env.

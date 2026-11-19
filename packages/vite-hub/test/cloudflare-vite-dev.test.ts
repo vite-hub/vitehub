@@ -9,8 +9,20 @@ import { expect, it, vi } from "vitest"
 import { cloudflareNodeDevPlugin } from "../src/cloudflare-node-dev.ts"
 import { vitehub } from "../src/index.ts"
 
-it("starts `vite dev` on the Node runner for a Cloudflare app with a Workspace", async () => {
-  const { nitro } = await import(createRequire(import.meta.url).resolve("nitro/vite")) as { nitro: () => PluginOption }
+import type { NitroConfig } from "nitro/types"
+
+it.each([
+  ["the default runner", undefined],
+  ["a late Node runner override", {
+    preset: "cloudflare-module",
+    hooks: {
+      "build:before": (nitro) => {
+        nitro.options.devServer.runner = "node-worker"
+      },
+    },
+  }],
+] satisfies [string, NitroConfig | undefined][])("reads a Cloudflare Workspace in `vite dev` with %s", async (_name, config) => {
+  const { nitro } = await import(createRequire(import.meta.url).resolve("nitro/vite")) as { nitro: (config?: NitroConfig) => PluginOption }
   const root = await mkdtemp(join(tmpdir(), "vitehub-cloudflare-vite-dev-"))
   const packages = fileURLToPath(new URL("../..", import.meta.url))
   let server: Awaited<ReturnType<typeof createServer>> | undefined
@@ -37,7 +49,7 @@ it("starts `vite dev` on the Node runner for a Cloudflare app with a Workspace",
       configFile: false,
       appType: "custom",
       logLevel: "silent",
-      plugins: [vitehub({ host: "cloudflare", env: false, workspace: true }), nitro()],
+      plugins: [vitehub({ host: "cloudflare", env: false, workspace: true }), nitro(config)],
       server: { port: 0, watch: null, fs: { allow: [root, join(packages, "..")] } },
     })
     await server.listen()
@@ -52,20 +64,19 @@ it("starts `vite dev` on the Node runner for a Cloudflare app with a Workspace",
   }
 }, 120_000)
 
-it("keeps the real `cloudflare:workers` for the miniflare runner and for builds", async () => {
-  const resolve = async (command: "build" | "serve", runner?: string) => {
-    // SAFETY: the plugin defines these hooks as plain functions, and reads only `command` and `devServer.runner`.
-    const plugin = cloudflareNodeDevPlugin("cloudflare") as unknown as {
-      configResolved: (config: { command: string }) => void
-      nitro: { setup: (nitro: { options: { devServer: { runner?: string } } }) => void }
-      resolveId: (id: string) => string | undefined
-    }
-    plugin.configResolved({ command })
-    plugin.nitro.setup({ options: { devServer: { runner } } })
-    return plugin.resolveId("cloudflare:workers")
+it("uses the effective runner for both Cloudflare modules and only applies in dev", () => {
+  // SAFETY: these hooks are plain functions and read only `devServer.runner` from Nitro.
+  const plugin = cloudflareNodeDevPlugin() as unknown as {
+    apply: string
+    nitro: { setup: (nitro: { options: { devServer: { runner: string } } }) => void }
+    resolveId: (id: string) => string | undefined
   }
-  expect(await resolve("serve")).toBe("\0vitehub-dev:cloudflare-workers")
-  expect(await resolve("serve", "node-worker")).toBe("\0vitehub-dev:cloudflare-workers")
-  expect(await resolve("serve", "miniflare")).toBeUndefined()
-  expect(await resolve("build")).toBeUndefined()
+  expect(plugin.apply).toBe("serve")
+  const nitro = { options: { devServer: { runner: "miniflare" } } }
+  plugin.nitro.setup(nitro)
+  expect(plugin.resolveId("cloudflare:workers")).toBeUndefined()
+  expect(plugin.resolveId("cloudflare:email")).toBeUndefined()
+  nitro.options.devServer.runner = "node-worker"
+  expect(plugin.resolveId("cloudflare:workers")).toBe("\0vitehub-dev:cloudflare-workers")
+  expect(plugin.resolveId("cloudflare:email")).toBe("\0vitehub-dev:cloudflare-email")
 })
