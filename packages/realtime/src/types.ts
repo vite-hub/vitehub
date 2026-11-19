@@ -1,7 +1,9 @@
 import type { AnyExtension, JSONContent } from "@tiptap/core"
 import type { WorkspaceSnapshot } from "@vite-hub/workspace"
-import type { ViteHubContext } from "@vite-hub/runtime"
+import type { ResultError, ViteHubContext } from "@vite-hub/runtime"
 import type { H3Event } from "h3"
+
+import type { RealtimeRequestFailure } from "./error-diagnostics.ts"
 
 /** JSON value stored in one field of a structured Realtime document. */
 export type RealtimeFieldValue = null | boolean | number | string | RealtimeFieldValue[] | { [key: string]: RealtimeFieldValue }
@@ -319,9 +321,6 @@ export type RealtimeResetReason = "source-changed" | "stale"
 
 export type RealtimeRegistry = Record<string, () => Promise<{ default: RealtimeDefinition }>>
 
-/**
- * Codes that `save()`, `history.checkpoint()`, and `refresh()` of `useRealtimeTiptap()` return in the `[error, data]` tuple.
- */
 /** The codes that `requestRealtimeRoom()` returns in `[error, undefined]`. */
 export type RealtimeRoomRequestErrorCode =
   | "REALTIME_ROOM_ABORTED"
@@ -332,12 +331,25 @@ export type RealtimeRoomRequestErrorCode =
   | "REALTIME_ROOM_REQUESTS_OFF"
   | "REALTIME_ROOM_TIMEOUT"
 
+/** Codes that `save()`, `history.checkpoint()`, and `refresh()` of `useRealtimeTiptap()` return in the `[error, data]` tuple. */
 export type RealtimeRequestErrorCode =
   | "REALTIME_DISABLED"
   | "REALTIME_DISCONNECTED"
   | "REALTIME_INVALID_RESPONSE"
   | "REALTIME_MISSING_DOCUMENT"
   | "REALTIME_REQUEST_FAILED"
+
+export type { RealtimeRequestFailure }
+
+/** The error of `save()`, `history.checkpoint()`, and `refresh()`. Check `code` to read the typed `data`. */
+export type RealtimeRequestError =
+  | ResultError<Exclude<RealtimeRequestErrorCode, "REALTIME_REQUEST_FAILED">, undefined>
+  | ResultError<"REALTIME_REQUEST_FAILED", RealtimeRequestFailure>
+
+/** The `[error, data]` tuple of `save()`, `history.checkpoint()`, and `refresh()`. */
+export type RealtimeRequestResult<TData> =
+  | [error: RealtimeRequestError, data: undefined]
+  | [error: undefined, data: TData]
 
 /**
  * Whether this build has a Realtime room driver. ViteHub generates it for each build; an unavailable build says why

@@ -16,6 +16,10 @@ const toast = useToast()
 
 async function publish() {
   const [error, checkpoint] = await realtime.history.checkpoint()
+  if (error?.code === 'REALTIME_REQUEST_FAILED' && error.data.status === 409) {
+    toast.add({ title: 'The page changed', description: 'Someone else saved it. Your editor now shows their version.' })
+    return
+  }
   if (error) {
     toast.add({ title: 'Not published', description: error.why })
     return
@@ -24,7 +28,7 @@ async function publish() {
 }
 ```
 
-`error.code` has the type `RealtimeRequestErrorCode`. The composable retries `409` answers with `REALTIME_SYNC_PENDING` before it returns an error.
+`error.code` has the type `RealtimeRequestErrorCode`. Check the code first to read the typed `error.data`. The composable retries `409` answers with `REALTIME_SYNC_PENDING` before it returns an error.
 
 Room errors happen after the WebSocket opens, so the server closes the connection with a close code. Configuration and build errors throw.
 
@@ -65,7 +69,7 @@ The client cannot use the server's answer. Use the same `@vite-hub/realtime` ver
 
 ### REALTIME_REQUEST_FAILED
 
-The server answered with an error, or the network request failed. `error.why` has the HTTP status and server message. A network error is in `error.cause`. A read-only room answers `409` with `REALTIME_READ_ONLY`. Read `readOnlyReason` and `saveStatus` for the reason.
+The server answered with an error, or the network request failed. `error.why` has the HTTP status and server message, and `error.data.status` has the HTTP status. A network error has no status, and the error is in `error.cause`. The server answers `409` when the stored document changed, and then the room re-seeds and every client resets to the stored version. A read-only room also answers `409`, with `REALTIME_READ_ONLY`. Read `readOnlyReason` and `saveStatus` for the reason.
 
 ## Room request errors
 
