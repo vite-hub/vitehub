@@ -1,7 +1,7 @@
 import { defineErrors } from "@vite-hub/runtime"
 
 export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/agents/diagnostics",
+  docs: "https://vitehub.dev/docs/presets/diagnostics",
   codes: {
     PRESETS_BABYSITTER_REPOSITORIES_INVALID: {
       why: 'Babysitter filter.repository.allow lists no "owner/name" repository.',

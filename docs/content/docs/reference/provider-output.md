@@ -28,7 +28,7 @@ Provider Output is the files ViteHub generates so a host can deploy and run your
 
 Production builds write Provider Output. Vite dev writes only discovery and local generated files. Netlify local dev also writes package functions for the Netlify CLI.
 
-`vitehub inspect output` lists the files of the active packages and the host, and which exist. `--json` adds parsed JSON content, with credentials and Worker `vars` hidden. See the [CLI guide](/docs/development/cli#inspect-definitions-and-provider-output).
+`vitehub inspect output` lists the files of the active packages and the host, and which exist. `--json` adds parsed JSON content, with credentials and Worker `vars` hidden. See the [CLI guide](/docs/cli/inspect#inspect-definitions-and-provider-output).
 
 ```bash [Terminal]
 pnpm build

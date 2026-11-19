@@ -34,7 +34,7 @@ export async function publishBurst(event: H3Event, ownerId: string) {
 }
 ```
 
-- `event` is any request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties: an H3 2 event in a ViteHub app, or a Web `Request`, such as the one `withAuth()` passes.
+- `event` is any request event with [Standard Context](/docs/runtime/context#standard-context) properties: an H3 2 event in a ViteHub app, or a Web `Request`, such as the one `withAuth()` passes.
 - Without `key`, the guard counts by `event['~standard'].runtime.clientAddress`. On Cloudflare, the `cf-connecting-ip` header comes first.
 - A `Request` has no client address, so pass `key`. On Cloudflare, the guard reads `cf-connecting-ip` and the current request's bindings instead.
 - The same ID with the same normalized policy shares one budget. Conflicting policies fail the build and show both source locations.

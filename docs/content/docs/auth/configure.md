@@ -261,6 +261,68 @@ The hook runs on every Better Auth path that refreshes a stored session: `/get-s
 - It does not run with `session.disableSessionRefresh`, or for a session created without "remember me".
 - With `session.deferSessionRefresh`, it runs on the `POST` that writes the refresh.
 
+## Let users delete their account
+
+Set `deleteAccount: true`. Better Auth then serves `deleteUser`, and Auth also deletes the rows that ViteHub Server Primitives keep for that user. Use stored Auth without `stateless()` or `session.cookieCache.enabled` so deletion can revoke existing sessions.
+
+```ts [server/auth.ts]
+import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
+
+export default defineAuth({
+  database: authDatabase(),
+  emailAndPassword: { enabled: true },
+  deleteAccount: true,
+})
+```
+
+In the browser, call `useAuthClient().deleteUser({ password })`. Without a password, Better Auth wants a session that started in the last day (`session.freshAge`).
+
+When a user deletes the account, this happens in order:
+
+1. Your `beforeDelete` runs, when you pass one.
+2. Each Server Primitive deletes the rows of the user. The table below lists them.
+3. Auth deletes the rows of the other Better Auth tables that name the user, such as passkeys, two-factor secrets, organization memberships, invitations that the user sent, and MCP tokens. It also deletes database-backed API keys for the user-owned configurations you list.
+4. Better Auth deletes the user, the sessions, and the accounts.
+
+| Owner | Rows that Auth deletes |
+| --- | --- |
+| [Comments](/docs/comments) | The messages of the user. A thread with no message left goes too. A thread that the user started keeps the replies of other people, without the user's name and image. A thread that the user resolved forgets who resolved it. |
+| [Forms](/docs/forms) | The submissions that the user sent while signed in. |
+| Auth | Each row of a Better Auth table with a field that references the user, and matching `apikey` rows in `deleteAccount.userApiKeyConfigIds`. An organization and its API keys stay, also when the user was its last member. |
+
+Set `deleteAccount: { userApiKeyConfigIds: ['personal'] }` if `apiKey()` uses the database and the `personal` configuration references users. Use `'default'` for an unnamed user-owned configuration. Do not list organization-owned configurations: Better Auth does not expose their ownership to Auth, and a user and an organization can have the same ID. With no IDs listed, Auth leaves API keys alone.
+
+Auth does not delete your own tables, files in Blob, or keys in KV, because it cannot know which ones belong to the user. Delete them in `beforeDelete`, one of the Better Auth `user.deleteUser` options supported by `deleteAccount`:
+
+```ts [server/auth.ts] fragment
+import { APIError } from 'better-auth/api'
+import { eq } from 'drizzle-orm'
+import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
+import { db } from 'vite-hub/database'
+import { invoices, teams } from './databases/default'
+
+export default defineAuth({
+  database: authDatabase(),
+  emailAndPassword: { enabled: true },
+  deleteAccount: {
+    async beforeDelete(user) {
+      const [team] = await db.select().from(teams).where(eq(teams.ownerId, user.id))
+      if (team) throw new APIError('BAD_REQUEST', { message: 'Give your team to someone else first.' })
+      await db.delete(invoices).where(eq(invoices.userId, user.id))
+    },
+  },
+})
+```
+
+- Throw an `APIError` in `beforeDelete` to keep the account. Nothing is deleted then.
+- When a Server Primitive fails, Auth keeps the account and fails with `AUTH_DELETE_ACCOUNT_FAILED`. The user can try again. Rows that were deleted before the failure stay deleted.
+- Auth Events keep their `user.removed` event and the earlier events of the user, as an audit log.
+- Better Auth `user.deleteUser` fails with `AUTH_DELETE_USER_UNSUPPORTED`. Use `deleteAccount`.
+- Removing a user with the `admin()` plugin does not run `beforeDelete`. Then only the `on delete cascade` foreign keys of the Database delete other rows.
+- API keys that `apiKey()` keeps in `secondaryStorage` stay there.
+
 ## Session marker cookie
 
 With the session cookie, Auth also sets `vitehub_session=1`, with the same lifetime, path, domain, `SameSite`, `Secure`, and `Partitioned` attributes. Better Auth clears both together, such as on sign-out. It is not `HttpOnly`, so page scripts can read it. It holds no secret and proves nothing: the server still checks the session on every request. The [page tools](/docs/comments/configure#turn-comment-mode-on-and-off) read it to load comment mode right after sign-in.
