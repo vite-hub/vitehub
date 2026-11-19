@@ -36,7 +36,7 @@ function createBrowser() {
         },
         isVisible: () => true,
         isOnline: () => online,
-        lock: task => task(),
+        lock: (_name, task) => task(),
         // One lock for the whole browser, granted in request order, as Web Locks do.
         lead(_name, task) {
           const controller = new AbortController()

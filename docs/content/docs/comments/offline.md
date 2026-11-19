@@ -2,7 +2,7 @@
 title: Write comments offline
 description: Save each new comment and reply in the browser with its files, show it at once, and send it once when the network is back, with the outbox of createCommentsClient().
 navigation.title: Offline
-navigation.order: 6
+navigation.order: 10
 icon: i-lucide-inbox
 ---
 
