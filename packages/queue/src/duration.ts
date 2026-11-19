@@ -16,7 +16,7 @@ export interface QueueTimes {
 export function readQueueTimes(options: { delay?: Duration, retention?: Duration | number }, round?: "ceil"): Result<QueueTimes, "RUNTIME_DURATION_INVALID"> {
   const seconds = (milliseconds: number) => round === "ceil" ? Math.ceil(milliseconds / 1000) : milliseconds / 1000
   try {
-    const delaySeconds = options.delay === undefined ? undefined : seconds(parseDuration(options.delay, "delay"))
+    const delaySeconds = options.delay === undefined ? undefined : seconds(parseDuration(options.delay, "delay", undefined, "s"))
     const retentionSeconds = options.retention === undefined || typeof options.retention === "number"
       ? options.retention
       : seconds(parseDuration(options.retention, "retention"))
