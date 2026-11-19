@@ -438,9 +438,9 @@ export interface WorkspaceRevisionView {
    */
   preload?(paths: readonly string[]): Promise<void>
   /**
-   * The revision that last changed each of `paths` in the history of this revision, with its `createdAt`. Null for a
-   * path without one. The GitHub Store asks GitHub for 100 paths in one request, as `git log -1 -- <path>` answers.
-   * Stores without it leave it out, and a caller compares the files of each revision with its parent.
+   * The last revision that changed each path on the first-parent history, including deletions. A null value means
+   * the path has no change. A missing key means the Store could not prove the answer. To resolve missing keys,
+   * or when a Store does not implement this method, compare each revision's files with those of its first parent.
    */
   lastChanged?(paths: readonly string[]): Promise<ReadonlyMap<string, WorkspaceLastChange | null>>
 }

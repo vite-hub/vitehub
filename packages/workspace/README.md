@@ -503,6 +503,10 @@ that commit. The `vitehub workspace history`, `refs`, and `show` CLI commands
 inspect this data; the Console Workspace/files view does not yet provide a history
 navigator.
 
+`lastChanged(paths)` returns only changes it can confirm on the first-parent history,
+including deletions. A `null` value means no change. A missing key means the Store
+could not confirm an answer.
+
 The GitHub Store also writes history. `history.commit()` creates one commit, checks `ifHead` and
 `ifHeads` against the branch heads, and starts a missing branch from the `refs.published` branch when it is set, else from the default branch. `startFrom` names the revision a missing ref starts from. Options:
 `root: ""` is the repository root. `refs: { published?: string, draft?: string }` names the branches

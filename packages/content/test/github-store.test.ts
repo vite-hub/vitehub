@@ -115,6 +115,41 @@ describe("Content on the GitHub store", () => {
     expect(await posts.status("a")).toMatchObject({ state: "published" })
   })
 
+  it("reads documents and sitemap dates when GitHub file history times out", async () => {
+    const { content, posts } = await setup({ url: "/posts/:id" })
+    const date = "2026-10-20T08:00:00.000Z"
+    fake.commit("main", { "content/posts/a.md": page("Edited") }, { author: { date, name: "Ada" } })
+    fake.commit("main", { "README.md": "# Edited readme\n" })
+    fake.respond(request => request.operation === "FileHistory" ? new Response("Gateway Timeout", { status: 504 }) : undefined)
+
+    expect(await posts.get("a")).toMatchObject({ updatedAt: date })
+    expect((await posts.list()).items).toMatchObject([{ id: "a", updatedAt: date }])
+    expect(await content.sitemap()).toMatchObject([{ id: "a", lastmod: date }])
+    expect(fake.requests.some(request => request.operation === "FileHistory")).toBe(true)
+  })
+
+  it("uses the published merge date, not the draft edit returned by GitHub file history", async () => {
+    const { content, posts } = await setup({ url: "/posts/:id" })
+    const published = fake.branch("vitehub/content", "main")
+    const editedAt = "2026-10-14T08:00:00.000Z"
+    const edited = fake.commit("vitehub/content", { "content/posts/a.md": page("Edited") }, { author: { date: editedAt, name: "Ada" } })
+    fake.openPull("vitehub/content", "main", "Publish A")
+    fake.mergePullRequest(1)
+    const merged = fake.head("main")!
+    const mergedAt = new Date(fake.commits.get(merged)!.author!.date!).toISOString()
+    const head = fake.commit("main", { "README.md": "# After publication\n" })
+    fake.respond(request => request.operation === "FileHistory" ? Response.json({ data: { repository: { object: {
+      ...(String(request.body?.query).includes("recent:") ? { recent: { nodes: [
+        { oid: head, parents: { nodes: [{ oid: merged }] } },
+        { oid: merged, parents: { nodes: [{ oid: published }, { oid: edited }] } },
+      ] } } : {}),
+      p0: { nodes: [{ oid: edited, authoredDate: editedAt }] },
+    } } } }) : undefined)
+
+    expect(await posts.get("a")).toMatchObject({ updatedAt: mergedAt })
+    expect(await content.sitemap()).toMatchObject([{ id: "a", lastmod: mergedAt }])
+  })
+
   it("creates the draft branch with the first save, without a seed commit", async () => {
     const { posts } = await setup()
     const main = fake.head("main")
