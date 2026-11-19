@@ -14,7 +14,7 @@ export type BundleWhyResult =
 
 /** Why `bundle.report` and `bundle.why` cannot answer. The checks of a report are in `bundleDiagnostics`. */
 const bundleOperationDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: "https://vitehub.dev/docs/development/diagnostics",
+  docsBase: "https://vitehub.dev/docs/bundle/diagnostics",
   codes: {
     BUNDLE_DEV_SERVER_REQUIRED: {
       why: "The bundle report is a file of the build in `.vitehub/bundle/`. Only the dev server of the project can read it. A deployed server has no project files.",
