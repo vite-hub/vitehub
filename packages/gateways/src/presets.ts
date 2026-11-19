@@ -3,11 +3,11 @@ import { aiGatewayAsks, aiGatewayModelCredentials, aiGatewayOptionalCredentials,
 import { gatewayDiagnostics } from "./diagnostics.ts"
 import { aiGatewayVendorNames, readAiGatewayEnv } from "./env.ts"
 
-import type { AskAnswers, AskQuestions } from "./ask.ts"
+import type { AskQuestions } from "./ask.ts"
 import type { AiGatewayEnvFieldName, AiGatewayEnvPreset } from "./env.ts"
 import type { JevRequestContext, JevRoute } from "./jev.ts"
 import type { AiGatewayModelCredentialsResolver, AiGatewayOptionalCredentials } from "./definition.ts"
-import type { AiGateway, AiGatewayCapabilities, AiGatewayAsk, AiGatewayContext, AiGatewayDefinition, AiGatewayRoute, AiGatewaySealedSecret, AiGatewaySecret, AiGatewayUsage, AiGatewayValue } from "./types.ts"
+import type { AiGateway, AiGatewayCapabilities, AiGatewayAsk, AiGatewayAskResult, AiGatewayContext, AiGatewayDefinition, AiGatewayRoute, AiGatewaySealedSecret, AiGatewaySecret, AiGatewayUsage, AiGatewayValue } from "./types.ts"
 
 /** Options shared by every gateway preset. */
 export interface AiGatewayPresetOptions {
@@ -183,7 +183,7 @@ export async function askAiGateway<const Q extends AskQuestions>(
   state: unknown,
   questions: Q,
   options: { context?: AiGatewayContext, observe?: JevRequestContext["observe"], onUsage?: (usage: AiGatewayUsage) => void, signal?: AbortSignal } = {},
-): Promise<AskAnswers<Q>> {
+): Promise<AiGatewayAskResult<Q>> {
   const route: unknown = Reflect.get(gateway, aiGatewayAskRoute)
   if (typeof route !== "function") return await unsupportedAsk(gateway.name)(state, questions)
   const context: AiGatewayContext = { ...options.context, ...(options.signal ? { abortSignal: options.signal } : {}) }

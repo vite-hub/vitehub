@@ -97,16 +97,18 @@ export async function createHarness<TTable, TRow, TArgs>(options: {
   const route = `/_vitehub/sync/${options.name}`
   const call = (request: Request, using: SyncServices = services) => handleSyncRequest(options.name, options.definition, request, using)
 
-  function pullUrl(query: Held & { where?: SyncValues }): URL {
+  function pullUrl(query: Held & { where?: SyncValues, paged?: boolean, after?: string }): URL {
     const url = new URL(route, origin)
     if (query.cursor !== undefined) url.searchParams.set("cursor", String(query.cursor))
     if (query.scope) url.searchParams.set("scope", query.scope)
     if (query.version) url.searchParams.set("version", query.version)
     if (query.where) url.searchParams.set("where", JSON.stringify(query.where))
+    if (query.paged) url.searchParams.set("paged", "1")
+    if (query.after) url.searchParams.set("after", query.after)
     return url
   }
 
-  async function pull(caller: Caller | string | null, query: Held & { where?: SyncValues } = {}, headers: Record<string, string> = {}) {
+  async function pull(caller: Caller | string | null, query: Held & { where?: SyncValues, paged?: boolean, after?: string } = {}, headers: Record<string, string> = {}) {
     const response = await call(new Request(pullUrl(query), { headers: { ...callerHeaders(caller), ...headers } }))
     // SAFETY: the tests read the documented answer of a pull.
     return { status: response.status, headers: response.headers, body: await response.json() as SyncPullResponse & { code?: string, message?: string } }
