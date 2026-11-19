@@ -529,7 +529,10 @@ describe("posted messages", () => {
   });
 
   it("treats gallery controls teleported by a thread as inside that thread", async () => {
-    const modal = defineComponent({ props: { open: Boolean }, setup: (props, { slots }) => () => props.open ? h(Teleport, { to: "body" }, slots.content?.()) : null });
+    const modal = defineComponent({
+      props: { open: Boolean },
+      setup: (props, { slots }) => () => props.open ? h(Teleport, { to: "body" }, slots.content?.() ?? []) : null,
+    });
     const wrapper = keep(mount(CommentThread, {
       attachTo: document.body,
       global: { components: { ...global.components, UModal: modal } },
