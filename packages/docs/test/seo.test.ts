@@ -21,12 +21,13 @@ it("reports a broken Markdown link before Nuxt Link Checker exits", async () => 
     await writeFile(join(root, "content/index.md"), "---\ntitle: Home\nlayout: home\n---\nWelcome\n")
     await writeFile(join(root, "content/docs/guide/index.md"), "---\ntitle: Guide\n---\n\n[Missing](/docs/guide/missing)\n")
     await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({})\n")
-    nuxt = await loadNuxt({ cwd: root, overrides: Object.assign({
+    const config: NuxtConfig = {
       dev: false,
       devtools: { enabled: false },
       modules: [[docs, { mcp: false, ogImage: false, seoAudit: false, site: { url: "https://docs.test" } }]],
       nitro: { static: true },
-    }, { _generate: true }), ready: true })
+    }
+    nuxt = await loadNuxt({ cwd: root, overrides: Object.assign(config, { _generate: true }), ready: true })
     await expect(build(nuxt)).rejects.toMatchObject({
       code: "DOCS_LINKS_BROKEN",
       problems: [expect.stringContaining("docs/guide/index.md:5: /docs/guide links to /docs/guide/missing")],

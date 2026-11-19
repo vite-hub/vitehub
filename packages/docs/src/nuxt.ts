@@ -845,7 +845,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       const seoAudit = options.seoAudit ?? "warn"
       const redirects = docsRedirects(nitro.options.routeRules ?? {})
       const settings = options.linkChecker || {}
-      const isRuntimePath = docsRuntimePath(nitro.options, config.appBase, docsMount(manifest))
+      const runtimePath = () => docsRuntimePath(nitro.options, config.appBase, docsMount(manifest))
       const excludeLinks = [
         ...(moduleOptions.linkChecker?.excludeLinks ?? []).filter(link => !indexedPageExclusions.has(link)),
         ...settings.excludeLinks ?? [],
@@ -857,15 +857,18 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       const appPage = (path: string) => appPageLinks.some(pattern => posix.matchesGlob(path, pattern))
       const base = config.appBase.replace(/\/+$/, "")
       let contentCheck: Promise<ContentCheckResult> | undefined
-      const checkContent = () => contentCheck ??= checkDocsContent(manifestOptions, manifest, config.appBase, {
-        isLinkTarget: (url, href) => {
-          const path = url.pathname
-          if (base && path !== base && !path.startsWith(`${base}/`)) return true
-          return excluded(url, href) || appPage(path.slice(base.length) || "/") || isRuntimePath(path) || Boolean(outputFile?.(path))
-        },
-        ...config.site.url ? { site: config.site.url } : {},
-        titleTemplate: `%s · ${config.site.name}`,
-      })
+      const checkContent = () => contentCheck ??= (async () => {
+        const isRuntimePath = runtimePath()
+        return checkDocsContent(manifestOptions, manifest, config.appBase, {
+          isLinkTarget: (url, href) => {
+            const path = url.pathname
+            if (base && path !== base && !path.startsWith(`${base}/`)) return true
+            return excluded(url, href) || appPage(path.slice(base.length) || "/") || isRuntimePath(path) || Boolean(outputFile?.(path))
+          },
+          ...config.site.url ? { site: config.site.url } : {},
+          titleTemplate: `%s · ${config.site.name}`,
+        })
+      })()
       // All nitro:config hooks have run, including those registered by modules installed after the docs module.
       if (options.linkChecker !== false && building) {
         const problems = docsRedirectProblems(manifest, redirects)
@@ -881,7 +884,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         nitro.hooks?.hook("compiled", async () => {
           if (!nitro.options.output) return
           await checkLinks()
-          const result = checkDocsLinks({ dir: nitro.options.output.publicDir, siteUrl: config.site.url || "https://docs.local", appBase: config.appBase, ...settings, isRuntimePath, excludeLinks })
+          const result = checkDocsLinks({ dir: nitro.options.output.publicDir, siteUrl: config.site.url || "https://docs.local", appBase: config.appBase, ...settings, isRuntimePath: runtimePath(), excludeLinks })
           useLogger("@vite-hub/docs").info?.(`Checked links and fragments of ${result.pages} pages`)
         })
       }

@@ -1006,11 +1006,11 @@ describe("docs search checks", () => {
     expect(problems).toContain("/docs/guide, /learn share the title \"Hi · Docs\". Give each page its own.")
   })
 
-  it("keeps the HTML title check of a Markdown page that an app page replaces", async () => {
+  it.each(["/docs/guide", "/docs/:slug(.*)*"])("keeps the HTML title check of a Markdown page replaced by %s", async (path) => {
     const app = appWithDocs({ "docs/guide/index.md": "Hi" })
     hooks.clear()
     await setupDocs({ dir: app.dir, seoAudit: "error" })
-    vi.mocked(extendPages).mock.calls.at(-1)![0]([{ path: "/docs/guide" }] as never)
+    vi.mocked(extendPages).mock.calls.at(-1)![0]([{ path }] as never)
     const nitroHooks = new Map<string, Hook[]>()
     await callHook("nitro:init", { options: {}, hooks: { hook: (name: string, hook: Hook) => nitroHooks.set(name, [...nitroHooks.get(name) ?? [], hook]) } })
     for (const hook of nitroHooks.get("prerender:generate") ?? []) await hook({ route: "/docs/guide", contents: "<html><head><title>Hi · Docs</title></head><body><h1>Hi</h1></body></html>", fileName: "/docs/guide.html", contentType: "text/html" } as never)
