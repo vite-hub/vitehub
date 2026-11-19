@@ -28,7 +28,7 @@ it("says that signals are unsupported in vite dev, where every run is inline", a
   // SAFETY: resumeWorkflow() only checks that a dev recorder is installed.
   setWorkflowDevRecorder({} as WorkflowDevRecorder)
   setWorkflowRuntimeRegistry({
-    welcome: async () => ({ default: { handler: async () => "inline", options: { native: async () => "native" } } }),
+    welcome: async () => ({ default: { handler: async () => "inline", native: async () => "native" } }),
   })
 
   expect(await resumeWorkflow("hook-token", {})).toMatchObject([{
@@ -51,7 +51,7 @@ it("says that signals are unsupported when no Workflow has a native entry and th
 
 it("still asks for the Workflow DevKit when a Workflow has a native entry", async () => {
   setWorkflowRuntimeRegistry({
-    welcome: async () => ({ default: { handler: async () => "inline", options: { native: async () => "native" } } }),
+    welcome: async () => ({ default: { handler: async () => "inline", native: async () => "native" } }),
   })
 
   await expect(resumeWorkflow("hook-token", {})).rejects.toMatchObject({

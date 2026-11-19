@@ -12,7 +12,7 @@ I am Maxi, and I built ViteHub's Vue component package for Vue and Nuxt applicat
 
 `@vite-hub/ui` holds the chat, trace, diff, and file parts behind interfaces
 such as the ViteHub Console. The Console owns its Agent run views; see the
-[Console documentation](/docs/development/console).
+[Console documentation](/docs/console).
 
 The server packages do not need Vue. A React app, a server route, or a CLI can
 call the same Server Primitives and run the same Agents.

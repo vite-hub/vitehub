@@ -14,7 +14,7 @@ afterEach(() => {
 
 // `vite dev` does not run the Workflow DevKit transform, so a native entry there has no `workflowId`.
 function registerNativeWorkflow() {
-  const handler = vi.fn(async (payload: { email: string }) => ({ inline: payload.email }))
+  const handler = vi.fn(async ({ payload }: { payload: { email: string } }) => ({ inline: payload.email }))
   const native = vi.fn(async () => ({ durable: true }))
   const runtime: VercelWorkflowRuntime = {
     getRun: vi.fn(() => {
@@ -29,7 +29,7 @@ function registerNativeWorkflow() {
   setVercelWorkflowRuntimeLoader(async () => runtime)
   setWorkflowRuntimeConfig({ driver: "vercel" })
   setWorkflowRuntimeRegistry({
-    onboard: async () => ({ default: { handler, options: { native } } }),
+    onboard: async () => ({ default: { handler, native } }),
   })
   return { handler, native, runtime }
 }

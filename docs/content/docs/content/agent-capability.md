@@ -238,14 +238,14 @@ The Capability reports `mode: 'write'` when `write` or `publish` is enabled. Its
 
 ## Other operations
 
-`content()` tools are written for a model. For any other [operation](/docs/development/operations), use `operations({ include: ['content.*'] })`. Each operation becomes a tool named after it (`content_publish`). It checks `content.can()` with the same user and actor, and asks approval for destructive operations, except a dry run. It also runs `console.authorize` and drops operations of denied sections. Without `console.authorize`, `include` is the only gate. `content.save`, `content.remove`, and `content.restore` take `lease: 'override'` from an Agent or MCP client only with `operations({ overrideLeases: true })`. `content()` keeps its own `lease: 'override'` option.
+`content()` tools are written for a model. For any other [operation](/docs/console/operations), use `operations({ include: ['content.*'] })`. Each operation becomes a tool named after it (`content_publish`). It checks `content.can()` with the same user and actor, and asks approval for destructive operations, except a dry run. It also runs `console.authorize` and drops operations of denied sections. Without `console.authorize`, `include` is the only gate. `content.save`, `content.remove`, and `content.restore` take `lease: 'override'` from an Agent or MCP client only with `operations({ overrideLeases: true })`. `content()` keeps its own `lease: 'override'` option.
 
 ## Related pages
 
 - [Content configuration](/docs/content/configure)
 - [Content server API](/docs/content/server-api)
 - [Scheduling](/docs/content/scheduling)
-- [Operations](/docs/development/operations)
+- [Operations](/docs/console/operations)
 - [Editing together](/docs/content/editing-together)
 - [Trusted Invokers](/docs/agents/trusted-invokers)
 - [Official capabilities](/docs/agents/capabilities/official)

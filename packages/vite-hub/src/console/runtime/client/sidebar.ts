@@ -71,7 +71,7 @@ export const consoleAddPrimitiveOpen = ref(false)
 export const consoleDocsItem: DropdownMenuItem = {
   icon: "i-lucide-book-open",
   label: "Docs",
-  to: "https://vitehub.dev/docs/development/console",
+  to: "https://vitehub.dev/docs/console/get-started#link-a-deployed-app",
   target: "_blank",
   trailingIcon: "i-lucide-arrow-up-right",
 }
