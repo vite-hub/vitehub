@@ -922,8 +922,9 @@ function journalDatabase(parsed: ParsedArgs, context: AgentInvocationsCliContext
   }
   // Without a URL of its own, the server puts the journal next to a `file:` State, which resolves from the working directory.
   const beside = configured ? undefined : agentJournalBesideState(context.stateUrl, context.env)
-  const besidePath = beside && (beside.cwd ? resolve(context.rootDir ?? process.cwd(), decodeURIComponent(beside.url.slice(5))) : beside.url)
-  const target = configured || besidePath || resolve(root, defaultAgentInvocationsPath)
+  // Keep the URL encoded, so `%23` and `%3F` in the path stay path characters when the query and fragment split below.
+  const besideUrl = beside && (beside.cwd ? new URL(beside.url.slice("file:".length), pathToFileURL(`${context.rootDir ?? process.cwd()}/`)).href : beside.url)
+  const target = configured || besideUrl || resolve(root, defaultAgentInvocationsPath)
   const withoutFragment = target.split("#", 1)[0]!
   const queryIndex = withoutFragment.indexOf("?")
   const location = queryIndex === -1 ? withoutFragment : withoutFragment.slice(0, queryIndex)
