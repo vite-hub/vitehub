@@ -15,7 +15,7 @@ icon: i-lucide-code-2
 | `createWorkflow` from `vite-hub/workflow` | Create an inline Workflow Handle in your own code. |
 | `ViteHubError` from `vite-hub/runtime` | Throw your own Workflow failures with stable codes. |
 | `NonRetryableError` from `vite-hub/workflow` | Fail a run at once, with no more retries, on every provider. |
-| `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `vite-hub/workflow` | Read provider request payloads in custom runtime entry points. |
+| `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `vite-hub/workflow` | Read provider request payloads in custom runtime entry points. `readRequestPayload()` returns `unknown`: check it with `validatePayload()`, or call `readValidatedPayload()`. |
 | `hubWorkflow` from `@vite-hub/workflow/vite` | Add Workflow discovery and host output. |
 
 `vite-hub/workflow` also exports the Provider, Definition, Run, Step, Start Options, and Integration Options types.
