@@ -325,24 +325,27 @@ function stepPropertyName(file: string): string {
 const sourceFile = /\.(?:c|m)?[jt]sx?$/
 
 /**
- * The handler of a folder Workflow index: the function passed to `defineWorkflow(name, handler)`, or the
- * default-exported function. A handler gets `(payload, context)`: `context` names the whole second parameter
- * (`ctx.steps`), and `steps` names its destructured `steps` property.
+ * The handler of a folder Workflow index: the `handler` of the object passed to `defineWorkflow({ handler })`, or the
+ * default-exported function. A handler gets one object: `context` names the whole parameter (`ctx.steps`), and
+ * `steps` names its destructured `steps` property.
  */
 function workflowHandler(ctx: RuleContext, r: Resolver): { fn: AstNode, context?: string, steps?: string } | undefined {
   const value = unwrap(defaultExport(ctx)?.value)
-  let fn = isNodeType(value, "CallExpression") ? unwrap(callArguments(value)[1]) : value
-  // `defineWorkflow("onboard", onboard)` names a function declared in this file.
+  let fn = isNodeType(value, "CallExpression") ? unwrap(objectValue(callArguments(value)[0], "handler")) : value
+  // `defineWorkflow({ handler: onboard })` names a function declared in this file.
   if (isIdentifier(fn)) {
     const declaration = r.binding(fn)?.declaration
     fn = isNodeType(declaration, "VariableDeclarator") ? unwrap(declaration.init) : declaration
   }
   if (!isFunctionNode(fn) || !isNode(fn) || !Array.isArray(fn.params)) return
-  let param = unwrap(fn.params[1])
+  let param = unwrap(fn.params[0])
   if (isNodeType(param, "AssignmentPattern")) param = unwrap(param.left)
   if (isIdentifier(param)) return { fn, context: param.name }
   const properties = isNodeType(param, "ObjectPattern") && Array.isArray(param.properties) ? param.properties.filter(isNode) : []
   const property = properties.find(entry => propertyName(entry) === "steps")
+  // `({ payload, ...context })` keeps `steps` in the rest object: `context.steps`.
+  const rest = property ? undefined : unwrap(properties.find(entry => isNodeType(entry, "RestElement"))?.argument)
+  if (isIdentifier(rest)) return { fn, context: rest.name }
   let target = unwrap(property?.value)
   if (isNodeType(target, "AssignmentPattern")) target = unwrap(target.left)
   return { fn, ...(isIdentifier(target) ? { steps: target.name } : {}) }

@@ -17,10 +17,10 @@ export const mcpErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Remove `publicRoute`, or set `auth: true` and add `mcpOAuth()` from `vite-hub/auth/mcp` to `server/auth.ts`.",
     },
-    // A tool sets `public`, but the server has neither `mcp.publicRoute` nor `auth: "optional"` that could serve it.
+    // A tool sets `access`, but the server has neither `mcp.publicRoute` nor `auth: "optional"` that could serve it.
     MCP_R0001: {
       ...dynamicError,
-      fix: "Set `mcp: { auth: \"optional\" }` in `vitehub()` to serve the tool without sign-in on the same route, set `mcp: { route: \"/mcp/account\", publicRoute: \"/mcp\" }` to serve it on a second route, or remove `public` from the tool.",
+      fix: "Set `mcp: { auth: \"optional\" }` in `vitehub()` to serve the tool without sign-in on the same route, set `mcp: { route: \"/mcp/account\", publicRoute: \"/mcp\" }` to serve it on a second route, or remove `access` from the tool.",
     },
     // More than one server directory has an `mcp.ts` hooks module.
     MCP_B0004: { ...dynamicError, fix: "Keep one `mcp.ts` with the `defineMcpHooks()` default export, in one server directory." },
