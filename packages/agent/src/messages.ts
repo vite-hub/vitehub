@@ -367,7 +367,7 @@ export type AgentActivity =
 export type StreamEvent =
   | { id?: string, messageId?: string, phase?: AgentMessagePhase, role?: MessageRole, text: string, type: "text-delta" }
   /** Reasoning summary text from a provider Driver, such as a Codex title "**Inspecting the config**". It is never answer text. */
-  | { id?: string, text: string, type: "reasoning-delta" }
+  | { id?: string, messageId?: string, text: string, type: "reasoning-delta" }
   | { data: unknown, id?: string, messageId?: string, transient?: boolean, type: "data" | `data-${string}` }
   | { activity?: AgentActivity, id: string, input?: unknown, messageId?: string, name: string, title?: string, type: "tool-call" | "tool-input-start" }
   | { activity?: AgentActivity, durationMs?: number, error?: string, id: string, messageId?: string, name: string, output?: unknown, title?: string, type: "tool-result" }
