@@ -11,7 +11,7 @@ import { getViteHubErrorShape } from "@vite-hub/runtime"
 import type { ExecutionBudget } from "@vite-hub/runtime"
 
 import { workspaceError } from "./errors.ts"
-import { historyConflict, normalizeHistoryRef, requireWorkspaceHistory, validateHistoryMessage } from "./history.ts"
+import { historyConflict, normalizeHistoryRef, rejectHistoryHead, requireWorkspaceHistory, validateHistoryMessage } from "./history.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, sha256 } from "./path.ts"
 import { useRegisteredWorkspace } from "./registry.ts"
@@ -334,7 +334,7 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
         const ref = normalizeHistoryRef(options.ref)
         // Reject a stale head before build Sources synchronize.
         const head = await history.head({ ref })
-        if ((head?.id ?? null) !== options.ifHead) throw historyConflict(ref, options.ifHead, head?.id ?? null)
+        if ((head?.id ?? null) !== options.ifHead) rejectHistoryHead(options, historyConflict(ref, options.ifHead, head?.id ?? null))
         return await requireWorkspaceHistory(await resolveSyncedWorkspace()).commit(options)
       },
     },

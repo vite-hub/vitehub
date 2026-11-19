@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
 import {
-  checkResponseResults,
   definitionDefaultExport,
   definitionLocation,
   knownDefinitionNames,
@@ -121,7 +120,7 @@ describe("vitehub/queue-payload-options", () => {
       "server/api/a.ts": [
         'import { sendQueue, dynamicQueue } from "vite-hub/queue"',
         "export async function send(email: string) {",
-        '  await sendQueue("welcome-email", { payload: { email }, delaySeconds: 60 })',
+        '  await sendQueue("welcome-email", { payload: { email }, delay: "1m" })',
         '  dynamicQueue.defer("welcome-email", { payload: { email }, idempotencyKey: email })',
         "}",
       ].join("\n"),
@@ -133,9 +132,9 @@ describe("vitehub/queue-payload-options", () => {
       "server/api/a.ts": [
         'import { sendQueue } from "vite-hub/queue"',
         "export async function send(email: string) {",
-        '  await sendQueue("welcome-email", { email }, { delaySeconds: 60 })',
+        '  await sendQueue("welcome-email", { email }, { delay: "1m" })',
         '  await sendQueue("audit", { payload: { email }, region: "eu" })',
-        '  await sendQueue("audit", { payload: { email } }, { delaySeconds: 1 })',
+        '  await sendQueue("audit", { payload: { email } }, { delay: "1s" })',
         "}",
       ].join("\n"),
     })).toEqual([])
@@ -163,61 +162,33 @@ describe("vitehub/no-module-scope-dispatch", () => {
 })
 
 describe("vitehub/no-destructure-non-tuples", () => {
-  it("reports tuple destructuring of values and Responses", async () => {
+  it("reports tuple destructuring of values", async () => {
     expect(await codes(noDestructureNonTuples, {
       "server/api/a.ts": [
         'import { deferWorkflow } from "vite-hub/workflow"',
-        'import { runSandboxTask } from "vite-hub/sandbox/task"',
+        'import { useQueue } from "vite-hub/queue"',
         "export async function run() {",
-        '  const [failure, output] = await runSandboxTask("resize", {})',
+        '  const [error, queue] = await useQueue("welcome-email")',
         '  const [deferred] = await deferWorkflow("onboard", {})',
-        "  return { failure, output }",
+        "  return { error, queue }",
         "}",
       ].join("\n"),
     })).toEqual(["VHUB0018", "VHUB0018"])
   })
 
-  it("accepts the tuple form of startWorkflow and runAgent", async () => {
+  it("accepts the tuple form of startWorkflow, runSandboxTask, and runAgent", async () => {
     expect(await codes(noDestructureNonTuples, {
       "server/api/a.ts": [
         'import { startWorkflow } from "vite-hub/workflow"',
+        'import { runSandboxTask } from "vite-hub/sandbox/task"',
         'import { runAgent } from "vite-hub/agent"',
         "export async function run(agent, options) {",
         '  const [startError, run] = await startWorkflow("onboard", {})',
+        '  const [taskError, output] = await runSandboxTask("resize", {})',
         '  const [error, answer] = await runAgent(agent, { prompt: "hi" })',
         '  const [failure, result] = await runAgent(agent, { prompt: "hi" }, { runtimeContext: options.runtimeContext })',
         '  const [unknown, value] = await runAgent(agent, { prompt: "hi" }, options)',
-        "  return { startError, run, error, answer, failure, result, unknown, value }",
-        "}",
-      ].join("\n"),
-    })).toEqual([])
-  })
-})
-
-describe("vitehub/check-response-results", () => {
-  it("reports data read from a Response", async () => {
-    expect(await codes(checkResponseResults, {
-      "server/api/a.ts": [
-        'import { runSandboxTask } from "vite-hub/sandbox/task"',
-        'import { runBrowser } from "vite-hub/browser"',
-        "export async function run() {",
-        '  const { width } = await runSandboxTask("resize", {})',
-        '  const page = await runBrowser("screenshot", {})',
-        '  return { width, title: page.title, size: (await runSandboxTask("resize", {})).size }',
-        "}",
-      ].join("\n"),
-    })).toEqual(["VHUB0019", "VHUB0019", "VHUB0019"])
-  })
-
-  it("accepts Response members", async () => {
-    expect(await codes(checkResponseResults, {
-      "server/api/a.ts": [
-        'import { runSandboxTask } from "vite-hub/sandbox/task"',
-        "export async function run() {",
-        '  const response = await runSandboxTask("resize", {})',
-        "  if (!response.ok) throw new Error(await response.text())",
-        "  const { width } = await response.json()",
-        "  return { width, status: response.status }",
+        "  return { startError, run, taskError, output, error, answer, failure, result, unknown, value }",
         "}",
       ].join("\n"),
     })).toEqual([])

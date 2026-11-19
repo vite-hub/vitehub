@@ -13,7 +13,7 @@ import type { Node } from "@vite-hub/internal/ast"
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 
 /** The modules that exported `auth` and `getAuth`. */
-const serverModules = new Set(["vite-hub/auth/server", "@vite-hub/auth/server"])
+const serverModules = new Set(["vite-hub/auth/server", "@vite-hub/auth/server", "#vitehub/auth/server"])
 /** The modules that exported `isGitHubOrgMember`. */
 const rootModules = new Set(["vite-hub/auth", "@vite-hub/auth"])
 /** The modules that exported `useSession`. */
@@ -41,10 +41,10 @@ interface FileContext {
   followUps: FollowUp[]
   output: MagicString
   program: File
-  resolve: (node: Identifier) => Identifier | undefined
-  /** Import declarations that got a `useAuth` or `checkGitHubOrgMember` specifier. */
-  added: Map<ImportDeclaration, Set<string>>
-  changed: number
+  resolve: ReturnType<typeof bindingResolver>
+  names: Set<string>
+  replacements: Map<string, string>
+  removed: Set<ImportSpecifier>
 }
 
 function scriptBlocks(file: string, source: string): Block[] {
@@ -61,7 +61,6 @@ function scriptBlocks(file: string, source: string): Block[] {
 
 function overwrite(context: FileContext, node: Node, text: string) {
   context.output.overwrite(context.block.offset + start(node), context.block.offset + end(node), text)
-  context.changed++
 }
 
 function followUp(context: FileContext, node: Node, message: string) {
@@ -87,56 +86,88 @@ function importsOf(program: File, modules: ReadonlySet<string>, name: string): {
   return { named, namespaces }
 }
 
-/** The local name of an import of `name` from `modules`, if the file has one. */
-function localImport(program: File, modules: ReadonlySet<string>, name: string): string | undefined {
-  return importsOf(program, modules, name).named[0]?.local.name
-}
-
 /** Every reference to the binding `local`, or to the free name `free` when `local` is undefined. */
-function references(context: FileContext, local: Identifier | undefined, free?: string): Array<{ node: Identifier, parent: Node | undefined, grandparent: Node | undefined }> {
+function references(context: FileContext, local: Identifier | undefined, free?: string) {
   const found: Array<{ node: Identifier, parent: Node | undefined, grandparent: Node | undefined }> = []
   walk(context.program, (node, ancestors) => {
     const parent = ancestors.at(-1)
     if (node === local || !isReference(node, parent)) return
+    if (parent?.type === "TSQualifiedName" && parent.right === node) return
     const binding = context.resolve(node)
     if (local ? binding === local : binding === undefined && node.name === free) found.push({ node, parent, grandparent: ancestors.at(-2) })
   })
   return found
 }
 
-/**
- * Replaces an import specifier with `to`, or removes it when the declaration already imports `to`. A removed
- * specifier takes its comma with it.
- */
-function replaceSpecifier(context: FileContext, declaration: ImportDeclaration, specifier: ImportSpecifier, to: string) {
-  const added = context.added.get(declaration) ?? new Set<string>()
-  context.added.set(declaration, added)
-  const exists = added.has(to) || declaration.specifiers.some(other => other !== specifier && importedName(other) === to)
-  added.add(to)
-  if (!exists) {
-    overwrite(context, specifier, to)
-    return
-  }
-  const index = declaration.specifiers.indexOf(specifier)
-  const next = declaration.specifiers[index + 1]
-  const previous = declaration.specifiers[index - 1]
-  const { offset } = context.block
-  if (next) context.output.remove(offset + start(specifier), offset + start(next))
-  else if (previous) context.output.remove(offset + end(previous), offset + end(specifier))
-  context.changed++
+function isValueImport(program: File, specifier: ImportSpecifier): boolean {
+  return specifier.importKind !== "type" && specifier.importKind !== "typeof"
+    && program.program.body.some(statement => statement.type === "ImportDeclaration" && statement.importKind !== "type"
+      && statement.importKind !== "typeof" && statement.specifiers.includes(specifier))
 }
 
-function declarationOf(program: File, specifier: ImportSpecifier): ImportDeclaration {
-  // SAFETY: the specifier came from one of the program's import declarations.
-  return program.program.body.find(statement => statement.type === "ImportDeclaration" && statement.specifiers.includes(specifier)) as ImportDeclaration
+function replacementBinding(context: FileContext, specifier: ImportSpecifier, modules: ReadonlySet<string>, name: string, sites: Identifier[]): string {
+  const existing = importsOf(context.program, modules, name).named.find(candidate =>
+    isValueImport(context.program, candidate)
+    && sites.every(site => context.resolve(site, candidate.local.name) === candidate.local))
+  const generated = context.replacements.get(name)
+  const replacement = existing?.local.name ?? generated
+  if (replacement) {
+    context.removed.add(specifier)
+    return replacement
+  }
+  let local = name
+  const alias = `viteHub${name[0]?.toUpperCase()}${name.slice(1)}`
+  let suffix = 2
+  if (context.names.has(local)) local = alias
+  while (context.names.has(local)) local = `${alias}${suffix++}`
+  context.names.add(local)
+  context.replacements.set(name, local)
+  overwrite(context, specifier, local === name ? name : `${name} as ${local}`)
+  return local
+}
+
+function removeImports(context: FileContext) {
+  const { code, offset } = context.block
+  for (const statement of context.program.program.body) {
+    if (statement.type !== "ImportDeclaration") continue
+    const { specifiers } = statement
+    const removed = specifiers.filter(specifier => specifier.type === "ImportSpecifier" && context.removed.has(specifier))
+    if (!removed.length) continue
+    if (removed.length === specifiers.length) {
+      const after = /^[ \t]*\r?\n/.exec(code.slice(end(statement)))?.[0] ?? ""
+      context.output.remove(offset + start(statement), offset + end(statement) + after.length)
+      continue
+    }
+    let previous: ImportDeclaration["specifiers"][number] | undefined
+    let firstRemoved: ImportSpecifier | undefined
+    let lastRemoved: ImportSpecifier | undefined
+    for (const specifier of specifiers) {
+      if (specifier.type === "ImportSpecifier" && context.removed.has(specifier)) {
+        firstRemoved ??= specifier
+        lastRemoved = specifier
+      }
+      else {
+        if (firstRemoved) context.output.remove(offset + start(firstRemoved), offset + start(specifier))
+        firstRemoved = lastRemoved = undefined
+        previous = specifier
+      }
+    }
+    if (firstRemoved && lastRemoved && previous) {
+      if (previous.type === "ImportDefaultSpecifier") {
+        const comma = /^\s*,/.exec(code.slice(end(lastRemoved)))?.[0] ?? ""
+        context.output.remove(offset + start(firstRemoved), offset + end(lastRemoved) + comma.length)
+      }
+      else context.output.remove(offset + end(previous), offset + end(lastRemoved))
+    }
+  }
 }
 
 /** `getAuth()` becomes `useAuth()`, and every use of the `auth` proxy becomes `useAuth()`. */
 function rewriteServer(context: FileContext) {
   const { program } = context
-  const useAuth = localImport(program, serverModules, "useAuth") ?? "useAuth"
   for (const name of ["getAuth", "auth"] as const) {
     const { named, namespaces } = importsOf(program, serverModules, name)
+    const message = `Review this use of \`${name}\`. Import \`useAuth\` from \`vite-hub/auth/server\`, and pass the event in a route.`
     for (const namespace of namespaces) {
       walk(program, (node) => {
         if (node.type === "MemberExpression" && !node.computed && node.property.type === "Identifier" && node.property.name === name
@@ -146,52 +177,59 @@ function rewriteServer(context: FileContext) {
       })
     }
     for (const specifier of named) {
-      if (rewriteReferences(context, name, specifier.local, useAuth)) replaceSpecifier(context, declarationOf(program, specifier), specifier, "useAuth")
+      if (!isValueImport(program, specifier)) {
+        followUp(context, specifier, message)
+        continue
+      }
+      const sites = references(context, specifier.local)
+      const manual = sites.filter(({ parent, node }) => parent?.type === "ExportSpecifier" || parent?.type === "TSQualifiedName"
+        || parent?.type === "AssignmentExpression" && parent.left === node || parent?.type === "UpdateExpression")
+      if (manual.length) {
+        for (const { node } of manual) followUp(context, node, message)
+        continue
+      }
+      const useAuth = replacementBinding(context, specifier, serverModules, "useAuth", sites.map(({ node }) => node))
+      for (const { node, parent } of sites) {
+        const replacement = name === "auth" ? `${useAuth}()` : useAuth
+        if (parent?.type === "TSTypeQuery" && name === "auth") overwrite(context, parent, `ReturnType<typeof ${useAuth}>`)
+        else if (parent?.type === "ObjectProperty" && parent.shorthand && parent.value === node) overwrite(context, node, `${node.name}: ${replacement}`)
+        else overwrite(context, node, replacement)
+      }
     }
-  }
-  if (!serverFile.test(context.file)) return
-  // Nitro auto-imports the helpers in `server/`, so a free name is the helper.
-  rewriteReferences(context, "getAuth", undefined, "useAuth")
-  for (const { node, parent } of references(context, undefined, "auth")) {
-    if ((parent?.type === "MemberExpression" || parent?.type === "OptionalMemberExpression") && parent.object === node) overwrite(context, node, "useAuth()")
+    if (serverFile.test(context.file)) {
+      for (const { node } of references(context, undefined, name)) followUp(context, node, message)
+    }
   }
 }
 
-/** Returns false when a reference cannot change, so the import stays. */
-function rewriteReferences(context: FileContext, name: "auth" | "getAuth", local: Identifier | undefined, useAuth: string): boolean {
-  let kept = false
-  for (const { node, parent } of references(context, local, name)) {
-    if (parent?.type === "ExportSpecifier") {
-      followUp(context, node, `\`${name}\` was removed from \`vite-hub/auth/server\`. Export \`useAuth\` instead, and call \`useAuth(event)\` in a route.`)
-      kept = true
-      continue
-    }
-    const replacement = name === "auth" ? `${useAuth}()` : useAuth
-    // `typeof auth` names the instance type.
-    if (parent?.type === "TSTypeQuery") overwrite(context, parent, name === "auth" ? `ReturnType<typeof ${useAuth}>` : `typeof ${useAuth}`)
-    else if (parent?.type === "ObjectProperty" && parent.shorthand && parent.value === node) overwrite(context, parent, `${node.name}: ${replacement}`)
-    else overwrite(context, node, replacement)
-  }
-  return !kept
+function nonemptyOrganization(node: Node | undefined): boolean {
+  if (node?.type === "StringLiteral") return node.value.length > 0
+  if (node?.type === "SequenceExpression") return nonemptyOrganization(node.expressions.at(-1))
+  return false
 }
 
 /** `await isGitHubOrgMember(...)` becomes `!(await checkGitHubOrgMember(...))[0]`. */
 function rewriteGitHub(context: FileContext) {
   const { program, block } = context
   const { named } = importsOf(program, rootModules, "isGitHubOrgMember")
-  const check = localImport(program, rootModules, "checkGitHubOrgMember") ?? "checkGitHubOrgMember"
   for (const specifier of named) {
-    let kept = false
-    for (const { node, parent, grandparent } of references(context, specifier.local)) {
-      if (parent?.type === "CallExpression" && parent.callee === node && grandparent?.type === "AwaitExpression") {
-        const args = parent.arguments.map(argument => block.code.slice(start(argument), end(argument))).join(", ")
-        overwrite(context, grandparent, `!(await ${check}(${args}))[0]`)
+    const calls: Array<{ node: Identifier, awaited: Node }> = []
+    const sites = references(context, specifier.local)
+    for (const { node, parent, grandparent } of sites) {
+      if (parent?.type === "CallExpression" && parent.callee === node && grandparent?.type === "AwaitExpression"
+        && parent.arguments[0]?.type !== "SpreadElement" && nonemptyOrganization(parent.arguments[1])) {
+        calls.push({ node, awaited: grandparent })
         continue
       }
-      followUp(context, node, "`isGitHubOrgMember()` was removed. Call `checkGitHubOrgMember()`, which returns `[error]`: the membership is active when `error` is `undefined`. Throw on `AUTH_GITHUB_UNAVAILABLE` in `access.policy.allow`, so a GitHub outage does not end every session.")
-      kept = true
+      followUp(context, node, "`isGitHubOrgMember()` was removed. Call `checkGitHubOrgMember()`, which returns `[error]`. Keep returning `false` for an empty organization if your app allows one. Throw on `AUTH_GITHUB_UNAVAILABLE` in `access.policy.allow`, so a GitHub outage does not end every session.")
     }
-    if (!kept) replaceSpecifier(context, declarationOf(program, specifier), specifier, "checkGitHubOrgMember")
+    if (calls.length !== sites.length) continue
+    const check = replacementBinding(context, specifier, rootModules, "checkGitHubOrgMember", sites.map(({ node }) => node))
+    for (const { node, awaited } of calls) {
+      overwrite(context, node, check)
+      context.output.appendRight(block.offset + start(awaited), "(!(")
+      context.output.prependLeft(block.offset + end(awaited), ")[0])")
+    }
   }
 }
 
@@ -222,9 +260,14 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
         followUps.push({ file, message: `The codemod could not parse this file (${error instanceof Error ? error.message : String(error)}). Replace \`auth\` and \`getAuth()\` with \`useAuth(event)\`, and \`isGitHubOrgMember()\` with \`checkGitHubOrgMember()\`, by hand.` })
         continue
       }
-      const context: FileContext = { block, file, followUps, output, program, resolve: bindingResolver(program), added: new Map(), changed: 0 }
+      const names = new Set<string>()
+      walk(program, (node) => {
+        if (node.type === "Identifier" || node.type === "JSXIdentifier") names.add(node.name)
+      })
+      const context: FileContext = { block, file, followUps, output, program, resolve: bindingResolver(program), names, replacements: new Map(), removed: new Set() }
       rewriteServer(context)
       rewriteGitHub(context)
+      removeImports(context)
       reportSession(context)
     }
     if (output.hasChanged()) edits.push({ path: file, before: source, after: output.toString() })

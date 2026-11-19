@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, and `auth-accessors`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, and `auth-accessors`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -105,6 +105,26 @@ The codemod reads imports from `vite-hub/queue`, `vite-hub/workflow`, and their 
 - star and namespace re-exports, whose consumers need manual changes,
 - object keys and strings with an old name, for example in a `vi.mock()` factory,
 - Workflow handles that a file exports, because other files call their methods.
+
+## queue-durations
+
+Queue `delaySeconds` is now `delay`, and `retentionSeconds` is now `retention`. `delay` takes a duration string, such as `'60s'` or `'5m'`, as Workflow `delay` does. `retention` is a lifetime, so it takes a duration or a number of seconds, as KV `ttl` does:
+
+```bash [Terminal]
+npx @vite-hub/codemods queue-durations [dir] [--dry-run]
+```
+
+```diff [server/api/signup.post.ts]
+-await sendQueue('welcome-email', { email }, { delaySeconds: 60, retentionSeconds: 3600 })
++await sendQueue('welcome-email', { email }, { delay: '60s', retention: 3600 })
+```
+
+The codemod changes the options of `sendQueue()`, `deferQueue()`, `dynamicQueue.send()`, `dynamicQueue.defer()`, and the `send()` and `sendBatch()` methods of a client from `useQueue()`, and the `{ retry: { delaySeconds } }` that `onError` of `defineQueue()` returns. It rewrites calls tied to explicit Queue imports. It reports unbound calls, including Nuxt auto-imports, without editing them because they can refer to app utilities. It turns a number, or arithmetic on numbers such as `24 * 60 * 60`, into the same time in seconds, such as `'86400s'`. It keeps `delaySeconds` in Cloudflare's native `message.retry()` and `batch.retryAll()`. The report lists:
+
+- a `delay` value that is not a number in the code, such as a variable, which you write as a duration,
+- `delaySeconds` and `retentionSeconds` that are left, such as options in a variable.
+
+A send that still passes `delaySeconds` or `retentionSeconds` fails with `QUEUE_UNSUPPORTED_OPTION`, so a missed option does not send the job at once.
 
 ## result-tuples
 
@@ -335,7 +355,7 @@ npx @vite-hub/codemods auth-accessors [dir] [--dry-run]
 | --- | --- |
 | `auth` from `vite-hub/auth/server` | `useAuth()` |
 | `getAuth()` from `vite-hub/auth/server` | `useAuth()` |
-| `await isGitHubOrgMember(token, org)` from `vite-hub/auth` | `!(await checkGitHubOrgMember(token, org))[0]` |
+| `await isGitHubOrgMember(token, 'acme')` from `vite-hub/auth` | `(!(await checkGitHubOrgMember(token, 'acme'))[0])` |
 
 ```diff [server/api/roles.post.ts]
 -import { auth } from 'vite-hub/auth/server'
@@ -347,6 +367,6 @@ npx @vite-hub/codemods auth-accessors [dir] [--dry-run]
  })
 ```
 
-The codemod also changes the auto-imported `auth` and `getAuth()` in `server/`. `useAuth()` without an event reads the app's Auth Definition, as `auth` did. In a route, pass the event yourself, `useAuth(event)`, so Auth reads the request's host and Cloudflare bindings.
+The codemod also changes named imports from `#vitehub/auth/server`. It reports possible `auth` and `getAuth()` auto-imports in `server/` without editing them, because those names can come from your app. `useAuth()` without an event reads the app's Auth Definition, as `auth` did. In a route, pass the event yourself, `useAuth(event)`, so Auth reads the request's host and Cloudflare bindings.
 
-The report lists each `useSession()` call. `useUserSession()` replaces it, with other names: `data.value`, `pending.value`, and `refresh()` replace `.value.data`, `.value.isPending`, and `.value.refetch()`. It also lists an `isGitHubOrgMember()` that is not awaited.
+The report lists `useSession()` imports and possible app auto-imports. `useUserSession()` replaces it, with other names: `data.value`, `pending.value`, and `refresh()` replace `.value.data`, `.value.isPending`, and `.value.refetch()`. The codemod leaves membership imports unchanged if a call is not awaited or the organization may be empty. For an empty organization, keep returning `false` if your app relied on that result.

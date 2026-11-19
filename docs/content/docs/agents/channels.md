@@ -1247,7 +1247,7 @@ export default defineAgent({
 })
 ```
 
-Set `messages.commentary: 'message'` only when the Driver emits explicit commentary phases for public progress. Commentary is hidden by default, and reasoning is never published.
+Set `messages.commentary: 'message'` only when the Driver emits explicit commentary phases for public progress. Commentary is hidden by default, and reasoning is never posted as a message.
 
 Use `messages.delivery: 'manual'` when finish hooks send replies. A generated Workflow can carry it across a durable boundary when the Channel and host support it. An explicit `messages.timeout` limits inline execution and the handoff's typing indicator, not the durable Workflow. `steer` queues overlapping messages and keeps the handoff. `serial`, `drop`, `queue`, and `reject` stay inline and cannot combine with required durable delivery.
 
@@ -1257,7 +1257,7 @@ With native reply support in the adapter (Telegram among the built-ins), a non-s
 
 - `text` (required): a string, rotating strings, a callback, or `null`.
 - `intervalMs`: minimum time between updates.
-- `updates: 'commentary'`: shows explicit commentary, each part replacing the last, so the current step is visible.
+- `updates: 'commentary'`: shows explicit commentary and the reasoning summaries of a provider Driver such as Codex ("Inspecting the config"), each part replacing the last, so the current step is visible. Text that a custom Driver marks as `phase: 'reasoning'` stays hidden.
 - It selects manual delivery, so it excludes `messages.stream` and `messages.commentary`.
 - `messages.final.delivery: 'new-message'` posts the answer separately, then removes the placeholder.
 

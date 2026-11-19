@@ -74,7 +74,7 @@ The layer loads the threads of the subject, draws a pin for each, and shows a to
 - A draft pin has no number. The server gives it one on send.
 - A drag in comment mode draws an area, with its corners and size while the drag lasts. The comment is about that area.
 - With `placement="margin"`, every thread is a card in a column on the right edge of the screen, level with its pin. Click a card or its pin to open the thread in that card and reply there. A new comment is written there too. On a screen narrower than 900px, threads open beside their pins.
-- A thread opens in a small card, as in Drop: 340px wide, with a small corner that points at its pin, 14px text, tight rows, and Edit and Delete over the name's row. Set `size="md"` for the larger thread of a panel.
+- A thread opens in a small card: 340px wide, with a small corner that points at its pin, 14px text, tight rows, and Edit and Delete over the name's row. Set `size="md"` for the larger thread of a panel.
 - The card opens under its pin and to the right. Near the right edge it opens to the left, and near the bottom it opens above the pin. The browser picks the side from the card's real size with [CSS anchor positioning](https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_anchor_positioning). A browser without it guesses from a 360 by 420 px card.
 
 An anchor stays on its element when the layout changes. When the element is gone, ambiguous, or no longer holds the quoted text, the thread is detached: it stays in the list without a pin. A pin also hides while a scroll container clips its element. See [Anchors](#anchors).
@@ -462,7 +462,7 @@ The page overlay. Renders a `div` with `data-slot="comment-layer"`. Give it a `c
 | `accept` | `string` | | File types the boxes take, such as `image/*`. |
 | `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of a key, optionally with file name and media type. Images show as thumbnails, other files as links. |
 | `placement` | `"pin" \| "margin"` | `"pin"` | Where threads open: beside their pins, or in cards on the right edge of the screen, level with their pins. `"margin"` works as `"pin"` below 900px. |
-| `size` | `"sm" \| "md"` | `"sm"` | The size of the thread cards and of the box for a new comment. `"sm"` is Drop's small card: 14px text, tight rows, and Edit and Delete over the name's row. `"md"` is the size of a thread in a panel. |
+| `size` | `"sm" \| "md"` | `"sm"` | The size of the thread cards and of the box for a new comment. `"sm"` is the small card: 14px text, tight rows, and Edit and Delete over the name's row. `"md"` is the size of a thread in a panel. |
 
 ### CommentPin
 

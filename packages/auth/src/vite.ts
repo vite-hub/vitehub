@@ -38,8 +38,7 @@ export const AUTH_DEFINITION_ID = "#vitehub/auth/definition"
 export const AUTH_SERVER_ID = "#vitehub/auth/server"
 export const AUTH_VITE_PLUGIN_NAME = "@vite-hub/auth/vite"
 
-// No "#": the browser loads these two from `/@id/<id>` in dev, and "#" starts the URL fragment. Not reported to Vite
-// yet (repro: https://github.com/onmax/repros/tree/repro/vite-virtual-id-hash/vite-virtual-id-hash).
+// No "#": the browser loads these two from `/@id/<id>` in dev, and "#" starts the URL fragment.
 const RESOLVED_AUTH_ABILITIES_ID = "\0virtual:vitehub/auth/abilities"
 const RESOLVED_AUTH_CLIENT_ID = "\0virtual:vitehub/auth/client"
 const RESOLVED_AUTH_DEFINITION_ID = `\0${AUTH_DEFINITION_ID}`
@@ -203,8 +202,9 @@ function renderAuthServerModule(options: { importBase?: string } = {}): string {
   const importBase = options.importBase ?? authPackageName
   const serverImport = `${importBase}/server`
   return [
-    `export * from ${JSON.stringify(privateAuthImport(importBase, "internal/server"))}`,
+    `export * from ${JSON.stringify(serverImport)}`,
     `export { default } from ${JSON.stringify(serverImport)}`,
+    `export { createAuthAccessHandler } from ${JSON.stringify(privateAuthImport(importBase, "internal/server"))}`,
     "",
   ].join("\n")
 }
@@ -275,8 +275,9 @@ function renderAuthServerTypes(importBase: string = authPackageName): string {
   const serverImport = `${importBase}/server`
   return [
     `declare module ${JSON.stringify(AUTH_SERVER_ID)} {`,
-    `  export * from ${JSON.stringify(privateAuthImport(importBase, "internal/server"))}`,
+    `  export * from ${JSON.stringify(serverImport)}`,
     `  export { default } from ${JSON.stringify(serverImport)}`,
+    `  export { createAuthAccessHandler } from ${JSON.stringify(privateAuthImport(importBase, "internal/server"))}`,
     "}",
     "",
   ].join("\n")

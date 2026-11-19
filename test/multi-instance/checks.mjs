@@ -235,7 +235,7 @@ export const checks = [
       const run = randomUUID().slice(0, 8)
       const ids = Array.from({ length: 20 }, (_, index) => `${run}-${index}`)
       // The delay keeps every job waiting while A stops, so no job is half done on A.
-      const { errors } = await post(a, "/api/queue", { delaySeconds: 5, ids })
+      const { errors } = await post(a, "/api/queue", { delay: "5s", ids })
       if (errors.length) return fail(`sendQueue failed: ${errors[0]}`)
       await context.stop("a")
       const read = async () => {

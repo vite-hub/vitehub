@@ -1,9 +1,9 @@
 # @vite-hub/presets
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fpresets&icon=npm)](https://npmx.dev/package/@vite-hub/presets)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fpresets&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/presets)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/presets)](https://npmx.dev/package/@vite-hub/presets)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/presets)](https://npmx.dev/package/@vite-hub/presets)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/presets` contains ready-made Agents that are built from ViteHub
 primitives. Each preset is a subpath. The package depends on
@@ -177,6 +177,16 @@ sets GitHub's `bypass_rules`, so the GitHub App must be allowed to bypass the
 branch rules. A required check that never reported, 10 minutes after the head's
 checks finished, gets a branch update or an Actions rerun once per head every
 six hours.
+
+`forkHeadBranches` (off by default), such as
+`{ "acme/app": "preview/pr-{number}" }`, is for required checks that run only on
+pushes to the repository, like pkg.pr.new. Such a check never reports on a fork
+PR's head. When it is missing, the host pushes the head to that branch, once per
+head. A push runs the workflow files of the pushed commit with the repository's
+permissions, so the host first rereads GitHub and pushes only when a reviewer with
+write access approved that exact head, no change request stands, and the head's
+`.github` folder is the same as the base branch's. It moves and deletes only a
+branch it created, and deletes it once the PR closes.
 
 `markDraftsReady` lists GitHub logins, such as maintainers and their bots, whose
 drafts should merge. Off by default. When a pass has reviewed a draft's head, no

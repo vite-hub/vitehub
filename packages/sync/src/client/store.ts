@@ -1,8 +1,10 @@
+import { backoffDelay, randomUUID } from "@vite-hub/internal/browser-environment"
+
 import { syncErrors } from "../errors.ts"
 import { syncPushLimit } from "../protocol.ts"
 import { addedWrites, applyQueueChange, applyRowChange } from "./storage.ts"
 import { SyncError } from "./types.ts"
-import { backoffDelay, buildView, clientError, generationOf, isActive, isOwnFailure, isPull, keyColumnOf, linkWrite, linkWrites, mergeTarget, pullChange, pushChange, randomUUID, readError, toMutation, toWireError, whereKey } from "./view.ts"
+import { buildView, clientError, generationOf, isActive, isOwnFailure, isPull, keyColumnOf, linkWrite, linkWrites, mergeTarget, pullChange, pushChange, readError, toMutation, toWireError, whereKey } from "./view.ts"
 
 import type { SyncKey, SyncPullResponse, SyncPushRequest, SyncPushResponse, SyncRow, SyncValues } from "../protocol.ts"
 import type { SyncEnvironment } from "./environment.ts"

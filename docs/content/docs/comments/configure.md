@@ -395,7 +395,7 @@ Give `database` a string that names a variable or binding, so the URL and token 
 | `'d1:COMMENTS'` | The Cloudflare D1 binding `COMMENTS`. Comments adds the binding to the build. |
 | `'env:COMMENTS_DATABASE_URL'` | The libSQL URL in that variable, such as Turso. The token is in the URL or `COMMENTS_AUTH_TOKEN`. |
 | `'file:./data/comments.sqlite'` | A SQLite file on Node, relative to the server's start directory. |
-| `'libsql://…'` | That libSQL URL. A token in it ends up in the build, so use `env:` instead. |
+| `'libsql://…'` | That libSQL URL. A token in it ends up in the build, and the build reports the hint [`COMMENTS_DATABASE_TOKEN_IN_BUILD`](/docs/comments/diagnostics/comments_database_token_in_build). Use `env:` instead. |
 
 On Node, the runtime variables can also hold a `file:` location. Comments picks the connector at runtime, so the path stays out of the build. Workers support D1 and remote libSQL. A static `file:` or `:memory:` location fails the Worker build with `DATABASE_UNSUPPORTED_URL`.
 
@@ -486,7 +486,7 @@ All statements run in one batch or transaction, so a failure changes nothing.
 | --- | --- |
 | `number` | `n`, the same number, unless a legacy `site` scope already gave out numbers. Then page numbers start after that scope's highest number, and its own numbers stay. |
 | scope `pages` and `page` | subject `{ kind: 'page', id: page }`, scope `site` |
-| scope `kind:id`, such as `drop:42` | subject `{ kind: 'drop', id: '42' }`, scope `drop:42`. Define the kind with `defineCommentSubject({ kind: 'drop', scope: id => \`drop:${id}\` })` so new threads take the same scope. The thread's `page` stays only in the backup table. |
+| scope `kind:id`, such as `doc:42` | subject `{ kind: 'doc', id: '42' }`, scope `doc:42`. Define the kind with `defineCommentSubject({ kind: 'doc', scope: id => \`doc:${id}\` })` so new threads take the same scope. The thread's `page` stays only in the backup table. |
 | other scopes | subject `{ kind: scope, id: page }` |
 | `anchor` | an `element` anchor with the same `field`, `label`, `page`, and `viewport` hints; `{ kind: 'page' }` when it was `null` |
 | `created_by`, `resolved_by` | `author`, `resolvedBy`. Guests keep their `guest:` ids. |
@@ -645,7 +645,7 @@ The cookie is only a hint. Every API request checks access again.
 
 The Comments toolbar is one segment of the ViteHub tools pill at the bottom of the page. The pill's **×** button, **Turn off ViteHub tools**, turns all page tools off: it sets `vitehub-tools=0` and removes the query and the pill.
 
-The Comments segment works like the one in Drop. **Comments** shows the number of open threads. For people who may comment, it turns comment mode on and then says **Click anywhere**. Beside it, **Whole page** starts a comment on the page itself, **All comments** opens the list of the page's threads, and **×** turns comment mode off. For people who may only read, **Comments** opens the list.
+**Comments** shows the number of open threads. For people who may comment, it turns comment mode on and then says **Click anywhere**. Beside it, **Whole page** starts a comment on the page itself, **All comments** opens the list of the page's threads, and **×** turns comment mode off. For people who may only read, **Comments** opens the list.
 
 With [presence](/docs/comments/hosts#in-a-vitehub-app), the segment also shows the faces of the other people on the page. Each person shows once. When a person has the page open in several tabs, their face says so, such as "Grace Hopper · 2 tabs". You never see your own face. When your app shows its own list of people, turn the faces and cursors off. Threads still update live:
 
@@ -700,7 +700,7 @@ export default defineConfig({
 | <kbd>Esc</kbd> | Close the open thread, or turn comment mode, **Highlight**, and **Edit** off. In a label, put the label down. |
 | <kbd>Enter</kbd> | Send the comment. <kbd>Shift</kbd> <kbd>Enter</kbd> starts a new line. With **Highlight** on, comment on the ink. In a label, put the label down. |
 
-**Highlight** works like the Marker in Drop. Pick a tip and one of four colors, draw on the page, and select **Done**. The overlay takes a picture of the screen with the ink on it, and opens a comment on the area that the ink covers with the picture attached. The ink stays on the page while you write. The page does not scroll while you draw, and <kbd>Cmd</kbd> <kbd>Z</kbd> or <kbd>Ctrl</kbd> <kbd>Z</kbd> takes back the last stroke or label. The picture uploads like any attachment, so it needs attachments: the Blob store of the app or a [`storeAttachment`](#attach-files) hook. When the page cannot be drawn as a picture, for example because an image from another origin blocks it, the comment marks the area without one.
+**Highlight** draws on the page. Pick a tip and one of four colors, draw on the page, and select **Done**. The overlay takes a picture of the screen with the ink on it, and opens a comment on the area that the ink covers with the picture attached. The ink stays on the page while you write. The page does not scroll while you draw, and <kbd>Cmd</kbd> <kbd>Z</kbd> or <kbd>Ctrl</kbd> <kbd>Z</kbd> takes back the last stroke or label. The picture uploads like any attachment, so it needs attachments: the Blob store of the app or a [`storeAttachment`](#attach-files) hook. When the page cannot be drawn as a picture, for example because an image from another origin blocks it, the comment marks the area without one.
 
 | Tip | What a drag or a click does |
 | --- | --- |

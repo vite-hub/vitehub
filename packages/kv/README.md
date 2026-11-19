@@ -1,10 +1,10 @@
 # @vite-hub/kv
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=config">
-  <img alt="KV" src="https://comark-ui.onmax.me/badge.svg?label=KV&amp;value=stores">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Vite" src="https://img.shields.io/static/v1?label=Vite&amp;message=config&amp;color=blue">
+  <img alt="KV" src="https://img.shields.io/static/v1?label=KV&amp;message=stores&amp;color=blue">
 </p>
 
 `@vite-hub/kv` gives server code one small-state API for settings, flags, cache entries, and JSON-like records.
@@ -68,7 +68,7 @@ Several Node processes share keys only through a shared store. Without a `driver
 
 `{ driver: "database", database? }` keeps keys in the table `vitehub_kv` of the Database `database` (default `"default"`), with one `namespace` per store. The store creates the table when it is missing; on Postgres, an advisory lock lets several servers start at once. Every atomic operation is one SQL statement, and expiry uses the clock of the Database. Writes start background cleanup of at most 1000 expired rows in their namespace. A full batch lets the next write start another batch; once a batch is not full, cleanup waits a minute. Postgres sweeps skip rows locked by another process. It works on Postgres and libSQL, not on D1.
 
-The driver is selected at build time. Redis requires `kv: { driver: "redis" }`; every process must supply its URL, and a missing URL fails. An unrelated `REDIS_URL` never changes the selected driver. A build without a `driver` that has `REDIS_URL`, or a `KV_URL` that starts with `rediss://`, prints a warning with the fix `kv: { driver: "redis" }`. On Vercel without Upstash variables, the same warning says that the inferred Upstash store fails at runtime. The `kv.list` operation (`vitehub kv list`, the Console) reports that driver.
+The driver is selected at build time. Redis requires `kv: { driver: "redis" }`; every process must supply its URL, and a missing URL fails. An unrelated `REDIS_URL` never changes the selected driver. A build without a `driver` that has `REDIS_URL`, or a `KV_URL` that starts with `rediss://`, reports the hint `KV_REDIS_URL_UNUSED` in the build output and in `.vitehub/hints.json`, with the fix `kv: { driver: "redis" }`. On Vercel without Upstash variables, the same hint says that the inferred Upstash store fails at runtime. The `kv.list` operation (`vitehub kv list`, the Console) reports that driver.
 
 This changes the default of a Node build with a Postgres Database from `fs-lite` to `database`. Keys in `.vitehub/data/kv` are not copied. Set `kv: { driver: "fs-lite" }` to keep the old store.
 
@@ -87,6 +87,8 @@ Development reads Upstash credentials from Vite's `.env` files for the current m
 An explicit `driver` is honored as before; an `upstash` store prints the same notice. Builds ignore `remote`. A `remote` value that is not a boolean fails with `KV_INVALID_REMOTE`. `remote: true` with `fs-lite` or `deno-kv`, `remote: false` with `upstash`, and `remote: true` in development without a hosted store fail with `KV_REMOTE_CONFLICT`.
 
 ## Nitro storage
+
+During Nuxt prerender, the Node worker uses the configured KV stores and ignores the development `remote` option. Cloudflare stores use their local folders, and an app with a Deno KV store keeps the runtime fallback.
 
 When KV is enabled in a Nitro app, the default store is the Nitro storage mount `kv`, and a named store is the mount `kv-<name>`. `useStorage("kv").getItem("a")` reads the same value as `kv.get("a")`, and `clear()` on a mount clears only that store. Store names escape `%`, `:`, `/`, `\\`, and `?` as percent-encoded characters; an empty name uses `%` (for example, `a/b` mounts at `kv-a%2Fb`). A mount with the same name in `nitro.kv` (or the deprecated `nitro.storage`) wins. Nuxt modules that take a mount name, such as nuxt-og-image's `runtimeCacheStorage: "kv"`, store their data in KV this way.
 

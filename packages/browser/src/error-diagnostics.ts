@@ -22,10 +22,6 @@ export const browserErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BROWSER_B0001: { ...dynamicError, fix: "Set `browser: { binding }` in `vitehub()` to letters, digits, and `_` that do not start with a digit, such as `\"BROWSER\"`, or remove `binding`." },
     BROWSER_B0002: { ...dynamicError, fix: "Set `browser: { engine }` in `vitehub()` to `\"kitesurf\"` or `\"chromium\"`, or remove `engine` to use Kitesurf." },
     // Named errors. Keep these codes in alphabetical order.
-    BROWSER_CONTENT_FAILED: {
-      why: ({ status }: { status: number }) => `Browser content request failed with status ${status}`,
-      fix: "Call `runBrowserAction(\"content\", input)` to read the `error.code` and `error.message` of the failed request, then fix the Browser binding or the input that they name.",
-    },
     BROWSER_RENAMED_PROVIDER_KEY: {
       why: "`createBrowser()` got a `provider` option. ViteHub renamed this option to `driver`, and it does not read `provider`.",
       fix: "Pass the driver as `createBrowser({ driver: localBrowser() })`, or run `npx @vite-hub/codemods driver-key` to rename it in every file.",
