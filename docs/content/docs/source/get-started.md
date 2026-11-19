@@ -18,7 +18,7 @@ In this tutorial, you make a Source for a `docs` folder and read the file `docs/
 ::tutorial-step{title="Configure"}
 ## Configure
 
-Source comes with `vite-hub`, so you install nothing. Check that `nuxt.config.ts` or `vite.config.ts` adds ViteHub. Keep the other plugins of your app. You do not need a `source` option, because your route imports the Source file itself.
+Source comes with `vite-hub`, so you install nothing. Check that `nuxt.config.ts` or `vite.config.ts` adds ViteHub. Keep the other plugins of your app. You do not need a `source` option: ViteHub finds each file in `server/sources/`.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
@@ -59,14 +59,15 @@ export default defineConfig({
 ::tutorial-step{title="Define a Source"}
 ## Define a Source
 
-Create `server/sources/docs.ts`. A glob Source reads the files in a folder that match a pattern.
+Create `server/sources/docs.ts`. A glob Source reads the files in a folder that match a pattern. The file name is the name of the Source, so this Source is `docs`.
 
 ```ts [server/sources/docs.ts]
 import { glob } from 'vite-hub/source'
 
-export const docs = glob({ cwd: 'docs', include: '**/*.md' })
+export default glob({ cwd: 'docs', include: '**/*.md' })
 ```
 
+- `export default` makes the Source. Each file in `server/sources/` has one Source as its default export.
 - `cwd: 'docs'` reads from the `docs` folder. The name of each file is relative to that folder, so `docs/intro.md` is `intro.md`.
 - `include: '**/*.md'` takes every Markdown file in the folder and its subfolders.
 
@@ -82,17 +83,17 @@ Create `server/api/docs.get.ts`. This route reads `intro.md` through the Source.
 
 ```ts [server/api/docs.get.ts]
 import { defineEventHandler } from 'h3'
-import { createSource } from 'vite-hub/source'
-import { docs } from '../sources/docs'
+import { useSource } from 'vite-hub/source'
 
 export default defineEventHandler(async () => {
-  const reader = createSource(docs)
+  const reader = useSource('docs')
   return reader.read('intro.md')
 })
 ```
 
-- `createSource(docs)` opens a reader for the Source.
+- `useSource('docs')` opens a reader for `server/sources/docs.ts`. ViteHub generates the types, so your editor knows the name `docs` and the file names of the Source.
 - `reader.read('intro.md')` reads one file by its name.
+- In Nuxt, `useSource` is auto-imported in server code, so you can remove its import.
 
 Use the reader only in server code. It reads files on the server, not in the browser. [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system) explains what happens to the files when you build and deploy.
 

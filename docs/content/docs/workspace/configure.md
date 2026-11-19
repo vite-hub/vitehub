@@ -279,12 +279,12 @@ the same definition for direct reads or Content:
 ```ts [server/sources/docs.ts]
 import { glob } from 'vite-hub/source'
 
-export const docs = glob({ cwd: 'docs', include: '**/*.md' })
+export default glob({ cwd: 'docs', include: '**/*.md' })
 ```
 
 ```ts [server/workspaces/docs.ts] fragment
 import { defineWorkspace } from 'vite-hub/workspace'
-import { docs } from '../sources/docs'
+import docs from '../sources/docs'
 
 export default defineWorkspace({
   sources: {
@@ -295,8 +295,8 @@ export default defineWorkspace({
 
 The Source key `intro.md` appears at `docs/intro.md`. The Source fetches the
 items. The binding decides where they appear, when they are copied in
-(materialization), sync, and access rules. Pass the same `docs` definition to
-`createSource(docs)` for direct reads or `defineContent({ source: docs })` for
+(materialization), sync, and access rules. Open the same Source with
+`useSource('docs')` for direct reads, or pass it to `defineContent({ source: docs })` for
 parsed Content. Each consumer owns its reader lifecycle and revision.
 
 For a definition used only in Workspace, the Workspace `file()`, `glob()`, and

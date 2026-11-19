@@ -1,6 +1,6 @@
 ---
 title: Source server API
-description: Open Source readers, register and combine Sources, cache readers, and serve typed Collections.
+description: Open Source readers, name Sources with files, combine Sources, cache readers, and serve typed Collections.
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
@@ -12,17 +12,17 @@ A Source describes where data comes from, and a reader reads it. Use these APIs 
 
 | Import | Use |
 | --- | --- |
-| `defineSource`, `createSource`, `splitSource` from `vite-hub/source` | Define loaders, open managed readers, and split items into parts. |
-| `registerSource`, `registerSources`, `clearSources`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
+| `defineSource`, `splitSource` from `vite-hub/source` | Define loaders and split items into parts. |
+| `useSource` from `vite-hub/source` | Open a reader for a Source in `server/sources/<name>.ts` by its name, or for a Source value. |
 | `sourceIgnores` from `vite-hub/source` | Reuse ignore patterns for dependencies, generated output, media, secrets, and system files. |
 | `file`, `files`, `glob`, `markdown`, and `github` from `vite-hub/source`, `mcpResources` from `vite-hub/source/mcp` | Select one built-in loader. Each entry also exports the option types of its loaders. `mcpResources` has its own entry because it loads the MCP SDK. |
 | `defineCollection`, `array` from `vite-hub/source` | Turn an array or a custom loader into a typed, paginated HTTP read model. |
 | `table` from `vite-hub/source/drizzle` | Turn a Drizzle table into a Collection. It needs `drizzle-orm`. |
 | `useCollection`, `CollectionAccessError` from `vite-hub/source/client` | Read a Collection in Vue and detect access errors. |
 | `cachedSource`, `defineCollectionHandler` from `vite-hub/source/server` | Cache a reader with Nitro cache options, or mount a Collection route by hand as a Fetchable, `{ fetch(request) }`. |
-| `hubSource` from `vite-hub/source/vite` | Finds Collections and Content and generates their routes. `vitehub()` and the Nuxt module add it. |
+| `hubSource` from `vite-hub/source/vite` | Finds Sources, Collections, and Content, and generates their types and routes. `vitehub()` and the Nuxt module add it. |
 | `useDatabase` from `vite-hub/database` | Get a database and its generated schema for `table()`. |
-| `getViteHubErrorShape` from `vite-hub/runtime` | Read registry, path, and loader failures by `SOURCE_*` code. |
+| `getViteHubErrorShape` from `vite-hub/runtime` | Read name, path, and loader failures by `SOURCE_*` code. |
 
 Source, Source Reader, Source Item, revision, cache, and error types are exported from `vite-hub/source`. Libraries that install `@vite-hub/source` directly use the matching `@vite-hub/source/*` paths. Each `vite-hub/source/*` path re-exports the matching `@vite-hub/source/*` path unchanged.
 
@@ -40,11 +40,10 @@ Source, Source Reader, Source Item, revision, cache, and error types are exporte
 | `source.list(prefix?)` | File readers only. Direct child files and folders below a prefix. |
 
 ```ts [server/api/docs.get.ts] fragment
-import { createSource } from 'vite-hub/source'
-import { docs } from '../sources/docs'
+import { useSource } from 'vite-hub/source'
 
 export default defineEventHandler(async () => {
-  const reader = createSource(docs)
+  const reader = useSource('docs')
 
   return {
     files: await reader.keys(),
@@ -53,57 +52,47 @@ export default defineEventHandler(async () => {
 })
 ```
 
-## Register Sources
+## Name Sources with files
 
-Register Sources only to look them up by name. `createSource()` calls do not need it.
+Each file in `server/sources/` defines one Source as its default export. The path of the file below `server/sources/`, without the extension, is the name of the Source.
 
-```ts [server/sources.ts]
-import { registerSources, file, github } from 'vite-hub/source'
+```ts [server/sources/handbook.ts]
+import { github } from 'vite-hub/source'
 
-export const sources = {
-  readme: file('README.md'),
-  docs: github({
-    repo: 'acme/docs',
-    ref: 'main',
-    root: 'docs',
-    include: ['**/*.md'],
-  }),
-}
-
-registerSources(sources)
-
-declare global {
-  interface ViteHubSourceMap {
-    readme: typeof sources.readme
-    docs: typeof sources.docs
-  }
-}
+export default github({
+  repo: 'acme/handbook',
+  ref: 'main',
+  root: 'docs',
+  include: ['**/*.md'],
+})
 ```
 
-Import the module that registers Sources before you call `useSource()`:
-
-```ts [server/api/readme.get.ts]
+```ts [server/api/handbook.get.ts]
 import { defineEventHandler } from 'h3'
-import '../sources'
 import { useSource } from 'vite-hub/source'
 
 export default defineEventHandler(async () => {
-  const readme = useSource('readme')
+  const handbook = useSource('handbook')
 
   return {
-    text: await readme.read('README.md'),
+    files: await handbook.keys(),
   }
 })
 ```
 
-For typed lookup, declare `ViteHubSourceMap` entries as `typeof` each definition. The Vite plugin does not scan a `server/sources` folder or generate this map. `RegisteredSource<'docs'>` gives the definition type of a registered name.
+- ViteHub registers every file in `server/sources/` when the server starts, so `useSource('handbook')` works in each route.
+- The generated `.vitehub` types map each name to the type of its Source. A name without a file is a type error.
+- `server/sources/team/handbook.ts` is the Source `team/handbook`.
+- In Nuxt, `useSource` is auto-imported in server code.
+- `useSource()` also takes a Source value, such as `useSource(github({ repo: 'acme/handbook' }))`, for a Source that has no file.
+- `RegisteredSource<'handbook'>` gives the Source type of a name.
 
 ## Split items into parts
 
 Use `splitSource()` when one file holds many items, such as Markdown sections or CSV rows. `split()` gets one parent item and returns its parts. Each part becomes an item with the key `<parent key>#<part key>`.
 
 ```ts [server/sections.ts]
-import { createSource, splitSource, glob } from 'vite-hub/source'
+import { splitSource, glob, useSource } from 'vite-hub/source'
 
 export const sections = splitSource({
   source: glob({ cwd: 'docs', include: '**/*.md' }),
@@ -113,13 +102,13 @@ export const sections = splitSource({
     .map(section => ({ key: section.slice(0, section.indexOf('\n')), content: section })),
 })
 
-const reader = createSource(sections)
+const reader = useSource(sections)
 await reader.keys()
 // ['guide.md#Install', 'guide.md#Usage']
 await reader.read('guide.md#Usage')
 ```
 
-Content, Workspaces, and `createSource()` accept a split Source. A part without `path` keeps the parent's. `get()` reads only that part's parent; `keys()` and `items()` read all parents. Part keys must be unique per parent and without `#`.
+Content, Workspaces, and `useSource()` accept a split Source. A part without `path` keeps the parent's. `get()` reads only that part's parent; `keys()` and `items()` read all parents. Part keys must be unique per parent and without `#`.
 
 ## Cache a Source reader
 

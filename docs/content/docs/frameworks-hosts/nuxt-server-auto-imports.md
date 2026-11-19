@@ -54,6 +54,7 @@ The module scans the server directory of the app and of each Nuxt layer.
 | Sandbox Task | `sandboxTask` | `server/sandbox-tasks/` | `runSandboxTask` |
 | Schedule | `schedule` | `server/schedules/` | `cancelSchedule`, `getSchedule`, `listSchedules`, `startSchedule` |
 | SEO | `seo: { sitemap }` | `server/sitemap.ts` | `defineSitemap` |
+| Source | Always on | `server/sources/` | `useSource` |
 | Workflow | `workflow` | `server/workflows/` | `cancelWorkflow`, `deferWorkflow`, `getWorkflowRun`, `resumeWorkflow`, `startWorkflow` |
 | Workspace | `workspace` | `server/workspaces/` | `useWorkspace` |
 

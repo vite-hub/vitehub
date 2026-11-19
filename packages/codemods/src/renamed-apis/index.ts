@@ -19,7 +19,13 @@ const renamedExports = new Map<string, ReadonlyMap<string, string>>([
   ["@vite-hub/kv/vite", new Map([["hubKv", "hubKV"]])],
   ["@vite-hub/workspace/mountx", new Map([["createWorkspaceDriver", "createMountxDriver"]])],
   ["vite-hub/console/server", new Map([["console", "agentConsole"]])],
+  ["vite-hub/source", new Map([["createSource", "useSource"]])],
+  ["@vite-hub/source", new Map([["createSource", "useSource"]])],
 ])
+
+/** Source registry exports that ViteHub removed. A file in `server/sources/` replaces them. */
+const removedSourceExports = new Set(["clearSources", "registerSource", "registerSources"])
+const sourceModules = new Set(["vite-hub/source", "@vite-hub/source"])
 
 /** Modules that export `kv` or `blob`, whose `del()` became `delete()`. */
 const storageModules = new Map([
@@ -43,7 +49,7 @@ const renamedStrings = new Map([
 const sourcePatterns = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}"]
 const envPatterns = [".env", ".env.*", ".dev.vars", "wrangler.toml", "wrangler.json", "wrangler.jsonc", "**/.env", "**/.env.*", "**/.dev.vars", "**/wrangler.toml", "**/wrangler.json", "**/wrangler.jsonc"]
 const ignoredPatterns = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/.data/**", "**/.vitehub/**", "**/dist/**", "**/coverage/**"]
-const needle = /\bhubDb\b|\bhubKv\b|\bcreateWorkspaceDriver\b|vite-hub\/console\/server|\b(?:kv|blob)[._]del\b|\.del\b|deriveSecret\(/
+const needle = /\bhubDb\b|\bhubKv\b|\bcreateWorkspaceDriver\b|\bcreateSource\b|\bregisterSources?\b|\bclearSources\b|vite-hub\/console\/server|\b(?:kv|blob)[._]del\b|\.del\b|deriveSecret\(/
 
 interface Block {
   code: string
@@ -189,6 +195,11 @@ function rewriteExports(context: FileContext) {
         overwrite(context, specifier.imported, to)
         continue
       }
+      // `import { createSource, useSource }` already binds the new name. Keep the old local name as an alias.
+      if (program.program.body.some(other => other.type === "ImportDeclaration" && other.specifiers.some(imported => imported.local.name === to))) {
+        overwrite(context, specifier, `${to} as ${name}`)
+        continue
+      }
       overwrite(context, specifier, renameReferences(context, name, to, specifier) ? to : `${to} as ${name}`)
     }
   }
@@ -310,6 +321,18 @@ function rewriteSecretCall(context: FileContext, call: CallExpression) {
   overwrite(context, second, second.type === "Identifier" && second.name === "event" ? "{ event }" : `{ event: ${source} }`)
 }
 
+/** Lists imports of the removed Source registry. Moving each Source to its own file is not mechanical. */
+function sourceRegistryFollowUps(context: FileContext) {
+  for (const statement of context.program.program.body) {
+    if (statement.type !== "ImportDeclaration" || !sourceModules.has(statement.source.value)) continue
+    for (const specifier of statement.specifiers) {
+      const name = importedName(specifier)
+      if (!name || !removedSourceExports.has(name)) continue
+      followUp(context, specifier, `\`${name}\` is removed. Move each Source to \`server/sources/<name>.ts\` as its default export, such as \`export default github({ repo: 'acme/docs' })\`. ViteHub registers it by its file name and generates its type, so delete the \`registerSources()\` call and the \`ViteHubSourceMap\` declaration. Then open it with \`useSource('<name>')\`.`)
+    }
+  }
+}
+
 /** Renames the operation and Console MCP tool names in string literals, such as a client allowlist. */
 function rewriteStrings(context: FileContext) {
   const { block } = context
@@ -376,13 +399,14 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
       rewriteDeletes(context)
       rewriteSecrets(context)
       rewriteStrings(context)
+      sourceRegistryFollowUps(context)
     }
     if (output.hasChanged()) edits.push({ path: file, before: source, after: output.toString() })
   }
 
   followUps.push(...await appSecretFollowUps(cwd), ...await scriptFollowUps(cwd))
   const notes = [
-    ...(counts.exports ? [`Renamed ${counts.exports} import(s) of \`hubDb\`, \`hubKv\`, \`createWorkspaceDriver\`, or \`console\`.`] : []),
+    ...(counts.exports ? [`Renamed ${counts.exports} import(s) of \`hubDb\`, \`hubKv\`, \`createWorkspaceDriver\`, \`console\`, or \`createSource\`.`] : []),
     ...(counts.deletes ? [`Renamed ${counts.deletes} \`del()\` call(s) on KV and Blob to \`delete()\`.`] : []),
     ...(counts.secrets ? [`Moved the event of ${counts.secrets} \`deriveSecret()\` call(s) into \`{ event }\`.`] : []),
     ...(counts.strings ? [`Renamed ${counts.strings} operation or MCP tool name(s) from \`del\` to \`delete\`.`] : []),
@@ -400,13 +424,14 @@ const detections: [RegExp, string][] = [
   [/\bhubDb\b/, "hubDb"],
   [/\bhubKv\b/, "hubKv"],
   [/\bcreateWorkspaceDriver\b/, "createWorkspaceDriver"],
+  [/\bcreateSource\b/, "createSource"],
   [/\b(?:kv|blob)\.del\(/, "del()"],
   [/\bderiveSecret\([^),]+,/, "deriveSecret() with a positional event"],
 ]
 
 export const renamedApis: Codemod = {
   name: "renamed-apis",
-  description: "Rename hubDb, hubKv, createWorkspaceDriver, kv.del(), blob.del(), and the positional deriveSecret() event",
+  description: "Rename hubDb, hubKv, createWorkspaceDriver, createSource, kv.del(), blob.del(), and the positional deriveSecret() event, and list registerSources() calls to move to server/sources/",
   usage: "[dir]",
   async detect({ cwd }) {
     // Reuse the edit planner so detection covers every supported migration form.

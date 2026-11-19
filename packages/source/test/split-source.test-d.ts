@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { createSource, defineSource, splitSource, glob } from "../src/index.ts"
+import { useSource, defineSource, splitSource, glob } from "../src/index.ts"
 
 describe("splitSource() types", () => {
   it("infers part keys, data, and file methods", async () => {
@@ -9,7 +9,7 @@ describe("splitSource() types", () => {
       async getKeys() { return ["a.md" as const] },
       async getItem(key: "a.md") { return { key, content: "# A" } },
     })
-    const sections = createSource(splitSource({
+    const sections = useSource(splitSource({
       source: pages,
       split: item => [{ key: "intro", data: { title: String(item.content) } }],
     }))
@@ -19,7 +19,7 @@ describe("splitSource() types", () => {
     // @ts-expect-error A part key starts with a parent key.
     void sections.get("b.md#intro")
 
-    const blocks = createSource(splitSource({
+    const blocks = useSource(splitSource({
       source: glob({ include: "**/*.md" }),
       split: item => [{ key: "first", content: String(item.content) }],
     }))

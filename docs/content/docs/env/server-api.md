@@ -257,7 +257,7 @@ export default defineEnvProvider<{
 
 Call `loadServerEnv()` at the start of each operation. Each call makes a new frozen snapshot, reads each key once, and caches nothing between loads. The next load sees a rotated value, while a running operation keeps its snapshot.
 
-```ts [server/sources/private-repository.ts]
+```ts [server/utils/private-repository.ts]
 import { loadServerEnv } from 'vite-hub/env'
 import { github } from 'vite-hub/workspace'
 

@@ -23,6 +23,18 @@ async function migrate(files: Record<string, string>) {
 }
 
 describe("renamed-apis", () => {
+  it("renames createSource to useSource and lists the removed Source registry", async () => {
+    const { after, run } = await migrate({
+      "server/api/docs.get.ts": "import { createSource, glob } from 'vite-hub/source'\nexport default () => createSource(glob({ cwd: 'docs' })).keys()\n",
+      "server/api/both.get.ts": "import { createSource, useSource } from '@vite-hub/source'\nexport default () => [createSource(docs), useSource('docs')]\n",
+      "server/sources.ts": "import { registerSources, file } from 'vite-hub/source'\nregisterSources({ readme: file('README.md') })\n",
+    })
+    expect(after["server/api/docs.get.ts"]).toBe("import { useSource, glob } from 'vite-hub/source'\nexport default () => useSource(glob({ cwd: 'docs' })).keys()\n")
+    expect(after["server/api/both.get.ts"]).toBe("import { useSource as createSource, useSource } from '@vite-hub/source'\nexport default () => [createSource(docs), useSource('docs')]\n")
+    expect(after["server/sources.ts"]).toBeUndefined()
+    expect(run.result.followUps).toContainEqual(expect.objectContaining({ file: "server/sources.ts", line: 1, message: expect.stringContaining("server/sources/<name>.ts") }))
+  })
+
   it("composes root accessors and API renames in the release upgrade", async () => {
     const { cwd } = await migrate({
       "server/api/a.ts": "import { deriveSecret } from '#vitehub/env/server'\nimport { db } from 'vite-hub/database/drizzle'\nimport { kv } from 'vite-hub/kv'\nexport const secret = deriveSecret('app', event)\nexport const remove = () => kv.del('a')\nexport { db }\n",

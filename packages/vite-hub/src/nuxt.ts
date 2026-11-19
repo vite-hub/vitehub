@@ -1147,6 +1147,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     queue: effectiveQueue && plan.services.queue.supported,
     sandboxTask: resolveSandboxTaskDriver(options.sandboxTask, plan) !== undefined,
     seo: Boolean(options.seo?.sitemap),
+    source: true,
     workflow: Boolean(options.workflow),
   })
   let consoleHasPrimaryAuth = false;

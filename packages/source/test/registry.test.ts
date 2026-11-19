@@ -1,12 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import {
-  clearSources,
-  defineSource,
-  file,
-  registerSources,
-  useSource,
-} from "../src/index.ts"
+import { defineSource, file, useSource } from "../src/index.ts"
+import { clearSources, registerSources } from "../src/internal/registry.ts"
 import { sourcePathError } from "../src/core/errors.ts"
 
 afterEach(() => {
@@ -44,6 +39,10 @@ describe("@vite-hub/source registry", () => {
     await expect(docs.list()).resolves.toEqual([{ key: "README.md", type: "file" }])
     await expect(docs.items()).resolves.toMatchObject([{ key: "README.md" }])
     await expect(useSource("custom").get("data.json")).resolves.toMatchObject({ data: { ok: true } })
+  })
+
+  it("opens a Source value without a name", async () => {
+    await expect(useSource(file({ content: "# Inline\n", workspacePath: "inline.md" })).read("inline.md")).resolves.toBe("# Inline\n")
   })
 
   it("throws a source-specific error for missing registrations", () => {
