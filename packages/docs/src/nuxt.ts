@@ -48,7 +48,7 @@ import type { Nuxt, PublicRuntimeConfig } from "nuxt/schema"
 import type { DocsContentSnapshot, DocsSourceInput } from "./manifest.ts"
 import type { DocsSectionFile } from "./schema.ts"
 import type { DocsImageSizes } from "./markdown.ts"
-import type { DocsPage } from "./types.ts"
+import type { DocsManifest, DocsPage } from "./types.ts"
 
 export type { DocsThemeScope } from "./theme.ts"
 export type { DocsCommentsOptions } from "./comments-nuxt.ts"
@@ -257,6 +257,18 @@ interface NitroInstance {
   }
 }
 
+/** The parts of Nuxt's Vite dev server that reload the docs pages. Nitro runs as the `nitro` environment. */
+interface DocsViteServer {
+  watcher: { emit: (event: "change", file: string) => unknown }
+  environments?: Record<string, {
+    moduleGraph: {
+      getModuleById(id: string): object | undefined
+      getModulesByFile(file: string): Set<object> | undefined
+      invalidateModule(module: object): void
+    }
+  } | undefined>
+}
+
 interface NitroOptions {
   runtimeConfig?: DiscoveryRuntime
   routeRules?: Record<string, DocsRouteRule & { headers?: Record<string, string>, prerender?: boolean }>
@@ -416,7 +428,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     }
     writeSources(read.files)
     /** The Markdown of a page, from the content folder or from the copy of its Content Source. */
-    const readPage = (page: DocsPage): string => readFileSync(join(page.source ? sourceDirs![Number(page.source.slice(5))]! : contentDir, page.file), "utf8")
+    const pageFile = (page: DocsPage): string => join(page.source ? sourceDirs![Number(page.source.slice(5))]! : contentDir, page.file)
+    const readPage = (page: DocsPage): string => readFileSync(pageFile(page), "utf8")
     /**
      * Content renders the agent copy of each page on request. `rawMarkdown` is a function of the app's build, so it runs
      * here, and the server reads each page that it changed from `docs/agent/<source>/<file>`. `nuxi build` empties the
@@ -506,17 +519,28 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // Nuxt's inline HTML errors bypass Agent Discovery's Nitro Markdown error handler.
     if (agentDiscoveryOptions.errors !== false) nuxt.options.experimental.inlineErrorRendering = false
     // A page outside the manifest has no Markdown twin, so by default only the manifest pages negotiate.
-    if (!agentDiscoveryOptions.routes?.length) {
-      const standalone = manifest.pages.map(page => page.path).filter(path => path !== "/")
-      agentDiscoveryOptions.routes = config.appBase === "/"
+    const discoveryRoutes = (pages: DocsManifest) => {
+      const standalone = pages.pages.map(page => page.path).filter(path => path !== "/")
+      return config.appBase === "/"
         // `/` only when it is a docs page: an app's own home page has no Markdown twin.
-        ? [...new Set([...manifest.root?.path === "/" || manifest.pages.some(page => page.path === "/") ? ["/"] : [], config.base, `${config.base.replace(/\/+$/, "")}/**`, ...standalone])]
+        ? [...new Set([...pages.root?.path === "/" || pages.pages.some(page => page.path === "/") ? ["/"] : [], config.base, `${config.base.replace(/\/+$/, "")}/**`, ...standalone])]
         // Discovery currently accepts only an origin as siteUrl. Give it explicit public raw destinations for both
         // Nitro's app-relative request paths and the public paths returned by the content source.
-        : docsManifestPages(manifest).flatMap(page => [...new Set([page.path, docsAppPath(page.path, config.appBase).replace(/(.)\/$/, "$1")])]
+        : docsManifestPages(pages).flatMap(page => [...new Set([page.path, docsAppPath(page.path, config.appBase).replace(/(.)\/$/, "$1")])]
             .map(path => ({ path, raw: docsAppPath(docsRawPath(page.path), config.appBase) })))
     }
+    const ownDiscoveryRoutes = Boolean(agentDiscoveryOptions.routes?.length)
+    if (!ownDiscoveryRoutes) agentDiscoveryOptions.routes = discoveryRoutes(manifest)
     moduleOptions.agentDiscovery = agentDiscoveryOptions
+    /**
+     * What the module reads from the manifest only when Nuxt starts: the mount of the docs page route, and the routes
+     * that negotiate Markdown. A content change that moves them needs a restart. Any other change reloads the pages.
+     * `<base>/**` already covers a new page below the base.
+     */
+    const startupShape = (pages: DocsManifest) => JSON.stringify([
+      docsMount(pages),
+      ownDiscoveryRoutes ? null : discoveryRoutes(pages).filter(route => typeof route !== "string" || route.endsWith("/**") || !isDocsPath(route, config.base)),
+    ])
 
     // The `llms` option for Content's `llms.txt`. Server code only, so it stays out of the page payload.
     const agentFile = addTemplate({
@@ -622,9 +646,44 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       let timer: ReturnType<typeof setTimeout> | undefined
       let regeneration = Promise.resolve()
       let closed = false
-      let viteServer: { watcher: { emit: (event: "change", file: string) => unknown } } | undefined
+      let viteServer: DocsViteServer | undefined
       nuxt.hook("vite:serverCreated", (server) => { viteServer = server })
+      const shape = startupShape(manifest)
+      const isContentFile = (file: string) => /(\.md|\.navigation\.yml)$/.test(file) && contentDirsToWatch.some(dir => resolve(file).startsWith(`${dir}${sep}`))
+      // Nitro reloads its server code when a file that it imports changes. A page change can also change the manifest,
+      // and a second reload while the first one runs fails, so the watcher below reloads Nitro once, after the manifest.
+      // `addVitePlugin()` leaves out the `nitro` environment.
+      nuxt.hook("vite:extend", ({ config }) => {
+        (config.plugins ??= []).push({
+          name: "vite-hub:docs-content",
+          applyToEnvironment: environment => environment.name === "nitro",
+          hotUpdate: {
+            order: "pre",
+            handler: ({ file }) => isContentFile(file) ? [] : undefined,
+          },
+        })
+      })
+      /**
+       * Shows a content change without a restart. Content reads each page on request, so only the generated modules
+       * change: the manifest of the app and the server, `#docs/files`, which lists the files, and the changed files.
+       * Returns false when Nitro does not run in Vite, where the server must restart to see a new manifest.
+       */
+      async function reloadPages(change: { files: string[], manifest: boolean, list: boolean }): Promise<boolean> {
+        const nitro = viteServer?.environments?.nitro
+        if (!viteServer || !nitro) return false
+        // Nuxt generates the app again when a file is added or removed. That run may have read the manifest before the
+        // change, so a run of the whole app after it writes the new one last.
+        if (change.manifest) await nuxt.callHook("builder:generateApp")
+        const modules = [...change.files.flatMap(file => [...nitro.moduleGraph.getModulesByFile(file) ?? []]), ...change.list ? [nitro.moduleGraph.getModuleById("#docs/files")] : []]
+        for (const module of modules) if (module) nitro.moduleGraph.invalidateModule(module)
+        // Nuxt's watcher skips the build folder, so Vite learns about the server manifest only from here. Nitro then
+        // reloads its server code once, and the next request reads the new pages.
+        if (change.manifest || modules.length) viteServer.watcher.emit("change", manifestFile)
+        return true
+      }
       const logError = (error: unknown) => useLogger("@vite-hub/docs").error(error)
+      /** The changed files since the last run, or null when a watcher did not name one. */
+      let changed: Set<string> | null = new Set()
       const watchers = contentDirsToWatch.map(contentDir => {
         let watchDir = contentDir
         while (!existsSync(watchDir) && dirname(watchDir) !== watchDir) watchDir = dirname(watchDir)
@@ -633,25 +692,38 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
             const changedPath = resolve(watchDir, file)
             if (changedPath !== contentDir && !changedPath.startsWith(`${contentDir}${sep}`) && !contentDir.startsWith(`${changedPath}${sep}`)) return
             if (event === "change" && !/(\.md|\.navigation\.yml)$/.test(file)) return
+            changed?.add(changedPath)
           }
+          else changed = null
           clearTimeout(timer)
           timer = setTimeout(() => {
             // A transform may be asynchronous. Each run must finish before another can replace its raw output.
             regeneration = regeneration.then(async () => {
               if (closed) return
+              const files = changed
+              changed = new Set()
               try {
                 const next = await readDocsContent(manifestOptions)
-                const changed = JSON.stringify(next.manifest) !== JSON.stringify(manifest)
+                const previous = JSON.stringify(manifest)
                 const copies = await writeAgentSources(next)
-                // `#docs/files` imports each file through Vite, and lists the agent copies when it is generated. Nuxt's
-                // watcher skips the build folder, so Vite learns about changed copies only from here.
+                // `#docs/files` imports each file through Vite, and lists the agent copies when it is generated.
                 const copiesChanged = copies.join("\n") !== agentCopies.join("\n")
                 agentCopies = copies
-                for (const file of copies) viteServer?.watcher.emit("change", file)
                 read = next
                 manifest = next.manifest
+                if (closed) return
+                const manifestChanged = JSON.stringify(manifest) !== previous
+                const reloaded = (!manifestChanged || startupShape(manifest) === shape) && await reloadPages({
+                  // Without a file name, every page may have changed.
+                  files: [...files ?? docsManifestPages(manifest).map(pageFile), ...copies],
+                  manifest: manifestChanged,
+                  list: manifestChanged || copiesChanged || files === null,
+                })
+                if (reloaded) return
+                // Nuxt's watcher skips the build folder, so Vite learns about changed copies only from here.
+                for (const file of copies) viteServer?.watcher.emit("change", file)
                 // Do not await restart here: Nuxt closes the watcher and drains this run before restarting.
-                if ((changed || copiesChanged) && !closed) void Promise.resolve(nuxt.callHook("restart")).catch(logError)
+                if (manifestChanged || copiesChanged) void Promise.resolve(nuxt.callHook("restart")).catch(logError)
               }
               catch (error) {
                 // A half-typed frontmatter must not stop the server. The site keeps the last valid pages until the file is fixed.
