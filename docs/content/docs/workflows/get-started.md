@@ -154,7 +154,7 @@ pnpm vitehub workflow get <run-id>
 }
 ```
 
-For a run that you started from the route, add `--workflow onboard-user` to `get`. Or open the Workflows page of the [Console](/docs/development/console) and click **Start**.
+For a run that you started from the route, add `--workflow onboard-user` to `get`. Or open the Workflows page of the [Console](/docs/console) and click **Start**.
 
 With `vitehub()`, `pnpm vitehub workflow runs list` lists the runs that the dev server ran inline, for example with the `vercel` host. `pnpm vitehub workflow runs show <runId>` shows the steps, result, and error of one run. `pnpm vitehub workflow runs clear --yes` clears that history. The history does not include OpenWorkflow runs yet, so with the `node` host `runs list` prints `No runs.`. Read an OpenWorkflow run with `pnpm vitehub workflow get`.
 

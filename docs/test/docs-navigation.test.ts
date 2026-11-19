@@ -5,7 +5,7 @@ import { docsPanelPages, docsSectionPanels } from "@vite-hub/docs/navigation";
 import { createDocsManifest } from "@vite-hub/docs/server";
 import { describe, expect, it } from "vitest";
 import config from "../nuxt.config";
-import { createDocsRedirectRouteRules, docsPageRedirects } from "../modules/vitehub-docs/redirects";
+import { createDocsRedirectRouteRules, docsLegacyFragmentRedirects, docsPageRedirects } from "../modules/vitehub-docs/redirects";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const docsManifest = await createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
@@ -58,7 +58,7 @@ describe("docs product navigation", () => {
     const rail = docsRailGroups(docsManifest, categories, railExclude);
     expect(railExclude).toEqual(["Develop and deploy", "Reference"]);
     expect(catalog.find(group => group.category === "Develop and deploy")?.sections.map(candidate => candidate.id))
-      .toEqual(expect.arrayContaining(["development", "frameworks-hosts", "guides"]));
+      .toEqual(expect.arrayContaining(["console", "development", "frameworks-hosts", "guides"]));
     expect(catalog.find(group => group.category === "Reference")?.sections.map(candidate => candidate.id))
       .toEqual(expect.arrayContaining(["reference", "compare"]));
     const railSectionIds = rail.flat().map(candidate => candidate.id);
@@ -159,7 +159,7 @@ describe("docs product navigation", () => {
   });
 
   it("groups every navigable page of a large section", () => {
-    for (const sectionId of ["agents", "cli", "development", "frameworks-hosts", "reference", "runtime", "ui"]) {
+    for (const sectionId of ["agents", "cli", "console", "development", "frameworks-hosts", "reference", "runtime", "ui"]) {
       const groups = docsSidebarGroups(section(sectionId));
 
       expect(groups.length, sectionId).toBeGreaterThan(0);
@@ -217,6 +217,12 @@ describe("docs product navigation", () => {
 
   it("lists the trust pages outside the docs base", () => {
     expect(docsManifest.pages.map(page => page.path)).toEqual(expect.arrayContaining(["/", "/about", "/contact", "/privacy"]));
+  });
+
+  it("preserves the old Console bookmark for Site access without Auth", () => {
+    expect(docsPageRedirects["/docs/development/console"]).toBe("/docs/console");
+    expect(docsLegacyFragmentRedirects["/docs/console"]["site-access-without-auth"])
+      .toBe("/docs/console/site-access#site-access-without-auth");
   });
 
   it("redirects each removed page and its raw Markdown copy to a published page, with one rule for both slash forms", () => {

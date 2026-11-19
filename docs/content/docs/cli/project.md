@@ -92,7 +92,7 @@ The host decides what `add` accepts. A feature that the host does not support ex
 
 Some host defaults build and run but keep state in one process. `nextSteps` names them, with the option that selects a durable driver. For example, Workspace on Vercel keeps files in memory until `BLOB_READ_WRITE_TOKEN` is set. A driver option that needs more packages, such as `blob.driver=s3`, adds them to the install.
 
-`vitehub add console` sets `console: true`, so the app takes only [signed calls](/docs/development/console#sign-console-requests). Add `--option console.authorize=server/console-authorize.ts` to limit who may use which section. `--option console.auth=false` takes calls without a signature, for development only.
+`vitehub add console` sets `console: true`, so the app takes only [signed calls](/docs/console/signed-requests). Add `--option console.authorize=server/console-authorize.ts` to limit who may use which section. `--option console.auth=false` takes calls without a signature, for development only.
 
 Observability papercut reports require Agent and Console. The command collects their provider inputs before applying these options.
 
@@ -178,6 +178,17 @@ An enabled feature's options require the feature, such as `cache: { driver: "kv"
 ### `SETUP_UNINSTALL_FAILED`
 
 The package manager exited with an error after ViteHub deleted the starter files. The terminal command changes the config before uninstalling. The development Setup page keeps the config unchanged until cleanup succeeds, so a config-triggered restart cannot interrupt cleanup. Run the uninstall command by hand to see the error, then plan the removal again.
+
+## Update ViteHub packages
+
+```bash [Terminal]
+pnpm vitehub update
+pnpm vitehub update --preview <commit> --dry-run
+```
+
+`vitehub update` moves `vite-hub` and all `@vite-hub/*` packages in the workspace to the latest npm release. Use `--preview <commit>` to move them to one pkg.pr.new build instead. The command updates dependencies, overrides, and catalogs, then installs without loading the project config. `--dry-run` shows the plan without writing files or installing.
+
+For a pnpm workspace, a release adds the ViteHub packages to `minimumReleaseAgeExclude`, and a preview sets `blockExoticSubdeps: false` so pnpm can install the preview URLs.
 
 ## Use Setup during development
 
