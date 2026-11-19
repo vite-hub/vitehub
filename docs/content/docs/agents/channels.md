@@ -1257,7 +1257,7 @@ With native reply support in the adapter (Telegram among the built-ins), a non-s
 
 - `text` (required): a string, rotating strings, a callback, or `null`.
 - `intervalMs`: minimum time between updates.
-- `updates: 'commentary'`: shows explicit commentary and the model's reasoning titles, such as "Inspecting the config", each part replacing the last, so the current step is visible.
+- `updates: 'commentary'`: shows explicit commentary and the reasoning summaries of a provider Driver such as Codex ("Inspecting the config"), each part replacing the last, so the current step is visible. Text that a custom Driver marks as `phase: 'reasoning'` stays hidden.
 - It selects manual delivery, so it excludes `messages.stream` and `messages.commentary`.
 - `messages.final.delivery: 'new-message'` posts the answer separately, then removes the placeholder.
 

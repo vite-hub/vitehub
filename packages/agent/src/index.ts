@@ -1694,7 +1694,7 @@ function createActiveAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
   }
   return {
     async event(event) {
-      if (event.type === "text-delta" && (event.phase === "final" || event.phase === undefined) && event.role !== "user") {
+      if (event.type === "text-delta" && event.phase !== "commentary" && event.role !== "user") {
         state.summary = `${state.summary}${event.text}`.slice(-12_000)
         return
       }

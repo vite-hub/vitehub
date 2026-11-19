@@ -718,8 +718,8 @@ export function toAgentStreamEvent(
   }
   const messageId = explicitMessageId ?? messageState?.messageId
   const hasExplicitPhase = "phase" in value && value.phase !== undefined
-  const phase = value.phase === "commentary" || value.phase === "reasoning"
-    ? value.phase
+  const phase = value.phase === "commentary"
+    ? "commentary"
     : value.phase === "final" || value.phase === "final_answer"
       ? "final"
       : undefined
@@ -746,6 +746,10 @@ export function toAgentStreamEvent(
     const textPhase = phase ?? inheritedPhase
     // SAFETY: Agent output normalization establishes the asserted stream result contract.
     return { id: textId, ...optionalMessageId(messageId), ...(textPhase ? { phase: textPhase } : {}), ...(typeof value.role === "string" ? { role: value.role as never } : {}), text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
+  }
+  if (type === "reasoning-delta" && typeof value.text === "string") {
+    // The provider Driver's reasoning event. AI SDK `reasoning-delta` chunks carry `delta` and stay hidden.
+    return { ...(typeof value.id === "string" ? { id: value.id } : {}), text: value.text, type: "reasoning-delta" }
   }
   if (type === "data" || type.startsWith("data-")) {
     // SAFETY: Agent output normalization establishes the asserted stream result contract.

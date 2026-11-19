@@ -6752,7 +6752,7 @@ describe("server helpers", () => {
             yield { id: "commentary-1", phase: "commentary", type: "text-start" }
             yield { delta: "Checking ", id: "commentary-1", type: "text-delta" }
             yield { delta: "private reasoning", id: "reasoning-1", type: "reasoning-delta" }
-            yield { delta: "**Inspecting the image**", id: "reasoning_summary_text:rs_1:0", phase: "reasoning", type: "text-delta" }
+            yield { id: "reasoning_summary_text:rs_1:0", text: "**Inspecting the image**", type: "reasoning-delta" }
             yield { delta: "the image.", id: "commentary-1", type: "text-delta" }
             yield { id: "commentary-1", type: "text-end" }
             yield { text: "Unknown pre-final text.", type: "text-delta" }
@@ -21158,6 +21158,42 @@ describe("server helpers", () => {
     expect(adapter.editMessage).toHaveBeenLastCalledWith("telegram:456", "sent-1", { markdown: "Planning the lookup." })
   })
 
+  it("keeps provider reasoning and text marked as reasoning out of a streamed reply", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { stream: true },
+        }),
+      },
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { id: "reasoning_summary_text:rs_1:0", text: "**Inspecting toggle configuration**", type: "reasoning-delta" }
+            yield { id: "private", phase: "reasoning", type: "text-start" }
+            yield { delta: "Private reasoning.", id: "private", type: "text-delta" }
+            yield { id: "private", type: "text-end" }
+            yield { delta: "Done.", type: "text-delta" }
+            yield { finishReason: "stop", type: "finish" }
+          })(),
+        }),
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(chatWebhookRequest(91_803), "telegram")
+
+    expect(response.status).toBe(200)
+    expect(adapter.editMessage).toHaveBeenLastCalledWith("telegram:456", "sent-1", { markdown: "Done." })
+    expect(JSON.stringify([adapter.postMessage.mock.calls, adapter.editMessage.mock.calls])).not.toMatch(/Inspecting|Private reasoning/)
+  })
+
   it("shows provider reasoning titles and commentary in the loading message, but not in the final reply", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -21174,7 +21210,10 @@ describe("server helpers", () => {
       driver: {
         run: () => ({
           stream: (async function* () {
-            yield { delta: "**Inspecting toggle configuration**", id: "reasoning_summary_text:rs_1:0", phase: "reasoning", type: "text-delta" }
+            yield { id: "reasoning_summary_text:rs_1:0", text: "**Inspecting toggle configuration**", type: "reasoning-delta" }
+            yield { id: "private", phase: "reasoning", type: "text-start" }
+            yield { delta: "Private reasoning.", id: "private", type: "text-delta" }
+            yield { id: "private", type: "text-end" }
             yield { delta: "I’ll check the toggle next.", id: "assistant_text:msg_1:0", phase: "commentary", type: "text-delta" }
             yield { delta: "The toggle is off.", id: "assistant_text:msg_2:0", phase: "final", type: "text-delta" }
             yield { finishReason: "stop", type: "finish" }

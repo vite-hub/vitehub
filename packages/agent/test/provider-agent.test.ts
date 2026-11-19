@@ -3068,7 +3068,7 @@ cli_auth_credentials_store = "keyring"
 
     expect(events.map(item => item.type)).toEqual([
       "data-agent-event",
-      "text-delta",
+      "reasoning-delta",
       "tool-call",
       "tool-result",
       "approval-request",
@@ -3077,7 +3077,7 @@ cli_auth_credentials_store = "keyring"
       "usage",
       "finish",
     ])
-    expect(events[1]).toMatchObject({ phase: "reasoning", text: "thinking" })
+    expect(events[1]).toEqual({ id: "reasoning_text:turn-1:0", text: "thinking", type: "reasoning-delta" })
     expect(events[6]).toMatchObject({ phase: "final", text: "done" })
     expect(events[7]).toMatchObject({ usageRecord: { usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } } })
     expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ runtimeMode: "approval-required", threadId }))
@@ -3398,8 +3398,8 @@ cli_auth_credentials_store = "keyring"
     ])
 
     const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as StreamEvent[]
-    expect(events.filter(event => event.type === "text-delta")).toEqual([
-      { id: "reasoning_summary_text:reasoning-1:0", phase: "reasoning", text: "**Reading related facts**", type: "text-delta" },
+    expect(events.filter(event => event.type === "text-delta" || event.type === "reasoning-delta")).toEqual([
+      { id: "reasoning_summary_text:reasoning-1:0", text: "**Reading related facts**", type: "reasoning-delta" },
       { id: "assistant_text:message-1:0", messageId: "message-1", phase: "commentary", text: "I’m also applying the evidence skill.", type: "text-delta" },
     ])
   })
@@ -3415,8 +3415,8 @@ cli_auth_credentials_store = "keyring"
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
     const events = await collect(await adapter.stream!(context(threadId) as never)) as StreamEvent[]
-    expect(events.filter(event => event.type === "text-delta")).toEqual([
-      { id: "reasoning_text:rs-1:0", phase: "reasoning", text: "**Previewing old output**", type: "text-delta" },
+    expect(events.filter(event => event.type === "text-delta" || event.type === "reasoning-delta")).toEqual([
+      { id: "reasoning_text:rs-1:0", text: "**Previewing old output**", type: "reasoning-delta" },
       { id: "plan_text:plan-1:0", phase: "commentary", text: "- Read the files", type: "text-delta" },
       { id: "assistant_text:answer:0", messageId: "answer", phase: "final", text: "Done.", type: "text-delta" },
     ])

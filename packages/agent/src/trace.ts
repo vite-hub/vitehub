@@ -131,6 +131,14 @@ function invocationAttributes(
 }
 
 function eventAttributes(event: StreamEvent): Record<string, unknown> {
+  if (event.type === "reasoning-delta") {
+    return {
+      "message.content": event.text,
+      "message.id": event.id,
+      "message.phase": "reasoning",
+      "message.role": "assistant",
+    }
+  }
   if (event.type === "text-delta") {
     return {
       "message.content": event.text,
@@ -577,6 +585,7 @@ export async function traceAgentStreamEvent<TRuntimeConfig extends AgentRuntimeC
     "tool-call": "agent.tool.start",
     "tool-input-start": "agent.tool.start",
     "tool-result": streamEvent.type === "tool-result" && streamEvent.error ? "agent.tool.error" : "agent.tool.finish",
+    "reasoning-delta": "agent.message.delta",
     "text-delta": "agent.message.delta",
     usage: "agent.usage.recorded",
   } as const
@@ -614,11 +623,18 @@ function createStreamTraceTiming<TRuntimeConfig extends AgentRuntimeConfig>(cont
   }
 }
 
+type TextStreamEvent = Extract<StreamEvent, { type: "reasoning-delta" | "text-delta" }>
+
+function sameTextStream(left: TextStreamEvent, right: TextStreamEvent): boolean {
+  if (left.type === "reasoning-delta" || right.type === "reasoning-delta") return left.type === right.type && left.id === right.id
+  return left.id === right.id && left.messageId === right.messageId && left.phase === right.phase && left.role === right.role
+}
+
 export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentTraceContext<TRuntimeConfig>,
 ) {
   const timing = createStreamTraceTiming(context)
-  let pendingText: Extract<StreamEvent, { type: "text-delta" }> | undefined
+  let pendingText: TextStreamEvent | undefined
   let pendingCommandOutput: AgentDataStreamEvent | undefined
   const flush = async () => {
     const events = [pendingText, pendingCommandOutput]
@@ -651,16 +667,12 @@ export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntime
         pendingCommandOutput = { ...event, data: { ...data, value: { ...value, delta: remaining } } }
         return
       }
-      if (event.type !== "text-delta" || typeof event.text !== "string") {
+      if ((event.type !== "text-delta" && event.type !== "reasoning-delta") || typeof event.text !== "string") {
         await flush()
         await timing.trace(tracedEvent)
         return
       }
-      if (pendingText
-        && pendingText.id === event.id
-        && pendingText.messageId === event.messageId
-        && pendingText.phase === event.phase
-        && pendingText.role === event.role) {
+      if (pendingText && sameTextStream(pendingText, event)) {
         let remaining = event.text
         while (pendingText && pendingText.text.length + remaining.length > MAX_TRACE_TEXT_EVENT_LENGTH) {
           const length = MAX_TRACE_TEXT_EVENT_LENGTH - pendingText.text.length
