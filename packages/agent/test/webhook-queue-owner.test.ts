@@ -242,7 +242,7 @@ describe("Agent webhook queue owner", () => {
     void stopping.then(() => {
       stopped = true
     })
-    await Promise.resolve()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(stopped).toBe(false)
 
     finishDiscovery()

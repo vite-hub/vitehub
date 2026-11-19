@@ -23,7 +23,7 @@ A user, Agent, or service gets only the permissions you grant for each key. Env 
 ### Install
 
 ```bash [Terminal]
-pnpm add vite-hub drizzle-orm
+pnpm add vite-hub drizzle-orm@1.0.0-rc.5
 ```
 
 The SQLite adapter needs `drizzle-orm`. If you use the owner package, install `@vite-hub/env` and import from `@vite-hub/env/<subpath>`.
@@ -80,7 +80,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     console: { auth: false },
     env: {
       providers: { credentials: './server/env/credentials.ts' },
@@ -105,7 +104,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     console: { auth: false },
     env: {
       providers: { credentials: './server/env/credentials.ts' },
@@ -129,7 +127,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     console: { auth: false },
     env: {
       providers: { credentials: './server/env/credentials.ts' },

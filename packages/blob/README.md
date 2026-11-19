@@ -52,6 +52,8 @@ export default defineConfig({
 })
 ```
 
+`blob.put(pathname, body, { ifMatch })` writes only when the stored file still has the `httpEtag` that you read, and `{ overwrite: false }` writes only when no file exists. Otherwise it writes nothing and returns `BLOB_CONFLICT`. R2 with its binding, Vercel Blob, Netlify Blobs, and S3 on AWS check the condition in the provider, and `fs` checks it in the process. Other drivers throw `BLOB_PUT_CONDITION_UNSUPPORTED`.
+
 `blob.copy(from, to, { overwrite? })` copies a file in the same store with its content type and custom metadata, and returns the new `BlobObject`. A missing source returns `BLOB_NOT_FOUND`, and a file at `to` returns `BLOB_CONFLICT` unless `overwrite` is `true`. S3-compatible stores and Vercel Blob copy on the server, `fs` copies the file, R2 streams the object from the binding, and Netlify Blobs reads and writes it.
 
 ## Vite Integration
@@ -245,7 +247,7 @@ export async function shareAudio(file: Blob) {
 
   const [uploadError, upload] = await blob.sign("private/audio.mp3", {
     method: "PUT",
-    expiresIn: 15 * 60,
+    expiresIn: "15m",
     contentType: "audio/mpeg",
     createOnly: true,
   })

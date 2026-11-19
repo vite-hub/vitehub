@@ -35,7 +35,7 @@ import content from '../content'
 export default defineEventHandler(async (event) => {
   const user = await getUser(event) // your Auth session
   if (!await content.can({ user, collection: 'posts', action: 'read-draft' }))
-    throw createError({ statusCode: 403 })
+    throw new HTTPError({ status: 403 })
   return await content.preview.enable(event) // { setCookie, expiresAt }
 })
 ```

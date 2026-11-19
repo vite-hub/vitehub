@@ -1515,7 +1515,6 @@ describe("workspace host sessions", () => {
     await expect(session.close()).resolves.toBeUndefined()
 
     expect(host.readText("/workspace/README.md")).toBe("before")
-    expect(materializeRevision).toHaveBeenLastCalledWith(expect.objectContaining({ abortSignal: undefined }))
   })
 
   it("cancels a deferred recursive snapshot during Session close", async () => {

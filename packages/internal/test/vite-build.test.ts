@@ -111,25 +111,33 @@ describe("Vite provider builds", () => {
   })
 
   it("renders a Nitro plugin that hands each generated module to its package", async () => {
-    const source = renderNativePackageInstallPlugin([
-      { from: "/agent/dist/server/registry.js", install: "installAgentRegistry", module: "./registry.mjs" },
-      { from: "/agent/dist/server/registry.js", install: "installAgentKV", module: "vite-hub/kv" },
-      { from: "/agent/dist/server/registry.js", install: "installAgentServerEnv" },
-    ])
-    expect(source).toBe([
-      'import { installAgentRegistry as viteHubInstall0 } from "/agent/dist/server/registry.js"',
-      'import * as viteHubModule0 from "./registry.mjs"',
-      'import { installAgentKV as viteHubInstall1 } from "/agent/dist/server/registry.js"',
-      'import * as viteHubModule1 from "vite-hub/kv"',
-      'import { installAgentServerEnv as viteHubInstall2 } from "/agent/dist/server/registry.js"',
-      "",
-      "viteHubInstall0(viteHubModule0)",
-      "viteHubInstall1(viteHubModule1)",
-      "viteHubInstall2(undefined)",
-      "",
-      "export default function viteHubNativePackagesPlugin() {}",
-      "",
-    ].join("\n"))
+    const root = await mkdtemp(join(tmpdir(), "vitehub-native-install-"))
+    try {
+      const installer = pathToFileURL(join(root, "installer.mjs")).href
+      await writeFile(new URL(installer), [
+        "export const calls = []",
+        "export const installRegistry = module => calls.push([\"registry\", module.name])",
+        "export const installKV = module => calls.push([\"kv\", module.name])",
+        "export const installServerEnv = module => calls.push([\"env\", module])",
+        "",
+      ].join("\n"))
+      await writeFile(join(root, "registry.mjs"), "export const name = \"registry\"\n")
+      await writeFile(join(root, "kv.mjs"), "export const name = \"kv\"\n")
+      const plugin = join(root, "plugin.mjs")
+      await writeFile(plugin, renderNativePackageInstallPlugin([
+        { from: installer, install: "installRegistry", module: "./registry.mjs" },
+        { from: installer, install: "installKV", module: "./kv.mjs" },
+        { from: installer, install: "installServerEnv" },
+      ]))
+
+      const loaded = await import(pathToFileURL(plugin).href)
+      const { calls } = await import(installer)
+      expect(calls).toEqual([["registry", "registry"], ["kv", "kv"], ["env", undefined]])
+      expect(loaded.default).toBeTypeOf("function")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("merges a package into existing noExternal values", () => {

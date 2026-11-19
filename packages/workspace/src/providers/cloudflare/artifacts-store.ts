@@ -400,7 +400,10 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
           await this.#writeFileMetadata()
         }
       }
-      for (const [path, bytes] of previous.stagedMeta) await this.#fs!.promises.writeFile(path, bytes)
+      for (const [path, bytes] of previous.stagedMeta) {
+        if (bytes.byteLength) await this.#fs!.promises.writeFile(path, bytes)
+        else this.#fs!.deleteTree(path)
+      }
       this.#stagedMeta = new Map(previous.stagedMeta)
       this.#staged = replayed > 0 || previous.stagedMeta.size > 0
     }
@@ -493,8 +496,10 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     await this.#ensure()
     return await this.#mutate(async () => {
       const content = await this.#fs!.promises.readFile(path).catch(() => undefined)
-      if (!content) return undefined
-      return JSON.parse(new TextDecoder().decode(contentToBytes(content as Uint8Array)))
+      const bytes = content === undefined ? undefined : contentToBytes(content as Uint8Array)
+      // Earlier versions wrote `undefined` as an empty file.
+      if (!bytes?.byteLength) return undefined
+      return JSON.parse(new TextDecoder().decode(bytes))
     })
   }
 
@@ -502,8 +507,10 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     const path = this.#metaAbsolute(key)
     await this.#ensure()
     await this.#mutate(async () => {
-      const bytes = contentToBytes(JSON.stringify(value))
-      await this.#fs!.promises.writeFile(path, bytes)
+      // `undefined` removes the key, as JSON has no value for it. The staged empty bytes replay the removal.
+      const bytes = value === undefined ? new Uint8Array() : contentToBytes(JSON.stringify(value))
+      if (bytes.byteLength) await this.#fs!.promises.writeFile(path, bytes)
+      else this.#fs!.deleteTree(path)
       this.#stagedMeta.set(path, bytes)
       this.#staged = true
     })

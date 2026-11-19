@@ -228,6 +228,7 @@ Nitro also redirects `/getting-started/` and `/blog`, so these get lines too.
 
 - A rule with no `status` gets `307`, as on the server.
 - When the app has its own `public/_redirects`, its lines stay first, and Cloudflare uses the first line that matches.
+- Each path gets one line, because Cloudflare rejects a file with two rules for one path. When two rules match the same path, such as `/old` and `/old/`, or `/blog` and `/blog/**` for `/blog`, the more specific rule writes it. A path that `public/_redirects` already has gets no second line.
 - `_redirects` cannot hold some rules: a route with an HTTP method, such as `GET /login`, a pattern such as `/files/*.pdf`, `redirect: false`, a target with a query, such as `/sale?from=promo`, or a status other than 301, 302, 303, 307, or 308. The build leaves out such a rule, and each wider rule that would match its paths first, and prints the `VITE_HUB_REDIRECTS_FILE_RULE_SKIPPED` hint. The Worker still redirects these paths when no static file is there.
 
 Do not prerender a moved path. A prerendered redirect is a page that refreshes, not a real redirect.

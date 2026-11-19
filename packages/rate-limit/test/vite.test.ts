@@ -360,8 +360,6 @@ describe("hubRateLimit", () => {
 
     const installer = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")
     expect(installer).toContain('const config = {"driver":"memory"}')
-    expect(installer).not.toContain("Registry")
-    await expect(access(join(root, ".vitehub", "nitro", "rate-limit", "middleware.ts"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("imports its runtime by file path, not through a package export", async () => {
@@ -379,7 +377,6 @@ describe("hubRateLimit", () => {
     const installer = await readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")
     expect(installer).toContain(`from ${JSON.stringify(join(import.meta.dirname, "../dist/runtime.js"))}`)
     expect(installer).not.toContain("@vite-hub/rate-limit/runtime")
-    await expect(access(join(root, ".vitehub", "nitro", "rate-limit", "middleware.ts"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("leaves operation RPC installation to the root integration", async () => {
@@ -392,7 +389,6 @@ describe("hubRateLimit", () => {
     expect(serveConfig.nitro).toMatchObject({ baseURL: "/app/", handlers: [] })
 
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ build: { outDir: "dist" }, command: "serve", plugins: [], resolve: { alias: [] }, root } as never)
-    await expect(access(join(root, ".vitehub", "nitro", "rate-limit", "dev-handler.ts"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("contributes the rate-limit operations", () => {

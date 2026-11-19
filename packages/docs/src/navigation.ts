@@ -392,7 +392,7 @@ export function docsIndexedPages(manifest: DocsManifest): DocsPage[] {
  * ranks as a heading under its section, so a long tail of generated pages, such as error codes, stays below the real pages.
  */
 export function docsUnindexedSearchSections(manifest: DocsManifest): DocsSearchSection[] {
-  const record = (page: DocsPage, titles: string[]): DocsSearchSection => ({ id: page.path, title: page.sourceTitle, titles, level: 2, content: page.description ?? "" })
+  const record = (page: DocsPage, titles: string[]): DocsSearchSection => ({ id: page.path, title: page.sourceTitle, titles, level: 2, content: page.description ?? "", indexed: false })
   return [
     ...manifest.sections.flatMap(section => section.pages.filter(page => !docsPageIndexed(page)).map(page => record(page, [section.title]))),
     ...[...(manifest.root ? [manifest.root] : []), ...manifest.pages].filter(page => !docsPageIndexed(page)).map(page => record(page, [])),
@@ -633,8 +633,11 @@ export function createDocsSearch(records: readonly DocsSearchSection[]): (query:
       if (entry.title.join(" ") === words.join(" ")) score += titleWeight / 2
       hits.push({ entry, inTitles, score })
     }
+    // A page that search engines skip, such as the error code SCHEDULE_OS_CRON_UNSUPPORTED for "schedule cron",
+    // comes after a guide that matches as well. Its short title would otherwise win the tie.
     hits.sort((left, right) =>
       right.inTitles - left.inTitles
+      || Number(left.entry.record.indexed === false) - Number(right.entry.record.indexed === false)
       || right.score - left.score
       || left.entry.title.length - right.entry.title.length
       || left.entry.order - right.entry.order)

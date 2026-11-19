@@ -3,6 +3,9 @@ import { join, posix, relative, resolve, sep } from "node:path";
 
 import { ELEMENT_NODE, parse, walkSync } from "ultrahtml";
 
+import { docsErrorDiagnostics } from "./error-diagnostics.ts";
+import type { Diagnostic } from "nostics";
+
 export interface DocsLinkCheckOptions {
   dir: string;
   siteUrl: string;
@@ -18,14 +21,9 @@ export interface DocsLinkCheckOptions {
   redirect?: (url: URL) => string | undefined;
 }
 
-export class DocsLinkError extends Error {
-  readonly problems: string[];
-
-  constructor(problems: string[]) {
-    super(`Broken docs links:\n${problems.map((problem) => `- ${problem}`).join("\n")}`);
-    this.name = "DocsLinkError";
-    this.problems = problems;
-  }
+/** `DOCS_LINKS_BROKEN`, with the list of problems in `problems`. */
+export function docsLinkError(problems: readonly string[]): Diagnostic & { problems: readonly string[] } {
+  return Object.assign(docsErrorDiagnostics.DOCS_LINKS_BROKEN({ problems }), { problems });
 }
 
 /**
@@ -53,7 +51,7 @@ function matcher(patterns: Array<string | RegExp> | undefined): (value: string) 
 /** Check built HTML against the files and fragment ids in the same output, without fetching remote URLs. */
 export function checkDocsLinks(options: DocsLinkCheckOptions): { pages: number } {
   const root = resolve(options.dir);
-  if (!existsSync(root)) throw new Error(`Docs output does not exist: ${root}`);
+  if (!existsSync(root)) throw docsErrorDiagnostics.DOCS_OUTPUT_MISSING({ root });
   const origin = new URL(options.siteUrl).origin;
   const appBase = `/${(options.appBase ?? "/").replace(/^\/+|\/+$/g, "")}`.replace(/\/$/, "");
   const excludedPage = matcher(options.excludePages);
@@ -160,7 +158,7 @@ export function checkDocsLinks(options: DocsLinkCheckOptions): { pages: number }
         );
     }
   }
-  if (problems.size) throw new DocsLinkError([...problems].sort());
+  if (problems.size) throw docsLinkError([...problems].sort());
   return { pages };
 }
 

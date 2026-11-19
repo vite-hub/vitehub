@@ -91,6 +91,7 @@ const pages: Record<string, string> = {
   ConnectionStatus: "connection-status",
   ConnectionStatusIndicator: "connection-status",
   ConnectionStatusLabel: "connection-status",
+  RelativeTime: "relative-time",
   Status: "status",
   SyncStatus: "sync-status",
   SyncStatusIndicator: "sync-status",

@@ -34,6 +34,34 @@ Use Better Auth as a reference for composability and UnJS as a reference for hos
 - `docs/`: documentation and the first party website
 - `fixtures/`, `test/consumer/`, `test/output/`: consumer and generated output proof
 
+## Native first
+
+Use the web platform before JavaScript, and JavaScript before a dependency. A native feature has less code to ship, test, and keep in step with the browser.
+
+**Support floor.** ViteHub supports the latest two Chrome releases, the latest two Firefox releases, and the current and previous Safari major (November 2026: Chrome 157–158, Firefox 159–160, Safari 27.1–27.2). `browserTarget` in `packages/internal/src/package-exports.ts` writes this floor for the build. Change both when the floor moves.
+
+**Check the feature on [webstatus.dev](https://webstatus.dev).** Open the feature, such as [popover](https://webstatus.dev/features/popover), and read the version of each browser in the floor.
+
+- **All of them have it:** use it directly. Add no fallback and no feature check.
+- **One is missing it, and the page still works without it:** use it under `@supports` (or `CSS.supports()`, `"x" in el`) with no fallback. The missing browser gets the plain version. Example: `field-sizing: content` on a text field.
+- **One is missing it, and the page breaks without it:** keep the JavaScript that does the job. Or load a polyfill behind a feature check, with a dynamic `import()` in bundled code, so supported browsers do not download it. Never put a polyfill in an inline script or a script that a page loads without a bundler, and never load one from a polyfill CDN.
+
+**Dates.** Do not add a date library such as dayjs, moment, date-fns, or luxon. Use `Intl.DateTimeFormat`, `Intl.RelativeTimeFormat`, and `Date`. When stable Safari ships Temporal, use Temporal, with `temporal-polyfill/global` loaded through a dynamic `import()` behind a `"Temporal" in globalThis` check, in app bundles only.
+
+**Overlays.** Follow rule 6 in [docs/DESIGN.md](docs/DESIGN.md): Vue overlays use Nuxt UI, and plain-DOM code uses the native popover, `<dialog>`, and anchor positioning.
+
+**Server code** also runs on the Node floor in the root `package.json` `engines` (Node 22 today). Check a feature on [node.green](https://node.green) or the Node docs, not only on webstatus.dev. For example, Node 22 has no `Intl.DurationFormat`, so code that a server can render must not depend on it.
+
+**Known exceptions.** Each one has a reason. Remove it when the reason goes away.
+
+| Code | Why it does not use the native feature |
+| --- | --- |
+| The account menu placement in `packages/internal/src/runtime/page-account.ts` | It is placed with JavaScript. The page pill moves with CSS `translate` (`page-pill.ts`), and Firefox ignores the anchor's transform when it places an anchor-positioned popover, so the menu opens away from the button. |
+| `scrollIntoView({ container })` | Chrome only. Scroll the container with `scrollTo()`. |
+| `interestfor` (open on hover or focus) | Chrome only. Open hover cards with JavaScript. |
+
+`test/native-first.test.ts` checks the parts that code can check: no date library in a package manifest, no polyfill CDN, and `document.execCommand("copy")` only in the CopyButton fallback for pages that are not a secure context.
+
 ## Diagnostic codes
 
 Name a new catalog code `<PREFIX>_<WHAT_FAILED>`, such as `AUTH_FORWARD_AUTH_INCOMPLETE`, and put its key in alphabetical order among the codes of its catalog group, so concurrent pull requests edit different lines. Published numbered codes, such as `AUTH_C0068`, keep their names. Write the `why` and `fix` in the catalog: the docs build writes the code's page. Put more text in `docs/diagnostics/<CODE>.md`. `test/diagnostic-codes.test.ts` checks these rules.

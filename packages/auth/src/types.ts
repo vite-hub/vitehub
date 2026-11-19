@@ -1,4 +1,4 @@
-import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize } from "@vite-hub/runtime"
+import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize, Duration } from "@vite-hub/runtime"
 // From the H3 entry, so the declarations also carry its `H3Event` augmentation and an H3 2 event is an `AuthRequestInput`.
 import type { ViteHubContext } from "@vite-hub/runtime/internal/h3"
 import type { Auth, BetterAuthOptions, DBAdapter, Session, User } from "better-auth"
@@ -121,8 +121,8 @@ export interface AuthAccessPolicy {
    * request fails and the session stays.
    */
   allow: (context: AuthAccessPolicyContext) => boolean | Promise<boolean>
-  /** Milliseconds that an allowed answer holds for one session or one MCP user. `0` asks on each request. Default: 300000. */
-  recheck?: number
+  /** How long an allowed answer holds for one session or one MCP user, such as `"5m"`. `"0s"` asks on each request. Default: `"5m"`. */
+  recheck?: Duration
 }
 
 export interface AuthAccessConfiguration {
@@ -145,12 +145,12 @@ export interface AuthViteHubOptions {
   access?: AuthAccessConfiguration
   basePath?: string
   /**
-   * `authDatabase()` from `@vite-hub/auth/database` keeps users and sessions in the app Database. Return another Better
+   * `authDatabase()` from `vite-hub/auth/database` keeps users and sessions in the app Database. Return another Better
    * Auth adapter from the Definition callback. `"memory"` keeps them in the memory of one server process,
    * and a restart removes them. Without `database` or `preset`, Auth uses memory only on a development server.
    */
   database?: AuthAppDatabase | "memory"
-  /** A ViteHub Auth preset, such as `stateless()` from `@vite-hub/auth/presets`. ViteHub checks it against the other options. */
+  /** A ViteHub Auth preset, such as `stateless()` from `vite-hub/auth/presets`. ViteHub checks it against the other options. */
   preset?: AuthPreset
   route?: false
   /** Removed. Pass a callback that returns all options: `defineAuth(({ env }) => ({ ... }))`. */

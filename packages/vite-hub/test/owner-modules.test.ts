@@ -55,6 +55,32 @@ it.each([undefined, false])("checks Forms with database: %s", async (database) =
   }
 })
 
+it.each([undefined, false])("checks Sync and the Database with database: %s", async (database) => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-optional-sync-"))
+  try {
+    await mkdir(join(root, "server/sync"), { recursive: true })
+    await writeFile(join(root, "server/sync/todos.ts"), "export default {}\n")
+    await resolveConfig({ configFile: false, root, plugins: [optionalOwnerEntriesPlugin({ database })] }, "build")
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["sync", "database"])
+  }
+  finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+it("checks Sync and Webhooks together with their Database owner", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-optional-sync-webhooks-"))
+  try {
+    await mkdir(join(root, "server/sync"), { recursive: true })
+    await mkdir(join(root, "server/webhooks"), { recursive: true })
+    await resolveConfig({ configFile: false, root, plugins: [optionalOwnerEntriesPlugin()] }, "build")
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["sync", "database", "webhooks"])
+  }
+  finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 it("checks the owner package of each vite-hub facade that the app imports", () => {
   const { resolveId } = optionalOwnerImportsPlugin()
   if (!resolveId || typeof resolveId !== "object" || !(resolveId.filter?.id instanceof RegExp)) throw new TypeError("Expected a filtered resolver")
@@ -77,6 +103,8 @@ it("checks the owner package of each vite-hub facade that the app imports", () =
     ["vite-hub/channels", "channels"],
     ["vite-hub/connections/google", "connections"],
     ["vite-hub/decisions/vue", "decisions"],
+    ["vite-hub/device", "device"],
+    ["vite-hub/device/vue", "device"],
     ["vite-hub/email", "email"],
     ["vite-hub/gateways/ai-sdk", "gateways"],
     ["vite-hub/kv", "kv"],
@@ -85,6 +113,8 @@ it("checks the owner package of each vite-hub facade that the app imports", () =
     ["vite-hub/queue", "queue"],
     ["vite-hub/rate-limit", "rateLimit"],
     ["vite-hub/sandbox/task", "sandboxTask"],
+    ["vite-hub/sync", "sync"],
+    ["vite-hub/sync/vue", "sync"],
     ["vite-hub/workflow", "workflow"],
   ] as const) {
     vi.mocked(assertFeaturePackages).mockClear()
