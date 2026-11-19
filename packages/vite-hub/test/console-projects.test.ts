@@ -155,6 +155,8 @@ describe("project.get probe", () => {
       host: { name: "cloudflare", preset: "cloudflare-module" },
       time,
     })).toEqual({ commit: { login: "ada", sha: "4f9c2e1" }, framework: { name: "nuxt", version: "5.0.2" }, host: { name: "cloudflare", preset: "cloudflare-module" }, time })
+    expect(consoleProjectBuildOf({ commit: { login: "mona-cat_octo", sha: "4f9c2e1" }, time })?.commit?.login).toBe("mona-cat_octo")
+    expect(consoleProjectBuildOf({ commit: { login: "dependabot[bot]", sha: "4f9c2e1" }, time })?.commit?.login).toBeUndefined()
     expect(consoleProjectBuildOf({
       commit: { login: "../../evil?x=", sha: "4f9c2e1" },
       framework: { name: "remix" },

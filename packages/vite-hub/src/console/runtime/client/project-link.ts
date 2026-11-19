@@ -2,6 +2,7 @@ import { callOperationRpc, operationRpcPath, type OperationRpcOutcome } from "@v
 import { viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { consoleRpcHeader } from "../rpc"
+import { githubAuthorLogin } from "../github-login"
 import { consoleErrorFields } from "./request"
 import { parseConsoleNavigation } from "./sections"
 
@@ -115,8 +116,8 @@ export function consoleProjectBuildOf(value: unknown): ConsoleProjectBuild | und
     if (entry) commit[key] = entry
   }
   // The login goes into an image URL, so only a GitHub login counts.
-  const login = field(commitValue, "login")
-  if (login && /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i.test(login)) commit.login = login
+  const login = githubAuthorLogin(field(commitValue, "login"))
+  if (login) commit.login = login
   const repository = field(commitValue, "repository")
   if (repository && /^[\w.-]+\/[\w.-]+$/.test(repository)) commit.repository = repository
   return { ...build, commit }

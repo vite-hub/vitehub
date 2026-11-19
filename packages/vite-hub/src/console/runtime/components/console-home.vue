@@ -88,6 +88,7 @@ const agentsEnabled = computed(() => sections.value.includes("agents"));
 const build = computed(() => projects.info.value?.build);
 const compareUrl = computed(() => consoleCompareUrl(build.value));
 const authorAvatar = computed(() => build.value?.commit?.login && consoleAuthorAvatarUrl(build.value.commit.login));
+const failedAvatar = ref<string>();
 const siteUrl = computed(() => projects.current.value?.url ? `${projects.current.value.url.replace(/\/+$/, "")}/` : undefined);
 const sessionItems = computed(() =>
   recentSessions.items.value.slice(0, 5).map((item) => ({
@@ -271,7 +272,7 @@ onBeforeUnmount(() => {
                   </li>
                   <template v-else>
                     <li v-if="build" class="vitehub-console__overview-row">
-                      <img v-if="authorAvatar" :src="authorAvatar" alt="" width="16" height="16" class="vitehub-console__overview-icon rounded-full" loading="lazy" referrerpolicy="no-referrer">
+                      <img v-if="authorAvatar && authorAvatar !== failedAvatar" :key="authorAvatar" :src="authorAvatar" alt="" width="16" height="16" class="vitehub-console__overview-icon rounded-full" loading="lazy" referrerpolicy="no-referrer" @error="failedAvatar = authorAvatar">
                       <Icon v-else name="i-lucide-rocket" class="vitehub-console__overview-icon" />
                       <span class="flex min-w-0 flex-1 items-center gap-1.5">
                         <span class="shrink-0 font-medium text-highlighted">{{ build.commit?.author ?? build.commit?.login ?? "Someone" }}</span>

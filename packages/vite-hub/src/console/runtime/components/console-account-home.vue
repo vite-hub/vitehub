@@ -35,6 +35,10 @@ const teamName = computed(() => team.value?.name ?? "This team");
 const apps = computed(() => account.value?.projects ?? []);
 const manage = computed(() => account.value ? canManageConsoleProjects(account.value) : false);
 const filter = ref("");
+const failedAvatars = ref(new Set<string>());
+function markAvatarFailed(url: string | undefined) {
+  if (url) failedAvatars.value.add(url);
+}
 // Each app row: its logo, its Last deploy cell from the build that the app reported in its check, and its comments.
 const rows = computed(() => apps.value.map((app) => {
   const check = props.checks?.[app.id];
@@ -222,7 +226,7 @@ async function link(): Promise<void> {
               </td>
               <td class="vitehub-apps__deploy max-sm:hidden">
                 <span v-if="row.deploy" class="flex min-w-0 items-center gap-2" :title="row.deploy.message">
-                  <img v-if="row.deploy.avatar" :src="row.deploy.avatar" alt="" width="18" height="18" class="vitehub-apps__avatar" :title="row.deploy.author" loading="lazy" referrerpolicy="no-referrer">
+                  <img v-if="row.deploy.avatar && !failedAvatars.has(row.deploy.avatar)" :key="row.deploy.avatar" :src="row.deploy.avatar" alt="" width="18" height="18" class="vitehub-apps__avatar" :title="row.deploy.author" loading="lazy" referrerpolicy="no-referrer" @error="markAvatarFailed(row.deploy?.avatar)">
                   <span v-else-if="row.deploy.author" class="vitehub-apps__avatar" :title="row.deploy.author" aria-hidden="true">{{ row.deploy.author.charAt(0).toUpperCase() }}</span>
                   <ConsoleRelativeTime :value="row.deploy.time" class="shrink-0 text-default" />
                   <template v-if="row.deploy.sha">

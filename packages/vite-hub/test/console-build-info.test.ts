@@ -63,6 +63,7 @@ describe("collectConsoleBuild", () => {
     const noreply = (email: string) => async (args: string[]) => args[0] === "log" ? `${sha}\0fix: x\0Joy\0${email}` : undefined
     const login = async (email: string) => (await collectConsoleBuild({ cwd: "/app", env: { GITHUB_SHA: sha }, git: noreply(email), now })).commit?.login
     expect(await login("12345+joy-dev@users.noreply.github.com")).toBe("joy-dev")
+    expect(await login("12345+mona-cat_octo@users.noreply.github.com")).toBe("mona-cat_octo")
     expect(await login("joy@users.noreply.github.com")).toBe("joy")
     expect(await login("joy@example.com")).toBeUndefined()
     expect(await login("49699333+dependabot[bot]@users.noreply.github.com")).toBeUndefined()

@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 
 import { readBuildRepository, readBuildRevision, readGit, type BuildGit } from "@vite-hub/internal/build/revision"
 
+import { githubAuthorLogin } from "./runtime/github-login.ts"
 import type { ConsoleProjectBuild } from "./runtime/server/project.ts"
 
 type Env = Record<string, string | undefined>
@@ -16,15 +17,8 @@ const commitDetails: ReadonlyArray<{ sha: string, message: string, author?: stri
 ]
 
 const shaPattern = /^[0-9a-f]{7,64}$/i
-/** A GitHub login. A bot account, such as `dependabot[bot]`, has no avatar at `github.com/<login>.png`, so it does not match. */
-const loginPattern = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i
 /** The GitHub address that hides an author's email: `<id>+<login>@users.noreply.github.com`, or `<login>@…` for old accounts. */
 const noreplyPattern = /^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/i
-
-function login(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  return trimmed && loginPattern.test(trimmed) ? trimmed : undefined
-}
 
 /** The GitHub login of the author of `sha` in the payload of a GitHub Actions `push` event. */
 async function pushEventLogin(env: Env, sha: string): Promise<string | undefined> {
@@ -32,7 +26,7 @@ async function pushEventLogin(env: Env, sha: string): Promise<string | undefined
   try {
     const event = JSON.parse(await readFile(env.GITHUB_EVENT_PATH, "utf8")) as { head_commit?: { id?: unknown, author?: { username?: unknown } } }
     const username = event.head_commit?.author?.username
-    return String(event.head_commit?.id).toLowerCase() === sha && String(username) === username ? login(username) : undefined
+    return String(event.head_commit?.id).toLowerCase() === sha && String(username) === username ? githubAuthorLogin(username) : undefined
   }
   catch {
     return undefined
@@ -64,7 +58,7 @@ export async function collectConsoleBuild(options: { cwd: string, env?: Env, git
   let message = details ? text(env[details.message], 200) : undefined
   let author = details?.author ? text(env[details.author], 100) : undefined
   let authorLogin = details?.login
-    ? env[details.login.provider] === "github" ? login(env[details.login.name]) : undefined
+    ? env[details.login.provider] === "github" ? githubAuthorLogin(env[details.login.name]) : undefined
     : await pushEventLogin(env, sha)
   if (!message || !author || !authorLogin) {
     // `%x00` separates the fields, because a subject or a name may hold any other character.
@@ -73,7 +67,7 @@ export async function collectConsoleBuild(options: { cwd: string, env?: Env, git
     if (head?.toLowerCase() === sha) {
       message ??= text(subject, 200)
       author ??= text(name, 100)
-      authorLogin ??= login(noreplyPattern.exec(email?.trim() ?? "")?.[1])
+      authorLogin ??= githubAuthorLogin(noreplyPattern.exec(email?.trim() ?? "")?.[1])
     }
   }
   const branch = text(revision.branch, 200)
