@@ -199,8 +199,10 @@ Database, KV store, and Blob store of the app answers:
 }
 ```
 
-A Database runs `SELECT 1`, and a KV or Blob store reads one key. Each check
-has 2 seconds. When one fails, the route answers `503` with `ok: false`. The
+A Database runs `SELECT 1`, a KV store reads one key, and a Blob store lists
+one object. The list fails when the Blob folder or bucket is broken, for
+example when a file is at the folder path or the bucket does not exist. On S3,
+the credential needs `s3:ListBucket`. Each check has 2 seconds. When one fails, the route answers `503` with `ok: false`. The
 error goes to the server log, never to the response. The
 [generated Dockerfile](#run-the-server-with-docker) checks this route. For
 your own image or a load balancer, point the health check at it:
