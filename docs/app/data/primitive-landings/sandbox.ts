@@ -17,7 +17,7 @@ const sandboxFiles = [
   {
     path: "server/release-notes.ts",
     language: "typescript",
-    content: 'import { runSandboxTask } from "@vite-hub/sandbox/task"\n\nexport function releaseNotes() {\n  return runSandboxTask("release-notes", { notes: "ship it" })\n}',
+    content: 'import { runSandboxTask } from "@vite-hub/sandbox/task"\n\nexport async function releaseNotes() {\n  const [error, notes] = await runSandboxTask("release-notes", { notes: "ship it" })\n  if (error) throw error\n  return notes\n}',
   },
 ];
 
