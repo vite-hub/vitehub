@@ -33,7 +33,7 @@ Add `workspace: true` to the ViteHub options of your app. Keep the other options
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', workspace: true },
+  vitehub: { workspace: true },
 })
 ```
 ::::
@@ -45,7 +45,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', workspace: true }), nitro()],
+  plugins: [vitehub({ workspace: true }), nitro()],
 })
 ```
 ::::
@@ -56,7 +56,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', workspace: true })],
+  plugins: [vitehub({ workspace: true })],
 })
 ```
 ::::
@@ -76,7 +76,7 @@ export default defineWorkspace({
 })
 ```
 
-- `provider: 'memory'` keeps the files in memory. A server restart loses them.
+- `driver: 'memory'` keeps the files in memory. A server restart loses them.
 - `write: true` lets your route write Markdown files to the Workspace.
 
 ::

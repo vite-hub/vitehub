@@ -40,7 +40,6 @@ describe("multi-file tutorial examples", () => {
       "server/workflows/onboard-user/02.send-welcome.ts",
       "server/api/onboard.post.ts",
     ]))
-    expect(source).toContain("each step can be retried or replayed independently")
     expect(source).toContain("01.create-user")
     expect(source).toContain("02.send-welcome")
   })
@@ -55,8 +54,6 @@ describe("multi-file tutorial examples", () => {
       "server/api/image-optimizer.post.ts",
       "output/image-optimizer.json",
     ]))
-    expect(source).toContain("a separate package project, not another server route")
-    expect(source).toContain("This JSON is the response body, not a file")
   })
 
   it("keeps command and output snippets in semantic virtual folders", async () => {

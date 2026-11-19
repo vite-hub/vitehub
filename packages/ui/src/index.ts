@@ -26,6 +26,7 @@ export * from "./components/message.ts";
 export * from "./components/motion-list.ts";
 export * from "./components/motion.ts";
 export * from "./components/progress.ts";
+export * from "./components/relative-time.ts";
 export * from "./components/status.ts";
 export * from "./components/sync-status.ts";
 export * from "./components/trace.ts";

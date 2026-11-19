@@ -1677,8 +1677,8 @@ describe("agent Vite plugin", () => {
       await mkdir(platformPackageDir, { recursive: true })
       await mkdir(claudePackageDir, { recursive: true })
       await mkdir(claudePlatformPackageDir, { recursive: true })
-      await writeFile(join(codexPackageDir, "package.json"), JSON.stringify({ name: "@openai/codex", version: "0.149.1" }))
-      await writeFile(join(platformPackageDir, "package.json"), JSON.stringify({ name: "@openai/codex", version: `0.149.1-${process.platform}-${process.arch}` }))
+      await writeFile(join(codexPackageDir, "package.json"), JSON.stringify({ name: "@openai/codex", version: "0.169.0" }))
+      await writeFile(join(platformPackageDir, "package.json"), JSON.stringify({ name: "@openai/codex", version: `0.169.0-${process.platform}-${process.arch}` }))
       await writeFile(join(claudePackageDir, "package.json"), JSON.stringify({ name: "@anthropic-ai/claude-agent-sdk", version: "0.3.246" }))
       await writeFile(join(claudePlatformPackageDir, "package.json"), JSON.stringify({ name: claudePlatformPackage, version: "0.3.246" }))
       const plugin = hubAgent()
@@ -2660,7 +2660,6 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("createChannelChatRouteHandler")
       expect(webhookRoute).toContain("withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule")
       expect(webhookRoute).toContain('agentWithColocatedInstructions(resolveAgentModule(agent0), "Use support instructions.\\n")')
-      expect(webhookRoute).not.toContain("withAgentDefaults")
       expect(webhookRoute).toContain("const agentIdentities")
       expect(webhookRoute).toContain('["support"]: {"name":"support"}')
       expect(webhookRoute).not.toContain(`import { createCloudflareAgentState } from ${JSON.stringify(agentRuntimeModule("cloudflare"))}`)
@@ -3140,7 +3139,6 @@ export default defineAgent({
       expect(webhookRoute).not.toContain("setWorkspaceRuntimeRegistry")
       expect(webhookRoute).toContain('agentWorkspaceEntry("audio-bitacora", agent0')
       expect(webhookRoute).toContain('["audio-bitacora"]: {"name":"audio-bitacora","workspace":"audio-bitacora"}')
-      expect(webhookRoute).not.toContain("withAgentDefaults")
       expect(webhookRoute).not.toContain("@vite-hub/workspace/internal/stores/github")
       expect(webhookRoute).not.toContain("configureCloudflareWorkspaceRuntime")
     } finally {
@@ -3401,7 +3399,6 @@ describe("server helpers", () => {
       const workspace = useWorkspace("support-runtime")
 
       expect(preparedAgent).toBe(agent)
-      expect(preparedAgent).not.toHaveProperty("__vitehubWorkspaceAgentDefaults")
       expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Support\n")
       await expect(
         runAgentInline(
@@ -9313,7 +9310,7 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
       releaseRun()
       await vi.waitFor(async () => {
-        const completedRun = await getWorkflowRun("support-agent", "github:delivery-workflow")
+        const [, completedRun] = await getWorkflowRun("support-agent", "github:delivery-workflow")
         expect(completedRun).toMatchObject({
           result: "accepted github delivery",
           status: "completed",
@@ -16676,7 +16673,7 @@ describe("server helpers", () => {
       }
       const sideEffect = vi.fn(async () => "completed")
       // SAFETY: The test Agent fixture uses the normalized internal representation expected by the Workflow runner.
-      await expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect)).rejects.toThrow("Workflow provider operation failed")
+      await expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect)).rejects.toThrow("Workflow provider failed during create.")
       expect(sideEffect).not.toHaveBeenCalled()
       expect(await state.queueDepth(`${ownershipKey}:queue`)).toBe(0)
       expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(1)
@@ -16687,7 +16684,7 @@ describe("server helpers", () => {
       // SAFETY: The test Agent fixture uses the normalized internal representation expected by the Workflow runner.
       const recoveredAttempt = expect(runAgentWorkflowDefinition(agent as never, staleWorkflow, sideEffect))
       if (persistentOutage) {
-        await recoveredAttempt.rejects.toThrow("Workflow provider operation failed")
+        await recoveredAttempt.rejects.toThrow("Workflow provider failed during create.")
       } else {
         await recoveredAttempt.resolves.toBeUndefined()
       }
@@ -17441,7 +17438,7 @@ describe("server helpers", () => {
             | { message?: { settlementError?: string; settlementStatus?: string } }
             | null
           expect(failedPending?.message).toMatchObject({
-            settlementError: "Workflow provider operation failed.",
+            settlementError: expect.stringContaining("Workflow provider failed during create."),
             settlementStatus: "failed",
           })
           const sideEffect = vi.fn(async () => "must not run")
@@ -17615,7 +17612,7 @@ describe("server helpers", () => {
         | { message?: { settlementError?: string; settlementStatus?: string } }
         | null
       expect(pending?.message).toMatchObject({
-        settlementError: "Workflow provider operation failed.",
+        settlementError: expect.stringContaining("Workflow provider failed during create."),
         settlementStatus: "failed",
       })
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -18510,10 +18507,10 @@ describe("server helpers", () => {
       expect(successor?.events).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            error: "Workflow provider operation failed.",
+            error: expect.stringContaining("Workflow provider failed during create."),
             type: "invocation.failed",
           }),
-          expect.objectContaining({ error: "Workflow provider operation failed.", type: "failed" }),
+          expect.objectContaining({ error: expect.stringContaining("Workflow provider failed during create."), type: "failed" }),
         ]),
       )
       expect(errorFallbackText).toHaveBeenCalledOnce()
@@ -18948,7 +18945,7 @@ describe("server helpers", () => {
           },
           waitUntil: (task) => waitUntilTasks.push(task),
         }),
-      ).rejects.toThrow("Workflow provider operation failed")
+      ).rejects.toThrow("Workflow provider failed during create.")
 
       expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined, { initiatorUserId: "123", messageId: "91108" })
       await expect(

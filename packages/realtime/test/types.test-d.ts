@@ -108,5 +108,7 @@ describe("realtime definition types", () => {
     defineRealtime({ access: "public", auth: true, document: false })
     // @ts-expect-error Public rooms have no other access rule.
     defineRealtime({ access: "public", authorize: () => true, document: false })
+    // @ts-expect-error authorize() returns true to allow; a path that returns nothing would deny.
+    defineRealtime({ authorize: ({ mode }) => { if (mode === "write") return true }, document: false })
   })
 })

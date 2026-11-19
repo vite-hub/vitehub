@@ -231,13 +231,15 @@ async function run(operation: WorkflowOperationName, input: WorkflowOperationInp
       const available = workflows.length ? ` Available Workflows: ${workflows.join(", ")}.` : " The Workflow registry of the runtime is empty."
       throw failure(workflowErrorDiagnostics.WORKFLOW_DEFINITION_NOT_FOUND({ available, workflow }))
     }
-    const started = await startWorkflow(workflow, payload)
+    const [error, started] = await startWorkflow(workflow, payload)
+    if (error) throw error
     rememberRun(started.id, workflow)
     return { run: await toWorkflowRunView(started, workflow) }
   }
   if (operation === "resume") {
     const { payload, token } = input as WorkflowOperationInputs["resume"]
-    const signal = await resumeWorkflow(token, payload)
+    const [error, signal] = await resumeWorkflow(token, payload)
+    if (error) throw error
     return { signal: { id: signal.id, provider: signal.provider } }
   }
   const { runId, workflow: named } = input as WorkflowOperationInputs["get"]
@@ -245,7 +247,8 @@ async function run(operation: WorkflowOperationName, input: WorkflowOperationInp
   if (!workflow) {
     throw failure(workflowErrorDiagnostics.WORKFLOW_RUN_UNKNOWN({ runId }))
   }
-  const found = operation === "get" ? await getWorkflowRun(workflow, runId) : await cancelWorkflow(workflow, runId)
+  const [error, found] = operation === "get" ? await getWorkflowRun(workflow, runId) : await cancelWorkflow(workflow, runId)
+  if (error) throw error
   return { run: await toWorkflowRunView(found, workflow) }
 }
 

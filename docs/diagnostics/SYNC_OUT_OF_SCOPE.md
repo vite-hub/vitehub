@@ -1,0 +1,5 @@
+---
+description: A Sync write or subset requested rows outside the allowed scope. Use values permitted by the definition and the current account.
+---
+
+A write set a `where` column to a value that `where` does not allow, such as `ownerId` of another person or a team that the caller is not in. Leave the single values of `where` out: the client and the server write them. For a column with a list in `where`, such as `teamId`, use one of its values. A pull gets 403 with this code when its subset is outside `where`, and the live stream refuses that store with this code. The store shows it as `error`.

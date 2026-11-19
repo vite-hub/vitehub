@@ -390,13 +390,13 @@ export function contentSource(input: ContentSourceInput, options: ContentSourceO
   const { url = inherited?.url, label = inherited?.label, seo = inherited?.seo, markdown = inherited?.markdown, prefix, schema } = options
   const comarkOptions = { prefix, schema }
   if (url !== undefined && !isRuntimeFunction(url) && (String(url) !== url || !url.startsWith("/") || url.startsWith("//"))) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] contentSource({ url }) must be a path that starts with /, such as '/:id', or a function, received ${JSON.stringify(url)}.` })
+    throw contentErrorDiagnostics.CONTENT_SOURCE_OPTIONS_INVALID({ problem: `[vitehub] contentSource({ url }) must be a path that starts with /, such as '/:id', or a function, received ${JSON.stringify(url)}.` })
   }
   if ((label !== undefined && (String(label) !== label || !label.trim())) || (seo !== undefined && !isRuntimeFunction(seo)) || (markdown !== undefined && !isRuntimeFunction(markdown))) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] contentSource({ label, seo, markdown }) takes label as text, and seo and markdown as functions." })
+    throw contentErrorDiagnostics.CONTENT_SOURCE_OPTIONS_INVALID({ problem: "[vitehub] contentSource({ label, seo, markdown }) takes label as text, and seo and markdown as functions." })
   }
   if (url === undefined && (label !== undefined || seo !== undefined || markdown !== undefined)) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] contentSource({ label, seo, markdown }) needs a url, such as '/:id': they describe the pages of the Source." })
+    throw contentErrorDiagnostics.CONTENT_SOURCE_OPTIONS_INVALID({ problem: "[vitehub] contentSource({ label, seo, markdown }) needs a url, such as '/:id': they describe the pages of the Source." })
   }
   let source: ComarkContentSource
   if (isComarkContentSource(input)) {

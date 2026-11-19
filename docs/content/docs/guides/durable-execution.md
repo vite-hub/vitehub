@@ -47,16 +47,16 @@ At 12:00:00 the job starts. Step 1 charges $42.00 and returns `{ chargeId: 'ch_1
 
 ## What ViteHub stores on each host
 
-For Cloudflare and OpenWorkflow, ViteHub calls each step file through the provider's step API with the default retry policy `limit: 3`, `delay: '10 seconds'`, `backoff: 'exponential'`. The two providers read the limit differently. Vercel native steps use Workflow DevKit's own policy.
+For Cloudflare and OpenWorkflow, ViteHub calls each step file through the provider's step API with the default retry policy `limit: 3`, `delay: '10 seconds'`, `backoff: 'exponential'`. A step file can export its own `retries` and `timeout`. See [Retries and sleeps](/docs/workflows/limits-and-errors#retries-and-sleeps).
 
 | Where the run executes | Provider | Step results saved | Retries of a failed step | Survives a process stop |
 | --- | --- | --- | --- | --- |
 | Cloudflare Workers | Cloudflare Workflows | Yes, by Cloudflare | Up to 3 retries after the first attempt, exponential backoff from 10 seconds | Yes |
-| Node or Docker, also `vite dev` with the `node` host | OpenWorkflow | Yes, in your Postgres or SQLite database | 3 attempts in total, 10 then 20 seconds apart | Yes, while the database survives |
-| Vercel, explicit or generated `native` entry | Workflow DevKit | Yes, for `'use step'` functions | Workflow DevKit's rules | Yes |
+| Node or Docker, also `vite dev` with the `node` host | OpenWorkflow | Yes, in your Postgres or SQLite database | Up to 3 retries after the first attempt, exponential backoff from 10 seconds | Yes, while the database survives |
+| Vercel, explicit or generated `native` entry | Workflow DevKit | Yes, for `'use step'` functions | Up to 3 retries, about one second apart | Yes |
 | Vercel, normal handler | Inline | No | None | No |
 
-Cloudflare reads `limit` as the number of retries (see its [retry docs](https://developers.cloudflare.com/workflows/build/sleeping-and-retrying/)). OpenWorkflow gets the same policy as `maximumAttempts: 3`, `initialInterval: '10 seconds'`, and `backoffCoefficient: 2`, so it makes 3 attempts in total.
+Cloudflare reads `limit` as the number of retries (see its [retry docs](https://developers.cloudflare.com/workflows/build/sleeping-and-retrying/)). OpenWorkflow counts attempts, so ViteHub sends it `maximumAttempts: 4`, `initialInterval: '10000ms'`, and `backoffCoefficient: 2`. Workflow DevKit reads `limit` as `maxRetries`.
 
 An inline run executes the handler in the current process, kept alive after the response by the host's `waitUntil()` if it has one. Steps run in order, but nothing saves their results, and an error fails the run with no retry. A finished inline run's result stays in memory for five minutes, up to 1,024 runs, and a restart loses it. If the request has no Cloudflare Workflow binding, the Workflow also runs inline.
 
@@ -74,7 +74,6 @@ Enable Workflow on Node. ViteHub selects OpenWorkflow:
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     workflow: true,
   },
 })
@@ -90,7 +89,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       workflow: true,
     }),
     nitro(),
@@ -105,7 +103,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', workflow: true })],
+  plugins: [vitehub({ workflow: true })],
 })
 ```
 :::
@@ -174,21 +172,23 @@ export default async function sendReceipt(order: { orderId: string, chargeId: st
 Start the run with an id from the order:
 
 ```ts [server/api/checkout.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { startWorkflow } from 'vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const order = await readBody<{ orderId: string, amountCents: number, email: string }>(event)
-  if (!order) throw createError({ statusCode: 400, message: 'Order body is required' })
-  return startWorkflow('checkout', order, { id: `checkout-${order.orderId}` })
+  if (!order) throw new HTTPError({ status: 400, message: 'Order body is required' })
+  const [error, run] = await startWorkflow('checkout', order, { id: `checkout-${order.orderId}` })
+  if (error) throw error
+  return run
 })
 ```
 
-The id is the run id on Cloudflare and OpenWorkflow, so a double click does not start a second checkout, and `getWorkflowRun()` reads the run with the same id. Start with a letter, a digit, or `_`, then use only letters, digits, `-`, and `_` in the id, up to 100 characters, so it works on every provider. Cloudflare rejects other ids, and ViteHub fails the start with `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID` before it calls Cloudflare. A Vercel `native` entry rejects an explicit id with `WORKFLOW_RUN_ID_UNSUPPORTED`; let Workflow DevKit assign it.
+The id is the run id on Cloudflare and OpenWorkflow, so a double click does not start a second checkout, and `getWorkflowRun()` reads the run with the same id. Start with a letter, a digit, or `_`, then use only letters, digits, `-`, and `_` in the id, up to 100 characters, so it works on every provider. Cloudflare rejects other ids, and `startWorkflow()` returns the error `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID` before it calls Cloudflare. A Vercel `native` entry returns the error `WORKFLOW_RUN_ID_UNSUPPORTED` for an explicit id; let Workflow DevKit assign it.
 
 ## Inspect the run
 
-`startWorkflow()` returns the run `id` and a `status`. Read the run later with [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run), or from the CLI while the dev server runs:
+`startWorkflow()` returns `[error, run]`. The run has an `id` and a `status`. Read the run later with [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run), or from the CLI while the dev server runs:
 
 ```bash [Terminal]
 pnpm vitehub workflow start checkout '{"orderId":"order_1042","amountCents":4200,"email":"ada@example.com"}'
@@ -202,7 +202,7 @@ The status is one of `queued`, `running`, `completed`, `failed`, `cancelled`, or
 
 A Workflow with a normal handler, such as the checkout's `index.ts` above, runs inline on Vercel unless you add a `native` entry. That entry uses Workflow DevKit's `'use workflow'` and `'use step'` directives. Vercel calls it without ViteHub's `steps` runner, so it must call its own step functions. See [Add a durable Vercel entry](/docs/workflows/configure#add-a-durable-vercel-entry).
 
-For a folder with only numbered step files and no `index.ts`, ViteHub generates a native `'use workflow'` entry and one `'use step'` wrapper per file. The entry runs the files in order and passes each result to the next step, with no manual `native` entry. Both native forms follow Workflow DevKit's retry rules; see [Errors and retries](https://useworkflow.dev/docs/foundations/errors-and-retries).
+For a folder with only numbered step files and no `index.ts`, ViteHub generates a native `'use workflow'` entry and one `'use step'` wrapper per file. The entry runs the files in order and passes each result to the next step, with no manual `native` entry. A generated step takes `retries.limit` and `timeout` from its step file. Both native forms follow Workflow DevKit's other retry rules; see [Errors and retries](https://useworkflow.dev/docs/foundations/errors-and-retries).
 
 ## Related
 

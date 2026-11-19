@@ -31,8 +31,8 @@ This example lets anyone comment and edit, so keep it on your computer. [Decide 
 ## Turn on Comments
 
 ```bash [commands/install]
-pnpm add vite-hub @vite-hub/comments @vite-hub/content @vite-hub/database @vite-hub/realtime drizzle-orm h3 zod
-pnpm add -D drizzle-kit nitro
+pnpm add vite-hub @vite-hub/comments @vite-hub/content @vite-hub/database @vite-hub/realtime drizzle-orm@1.0.0-rc.5 h3 zod
+pnpm add -D drizzle-kit@1.0.0-rc.5 nitro
 ```
 
 The Database stores threads. Realtime shows who is on each page, with rooms in this server process.
@@ -43,7 +43,6 @@ The Database stores threads. Realtime shows who is on each page, with rooms in t
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     database: true,
     realtime: { driver: 'memory' },
   },
@@ -62,7 +61,6 @@ export default defineConfig({
   plugins: [
     vue(),
     vitehub({
-      host: 'node',
       database: true,
       realtime: { driver: 'memory' },
     }),
@@ -82,7 +80,6 @@ export default defineConfig({
   plugins: [
     vue(),
     vitehub({
-      host: 'node',
       database: true,
       realtime: { driver: 'memory' },
     }),
