@@ -868,6 +868,58 @@ describe("sources and loaders", () => {
     })
   })
 
+  it("runs a shared helper once per loader and again for the next loader", async () => {
+    const root = await createRoot()
+    const definitions = await Promise.all(["docs", "review"].map(async (name) => {
+      const directory = join(root, "server", "workspaces", name)
+      await mkdir(directory, { recursive: true })
+      await writeFile(join(directory, "config.ts"), `import { label } from "../../shared"\nexport default { rootDir: label }\n`)
+      return { handler: join(directory, "config.ts"), name, path: join(directory, "config.ts"), source: "test" }
+    }))
+    const shared = join(root, "server", "shared.ts")
+    const writeShared = (label: string) => writeFile(shared, `globalThis.__sharedRuns = (globalThis.__sharedRuns ?? 0) + 1\nexport const label: string = ${JSON.stringify(label)}\n`)
+    const runs = () => (globalThis as { __sharedRuns?: number }).__sharedRuns
+    await writeShared("first")
+
+    try {
+      const firstPass = createWorkspaceDefinitionLoader(root)
+      for (const definition of definitions) {
+        await expect(loadDiscoveredWorkspaceDefinition(firstPass, definition)).resolves.toMatchObject({ rootDir: "first" })
+      }
+      expect(runs()).toBe(1)
+
+      await writeShared("second")
+      const secondPass = createWorkspaceDefinitionLoader(root)
+      for (const definition of definitions) {
+        await expect(loadDiscoveredWorkspaceDefinition(secondPass, definition)).resolves.toMatchObject({ rootDir: "second" })
+      }
+      expect(runs()).toBe(2)
+    }
+    finally {
+      delete (globalThis as { __sharedRuns?: number }).__sharedRuns
+    }
+  })
+
+  it("runs a shared helper again after it failed in the same loader", async () => {
+    const root = await createRoot()
+    const definitions = await Promise.all(["docs", "review"].map(async (name) => {
+      const directory = join(root, "server", "workspaces", name)
+      await mkdir(directory, { recursive: true })
+      await writeFile(join(directory, "config.ts"), `import { label } from "../../shared"\nexport default { rootDir: label }\n`)
+      return { handler: join(directory, "config.ts"), name, path: join(directory, "config.ts"), source: "test" }
+    }))
+    await writeFile(join(root, "server", "shared.ts"), `if (!globalThis.__sharedFailed) { globalThis.__sharedFailed = true; throw new Error("first run fails") }\nexport const label: string = "shared"\n`)
+
+    try {
+      const pass = createWorkspaceDefinitionLoader(root)
+      await expect(loadDiscoveredWorkspaceDefinition(pass, definitions[0]!)).rejects.toThrow("first run fails")
+      await expect(loadDiscoveredWorkspaceDefinition(pass, definitions[1]!)).resolves.toMatchObject({ rootDir: "shared" })
+    }
+    finally {
+      delete (globalThis as { __sharedFailed?: boolean }).__sharedFailed
+    }
+  })
+
   it("ignores stale default Jiti transforms when loading raw imports", async () => {
     const root = await createRoot()
     const directory = join(root, "server", "agents", "review")

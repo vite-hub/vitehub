@@ -13,6 +13,7 @@ interface TreeModelStub {
 
 interface DiffModelStub {
   cleanUp: ReturnType<typeof vi.fn>;
+  options?: unknown;
   render: ReturnType<typeof vi.fn>;
   setOptions: ReturnType<typeof vi.fn>;
   setSelectedLines: ReturnType<typeof vi.fn>;
@@ -54,7 +55,8 @@ vi.mock("@pierre/trees", () => ({
   },
 }));
 
-vi.mock("@pierre/diffs", () => ({
+vi.mock("@pierre/diffs", async (importOriginal) => ({
+  areOptionsEqual: (await importOriginal<typeof import("@pierre/diffs")>()).areOptionsEqual,
   CodeView: class {
     cleanUp = vi.fn();
     render = vi.fn();
@@ -76,10 +78,14 @@ vi.mock("@pierre/diffs", () => ({
       this.host = fileContainer;
       fileContainer.textContent = file.name;
     });
-    setOptions = vi.fn();
+    options?: unknown;
+    setOptions = vi.fn((options: unknown) => {
+      this.options = options;
+    });
     setSelectedLines = vi.fn();
 
-    constructor() {
+    constructor(options?: unknown) {
+      this.options = options;
       diffState.files.push(this);
     }
   },
@@ -90,10 +96,14 @@ vi.mock("@pierre/diffs", () => ({
       this.host = fileContainer;
       fileContainer.textContent = fileDiff.name;
     });
-    setOptions = vi.fn();
+    options?: unknown;
+    setOptions = vi.fn((options: unknown) => {
+      this.options = options;
+    });
     setSelectedLines = vi.fn();
 
-    constructor() {
+    constructor(options?: unknown) {
+      this.options = options;
       diffState.diffs.push(this);
     }
   },
@@ -104,10 +114,14 @@ vi.mock("@pierre/diffs", () => ({
       this.host = fileContainer;
       fileContainer.textContent = file.name;
     });
-    setOptions = vi.fn();
+    options?: unknown;
+    setOptions = vi.fn((options: unknown) => {
+      this.options = options;
+    });
     setSelectedLines = vi.fn();
 
-    constructor() {
+    constructor(options?: unknown) {
+      this.options = options;
       diffState.unresolvedFiles.push(this);
     }
   },
@@ -123,6 +137,7 @@ vi.mock("@pierre/diffs", () => ({
 import {
   type CodeViewItem,
   type DiffLineAnnotation,
+  type FileDiffMetadata,
   type FileDiffOptions,
   type LineAnnotation,
   parseDiffFromFile,
@@ -404,6 +419,53 @@ describe("Pierre lifecycle adapters", () => {
     await wrapper.setProps({ selectedLines: { id: "status", range: { end: 2, start: 2 } } });
     await flushRender();
     expect(instance.scrollTo).toHaveBeenCalledTimes(2);
+
+    wrapper.unmount();
+  });
+
+  it.each([
+    ["PierreFile", () => diffState.files[0]!, () => mount(PierreFile, { props: { file: { contents: "const a = 1", name: "a.ts" }, selectedLines: { end: 1, start: 1 } } })],
+    ["PierreUnresolvedFile", () => diffState.unresolvedFiles[0]!, () => mount(PierreUnresolvedFile, { props: { file: { contents: "<<<<<<< current", name: "a.ts" }, selectedLines: { end: 1, start: 1 } } })],
+    ["PierreDiff", () => diffState.diffs[0]!, () => mount(PierreDiff, { props: { patch: "a.patch", selectedLines: { end: 1, start: 1 } } })],
+  ] as const)("%s lets Pierre skip a render when only the selection changes", async (_name, instance, mountView) => {
+    const wrapper = mountView();
+    await flushRender();
+    const first = instance().render.mock.lastCall![0];
+
+    await wrapper.setProps({ selectedLines: { end: 3, start: 2 } });
+    await flushRender();
+    const second = instance().render.mock.lastCall![0];
+    expect(second.forceRender).toBe(false);
+    expect(second.lineAnnotations).toBe(first.lineAnnotations);
+    expect(second.file ?? second.fileDiff).toBe(first.file ?? first.fileDiff);
+    expect(instance().setSelectedLines).toHaveBeenLastCalledWith({ end: 3, start: 2 });
+
+    await wrapper.setProps({ options: { disableFileHeader: true } });
+    await flushRender();
+    expect(instance().render.mock.lastCall![0].forceRender).toBe(true);
+
+    wrapper.unmount();
+  });
+
+  it("passes Pierre a new diff and annotation list when they change in place", async () => {
+    const fileDiff = reactive({ hunks: [], isPartial: true, name: "a.ts" });
+    const lineAnnotations = reactive<DiffLineAnnotation<unknown>[]>([]);
+    const wrapper = mount(PierreDiff, { props: { fileDiff: fileDiff as unknown as FileDiffMetadata, lineAnnotations } });
+    await flushRender();
+    const render = diffState.diffs[0]!.render;
+    const first = render.mock.lastCall![0];
+
+    lineAnnotations.push({ lineNumber: 1, metadata: null, side: "additions" });
+    await flushRender();
+    const second = render.mock.lastCall![0];
+    expect(second.lineAnnotations).not.toBe(first.lineAnnotations);
+    expect(second.lineAnnotations).toEqual([{ lineNumber: 1, metadata: null, side: "additions" }]);
+
+    fileDiff.name = "b.ts";
+    await flushRender();
+    const third = render.mock.lastCall![0];
+    expect(third.fileDiff).not.toBe(second.fileDiff);
+    expect(third.fileDiff).toMatchObject({ name: "b.ts" });
 
     wrapper.unmount();
   });
