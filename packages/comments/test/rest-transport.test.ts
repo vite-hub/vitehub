@@ -1,7 +1,7 @@
 import { H3 } from "h3"
 import { describe, expect, it, vi } from "vitest"
 
-import { createCommentsClient, createRestTransport } from "../src/client.ts"
+import { createCommentsClient, createMemoryOutboxStore, createRestTransport } from "../src/client.ts"
 import { defineCommentSubject } from "../src/index.ts"
 import { createCommentsHandler } from "../src/runtime/handler.ts"
 import { anchor, createComments } from "./harness.ts"
@@ -93,6 +93,68 @@ describe("createRestTransport", () => {
     expect(created.author.id).toBe("ada")
     expect(outbox.uploaded).toHaveBeenCalledWith(created.messages[0]?.attachments[0])
     expect(files.size).toBe(1)
+  })
+
+  it("resumes a guest's saved upload and reconciles a lost reply through REST", async () => {
+    const files = new Map<string, Blob>()
+    const { as } = await setup({ authorize: () => true, rateLimit: { limit: 1, window: "1m" } }, files)
+    const rest = as(undefined, { id: "7", name: "Visitor" })
+    const reply = vi.fn(rest.reply).mockImplementationOnce(async (input) => {
+      await rest.reply(input)
+      throw new TypeError("Lost response")
+    })
+    const subject = { kind: "drop", id: "42" }
+    const store = createMemoryOutboxStore()
+    const client = () => createCommentsClient({
+      transport: { ...rest, reply },
+      query: { subject },
+      outbox: {
+        account: "guest:7",
+        store,
+        environment: {
+          isOnline: () => true,
+          isVisible: () => true,
+          listen: () => () => {},
+          lock: (_name, task) => task(),
+          lead(_name, task) {
+            const controller = new AbortController()
+            void task(controller.signal)
+            return () => controller.abort()
+          },
+          receive: () => () => {},
+          post: () => {},
+          schedule: () => () => {},
+          random: () => 0,
+        },
+      },
+    })
+    let now = Date.now()
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now)
+    const first = client()
+    try {
+      const screenshot = new File(["image"], "shot.png", { type: "image/png" })
+      await first.create({ subject, anchor, body: "Screenshot", files: [screenshot] })
+      await vi.waitFor(() => expect(first.outbox.entries[0]?.error?.status).toBe(429))
+      expect(files.size).toBe(1)
+
+      now += 60_000
+      const reloaded = client()
+      await reloaded.outbox.retry()
+      await vi.waitFor(() => expect(reloaded.threads[0]?.messages[0]?.attachments).toEqual(["files/1/shot.png"]))
+      expect(files.size).toBe(1)
+      const threadId = reloaded.threads[0]!.id
+
+      now += 60_000
+      await reloaded.reply({ threadId, body: "Follow-up" })
+      await vi.waitFor(() => expect(reloaded.outbox.entries[0]?.error?.status).toBe(0))
+      expect((await reloaded.refresh())[0]?.messages.map(message => message.body)).toEqual(["Screenshot", "Follow-up"])
+      await reloaded.outbox.retry()
+      await vi.waitFor(() => expect(reloaded.outbox.entries).toHaveLength(0))
+      expect(reply).toHaveBeenCalledTimes(2)
+      expect((await rest.get({ id: threadId }))?.messages).toHaveLength(2)
+    } finally {
+      clock.mockRestore()
+    }
   })
 
   it("paginates beyond the first 200 page threads", async () => {

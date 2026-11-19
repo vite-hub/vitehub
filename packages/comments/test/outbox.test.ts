@@ -264,7 +264,7 @@ describe("the comments outbox", () => {
   })
 
   it("shows a reply once when its answer was lost, and the resend adds no second message", async () => {
-    const { browser, server, client } = setup()
+    const { browser, server, client, store, stop } = setup()
     const thread = await client.create({ subject, anchor, body: "Wrong price" })
     await vi.waitFor(() => expect(client.outbox.entries).toHaveLength(0))
     const stored = client.threads[0]!
@@ -272,15 +272,25 @@ describe("the comments outbox", () => {
     await client.reply({ threadId: stored.id, body: "Yearly too" })
     await vi.waitFor(() => expect(browser.waits).toHaveLength(1))
 
-    await client.refresh()
-    await vi.waitFor(() => expect(client.threads[0]!.messages.map(message => message.body)).toEqual(["Wrong price", "Yearly too"]))
-    expect(client.threads[0]!.messages[1]!.delivery).toBeUndefined()
+    browser.online = false
+    stop()
+    const reloaded = createCommentsClient({ transport: server.transport, user: ana, query: { page: "/pricing" }, outbox: { account: ana.id, store, environment: browser.tab() } })
+    const publications: number[] = []
+    stops.push(reloaded.onChange(() => {
+      const messages = reloaded.threads[0]?.messages
+      if (messages) publications.push(messages.length)
+    }), reloaded.start())
+    await vi.waitFor(() => expect(reloaded.outbox.entries).toHaveLength(1))
+    const refreshed = await reloaded.refresh()
+    expect(refreshed[0]!.messages.map(message => message.body)).toEqual(["Wrong price", "Yearly too"])
+    expect(refreshed[0]!.messages[1]!.delivery).toBeUndefined()
+    expect(publications).not.toContain(3)
 
-    browser.runTimers()
-    await vi.waitFor(() => expect(client.outbox.entries).toHaveLength(0))
+    browser.online = true
+    await vi.waitFor(() => expect(reloaded.outbox.entries).toHaveLength(0))
     expect(server.replies).toHaveLength(2)
     expect(server.memory.threads[0]!.messages).toHaveLength(2)
-    expect(client.threads[0]!.messages).toHaveLength(2)
+    expect(reloaded.threads[0]!.messages).toHaveLength(2)
     expect(thread.id).not.toBe(stored.id)
   })
 

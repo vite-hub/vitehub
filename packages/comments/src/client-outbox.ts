@@ -300,19 +300,8 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
   const keyOf = (entry: CommentsOutboxEntry): string => entry.kind === "create"
     ? JSON.stringify([entry.kind, entry.input.subject.kind, entry.input.subject.id, entry.requestId])
     : JSON.stringify([entry.kind, entry.input.threadId, entry.requestId])
-  // The id that the server gives each waiting reply, by thread and `requestId`. A hash, so it is ready after a tick.
-  const replyIds = new Map<string, string>()
-  const replyId = (threadId: string, requestId: string): string | undefined => {
-    const key = JSON.stringify([threadId, requestId])
-    if (!replyIds.has(key)) {
-      replyIds.set(key, "")
-      void replyMessageId(threadId, requestId).then((id) => {
-        replyIds.set(key, id)
-        host.changed()
-      })
-    }
-    return replyIds.get(key) || undefined
-  }
+  const replyKey = (threadId: string, requestId: string): string => JSON.stringify([threadId, requestId])
+  let replyIds = new Map<string, string>()
   let loading: Promise<void> = Promise.resolve()
   // The run of `kick` that leads or waits for the lock. Its `giveUp` stops it.
   let leading: { giveUp: () => void } | undefined
@@ -322,7 +311,18 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
   const post = (message: CommentsOutboxMessage): void => environment.post(message)
   // Loads run one after another, so after `await reload()` the entries hold every write made before it.
   const reload = (): Promise<void> => loading = loading.catch(() => undefined).then(async () => {
-    entries = await store.list(account)
+    const pending = await store.list(account)
+    const ids = new Map<string, string>()
+    if (globalThis.crypto?.subtle) {
+      await Promise.all(pending.map(async (entry) => {
+        if (entry.kind !== "reply") return
+        const threadId = realId(entry.input.threadId)
+        const key = replyKey(threadId, entry.requestId)
+        ids.set(key, replyIds.get(key) ?? await replyMessageId(threadId, entry.requestId))
+      }))
+    }
+    replyIds = ids
+    entries = pending
     host.changed()
   })
   const changed = async (): Promise<void> => {
@@ -370,7 +370,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       // A reply that the server has, whose answer was lost, shows once.
       const have = new Set(thread.messages.filter(message => message.author.id === account).map(message => message.id))
       const added = waiting.filter((entry) => {
-        const id = thread.delivery ? undefined : replyId(thread.id, entry.requestId)
+        const id = thread.delivery ? undefined : replyIds.get(replyKey(thread.id, entry.requestId))
         return !(id && have.has(id))
       }).map(entry => localMessage(entry, thread.id))
       return added.length ? { ...thread, messages: [...thread.messages, ...added] } : thread
