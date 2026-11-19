@@ -1588,6 +1588,43 @@ importers:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
 
+  packages/choices:
+    dependencies:
+      '@vite-hub/gateways':
+        specifier: workspace:*
+        version: link:../gateways
+      nostics:
+        specifier: catalog:runtime
+        version: 1.4.0
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
+        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
+    devDependencies:
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.19.1
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
+      ai:
+        specifier: catalog:ai
+        version: 7.0.130(zod@4.6.7)
+      publint:
+        specifier: catalog:tooling
+        version: 0.3.25
+      typescript:
+        specifier: catalog:tooling
+        version: 6.0.3
+      vite-plus:
+        specifier: catalog:tooling
+        version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)
+      vitest:
+        specifier: catalog:tooling
+        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
+      vue:
+        specifier: 3.5.44
+        version: 3.5.44(typescript@6.0.3)
+
   packages/cli:
     dependencies:
       '@babel/parser':
@@ -2202,43 +2239,6 @@ importers:
       vitest:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
-
-  packages/decisions:
-    dependencies:
-      '@vite-hub/gateways':
-        specifier: workspace:*
-        version: link:../gateways
-      nostics:
-        specifier: catalog:runtime
-        version: 1.4.0
-      vite:
-        specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
-        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
-    devDependencies:
-      '@types/node':
-        specifier: catalog:tooling
-        version: 24.19.1
-      '@vite-hub/internal':
-        specifier: workspace:*
-        version: link:../internal
-      ai:
-        specifier: catalog:ai
-        version: 7.0.130(zod@4.6.7)
-      publint:
-        specifier: catalog:tooling
-        version: 0.3.25
-      typescript:
-        specifier: catalog:tooling
-        version: 6.0.3
-      vite-plus:
-        specifier: catalog:tooling
-        version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)
-      vitest:
-        specifier: catalog:tooling
-        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
-      vue:
-        specifier: 3.5.44
-        version: 3.5.44(typescript@6.0.3)
 
   packages/device:
     dependencies:
@@ -4240,6 +4240,9 @@ importers:
       '@vite-hub/channels':
         specifier: workspace:*
         version: link:../channels
+      '@vite-hub/choices':
+        specifier: workspace:*
+        version: link:../choices
       '@vite-hub/cms':
         specifier: workspace:*
         version: link:../cms
@@ -4258,9 +4261,6 @@ importers:
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database
-      '@vite-hub/decisions':
-        specifier: workspace:*
-        version: link:../decisions
       '@vite-hub/device':
         specifier: workspace:*
         version: link:../device

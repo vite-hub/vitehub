@@ -117,6 +117,7 @@ const movedDiagnostics = {
     ],
   },
   mcp: { from: "development", codes: ["mcp_b0001", "mcp_b0002"] },
+  choices: { from: "decisions", codes: ["decisions_cli_arguments_invalid", "decisions_cli_choices_not_found", "decisions_r0001", "decisions_r0002", "decisions_r0003", "decisions_r0004", "decisions_r0005", "decisions_r0006"] },
   cli: { from: "development", codes: "cli_console_login_failed cli_console_signed_out cli_env_file_exists cli_env_file_not_ignored cli_env_pull_failed cli_host_response_invalid cli_r0001 cli_r0002 cli_r0003 cli_r0004 cli_r0005 cli_setup_failed setup_config_manual setup_config_not_literal setup_deploy_build_failed setup_deploy_check_failed setup_deploy_checkout_conflict setup_deploy_checkout_module_failed setup_deploy_command_rejected setup_deploy_credentials_missing setup_deploy_env_missing setup_deploy_env_not_linked setup_deploy_env_stage_unsafe setup_deploy_failed setup_deploy_host_mismatch setup_deploy_host_unsupported setup_deploy_org_required setup_deploy_output_missing setup_deploy_preview_unsupported setup_deploy_provision_needs_build setup_deploy_provision_unchecked setup_deploy_push_failed setup_deploy_temporary_unsupported setup_deployments_account_required setup_deployments_credentials_missing setup_deployments_not_linked setup_deployments_project_id_required setup_env_decrypt_failed setup_env_file_not_ignored setup_env_file_tracked setup_env_git_failed setup_env_keys_tracked setup_env_name_unknown setup_env_private_key_missing setup_env_stage_unsupported setup_env_value_unsupported setup_feature_implied setup_feature_in_use setup_feature_required setup_feature_unsupported setup_file_exists setup_github_repository_required setup_github_request_failed setup_init_dir_not_empty setup_init_framework_mismatch setup_init_host_migration setup_init_nuxt_version setup_input_needed setup_install_failed setup_link_account_required setup_link_credentials_missing setup_link_host_required setup_link_host_unsupported setup_link_name_required setup_link_project_not_found setup_not_a_project setup_plan_unknown setup_server_dir_manual setup_stale_plan setup_uninstall_failed".split(" ") },
   bundle: { from: "development", codes: ["bundle_host_size_limit", "bundle_startup_unused"] },
   runtime: { from: "development", codes: "runtime_console_path_invalid runtime_console_project_url_invalid runtime_duration_invalid runtime_execution_budget_amount_invalid runtime_execution_budget_exceeded runtime_execution_budget_limit_invalid runtime_host_binding_not_found runtime_host_bindings_unavailable runtime_lease_failed runtime_lease_invalid_ttl runtime_r0001 runtime_r0002 runtime_r0003 runtime_r0004 runtime_r0005 runtime_r0006 runtime_r0007 runtime_r0009 runtime_r0010 runtime_r0011 runtime_r0015 runtime_r0016 runtime_r0017 runtime_r0018 runtime_serialized_response_invalid".split(" ") },
@@ -182,6 +183,8 @@ export const docsPageRedirects = {
   ...Object.fromEntries(Object.entries(agentCapabilities).map(([id, page]) => [`/docs/capabilities/${id}`, `/docs/agents/capabilities/${page}`])),
   ...Object.fromEntries(Object.entries(startGroups).flatMap(([dir, pages]) => pages.map(page => [`/docs/${dir}/${page}`, movedLearningPages.get(`/docs/getting-started/${dir}/${page}`) || `/docs/getting-started/${dir}/${page}`]))),
   ...Object.fromEntries(movedLearningPages),
+  // Decisions was renamed to Choices.
+  ...Object.fromEntries(["", "/get-started", "/concepts", "/client", "/recipes", "/server-api", "/limits-and-errors"].map(page => [`/docs/decisions${page}`, `/docs/choices${page}`])),
   ...Object.fromEntries(Object.entries(movedDiagnostics).flatMap(([section, { from, codes }]) => codes.map(code => [`/docs/${from}/diagnostics/${code}`, `/docs/${section}/diagnostics/${code}`]))),
 } satisfies Record<string, string>;
 
@@ -493,6 +496,8 @@ export function createDocsRedirectRouteRules(redirects: Record<string, string> =
     "/rate-limits": "/rate-limit",
     "/blog": "/learn",
     "/guides": "/learn",
+    // Decisions was renamed to Choices.
+    "/learn/decisions": "/learn/choices",
   })) {
     routeRules[from] = { redirect: { status: 301, to } };
   }

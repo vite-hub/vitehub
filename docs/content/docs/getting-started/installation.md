@@ -241,7 +241,7 @@ When another installed package has a version that your `vite-hub` release does n
 | `.template.md` imports | `@vite-hub/markdown-template` |
 | Console with Agents | `@libsql/client drizzle-orm` |
 | Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
-| `vite-hub/decisions` | `@vite-hub/decisions` |
+| `vite-hub/choices` | `@vite-hub/choices` |
 | `vite-hub/forge` | `@vite-hub/forge` |
 | `vite-hub/gateways` | `@vite-hub/gateways` |
 | `vite-hub/ui` | `@vite-hub/ui` |

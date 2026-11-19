@@ -17,11 +17,11 @@ const agentRuntimeFeatures: ViteHubCliCommandNamespace = {
   name: "agent",
 }
 
-// Connections and Decisions are optional peers. Their commands exist when the app installed the package.
+// Connections and Choices are optional peers. Their commands exist when the app installed the package.
 // The Connections commands load jose and valibot, so only `vitehub connections` imports them.
-const [connectionsCli, decisionsCli] = await Promise.all([
+const [connectionsCli, choicesCli] = await Promise.all([
   process.argv[2] === "connections" ? importOptionalOwner("@vite-hub/connections", () => import("@vite-hub/connections/cli")) : undefined,
-  importOptionalOwner("@vite-hub/decisions", () => import("@vite-hub/decisions/cli")),
+  importOptionalOwner("@vite-hub/choices", () => import("@vite-hub/choices/cli")),
 ])
 
 // `vitehub kv get` and the other KV commands call the running dev server, like `connections`.
@@ -61,5 +61,5 @@ runViteHubCliEntrypoint({
   // `connections` and `kv` commands only call the running app. Loading the project runs every ViteHub plugin, and the
   // server files that they generate make the running dev server rebuild while the command waits for its answer.
   runtimeFeatures: [agentRuntimeFeatures, ...connectionsCli?.createConnectionsCliContributor().namespaces ?? [], ...kvCli?.createKVCliContributor().namespaces ?? [], ...contentRuntimeFeatures],
-  runtimeNamespaces: [...bundleCli?.bundleCliContributor.namespaces ?? [], ...decisionsCli ? [decisionsCli.createDecisionsCliNamespace()] : [], createMigrateCliNamespace(), createSandboxCliNamespace(), secretRuntimeNamespace],
+  runtimeNamespaces: [...bundleCli?.bundleCliContributor.namespaces ?? [], ...choicesCli ? [choicesCli.createChoicesCliNamespace()] : [], createMigrateCliNamespace(), createSandboxCliNamespace(), secretRuntimeNamespace],
 })
