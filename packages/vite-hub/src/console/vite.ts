@@ -89,7 +89,7 @@ interface LocalConsoleOptions extends ConsoleOptions {
 
 const localDevelopmentConsole: Readonly<LocalConsoleOptions> = Object.freeze({ auth: false, local: true })
 
-const consoleGuide = "https://vitehub.dev/docs/development/console"
+const consoleGuide = "https://vitehub.dev/docs/console/migrate"
 
 /** Options that the Console had before it moved out of apps, with the change that replaces each one. */
 const removedConsoleOptions: Record<string, string> = {
@@ -475,7 +475,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         const http = server.httpServer
         http.once("listening", () => {
           const notice = consoleDevAccessNotice(consoleAccess()?.mode, http.address())
-          if (notice) server.config.logger[notice.level](notice.message)
+          if (notice) server.config.logger.warn(notice)
         })
       }
       const refresh = async () => {

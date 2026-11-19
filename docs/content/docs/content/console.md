@@ -6,7 +6,7 @@ navigation.order: 9
 icon: i-lucide-file-pen-line
 ---
 
-The Content section of the [Console](/docs/development/console) edits the [collections](/docs/content/configure#document-collections) of `server/content.ts`. Your public site needs no edit button or overlay.
+The Content section of the [Console](/docs/console) edits the [collections](/docs/content/configure#document-collections) of `server/content.ts`. Your public site needs no edit button or overlay.
 
 The section appears when `defineContent()` has `collections`, not with only read-only Sources. Discovery reads the file without running it. If it cannot follow the collections, such as an object imported from another file, it keeps the section and lists what the runtime defines. It shows every collection the signed-in user may read.
 
@@ -91,7 +91,7 @@ The editor reports every 15 seconds, or 60 while hidden. After 15 minutes withou
 
 Select the **Open the preview in a new tab** button in the editor header. A new tab opens the page of the document on your app, with its saved draft. The rest of the page shows published content. Edits that are not saved yet do not show, so wait for the draft to save first.
 
-The button needs `url` on the collection, so the document has a page. The Console asks your app for a [one-time link](/docs/development/console#one-time-links), and the app checks that you may read the document. Your app renders the draft with the [preview frame](/docs/content/preview) of `server/content.ts`.
+The button needs `url` on the collection, so the document has a page. The Console asks your app for a [one-time link](/docs/console/site-access#one-time-links), and the app checks that you may read the document. Your app renders the draft with the [preview frame](/docs/content/preview) of `server/content.ts`.
 
 The side browser with **Draft** and **Published** views, and click to edit, needed the Console that the app served, which is removed.
 
@@ -165,7 +165,7 @@ All collections share media, so access follows [`authorize` in `defineContent()`
 
 In the playground, writers upload and describe files, and editors also move and delete them. A request without access returns `403` with `MEDIA_FORBIDDEN`.
 
-Agents cannot use the library, because it is part of the Console UI. To let an editor's agent on the [ViteHub MCP](/docs/development/mcp) list and upload media, also grant the library's Blob store, such as `'blob:media'` when `blob.serve.store` is `media`. The agent then runs `blob.list`, `blob.put`, and `blob.media` on that store only. Other stores, such as a private Content store, return `403`. See [Grant one Blob store](/docs/development/console#grant-one-blob-store).
+Agents cannot use the library, because it is part of the Console UI. To let an editor's agent on the [ViteHub MCP](/docs/console/mcp) list and upload media, also grant the library's Blob store, such as `'blob:media'` when `blob.serve.store` is `media`. The agent then runs `blob.list`, `blob.put`, and `blob.media` on that store only. Other stores, such as a private Content store, return `403`. See [Grant one Blob store](/docs/console/access#grant-one-blob-store).
 
 ## Publishing publishes what you reviewed
 
@@ -179,7 +179,7 @@ If a draft does not validate, for example after a field changed in `server/conte
 
 Two policies decide what an editor can do:
 
-1. [`console.authorize`](/docs/development/console#limit-a-user-to-some-sections) decides which Console sections a request may use. Return `{ sections: ['content'] }` for editors.
+1. [`console.authorize`](/docs/console/access#what-authorize-returns) decides which Console sections a request may use. Return `{ sections: ['content'] }` for editors.
 2. [`authorize` in `defineContent()`](/docs/content/configure#access) decides what a user may do with each collection. The Console calls `content.can()` with the signed-in user before each read, save, delete, restore, and publish.
 
 ::tabs{sync="framework"}

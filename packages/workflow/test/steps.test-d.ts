@@ -2,67 +2,54 @@ import { expectTypeOf, it } from "vitest"
 import { defineWorkflow } from "../src/definition.ts"
 import type { WorkflowProviderContext, WorkflowStep, WorkflowStepContext } from "../src/types.ts"
 
-// The shape that `.vitehub/workflow.d.ts` declares for `server/workflows/onboard-user/`.
-declare module "../src/types.ts" {
-  interface WorkflowStepRegistry {
-    "onboard-user": {
-      createUser: typeof import("./fixtures/onboard-user/01.create-user.ts").default
-      sendWelcome: typeof import("./fixtures/onboard-user/02.send-welcome.ts").default
-    }
-    "optional-input": {
-      collect: (input?: { limit: number }) => string[]
-    }
-  }
-}
+// `registry-types.test.ts` checks typed folder steps in a program of its own, with the `.vitehub/workflow.d.ts` that
+// ViteHub writes. An augmentation here would reach every handler of this package.
 
-it("types steps with the step files of the named Workflow", () => {
-  const onboard = defineWorkflow("onboard-user", async (payload: { email: string }, { steps }) => {
-    const user = await steps.createUser(payload)
-    expectTypeOf(user).toEqualTypeOf<{ email: string, id: string }>()
-    return await steps.sendWelcome(user)
+it("types the payload from the type argument", () => {
+  const onboard = defineWorkflow<{ email: string }>({
+    handler: async ({ payload, steps }) => {
+      expectTypeOf(steps).toEqualTypeOf<{ readonly [TStep in never]: never }>()
+      return payload.email
+    },
   })
-  expectTypeOf(onboard.handler).parameter(0).toEqualTypeOf<{ email: string }>()
-  expectTypeOf(onboard.handler).returns.resolves.toEqualTypeOf<{ userId: string, welcomeSent: boolean }>()
+  expectTypeOf(onboard.handler).parameter(0).toHaveProperty("payload").toEqualTypeOf<{ email: string }>()
+})
+
+it("infers the result of the handler when the payload comes from its parameter", () => {
+  const onboard = defineWorkflow({
+    handler: async ({ payload }: { payload: { email: string } }) => ({ userId: `user:${payload.email}` }),
+  })
+  expectTypeOf(onboard.handler).returns.resolves.toEqualTypeOf<{ userId: string }>()
 })
 
 it("preserves optional and defaulted step inputs without weakening required inputs", () => {
-  defineWorkflow("optional-input", async (_payload, { steps }) => {
-    expectTypeOf(await steps.collect()).toEqualTypeOf<string[]>()
-    await steps.collect(undefined)
-    await steps.collect({ limit: 10 })
-    // @ts-expect-error The optional input still requires the correct shape.
-    await steps.collect({ limit: "ten" })
-  })
   const defaulted = (input = { limit: 10 }) => input.limit
   expectTypeOf<WorkflowStep<typeof defaulted>>().parameters.toEqualTypeOf<[input?: { limit: number }]>()
+  expectTypeOf<WorkflowStep<(input?: { limit: number }) => string[]>>().returns.resolves.toEqualTypeOf<string[]>()
   expectTypeOf<WorkflowStep<() => string>>().parameters.toEqualTypeOf<[]>()
   expectTypeOf<WorkflowStep<(input: string | undefined) => string>>().parameters.toEqualTypeOf<[input: string | undefined]>()
 })
 
-it("rejects unknown steps and wrong step input", () => {
-  defineWorkflow("onboard-user", async (payload: { name: string }, { steps }) => {
-    // @ts-expect-error The step takes `{ email }`.
-    await steps.createUser(payload)
-    // @ts-expect-error No step file is named `chargeCard`.
-    await steps.chargeCard(payload)
-  })
-})
-
-it("gives a Workflow without step files no steps and an optional payload", () => {
-  const flat = defineWorkflow("cleanup", async (_payload, { steps }) => {
-    expectTypeOf(steps).toEqualTypeOf<{ readonly [TStep in never]: never }>()
-    return "done"
-  })
-  expectTypeOf(flat.handler).parameter(0).toEqualTypeOf<undefined>()
+it("gives a Workflow without a payload type an undefined payload", () => {
+  const flat = defineWorkflow({ handler: async ({ payload }) => payload })
+  expectTypeOf(flat.handler).parameter(0).toHaveProperty("payload").toEqualTypeOf<undefined>()
 })
 
 it("does not give Vercel native entries a step runner", () => {
-  defineWorkflow("onboard-user", (payload: { email: string }) => payload.email, {
+  defineWorkflow<{ email: string }>({
+    handler: ({ payload }) => payload.email,
     native: (context) => {
       expectTypeOf(context).toEqualTypeOf<WorkflowProviderContext<{ email: string }>>()
       return context.payload.email
     },
   })
+})
+
+it("rejects a name and unknown options", () => {
+  // @ts-expect-error The file path is the Workflow name.
+  defineWorkflow({ handler: async () => undefined, name: "onboard-user" })
+  // @ts-expect-error `defineWorkflow()` takes one object.
+  defineWorkflow("onboard-user", async () => undefined)
 })
 
 it("calls a step that reads the step context with its input only", () => {

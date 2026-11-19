@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
 import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
 
+import { defineWorkflow } from "../src/definition.ts"
 import { createWorkflow, getWorkflowRun, startWorkflow } from "../src/runtime/client.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 import { createWorkflowSteps } from "../src/runtime/execute.ts"
@@ -71,7 +72,7 @@ it("sends workflow.failed once when Cloudflare replays a failed instance", async
     env: {},
     event: { instanceId: "cf-1" },
     name: "import-orders",
-    registry: { "import-orders": async () => ({ handler, options: { rootStep: false } }) },
+    registry: { "import-orders": async () => defineWorkflow({ handler, rootStep: false }) },
     step,
   })
   await expect(run()).rejects.toThrow("CSV is empty")
@@ -97,8 +98,8 @@ it("sends workflow.failed for an OpenWorkflow run only when no retry is left", a
   let failStep = true
   setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
   setWorkflowRuntimeRegistry({
-    "onboard-user": async () => ({
-      handler: async (payload: unknown, context: Parameters<typeof createWorkflowSteps>[0]) => {
+    "onboard-user": async () => defineWorkflow({
+      handler: async (context) => {
         const steps = createWorkflowSteps(context, [{
           name: "01.create-user.ts",
           run: () => {
@@ -106,15 +107,15 @@ it("sends workflow.failed for an OpenWorkflow run only when no retry is left", a
             return { id: "user-1" }
           },
         }])
-        return await steps.createUser!(payload)
+        return await steps.createUser!(context.payload)
       },
-      options: { rootStep: false },
+      rootStep: false,
     }),
-    "send-digest": async () => ({
+    "send-digest": async () => defineWorkflow({
       handler: async () => {
         throw new Error("SMTP timeout")
       },
-      options: { rootStep: false },
+      rootStep: false,
     }),
   })
 

@@ -192,7 +192,7 @@ describe("signed Console requests", () => {
     install(authorize)
     const response = await send(await request())
     expect(response.status).toBe(401)
-    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code, docs: expect.stringContaining("#sign-console-requests"), fix: expect.any(String), ok: false, status: 401 })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code, docs: expect.stringContaining("/docs/console/signed-requests"), fix: expect.any(String), ok: false, status: 401 })
     // The body check runs in the RPC route, after `authorize`, on the bytes that it reads. Every other refusal comes
     // from the access check, before `authorize`, with the signature challenge.
     if (code === "CONSOLE_SIGNATURE_BODY") return

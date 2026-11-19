@@ -1,8 +1,8 @@
 # @vite-hub/codemods
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fcodemods&icon=npm)](https://npmx.dev/package/@vite-hub/codemods)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/codemods)](https://npmx.dev/package/@vite-hub/codemods)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/codemods` moves an application to ViteHub. Each codemod edits the source files that it can change safely and ends with a report: the files it changed and a numbered list of manual follow-ups, with `file:line` where it applies.
 
@@ -28,7 +28,7 @@ The command exits with `0` when every codemod completes, also when they report f
 vitehub migrate [dir] [--dry-run]
 ```
 
-`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, and `shell-driver`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
+`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, and `access-spellings`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
 ## Run one codemod
 
@@ -46,17 +46,19 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `t3-env` | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env through `vite-hub/nuxt` |
 | `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
 | `queue-workflow-verbs` | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
+| `queue-durations` | Queue `delaySeconds` to `delay` with a duration such as `"60s"`, and `retentionSeconds` to `retention`. `vitehub migrate` runs it. |
 | `result-tuples` | `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, the Workflow handle methods, and `runSchedule()` to `[error, data]` reads. `vitehub migrate` runs it. |
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
 | `runtime-contracts` | `vite-hub/runtime/h3` and `vite-hub/runtime/node` imports, Evlog names from `vite-hub/logs`, and `checkRateLimit()` calls to the new contracts |
 | `root-accessors` | `db`, `schema`, `useDatabase`, `email`, `runSchedule`, and the Env accessors to the root of their primitive |
 | `agent-surface` | A ViteHub app from the old Agent names to `invoker`, `loadAgent()`, `agentWorkflow()`, `extends`, and the merged Agent entries |
 | `renamed-apis` | An app from the ViteHub names that this release renamed, such as `hubDb` and `kv.del()` |
-| `define-forms` | The former define forms of Queue, Schedule, Sandbox Task, Content, and Database to the one form of each |
+| `define-forms` | The former define forms of Queue, Schedule, Sandbox Task, Workflow, Content, and Database to the one form of each |
 | `one-entry-imports` | Imports of subpaths that moved into one entry per concept, and `vite-hub/task` to `nitro/task` |
 | `vitehub-options` | The options that moved in `vitehub()`: `preset` to `host`, `logs` into `observability`, Env declarations into `vitehub({ env })`, and `devtools` and `contentImportBase` removed |
 | `tsconfig-paths` | `#vitehub/*` entries of tsconfig `paths` that point into `.vitehub/` or `.nuxt/`, which ViteHub now types itself |
 | `shell-driver` | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()`. `vitehub migrate` runs it. |
+| `access-spellings` | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: "public"`. `vitehub migrate` runs it. |
 
 ## `runtime-contracts`
 
@@ -126,6 +128,8 @@ ViteHub keeps one define form for each primitive. `define-forms` rewrites the fo
 | `defineQueue(handler, { concurrency: 5 })` | `defineQueue({ handler, concurrency: 5 })` |
 | `defineSchedule("0 9 * * *", handler, { manual: true })` | `defineSchedule({ cron: "0 9 * * *", manual: true, handler })` |
 | `defineSandboxTask({ run })` | `defineSandboxTask({ handler })` |
+| `defineWorkflow("onboard-user", async (payload: Payload, { steps }) => {}, { native })` | `defineWorkflow<Payload>({ handler: async ({ payload, steps }) => {}, native })`. The file path is the name. |
+| `createWorkflow("welcome", async (payload: Payload) => {})` | `createWorkflow<Payload>("welcome", async ({ payload }) => {})` |
 | `export const content = defineContent({ ... })` in `server/content.ts` | `export default defineContent({ ... })`, and `import content from` in the files that import it |
 | `server/databases/config.ts` and the files beside it | `server/databases/default/index.ts` and the same files in `server/databases/default/` |
 | `server/databases/migrations/` | `server/databases/default/migrations/` |
@@ -135,7 +139,9 @@ The codemod updates the import paths of moved files, also through the `~~`, `@@`
 
 The codemod leaves Queue handlers unchanged. They still receive the same job object, so destructuring it (for example, `({ payload }) => payload.email`) is optional. A one-argument call whose argument could be a definition object is left alone unless the codemod can identify a handler.
 
-The report lists what it cannot change: Queue calls with spread arguments or options the codemod cannot safely flatten, Schedule options that are not an object literal (which it spreads into the object), Sandbox Task options that are not an object literal, dynamic imports of `server/content.ts`, helper files left in `server/databases/` that the new discovery reads as Databases, and lines in `package.json` and host config files that name the former Database paths.
+The report lists what needs review: Queue calls with spread arguments or options the codemod cannot safely flatten, Schedule options that are not an object literal (which it spreads into the object), Sandbox Task options that are not an object literal, dynamic imports of `server/content.ts`, helper files left in `server/databases/` that the new discovery reads as Databases, and lines in `package.json` and host config files that name the former Database paths.
+
+It also reports Workflow option expressions, spreads, and ambiguous handlers, as well as local Workflow handlers that it wraps to keep their positional arguments.
 
 ```sh
 npx @vite-hub/codemods define-forms [dir] [--dry-run]
@@ -185,6 +191,23 @@ The codemod reads imports from `vite-hub/queue`, `vite-hub/workflow`, and their 
 
 ```sh
 npx @vite-hub/codemods queue-workflow-verbs [dir] [--dry-run]
+```
+
+## `queue-durations`
+
+Queue `delaySeconds` is now `delay`, and `retentionSeconds` is now `retention`. `delay` takes a duration string, such as `"60s"`. `retention` takes a duration or a number of seconds. `queue-durations` rewrites the app:
+
+| Old | New |
+| --- | --- |
+| `{ delaySeconds: 60 }` | `{ delay: "60s" }` |
+| `{ delaySeconds: 24 * 60 * 60 }` | `{ delay: "86400s" }` |
+| `{ retentionSeconds: 3600 }` | `{ retention: 3600 }` |
+| `onError` returns `{ retry: { delaySeconds: 30 } }` | `{ retry: { delay: "30s" } }` |
+
+It reads the options of `sendQueue()`, `deferQueue()`, `dynamicQueue.send()`, `dynamicQueue.defer()`, and `send()` and `sendBatch()` of a `useQueue()` client, also without an import in Nuxt server code, and of the old verbs `runQueue()` and `getQueue()`. Cloudflare's native `message.retry()` and `batch.retryAll()` keep `delaySeconds`. The report lists a `delay` value that is not a number in the code and old names that are left, such as options in a variable.
+
+```sh
+npx @vite-hub/codemods queue-durations [dir] [--dry-run]
 ```
 
 ## `nuxthub`
@@ -328,6 +351,23 @@ The same renames apply to the `@vite-hub/*` paths, to namespace imports, and to 
 
 ```sh
 npx @vite-hub/codemods shell-driver [dir] [--dry-run]
+```
+
+## `access-spellings`
+
+Public access has one spelling, `access: "public"`, and sign-in has one, `authorize`:
+
+| Old | New |
+| --- | --- |
+| `defineRealtime({ auth: true })` | `defineRealtime({ authorize: true })` |
+| `defineRealtime({ auth: false, authorize })` | `defineRealtime({ authorize })` |
+| `public: true` on `defineMcpTool()`, `defineMcpPrompt()`, and `defineMcpResource()` | `access: "public"` |
+| `public: false` on an MCP definition | removed |
+
+The codemod also changes default-export objects in `server/realtime/` and `server/mcp/`, and `defineRealtime()` without an import, as Nuxt auto-imports it. A Realtime definition with both `auth: true` and `authorize()` stays, and the report lists it: `authorize()` now also runs for signed-out callers, with `user: null`, so remove `auth` and return `false` when `user` is `null`.
+
+```sh
+npx @vite-hub/codemods access-spellings [dir] [--dry-run]
 ```
 
 ## Check real apps

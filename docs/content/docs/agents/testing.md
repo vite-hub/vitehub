@@ -144,7 +144,7 @@ pnpm vitehub agent info --agent support --json
 
 Check the Driver, Capabilities, Workspace Sources, instructions, warnings, and
 metadata. `agent info` does not run the Driver. The
-[CLI reference](/docs/development/cli#inspect-an-agent-definition) lists the
+[CLI reference](/docs/cli/agents#inspect-an-agent-definition) lists the
 route and authentication needs for a dev server.
 
 For a Capability CLI, add `--cli`:
@@ -172,7 +172,7 @@ curl -X POST \
 
 The dev server takes this call without a signature when the app has no
 `console` option or sets `console: { auth: false }`. A deployed app takes only
-[signed requests](/docs/development/console#sign-console-requests): use a
+[signed requests](/docs/console/signed-requests): use a
 `vitehub` command with `--url` and `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` there.
 
 This calls `agent.status()`. `ready` means the probe found enough executable,

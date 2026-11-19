@@ -1473,7 +1473,7 @@ function doctorPlugin(): Plugin {
  * turns KV on for the head commits of the Sources. See `withCmsPresetPlugins()`.
  */
 /** Builds the ViteHub plugin list for one resolved feature configuration. */
-function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
+function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boolean): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires an options object." })
   assertNoProviderKey(options)
   const host = resolveBuildHost(options.host)
@@ -1538,7 +1538,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ["workflow", workflowEnabled],
     ["workspace", options.workspace],
   ] as const).filter(([, enabled]) => enabled).map(([feature]) => feature)
-  assertFeaturePackages(enabledFeatures, hostFeaturePackages(enabledFeatures, plan.host, options))
+  assertFeaturePackages(enabledFeatures, hostFeaturePackages(enabledFeatures, plan.host, options), reportVersionError)
   const { blobVite, browserVite, channelsVite, connectionsVite, emailVite, kvVite, markdownTemplateVite, queueVite, rateLimitVite, sandboxTaskVite, workflowVite } = ownerModules
   const configuredBlob = blobEnabled ? hostBlobOptions(plan, options.blob) : undefined
   const resolvedConsoleBlob = configuredBlob
@@ -2019,19 +2019,20 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
  * The ViteHub plugins without Nitro. `vitehub()` adds Nitro's Vite plugin to them. `vite-hub/nuxt` uses them as they
  * are, because Nuxt runs its own Nitro, so it never loads `nitro/vite`.
  */
-export function viteHubPlugins(options: ViteHubOptions): PluginOption[] {
+export function viteHubPlugins(options: ViteHubOptions, reportVersionError = true): PluginOption[] {
   assertNoRemovedViteHubOptions(options, "`vitehub()`")
   // Wrap each plugin list before the CMS preset variants switch between them, so every selected variant prints.
-  const create = (resolved: ViteHubOptions) => withCmsPresetPlugins(withComments(resolved), variant => withPrintedDiagnostics(createViteHubPlugins(variant)))
+  const create = (resolved: ViteHubOptions) => withCmsPresetPlugins(withComments(resolved), variant => withPrintedDiagnostics(createViteHubPlugins(variant, reportVersionError)))
   // A framework integration that knows the project root, such as Nuxt, resolves the Definition features itself.
   if (featureOptionsResolved(options)) return create(options)
   const project = { projectRoot: resolveViteHubProjectRoot(process.cwd()) }
+  const rootPlugin = (validate?: () => void) => withPrintedDiagnostics(definitionFeaturesRootPlugin(options, project, validate))
   try {
     const resolved = resolveDefinitionFeatures(options, project)
-    if (resolved !== options) return [...create(resolved), definitionFeaturesRootPlugin(options, project)]
+    if (resolved !== options) return [...create(resolved), rootPlugin()]
   }
   catch (error) {
-    return [definitionFeaturesRootPlugin(options, project, () => { throw error })]
+    return [rootPlugin(() => { throw error })]
   }
-  return [...create(options), definitionFeaturesRootPlugin(options, project)]
+  return [...create(options), rootPlugin()]
 }

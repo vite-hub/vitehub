@@ -45,7 +45,7 @@ The build reads the policy of each `checkRateLimit()` and `requireRateLimit()` c
 | `RATE_LIMIT_R0001` | A policy is not a static object literal, or one of its values is wrong. The message names the file, line, and column. |
 | `RATE_LIMIT_R0002` | A source file does not parse while ViteHub collects policies. |
 | `RATE_LIMIT_R0003` | Two calls use the same ID with different policies. The message lists both locations. |
-| `RATE_LIMIT_R0031`, `RATE_LIMIT_R0032` | `window` is not a string, or it is not greater than zero. A string that is not a duration, such as `10s`, `1m`, `1h`, or `1d`, fails with [`RUNTIME_DURATION_INVALID`](/docs/development/diagnostics/runtime_duration_invalid). |
+| `RATE_LIMIT_R0031`, `RATE_LIMIT_R0032` | `window` is not a string, or it is not greater than zero. A string that is not a duration, such as `10s`, `1m`, `1h`, or `1d`, fails with [`RUNTIME_DURATION_INVALID`](/docs/runtime/diagnostics/runtime_duration_invalid). |
 | `RATE_LIMIT_R0033`, `RATE_LIMIT_R0034` | The policy is not an object, or `limit` is not a positive integer. |
 | `RATE_LIMIT_R0035`, `RATE_LIMIT_R0036` | `enforcement` is not `'best-effort'` or `'strict'`, or `failure` is not `'allow'` or `'deny'`. |
 

@@ -243,16 +243,16 @@ You can also send a job from the CLI, with no route. `vitehub queue list` shows 
 
 ```bash [commands/dispatch]
 pnpm vitehub queue list
-pnpm vitehub queue send welcome-email '{"email":"dev@example.com"}' --delay-seconds 30
+pnpm vitehub queue send welcome-email '{"email":"dev@example.com"}' --delay 30s
 pnpm vitehub queue send welcome-email '{"email":"dev@example.com"}' --url https://app.example.com
 ```
 
 The second argument is the payload, as JSON. Add `--url` to send to a deployed app. `queue send` returns `{ queue, status: "queued", messageId }`. Like the route, this means that the queue took the job, not that the job ran.
 
 ::details{summary="Options, access, and errors of the CLI commands"}
-Both commands call the `queue.list` and `queue.send` [operations](/docs/development/operations) of the Queues section, on the dev server or on a deployment with `--url`. They need `vitehub()` (the Console RPC), and `queue.send` is registered only when `console.invoke` is on.
+Both commands call the `queue.list` and `queue.send` [operations](/docs/console/operations) of the Queues section, on the dev server or on a deployment with `--url`. They need `vitehub()` (the Console RPC), and `queue.send` is registered only when `console.invoke` is on.
 
-`--delay-seconds` and `--idempotency-key` are the options of [`QueueEnqueueOptions`](/docs/queue/server-api#queue-enqueue-options). A provider that does not support one fails with `QUEUE_UNSUPPORTED_OPTION`. An unknown name fails with `QUEUE_DEFINITION_NOT_FOUND`.
+`--delay`, a duration such as `1m`, and `--idempotency-key` are the options of [`QueueEnqueueOptions`](/docs/queue/server-api#queue-enqueue-options). A provider that does not support one fails with `QUEUE_UNSUPPORTED_OPTION`. An unknown name fails with `QUEUE_DEFINITION_NOT_FOUND`.
 
 Access needs the `queues` section. A read-only grant (`queues:read`) can list but not send.
 
