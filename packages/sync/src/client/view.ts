@@ -54,9 +54,12 @@ function singleValues(values: SyncValues | undefined): SyncValues {
   return single
 }
 
-/** `true` when the write belongs to `account`, or was made before the first pull. */
+/**
+ * `true` when the write belongs to `account`, or was made before the first pull. A write of an account waits for the
+ * pull that tells the account, such as after `clearSync({ keepWrites: true })`.
+ */
 function isOwn(write: SyncNewWrite, account: string | undefined): boolean {
-  return write.account === null || account === undefined || write.account === account
+  return write.account === null || write.account === account
 }
 
 /** `true` when the write belongs to `account` and goes to the server. A refused write is not active. */

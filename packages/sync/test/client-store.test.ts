@@ -8,7 +8,7 @@ import { createHarness, until } from "./client-harness.ts"
 
 import type { SyncValues } from "../src/protocol.ts"
 import type { SyncStorage } from "../src/client/storage.ts"
-import type { SyncPage } from "../src/client/store.ts"
+import type { SyncPage, SyncStoreWithReset } from "../src/client/store.ts"
 import type { SyncLocal, SyncStore } from "../src/client/types.ts"
 import type { FakeSyncServer } from "./client-fake-server.ts"
 import type { Harness, Tab, Todo, TodoActions } from "./client-harness.ts"
@@ -121,6 +121,27 @@ describe("start and pull", () => {
     h.server.offline = false
     await store.refresh()
     expect(store.getState()).toMatchObject({ status: "ready", error: null })
+  })
+})
+
+describe("clear with keepWrites", () => {
+  it("settles a kept write in the tab that made it when another tab sends it", async () => {
+    const h = setup()
+    const one = h.open()
+    const two = h.open()
+    await one.store.refresh()
+    await two.store.refresh()
+    h.server.offline = true
+    const write = one.store.insert({ title: "Eggs" })
+    write.then(undefined, () => undefined)
+    await until(() => one.store.getState().queued === 1)
+    for (const { store } of [one, two]) (store as unknown as SyncStoreWithReset<Todo>).forget(true)
+    await h.storage.clear({ keepWrites: true })
+    h.server.offline = false
+    await two.store.refresh()
+    expect(h.server.applied).toHaveLength(1)
+    await one.store.refresh()
+    await expect(write).resolves.toMatchObject({ title: "Eggs" })
   })
 })
 

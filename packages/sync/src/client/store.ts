@@ -578,11 +578,15 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       void schedule(false)
     }, (cause: unknown) => {
       for (const write of batch) storing.delete(write.id)
+      const reason = new SyncError("SYNC_BAD_REQUEST", `The browser could not store the write: ${cause instanceof Error ? cause.message : String(cause)}`)
+      for (const write of batch) {
+        for (const handle of parked.get(write.id) ?? []) handle.settle("rejected", reason)
+        parked.delete(write.id)
+      }
       if (at !== generation) return
       const ids = new Set(batch.map(write => write.id))
       local = local.filter(write => !ids.has(write.id))
       version++
-      const reason = new SyncError("SYNC_BAD_REQUEST", `The browser could not store the write: ${cause instanceof Error ? cause.message : String(cause)}`)
       for (const write of batch) {
         for (const handle of pending.get(write.id) ?? []) handle.settle("rejected", reason)
         pending.delete(write.id)
@@ -636,13 +640,10 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       const removed = new Set(removals)
       writes = stored.writes.filter(write => !removed.has(write.seq))
       local = local.filter(write => !stored.writes.some(item => item.id === write.id))
-      // The writes that `clearSync({ keepWrites: true })` kept settle as any other write of the queue.
-      for (const write of writes) {
-        const handles = parked.get(write.id)
-        if (!handles) continue
-        parked.delete(write.id)
-        pending.set(write.id, [...pending.get(write.id) ?? [], ...handles])
-      }
+      // The writes that `clearSync({ keepWrites: true })` kept settle as any other write: a write that left the queue,
+      // such as one that another tab sent, applied.
+      for (const [mutationId, handles] of parked) pending.set(mutationId, [...pending.get(mutationId) ?? [], ...handles])
+      parked.clear()
       loaded = true
       if (status === "idle") status = "loading"
       version++

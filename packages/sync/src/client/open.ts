@@ -239,6 +239,8 @@ async function clearSync(options: ClearSyncOptions = {}): Promise<void> {
   const keepWrites = options.keepWrites === true
   for (const { store } of shared.values()) store.forget(keepWrites)
   for (const store of draining.keys()) store.forget(keepWrites)
+  // A cleared store stays paused, so the stored writes of its subset go out with the next store that sends them.
+  draining.clear()
   await Promise.all([memoryStorage?.clear({ keepWrites }), indexedDBStorage?.clear({ keepWrites })])
   postClear(keepWrites)
 }
