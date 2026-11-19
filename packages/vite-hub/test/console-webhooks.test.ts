@@ -83,7 +83,7 @@ describe("Webhooks section helpers", () => {
     expect(memberEndpointResult(ana)).toEqual({ at: 5, label: "202", tone: "success" })
     expect(memberEndpointResult(tom)).toEqual({ at: 7, label: "401, 3 in a row", tone: "error" })
     expect(memberEndpointResult({ ...tom, last: { at: 7, error: "HTTP 401", failures: 1, state: "dead", status: 401 } }).label).toBe("401")
-    expect(memberEndpointResult({ ...ana, kind: "inbox", host: null, last: { at: 9, error: null, failures: 0, state: "sent", status: null } })).toEqual({ at: 9, label: "In the inbox", tone: "info" })
+    expect(memberEndpointResult({ ...ana, kind: "inbox", last: { at: 9, error: null, failures: 0, state: "sent", status: null } })).toEqual({ at: 9, label: "In the inbox", tone: "info" })
     expect(memberEndpointResult({ ...ana, disabledAt: 11, disabledBy: "Ana" })).toEqual({ at: 11, label: "Disabled by Ana", tone: "neutral" })
     expect(memberEndpointResult({ ...ana, last: null })).toEqual({ label: "No sends yet", tone: "neutral" })
     expect(memberEndpointOwner({ owner: "user_sam", ownerName: null })).toBe("user_sam")
