@@ -615,7 +615,8 @@ describe("docs Nuxt setup", () => {
     const root = mkdtempSync(join(tmpdir(), "docs-new-content-"))
     roots.push(root)
     const content = join(root, "nested/content")
-    const options = await setupDocs({ dir: content }, "/", true)
+    await setupDocs({ dir: content, base: "/docs" }, "/", true)
+    await callHook("vite:serverCreated", devServer().server)
     expect(watchContent).toHaveBeenCalledWith(root, { recursive: true }, expect.any(Function))
     mkdirSync(join(content, "docs"), { recursive: true })
     writeFileSync(join(content, "docs/index.md"), "---\ntitle: First page\n---\n# First page")
@@ -624,7 +625,7 @@ describe("docs Nuxt setup", () => {
     await vi.advanceTimersByTimeAsync(100)
     // The manifest reads the files through Content, so the run ends after real I/O, not after a timer.
     await vi.waitFor(() => expect(templates.get("docs/manifest.mjs")?.()).toContain("First page"))
-    expect(options.buildDir).toBeTruthy()
+    expect(nuxtCallHook).not.toHaveBeenCalledWith("restart")
   })
 
   it.each([false, true])(
@@ -743,7 +744,7 @@ describe("docs Nuxt setup", () => {
     const content = mkdtempSync(join(tmpdir(), "docs-overlapping-saves-"))
     roots.push(content)
     mkdirSync(join(content, "docs/guide"), { recursive: true })
-    writeFileSync(join(content, "docs/guide/index.md"), "# Guide")
+    writeFileSync(join(content, "docs/guide/index.md"), "---\ntitle: Guide\n---\n# Guide")
     await setupDocs({ dir: content }, "/", true)
     await callHook("vite:serverCreated", devServer().server)
     const save = (title: string) => {
@@ -783,7 +784,7 @@ describe("docs Nuxt setup", () => {
     vi.useFakeTimers()
     const content = mkdtempSync(join(tmpdir(), "docs-inferred-base-"))
     roots.push(content)
-    writeFileSync(join(content, "about.md"), "# About")
+    writeFileSync(join(content, "about.md"), "---\ntitle: About\n---\n# About")
     const docs = join(content, "docs")
     if (event === "remove") mkdirSync(docs)
     const options = await setupDocs({ dir: content }, "/", true)
@@ -791,7 +792,7 @@ describe("docs Nuxt setup", () => {
     await callHook("vite:serverCreated", devServer().server)
     if (event === "add") {
       mkdirSync(join(docs, "guide"), { recursive: true })
-      writeFileSync(join(docs, "guide/index.md"), "# Guide")
+      writeFileSync(join(docs, "guide/index.md"), "---\ntitle: Guide\n---\n# Guide")
     }
     else rmSync(docs, { recursive: true })
     watchContent.mock.calls[0]![2]!("rename", "docs")
