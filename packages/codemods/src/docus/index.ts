@@ -61,7 +61,7 @@ function stringOption(object: ObjectExpression | undefined, name: string): strin
 function assertStaticStrings(file: string, object: ObjectExpression, key: string, names: string[]): void {
   for (const child of object.properties) {
     const name = child.type === "ObjectProperty" ? keyName(child.key, child.computed) : undefined
-    if (!name || (names.includes(name) && stringOption(object, name) === undefined)) {
+    if (!name || (names.includes(name) && child.type === "ObjectProperty" && typeof literalValue(child.value) !== "string")) {
       throw codemodError(`${file}:${line(child)}: Move the computed ${key}${name ? `.${name}` : ""} setting by hand.`)
     }
   }
@@ -123,10 +123,13 @@ async function readAppConfig(cwd: string, options: DocsOptions, followUps: Follo
       const description = stringOption(object, "description")
       if (title) options.site.name ??= title
       if (description) options.site.description ??= description
-      for (const child of object.properties) {
+      const unmapped = object.properties.filter((child) => {
         const name = child.type === "ObjectProperty" ? keyName(child.key, child.computed) : undefined
-        if (name !== "title" && name !== "description") followUps.push({ file, line: line(child), message: `seo.${name ?? "..."}: set a page's share image with seo.image in its frontmatter. @vite-hub/docs renders one from the title and description otherwise.` })
-      }
+        if (name === "title" || name === "description") return false
+        followUps.push({ file, line: line(child), message: `seo.${name ?? "..."} was kept in app config: set a page's share image with seo.image in its frontmatter.` })
+        return true
+      })
+      if (unmapped.length) continue
     }
     else if (key === "github" && object) {
       assertStaticStrings(file, object, key, ["url", "branch", "rootDir"])
@@ -138,6 +141,13 @@ async function readAppConfig(cwd: string, options: DocsOptions, followUps: Follo
       const branch = stringOption(object, "branch")
       const dir = stringOption(object, "rootDir")
       options.github = { repo, ...(branch ? { branch } : {}), ...(dir ? { dir } : {}) }
+      const unmapped = object.properties.filter((child) => {
+        const name = child.type === "ObjectProperty" ? keyName(child.key, child.computed) : undefined
+        if (name === "url" || name === "branch" || name === "rootDir") return false
+        followUps.push({ file, line: line(child), message: `github.${name ?? "..."} was kept in app config: @vite-hub/docs does not migrate this option.` })
+        return true
+      })
+      if (unmapped.length) continue
     }
     else if (key === "socials" && object) {
       assertStaticStrings(file, object, key, object.properties.flatMap(child => child.type === "ObjectProperty" ? [keyName(child.key, child.computed) ?? ""] : []))
@@ -162,7 +172,7 @@ async function readAppConfig(cwd: string, options: DocsOptions, followUps: Follo
     removed++
   }
   const after = output.toString().replace(/\{\s*\n(\s*\n)+/, "{\n").replace(/\n(\s*\n)+(\s*\})/, "\n$2")
-  if (removed === root.properties.length) return { path: file, before: code, after: null }
+  if (removed === root.properties.length && program.program.body.length === 1 && !program.program.directives.length) return { path: file, before: code, after: null }
   return removed ? { path: file, before: code, after } : undefined
 }
 
@@ -226,9 +236,11 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     const domain = stringOption(llmsObject, "domain")
     if (domain) options.site.url ??= domain
     const other = llmsObject.properties.filter(property => property.type !== "ObjectProperty" || keyName(property.key, property.computed) !== "domain")
-    if (other.length) followUps.push({ file: config.fileName, line: line(llms), message: "@vite-hub/docs writes /llms.txt from the pages. Move extra llms.txt text to docs.llms.details or docs.llms.sections." })
-    editor.removeItem(llms)
-    removed.add(llms)
+    if (other.length) followUps.push({ file: config.fileName, line: line(llms), message: "Extra llms settings were kept in nuxt.config. Move extra llms.txt text to docs.llms.details or docs.llms.sections." })
+    else {
+      editor.removeItem(llms)
+      removed.add(llms)
+    }
   }
   for (const name of ["content", "mcp"]) {
     const property = findProperty(config.root, name)

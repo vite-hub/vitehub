@@ -92,6 +92,31 @@ describe("docus content", () => {
     expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toBe(config)
   })
 
+  it("keeps unmapped settings in the original config", async () => {
+    const cwd = await createApp({
+      "nuxt.config.ts": "export default defineNuxtConfig({ extends: ['docus'], llms: { domain: 'https://docs.example', description: 'Help' } })\n",
+      "app.config.ts": "export default defineAppConfig({ github: { url: 'https://github.com/org/project', edit: false } })\n",
+      "content/index.md": "# Home\n",
+    })
+    const run = await runCodemod("docus", { cwd })
+    const config = await readFile(join(cwd, "nuxt.config.ts"), "utf8")
+    expect(config).toContain("description: 'Help'")
+    expect(config).toContain("url: 'https://docs.example'")
+    expect(config).toContain("github: { repo: 'org/project' }")
+    expect(await readFile(join(cwd, "app.config.ts"), "utf8")).toContain("edit: false")
+    expect(formatReport(run)).toContain("github.edit")
+  })
+
+  it("keeps other statements when all app settings migrated", async () => {
+    const cwd = await createApp({
+      "nuxt.config.ts": "export default defineNuxtConfig({ extends: ['docus'] })\n",
+      "app.config.ts": "import './setup'\nexport default defineAppConfig({ seo: { title: 'Example' } })\n",
+      "content/index.md": "# Home\n",
+    })
+    await runCodemod("docus", { cwd })
+    expect(await readFile(join(cwd, "app.config.ts"), "utf8")).toBe("import './setup'\nexport default defineAppConfig({  })\n")
+  })
+
   it("leaves headings, blocks and links in fenced examples untouched", () => {
     const example = "~~~~md\n# Example heading\n::callout\n::u-page-hero\n[Setup](./1.setup.md)\n~~~~\n"
     const { code, followUps } = movePage("content/index.md", `${example}\n# Actual title\n\n::callout\nNote.\n::\n`, undefined)
