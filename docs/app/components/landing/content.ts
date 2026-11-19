@@ -473,9 +473,9 @@ export const portabilityExamples = [
       'import { runSandboxTask } from "vite-hub/sandbox/task"',
       "",
       "export default defineEventHandler(async () => {",
-      '  const response = await runSandboxTask("release-notes", { notes: "ship it" })',
-      "  if (!response.ok) throw new Error(await response.text())",
-      "  return response.json()",
+      '  const [error, notes] = await runSandboxTask("release-notes", { notes: "ship it" })',
+      "  if (error) throw error",
+      "  return notes",
       "})",
     ],
     hosts: [

@@ -67,6 +67,8 @@ function tupleCall(r: Resolver, call: { callee: unknown }): string | undefined {
   if (reference.module === "agent/mcp" && reference.name === "callMcpTool" && reference.path.length === 0) return "callMcpTool()"
   if (reference.module === "agent/server" && ["enqueueChannelTask", "cancelChannelTask"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`
   if (reference.module === "agent" && ["runAgent", "streamAgent"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`
+  if (reference.module === "browser" && ["runBrowser", "runBrowserContent"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`
+  if (reference.module === "sandbox/task" && reference.name === "runSandboxTask" && reference.path.length === 0) return "runSandboxTask()"
 }
 
 

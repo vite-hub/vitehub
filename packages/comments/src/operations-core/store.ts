@@ -108,6 +108,7 @@ function threadOf(row: ThreadRow, messages: CommentMessage[]): CommentThread {
     ...(metadata ? { metadata } : {}),
     ...(context ? { context } : {}),
     ...(row.revision === null ? {} : { revision: row.revision }),
+    ...(row.requestId === null ? {} : { requestId: row.requestId }),
   }
 }
 

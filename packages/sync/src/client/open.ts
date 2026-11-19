@@ -39,7 +39,7 @@ const defaultFetch: typeof fetch = (input, init) => globalThis.fetch(input, init
 // The open stores of the page, so an optimistic action can change the stores of another name with `local.sync(name)`.
 const page: SyncPage = { stores: new Set(), version: 0 }
 
-const idleState: SyncState<never> = Object.freeze({ rows: Object.freeze([]), status: "idle", error: null, queued: 0, failures: Object.freeze([]), persisted: false, live: false })
+const idleState: SyncState<never> = Object.freeze({ rows: Object.freeze([]), status: "idle", complete: false, error: null, queued: 0, failures: Object.freeze([]), persisted: false, live: false })
 
 function isBrowser(): boolean {
   return typeof window !== "undefined"
