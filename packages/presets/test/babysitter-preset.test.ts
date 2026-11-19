@@ -1,6 +1,5 @@
 import * as buildRevisions from "../src/internal/build-revision.ts";
 import { createCheckWait } from "../src/babysitter/wait.ts";
-import { mergeReviewEvidenceKey } from "../src/babysitter/merge.ts";
 import { babysitterBudgetWindows, resolveBabysitterAdmissionLimits, type BabysitterAdmissionResult } from "../src/babysitter/admission.ts";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { execFile } from "node:child_process";
