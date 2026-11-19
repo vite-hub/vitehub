@@ -2,7 +2,7 @@ import manifest from "#docs/manifest"
 
 import { docsErrorDiagnostics } from "../error-diagnostics.ts"
 import { docsManifestPages } from "../navigation.ts"
-import { readDocsFile } from "./files.ts"
+import { hasDocsFile, readDocsFile } from "./files.ts"
 
 import type { DocsPage } from "../types.ts"
 
@@ -16,9 +16,22 @@ export function docsAssistantPagePath(page: Pick<DocsPage, "file" | "path">): st
   return /(?:^|\/)index\.md$/.test(page.file) ? `${path}/index.md` : `${path}.md`
 }
 
-/** Every page of the docs Content by its Workspace path. The manifest is read on each call, so a reloaded manifest shows at once. */
-export function docsAssistantPages(): Map<string, DocsPage> {
-  return new Map(docsManifestPages(manifest).map(page => [docsAssistantPagePath(page), page]))
+let pageIndex: { manifest: typeof manifest, pages: Map<string, DocsPage> } | undefined
+
+function docsAssistantPages(): Map<string, DocsPage> {
+  const snapshot = manifest
+  if (!pageIndex || pageIndex.manifest !== snapshot) {
+    pageIndex = { manifest: snapshot, pages: new Map(docsManifestPages(snapshot).map(page => [docsAssistantPagePath(page), page])) }
+  }
+  return pageIndex.pages
+}
+
+export function listDocsAssistantPagePaths(): string[] {
+  const paths: string[] = []
+  for (const [path, page] of docsAssistantPages()) {
+    if (hasDocsFile(page.source ?? "docs", page.file)) paths.push(path)
+  }
+  return paths
 }
 
 /** The source Markdown of a page at its Workspace path, from the same files that the docs Content reads. */

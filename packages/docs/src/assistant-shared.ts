@@ -89,7 +89,7 @@ export function docsPagesSource(): WorkspaceSource {
     name: "docs-pages",
     materialize: "lazy",
     cache: false,
-    getKeys: async () => [...(await import("./runtime/assistant-pages.ts")).docsAssistantPages().keys()],
+    getKeys: async () => (await import("./runtime/assistant-pages.ts")).listDocsAssistantPagePaths(),
     getItem: async key => ({ key, content: await (await import("./runtime/assistant-pages.ts")).readDocsAssistantPage(key), mediaType: "text/markdown" }),
   })
 }
