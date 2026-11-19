@@ -4,12 +4,41 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { build, loadNuxt } from "nuxt"
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 
 import type { NuxtConfig } from "nuxt/schema"
 import type { ModuleOptions as SchemaOrgOptions } from "nuxt-schema-org"
 
 const meta = (html: string, property: string) => new RegExp(`<meta (?:property|name)="${property}" content="([^"]*)"`).exec(html)?.[1]
+
+it("reports a broken Markdown link before Nuxt Link Checker exits", async () => {
+  const root = await mkdtemp(join(import.meta.dirname, ".tmp-links-"))
+  const docs = (await import(pathToFileURL(join(import.meta.dirname, "../dist/nuxt.js")).href)).default as never
+  let nuxt: Awaited<ReturnType<typeof loadNuxt>> | undefined
+  const exit = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("Nuxt Link Checker exited") })
+  try {
+    await mkdir(join(root, "content/docs/guide"), { recursive: true })
+    await writeFile(join(root, "content/index.md"), "---\ntitle: Home\nlayout: home\n---\nWelcome\n")
+    await writeFile(join(root, "content/docs/guide/index.md"), "---\ntitle: Guide\n---\n\n[Missing](/docs/guide/missing)\n")
+    await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({})\n")
+    nuxt = await loadNuxt({ cwd: root, overrides: Object.assign({
+      dev: false,
+      devtools: { enabled: false },
+      modules: [[docs, { mcp: false, ogImage: false, seoAudit: false, site: { url: "https://docs.test" } }]],
+      nitro: { static: true },
+    }, { _generate: true }), ready: true })
+    await expect(build(nuxt)).rejects.toMatchObject({
+      code: "DOCS_LINKS_BROKEN",
+      problems: [expect.stringContaining("docs/guide/index.md:5: /docs/guide links to /docs/guide/missing")],
+    })
+    expect(exit).not.toHaveBeenCalled()
+  }
+  finally {
+    exit.mockRestore()
+    await nuxt?.close()
+    await rm(root, { recursive: true, force: true })
+  }
+}, 180_000)
 
 it.each([true, false])("gives prerendered pages site meta and Schema.org with image generation enabled: %s", async (images) => {
   // Inside the package, so the build resolves Tailwind and Nuxt UI as an installed app does.

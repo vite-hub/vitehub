@@ -48,6 +48,33 @@ function matcher(patterns: Array<string | RegExp> | undefined): (value: string) 
   return (value) => paths.has(value) || tests.some((test) => test(value));
 }
 
+export function docsLinkExclusion(patterns: DocsLinkCheckOptions["excludeLinks"]) {
+  const excluded = matcher(patterns);
+  return (url: URL, href: string) => excluded(href) || excluded(url.pathname) || excluded(url.pathname + url.hash);
+}
+
+export function docsOutputFile(dir: string, base = "/") {
+  const root = resolve(dir);
+  const appBase = `/${base.replace(/^\/+|\/+$/g, "")}`.replace(/\/$/, "");
+  return (pathname: string) => {
+    if (appBase && pathname !== appBase && !pathname.startsWith(`${appBase}/`)) return;
+    let path: string;
+    try {
+      path = decodeURIComponent(pathname.slice(appBase.length));
+    } catch {
+      return;
+    }
+    const page = path.replace(/\/$/, "");
+    return [path, `${page}.html`, `${page}/index.html`]
+      .map((candidate) =>
+        resolve(root, `.${candidate.startsWith("/") ? candidate : `/${candidate}`}`),
+      )
+      .find(
+        (file) => file.startsWith(`${root}${sep}`) && existsSync(file) && statSync(file).isFile(),
+      );
+  };
+}
+
 /** Check built HTML against the files and fragment ids in the same output, without fetching remote URLs. */
 export function checkDocsLinks(options: DocsLinkCheckOptions): { pages: number } {
   const root = resolve(options.dir);
@@ -55,7 +82,7 @@ export function checkDocsLinks(options: DocsLinkCheckOptions): { pages: number }
   const origin = new URL(options.siteUrl).origin;
   const appBase = `/${(options.appBase ?? "/").replace(/^\/+|\/+$/g, "")}`.replace(/\/$/, "");
   const excludedPage = matcher(options.excludePages);
-  const excludedLink = matcher(options.excludeLinks);
+  const excludedLink = docsLinkExclusion(options.excludeLinks);
   const ignoredFragment = matcher(options.ignoreFragments);
   const cache = new Map<string, { ids: Set<string>; links: string[]; base?: string }>();
   const document = (file: string) => {
@@ -82,23 +109,7 @@ export function checkDocsLinks(options: DocsLinkCheckOptions): { pages: number }
     cache.set(file, result);
     return result;
   };
-  const fileOf = (pathname: string) => {
-    if (appBase && pathname !== appBase && !pathname.startsWith(`${appBase}/`)) return;
-    let path: string;
-    try {
-      path = decodeURIComponent(pathname.slice(appBase.length));
-    } catch {
-      return;
-    }
-    const page = path.replace(/\/$/, "");
-    return [path, `${page}.html`, `${page}/index.html`]
-      .map((candidate) =>
-        resolve(root, `.${candidate.startsWith("/") ? candidate : `/${candidate}`}`),
-      )
-      .find(
-        (file) => file.startsWith(`${root}${sep}`) && existsSync(file) && statSync(file).isFile(),
-      );
-  };
+  const fileOf = docsOutputFile(root, appBase);
   const files = readdirSync(root, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".html"))
     .map((entry) => join(entry.parentPath, entry.name));
@@ -121,13 +132,7 @@ export function checkDocsLinks(options: DocsLinkCheckOptions): { pages: number }
         problems.add(`${path} has an invalid URL: ${link}`);
         continue;
       }
-      if (
-        url.origin !== origin ||
-        excludedLink(link) ||
-        excludedLink(url.pathname) ||
-        excludedLink(url.pathname + url.hash)
-      )
-        continue;
+      if (url.origin !== origin || excludedLink(url, link)) continue;
       const redirect = options.redirect?.(url);
       if (redirect) {
         problems.add(`${path} links to ${url.pathname}${url.hash}, which redirects to ${redirect}`);

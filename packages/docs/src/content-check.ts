@@ -1,17 +1,18 @@
 import { contentName, createDocsContent, resolveDocsSources } from "./manifest.ts"
-import { docsManifestPages } from "./navigation.ts"
+import { docsAppPath, docsManifestPages } from "./navigation.ts"
 import { routePaths } from "./page.ts"
 
 import type { ContentCheckFinding, ContentCheckOptions, ContentCheckResult } from "@vite-hub/content"
 import type { DocsManifestOptions } from "./manifest.ts"
 import type { DocsRoute } from "./page.ts"
-import type { DocsManifest } from "./types.ts"
+import type { DocsSeoPage } from "./seo-audit.ts"
+import type { DocsManifest, DocsPage } from "./types.ts"
 
 /**
  * `content.check()` over the docs pages, as `vitehub content check` runs it: links to missing pages, and the title and
  * description rules of `seoAudit`, from the Markdown and without built HTML. Each page has its URL from the manifest.
  */
-export async function checkDocsContent(options: DocsManifestOptions, manifest: DocsManifest, check: ContentCheckOptions): Promise<ContentCheckResult> {
+export async function checkDocsContent(options: DocsManifestOptions, manifest: DocsManifest, appBase: string, check: ContentCheckOptions): Promise<ContentCheckResult> {
   const sources = options.sources ? resolveDocsSources(options.sources, options.rootDir) : [{ dir: options.dir }]
   const byFile = new Map(docsManifestPages(manifest).map(page => [`${page.source ? Number(page.source.slice(5)) : 0}:${page.file}`, page.path]))
   // Content names a document by its id, and the manifest a page by its file, so the listing joins them.
@@ -22,7 +23,7 @@ export async function checkDocsContent(options: DocsManifestOptions, manifest: D
       const name = contentName(index)
       for (const file of await content.list(name)) {
         const path = byFile.get(`${index}:${file.meta.key.slice(name.length + 1)}`)
-        if (path) byId.set(`${index}:${file.path.replace(/^\/+/, "")}`, path)
+        if (path) byId.set(`${index}:${file.path.replace(/^\/+/, "")}`, docsAppPath(path, appBase))
       }
     }
     return await content.check()
@@ -32,17 +33,21 @@ export async function checkDocsContent(options: DocsManifestOptions, manifest: D
   }
 }
 
-/** The rules that replace the HTML title and description checks of `seoAudit` for the docs pages. */
-const seoRules = new Set<ContentCheckFinding["rule"]>(["title", "description", "duplicate"])
-
 /** The findings of a check that the link checker reports: errors, such as a link to a missing page. */
 export function docsContentLinkProblems(result: ContentCheckResult): string[] {
   return result.findings.filter(finding => finding.severity === "error").map(problem)
 }
 
-/** The findings of a check that `seoAudit` reports, for the pages at `paths` only. */
-export function docsContentSeoProblems(result: ContentCheckResult, paths: ReadonlySet<string>): string[] {
-  return result.findings.filter(finding => seoRules.has(finding.rule) && finding.url !== null && paths.has(finding.url)).map(problem)
+/** Add a source location only when Content and the rendered audit found the same problem. */
+export function docsContentSeoLocation(result: ContentCheckResult, pages: ReadonlyMap<string, DocsPage>, appBase: string) {
+  const byMessage = new Map(result.findings.filter(finding => finding.line !== null && (finding.rule === "title" || finding.rule === "description")).map(finding => [finding.message, finding]))
+  return (page: DocsSeoPage, field: "title" | "description", message: string) => {
+    const source = pages.get(page.path)
+    if (!source) return message
+    if (field === "description" && (source.seo?.description ?? source.description) !== page.description) return message
+    const finding = byMessage.get(`${docsAppPath(page.path, appBase)}${message.slice(page.path.length)}`)
+    return finding ? problem({ ...finding, message }) : message
+  }
 }
 
 /** `docs/guide.md:12: <message> (CONTENT_R0062)`. */

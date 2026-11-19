@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeF
 import { readdir, readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { invariantError } from "@vite-hub/internal/invariant"
-import { dirname, join, resolve, sep } from "node:path"
+import { dirname, join, posix, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import {
@@ -31,8 +31,8 @@ import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { comarkBlocksSource } from "./comark-blocks.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
-import { checkDocsLinks, docsLinkError, type DocsLinkCheckOptions } from "./check-links.ts"
-import { checkDocsContent, docsAppPageLinks, docsContentLinkProblems, docsContentSeoProblems } from "./content-check.ts"
+import { checkDocsLinks, docsLinkError, docsLinkExclusion, docsOutputFile, type DocsLinkCheckOptions } from "./check-links.ts"
+import { checkDocsContent, docsAppPageLinks, docsContentLinkProblems, docsContentSeoLocation } from "./content-check.ts"
 import { docsDevFilesModule, docsFilesModule } from "./files.ts"
 import { docsAppManifest, docsAppManifestSource, docsAppPanelSource, readDocsContent, resolveDocsSources } from "./manifest.ts"
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawPath, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
@@ -250,6 +250,11 @@ interface PrerenderRoute {
   error?: Error
 }
 
+interface PrerenderResult {
+  prerendered: PrerenderRoute[]
+  failed: PrerenderRoute[]
+}
+
 interface NitroInstance {
   options: NitroOptions & { output?: { publicDir: string } }
   hooks?: {
@@ -259,6 +264,7 @@ interface NitroInstance {
 }
 
 interface NitroOptions {
+  hooks?: { "prerender:done"?: (result: PrerenderResult) => void | Promise<void> }
   runtimeConfig?: DiscoveryRuntime
   routeRules?: Record<string, DocsRouteRule & { headers?: Record<string, string>, prerender?: boolean }>
   alias?: Record<string, string>
@@ -769,12 +775,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     addRouteMiddleware({ name: "docs-layout", path: join(runtime, "app/middleware/docs-layout.ts"), global: true })
     /** Link patterns of the app's own pages, which the Content check of the docs links accepts. */
     let appPageLinks: string[] = []
+    let appReplacesDocs = false
     extendPages((pages) => {
       appPageLinks = docsAppPageLinks(pages)
       // The docs page answers below the docs mount only, such as `/docs/:slug(.*)*`. An app catch-all page at the same
       // prefix replaces it. Vue Router prefers the longer static prefix, so a root catch-all of the app does not hide it.
       const mount = docsMount(manifest)
-      if (replacesDocsPage(pages, mount)) return
+      appReplacesDocs = replacesDocsPage(pages, mount)
+      if (appReplacesDocs) return
       pages.push({ name: "docs-page", path: `${mount === "/" ? "" : mount}/:slug(.*)*`, file: join(runtime, "app/pages/docs-page.vue") })
     })
     // The docs site replaces Nuxt's own defaults: the welcome page, the `app.vue` of the pages module, and the error
@@ -831,45 +839,49 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     }
 
     // Nuxt types Nitro hooks only when Nitro's types load.
+    let checkSourceLinks: (() => Promise<void>) | undefined
     Reflect.apply(nuxt.hook, nuxt, ["nitro:init", (nitro: NitroInstance) => {
       const building = !nuxt.options.dev && !Reflect.get(nuxt.options, "_prepare")
       const seoAudit = options.seoAudit ?? "warn"
-      /**
-       * `vitehub content check` of the docs pages: links to missing pages, and the title and description rules of
-       * `seoAudit`, from the Markdown of every page. The link checker and `seoAudit` read it, and the built HTML only for
-       * what Markdown does not show, such as fragments, the navigation, and Open Graph tags. One run serves both.
-       */
+      const redirects = docsRedirects(nitro.options.routeRules ?? {})
+      const settings = options.linkChecker || {}
+      const isRuntimePath = docsRuntimePath(nitro.options, config.appBase, docsMount(manifest))
+      const excludeLinks = [
+        ...(moduleOptions.linkChecker?.excludeLinks ?? []).filter(link => !indexedPageExclusions.has(link)),
+        ...settings.excludeLinks ?? [],
+        ...redirects.map(redirect => docsAppPath(redirect.from, config.appBase)),
+        ...config.mcp ? [docsAppPath("/mcp", config.appBase)] : [],
+      ]
+      const excluded = docsLinkExclusion(excludeLinks)
+      const outputFile = nitro.options.output && docsOutputFile(nitro.options.output.publicDir, config.appBase)
+      const appPage = (path: string) => appPageLinks.some(pattern => posix.matchesGlob(path, pattern))
+      const base = config.appBase.replace(/\/+$/, "")
       let contentCheck: Promise<ContentCheckResult> | undefined
-      const checkContent = () => contentCheck ??= checkDocsContent(manifestOptions, manifest, {
-        ignoreLinks: [
-          ...appPageLinks,
-          ...(options.linkChecker || {}).excludeLinks ?? [],
-          ...docsRedirects(nitro.options.routeRules ?? {}).map(redirect => redirect.from),
-          ...config.mcp ? ["/mcp"] : [],
-        ],
+      const checkContent = () => contentCheck ??= checkDocsContent(manifestOptions, manifest, config.appBase, {
+        isLinkTarget: (url, href) => {
+          const path = url.pathname
+          if (base && path !== base && !path.startsWith(`${base}/`)) return true
+          return excluded(url, href) || appPage(path.slice(base.length) || "/") || isRuntimePath(path) || Boolean(outputFile?.(path))
+        },
         ...config.site.url ? { site: config.site.url } : {},
         titleTemplate: `%s · ${config.site.name}`,
       })
       // All nitro:config hooks have run, including those registered by modules installed after the docs module.
       if (options.linkChecker !== false && building) {
-        const problems = docsRedirectProblems(manifest, docsRedirects(nitro.options.routeRules ?? {}))
+        const problems = docsRedirectProblems(manifest, redirects)
         if (problems.length) throw docsRedirectError(problems)
-        nitro.hooks?.hook("compiled", async () => {
-          if (!nitro.options.output) return
+        let sourceLinks: Promise<void> | undefined
+        const checkLinks = () => sourceLinks ??= (async () => {
           const checked = await checkContent()
           const broken = docsContentLinkProblems(checked)
           if (broken.length) throw docsLinkError(broken)
           useLogger("@vite-hub/docs").info?.(`Checked the links of ${checked.sources.reduce((pages, source) => pages + source.pages, 0)} Markdown pages with \`vitehub content check\``)
-          const redirects = docsRedirects(nitro.options.routeRules ?? {})
-          const settings = options.linkChecker || {}
-          const result = checkDocsLinks({ dir: nitro.options.output.publicDir, siteUrl: config.site.url || "https://docs.local", appBase: config.appBase, ...settings, isRuntimePath: docsRuntimePath(nitro.options, config.appBase, docsMount(manifest)), excludeLinks: [
-            // Indexed pages stay checked here, with their fragments.
-            ...(moduleOptions.linkChecker?.excludeLinks ?? []).filter(link => !indexedPageExclusions.has(link)),
-            ...settings.excludeLinks ?? [],
-            ...redirects.map(redirect => docsAppPath(redirect.from, config.appBase)),
-            // The MCP endpoint is a server route, so the built output has no file for it.
-            ...config.mcp ? [docsAppPath("/mcp", config.appBase)] : [],
-          ] })
+        })()
+        checkSourceLinks = checkLinks
+        nitro.hooks?.hook("compiled", async () => {
+          if (!nitro.options.output) return
+          await checkLinks()
+          const result = checkDocsLinks({ dir: nitro.options.output.publicDir, siteUrl: config.site.url || "https://docs.local", appBase: config.appBase, ...settings, isRuntimePath, excludeLinks })
           useLogger("@vite-hub/docs").info?.(`Checked links and fragments of ${result.pages} pages`)
         })
       }
@@ -888,12 +900,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         nitro.hooks?.hook("prerender:done", async () => {
           const rendered = new Set(pages.map(page => page.path))
           // A page of the app at the same path, such as its own home page, renders instead of the Markdown.
-          const appPages = new Set(appPageLinks)
-          const checked = new Set(docsManifestPages(manifest).filter(page => rendered.has(page.path) && !appPages.has(page.path) && !(page.source && adapted.has(page.source))).map(page => page.path))
-          const problems = [
-            ...checked.size ? docsContentSeoProblems(await checkContent(), checked) : [],
-            ...docsSeoProblems(pages, sitemap, { endpoints: config.mcp ? ["/mcp"] : [], siteUrl: Boolean(config.site.url), checked }),
-          ]
+          const candidates = appReplacesDocs ? [] : docsManifestPages(manifest).filter(page => rendered.has(page.path) && !appPage(page.path) && !(page.source && adapted.has(page.source)))
+          const problems = docsSeoProblems(pages, sitemap, {
+            endpoints: config.mcp ? ["/mcp"] : [],
+            siteUrl: Boolean(config.site.url),
+            withSourceLocation: candidates.length ? docsContentSeoLocation(await checkContent(), new Map(candidates.map(page => [page.path, page])), config.appBase) : undefined,
+          })
           if (!problems.length) return
           const error = docsSeoError(problems)
           if (seoAudit === "error" || seoAudit === true) throw error
@@ -902,6 +914,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       }
     }])
     Reflect.apply(nuxt.hook, nuxt, ["nitro:config", (nitro: NitroOptions) => {
+      if (options.linkChecker !== false && !nuxt.options.dev && !Reflect.get(nuxt.options, "_prepare")) {
+        const prerenderDone = nitro.hooks?.["prerender:done"]
+        nitro.hooks = { ...nitro.hooks, "prerender:done": async (result) => {
+          await checkSourceLinks?.()
+          await prerenderDone?.(result)
+        } }
+      }
       if (config.appBase !== "/") {
         // Discovery builds its default resource registry after all modules load. Its Link headers and public resource
         // links are browser URLs, unlike Nitro's route keys, so prefix the generated registry here too.

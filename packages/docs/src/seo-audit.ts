@@ -113,11 +113,7 @@ export interface DocsSeoOptions {
   endpoints?: readonly string[]
   /** Whether the site has `site.url`. Without it, pages have no canonical URL and no `og:url` to check. */
   siteUrl?: boolean
-  /**
-   * App paths of pages whose title and description `content.check()` checked from their Markdown. The HTML check skips
-   * those rules for them, so each problem is reported once, at its file and line.
-   */
-  checked?: ReadonlySet<string>
+  withSourceLocation?: (page: DocsSeoPage, field: "title" | "description", message: string) => string
 }
 
 /**
@@ -158,15 +154,13 @@ export function docsSeoProblems(pages: readonly DocsSeoPage[], sitemap: readonly
 
   const indexed = pages.filter(page => !page.redirect && !page.noindex && (page.canonical === null || page.canonical === page.path))
   const { title, description, words } = docsSeoLimits
-  const checked = options.checked ?? new Set<string>()
+  const withSourceLocation = options.withSourceLocation ?? ((_page, _field, message) => message)
   for (const page of indexed) {
     const at = page.path
-    if (!checked.has(at)) {
-      if (!page.title) problems.push(`${at} has no title. Set \`title\` in its frontmatter.`)
-      else if (page.title.length < title.min || page.title.length > title.max) problems.push(`${at} has a title of ${page.title.length} characters, "${page.title}". Keep it between ${title.min} and ${title.max}, with \`seo.title\` when the heading must stay.`)
-      if (!page.description) problems.push(`${at} has no description. Set \`description\` in its frontmatter.`)
-      else if (page.description.length < description.min || page.description.length > description.max) problems.push(`${at} has a description of ${page.description.length} characters. Keep it between ${description.min} and ${description.max}.`)
-    }
+    if (!page.title) problems.push(`${at} has no title. Set \`title\` in its frontmatter.`)
+    else if (page.title.length < title.min || page.title.length > title.max) problems.push(withSourceLocation(page, "title", `${at} has a title of ${page.title.length} characters, "${page.title}". Keep it between ${title.min} and ${title.max}, with \`seo.title\` when the heading must stay.`))
+    if (!page.description) problems.push(`${at} has no description. Set \`description\` in its frontmatter.`)
+    else if (page.description.length < description.min || page.description.length > description.max) problems.push(withSourceLocation(page, "description", `${at} has a description of ${page.description.length} characters. Keep it between ${description.min} and ${description.max}.`))
     if (page.h1 !== 1) problems.push(`${at} has ${page.h1} h1 headings. Give it one.`)
     if (page.headingSkip) problems.push(`${at} skips a heading level, ${page.headingSkip}. Go down one level at a time.`)
     if (page.words < words) problems.push(`${at} has ${page.words} words. Write at least ${words}, or merge it into another page.`)
@@ -177,8 +171,7 @@ export function docsSeoProblems(pages: readonly DocsSeoPage[], sitemap: readonly
     const groups = new Map<string, string[]>()
     for (const page of indexed) if (page[field]) groups.set(page[field], [...groups.get(page[field]) ?? [], page.path])
     for (const [value, paths] of groups) {
-      // Content reports a group of checked pages, and the HTML check a group with an app page in it.
-      if (paths.length > 1 && !paths.every(path => checked.has(path))) problems.push(`${paths.join(", ")} share the ${label} "${value}". Give each page its own.`)
+      if (paths.length > 1) problems.push(`${paths.join(", ")} share the ${label} "${value}". Give each page its own.`)
     }
   }
 

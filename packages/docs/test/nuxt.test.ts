@@ -311,6 +311,36 @@ describe("docs in an existing app", () => {
     await expect(compiled[0]!()).resolves.toBeUndefined()
   })
 
+  it("checks public URLs in unindexed Markdown and accepts other valid targets under the app base", async () => {
+    const app = appWithDocs({ "docs/guide/index.md": "Guide", "docs/guide/hidden.md": "Hidden" })
+    writeFileSync(join(app.dir, "docs/guide/hidden.md"), [
+      "---", "title: Hidden", "seo.index: false", "---", "",
+      "[Existing](https://docs.test/portal/docs/guide)",
+      "[Asset](/portal/docs/guide/example.zip)",
+      "[Runtime](/portal/docs/guide/feed.xml)",
+      "[Ignored route](/portal/docs/guide/ignored)",
+      "[Excluded](/portal/docs/guide/excluded)",
+      "[Missing](https://docs.test/portal/docs/guide/missing)",
+    ].join("\n"))
+    const options = await setupDocs({ dir: app.dir, site: { url: "https://docs.test" }, seoAudit: false }, "/portal/")
+    Object.assign(options, { linkChecker: { excludeLinks: ["/portal/docs/guide/excluded"] } })
+    const publicDir = join(options.buildDir, "public")
+    mkdirSync(join(publicDir, "docs/guide"), { recursive: true })
+    writeFileSync(join(publicDir, "docs/guide/example.zip"), "asset")
+    const nitro = {
+      output: { publicDir },
+      routeRules: { "/docs/guide/feed.xml": { prerender: false } },
+      prerender: { ignore: ["/docs/guide/ignored"] },
+      hooks: {} as Record<string, () => Promise<void>>,
+    }
+    await callHook("nitro:config", nitro)
+    await callHook("nitro:init", { options: nitro, hooks: { hook() {} } })
+    await expect(nitro.hooks["prerender:done"]!()).rejects.toMatchObject({
+      code: "DOCS_LINKS_BROKEN",
+      problems: [expect.stringContaining("docs/guide/hidden.md:11: /portal/docs/guide/hidden links to /portal/docs/guide/missing")],
+    })
+  })
+
   it("prerenders the docs pages of an app without crawling the app's own pages", async () => {
     const app = appWithDocs({ "docs/guide/index.md": "Guide" })
     await setupDocs({ dir: app.dir })
@@ -951,12 +981,13 @@ describe("docs search checks", () => {
   })
 
   it("adds no prerender hooks when seoAudit is false", async () => {
-    expect([...(await prerender({ seoAudit: false }, routes)).keys()].filter(name => name.startsWith("prerender:"))).toEqual([])
+    expect([...(await prerender({ seoAudit: false, linkChecker: false }, routes)).keys()].filter(name => name.startsWith("prerender:"))).toEqual([])
   })
 
   it("reports the title and description of a Markdown page once, from `vitehub content check` at its file and line", async () => {
     const app = appWithDocs({ "docs/guide/index.md": "Hi" })
-    const html = `<html><head><title>Hi · Docs</title></head><body><h1>Hi</h1></body></html>`
+    writeFileSync(join(app.dir, "docs/guide/index.md"), "---\ntitle: Hi\ndescription: Brief\n---\n")
+    const html = `<html><head><title>Hi · Docs</title><meta name="description" content="Brief"></head><body><h1>Hi</h1></body></html>`
     const failure = await prerender({ dir: app.dir, seoAudit: "error" }, [
       { route: "/docs/guide", contents: html },
       { route: "/learn", contents: html },
@@ -965,12 +996,12 @@ describe("docs search checks", () => {
     const problems = (failure as { problems: string[] }).problems
     expect(problems).toEqual(expect.arrayContaining([
       expect.stringMatching(/^docs\/guide\/index\.md:2: \/docs\/guide has a title of 9 characters, "Hi · Docs"\..*\(CONTENT_R0065\)$/),
-      expect.stringMatching(/^docs\/guide\/index\.md: \/docs\/guide has no description\..*\(CONTENT_R0066\)$/),
+      expect.stringMatching(/^docs\/guide\/index\.md:3: \/docs\/guide has a description of 5 characters\..*\(CONTENT_R0066\)$/),
       // The HTML check keeps what Markdown does not show, and the rules of the app's own pages.
       "/docs/guide has 1 words. Write at least 150, or merge it into another page.",
       "/learn has a title of 9 characters, \"Hi · Docs\". Keep it between 10 and 60, with `seo.title` when the heading must stay.",
     ]))
-    expect(problems.filter(problem => problem.startsWith("/docs/guide has a title") || problem.startsWith("/docs/guide has no description"))).toEqual([])
+    expect(problems.filter(problem => problem.startsWith("/docs/guide has a title") || problem.startsWith("/docs/guide has a description"))).toEqual([])
     // A shared title of a Markdown page and an app page stays an HTML problem.
     expect(problems).toContain("/docs/guide, /learn share the title \"Hi · Docs\". Give each page its own.")
   })
@@ -983,10 +1014,29 @@ describe("docs search checks", () => {
     const nitroHooks = new Map<string, Hook[]>()
     await callHook("nitro:init", { options: {}, hooks: { hook: (name: string, hook: Hook) => nitroHooks.set(name, [...nitroHooks.get(name) ?? [], hook]) } })
     for (const hook of nitroHooks.get("prerender:generate") ?? []) await hook({ route: "/docs/guide", contents: "<html><head><title>Hi · Docs</title></head><body><h1>Hi</h1></body></html>", fileName: "/docs/guide.html", contentType: "text/html" } as never)
-    const failure = await Promise.resolve(nitroHooks.get("prerender:done")![0]!()).catch((error: unknown) => error as { problems: string[] })
+    const failure = await Promise.resolve(nitroHooks.get("prerender:done")!.at(-1)!()).catch((error: unknown) => error as { problems: string[] })
     const problems = (failure as { problems: string[] }).problems
     expect(problems).toContain("/docs/guide has a title of 9 characters, \"Hi · Docs\". Keep it between 10 and 60, with `seo.title` when the heading must stay.")
     expect(problems.filter(problem => problem.includes("CONTENT_R"))).toEqual([])
+  })
+
+  it("audits rendered metadata and detects duplicates across Sources, not across unrendered pages", async () => {
+    const first = appWithDocs({ "index.md": "Lumenate", "hidden.md": "Lumenate" })
+    const second = appWithDocs({ "index.md": "Lumenate" })
+    const description = "A long site description shared by the two pages rendered from different Markdown Sources."
+    const html = `<html><head><title>Lumenate · Lumen</title><meta name="description" content="${description}"></head><body><h1>Lumenate</h1></body></html>`
+    const failure = await prerender({
+      base: "/",
+      site: { name: "Lumen", description },
+      sources: [{ source: first.dir, mount: "/first" }, { source: second.dir, mount: "/second" }],
+      seoAudit: "error",
+    }, [{ route: "/first", contents: html }, { route: "/second", contents: html }])
+      .catch((error: unknown) => error as { problems: string[] })
+    const problems = (failure as { problems: string[] }).problems
+    expect(problems.filter(problem => /title|description|hidden/.test(problem) && !problem.includes("og:title"))).toEqual([
+      '/first, /second share the title "Lumenate · Lumen". Give each page its own.',
+      `/first, /second share the description "${description}". Give each page its own.`,
+    ])
   })
 
   it.each(["/", "/portal/"])("audits ordinary pages without site.url under %s", async (appBase) => {
