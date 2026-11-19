@@ -6,10 +6,22 @@ import type { ObjectExpression } from "@vite-hub/internal/build/scan-module"
 
 const configExtensions = ["js", "mjs", "cjs", "ts", "mts", "cts"]
 
+type ConfigScanner = typeof import("@vite-hub/internal/build/scan-module")
+
+/** The config scanner parses with `vite`. A production install can leave out that optional peer. */
+export async function loadConfigScanner(load: () => Promise<ConfigScanner> = () => import("@vite-hub/internal/build/scan-module")): Promise<ConfigScanner | undefined> {
+  try {
+    return await load()
+  }
+  catch (error) {
+    if (error instanceof Error && Reflect.get(error, "code") === "ERR_MODULE_NOT_FOUND" && /'vite'/.test(error.message)) return
+    throw error
+  }
+}
+
 /** True for `vitehub({ agent: false })`, `vitehub({ agent: { cli: false } })`, and the same options under `vitehub: {}`. */
-async function hasAgentOptOut(source: string, file: string): Promise<boolean> {
-  // Runtime-only commands need no Vite installation until there is a project config to inspect.
-  const { argumentExpression, findProperty, scanModule, staticValue, unwrapExpression, walk } = await import("@vite-hub/internal/build/scan-module")
+async function hasAgentOptOut(source: string, file: string, scanner: ConfigScanner): Promise<boolean> {
+  const { argumentExpression, findProperty, scanModule, staticValue, unwrapExpression, walk } = scanner
   const module = scanModule(source, file)
   const pluginNames = new Set<string>()
   for (const statement of module.program.body) {
@@ -44,13 +56,18 @@ async function hasAgentOptOut(source: string, file: string): Promise<boolean> {
   })
 }
 
-/** Detects explicit Agent CLI opt-outs without evaluating the project config. */
-export async function isAgentCliEnabled(rootDir: string): Promise<boolean> {
+/**
+ * Detects explicit Agent CLI opt-outs without evaluating the project config. Without `vite`, it cannot parse the config,
+ * so the command stays enabled: `vitehub agent invocations` reads a journal and needs no project.
+ */
+export async function isAgentCliEnabled(rootDir: string, loadScanner: () => Promise<ConfigScanner | undefined> = loadConfigScanner): Promise<boolean> {
   // Nuxt owns discovery whenever both config families exist, matching loadViteHubCliConfig.
   const owner = configExtensions.some(extension => existsSync(join(rootDir, `nuxt.config.${extension}`))) ? "nuxt" : "vite"
   for (const extension of configExtensions) {
     const path = join(rootDir, `${owner}.config.${extension}`)
-    if (existsSync(path)) return !await hasAgentOptOut(await readFile(path, "utf8"), path)
+    if (!existsSync(path)) continue
+    const scanner = await loadScanner()
+    return !scanner || !await hasAgentOptOut(await readFile(path, "utf8"), path, scanner)
   }
   return true
 }

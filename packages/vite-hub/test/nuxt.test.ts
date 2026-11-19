@@ -1682,17 +1682,25 @@ describe("ViteHub Nuxt integration", () => {
     await expect(readFile(file, "utf8")).rejects.toThrow()
   })
 
-  it("prints the open-access notice of a Nuxt dev server", async () => {
+  it.each([
+    ["::1", false],
+    ["::", true],
+  ] as const)("warns about unsigned Console access only beyond loopback (address %s)", async (address, shouldWarn) => {
     const application = createNuxt(true)
     const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {
       await viteHubNuxtModule({ host: "node", console: { auth: false } }, application.nuxt)
-      const server = Object.assign(new EventEmitter(), { address: () => ({ address: "::1", port: 3000 }) })
+      const server = Object.assign(new EventEmitter(), { address: () => ({ address, port: 3000 }) })
       for (const listen of application.listenHooks) listen(server, { url: "http://localhost:3000/" })
-      expect(info).toHaveBeenCalledWith(expect.stringContaining("without a signature"))
+      const notice = expect.stringContaining("without a signature")
+      expect(info).not.toHaveBeenCalledWith(notice)
+      if (shouldWarn) expect(warn).toHaveBeenCalledWith(notice)
+      else expect(warn).not.toHaveBeenCalledWith(notice)
     }
     finally {
       info.mockRestore()
+      warn.mockRestore()
       await application.runCloseHook()
     }
   })
@@ -4855,6 +4863,29 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
         src: resolve(root, ".vitehub/sync/nuxt-sign-out.mjs"),
         mode: "client",
       })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("restarts the dev server when a Sync definition comes or goes, also before server/sync/ exists", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-sync-restart-"))
+    try {
+      const development = createNuxt(true)
+      development.nuxt.options.rootDir = root
+      development.nuxt.options.serverDir = resolve(root, "server")
+      await viteHubNuxtModule({ host: "node" }, development.nuxt)
+
+      await development.runBuilderWatchHook(resolve(root, "server/sync/todos.ts"), "change")
+      await development.runBuilderWatchHook(resolve(root, "server/api/todos.ts"), "add")
+      await development.runBuilderWatchHook(resolve(root, "server/sync/README.md"), "add")
+      await development.runBuilderWatchHook(resolve(root, "server/sync/todos.d.ts"), "add")
+      expect(development.nuxt.callHook).not.toHaveBeenCalledWith("restart")
+      await development.runBuilderWatchHook(resolve(root, "server/sync"), "addDir")
+      await development.runBuilderWatchHook(resolve(root, "server/sync/todos.ts"), "add")
+      await development.runBuilderWatchHook("server/sync/todos.ts", "unlink")
+      expect(development.nuxt.callHook.mock.calls.filter(([name]) => name === "restart")).toHaveLength(3)
     }
     finally {
       await rm(root, { recursive: true, force: true })

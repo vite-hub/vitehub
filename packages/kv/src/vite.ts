@@ -82,7 +82,7 @@ export type KVVitePlugin = Plugin & {
   api: KVVitePluginAPI
   nitro: {
     name: string
-    setup: (nitro: { options: NitroCloudflareKVTarget }) => void
+    setup: (nitro: KVNitroBuild) => void
   }
   vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & { operations: readonly OperationContributionEntry[] }
 }
@@ -125,7 +125,7 @@ function findDatabasePlugin(plugins: readonly Plugin[] | undefined): DatabaseVit
   return plugins?.find(plugin => plugin.name === DATABASE_VITE_PLUGIN_NAME) as DatabaseVitePlugin | undefined
 }
 
-function serializeVirtualConfig(config: KVViteRuntimeConfig, databaseImport: string, env?: Record<string, string | undefined>): string {
+function serializeVirtualConfig(config: KVViteRuntimeConfig, databaseImport: string, durabilityReportsStores: boolean, env?: Record<string, string | undefined>): string {
   const resolveStore = (store: ResolvedKVStoreConfig) => env && store.driver === "upstash" ? resolveUpstashRuntimeValues(store, env) : store
   // Only the development server module gets .env credentials. The public plugin config and build output stay masked.
   const kv = config.kv && env ? {
@@ -136,6 +136,7 @@ function serializeVirtualConfig(config: KVViteRuntimeConfig, databaseImport: str
   return [
     `export const hosting = ${JSON.stringify(config.hosting)};`,
     `export const kv = ${JSON.stringify(kv)};`,
+    `export const durabilityReportsStores = ${durabilityReportsStores};`,
     // The `database` driver runs SQL on the app's Database, so only a build with such a store imports it.
     hasDatabaseStore(config.kv)
       ? `export const loadDatabases = () => import(${JSON.stringify(databaseImport)}).then(module => module.databases);`
@@ -287,6 +288,17 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
   ].join("\n")
 }
 
+/** The part of Nitro's prerender config that KV changes. */
+interface KVPrerenderConfig {
+  virtual?: Record<string, string | (() => string)>
+}
+
+/** The parts of a Nitro build that KV changes. */
+interface KVNitroBuild {
+  hooks?: { hook: (name: "prerender:config", callback: (config: KVPrerenderConfig) => void) => unknown }
+  options: NitroCloudflareKVTarget
+}
+
 interface NitroCloudflareKVTarget {
   handlers?: unknown[]
   kv?: Record<string, unknown>
@@ -429,6 +441,15 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
       setup(nitro) {
         nitroOptions = nitro.options
         if (runtimeConfig) reconcileNitroCloudflareKV(nitroOptions, runtimeConfig.kv, ownedNitroNamespaces, readProvisionStateSync(projectRoot))
+        // Prerender bundles the server again with Rolldown, without Vite plugins, so `resolveId` below never sees the
+        // config import there. Nitro copies its virtual modules into that build.
+        nitro.hooks?.hook("prerender:config", (config: KVPrerenderConfig) => {
+          // The prerenderer is a Node worker. Cloudflare stores use their local folders, and apps with Deno KV keep
+          // the runtime fallback. The prerenderer prints no store notice at boot.
+          const prerender = resolveKVViteConfig(options, { hosting: input.hosting, prerender: true })
+          if (prerender.kv && Object.values({ ...prerender.kv.stores, default: prerender.kv.store }).some(store => store.driver === "deno-kv")) return
+          config.virtual = { ...config.virtual, [KV_VIRTUAL_CONFIG_ID]: () => serializeVirtualConfig(prerender, databaseImport, true) }
+        })
       },
     },
     vitehub: {
@@ -535,7 +556,10 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
           const kv = getConfig().kv
           if (command === "build" && isCloudflareKVConfig(kv)) return serializeCloudflareRuntime(kv)
         }
-        if (id === RESOLVED_KV_VIRTUAL_CONFIG_ID) return serializeVirtualConfig(getConfig(), databaseImport, command === "serve" && options?.ssr ? viteEnv : undefined)
+        if (id === RESOLVED_KV_VIRTUAL_CONFIG_ID) {
+          const durabilityReportsStores = command === "build" && (resolved?.plugins?.some(plugin => plugin.name === "vite-hub/durability/nitro") ?? false)
+          return serializeVirtualConfig(getConfig(), databaseImport, durabilityReportsStores, command === "serve" && options?.ssr ? viteEnv : undefined)
+        }
       },
     },
     buildStart: {

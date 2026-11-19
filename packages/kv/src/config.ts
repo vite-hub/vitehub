@@ -34,6 +34,7 @@ export interface KVResolutionInput {
    * store falls back to `fs-lite` when the runtime has no binding. Builds leave it unset.
    */
   dev?: boolean
+  prerender?: boolean
   env?: Record<string, string | undefined>
   hosting?: string
   /**
@@ -57,11 +58,10 @@ function readRemote(config: KVStoreConfig | InferredKVStoreConfig, store: string
   throw kvErrorDiagnostics.KV_INVALID_REMOTE({ store })
 }
 
-/** Applies `vite dev` mode: hosted stores are marked remote, and a Cloudflare store gets its local fallback. */
-function resolveDevStore(store: ResolvedKVStoreConfig, remote: boolean | undefined): ResolvedKVStoreConfig {
-  if (store.driver === "upstash") return { ...store, remote: true }
-  if (store.driver !== "cloudflare") return store
-  return remote ? { ...store, remote: true } : { ...store, localBase: cloudflareKVLocalBase(store.binding) }
+function resolveStoreMode(store: ResolvedKVStoreConfig, remote: boolean | undefined, input: KVResolutionInput): ResolvedKVStoreConfig {
+  if (input.dev && store.driver === "upstash") return { ...store, remote: true }
+  if (store.driver !== "cloudflare" || !(input.dev || input.prerender)) return store
+  return input.dev && remote ? { ...store, remote: true } : { ...store, localBase: cloudflareKVLocalBase(store.binding) }
 }
 
 /**
@@ -122,14 +122,14 @@ function resolveDenoStore(config: Partial<DenoKVStoreConfig> = {}): ResolvedDeno
   return path ? { driver: "deno-kv", path } : { driver: "deno-kv" }
 }
 
-function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string | undefined>, name: string, dev: boolean | undefined): ResolvedKVStoreConfig {
+function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string | undefined>, name: string, input: KVResolutionInput): ResolvedKVStoreConfig {
   const remote = readRemote(store, name)
   const { driver } = store
-  if (dev && ((remote === true && (driver === "fs-lite" || driver === "deno-kv")) || (remote === false && driver === "upstash"))) {
+  if (input.dev && ((remote === true && (driver === "fs-lite" || driver === "deno-kv")) || (remote === false && driver === "upstash"))) {
     throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver, remote, store: name })
   }
   const resolved = resolveStoreDriver(store, env, name)
-  return dev ? resolveDevStore(resolved, remote) : resolved
+  return resolveStoreMode(resolved, remote, input)
 }
 
 function resolveStoreDriver(store: KVStoreConfig, env: Record<string, string | undefined>, name: string): ResolvedKVStoreConfig {
@@ -182,18 +182,17 @@ export function normalizeKVOptions(
 
   if (hasStoresConfig(options, stores)) {
     const resolvedStores = Object.fromEntries(
-      Object.entries(stores).map(([name, store]) => [name, resolveExplicitStore(store, env, name, input.dev)]),
+      Object.entries(stores).map(([name, store]) => [name, resolveExplicitStore(store, env, name, input)]),
     )
     const defaultStore = resolvedStores.default
     if (!defaultStore) throw kvErrorDiagnostics.KV_MISSING_DEFAULT_STORE()
     return createResolvedConfig(defaultStore, resolvedStores)
   }
 
-  if (explicit?.driver) return createResolvedConfig(resolveExplicitStore(explicit, env, "default", input.dev))
+  if (explicit?.driver) return createResolvedConfig(resolveExplicitStore(explicit, env, "default", input))
   const remote = explicit ? readRemote(explicit, "default") : undefined
-  const inferred = (store: ResolvedKVStoreConfig) => createResolvedConfig(input.dev ? resolveDevStore(store, remote) : store)
-  // Only an explicit `remote: true` lets `vite dev` infer a hosted store from env or the host.
-  const hosted = !input.dev || remote === true
+  const inferred = (store: ResolvedKVStoreConfig) => createResolvedConfig(resolveStoreMode(store, remote, input))
+  const hosted = !input.prerender && (!input.dev || remote === true)
   if (hosting.includes("deno")) {
     if (input.dev && remote === true) throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver: "deno-kv", remote, store: "default" })
     return inferred(resolveDenoStore())
@@ -202,7 +201,7 @@ export function normalizeKVOptions(
   if (hosted && hosting.includes("vercel")) return inferred(resolveUpstashStore({}, redisStorePrefix("default")))
   if (hosting.includes("cloudflare")) return inferred(resolveCloudflareStore({}, env))
   if (input.dev && remote === true) throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver: "fs-lite", remote, store: "default" })
-  if (input.dev) return inferred(resolveFsLiteStore())
+  if (input.dev || input.prerender) return inferred(resolveFsLiteStore())
   // Node and other servers keep the build-selected driver. Redis requires an explicit driver.
   if (input.postgresDatabase) return inferred({ ...resolveDatabaseStore({}, "default"), inferred: true })
   return inferred({ ...resolveFsLiteStore(), inferred: true })
