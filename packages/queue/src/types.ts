@@ -221,15 +221,20 @@ export type ResolvedQueueOptions =
   | ResolvedPostgresQueueOptions
   | VercelQueueModuleDriverOptions
 
+/** The one object that a Queue handler receives: the `payload` that was sent, and the delivery details. */
 export interface QueueJob<TPayload = unknown> {
+  /** Delivery count of this job, from 1. */
   attempts: number
+  /** Message ID of this job. */
   id: string
+  /** Delivery metadata of the provider, when it gives some. */
   metadata?: unknown
   payload: TPayload
 }
 
 export type QueueHandler<TPayload = unknown, TResult = unknown> = (job: QueueJob<TPayload>) => TResult
 
+/** Options of `defineQueue()`, next to `handler`. */
 export interface QueueDefinitionOptions {
   cache?: boolean
   callbackOptions?: VercelQueueCallbackOptions
@@ -238,9 +243,9 @@ export interface QueueDefinitionOptions {
   onError?: CloudflareQueueBatchHandlerOptions["onError"]
 }
 
-export interface QueueDefinition<TPayload = unknown, TResult = unknown> {
+/** A Queue Definition: `defineQueue({ handler, ...options })`. */
+export interface QueueDefinition<TPayload = unknown, TResult = unknown> extends QueueDefinitionOptions {
   handler: QueueHandler<TPayload, TResult>
-  options?: QueueDefinitionOptions
 }
 
 /**

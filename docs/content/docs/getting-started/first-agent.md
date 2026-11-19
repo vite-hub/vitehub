@@ -30,18 +30,13 @@ Install the Agent package:
 pnpm add @vite-hub/agent
 ```
 
-Add `agent: true` to the ViteHub options. Set `workflow: false`, because this
-Agent finishes inside the HTTP request. Keep your other features.
+The file you create next in `server/agents/` turns Agents on. You do not need to set `agent` or `workflow` for this inline Agent. Keep your other ViteHub options.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: {
-    agent: true,
-    workflow: false,
-  },
 })
 ```
 ::::
@@ -54,10 +49,7 @@ import { vitehub } from "vite-hub"
 
 export default defineConfig({
   plugins: [
-    vitehub({
-      agent: true,
-      workflow: false,
-    }),
+    vitehub(),
     nitro(),
   ],
 })
@@ -70,12 +62,7 @@ import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [
-    vitehub({
-      agent: true,
-      workflow: false,
-    }),
-  ],
+  plugins: [vitehub()],
 })
 ```
 ::::

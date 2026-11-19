@@ -170,6 +170,10 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ seconds }: { seconds: number }) => `Another server held the OpenWorkflow schema setup lock for ${seconds} seconds. This server did not start the schema setup.`,
       fix: "Check the server that holds the setup lock and let its migration finish. The worker retries automatically. If you start a worker yourself, retry after the lock is released.",
     },
+    WORKFLOW_PAYLOAD_JSON_INVALID: {
+      why: "[vitehub] The request has the `application/json` content type, but its body is not valid JSON.",
+      fix: "Send a JSON body with `content-type: application/json`, or send another content type to read the body as text. Read `error.cause` for the parse error.",
+    },
     WORKFLOW_R0001: {
       ...dynamicError,
       fix: "Remove `workflow.binding` and `workflow.name`, which apply only to an app with one Workflow, or keep one Workflow under `server/workflows/`.",

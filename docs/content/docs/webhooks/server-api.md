@@ -70,7 +70,7 @@ Delivery is at least once. A receiver can get the same delivery twice, for examp
 
 | Function | Does |
 | --- | --- |
-| `listWebhooks()` | Every webhook, with the names of its variables, `urlSet` and `secretSet`, and `debounceMs`. It returns the list, not a Result. |
+| `listWebhooks()` | Every webhook, with the names of its variables, `urlSet` and `secretSet`, `debounceMs`, and `events`. It returns the list, not a Result. |
 | `listWebhookDeliveries({ webhook?, state?, limit?, before? })` | Deliveries, newest first. `limit` is 100 by default, 500 at most. |
 | `listPendingWebhookDeliveries({ webhook?, limit? })` | Pending deliveries, the soonest due first. |
 | `getWebhookDelivery(id)` | One delivery. |

@@ -60,17 +60,16 @@ describe("feature catalog", () => {
     }
   })
 
-  it("implies Workflow from Agent except on Netlify", () => {
-    expect(impliedFeatures(["agent"], "cloudflare")).toEqual(["workflow"])
-    expect(impliedFeatures(["agent"], "netlify")).toEqual([])
-    expect(impliedFeatures(["agent"], "node", ["workflow"])).toEqual([])
+  it("does not turn Workflow on for Agent", () => {
+    expect(impliedFeatures(["agent"])).toEqual([])
   })
 
   it("requires Database for Comments and Connections but not Console", () => {
-    expect(impliedFeatures(["console"], "node")).toEqual([])
-    expect(impliedFeatures(["comments"], "node")).toEqual(["database"])
-    expect(impliedFeatures(["connections"], "node")).toEqual(["database"])
-    expect(impliedFeatures(["connections", "database"], "node")).toEqual([])
+    expect(impliedFeatures(["console"])).toEqual([])
+    expect(impliedFeatures(["comments"])).toEqual(["database"])
+    expect(impliedFeatures(["connections"])).toEqual(["database"])
+    expect(impliedFeatures(["connections", "database"])).toEqual([])
+    expect(impliedFeatures(["comments"], ["database"])).toEqual([])
   })
 
   it("only implies features that exist", () => {

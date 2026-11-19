@@ -7,7 +7,7 @@ navigation.group: Server work
 icon: i-simple-icons-cloudflare
 ---
 
-Set `host: 'cloudflare'` and `queue: true` in `vitehub()`, and add one file per queue in `server/queues/`. A route calls `sendQueue()` to send a job. The build writes each queue's producer binding and consumer into `.output/server/wrangler.json`. `vitehub provision run` creates the queues, and the same Worker runs the handler when Cloudflare delivers a batch.
+Set `host: 'cloudflare'` in `vitehub()`, and add one file per queue in `server/queues/`. The files turn Queue on. A route calls `sendQueue()` to send a job. The build writes each queue's producer binding and consumer into `.output/server/wrangler.json`. `vitehub provision run` creates the queues, and the same Worker runs the handler when Cloudflare delivers a batch.
 
 ## What Cloudflare Queues is
 
@@ -29,7 +29,7 @@ pnpm add -D wrangler
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'cloudflare', queue: true },
+  vitehub: { host: 'cloudflare' },
 })
 ```
 :::
@@ -41,7 +41,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'cloudflare', queue: true }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare' }), nitro()],
 })
 ```
 :::
@@ -52,7 +52,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'cloudflare', queue: true })],
+  plugins: [vitehub({ host: 'cloudflare' })],
 })
 ```
 :::
@@ -66,8 +66,10 @@ The `cloudflare` host picks the Cloudflare Queue Provider and Worker output. `vi
 import { defineQueue } from 'vite-hub/queue'
 
 // The file name is the queue name: welcome-email
-export default defineQueue<{ email: string }>(async ({ payload, id, attempts }) => {
-  console.log(`Welcome job ${id} for ${payload.email}, attempt ${attempts}`)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload, id, attempts }) => {
+    console.log(`Welcome job ${id} for ${payload.email}, attempt ${attempts}`)
+  },
 })
 ```
 
@@ -126,12 +128,13 @@ A handler that returns acknowledges the message. One that throws gets a Cloudfla
 import { defineQueue } from 'vite-hub/queue'
 import { getViteHubErrorShape, ViteHubError } from 'vite-hub/runtime'
 
-export default defineQueue<{ email: string }>(async ({ payload }) => {
-  if (!payload.email.includes('@')) {
-    throw new ViteHubError('WELCOME_INVALID_EMAIL', 'The welcome job has no valid email.')
-  }
-  // Send the email here
-}, {
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload }) => {
+    if (!payload.email.includes('@')) {
+      throw new ViteHubError('WELCOME_INVALID_EMAIL', 'The welcome job has no valid email.')
+    }
+    // Send the email here
+  },
   concurrency: 5,
   onError: error => getViteHubErrorShape(error)?.code === 'WELCOME_INVALID_EMAIL'
     ? 'ack'

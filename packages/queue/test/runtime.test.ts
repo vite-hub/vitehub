@@ -1227,7 +1227,7 @@ describe("vercel provider", () => {
     const acknowledge = vi.fn()
     const definition = {
       handler: async () => new Response("failed", { status }),
-      options: { callbackOptions: { retry } },
+      callbackOptions: { retry },
     }
     const metadata = { deliveryCount: 1, messageId: "message-1" }
     // The Vercel SDK acknowledges resolved handlers and retries only rejections.
@@ -1269,7 +1269,7 @@ describe("vercel provider", () => {
     const response = new Response(new ReadableStream({ cancel }), { status })
     const retry = vi.fn(() => ({ afterSeconds: 30 }))
     const acknowledge = vi.fn()
-    const definition = { handler: async () => response, options: { callbackOptions: { retry } } }
+    const definition = { handler: async () => response, callbackOptions: { retry } }
     vercelQueueMock.handleCallback.mockImplementationOnce((handler, options) => async () => {
       try {
         await (handler as (payload: unknown) => Promise<unknown>)({})
@@ -1296,7 +1296,7 @@ describe("vercel provider", () => {
       handler: async () => {
         throw new ViteHubError("INVALID_PAYLOAD", "Invalid payload.", { cause: new Error("private provider detail") })
       },
-      options: { callbackOptions: { retry } },
+      callbackOptions: { retry },
     }
     const metadata = { deliveryCount: 3, messageId: "message-3" }
 
@@ -1332,7 +1332,7 @@ describe("vercel provider", () => {
       handler: async () => {
         throw new ViteHubError("INVALID_PAYLOAD", "Invalid payload.")
       },
-      options: { callbackOptions: { retry } },
+      callbackOptions: { retry },
     }
     const metadata = { deliveryCount: 1, messageId: "message-1" }
 
