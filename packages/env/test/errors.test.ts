@@ -45,8 +45,8 @@ describe("Env errors", () => {
     }, cloudflareRequest({})))
     expect(missingError).toMatchObject({
       code: "ENV_REQUIRED_MISSING",
-      details: { source: "env" },
-      message: "[vitehub] Required Env value is missing.",
+      details: { names: ["TOKEN"], path: "env.server.token", source: "env" },
+      message: "[vitehub] Required Env value env.server.token is missing. Set TOKEN.",
     })
 
     const invalidError = capture(() => resolveServerEnv({
@@ -61,7 +61,7 @@ describe("Env errors", () => {
       details: { source: "env" },
       message: "[vitehub] Runtime Env value is invalid.",
     })
-    expect(JSON.stringify([declarationError, missingError, invalidError])).not.toContain("TOKEN")
+    expect(JSON.stringify([declarationError, invalidError])).not.toContain("TOKEN")
 
     expect(resolveServerEnv({
       token: {
@@ -88,6 +88,34 @@ describe("Env errors", () => {
     expect(String(error.cause)).toContain(
       "env.server.google.clientSecret is required and has no value. Server Env checks every declared value together, so this fails even when code reads only another value. Set VITEHUB_GOOGLE_CLIENT_SECRET or GOOGLE_CLIENT_SECRET or declare it with optional: true.",
     )
+  })
+
+  it("names the Server Env key and the variables that are missing", async () => {
+    const registry = createRuntimeRegistry({ google: { clientSecret: env({ secret: true }) } })
+    const runtimeError = capture(() => resolveServerEnv(registry, cloudflareRequest({ GOOGLE_CLIENT_SECRET: "" })))
+    expect(runtimeError.toJSON()).toEqual({
+      code: "ENV_REQUIRED_MISSING",
+      details: {
+        names: ["VITEHUB_GOOGLE_CLIENT_SECRET", "GOOGLE_CLIENT_SECRET"],
+        path: "env.server.google.clientSecret",
+        source: "env",
+      },
+      message: "[vitehub] Required Env value env.server.google.clientSecret is missing. Set VITEHUB_GOOGLE_CLIENT_SECRET or GOOGLE_CLIENT_SECRET.",
+      name: "ViteHubError",
+    })
+
+    const buildError = await resolveEnvEntries({ siteUrl: env({ mode: "build", source: env.source("SITE_URL") }) }, {
+      context: createSourceContext({ env: {}, mode: "build", rootDir: "/app" }),
+      exposure: "build public",
+      section: "env.public",
+      timing: "build",
+    }).then(() => undefined, error => error as ViteHubError)
+    expect(buildError?.toJSON()).toEqual({
+      code: "ENV_REQUIRED_MISSING",
+      details: { names: ["VITEHUB_PUBLIC_SITE_URL", "SITE_URL"], path: "env.public.siteUrl", source: "env" },
+      message: "[vitehub] Required Env value env.public.siteUrl is missing. Set VITEHUB_PUBLIC_SITE_URL or SITE_URL.",
+      name: "ViteHubError",
+    })
   })
 
   it("suggests a default only for a value that is not secret", () => {
