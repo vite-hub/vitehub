@@ -66,6 +66,11 @@ describe("defineChannel", () => {
 })
 
 describe("webhook adapters", () => {
+  it("rejects the old Stripe tolerance rather than using the default", () => {
+    const legacy = { secret: "STRIPE_WEBHOOK_SECRET", toleranceSeconds: 30 }
+    expect(() => stripe(legacy)).toThrowError(expect.objectContaining({ code: "CHANNELS_C0011", message: expect.stringContaining("which is now `tolerance`") }))
+  })
+
   it("builds a generic webhook adapter", () => {
     const event = (payload: { kind: string }) => payload.kind
     expect(webhook({ kind: "airtable", path: "/api/airtable/webhook", signature: "bearer", secret: "AIRTABLE_WEBHOOK_SECRET", event })).toEqual({

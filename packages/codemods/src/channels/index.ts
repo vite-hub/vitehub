@@ -207,56 +207,69 @@ function renameTolerance(context: FileContext, entry: ObjectProperty): boolean {
   return true
 }
 
-/** The new `signature` value: Webhooks names, `{ type }` in place of `{ preset }`, and `tolerance` in place of `toleranceSeconds`. */
-function rewriteSignature(context: FileContext, entry: ObjectProperty) {
+/** Rewrites a signature and returns whether it used the old syntax. */
+function rewriteSignature(context: FileContext, entry: ObjectProperty): boolean {
   const value = unwrap(entry.value)
   if (value.type === "StringLiteral") {
     const renamed = renamedSignatures.get(value.value)
     if (renamed) overwrite(context, value, quoteString(renamed, context.style))
-    return
+    return renamed !== undefined
   }
-  if (value.type !== "ObjectExpression") return
+  if (value.type !== "ObjectExpression") return false
+  const tolerance = property(value, "toleranceSeconds")
+  if (tolerance) renameTolerance(context, tolerance)
   const preset = property(value, "preset")
-  if (!preset) return
+  if (!preset) return tolerance !== undefined
   const name = unwrap(preset.value)
   if (name.type !== "StringLiteral") {
     followUp(context, preset, "`signature: { preset }` is now `signature: { type }`. Set it by hand.")
-    return
+    return true
   }
   const type = name.value === "stripe-sha256" ? "stripe" : name.value
   overwrite(context, preset, `type: ${quoteString(type, context.style)}`)
-  const tolerance = property(value, "toleranceSeconds")
-  if (tolerance) renameTolerance(context, tolerance)
+  return true
 }
 
 /**
- * A string `secret` names a server variable now. `process.env.NAME` becomes `"NAME"`. A value that the code computes,
- * such as `useServerEnv().x`, or a literal that cannot be a name, moves into a function, so it keeps working. Each
- * rewrite gives the new form, so a second run changes nothing.
+ * A string `secret` names a server variable now. Only wrap expressions known to return secret values.
  */
-function rewriteSecret(context: FileContext, entry: ObjectProperty) {
+function rewriteSecret(context: FileContext, entry: ObjectProperty, ambiguousLiteral: boolean) {
   const value = unwrap(entry.value)
-  const { block, output } = context
-  if (value.type === "BooleanLiteral" || value.type === "ArrowFunctionExpression" || value.type === "FunctionExpression") return
-  if (value.type === "MemberExpression" && value.object.type === "MemberExpression"
-    && value.object.object.type === "Identifier" && value.object.object.name === "process"
-    && value.object.property.type === "Identifier" && value.object.property.name === "env" && !value.object.computed) {
-    const name = value.computed ? (value.property.type === "StringLiteral" ? value.property.value : undefined) : value.property.type === "Identifier" ? value.property.name : undefined
-    if (name && variableName.test(name)) {
-      overwrite(context, value, quoteString(name, context.style))
-      return
-    }
-  }
-  // A name is the new form. Code that still passes a value, such as "token", fails closed: the variable is unset.
-  if (value.type === "StringLiteral" && variableName.test(value.value)) return
-  if (entry.shorthand || value.type === "Identifier") {
-    followUp(context, entry, "A string `secret` is now the name of the server variable that holds the secret. Pass the name, such as `secret: \"PREFECT_WEBHOOK_SECRET\"`, or a function that returns the secret.")
+  if (isSecretResolverOrFlag(value)) return
+  const name = processEnvName(value)
+  if (name) {
+    overwrite(context, value, quoteString(name, context.style))
     return
   }
-  output.prependLeft(block.offset + start(value), "() => ")
-  if (value.type === "StringLiteral" || value.type === "TemplateLiteral") {
-    followUp(context, entry, "This secret is written in the code. Move it to a server variable and set `secret` to its name, such as `secret: \"PREFECT_WEBHOOK_SECRET\"`.")
+  const literal = value.type === "StringLiteral" ? value.value : value.type === "TemplateLiteral" && !value.expressions.length ? value.quasis[0]?.value.cooked : undefined
+  if (literal !== undefined && literal !== null && variableName.test(literal)) {
+    if (ambiguousLiteral) followUp(context, entry, "Check that `secret` names a server variable. If it is a secret value, move it to a server variable and set `secret` to that variable's name.")
+    return
   }
+  if (literal !== undefined && literal !== null) {
+    followUp(context, entry, "This secret is written in the code. Move it to a server variable and set `secret` to its name, such as `secret: \"PREFECT_WEBHOOK_SECRET\"`.")
+    wrapSecret(context, entry)
+    return
+  }
+  if (isServerEnvRead(value)) {
+    wrapSecret(context, entry)
+    return
+  }
+  followUp(context, entry, "Check what `secret` returns. Pass the name of the server variable or a function that returns the secret. Keep existing secret resolvers as they are.")
+}
+
+function isSecretResolverOrFlag(value: Node): boolean {
+  return value.type === "BooleanLiteral" || value.type === "ArrowFunctionExpression" || value.type === "FunctionExpression" || value.type === "ObjectExpression"
+}
+
+function isServerEnvRead(value: Node): boolean {
+  if (value.type !== "MemberExpression" || value.computed) return false
+  const object = unwrap(value.object)
+  return isServerEnvRead(object) || (object.type === "CallExpression" && object.callee.type === "Identifier" && object.callee.name === "useServerEnv" && !object.arguments.length)
+}
+
+function wrapSecret({ block, output }: FileContext, entry: ObjectProperty) {
+  output.prependLeft(block.offset + start(entry.value), "() => ")
 }
 
 /** The `process.env` variable that `node` reads, such as `X` in `process.env.X`. */
@@ -280,7 +293,7 @@ function rewriteRegistration(context: FileContext, registration: ObjectExpressio
   const token = property(registration, "secretToken")
   if (!token) return
   const value = unwrap(token.value)
-  const { block, output, style } = context
+  const { style } = context
   const name = processEnvName(value)
   if (name) {
     overwrite(context, token, `secret: ${quoteString(name, style)}`)
@@ -290,14 +303,13 @@ function rewriteRegistration(context: FileContext, registration: ObjectExpressio
     followUp(context, token, "`secretToken` is now `secret`, and a `secret` string names the server variable that holds the secret. Move this secret to a server variable, such as `GITHUB_WEBHOOK_SECRET`, and set `secret: \"GITHUB_WEBHOOK_SECRET\"`.")
     return
   }
-  if (token.shorthand || value.type === "Identifier") {
+  const envRead = isServerEnvRead(value)
+  if (!envRead && !isSecretResolverOrFlag(value)) {
     followUp(context, token, "`secretToken` is now `secret`. Set `secret` to the name of the server variable that holds the secret, or to a function that returns it.")
     return
   }
   overwrite(context, token.key, "secret")
-  // A value that the code computes, such as `useServerEnv().github.webhookSecret`, moves into a function.
-  const computed = value.type !== "BooleanLiteral" && value.type !== "ArrowFunctionExpression" && value.type !== "FunctionExpression" && value.type !== "ObjectExpression"
-  if (computed) output.prependLeft(block.offset + start(value), "() => ")
+  if (envRead) wrapSecret(context, token)
 }
 
 /** Registrations under a `webhooks` key: one object, an array of them, or a map of them by provider, as in `chat()`. */
@@ -342,9 +354,9 @@ function rewriteWebhookOptions(context: FileContext) {
     const options = adapter && node.arguments[0] && unwrap(node.arguments[0] as Expression)
     if (options?.type !== "ObjectExpression") return
     const signature = property(options, "signature")
-    if (signature) rewriteSignature(context, signature)
+    const legacySignature = signature && rewriteSignature(context, signature)
     const secret = property(options, "secret")
-    if (secret) rewriteSecret(context, secret)
+    if (secret) rewriteSecret(context, secret, adapter === "stripe" || legacySignature === true)
     const tolerance = adapter === "stripe" ? property(options, "toleranceSeconds") : undefined
     if (tolerance) renameTolerance(context, tolerance)
   })

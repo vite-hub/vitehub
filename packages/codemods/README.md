@@ -388,7 +388,7 @@ It also moves webhook secrets and signatures to the names of Webhooks:
 | `signature: { preset: "hmac-sha256", … }` | `signature: { type: "hmac-sha256", … }` |
 | `{ preset: "stripe-sha256", toleranceSeconds: 600 }`, `stripe({ toleranceSeconds: 600 })` | `{ type: "stripe", tolerance: "600s" }`, `stripe({ tolerance: "600s" })` |
 
-A string `secret` is the name of the server variable that holds the secret, in `webhook()`, `stripe()`, and every `webhooks` registration of `channelAdapter()`, `defineChannelTrigger()`, and the chat adapters. A computed value, such as `useServerEnv().github.webhookSecret`, moves into a function. The codemod leaves a `secretToken` string, such as `secretToken: "my-secret"`, and the report lists it: move the secret to a server variable and set `secret` to its name.
+A string `secret` is the name of the server variable that holds the secret, in `webhook()`, `stripe()`, and every `webhooks` registration of `channelAdapter()`, `defineChannelTrigger()`, and the chat adapters. A direct read like `useServerEnv().github.webhookSecret` moves into a function. Existing resolvers stay intact. The report lists expressions the codemod cannot classify, `secretToken` strings, and possible hard-coded secrets on `stripe()` or with an old signature. Move hard-coded secrets to server variables and set `secret` to the variable name.
 
 ```sh
 npx @vite-hub/codemods channels [dir] [--dry-run]

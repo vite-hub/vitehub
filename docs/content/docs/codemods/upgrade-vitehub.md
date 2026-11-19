@@ -383,4 +383,4 @@ It also moves webhook secrets and signatures to the names of [Webhooks](/docs/we
 | `{ preset: 'hmac-sha256', … }` | `{ type: 'hmac-sha256', … }` |
 | `toleranceSeconds: 600` | `tolerance: '600s'` |
 
-A computed value, such as `useServerEnv().github.webhookSecret`, moves into a function. The codemod leaves a `secretToken` string, such as `secretToken: 'my-secret'`, and the report lists it: move the secret to a server variable and set `secret` to its name. Until then, the definition fails with `AGENT_WEBHOOK_OPTION_RENAMED`.
+A direct Server Env read, such as `useServerEnv().github.webhookSecret`, moves into a function. Existing resolvers stay intact. The report lists expressions the codemod cannot classify and asks you to check secret strings on `stripe()` or with an old signature. Move any hard-coded secret to a server variable and set `secret` to its name. A `secretToken` string stays unchanged and the definition fails with `AGENT_WEBHOOK_OPTION_RENAMED` until you migrate it.

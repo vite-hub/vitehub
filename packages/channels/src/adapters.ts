@@ -1,6 +1,7 @@
 import type { Duration } from "@vite-hub/runtime"
 
 import type { ChannelWebhookSecret, WebhookAdapterOptions, WebhookChannelAdapter } from "./types.ts"
+import { channelsErrorDiagnostics } from "./error-diagnostics.ts"
 
 /**
  * Receives webhooks from any HTTP sender. ViteHub checks the signature, stores the delivery, deduplicates it by
@@ -59,6 +60,9 @@ export interface StripeAdapterOptions {
  * })
  */
 export function stripe(options: StripeAdapterOptions = {}): WebhookChannelAdapter<StripeEvent> {
+  if ("toleranceSeconds" in options) {
+    throw channelsErrorDiagnostics.CHANNELS_C0011({ message: "The Stripe webhook adapter sets `toleranceSeconds`, which is now `tolerance`. Set `tolerance` to a duration, such as `tolerance: '30s'`." })
+  }
   return webhook<StripeEvent>({
     kind: "stripe",
     ...(options.path === undefined ? {} : { path: options.path }),

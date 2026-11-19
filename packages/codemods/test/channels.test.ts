@@ -154,6 +154,31 @@ describe("channels", () => {
     expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/channels/shared.ts", line: 3, message: expect.stringContaining("name of the server variable") })])
   })
 
+  it("preserves sealed secrets and reports ambiguous secret expressions without quoting them", async () => {
+    const source = [
+      "import { webhook, stripe } from 'vite-hub/channels'",
+      "webhook({ signature: 'github-sha256', secret: { unseal: () => 'fixture-value' } })",
+      "webhook({ signature: 'github', secret: await loadSecret() })",
+      "webhook({ signature: 'github', secret: loadResolver() })",
+      "webhook({ signature: 'github-sha256', secret: 'legacyToken' })",
+      "stripe({ secret: 'whsec_fixture' })",
+    ].join("\n")
+    const file = "server/channels/legacy.ts"
+    const { after, run } = await migrate({ [file]: source })
+    expect(after[file]).toBe(source.replaceAll("github-sha256", "github"))
+    expect(run.result.followUps.map(({ line }) => line)).toEqual([3, 4, 5, 6])
+    expect(JSON.stringify(run.result.followUps)).not.toMatch(/legacyToken|whsec_fixture/)
+  })
+
+  it("leaves an opaque registration secret for manual review", async () => {
+    const file = "server/channels/portal.ts"
+    const { after, run } = await migrate({
+      [file]: "import { channelAdapter } from 'vite-hub/channels'\nchannelAdapter('portal', { webhooks: { secretToken: loadResolver() } })\n",
+    })
+    expect(after[file]).toBeUndefined()
+    expect(run.result.followUps).toEqual([expect.objectContaining({ file, line: 2 })])
+  })
+
   it("moves Agent webhook registrations to secret and the Webhooks signature names", async () => {
     const { after, run } = await migrate({
       "server/channels/portal.ts": [
