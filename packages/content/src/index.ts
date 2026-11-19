@@ -533,16 +533,16 @@ export function defineContent<
   const TCollections extends ContentCollections = {},
   TPresetOptions extends object = object,
 >(options: DefineContentOptions<TPlugins, TCollections, TPresetOptions> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections> {
-  if (options.source && options.sources) throw new Error("Define either source or sources, not both.")
+  if (options.source && options.sources) throw contentErrorDiagnostics.CONTENT_SOURCE_CONFLICT()
   if (options.extends !== undefined && options.workspace !== undefined) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) sets workspace. Remove workspace, or name the Workspace in the preset options." })
+    throw contentErrorDiagnostics.CONTENT_PRESET_WORKSPACE_CONFLICT()
   }
   const { source, sources, collections, authorize, seo: seoOptions, check: checkOptions = {}, live = "auto", route = true, access, previews = false, ...sharedOptions } = options
   if (previews !== true && previews !== false && (Object(previews) !== previews || typeof previews.source !== "string")) {
     throw contentErrorDiagnostics.CONTENT_R0045({ message: "[vitehub] defineContent({ previews }) must be true, false, or { source: \"<github() Source name>\" }." })
   }
   if (live !== "auto" && live !== false) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ live }) must be 'auto' or false." })
+    throw contentErrorDiagnostics.CONTENT_LIVE_INVALID()
   }
   const { preset, ...markdownOptions } = sharedOptions.markdown ?? {}
   const customPlugins = markdownOptions.plugins ?? []
@@ -554,19 +554,19 @@ export function defineContent<
   const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)
   const workspace = options.workspace ?? presetDefaults.workspace
   if (authorize !== undefined && typeof authorize !== "function") {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
+    throw contentErrorDiagnostics.CONTENT_AUTHORIZE_INVALID()
   }
   // The app's own policy wins over the preset's, such as the CMS roles of `cms`.
   const policy = authorize ?? presetDefaults.authorize
   for (const plugin of options.plugins ?? []) {
     if (isComarkParsePlugin(plugin)) {
-      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] ${JSON.stringify(plugin.name)} is a Comark parse plugin, and defineContent({ plugins }) takes only Comark Content plugins. Pass it in defineContent({ markdown: { plugins } }).` })
+      throw contentErrorDiagnostics.CONTENT_PLUGINS_PARSE_PLUGIN({ name: plugin.name })
     }
   }
   const collectionEntries = Object.entries(collections ?? {})
   for (const [name, definition] of collectionEntries) {
     if (!isContentCollectionDefinition(definition) || !documentsRuntimeOf(definition)) {
-      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection ${JSON.stringify(name)} must be defined with documents() or singleton() from @vite-hub/content/collections.` })
+      throw contentErrorDiagnostics.CONTENT_COLLECTION_DEFINITION_INVALID({ name })
     }
   }
   for (let index = 0; index < collectionEntries.length; index++) {
@@ -574,23 +574,23 @@ export function defineContent<
     if (!isContentCollectionDefinition(definition)) continue
     for (const [otherName, otherDefinition] of collectionEntries.slice(index + 1)) {
       if (isContentCollectionDefinition(otherDefinition) && collectionPathsOverlap(definition, otherDefinition)) {
-        throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection paths ${JSON.stringify(name)} (${definition.path}) and ${JSON.stringify(otherName)} (${otherDefinition.path}) overlap.` })
+        throw contentErrorDiagnostics.CONTENT_COLLECTION_PATHS_OVERLAP({ name, path: definition.path, other: otherName, otherPath: otherDefinition.path })
       }
     }
   }
   if (collectionEntries.length && (String(workspace) !== workspace || !workspace)) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires extends: cms from vite-hub/cms, or workspace: the name of a Workspace with retained history." })
+    throw contentErrorDiagnostics.CONTENT_COLLECTIONS_WORKSPACE_MISSING()
   }
   const inputs: Record<string, ContentSourceInput | undefined> = sources ?? (source || !collectionEntries.length ? { default: source } : {})
   // `route: "public"` was the old public spelling. Name the new one instead of a generic type error.
   if ((route as unknown) === "public") {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: '[vitehub] defineContent({ route: "public" }) is now defineContent({ access: "public" }). route only turns /api/content/** on or off.' })
+    throw contentErrorDiagnostics.CONTENT_ROUTE_INVALID({ route })
   }
   if (route !== true && route !== false) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] defineContent({ route }) must be true or false, received ${JSON.stringify(route)}.` })
+    throw contentErrorDiagnostics.CONTENT_ROUTE_INVALID({ route })
   }
   if (access !== undefined && access !== "public") {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] defineContent({ access }) must be "public" when it is set, received ${JSON.stringify(access)}.` })
+    throw contentErrorDiagnostics.CONTENT_ACCESS_INVALID({ access })
   }
   // GitHub and opaque Source inputs can read with a token; require a decision before exposing their files.
   const tokenSources = Object.entries(inputs).flatMap(([name, input]) => input !== undefined && contentSourceNeedsExposureChoice(input) ? [name] : [])
@@ -605,7 +605,7 @@ export function defineContent<
       ...previews === false ? [] : ["preview URLs"],
     ]
     if (readers.length) {
-      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] ${readers.join(", ")} would serve the potentially token-backed Source ${tokenSources.map(name => JSON.stringify(name)).join(", ")} to everyone, and a github() Source or an opaque registered name, reader, or factory can read a private repository with a token. Set authorize to decide who may read (it gets action: "read"), or access: "public" when the content is public (or pass a direct non-GitHub Source definition).${route ? " route: false removes /api/content/**." : ""}` })
+      throw contentErrorDiagnostics.CONTENT_PUBLIC_SOURCE_UNDECIDED({ readers: readers.join(", "), names: tokenSources.map(name => JSON.stringify(name)).join(", "), route })
     }
   }
   // A build ships the parsed `glob()` Sources as `files()` Sources with snapshots, and the branch commit of each `github()`
@@ -654,7 +654,7 @@ export function defineContent<
     } }
   }
   const instances = Object.entries(inputs).map(([name, input]) => {
-    if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
+    if (!input) throw contentErrorDiagnostics.CONTENT_SOURCE_MISSING({ name })
     const kind = contentSourceKind(input)
     const commits = heads.commits(name, input, snapshots?.[name])
     if (commits) sourceCommits.set(name, commits)
@@ -686,7 +686,7 @@ export function defineContent<
   const collectionInstances: Array<{ instance: ComarkContent, source: ContentHistorySource }> = []
   for (const [name, definition] of collectionEntries) {
     if (Object.hasOwn(inputs, name)) {
-      throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection ${JSON.stringify(name)} has the same name as a Content source.` })
+      throw contentErrorDiagnostics.CONTENT_COLLECTION_NAME_TAKEN({ name })
     }
     const historySource = documentsRuntime!.comarkSource(name)
     // Comark parses Markdown by default. JSON and YAML collections get their parser first, so a configured plugin still wins.
@@ -786,19 +786,19 @@ export function defineContent<
   }
   function requireDocuments(): ContentCollectionsRuntime {
     if (!documentsRuntime) {
-      throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] This Content runtime has no collections. Add defineContent({ workspace, collections })." })
+      throw contentErrorDiagnostics.CONTENT_COLLECTIONS_UNDEFINED({})
     }
     return documentsRuntime
   }
   const byName = new Map(instances.map(instance => [instance.name, instance]))
   function from(name: string) {
     const instance = byName.get(name)
-    if (!instance) throw new Error(`Unknown content source ${JSON.stringify(name)}.`)
+    if (!instance) throw contentErrorDiagnostics.CONTENT_SOURCE_UNKNOWN({ name })
     return instance
   }
   function cacheForKey(key: string) {
     const instance = instances.find(candidate => key.startsWith(`${candidate.name}:`))
-    if (!instance) throw new Error(`Unknown content cache key ${JSON.stringify(key)}.`)
+    if (!instance) throw contentErrorDiagnostics.CONTENT_CACHE_KEY_UNKNOWN({ key })
     return instance.cache
   }
   const routedSources = Object.entries(inputs).flatMap(([name, input]) => {
@@ -1009,18 +1009,18 @@ export function defineContent<
     },
     async can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean> {
       if (context === null || Object(context) !== context || !contentActions.has(context.action)) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() requires { user?, actor?, action: 'read' } or { user?, actor?, collection, action: 'read-draft' | 'write' | 'publish', id? }." })
+        throw contentErrorDiagnostics.CONTENT_CAN_INPUT_INVALID({ problem: "content.can() requires { user?, actor?, action: 'read' } or { user?, actor?, collection, action: 'read-draft' | 'write' | 'publish', id? }." })
       }
       const { user = null, actor } = context
       if (user !== null && Object(user) !== user) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() user must be the Auth user object or null." })
+        throw contentErrorDiagnostics.CONTENT_CAN_INPUT_INVALID({ problem: "content.can() user must be the Auth user object or null." })
       }
       if (actor !== undefined && (actor === null || Object(actor) !== actor || String(actor.id) !== actor.id)) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() actor must be an Agent Actor with an id, or undefined." })
+        throw contentErrorDiagnostics.CONTENT_CAN_INPUT_INVALID({ problem: "content.can() actor must be an Agent Actor with an id, or undefined." })
       }
       if (context.action === "read") {
         if (context.collection !== undefined || context.id !== undefined) {
-          throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can({ action: 'read' }) takes no collection or id: it asks for the whole /api/content/** route. Use 'read-draft' for one collection." })
+          throw contentErrorDiagnostics.CONTENT_CAN_INPUT_INVALID({ problem: "content.can({ action: 'read' }) takes no collection or id: it asks for the whole /api/content/** route. Use 'read-draft' for one collection." })
         }
         if (!policy) return false
         return await policy({ user, action: "read", ...(actor === undefined ? {} : { actor }) }) === true
@@ -1124,7 +1124,7 @@ export function defineContent<
     async previewLinks(pull, linkOptions = {}) {
       if (previews === false) throw contentErrorDiagnostics.CONTENT_R0079()
       if (!Number.isSafeInteger(pull) || pull < 1) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.sources.previewLinks() needs a pull request number, received ${JSON.stringify(pull)}.` })
+        throw contentErrorDiagnostics.CONTENT_PREVIEW_PULL_INVALID({ pull })
       }
       const name = previewSource()
       const definition = heads.github(name)!

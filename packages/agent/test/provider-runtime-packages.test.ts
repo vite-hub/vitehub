@@ -49,13 +49,13 @@ async function createProject(options: {
   const codexPackageDir = join(rootDir, "node_modules", "@openai", "codex")
   if (options.codex) {
     await mkdir(join(codexPackageDir, "bin"), { recursive: true })
-    await writeFile(join(codexPackageDir, "package.json"), JSON.stringify({ name: "@openai/codex", version: "0.149.1" }))
+    await writeFile(join(codexPackageDir, "package.json"), JSON.stringify({ name: "@openai/codex", version: "0.169.0" }))
     await writeFile(join(codexPackageDir, "bin", "codex.js"), "#!/usr/bin/env node\n")
   }
   if (options.codexTarget) {
     const packageDir = join(rootDir, "node_modules", ...options.codexTarget.split("/"))
     await mkdir(packageDir, { recursive: true })
-    await writeFile(join(packageDir, "package.json"), JSON.stringify({ name: options.codexTarget, version: "0.149.1" }))
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({ name: options.codexTarget, version: "0.169.0" }))
   }
   const claudePackageDir = join(rootDir, "node_modules", "@anthropic-ai", "claude-agent-sdk")
   if (options.claude) {

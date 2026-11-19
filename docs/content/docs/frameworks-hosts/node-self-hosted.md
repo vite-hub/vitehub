@@ -185,18 +185,33 @@ there.
 
 ## Check health
 
-Set `health: true` in `vitehub()` to add `/api/_vitehub/health`. It answers
-`{ ok: true, commit }`, and with a Database it runs `SELECT 1` on each one and
-answers `503` when one fails. Point a container health check or a load
-balancer at it:
+Set `health: true` in `vitehub()` to add `/api/_vitehub/health`. It tells
+which app version, commit, and ViteHub version are live, and whether each
+Database, KV store, and Blob store of the app answers:
+
+```json
+{
+  "ok": true,
+  "version": "1.4.0",
+  "commit": "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f",
+  "vitehub": "0.1.0",
+  "checks": { "database": { "default": true }, "kv": { "default": true }, "blob": { "default": true } }
+}
+```
+
+A Database runs `SELECT 1`, and a KV or Blob store reads one key. Each check
+has 2 seconds. When one fails, the route answers `503` with `ok: false`. The
+error goes to the server log, never to the response. The
+[generated Dockerfile](#run-the-server-with-docker) checks this route. For
+your own image or a load balancer, point the health check at it:
 
 ```dockerfile [Dockerfile]
 HEALTHCHECK --interval=30s --timeout=5s \
   CMD node -e "fetch('http://127.0.0.1:3000/api/_vitehub/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 ```
 
-A Docker build context often has no `.git`. Pass the commit as `COMMIT_REF`
-or `GITHUB_SHA` at build time, or `commit` is `null`. See
+A Docker build context often has no `.git`. Pass the commit as
+`VITEHUB_BUILD_COMMIT` at build time, or `commit` is `null`. See
 [`health` options](/docs/reference/config-options#vite-integration-options).
 
 ## Run the server with systemd
@@ -285,6 +300,71 @@ MemoryMax=2G
 
 Set `TimeoutStopSec` in a drop-in when you set `VITEHUB_SHUTDOWN_DRAIN_MS` in
 `.env`, because the build cannot read that file.
+
+## Run the server with Docker
+
+A production build on the `node` host also writes `.output/Dockerfile`. It is a
+runtime image for the build output. Build the image from `.output` and run it:
+
+```bash [Terminal]
+pnpm build
+docker build -t my-app .output
+docker run --init --stop-timeout 30 -p 3000:3000 --env-file .env -v my-app-data:/app/.vitehub my-app
+```
+
+```dockerfile [.output/Dockerfile]
+FROM node:24-slim
+WORKDIR /app
+COPY . .output/
+RUN ["install","-d","-o","node","-g","node","/app","/app/.vitehub"]
+USER node
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
+EXPOSE 3000
+VOLUME ["/app/.vitehub"]
+STOPSIGNAL SIGTERM
+CMD ["node",".output/server/index.mjs"]
+```
+
+- The server runs as the `node` user in `/app`, as the systemd unit runs in
+  the project root. Relative data paths, such as `.vitehub/data`, resolve
+  there. Keep a named volume at `/app/.vitehub` for default stores such as the
+  Database and Queue. A separate `dataDir`, such as `/var/lib/app`, gets its
+  own named volume. Use all the mounts shown in the generated `docker run`
+  command when you replace a container. Do not mount over `/app` or
+  `/app/.output`; the server files there must come from the new image.
+- The image does not include `.env`. Pass Server Env with `--env-file` or `-e`.
+- Docker sends `SIGTERM` on stop, and ViteHub
+  [drains Agent work](/docs/agents/process-hosts#drain-agent-work-on-stop-signals).
+  A Dockerfile cannot set the stop timeout, so the comment at the top of the file
+  shows the build-time default: the `agent.shutdown.drainMs` budget rounded up
+  to seconds, plus 30. If you set `VITEHUB_SHUTDOWN_DRAIN_MS` at runtime, use
+  that budget instead. For example, `45000` needs `--stop-timeout 75`.
+  `--init` collects the child processes that Agents start.
+- When `health` is on, `HEALTHCHECK` calls the health route over plain HTTP.
+  It uses `NITRO_HOST` before `HOST` and `NITRO_PORT` before `PORT`. If you
+  change the container port, update `-p` to match. For TLS, a Unix socket, or
+  listener overrides in Nitro's server configuration, pass `--no-healthcheck`
+  to `docker run` or replace `HEALTHCHECK` in your own Dockerfile.
+- Nitro copies native packages, such as the libSQL binary, into
+  `.output/server/node_modules` for the build machine. When the output has
+  them, the image uses the CPU of the build machine (`--platform`) and its C
+  library family: `node:<major>-slim` for glibc, `node:<major>-alpine` for musl. A
+  build on macOS or Windows with native packages prints
+  [`VITE_HUB_DOCKERFILE_NATIVE_PACKAGES_NOT_LINUX`](/docs/development/diagnostics/vite_hub_dockerfile_native_packages_not_linux).
+  Matching the C library family does not guarantee binary compatibility. In a
+  clean checkout, install dependencies and build inside the Linux Node image
+  named by `ARG VITEHUB_NODE_IMAGE`, on the target CPU. Then build the generated
+  Dockerfile with that same image. For example, use `node:24-slim` on
+  `linux/amd64` for both steps. To pin the base, build the app in a Linux Node
+  image pinned to a digest and pass the same reference to
+  `docker build --build-arg VITEHUB_NODE_IMAGE="$NODE_IMAGE" -t my-app .output`,
+  where `NODE_IMAGE` holds that reference. Changing the runtime base alone
+  does not rebuild the native packages. If the app needs extra system libraries
+  or a different image layout, set `docker: false` and use your own Dockerfile.
+
+Each build replaces the file. To add system packages, such as `git`, start your
+own Dockerfile `FROM` the image that you built. Set `docker: false` in
+`vitehub()` to write no Dockerfile.
 
 ## Defaults on the node host
 

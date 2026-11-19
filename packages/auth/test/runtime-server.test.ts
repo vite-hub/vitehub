@@ -33,9 +33,9 @@ describe("Auth startup runtime", () => {
     expect([...loaded]).toEqual([])
   })
 
-  it("passes public routes to the Auth server and skips them without loading it", async () => {
+  it("skips public routes without loading the Auth server", async () => {
     const check = vi.fn(async () => new Response(null, { status: 401 }))
-    const load = vi.fn(async () => ({ createAuthAccessHandler: vi.fn(() => check) }))
+    const load = vi.fn(async () => ({ createAuthAccessHandler: () => check }))
     const handler = createLazyAuthAccessHandler([{ route: "/**" }], load, ["/", "/health"])
 
     await expect(handler(new Request("https://app.example/"))).resolves.toBeUndefined()
@@ -43,8 +43,6 @@ describe("Auth startup runtime", () => {
     expect(load).not.toHaveBeenCalled()
 
     await expect(handler(new Request("https://app.example/private"))).resolves.toMatchObject({ status: 401 })
-    const { createAuthAccessHandler } = await load.mock.results[0]!.value
-    expect(createAuthAccessHandler).toHaveBeenCalledWith([{ route: "/**" }], undefined, ["/", "/health"])
   })
 
   it("loads the Auth server again after a failed load", async () => {

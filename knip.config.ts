@@ -116,6 +116,7 @@ const bundledInternal: Record<string, string[]> = {
   // Operation definitions are bundled from the private owner into Runtime.
   runtime: ["@valibot/to-json-schema", "valibot"],
   schedule: ["@valibot/to-json-schema"],
+  sync: ["birpc"],
   "vite-hub": ["@valibot/to-json-schema", "birpc"],
   workflow: ["@valibot/to-json-schema", "h3", "semver"],
   workspace: ["@valibot/to-json-schema", "@vercel/nft", "birpc"],
@@ -185,8 +186,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   // The OS timer tests check the generated files with the OS tools, when the machine has them.
   schedule: { ignoreBinaries: ["plutil", "systemd-analyze"] },
   ui: {
-    // `MOTION_RECORD=<dir>` in the motion browser tests encodes the ¼× recordings with the host's ffmpeg.
-    ignoreBinaries: ["ffmpeg"],
+    // `MOTION_RECORD=<dir>` in the motion browser tests encodes the ¼× recordings with the host's ffmpeg and ffprobe.
+    ignoreBinaries: ["ffmpeg", "ffprobe"],
     // `motion-lists.browser.mjs` serves this module from git: the Console upload queue from before the motion helpers.
     ignoreUnresolved: ["/@uploads-today"],
     ignoreDependencies: [
@@ -264,6 +265,7 @@ const config: KnipConfiguration = {
     ".": {
       entry: [
         "scripts/*.mjs",
+        ".github/scripts/claim-npm-packages.mjs",
         // Root tasks come from `test/tasks.ts`, which the vite-plus plugin cannot read
         // (https://github.com/webpro-nl/knip/issues/2406).
         "test/package-metadata.mjs",

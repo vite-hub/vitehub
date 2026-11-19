@@ -31,6 +31,11 @@ function exportSource(root: string, exports: PackageExports, subpath: string): s
 /** The source file of a relative, `vite-hub/*`, `@vite-hub/agent/*`, or `@vite-hub/internal/*` specifier. */
 function sourceFile(specifier: string, importer?: string): string | undefined {
   if (specifier.startsWith(`${packageRoot}/`)) return specifier.replace(`${packageRoot}/dist/`, `${packageRoot}/src/`).replace(/\.js$/, ".ts")
+  // The generated plugin imports `@vite-hub/agent/invocations/app` by the path that vite-hub resolves.
+  if (specifier.startsWith(`${agentRoot}/dist/`)) {
+    const subpath = Object.entries(agentExports).find(([, target]) => target.import && join(agentRoot, target.import) === specifier)?.[0]
+    return subpath ? exportSource(agentRoot, agentExports, subpath) : undefined
+  }
   if (specifier.startsWith(".") && importer) return resolve(dirname(importer), specifier)
   if (specifier.startsWith("vite-hub/")) return exportSource(packageRoot, viteHubExports, `./${specifier.slice("vite-hub/".length)}`)
   if (specifier.startsWith("@vite-hub/agent/")) return exportSource(agentRoot, agentExports, `./${specifier.slice("@vite-hub/agent/".length)}`)

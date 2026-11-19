@@ -35,6 +35,7 @@ export default defineConfig({
         "ai",
         "nuxt",
         "vue",
+        "reka-ui",
         "vite",
         "@vite-hub/web-container",
         /^@vite-hub\/web-container\//,

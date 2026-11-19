@@ -163,7 +163,7 @@ it("returns RUNTIME_LEASE_FAILED when a D1 binding is not active, and reads the 
   expect(await leases.get("sync:stripe-payouts")).toEqual([expect.objectContaining({ code: "RUNTIME_LEASE_FAILED", cause: missing }), undefined])
 
   binding = createD1()
-  expect((await leases.acquire("sync:stripe-payouts", { ttl: 30 }))[1]).not.toBeNull()
+  expect(await leases.acquire("sync:stripe-payouts", { ttl: 30 })).toEqual([undefined, expect.anything()])
 })
 
 it("warns that leases in a local libSQL file are for one process only", async () => {

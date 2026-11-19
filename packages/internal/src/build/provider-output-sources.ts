@@ -1034,6 +1034,17 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
     }
     const requestedSymlinks = [...new Set([root, ...materializedSources].flatMap(path => symlinkSourcesForRequestedPath(root, path)))]
       .sort((left, right) => relative(root, left).split(sep).length - relative(root, right).split(sep).length)
+    // The trace names a module behind a requested link by its target path. Name it by its path under the link too,
+    // so the link's copy keeps the modules that a linked file imports, such as the Sandbox Task definitions that
+    // `.vitehub/sandbox-task/runtime/sandbox-task-registry.mjs` imports from its generation folder.
+    const physicalRoot = realpathSync(root)
+    materializedSources.push(...requestedSymlinks.flatMap((link) => {
+      const physicalTarget = realpathSync(link)
+      const target = pathContains(physicalRoot, physicalTarget) ? resolve(root, relative(physicalRoot, physicalTarget)) : physicalTarget
+      return materializedSources
+        .filter(source => source !== target && pathContains(target, source))
+        .map(source => resolve(link, relative(target, source)))
+    }))
     const configuredOutputClosures = nestedConfiguredRoots.flatMap((configuredRoot) => {
       const segments = relative(root, configuredRoot).split(sep)
       const ignoredIndex = segments.findIndex(segment => ignoredGeneratedDirectories.has(segment))

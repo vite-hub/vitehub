@@ -28,7 +28,6 @@ In a ViteHub app, `server/comments.ts` turns Comments on. `vitehub({ comments: t
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     console: true,
     comments: { database: 'team' },
   },
@@ -45,7 +44,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       console: true,
       comments: { database: 'team' },
     }),
@@ -63,7 +61,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       console: true,
       comments: { database: 'team' },
     }),
@@ -340,13 +337,13 @@ export const comments = defineComments({
 The route below uses two helpers of the app: the signed-in user, and the app's own rule for who may comment on a document.
 
 ```ts [server/utils/docs.ts]
-import { createError } from 'h3'
+import { HTTPError } from 'h3'
 import { auth } from 'vite-hub/auth/server'
 import type { H3Event } from 'h3'
 
 export async function requireUser(event: H3Event) {
   const session = await auth.api.getSession({ headers: event.req.headers })
-  if (!session) throw createError({ status: 401 })
+  if (!session) throw new HTTPError({ status: 401 })
   return session.user
 }
 
@@ -842,7 +839,7 @@ The Comments section of the [Console](/docs/development/console) lists the 500 t
 
 Connect the Agent to the [ViteHub MCP](/docs/development/mcp) of the Console. It runs the Comments operations of your app, such as `comments.threads` and `comments.reply`: it lists open threads, reads their page context and source files, changes the code, then replies and resolves. It acts as you, and `authorize` applies to each call. The `page` filter takes a path such as `/pricing` or a full URL of the page. When `authorize` hides threads, the list says how many and why, and `hidden` counts them.
 
-Your own MCP server can register the same tools. `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them, each with a JSON Schema and a `call(input, { user })` function.
+Your own MCP server can register the same tools. `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them, each with a JSON Schema and a `call(input, { user })` function. Pass the answer of a call to `mcpToolResult()` from the same import to get the MCP result. `comments_get_thread` sends the images attached to the thread as `image` blocks, so the Agent sees the screenshots, up to 4 MB in one answer.
 
 ::warning
 Your server must authenticate `user` before it calls a tool. Pass `null` for an anonymous caller.

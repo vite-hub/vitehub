@@ -1,10 +1,12 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const preflight = resolve(import.meta.dirname, "preflight.mjs");
+const pinnedDeno = readFileSync(resolve(import.meta.dirname, "../.deno-version"), "utf8").trim();
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
@@ -35,12 +37,12 @@ function runPreflight(path: string) {
 
 describe("contributor preflight", () => {
   it("accepts the pinned Deno version through the real entrypoint", async () => {
-    const directory = await fakeDeno("2.9.3");
+    const directory = await fakeDeno(pinnedDeno);
 
     const result = runPreflight(directory);
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toBe("Contributor prerequisites are ready. Deno 2.9.3.\n");
+    expect(result.stdout).toBe(`Contributor prerequisites are ready. Deno ${pinnedDeno}.\n`);
     expect(result.stderr).toBe("");
   });
 
@@ -52,7 +54,7 @@ describe("contributor preflight", () => {
 
     expect(result.status).toBe(1);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("Deno 2.9.3 is required");
+    expect(result.stderr).toContain(`Deno ${pinnedDeno} is required`);
     expect(result.stderr).toContain("deno was not found on PATH");
   });
 
@@ -63,7 +65,7 @@ describe("contributor preflight", () => {
 
     expect(result.status).toBe(1);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("Deno 2.9.3 is required");
+    expect(result.stderr).toContain(`Deno ${pinnedDeno} is required`);
     expect(result.stderr).toContain("found 2.8.5");
   });
 });

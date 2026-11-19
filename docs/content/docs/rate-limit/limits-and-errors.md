@@ -44,7 +44,7 @@ The build reads the policy of each `checkRateLimit()` and `requireRateLimit()` c
 | `RATE_LIMIT_R0001` | A policy is not a static object literal, or one of its values is wrong. The message names the file, line, and column. |
 | `RATE_LIMIT_R0002` | A source file does not parse while ViteHub collects policies. |
 | `RATE_LIMIT_R0003` | Two calls use the same ID with different policies. The message lists both locations. |
-| `RATE_LIMIT_R0031`, `RATE_LIMIT_R0032` | `window` is not a duration such as `10s`, `1m`, `1h`, or `1d`, or it is not greater than zero. |
+| `RATE_LIMIT_R0031`, `RATE_LIMIT_R0032` | `window` is not a string, or it is not greater than zero. A string that is not a duration, such as `10s`, `1m`, `1h`, or `1d`, fails with [`RUNTIME_DURATION_INVALID`](/docs/development/diagnostics/runtime_duration_invalid). |
 | `RATE_LIMIT_R0033`, `RATE_LIMIT_R0034` | The policy is not an object, or `limit` is not a positive integer. |
 | `RATE_LIMIT_R0035`, `RATE_LIMIT_R0036` | `enforcement` is not `'best-effort'` or `'strict'`, or `failure` is not `'allow'` or `'deny'`. |
 
@@ -69,7 +69,7 @@ The build reads the policy of each `checkRateLimit()` and `requireRateLimit()` c
 
 ## KV limits
 
-The `kv` provider counts fixed windows with one atomic `increment` for each request. The key is `rate-limit:<id>:<window ms>:<key>:<window start>` in the default KV store, and its TTL is the window, set with the first request.
+The `kv` driver counts fixed windows with one atomic `increment` for each request. The key is `rate-limit:<id>:<window ms>:<key>:<window start>` in the default KV store, and its TTL is the window, set with the first request.
 
 - Rejected requests also increment the counter, so `used` can be larger than `limit`. The manifest says `rejectedAttempts: "counted"`.
 - Each instance computes the window start from its own clock. Keep the server clocks in sync, or requests at the end of a window can count in the next one.

@@ -24,6 +24,7 @@ import { FormsLanding } from "./forms";
 import { I18nLanding } from "./i18n";
 import { RateLimitsLanding } from "./rate-limits";
 import { RealtimeLanding } from "./realtime";
+import { WebhooksLanding } from "./webhooks";
 import type { PrimitiveLanding } from "./types";
 
 export const primitiveLandings: Record<string, PrimitiveLanding> = Object.fromEntries([
@@ -53,6 +54,7 @@ export const primitiveLandings: Record<string, PrimitiveLanding> = Object.fromEn
   I18nLanding,
   RateLimitsLanding,
   RealtimeLanding,
+  WebhooksLanding,
 ].map((landing) => [landing.slug, landing]));
 
 export function getPrimitiveLanding(slug: string): PrimitiveLanding | undefined {

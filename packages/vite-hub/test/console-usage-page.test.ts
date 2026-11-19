@@ -266,6 +266,7 @@ describe("Console Usage URL state", () => {
       expect(root.querySelector("[aria-label='Usage breakdown'] [aria-pressed=true]")?.textContent).toBe("Day")
       ;[...root.querySelectorAll<HTMLElement>("[aria-label='Usage metric'] button")].find(button => /spend/i.test(button.querySelector(".usage-headline__label")?.textContent ?? ""))!.click()
       expect(replace).toHaveBeenLastCalledWith({ query: { breakdown: "time", metric: "cost", search: "deploy" } })
+      await nextTick()
       // A view change does not load the summary again.
       expect(requests).toHaveLength(requestCount)
     }

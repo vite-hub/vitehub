@@ -27,6 +27,7 @@ export default defineAppConfig({ ui: { ...vitehubTheme, dashboardNavbar: { /* Co
 3. **Use a Nuxt UI component before you build one.** `UTabs` for every tab strip, `UButton` for every button, `UBadge` for every pill, `UEmpty` for every empty state. A `<button>` styled by hand, or a `role="tab"` element, is a bug.
 4. **Use the defaults.** The theme already picks the variant and the size. Pass `variant`, `size`, or `color` only when the component docs below say to. Do not pass `:ui` to restyle a slot.
 5. **Keep weight still.** Selected and hover states change color, never font weight, so nothing moves.
+6. **Use the platform's overlays.** In Vue, use the Nuxt UI overlay (`UPopover`, `UDropdownMenu`, `UTooltip`, `UModal`), which uses reka-ui. In plain-DOM code, such as the page pill or a script in a rendered document, use `popover` with `popovertarget`, `<dialog>` with `showModal()`, and CSS anchor positioning (`position-anchor`, `position-area`, `position-try-fallbacks`). Do not write your own Escape, outside-click, focus-trap, or placement code. Why: the browser closes, layers, and returns focus the same way on every page, and a hand-made overlay gets one of those wrong. The support rules and the known exceptions are in [AGENTS.md](../AGENTS.md#native-first).
 
 `test/design-rules.test.ts` fails on a focus class, a focus CSS rule, a color literal, or a hand-made tab strip in any surface. Run it with `vp test run test/design-rules.test.ts`.
 
