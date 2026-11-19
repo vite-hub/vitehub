@@ -863,16 +863,17 @@ describe("docs Nuxt setup", () => {
 describe("docs search checks", () => {
   let appRoot = ""
   /** Runs the prerender hooks that the docs module adds to Nitro over these routes. */
-  async function prerender(docs: DocsModuleOptions, routes: Array<{ route: string, contents: string }>, appBase = "/") {
+  async function prerender(docs: DocsModuleOptions, routes: Array<{ route: string, contents: string }>, appBase = "/", root?: string) {
     hooks.clear()
     const options = await setupDocs(docs, appBase)
     // Hints go to `.vitehub/hints.json` of the app.
-    options.rootDir = mkdtempSync(join(tmpdir(), "docs-seo-hints-"))
-    roots.push(options.rootDir)
+    options.rootDir = root ?? mkdtempSync(join(tmpdir(), "docs-seo-hints-"))
+    if (!root) roots.push(options.rootDir)
     appRoot = options.rootDir
     const nitroHooks = new Map<string, Hook[]>()
     const nitro = { options: {}, hooks: { hook: (name: string, hook: Hook) => nitroHooks.set(name, [...nitroHooks.get(name) ?? [], hook]) } }
     for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
+    await callHook("nitro:build:before", nitro)
     for (const { route, contents } of routes) {
       const html = route.endsWith(".xml") ? {} : { fileName: `${route}.html`, contentType: "text/html;charset=utf-8" }
       for (const hook of nitroHooks.get("prerender:generate") ?? []) await hook({ route, contents, ...html } as never)
@@ -884,6 +885,16 @@ describe("docs search checks", () => {
     { route: "/sitemap.xml", contents: "<urlset><url><loc>http://docs.invalid/guides</loc></url></urlset>" },
     { route: "/guides", contents: "<html><head><meta http-equiv=\"refresh\" content=\"0; url=/learn\"></head><body></body></html>" },
   ]
+
+  it("clears the standalone report when auditing is disabled and warns again in the next build", async () => {
+    logger.warn.mockClear()
+    await prerender({ seoAudit: "warn" }, routes)
+    const root = appRoot
+    await prerender({ seoAudit: false }, routes, "/", root)
+    expect(JSON.parse(readFileSync(join(root, ".vitehub/hints.json"), "utf8")).hints).toEqual([])
+    await prerender({ seoAudit: "warn" }, routes, "/", root)
+    expect(logger.warn.mock.calls.filter(([message]) => String(message).includes("/guides is in the sitemap, but it redirects.")).toHaveLength(2)
+  })
 
   it.each(["error", true] as const)("stops the build on a page that fails a check when seoAudit is %s", async (seoAudit) => {
     await expect(prerender({ seoAudit }, routes)).rejects.toMatchObject({

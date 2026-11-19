@@ -1256,14 +1256,16 @@ describe("Vite schedule integration", () => {
     })
 
     it("reports a hint when the Process Runtime claims occurrences in memory", async () => {
+      const appRoot = await temporaryDirectory("vitehub-schedule-process-memory-hint-app-")
       const root = await createHourlyCleanup("vitehub-schedule-process-memory-hint-")
       const warn = vi.fn()
       const plugin = hubSchedule({ projectRoot: root, runtime: { driver: "process" } })
-      await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({ build: { outDir: "dist/client" }, command: "build", logger: { warn }, resolve: { alias: [] }, root })
+      await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({ build: { outDir: "dist/client" }, command: "build", logger: { warn }, resolve: { alias: [] }, root: appRoot })
 
       expect(warn).toHaveBeenCalledWith(expect.stringContaining("The Process Runtime claims each Schedule occurrence in memory"))
-      const report = JSON.parse(await readFile(join(root, ".vitehub", "hints.json"), "utf8"))
+      const report = JSON.parse(await readFile(join(appRoot, ".vitehub", "hints.json"), "utf8"))
       expect(report).toMatchObject({ command: "build", hints: [{ code: "SCHEDULE_PROCESS_CLAIMS_IN_MEMORY", docs: "https://vitehub.dev/docs/schedule/diagnostics/schedule_process_claims_in_memory" }] })
+      await expect(readFile(join(root, ".vitehub", "hints.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     })
 
     it("accepts the cron when host output wakes Static Schedules beside the Process Runtime", async () => {

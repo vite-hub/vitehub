@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
 import { readdir, readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
-import { reportViteHubHint } from "@vite-hub/internal/hints"
+import { reportViteHubHint, startViteHubHints } from "@vite-hub/internal/hints"
 import { invariantError } from "@vite-hub/internal/invariant"
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -828,6 +828,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     }
 
     // Nuxt types Nitro hooks only when Nitro's types load.
+    const buildingHints = () => !nuxt.options.dev && !Reflect.get(nuxt.options, "_prepare") && !Reflect.get(nuxt.options, "vitehubCliDiscovery")
+    const hintsConfig = () => ({ root: nuxt.options.rootDir, command: "build" as const, logger: useLogger("@vite-hub/docs") })
+    const startHints = () => {
+      if (buildingHints()) startViteHubHints(hintsConfig(), nuxt)
+    }
+    nuxt.hook("build:before", startHints)
+    Reflect.apply(nuxt.hook, nuxt, ["nitro:build:before", startHints])
     Reflect.apply(nuxt.hook, nuxt, ["nitro:init", (nitro: NitroInstance) => {
       const building = !nuxt.options.dev && !Reflect.get(nuxt.options, "_prepare")
       // All nitro:config hooks have run, including those registered by modules installed after the docs module.
@@ -864,8 +871,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           const problems = docsSeoProblems(pages, sitemap, { endpoints: config.mcp ? ["/mcp"] : [], siteUrl: Boolean(config.site.url) })
           if (!problems.length) return
           if (seoAudit === "error" || seoAudit === true) throw docsSeoError(problems)
-          const hints = { root: nuxt.options.rootDir, command: "build" as const, logger: useLogger("@vite-hub/docs") }
-          for (const hint of docsSeoHints(problems)) reportViteHubHint(hints, hint)
+          if (buildingHints()) for (const hint of docsSeoHints(problems)) reportViteHubHint(hintsConfig(), hint)
         })
       }
     }])
