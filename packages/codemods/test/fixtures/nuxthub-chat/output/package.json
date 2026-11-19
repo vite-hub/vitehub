@@ -26,6 +26,7 @@
     "@shikijs/langs": "^4.5.0",
     "@tanstack/charts": "^1.1.0",
     "@vercel/blob": "^2.8.2",
+    "@vite-hub/blob": "^<version>",
     "@vite-hub/database": "^<version>",
     "@vueuse/core": "^14.4.0",
     "ai": "^7.0.159",

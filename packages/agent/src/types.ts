@@ -12,6 +12,7 @@ import type { JSONSchema7 } from "json-schema"
 import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
 import type { LanguageModel } from "ai"
 import type {
+  Duration,
   MaybePromise,
   MaybeResolvable,
   ExecutionAuthority,
@@ -709,12 +710,14 @@ export type AgentTriggerInvokeResult<CALL_OPTIONS = unknown> =
   | Response
 
 /**
- * A static secret, a callback, or an object with its own `resolve` method.
- * Inherited `resolve` methods, including class prototype methods, are rejected.
- * Use an object literal or a class field such as `resolve = (context) => secret`.
- * Resolvers must return a string, a sealed Server Env secret (`{ unseal() }`), `false` to disable verification, or `undefined`.
+ * The secret of a webhook registration. A string is the name of the server variable that holds the secret, such as
+ * `"GITHUB_WEBHOOK_SECRET"`, as in Webhooks and Channels. A callback, or an object with its own `resolve` method,
+ * returns the secret for each request. Inherited `resolve` methods, including class prototype methods, are rejected.
+ * Use an object literal or a class field such as `resolve = (context) => secret`. Resolvers must return a string, a
+ * sealed Server Env secret (`{ unseal() }`), `false` to disable verification, or `undefined`. `false` accepts unsigned
+ * requests on purpose.
  */
-export type AgentWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+export type AgentWebhookSecret<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   MaybeResolvable<string | { unseal: () => string } | false | undefined, AgentCallbackContext<TRuntimeConfig>>
 
 export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
@@ -747,32 +750,33 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
   path?: string
   provider: string
   /**
-   * `"bearer"` compares `Authorization: Bearer <secretToken>` in constant time; `secretHeader` defaults to `"authorization"`.
-   * A `secretToken` that resolves to no secret is a configuration error (HTTP 500) that names the Channel.
-   */
-  /**
    * The webhook State and queue scope, used instead of `webhook:<agent>:<origin>:<registration>:`. Set it to the old
    * scope to keep accepted deliveries, cursors, and Channel State when a Channel moves to another owner, such as a
    * Channel module in `server/channels`. Trailing colons are optional. Give each registration its own scope: two
    * registrations with the same scope share one queue and one Channel State.
    */
   stateScope?: string
-  signature?: "bearer" | "github-sha256" | "stripe-sha256" | (string & {}) | {
+  /**
+   * How the request proves that the provider sent it. The names follow `defineWebhook({ signature })`. `"bearer"`
+   * compares `Authorization: Bearer <secret>` in constant time, and `secretHeader` defaults to `"authorization"`.
+   * Without `signature`, `secretHeader` carries the secret itself.
+   */
+  signature?: "bearer" | "github" | "stripe" | (string & {}) | {
     /**
      * `secretHeader` carries `prefix` followed by the HMAC-SHA256 of the raw body.
-     * `"github-sha256"` is `{ preset: "hmac-sha256", prefix: "sha256=" }`.
+     * `"github"` is `{ type: "hmac-sha256", prefix: "sha256=" }`.
      */
-    preset: "hmac-sha256"
+    type: "hmac-sha256"
     /** Digest encoding in the header. Defaults to `"hex"`, compared case-insensitively. */
     encoding?: "hex" | "base64"
     /** Text before the digest, such as `"sha256="`. Defaults to no prefix. */
     prefix?: string
-    /** How `secretToken` encodes the key. Use `"base64"` for a provider that issues a base64 key. Defaults to `"utf8"`. */
+    /** How `secret` encodes the key. Use `"base64"` for a provider that issues a base64 key. Defaults to `"utf8"`. */
     secretEncoding?: "utf8" | "base64"
   } | {
-    preset: "stripe-sha256"
-    /** Maximum age of the signed `t` timestamp in integer seconds. Must be finite and non-negative. Defaults to 300. Future timestamps pass the age check. */
-    toleranceSeconds?: number
+    type: "stripe"
+    /** Maximum age of the signed `t` timestamp, such as `"10m"`. Defaults to `"5m"`. Future timestamps pass the age check. */
+    tolerance?: Duration
   } | {
     verify: (input: {
       context?: AgentCallbackContext<TRuntimeConfig>
@@ -783,7 +787,11 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
     }) => boolean | Promise<boolean>
   }
   secretHeader?: string
-  secretToken?: AgentWebhookSecretToken<TRuntimeConfig>
+  /**
+   * The name of the server variable that holds the secret, or a function that returns the secret. A secret that
+   * resolves to nothing is a configuration error (HTTP 500) that names the Channel.
+   */
+  secret?: AgentWebhookSecret<TRuntimeConfig>
   url?: string
 }
 

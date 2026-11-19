@@ -163,8 +163,8 @@ describe("Agent inbound request bodies", () => {
       id: "github",
       provider: "github",
       secretHeader: "x-hub-signature-256",
-      secretToken: secret,
-      signature: "github-sha256",
+      secret: () => secret,
+      signature: "github",
     }], request)).resolves.toMatchObject({ verified: true })
   })
 

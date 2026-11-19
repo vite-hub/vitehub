@@ -1,6 +1,6 @@
 ---
 title: Move from a Nuxt module
-description: The codemods that move a Nuxt app from nuxt-safe-runtime-config, @t3-oss/env-nuxt, nuxt-resend, and nuxt-cron to ViteHub through vite-hub/nuxt.
+description: The codemods that move a Nuxt app from nuxt-safe-runtime-config, @t3-oss/env-nuxt, nuxt-resend, nuxt-cron, Docus, and Nuxt Content to ViteHub.
 navigation.title: Move from a Nuxt module
 navigation.order: 4
 icon: i-lucide-package
@@ -74,3 +74,51 @@ The codemod stops without edits when:
 - the app already has Schedule options,
 - the host or the jobs directory is computed, or the host is `deno`,
 - the host is Node and KV is turned off. Configure a default KV store before you retry.
+
+## docus
+
+The codemod moves a site that extends the `docus` layer to [`@vite-hub/docs`](/docs/docs-site). The pages stay in `content/`, at the same URLs.
+
+- `@vite-hub/docs/nuxt` replaces `extends: ['docus']`. The site name, URL, description, GitHub repository, and social links move to the `docs` options.
+- File names lose the `1.` order prefix, and the order moves to `navigation.order`, or to `order` in `.navigation.yml`.
+- Frontmatter keeps only the fields that `@vite-hub/docs` reads, because another field stops its build. `seo.ogImage` becomes `seo.image`, and a page without `title` takes its first `# Heading`.
+
+```diff [content/1.getting-started/2.installation.md → content/getting-started/installation.md]
+-# Installation
++---
++title: Installation
++navigation.order: 2
++---
+
+ Install the package with your package manager.
+```
+
+The report lists what you change by hand: Nuxt UI page components in Markdown, such as `::u-page-hero`, your own Markdown components in `components/content/`, and fields such as `links`.
+
+The codemod stops without writing if a destination is occupied or it cannot preserve the published pages, routes, links, or settings. Convert local Markdown file links to page URLs and migrate custom collections by hand.
+
+## nuxt-content
+
+The codemod moves the collections of `content.config.ts` to `server/content.ts`. Each collection becomes a `glob()` [Source](/docs/source) with the same files and paths:
+
+```diff [content.config.ts → server/content.ts]
+-import { defineCollection, defineContentConfig } from '@nuxt/content'
++import { defineContent } from 'vite-hub/content'
++import { glob } from 'vite-hub/source'
+
+-export default defineContentConfig({
+-  collections: {
+-    blog: defineCollection({ type: 'page', source: 'blog/**/*.md' }),
+-  },
+-})
++export default defineContent({
++  access: 'public',
++  sources: {
++    blog: glob({ cwd: 'content', include: 'blog/**/*.md', ignore: ['**/.DS_Store', '**/*.tmp', '**/*.tmp.*', '**/*~', '**/.#*', '**/~*'] }),
++  },
++})
+```
+
+`@nuxt/content` becomes `vite-hub/nuxt` in `modules`. The codemod does not rewrite `queryCollection()` or `<ContentRenderer>`, because ViteHub [Content](/docs/content) reads with `content.get(path)` and `content.list()`. The report lists each one with its line.
+
+If any Source or schema cannot be translated safely, the codemod leaves the original collections in place and reports which one needs a manual migration.
