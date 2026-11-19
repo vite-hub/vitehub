@@ -121,6 +121,35 @@ describe("pull", () => {
     expect(new Set([...first.rows, ...second.rows].map(row => row.ownerId))).toEqual(new Set(["alice"]))
   })
 
+  it("sends a snapshot of 1200 rows in pages of 500 by key, and the rows that changed meanwhile with the next pull", async () => {
+    const app = await setup()
+    await app.db.insert(todos).values(Array.from({ length: 1200 }, (_, index) => ({ id: `r${String(index).padStart(4, "0")}`, ownerId: index % 100 === 0 ? "bob" : "alice", title: "old" })))
+    const copy = new Map<string, Todo>()
+    const first = (await app.pull("alice", { paged: true })).body
+    expect(first).toMatchObject({ reset: true, more: true, after: "r0505" })
+    expect(first.rows).toHaveLength(500)
+    for (const row of first.rows) copy.set(String(row.id), row as Todo)
+
+    await app.db.update(todos).set({ title: "changed" }).where(eq(todos.id, "r0001"))
+    await app.db.delete(todos).where(eq(todos.id, "r0002"))
+    await app.db.delete(todos).where(eq(todos.id, "r0901"))
+    const held = { cursor: first.cursor, scope: first.scope.id, version: first.version, paged: true }
+    const second = (await app.pull("alice", { ...held, after: first.after! })).body
+    expect(second).toMatchObject({ reset: false, cursor: first.cursor, more: true, after: "r1011" })
+    expect(second.rows).toHaveLength(500)
+    const third = (await app.pull("alice", { ...held, after: second.after! })).body
+    expect(third).toMatchObject({ reset: false, cursor: first.cursor, more: true, after: null })
+    expect(third.rows.length).toBeLessThan(500)
+    for (const row of [...second.rows, ...third.rows]) copy.set(String(row.id), row as Todo)
+
+    const changes = (await app.pull("alice", { ...held, paged: false })).body
+    expect(changes).toMatchObject({ reset: false, more: false })
+    for (const row of changes.rows) copy.set(String(row.id), row as Todo)
+    for (const key of changes.deleted) copy.delete(key)
+    expect([...copy.values()].sort((a, b) => a.id.localeCompare(b.id))).toEqual((await app.rows()).filter(row => row.ownerId === "alice"))
+    expect(copy.get("r0001")?.title).toBe("changed")
+  })
+
   it("shows writes that server code makes with Drizzle", async () => {
     const app = await setup()
     const alice = await app.start("alice")

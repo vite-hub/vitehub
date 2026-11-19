@@ -59,7 +59,14 @@ interface SyncFailure {
 interface SyncState<TRow> {
   /** The confirmed rows with the queued writes applied on top: server rows first, then local inserts. */
   rows: readonly TRow[]
+  /** `ready` only once the store holds a complete snapshot. A snapshot in pages is `loading` until its last page. */
   status: SyncStatus
+  /**
+   * `true` once the store holds a complete snapshot from the server, with every page of it stored. It comes from the
+   * stored copy, so it stays `true` offline, after an error and after a reload. It is `false` before the first pull,
+   * while a snapshot in pages is not done, also after a reload in the middle of one, and after `clearSync()`.
+   */
+  complete: boolean
   /** The error of the last pull or push. `null` after a success. */
   error: SyncError | null
   /** The number of writes of the current account that the server did not confirm yet. */

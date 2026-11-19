@@ -92,7 +92,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-- `readValidatedBody()` returns `400` when the body lacks a `text` string.
+- The route responds with `400` when the body lacks a `text` string.
 - `{ mode: 'write' }` asks for write access. In read mode, `workspace.fs` has no `writeFile()`.
 - `writeFile()` saves the draft in the Workspace. It does not change the files in your `docs` folder.
 - `diff()` returns pending changes in the Workspace, here the new draft.

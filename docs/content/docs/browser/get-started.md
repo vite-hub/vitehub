@@ -105,16 +105,19 @@ Create `server/api/page-html.post.ts`. This route checks the request body and se
 import { defineEventHandler, readValidatedBody } from 'h3'
 import * as v from 'valibot'
 import { runBrowser } from 'vite-hub/browser'
+import { toResponse } from 'vite-hub/runtime'
 
 export default defineEventHandler(async (event) => {
   const input = await readValidatedBody(event, body => v.parse(v.object({ url: v.pipe(v.string(), v.minLength(1)) }), body))
-  return await runBrowser('page-html', input)
+  const [error, html] = await runBrowser('page-html', input)
+  if (error) return toResponse(error)
+  return html
 })
 ```
 
-- `readValidatedBody()` returns `400` if the body has no non-empty `url` string.
+- The route responds with `400` if the body has no non-empty `url` string.
 - `runBrowser('page-html', input)` runs the task by its name. ViteHub knows the input type of each task, so TypeScript checks `input`.
-- It returns a standard `Response`. If the task fails, the response has an error status and a JSON body.
+- It returns `[error, html]`. `html` is the value that the task returned. If the task fails, `toResponse(error)` answers with an error status and `{ code, why, fix }`.
 
 This route opens any URL that it gets. In this tutorial, send only the URL below. Before you deploy, add sign-in and a list of allowed URLs.
 

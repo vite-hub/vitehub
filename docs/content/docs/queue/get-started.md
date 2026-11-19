@@ -138,7 +138,7 @@ The route returns `{ "status": "queued", "messageId": "..." }`, and the dev serv
 Processing welcome job <message-id> for dev@example.com
 ```
 
-The dev server runs jobs locally without a Cloudflare account. It follows the Cloudflare rules: when the handler fails, it runs again at once, up to 4 times in total.
+The dev server runs jobs locally without a Cloudflare account. It follows the Cloudflare rules: after a retryable failure, the handler runs again at once, up to 4 attempts in total.
 
 List saved jobs, inspect one, or retry a failed job from the CLI:
 

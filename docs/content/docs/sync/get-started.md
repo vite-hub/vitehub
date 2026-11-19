@@ -147,7 +147,9 @@ export default defineSync({
 })
 ```
 
-Each user now sees only their own todos. The server sets `ownerId` on new todos, and the browser shows that value right away. Signing out of ViteHub Auth clears the local rows so the next person on the device cannot see them. With custom auth, call `clearSync()` after sign-out. See [Vue](/docs/sync/vue#accounts-and-sign-out).
+Each user now sees only their own todos. The server sets `ownerId` on new todos, and the browser shows that value right away.
+
+Clear the local rows at sign-out so the next person on the device cannot see them. ViteHub Auth does this automatically in Nuxt. In a Vue app without Nuxt, register `onSignOut(() => clearSync())` once. With custom auth, call `clearSync()` after sign-out succeeds. See [Vue](/docs/sync/vue#accounts-and-sign-out).
 
 ::
 

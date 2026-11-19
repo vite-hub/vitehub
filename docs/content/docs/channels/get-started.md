@@ -113,7 +113,7 @@ export default defineEventHandler(async () => {
 
 - `useChannel('alerts')` looks up the Channel by name.
 - `send()` passes the text and the options, here `label`, to the adapter.
-- `send()` returns `[error, receipt]`. Check `error` for input, discovery, and adapter failures. Invalid Channel Definitions or unknown names passed to `useChannel()` can throw.
+- `send()` returns `[error, receipt]`. Check `error` for input, discovery, and adapter failures. If no Channel Definition was discovered for the name, `send()` returns `[error, undefined]` with code `CHANNEL_DEFINITION_FAILED`. An empty or whitespace-only name throws immediately in `useChannel()`.
 
 Start the dev server:
 

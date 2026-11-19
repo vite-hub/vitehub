@@ -43,11 +43,14 @@ export default defineBrowser(async (
 import { defineEventHandler, readValidatedBody } from 'h3'
 import * as v from 'valibot'
 import { runBrowser } from 'vite-hub/browser'
+import { toResponse } from 'vite-hub/runtime'
 
 // Run the page-html file by its name
 export default defineEventHandler(async (event) => {
   const input = await readValidatedBody(event, body => v.parse(v.object({ url: v.string() }), body))
-  return await runBrowser('page-html', input)
+  const [error, html] = await runBrowser('page-html', input)
+  if (error) return toResponse(error)
+  return html
 })
 ```
 

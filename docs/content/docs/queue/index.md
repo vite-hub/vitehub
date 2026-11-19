@@ -119,7 +119,7 @@ export default defineConfig({
   :::
 
   :::product-feature-item{title="Failed jobs run again" icon="i-lucide-refresh-cw" to="/docs/queue/server-api#handle-failures"}
-  Queues retry failed jobs, so write handlers that are safe to run twice.
+  Queues can retry failed jobs, so write handlers that are safe to run twice.
   :::
 
   :::product-feature-item{title="Node, Cloudflare, or Vercel" icon="i-lucide-cloud-cog" to="/docs/queue/configure#drivers"}
