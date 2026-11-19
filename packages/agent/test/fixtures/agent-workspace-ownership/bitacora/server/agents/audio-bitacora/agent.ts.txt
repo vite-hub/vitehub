@@ -5,8 +5,8 @@ import { join, resolve } from 'node:path'
 import { createOpenAI } from '@ai-sdk/openai'
 import { useServerEnv } from '#vitehub/env/server'
 import { defineAgent } from 'vite-hub/agent'
-import { discord as discordChannel } from 'vite-hub/agent/channels'
-import type { DiscordAdapterOptions } from 'vite-hub/agent/channels'
+import { discord as discordChannel } from 'vite-hub/channels'
+import type { DiscordAdapterOptions } from 'vite-hub/channels'
 import { gmail, progressSummary, schedule, title, transcribe } from 'vite-hub/agent/capabilities'
 
 const codexAuth = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'auth.json')

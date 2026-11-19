@@ -451,7 +451,7 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     const pageRoot = join(repoRoot, "docs/.snippets/channel-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "channel-page.md", pageRoot })
     const snippets = [
-      snippet("server/channels/inbox.ts", "import { webChat } from 'vite-hub/agent/channels'\nimport { defineChannel } from 'vite-hub/channels'\nexport default defineChannel({ adapter: webChat() })"),
+      snippet("server/channels/inbox.ts", "import { webChat, defineChannel } from 'vite-hub/channels'\nexport default defineChannel({ adapter: webChat() })"),
       snippet("server/channels/alerts.ts", "import { defineChannel } from 'vite-hub/channels'\nexport default defineChannel({ adapter: { kind: 'log', send: (text: string) => ({ id: text }) } })"),
       snippet("outbound.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('alerts')"),
       snippet("agent.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('inbox')"),

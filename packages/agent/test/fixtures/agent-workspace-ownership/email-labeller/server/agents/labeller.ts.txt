@@ -1,6 +1,6 @@
 import { defineAgent } from 'vite-hub/agent'
 import { ask, vercel } from 'vite-hub/gateways'
-import { gmail } from 'vite-hub/agent/channels'
+import { gmail } from 'vite-hub/channels'
 import { labeller } from 'vite-hub/presets/labeller'
 import config from '../../labeller.config'
 import { gmailClient } from '../lib/gmail'

@@ -28,7 +28,7 @@ The command exits with `0` when every codemod completes, also when they report f
 vitehub migrate [dir] [--dry-run]
 ```
 
-`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, and `access-spellings`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
+`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, and `channels`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
 ## Run one codemod
 
@@ -58,6 +58,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `tsconfig-paths` | `#vitehub/*` entries of tsconfig `paths` that point into `.vitehub/` or `.nuxt/`, which ViteHub now types itself |
 | `shell-driver` | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()`. `vitehub migrate` runs it. |
 | `access-spellings` | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: "public"`. `vitehub migrate` runs it. |
+| `channels` | Imports of `vite-hub/agent/channels` to `vite-hub/channels`, and `http(options)` to `channelAdapter("http", options)`. `vitehub migrate` runs it. |
 
 ## `runtime-contracts`
 
@@ -350,6 +351,21 @@ The codemod also changes default-export objects in `server/realtime/` and `serve
 
 ```sh
 npx @vite-hub/codemods access-spellings [dir] [--dry-run]
+```
+
+## `channels`
+
+Every Channel adapter comes from one path, `vite-hub/channels`, and `webhook()` is the one generic webhook adapter:
+
+| Old | New |
+| --- | --- |
+| `import { slack } from "vite-hub/agent/channels"` | `import { slack } from "vite-hub/channels"` |
+| `http(options)` | `channelAdapter("http", options)` |
+
+The codemod joins the moved import with an earlier `vite-hub/channels` import, and it also moves re-exports, `import()` calls, and `vi.mock()` paths. The owner path `@vite-hub/agent/channels` stays. The report lists an `http` reference that is not a call.
+
+```sh
+npx @vite-hub/codemods channels [dir] [--dry-run]
 ```
 
 ## Check real apps

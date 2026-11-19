@@ -43,8 +43,7 @@ export default defineQueue<StripeEvent>({
 
 ```ts [server/channels/slack.ts]
 import { createSlackAdapter } from '@chat-adapter/slack'
-import { slack } from 'vite-hub/agent/channels'
-import { defineChannel } from 'vite-hub/channels'
+import { slack, defineChannel } from 'vite-hub/channels'
 
 // The Agent that lists "slack" answers its messages.
 export default defineChannel({
@@ -135,7 +134,7 @@ export default defineConfig({
 ::agent-only{skill="channels"}
 A Channel is one connection to a platform, defined once in `server/channels/<name>.ts` with `defineChannel({ adapter, on })` from `vite-hub/channels`. Use it for both directions: inbound webhooks go to the `on` targets (a handler, a Queue or Workflow through a handler, or a `defineChannelTrigger()`), or to the Agent that lists the Channel in `defineAgent({ channels: ['name'] })`. Outbound messages go through `useChannel(name).send()` from any server code. `sendChannelTrigger(name, trigger, input)` starts a trigger from code, such as a Schedule, with the same delivery rules as a webhook.
 
-Use `stripe()` or `webhook({ signature, secret })` from `vite-hub/channels` for HTTP senders, and `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, or `gmail()` from `vite-hub/agent/channels` for chat, forge, and mail. Files in `server/channels/` turn Channels on. Inbound Channels need `agent: true`. Keep secrets in Server Env and never parse or verify a webhook by hand. To only check the signature in a plain route, without Agents, use `verifyWebhook(event, { provider: 'stripe', secret: 'STRIPE_WEBHOOK_SECRET' })` from `vite-hub/env`.
+Import every adapter from `vite-hub/channels`: `stripe()` or `webhook({ signature, secret })` for HTTP senders, and `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, or `gmail()` for chat, forge, and mail. Files in `server/channels/` turn Channels on. Inbound Channels need `agent: true`. Keep secrets in Server Env and never parse or verify a webhook by hand. To only check the signature in a plain route, without Agents, use `verifyWebhook(event, { provider: 'stripe', secret: 'STRIPE_WEBHOOK_SECRET' })` from `vite-hub/env`.
 
 Prove one signed delivery reaching its target, one duplicate that does not run twice, and one outbound send with its receipt.
 ::

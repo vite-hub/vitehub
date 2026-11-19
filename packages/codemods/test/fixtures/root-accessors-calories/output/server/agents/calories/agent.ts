@@ -8,7 +8,7 @@ import {
   transcribe,
   usage,
 } from "vite-hub/agent/capabilities";
-import { telegram } from "vite-hub/agent/channels";
+import { telegram } from "vite-hub/channels";
 import { useServerEnv } from "vite-hub/env";
 
 // Models sometimes copy the message headers and reply lines they receive.

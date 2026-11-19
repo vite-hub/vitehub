@@ -7,7 +7,7 @@ navigation.group: Chat bots
 icon: i-simple-icons-slack
 ---
 
-Create a Slack app with the `app_mentions:read`, `chat:write`, and history scopes. Install `@chat-adapter/slack` and pass `createSlackAdapter()` to `slack()` from `vite-hub/agent/channels` in a `defineAgent()` file. Set the **Event Subscriptions** Request URL to `https://<your-app>/_vitehub/agents/<agent>/webhooks/slack`. The Agent answers direct messages and channel mentions in a thread.
+Create a Slack app with the `app_mentions:read`, `chat:write`, and history scopes. Install `@chat-adapter/slack` and pass `createSlackAdapter()` to `slack()` from `vite-hub/channels` in a `defineAgent()` file. Set the **Event Subscriptions** Request URL to `https://<your-app>/_vitehub/agents/<agent>/webhooks/slack`. The Agent answers direct messages and channel mentions in a thread.
 
 ## What a ViteHub Slack bot is
 
@@ -139,7 +139,7 @@ The Agent runs each reply inline in the server process.
 import { createSlackAdapter } from '@chat-adapter/slack'
 import { defineAgent } from 'vite-hub/agent'
 import { access } from 'vite-hub/agent/capabilities'
-import { slack } from 'vite-hub/agent/channels'
+import { slack } from 'vite-hub/channels'
 
 const allowedUsers = new Set(['slack:U0123456789'])
 

@@ -316,7 +316,7 @@ describe("built-in host integration", () => {
       await mkdir(join(agentRoot, "server", "agents"), { recursive: true })
       await writeFile(join(agentRoot, "server", "agents", "support.ts"), [
         `import { defineAgent } from "vite-hub/agent"`,
-        `import { telegram } from "vite-hub/agent/channels"`,
+        `import { telegram } from "vite-hub/channels"`,
         `export default defineAgent({ channels: { telegram: telegram() } })`,
       ].join("\n"))
       const rootPlugin = {
@@ -415,7 +415,7 @@ describe("built-in host integration", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), [
         `import { defineAgent } from "vite-hub/agent"`,
-        `import { github, telegram } from "vite-hub/agent/channels"`,
+        `import { github, telegram } from "vite-hub/channels"`,
         `export default defineAgent({ channels: { repo: github(), telegram: telegram({ mode: "webhook" }) } })`,
       ].join("\n"))
       const resolve = (server?: EnvRuntimeConfigOptions) => resolveConfig({
@@ -452,7 +452,7 @@ describe("built-in host integration", () => {
 
       await writeFile(join(root, "server", "agents", "support.ts"), [
         `import { defineAgent } from "vite-hub/agent"`,
-        `import { telegram } from "vite-hub/agent/channels"`,
+        `import { telegram } from "vite-hub/channels"`,
         `interface Helpers { telegram(): void }`,
         `const helpers = { telegram() {} }`,
         `class Tools { telegram() {} }`,
@@ -489,8 +489,8 @@ describe("built-in host integration", () => {
       ]) {
         await writeFile(join(root, "server", "agents", "support.ts"), [
           `import { defineAgent } from "vite-hub/agent"`,
-          `import { telegram } from "vite-hub/agent/channels"`,
-          `import * as channelFactories from "vite-hub/agent/channels"`,
+          `import { telegram } from "vite-hub/channels"`,
+          `import * as channelFactories from "vite-hub/channels"`,
           source,
           // The build reads the default export of every Agent file. Server Env discovery reads every defineAgent() call.
           `export default {}`,
@@ -501,7 +501,7 @@ describe("built-in host integration", () => {
       await rm(join(root, "server", "agents", "support.ts"))
       await writeFile(join(root, "server", "agents", "support.js"), [
         `import { defineAgent } from "vite-hub/agent"`,
-        `import { telegram } from "vite-hub/agent/channels"`,
+        `import { telegram } from "vite-hub/channels"`,
         `const compared = telegram < Runtime > ({ botToken: "token" })`,
         `export default defineAgent({ channels: {} })`,
       ].join("\n"))
@@ -511,7 +511,7 @@ describe("built-in host integration", () => {
       await rm(join(root, "server", "agents", "support.js"))
 
       await writeFile(join(root, "server", "agents", "support.ts"), [
-        `import { telegram } from "vite-hub/agent/channels"`,
+        `import { telegram } from "vite-hub/channels"`,
         `const defineAgent = (options) => options`,
         `export default defineAgent({ channels: { support: telegram } })`,
       ].join("\n"))

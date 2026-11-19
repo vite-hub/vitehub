@@ -1059,7 +1059,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         `, "utf8"),
         writeFile(join(appDir, "server/agents/disabled.ts"), `
           import { defineAgent } from "vite-hub/agent"
-          import { webChat } from "vite-hub/agent/channels"
+          import { webChat } from "vite-hub/channels"
 
           export default defineAgent({
             channels: { web: webChat({ route: false }) },
@@ -1069,7 +1069,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "server/agents/contract.ts"), `
           import { defineAgent } from "vite-hub/agent"
           import { progressSummary, title } from "vite-hub/agent/capabilities"
-          import { webChat } from "vite-hub/agent/channels"
+          import { webChat } from "vite-hub/channels"
 
           class HybridResult {
             async *[Symbol.asyncIterator]() {

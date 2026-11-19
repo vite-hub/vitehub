@@ -166,7 +166,7 @@ A Channel starts an Invocation from a message, such as a GitHub pull request com
 
 ```ts [server/agents/coder.ts]
 import { claudeCodeDriver, defineAgent } from 'vite-hub/agent'
-import { github } from 'vite-hub/agent/channels'
+import { github } from 'vite-hub/channels'
 import { anthropic } from 'vite-hub/gateways'
 
 export default defineAgent({

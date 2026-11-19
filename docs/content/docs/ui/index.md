@@ -80,7 +80,7 @@ The page Capability lets a server Agent read and change the page that the person
 ```ts [server/agents/settings.ts]
 import { defineAgent } from "vite-hub/agent"
 import { page } from "vite-hub/agent/capabilities"
-import { webChat } from "vite-hub/agent/channels"
+import { webChat } from "vite-hub/channels"
 
 export default defineAgent({
   capabilities: [page({ requireApproval: [{ label: "Save changes" }] })],

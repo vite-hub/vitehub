@@ -100,7 +100,7 @@ describe("Agent Workspace discovery", () => {
     ["a const reference name", "const name = 'shared'\nexport default defineAgent({ workspace: { name } })"],
     ["a const Workspace reference", "const name = 'shared'\nconst reference = { name, mode: 'write' }\nexport default defineAgent({ workspace: reference })"],
     ["a Workspace reference", "export default defineAgent({ workspace: { name: 'shared', mode: 'write' } })"],
-    ["a GitHub pull request Channel", "import { github } from 'vite-hub/agent/channels'\nexport default defineAgent({ channels: { github: github({ pullRequest: true }) } })"],
+    ["a GitHub pull request Channel", "import { github } from 'vite-hub/channels'\nexport default defineAgent({ channels: { github: github({ pullRequest: true }) } })"],
     ["a parent with a Workspace", "const parent = defineAgent({ workspace: {} })\nexport default defineAgent({ extends: parent })"],
     ["a local defineAgent", "function defineAgent(options) { return options }\nexport default defineAgent({ workspace: {} })"],
     ["defineAgent from another package", "import { defineAgent } from 'other'\nexport default defineAgent({ workspace: {} })"],
@@ -216,7 +216,7 @@ describe("Agent plugin", () => {
     }
     const sources = {
       docs: "import { defineAgent } from 'vite-hub/agent'\nexport default defineAgent({ workspace: {} })",
-      review: "import { defineAgent } from 'vite-hub/agent'\nimport { github } from 'vite-hub/agent/channels'\nexport default defineAgent({ channels: { github: github({ pullRequest: true }) } })",
+      review: "import { defineAgent } from 'vite-hub/agent'\nimport { github } from 'vite-hub/channels'\nexport default defineAgent({ channels: { github: github({ pullRequest: true }) } })",
       support: "import { defineAgent } from 'vite-hub/agent'\nexport default defineAgent({ driver: { model: 'model' } })",
     }
     await mkdir(join(agents, "docs"), { recursive: true })

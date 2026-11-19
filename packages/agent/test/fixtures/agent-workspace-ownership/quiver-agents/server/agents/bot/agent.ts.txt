@@ -1,5 +1,5 @@
 import { defineAgent } from 'vite-hub/agent'
-import { teams } from 'vite-hub/agent/channels'
+import { teams } from 'vite-hub/channels'
 import { browser, git, inputCommands, mcp, title, usage } from 'vite-hub/agent/capabilities'
 import { useRuntimeConfig } from 'nitro/runtime-config'
 import { cliproxy, cloudflareAccess } from 'vite-hub/gateways'

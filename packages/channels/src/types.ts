@@ -168,7 +168,7 @@ export interface ChannelHandlerContext {
 export type ChannelHandler<TData = unknown> = (event: ChannelEvent<TData>, context: ChannelHandlerContext) => unknown
 
 /**
- * A trigger from `defineChannelTrigger()` in `vite-hub/agent/channels`. It decides the delivery ID, `serialize`,
+ * A trigger from `defineChannelTrigger()` in `vite-hub/channels`. It decides the delivery ID, `serialize`,
  * `debounce`, and the task or Agent that runs each delivery.
  */
 export interface ChannelTrigger {
@@ -187,7 +187,7 @@ type AdapterEventData<TAdapter> = TAdapter extends WebhookChannelAdapter<infer T
 export interface ChannelExtensionOptions {}
 
 export interface ChannelDefinitionOptions<TAdapter extends ChannelAdapter<never, never> = ChannelAdapter<never, never>> extends ChannelExtensionOptions {
-  /** The connection, such as `stripe()`, `webhook()`, `slack()` from `vite-hub/agent/channels`, or `{ kind, send }`. */
+  /** The connection, such as `stripe()`, `webhook()`, `slack()` from `vite-hub/channels`, or `{ kind, send }`. */
   adapter: TAdapter
   /** Inbound targets by event name: a handler, or a trigger from `defineChannelTrigger()`. */
   on?: Record<string, ChannelTarget<AdapterEventData<TAdapter>>>

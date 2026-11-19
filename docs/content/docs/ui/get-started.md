@@ -166,7 +166,7 @@ Give an Agent the page Capability. A model string goes through Vercel AI Gateway
 ```ts [server/agents/settings.ts]
 import { defineAgent } from "vite-hub/agent"
 import { page } from "vite-hub/agent/capabilities"
-import { webChat } from "vite-hub/agent/channels"
+import { webChat } from "vite-hub/channels"
 
 export default defineAgent({
   capabilities: [page()],

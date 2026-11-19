@@ -52,7 +52,7 @@ const agentFile = `import { simulateReadableStream } from "ai"
 import { MockLanguageModelV3 } from "ai/test"
 import { defineAgent } from "vite-hub/agent"
 import { page } from "vite-hub/agent/capabilities"
-import { webChat } from "vite-hub/agent/channels"
+import { webChat } from "vite-hub/channels"
 import { authenticated } from "vite-hub/auth/agent"
 
 const prompts = ${JSON.stringify(prompts)}

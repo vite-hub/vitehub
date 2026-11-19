@@ -23,18 +23,16 @@ A Channel is one connection in `server/channels/<name>.ts`, defined with `define
 
 ## Add a Channel
 
-Define the Channel in `server/channels`, with an adapter from `vite-hub/agent/channels`. Then list its name in the Agent.
+Define the Channel in `server/channels`, with an adapter from `vite-hub/channels`. Then list its name in the Agent.
 
 ```ts [server/channels/portal.ts]
-import { webChat } from 'vite-hub/agent/channels'
-import { defineChannel } from 'vite-hub/channels'
+import { webChat, defineChannel } from 'vite-hub/channels'
 
 export default defineChannel({ adapter: webChat() })
 ```
 
 ```ts [server/channels/github.ts]
-import { github } from 'vite-hub/agent/channels'
-import { defineChannel } from 'vite-hub/channels'
+import { github, defineChannel } from 'vite-hub/channels'
 
 export default defineChannel({ adapter: github() })
 ```
@@ -54,10 +52,10 @@ The Agent answers the messages of each Channel that it lists. A Channel sends it
 
 The server bundle contains only the adapters that you import, so an Agent with only `webChat()` does not ship the Discord or Teams adapters. Every Channel also answers webhooks at `/_vitehub/channels/<name>`.
 
-Built-in adapters include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/docs/agents/forge-channels), [`gmail()`](/docs/agents/gmail), `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `channelAdapter(kind, options)` for a platform without a built-in adapter, such as your own Chat SDK adapter.
+Built-in adapters include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/docs/agents/forge-channels), [`gmail()`](/docs/agents/gmail), `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `channelAdapter(kind, options)` for a platform without a built-in adapter, such as your own Chat SDK adapter.
 
 - `webChat()` adds a generated AI SDK chat route by default.
-- `http()` is a generic HTTP Channel. Its route stays off until `http({ route: true })`.
+- `webhook()` receives webhooks from any HTTP sender. See [Channels](/docs/channels).
 - `teams()` tells the Agent to cite sources as descriptive Markdown links to verified URLs. A native web citation that the Chat SDK cannot resolve shows `[source link unavailable]`, also while streaming. Codex app-server gives no citation-ID-to-URL map, so those links cannot be recovered. Ordinary links stay as they are.
 
 ## Try Channels without credentials
@@ -121,7 +119,7 @@ Simulation applies to every app in the same Node.js process. To simulate only on
 Built-in chat Channels answer in a shared channel only when mentioned. To also answer human messages in threads the Agent follows (subscribed threads), set `messages.replyToSubscribedThreads: true` on the Agent or one Channel:
 
 ```ts
-import { teams } from 'vite-hub/agent/channels'
+import { teams } from 'vite-hub/channels'
 
 teams({
   messages: {
@@ -140,7 +138,7 @@ teams({
 Built-in chat Channels ignore bot messages, also mentions and direct messages, so two bots cannot answer each other forever. The Chat SDK already skips the Agent's own messages. To accept other bots, set `messages.allowBots: true` on the Agent or one Channel:
 
 ```ts
-import { teams } from 'vite-hub/agent/channels'
+import { teams } from 'vite-hub/channels'
 
 teams({
   messages: {
@@ -170,7 +168,7 @@ Each message that a chat Channel receives has a delivery record. `vitehub channe
 With `messages.concurrency: 'steer'`, a new message can redirect (steer) the active Invocation. Only the invoker (who started it) can steer by default. Others wait and start their own Invocation. To let others in the thread steer, set `messages.steerFromParticipants: true`:
 
 ```ts
-import { teams } from 'vite-hub/agent/channels'
+import { teams } from 'vite-hub/channels'
 
 teams({
   messages: {
@@ -199,7 +197,7 @@ Hooks let the Agent act on the message that started it, for example to label an 
 
 ```ts [server/agents/labeller.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
-import { channelAdapter, defineChannelTrigger } from 'vite-hub/agent/channels'
+import { channelAdapter, defineChannelTrigger } from 'vite-hub/channels'
 import * as v from 'valibot'
 import { applyLabels, readEmail } from '../lib/mailbox'
 
@@ -277,8 +275,7 @@ Set `webhooks.path` to choose the webhook URL. On Nitro hosts, it is served next
 A Channel with the `webhook()` or `stripe()` adapter from `vite-hub/channels` does not need an Agent. Put it in `server/channels/<name>.ts` and ViteHub serves `/_vitehub/channels/<name>`, plus the adapter's `path` and `aliases`. A trigger selects the Agent that runs with a [task](/docs/agents/triggers):
 
 ```ts [server/channels/tickets/index.ts] fragment
-import { defineChannelTrigger } from 'vite-hub/agent/channels'
-import { defineChannel, webhook } from 'vite-hub/channels'
+import { defineChannelTrigger, defineChannel, webhook } from 'vite-hub/channels'
 import { ticketEvent } from './events'
 
 export default defineChannel({
@@ -502,7 +499,7 @@ A transcript keeps messages after the provider forgets them. With durable Agent 
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { telegram } from 'vite-hub/agent/channels'
+import { telegram } from 'vite-hub/channels'
 
 export default defineAgent({
   driver: { model: 'openai/gpt-5.1-mini' },
@@ -599,7 +596,7 @@ export async function applyLabels(id: string, labels: string[]) {
 
 ```ts [server/agents/labeller.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { channelAdapter, defineChannelTrigger } from 'vite-hub/agent/channels'
+import { channelAdapter, defineChannelTrigger } from 'vite-hub/channels'
 import { defineCollection } from 'vite-hub/source'
 import * as v from 'valibot'
 import { applyLabels, listEmails } from '../lib/mailbox'
@@ -830,7 +827,7 @@ Updates keep their order within one process. Across concurrent hosts, GitHub del
 
 ```ts [server/agents/reviewer.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { github } from 'vite-hub/agent/channels'
+import { github } from 'vite-hub/channels'
 
 export default defineAgent({
   channels: {
@@ -876,7 +873,7 @@ Reconcile lets PR events, such as a push, start the Agent. `pullRequest: true` a
 
 ```ts [server/agents/reviewer.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
-import { github } from 'vite-hub/agent/channels'
+import { github } from 'vite-hub/channels'
 
 export default defineAgent({
   channels: {
@@ -958,7 +955,7 @@ A `reconcile.triggers` entry always starts the Agent. To run your own code inste
 
 ```ts [server/agents/reviewer.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
-import { github, githubPullRequestTrigger, ignored } from 'vite-hub/agent/channels'
+import { github, githubPullRequestTrigger, ignored } from 'vite-hub/channels'
 
 export default defineAgent({
   channels: {
@@ -1028,7 +1025,7 @@ Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in 
 
 ```ts [server/agents/reviewer.ts] fragment
 import { codexDriver, defineAgent } from 'vite-hub/agent'
-import { github } from 'vite-hub/agent/channels'
+import { github } from 'vite-hub/channels'
 
 export default defineAgent({
   channels: {
@@ -1104,7 +1101,7 @@ Chat and webhook routes accept at most 1 MiB by default. `route.maxBodyBytes` lo
 
 ```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
-import { webChat } from 'vite-hub/agent/channels'
+import { webChat } from 'vite-hub/channels'
 
 export default defineAgent({
   channels: {
@@ -1132,7 +1129,7 @@ A browser can reconnect to an active response. Set `resume: true` in `useChat()`
 
 ```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
-import { webChat } from 'vite-hub/agent/channels'
+import { webChat } from 'vite-hub/channels'
 
 export default defineAgent({
   channels: {
@@ -1165,7 +1162,7 @@ Adapter Channels connect Discord, Slack, Teams, Telegram, and similar platforms 
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { discord } from 'vite-hub/agent/channels'
+import { discord } from 'vite-hub/channels'
 
 export default defineAgent({
   channels: {
@@ -1203,7 +1200,7 @@ For Telegram, ViteHub can own the verified webhook route and register it after d
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { telegram } from 'vite-hub/agent/channels'
+import { telegram } from 'vite-hub/channels'
 
 export default defineAgent({
   channels: {
@@ -1303,7 +1300,7 @@ A Capability gives the Agent an ability, such as API tools. Channel Capabilities
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { openapi } from 'vite-hub/agent/capabilities'
-import { teams, webChat } from 'vite-hub/agent/channels'
+import { teams, webChat } from 'vite-hub/channels'
 
 const portalApi = openapi({
   cli: { name: 'portal-api' },
@@ -1328,7 +1325,7 @@ Channel `instructions` apply only to Invocations that the Channel starts. They c
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { github } from 'vite-hub/agent/channels'
+import { github } from 'vite-hub/channels'
 
 export default defineAgent({
   channels: {

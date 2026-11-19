@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, and `access-spellings`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, and `channels`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -322,3 +322,23 @@ The codemod also changes default-export objects in `server/realtime/` and `serve
 A Realtime definition with both `auth: true` and `authorize()` stays as it is, and the report lists it. `authorize()` now also runs for signed-out callers, with `user: null`, so remove `auth` and return `false` when `user` is `null`. Until then, the server rejects the definition with [`REALTIME_INVALID_ACCESS`](/docs/realtime/limits-and-errors#realtime_invalid_access).
 
 If your browser app and Realtime API use different origins, keep the app origin in the Auth Definition's `trustedOrigins`. With no custom `identify()` or `origins()`, `authorize()` uses the same Auth origin check as `authorize: true`. Do not add `origins()` to pass the Auth session: an origin admitted by that hook does not get the session user.
+
+## channels
+
+`channels` moves Channel imports to one path. Every adapter, such as `slack()`, `github()`, `stripe()`, and `webhook()`, now comes from `vite-hub/channels`. `http()` is gone: `webhook()` is the one generic webhook adapter, and `channelAdapter("http", options)` keeps an old `http()` Channel as it was.
+
+```bash [Terminal]
+npx @vite-hub/codemods channels [dir] [--dry-run]
+```
+
+```diff [server/agents/support.ts]
+-import { http, slack } from 'vite-hub/agent/channels'
++import { channelAdapter, slack } from 'vite-hub/channels'
+
+ export default defineAgent({
+-  channels: { portal: http({ route: true }), slack: slack() },
++  channels: { portal: channelAdapter('http', { route: true }), slack: slack() },
+ })
+```
+
+The codemod joins the moved import with an earlier `vite-hub/channels` import. It also moves re-exports, `import()` calls, and `vi.mock()` paths. The owner path `@vite-hub/agent/channels` stays. The report lists an `http` reference that is not a call.
