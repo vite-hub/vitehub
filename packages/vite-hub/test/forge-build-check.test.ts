@@ -6,6 +6,7 @@ import { createBuilder } from "vite"
 import { expect, it, vi } from "vitest"
 
 import { vitehub } from "../src/index.ts"
+import type { ViteHubOptions } from "../src/plugins.ts"
 
 import type { OptionalFeature } from "../src/internal/optional-owners.ts"
 
@@ -24,22 +25,28 @@ vi.mock("../src/internal/optional-owners.ts", async (importOriginal) => {
 
 const packages = resolve(import.meta.dirname, "../..")
 
-async function build(route: string): Promise<void> {
+async function build(route: string, options?: ViteHubOptions, definition?: string): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-forge-build-check-"))
   try {
     await mkdir(join(root, "node_modules/@vite-hub"), { recursive: true })
-    await symlink(join(packages, "source"), join(root, "node_modules/@vite-hub/source"), "dir")
+    for (const owner of ["agent", "source", "workspace"]) {
+      await symlink(join(packages, owner), join(root, `node_modules/@vite-hub/${owner}`), "dir")
+    }
     await symlink(join(packages, "vite-hub"), join(root, "node_modules/vite-hub"), "dir")
     await symlink(join(packages, "vite-hub/node_modules/h3"), join(root, "node_modules/h3"), "dir")
     await mkdir(join(root, "server/routes"), { recursive: true })
     await mkdir(join(root, "docs"), { recursive: true })
     await writeFile(join(root, "docs/intro.md"), "# Intro\n")
     await writeFile(join(root, "server/routes/docs.ts"), route)
+    if (definition) {
+      await mkdir(join(root, "server/workspaces"), { recursive: true })
+      await writeFile(join(root, "server/workspaces/docs.ts"), definition)
+    }
     const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
     const builder = await createBuilder({
       logLevel: "silent",
       root,
-      plugins: [vitehub({ host: "cloudflare", env: false }), nitro() as never],
+      plugins: [vitehub({ host: "cloudflare", env: false, ...options }), nitro() as never],
     } as Parameters<typeof createBuilder>[0])
     await builder.buildApp()
   }
@@ -67,4 +74,31 @@ it("builds an app that imports vite-hub/source without github()", async () => {
     "export default async () => await docs.getKeys({})",
     "",
   ].join("\n"))).resolves.toBeUndefined()
+}, 120_000)
+
+it("builds a route that uses an inline memory Workspace without Forge", async () => {
+  await expect(build(`
+    import { createWorkspace, defineWorkspace } from 'vite-hub/workspace'
+    const docs = createWorkspace({ name: 'docs', ...defineWorkspace({ store: { driver: 'memory' } }) })
+    export default async () => await docs.list()
+  `)).resolves.toBeUndefined()
+}, 120_000)
+
+it("builds a route that uses a Web Chat Agent without Forge", async () => {
+  await expect(build(`
+    import { defineAgent } from 'vite-hub/agent'
+    import { webChat } from 'vite-hub/agent/channels'
+    const agent = defineAgent({ channels: { web: webChat() }, driver: { run: () => 'ok' } })
+    export default () => Object.keys(agent.channels)
+  `)).resolves.toBeUndefined()
+}, 120_000)
+
+it("requires Forge when a discovered Workspace selects the GitHub store", async () => {
+  await expect(build("export default () => 'ok'", { workspace: true }, `
+    import { defineWorkspace } from 'vite-hub/workspace'
+    export default defineWorkspace({ store: { driver: 'github', repo: 'vite-hub/vitehub' } })
+  `)).rejects.toMatchObject({
+    code: "VITE_HUB_R0136",
+    message: expect.stringContaining("pnpm add @vite-hub/forge"),
+  })
 }, 120_000)

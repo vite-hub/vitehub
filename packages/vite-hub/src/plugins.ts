@@ -1904,10 +1904,11 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
     ))
   }
   if (options.workspace) {
-    // SAFETY: ViteHub supplies its internal hosting context in addition to the public Workspace options.
+    // SAFETY: ViteHub supplies its internal hosting and dependency checks in addition to the public Workspace options.
     plugins.push(requireOptionalOwner(ownerModules.workspaceVite, "workspace").hubWorkspace({
       ...(options.workspace === true ? {} : options.workspace),
       hosting: plan.nitroPreset,
+      assertGitHubStoreAvailable: () => assertFeaturePackages(["forge"]),
     } as WorkspaceOptions))
   }
   if (options.seo?.sitemap || options.seo?.robots) plugins.push(viteHubSeoPlugin(options.seo, typeof options.publicUrl === "string" ? normalizePublicUrl(options.publicUrl) : undefined))
