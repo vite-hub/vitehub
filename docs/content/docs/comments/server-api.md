@@ -348,7 +348,9 @@ const src = transport.attachmentUrl(thread.messages[0].attachments[0])
 | `credentials` | `same-origin` | Sends the session cookie. |
 | `fetch` | `globalThis.fetch` | For tests or a server. |
 
-A failed request throws a diagnostic with the response's `code`, `fix`, and `status`. Its `message` is the `why`. `commentAttachmentUrl(key, base?)` builds the same URL as `transport.attachmentUrl()`. The overlay uses the same code.
+`files` in `create` and `reply` go to `POST /attachments` first, one request each, and their keys to `attachments`. To keep comments that are written offline, see [Write comments offline](/docs/comments/offline).
+
+A failed request throws a diagnostic with the response's `code`, `fix`, and `status`, and `retryAfter` in milliseconds when the answer has `Retry-After`. Its `message` is the `why`. `commentAttachmentUrl(key, base?)` builds the same URL as `transport.attachmentUrl()`. The overlay uses the same code.
 
 ## Content field addresses
 
