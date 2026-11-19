@@ -33,6 +33,16 @@ afterEach(async () => {
 })
 
 describe("hubChannels", () => {
+  it("limits the registry to the configured root instead of the host server directories", async () => {
+    const root = await createTempProject()
+    const expected = await writeChannel(root, "custom/server/channels/alerts.ts")
+    await writeChannel(root, "server/channels/ignored.ts")
+    const plugin = hubChannels({ projectRoot: "custom" })
+    const config = { root, configFile: false as const, plugins: [plugin], [VITEHUB_SERVER_DIRS]: [join(root, "server")] }
+    await resolveConfig(config, "serve")
+    expect(plugin.api.getDefinitions().map(definition => definition.handler)).toEqual([expected])
+  })
+
   it("aliases the discovered Channel registry into Nitro builds", async () => {
     const root = await createTempProject()
     const definition = await writeChannel(root, "server/channels/alerts.ts")

@@ -123,6 +123,8 @@ export default defineChannel({
 - `webhook()` checks the secret in the `Authorization: Bearer <secret>` header.
 - `on.webhook` runs the handler for each delivery. `webhook` is the default event name.
 
+Stop the dev server and run `pnpm dev` again. ViteHub enables the webhook host at startup when it finds your first inbound Channel.
+
 Every Channel that receives webhooks has the route `/_vitehub/channels/<name>`. Send the same body twice:
 
 ```bash [commands/webhook]

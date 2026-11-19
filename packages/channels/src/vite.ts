@@ -148,7 +148,7 @@ export function hubChannels(options: ChannelsOptions = {}): ChannelsVitePlugin {
       const configuredServerDirs = Object.hasOwn(config, VITEHUB_SERVER_DIRS)
         ? (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
         : undefined
-      serverDirs = configuredServerDirs ?? serverDirs
+      serverDirs = options.projectRoot ? undefined : configuredServerDirs ?? serverDirs
       if (hasNitroConfigContext(config)) {
         const root = resolveViteHubProjectRoot(resolve(config.root || process.cwd()), { projectRoot: options.projectRoot })
         const nitroDefinitions = discoverChannelDefinitions({ rootDir: root, serverDirs })

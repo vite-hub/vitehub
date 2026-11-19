@@ -1751,6 +1751,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     }
     plugins.push(requireOptionalOwner(ownerModules.agentVite, "agent").hubAgent({
       ...agentOptions,
+      channelProjectRoot: typeof options.channels === "object" ? options.channels.projectRoot : undefined,
       kvImport: "vite-hub/kv",
       processDiscordGateway: plan.host === "node",
       providerImportAliases,
@@ -2025,7 +2026,7 @@ export function viteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const create = (resolved: ViteHubOptions) => withCmsPresetPlugins(withComments(resolved), variant => withPrintedDiagnostics(createViteHubPlugins(variant)))
   // A framework integration that knows the project root, such as Nuxt, resolves the Definition features itself.
   if (featureOptionsResolved(options)) return create(options)
-  const project = { projectRoot: resolveViteHubProjectRoot(process.cwd()) }
+  const project = { projectRoot: resolveViteHubProjectRoot(process.cwd()), viteRoot: process.cwd() }
   try {
     const resolved = resolveDefinitionFeatures(options, project)
     if (resolved !== options) return [...create(resolved), definitionFeaturesRootPlugin(options, project)]
