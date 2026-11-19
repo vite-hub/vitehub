@@ -5,7 +5,7 @@ import { dirname, join, posix } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { env } from "@vite-hub/env"
-import * as esbuild from "@vite-hub/internal/build/esbuild"
+import * as rolldown from "@vite-hub/internal/build/rolldown"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
@@ -161,8 +161,8 @@ describe("hubEmail", () => {
         },
       },
     })
-    const bundle = esbuild.bundleEsmEntry
-    const bundler = vi.spyOn(esbuild, "bundleEsmEntry").mockImplementationOnce((entry, output, options) =>
+    const bundle = rolldown.bundleEsmEntry
+    const bundler = vi.spyOn(rolldown, "bundleEsmEntry").mockImplementationOnce((entry, output, options) =>
       bundle(entry, output, {
         ...options,
         alias: { [fileURLToPath(new URL("../src/drivers/resend.ts", import.meta.url))]: driver },
@@ -535,8 +535,8 @@ describe("hubEmail", () => {
     const started = new Promise<void>((resolve) => { signalStarted = resolve })
     let resume!: () => void
     const resumed = new Promise<void>((resolve) => { resume = resolve })
-    const bundle = esbuild.bundleEsmEntry
-    const bundler = vi.spyOn(esbuild, "bundleEsmEntry").mockImplementationOnce(async (...args) => {
+    const bundle = rolldown.bundleEsmEntry
+    const bundler = vi.spyOn(rolldown, "bundleEsmEntry").mockImplementationOnce(async (...args) => {
       const result = await bundle(...args)
       signalStarted()
       await resumed

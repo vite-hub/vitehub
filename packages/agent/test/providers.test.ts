@@ -2199,7 +2199,7 @@ describe("agent Vite plugin", () => {
   })
 
   it("bundles the configured Email definition in standalone Agent provider outputs", async () => {
-    const { bundleEsmEntry } = await import("@vite-hub/internal/build/esbuild")
+    const { bundleEsmEntry } = await import("@vite-hub/internal/build/rolldown")
     const { hubEmail } = await import("../../email/src/vite.ts")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-email-provider-routes-"))
@@ -3353,13 +3353,12 @@ export default defineAgent({
     expect(declaration).not.toMatch(/\bfrom ["']@vite-hub\/schedule(?:["'/])/)
   })
 
-  it("keeps esbuild external in the Agent Vite plugin package build", async () => {
-    const config = await readFile(new URL("../vite.config.ts", import.meta.url), "utf8")
+  it("installs no esbuild with the Agent Vite plugin", async () => {
     const pkg: unknown = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     if (!isTestRecord(pkg) || !isTestRecord(pkg.dependencies)) throw new Error("Expected package dependencies metadata.")
 
-    expect(config).toContain('"esbuild"')
-    expect(pkg.dependencies?.esbuild).toBe("catalog:tooling")
+    // Provider outputs bundle with the Rolldown of the app's Vite.
+    expect(pkg.dependencies.esbuild).toBeUndefined()
   })
 })
 

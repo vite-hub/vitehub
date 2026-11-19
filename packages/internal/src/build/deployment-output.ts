@@ -3,9 +3,11 @@ import { cp, mkdir, mkdtemp, readFile, rename, rm, rmdir, writeFile } from "node
 import { tmpdir } from "node:os"
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 
+import { parseSync } from "vite"
+
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
 import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "./cloudflare.ts"
-import { bundleEsmEntry } from "./esbuild.ts"
+import { bundleEsmEntry } from "./rolldown.ts"
 import { cleanProviderOutputConfig, stringifyProviderOutputConfig, writeProviderOutputConfig } from "./provider-output-config.ts"
 import { removeProviderOutputArtifactDir } from "./provider-output-sources.ts"
 import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
@@ -354,10 +356,24 @@ function resolveNetlifyFunctionFile(functionsRoot: string, functionName: string)
   return resolve(functionsRoot, `${functionName}.mjs`)
 }
 
+function declaresTopLevelBinding(code: string, name: string): boolean {
+  return parseSync("bundle.mjs", code).program.body.some((statement) => {
+    const node = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
+    if (node?.type === "FunctionDeclaration" || node?.type === "ClassDeclaration") return node.id?.name === name
+    return node?.type === "VariableDeclaration" && node.declarations.some(declaration => declaration.id.type === "Identifier" && declaration.id.name === name)
+  })
+}
+
 async function appendNetlifyFunctionConfig(outfile: string, config: object | undefined): Promise<void> {
   if (!config) return
   const bundled = await readFile(outfile, "utf8")
-  await writeFile(outfile, `${bundled.trimEnd()}\n\nexport const config = ${stringifyProviderOutputConfig(config)}\n`, "utf8")
+  const literal = stringifyProviderOutputConfig(config)
+  // Minification keeps the names of functions and classes, so the bundle can declare its own `config`. Netlify also
+  // reads a config that an export list names.
+  const exported = declaresTopLevelBinding(bundled, "config")
+    ? `const vitehubNetlifyFunctionConfig = ${literal}\nexport { vitehubNetlifyFunctionConfig as config }`
+    : `export const config = ${literal}`
+  await writeFile(outfile, `${bundled.trimEnd()}\n\n${exported}\n`, "utf8")
 }
 
 async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutputOptions, signal?: AbortSignal): Promise<void> {

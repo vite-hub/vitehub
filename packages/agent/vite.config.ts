@@ -38,7 +38,6 @@ export default defineConfig({
       alwaysBundle,
       neverBundle: [
         "vite",
-        "esbuild",
         "#vitehub/agent/registry",
         "#vitehub/agent/provider-agent",
         "#vitehub/env/server",

@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
-import * as esbuild from "@vite-hub/internal/build/esbuild"
+import * as rolldown from "@vite-hub/internal/build/rolldown"
 import * as providerSources from "@vite-hub/internal/build/provider-output-sources"
 import { createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
@@ -184,8 +184,8 @@ describe("schedule provider output", () => {
       cleanup.mockRestore()
     }
     if (failure === "persistent rollback restore") {
-      const originalBundle = esbuild.bundleEsmEntry
-      const bundle = vi.spyOn(esbuild, "bundleEsmEntry").mockImplementation(async (entry, output, bundleOptions) => {
+      const originalBundle = rolldown.bundleEsmEntry
+      const bundle = vi.spyOn(rolldown, "bundleEsmEntry").mockImplementation(async (entry, output, bundleOptions) => {
         if (output.endsWith("deno-cron.mjs.vitehub-tmp")) throw new Error("Deno retry failed")
         return await originalBundle(entry, output, bundleOptions)
       })
@@ -227,8 +227,8 @@ describe("schedule provider output", () => {
     const siblingGate = new Promise<void>(resolve => { releaseSibling = resolve })
     const failureStarted = new Promise<void>(resolve => { markFailureStarted = resolve })
     const siblingFinished = new Promise<void>(resolve => { markSiblingFinished = resolve })
-    const originalBundle = esbuild.bundleEsmEntry
-    const bundle = vi.spyOn(esbuild, "bundleEsmEntry").mockImplementation(async (entry, output, options) => {
+    const originalBundle = rolldown.bundleEsmEntry
+    const bundle = vi.spyOn(rolldown, "bundleEsmEntry").mockImplementation(async (entry, output, options) => {
       if (!output.startsWith(`${createDefaultNetlifyOutputRoot(rootDir)}.pending/functions/`)) return await originalBundle(entry, output, options)
       if (output.endsWith("vitehub-schedule-cleanup.mjs")) {
         await siblingStarted
@@ -349,13 +349,13 @@ describe("schedule provider output", () => {
     }])
   })
 
-  it("keeps esbuild external in built provider output code", async () => {
+  it("loads no esbuild in built provider output code", async () => {
     const distDir = join(packageRoot, "dist")
     const outputFiles = (await readdir(distDir)).filter(file => file.endsWith(".js"))
     const output = (await Promise.all(outputFiles.map(file => readFile(join(distDir, file), "utf8")))).join("\n")
 
-    expect(output).not.toContain("The esbuild JavaScript API cannot be bundled")
-    expect(output).not.toContain("esbuildCommandAndArgs")
+    // Provider outputs bundle with the Rolldown of the app's Vite, so the package needs no esbuild.
+    expect(output).not.toMatch(/["']esbuild["']/)
   })
 
   it("keeps the definition entry out of public package exports", async () => {
@@ -479,8 +479,8 @@ describe("schedule provider output", () => {
         bundleAlias: {},
         bundlePlugins: [{
           name: "test-workflow-transform",
-          setup(build) {
-            workflowTransformWorkingDir = build.initialOptions.absWorkingDir
+          buildStart(options) {
+            workflowTransformWorkingDir = options.cwd
           },
         }],
         runtimeModules: { state, vercelVite: vercelRuntime },
@@ -1037,7 +1037,7 @@ describe("schedule provider output", () => {
     }
     await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
     for (const file of Object.values(outputs)) expect(existsSync(file)).toBe(true)
-    const bundle = vi.spyOn(esbuild, "bundleEsmEntry")
+    const bundle = vi.spyOn(rolldown, "bundleEsmEntry")
 
     try {
       await generateProviderOutputs({ clientOutDir: "dist/client", host, rootDir })
@@ -1053,7 +1053,7 @@ describe("schedule provider output", () => {
 
   it("writes no Schedule wake output for a Node build", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-node-host-")
-    const bundle = vi.spyOn(esbuild, "bundleEsmEntry")
+    const bundle = vi.spyOn(rolldown, "bundleEsmEntry")
 
     try {
       await generateProviderOutputs({ clientOutDir: "dist/client", host: "node", rootDir })

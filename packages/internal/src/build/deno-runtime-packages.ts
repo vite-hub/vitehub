@@ -5,10 +5,10 @@ import { builtinModules, createRequire } from "node:module"
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import type { Plugin } from "esbuild"
+import type { Rolldown } from "vite"
 
 import type { ViteAlias } from "./bundle-options.ts"
-import { bundleEsmEntry } from "./esbuild.ts"
+import { bundleEsmEntry } from "./rolldown.ts"
 import { publishProviderSourcesToDeploymentOutputs } from "./provider-output-sources.ts"
 import { scanModule, walk } from "./scan-module.ts"
 import type { CallExpression, Expression, NewExpression, Node, ScannedModule } from "./scan-module.ts"
@@ -510,54 +510,29 @@ function maskInertImportText(module: ScannedModule, packageCallNames: ReadonlySe
   return output.join("")
 }
 
-function packageImportPlugin(): Plugin {
-  const resolvingPackageImport = "vitehubResolvingPackageImport"
-  return {
-    name: "vitehub-package-imports",
-    setup(build) {
-      build.onResolve({ filter: /^#/ }, async (args) => {
-        if (args.pluginData?.[resolvingPackageImport]) return
-        const result = await build.resolve(args.path, {
-          importer: args.importer,
-          kind: args.kind,
-          namespace: args.namespace,
-          pluginData: { ...args.pluginData, [resolvingPackageImport]: true },
-          resolveDir: args.resolveDir,
-          with: args.with,
-        })
-        const pluginData = Object.assign({}, result.pluginData)
-        Reflect.deleteProperty(pluginData, resolvingPackageImport)
-        return { ...result, pluginData }
-      })
-    },
-  }
-}
-
 function runtimePackageResolutionPlugin(
   rootDir: string,
   aliases: ViteAlias[] | undefined,
   packageJsonPaths: Map<string, string>,
   packages: Map<string, RuntimePackage>,
-): Plugin {
+): Rolldown.Plugin {
   return {
     name: "vitehub-deno-runtime-packages",
-    setup(build) {
-      build.onResolve({ filter: /.*/ }, async (args) => {
-        const name = packageNameFromSpecifier(args.path)
-        if (!name || aliases?.some((alias) => {
-          if (!(alias.find instanceof RegExp)) return args.path === alias.find || args.path.startsWith(`${alias.find}/`)
-          alias.find.lastIndex = 0
-          const matches = alias.find.test(args.path)
-          alias.find.lastIndex = 0
-          return matches
-        })) return
-        const fromDir = args.resolveDir || (isAbsolute(args.importer) ? dirname(args.importer) : rootDir)
-        const resolver = createRequire(isAbsolute(args.importer) ? args.importer : join(fromDir, "package.json"))
-        const packageJsonPath = await resolvePackageJson(name, resolver, fromDir)
-        const resolvedPackageJsonPath = packageJsonPath && await realpath(packageJsonPath)
-        if (resolvedPackageJsonPath) recordRuntimePackageResolution(packageJsonPaths, name, resolvedPackageJsonPath)
-        addRuntimePackage(packages, { name, optional: args.kind !== "import-statement", packageJsonPath: resolvedPackageJsonPath })
-      })
+    async resolveId(source, importer, extra) {
+      const name = packageNameFromSpecifier(source)
+      if (!name || aliases?.some((alias) => {
+        if (!(alias.find instanceof RegExp)) return source === alias.find || source.startsWith(`${alias.find}/`)
+        alias.find.lastIndex = 0
+        const matches = alias.find.test(source)
+        alias.find.lastIndex = 0
+        return matches
+      })) return
+      const fromDir = importer && isAbsolute(importer) ? dirname(importer) : rootDir
+      const resolver = createRequire(importer && isAbsolute(importer) ? importer : join(fromDir, "package.json"))
+      const packageJsonPath = await resolvePackageJson(name, resolver, fromDir)
+      const resolvedPackageJsonPath = packageJsonPath && await realpath(packageJsonPath)
+      if (resolvedPackageJsonPath) recordRuntimePackageResolution(packageJsonPaths, name, resolvedPackageJsonPath)
+      addRuntimePackage(packages, { name, optional: extra.kind !== "import-statement", packageJsonPath: resolvedPackageJsonPath })
     },
   }
 }
@@ -1094,7 +1069,7 @@ async function finalizeStagedDenoDeploymentOutput(
       platform: "neutral",
       preserveSymlinks: options.preserveSymlinks,
       mainFields: options.mainFields,
-      plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths, runtimePackages)],
+      plugins: [runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths, runtimePackages)],
       rootDir: options.rootDir,
       workingDir: options.rootDir,
     })
@@ -1123,7 +1098,7 @@ async function finalizeStagedDenoDeploymentOutput(
           platform: "neutral",
           preserveSymlinks: options.preserveSymlinks,
           mainFields: options.mainFields,
-          plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths, runtimePackages)],
+          plugins: [runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths, runtimePackages)],
           rootDir: options.rootDir,
           workingDir: options.rootDir,
         })
