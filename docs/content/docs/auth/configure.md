@@ -538,7 +538,7 @@ export default defineAuth({
 - Prove the header with a credential: call the provider with the token, check the signature of a JWT such as Cloudflare Access's `cf-access-jwt-assertion`, or compare a secret header that only the proxy adds.
 - Auth calls `verify` on each Better Auth request with the header, which includes every guard and `getSession()` call. Cache a slow check inside `verify`, keyed by the credential.
 - The first sign-in follows Better Auth's account linking: an existing user with the same email gets the account only when `emailVerified` is `true`.
-- `accessToken` is stored on the account, so server code can use it, for example with [`isGitHubOrgMember()`](/docs/auth/server-api#github-organization-membership).
+- `accessToken` is stored on the account, so server code can use it, for example with [`checkGitHubOrgMember()`](/docs/auth/server-api#github-organization-membership).
 - Signing out ends the Better Auth session, but the proxy still sends the header, so the next request signs in again. End the proxy session too, such as oauth2-proxy's `/oauth2/sign_out`.
 - When the proxy is the only way in, turn off the other sign-in endpoints with Better Auth's `disabledPaths`.
 

@@ -227,7 +227,7 @@ describe("Auth Nuxt integration", () => {
     expect(options.vite.plugins).toContainEqual(
       expect.objectContaining({ name: "@vite-hub/auth/vite" }),
     )
-    expect(options.imports.imports).toHaveLength(4)
+    expect(options.imports.imports).toHaveLength(3)
     expect(options).not.toHaveProperty("alias")
     expect(options).not.toHaveProperty("nitro")
   })

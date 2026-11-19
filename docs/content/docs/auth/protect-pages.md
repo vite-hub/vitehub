@@ -165,7 +165,6 @@ Nuxt imports these composables for you:
 | Composable | Gives |
 | --- | --- |
 | `useUserSession()` | `user`, `session`, `loggedIn`, `pending`, and `ready` refs, and the `signIn`, `signUp`, `signOut`, and `refresh` actions. `signIn` and `signUp` are Better Auth's, such as `signIn.email()` and `signUp.email()`. |
-| `useSession()` | Better Auth's session ref: `data`, `error`, `isPending`, `isRefetching`, and `refetch`. |
 | `useAuthClient()` | The Better Auth client that the composables use. |
 
 The guard runs only when the route changes. After a sign-out, send the user to another page yourself:

@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, and `access-spellings`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, and `auth-accessors`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -322,3 +322,31 @@ The codemod also changes default-export objects in `server/realtime/` and `serve
 A Realtime definition with both `auth: true` and `authorize()` stays as it is, and the report lists it. `authorize()` now also runs for signed-out callers, with `user: null`, so remove `auth` and return `false` when `user` is `null`. Until then, the server rejects the definition with [`REALTIME_INVALID_ACCESS`](/docs/realtime/limits-and-errors#realtime_invalid_access).
 
 If your browser app and Realtime API use different origins, keep the app origin in the Auth Definition's `trustedOrigins`. With no custom `identify()` or `origins()`, `authorize()` uses the same Auth origin check as `authorize: true`. Do not add `origins()` to pass the Auth session: an origin admitted by that hook does not get the session user.
+
+## auth-accessors
+
+`auth-accessors` moves server code to the one Auth accessor, `useAuth(event?)`:
+
+```bash [Terminal]
+npx @vite-hub/codemods auth-accessors [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `auth` from `vite-hub/auth/server` | `useAuth()` |
+| `getAuth()` from `vite-hub/auth/server` | `useAuth()` |
+| `await isGitHubOrgMember(token, org)` from `vite-hub/auth` | `!(await checkGitHubOrgMember(token, org))[0]` |
+
+```diff [server/api/roles.post.ts]
+-import { auth } from 'vite-hub/auth/server'
++import { useAuth } from 'vite-hub/auth/server'
+
+ export default defineHandler(async (event) => {
+-  return auth.api.listUsers({ query: {}, headers: event.req.headers })
++  return useAuth().api.listUsers({ query: {}, headers: event.req.headers })
+ })
+```
+
+The codemod also changes the auto-imported `auth` and `getAuth()` in `server/`. `useAuth()` without an event reads the app's Auth Definition, as `auth` did. In a route, pass the event yourself, `useAuth(event)`, so Auth reads the request's host and Cloudflare bindings.
+
+The report lists each `useSession()` call. `useUserSession()` replaces it, with other names: `data.value`, `pending.value`, and `refresh()` replace `.value.data`, `.value.isPending`, and `.value.refetch()`. It also lists an `isGitHubOrgMember()` that is not awaited.

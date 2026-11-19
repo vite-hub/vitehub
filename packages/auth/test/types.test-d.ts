@@ -29,7 +29,6 @@ import {
   type ViteHubAuth,
 } from "../src/index.ts"
 import {
-  auth,
   createAuthForRequest,
   getAuthForDefinition,
   handleAuthRequest,
@@ -110,8 +109,8 @@ describe("types", () => {
   })
 
   it("exposes the server auth handler shape", () => {
-    expectTypeOf(auth.handler).parameters.toEqualTypeOf<[Request]>()
-    expectTypeOf(auth.handler).returns.toEqualTypeOf<Promise<Response>>()
+    expectTypeOf(useAuth().handler).parameters.toEqualTypeOf<[Request]>()
+    expectTypeOf(useAuth().handler).returns.toEqualTypeOf<Promise<Response>>()
 
     const runtimeAuth = createAuthForRequest(defineAuth(() => ({
       socialProviders: {
@@ -239,7 +238,6 @@ describe("types", () => {
     expectTypeOf<RegisteredAuth<{ definition: typeof definition }>["api"]["listUsers"]>().toBeFunction()
     expectTypeOf<RegisteredAuth<{}>>().toEqualTypeOf<ViteHubAuth>()
     expectTypeOf(authServer.useAuth).returns.toEqualTypeOf<RegisteredAuth>()
-    expectTypeOf(authServer.getAuth).returns.toEqualTypeOf<RegisteredAuth>()
     expectTypeOf(authServer.assertAuthOrigin).returns.toEqualTypeOf<Promise<RegisteredAuth>>()
   })
 

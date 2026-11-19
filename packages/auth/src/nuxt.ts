@@ -68,7 +68,7 @@ type NuxtComponent = {
   shortPath: string
 }
 
-const composables = ["useAbility", "useAuthClient", "useSession", "useUserSession"]
+const composables = ["useAbility", "useAuthClient", "useUserSession"]
 const nitroRegistered = new WeakSet<object>()
 const vueBridgeRegistered = new WeakSet<object>()
 const pageMetaRegistered = new WeakSet<object>()

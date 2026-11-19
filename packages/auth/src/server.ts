@@ -2,12 +2,10 @@
 export {
   AbilityError,
   aggregateAuthEvents,
-  auth,
   can,
   checkAuthMember,
   createAuthHandler,
   default,
-  getAuth,
   getAuthConsoleForRequest,
   getAuthEvents,
   handleAuth,
