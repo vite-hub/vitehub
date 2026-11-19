@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { docsSeoProblems, docsSitemapPaths, readDocsSeoPage } from "../src/seo-audit.ts"
+import { docsSeoHints, docsSeoProblems, docsSitemapPaths, readDocsSeoPage } from "../src/seo-audit.ts"
 
 const origin = "https://acme.dev"
 const words = (count: number) => Array.from({ length: count }, (_, index) => `word${index}`).join(" ")
@@ -61,16 +61,17 @@ describe("readDocsSeoPage", () => {
 })
 
 describe("docsSeoProblems", () => {
+  const messages = (...args: Parameters<typeof docsSeoProblems>) => docsSeoProblems(...args).map(problem => problem.message)
   const home = page("/", { title: "Acme: storage for Vite apps", description: "Acme adds storage, queues, and jobs to Vite apps, and runs the same code on Node, Cloudflare, and Vercel.", body: `<h1>Acme</h1><p>${words(200)}</p><a href="/docs/kv">KV</a><a href="/docs/blob">Blob</a>` })
 
   it("accepts a site whose pages pass every check", () => {
     const blob = page("/docs/blob", { title: "Blob storage for files and uploads · Acme", description: "Upload files, list them by prefix, and serve them from a route on Node, Cloudflare, and Vercel hosts." })
-    expect(docsSeoProblems([home, page("/docs/kv"), blob], ["/", "/docs/kv", "/docs/blob"])).toEqual([])
+    expect(messages([home, page("/docs/kv"), blob], ["/", "/docs/kv", "/docs/blob"])).toEqual([])
   })
 
   it("names sitemap URLs that redirect or were not prerendered", () => {
     const guides = page("/guides", { refresh: true })
-    expect(docsSeoProblems([home, page("/docs/kv"), guides], ["/", "/docs/kv", "/guides", "/playground"])).toEqual([
+    expect(messages([home, page("/docs/kv"), guides], ["/", "/docs/kv", "/guides", "/playground"])).toEqual([
       "/guides is in the sitemap, but it redirects. List the page that it redirects to instead.",
       "/playground is in the sitemap, but the build did not prerender it as a page. Remove it from the sitemap, or make it a page.",
     ])
@@ -83,7 +84,7 @@ describe("docsSeoProblems", () => {
       body: `<h1>One</h1><h1>Two</h1><h4>Deep</h4><p>${words(20)}</p>`,
     })
     const linked = page("/", { title: "Acme: storage for Vite apps", description: "Acme adds storage, queues, and jobs to Vite apps, and runs the same code on Node, Cloudflare, and Vercel.", body: `<h1>Acme</h1><p>${words(200)}</p><a href="/docs/thin">Thin</a>` })
-    expect(docsSeoProblems([linked, thin], [])).toEqual([
+    expect(messages([linked, thin], [])).toEqual([
       "/docs/thin has a title of 4 characters, \"Thin\". Keep it between 10 and 60, with `seo.title` when the heading must stay.",
       "/docs/thin has a description of 10 characters. Keep it between 70 and 160.",
       "/docs/thin has 2 h1 headings. Give it one.",
@@ -92,9 +93,27 @@ describe("docsSeoProblems", () => {
     ])
   })
 
+  it("gives each kind of problem a code, and one hint for each code", () => {
+    const thin = page("/docs/thin", { title: "Thin", description: "Too short.", body: `<h1>One</h1><h1>Two</h1><h4>Deep</h4><p>${words(20)}</p>` })
+    const problems = docsSeoProblems([home, page("/docs/kv"), thin], ["/playground"])
+    expect(problems.map(problem => problem.code)).toEqual([
+      "DOCS_SEO_SITEMAP_NOT_PAGE",
+      "DOCS_SEO_TITLE_INVALID",
+      "DOCS_SEO_DESCRIPTION_INVALID",
+      "DOCS_SEO_HEADINGS_INVALID",
+      "DOCS_SEO_HEADINGS_INVALID",
+      "DOCS_SEO_PAGE_THIN",
+      "DOCS_SEO_PAGE_UNLINKED",
+    ])
+    const hints = docsSeoHints(problems)
+    expect(hints.map(hint => hint.code)).toEqual(["DOCS_SEO_SITEMAP_NOT_PAGE", "DOCS_SEO_TITLE_INVALID", "DOCS_SEO_DESCRIPTION_INVALID", "DOCS_SEO_HEADINGS_INVALID", "DOCS_SEO_PAGE_THIN", "DOCS_SEO_PAGE_UNLINKED"])
+    expect(hints[3]!.why).toBe("Docs pages have headings that search engines flag:\n- /docs/thin has 2 h1 headings. Give it one.\n- /docs/thin skips a heading level, h1 → h4. Go down one level at a time.")
+    expect(hints[3]!.docs).toBe("https://vitehub.dev/docs/docs-site/diagnostics/docs_seo_headings_invalid")
+  })
+
   it("names pages that share a title or a description, and pages that nothing links to", () => {
     const chat = page("/docs/ui/chat")
-    expect(docsSeoProblems([home, page("/docs/kv"), chat], [])).toEqual([
+    expect(messages([home, page("/docs/kv"), chat], [])).toEqual([
       "/docs/kv, /docs/ui/chat share the title \"Key-value storage for apps · Acme\". Give each page its own.",
       expect.stringMatching(/^\/docs\/kv, \/docs\/ui\/chat share the description "Store small values/),
       "No page links to /docs/ui/chat. Link it from the navigation, the footer, or a related page.",
@@ -104,7 +123,7 @@ describe("docsSeoProblems", () => {
   it("leaves out copies: noindex pages and pages whose canonical is another page", () => {
     const lesson = page("/learn/kv", { canonical: "https://acme.dev/docs/kv" })
     const draft = page("/docs/draft", { robots: "noindex, follow", title: "Draft" })
-    expect(docsSeoProblems([home, page("/docs/kv"), lesson, draft], [])).toEqual([])
+    expect(messages([home, page("/docs/kv"), lesson, draft], [])).toEqual([])
   })
 
   it("names pages over the size limit, links to redirects and endpoints, and incomplete Open Graph tags", () => {
@@ -117,7 +136,7 @@ describe("docsSeoProblems", () => {
     // Attribute order and empty values: `content` first counts, an empty `content` does not.
     const reordered = readDocsSeoPage("/docs/reordered", html({ og: false }).replace("</head>", '<meta content="KV" property="og:title"><meta content="article" property="og:type"><meta content="https://acme.dev/og.png" property="og:image"><meta property="og:url" content=""></head>'), origin)
     expect(reordered.openGraphMissing).toEqual(["og:url"])
-    const problems = docsSeoProblems([home, big, guides, links, bare], [], { endpoints: ["/mcp"] })
+    const problems = messages([home, big, guides, links, bare], [], { endpoints: ["/mcp"] })
     expect(problems).toContain("/docs/codes has 2.7 MB of HTML, and Googlebot reads only the first 2.0 MB. Split the page, or show long lists with a component that renders less markup than a Markdown table.")
     expect(problems).toContain("/docs/links link to /guides, which redirects. Link to the page that it redirects to.")
     expect(problems).toContain("/docs/links link to /mcp, an endpoint that answers a browser with an error. Write the URL as code, or link to the page that explains it.")
@@ -127,14 +146,14 @@ describe("docsSeoProblems", () => {
   it("groups links by target and skips the image and URL that a site does not have", () => {
     const guides = page("/guides", { refresh: true })
     const footer = ["a", "b", "c", "d", "e"].map(name => page(`/docs/${name}`, { body: `<h1>${name}</h1><p>${words(200)}</p><a href="/guides">Guides</a>` }))
-    const problems = docsSeoProblems([home, guides, ...footer], [])
+    const problems = messages([home, guides, ...footer], [])
     expect(problems.filter(problem => problem.includes("/guides, which redirects"))).toEqual(["/docs/a, /docs/b, /docs/c and 2 more pages link to /guides, which redirects. Link to the page that it redirects to."])
 
     const noImage = page("/docs/plain", { og: false, body: `<h1>Plain</h1><p>${words(200)}</p><a href="/">Home</a>` })
     const card = readDocsSeoPage("/docs/plain", html({ og: false }).replace("</head>", '<meta name="twitter:card" content="summary"><meta property="og:title" content="KV"><meta property="og:type" content="article"></head>'), origin)
     expect(card.twitterCard).toBe("summary")
-    expect(docsSeoProblems([home, card], [], { siteUrl: false }).filter(problem => problem.includes("Open Graph"))).toEqual([])
-    expect(docsSeoProblems([home, card], []).filter(problem => problem.includes("Open Graph"))).toEqual([
+    expect(messages([home, card], [], { siteUrl: false }).filter(problem => problem.includes("Open Graph"))).toEqual([])
+    expect(messages([home, card], []).filter(problem => problem.includes("Open Graph"))).toEqual([
       "/docs/plain has no og:url tag, so share previews and site audits call its Open Graph tags incomplete. Pages from `useDocsSeo()` set them; an app page that writes its own head needs them too.",
     ])
     expect(noImage.twitterCard).toBeNull()

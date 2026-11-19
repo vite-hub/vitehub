@@ -50,10 +50,12 @@ export interface FormsRuntimeOptions {
 export type FormsSharedRateLimit = SharedRateLimit
 
 const installedKey = Symbol.for("vitehub.forms.installed")
+const rejectMissingStore = () => Promise.reject(new Error("[vitehub] Forms has no store."))
 
 /** The inbox of an app without a store. No submission was stored, and a form that needs a store answers 503. */
 const emptyFormsStore: FormsStore = {
-  insert: () => Promise.reject(new Error("[vitehub] Forms has no store.")),
+  insert: rejectMissingStore,
+  insertWith: rejectMissingStore,
   list: async () => [],
   get: async () => undefined,
   setStatus: async () => undefined,
