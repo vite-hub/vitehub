@@ -235,6 +235,8 @@ client.onChange(() => console.log(`${client.threads.length} threads`));
 
 To retry a create safely, give it a `requestId`, such as `crypto.randomUUID()`, and keep it for that draft. A second create with the same `requestId` in the same scope returns the first thread and creates no new thread. Only the author of the first thread gets it back, for the same subject, and only when that author may still read it. Anything else fails: the Operations and `POST /threads` answer `409` with `COMMENTS_R0022`, and the server API `comments.create()` returns `COMMENTS_INVALID_INPUT` with the reason. Make a new `requestId` for each new comment.
 
+A reply takes a `requestId` too. A second reply with the same `requestId` in the same thread returns the thread with the first message, adds nothing, and runs no hooks. Another author with that key gets the same `409`.
+
 `start()` listens to the transport's `subscribe`, such as Realtime. Without `subscribe` it refreshes when the window gets focus. A list that comes back late never undoes a thread that was created, changed, or deleted while it was on its way, and an event that is older than the stored thread is ignored. A transport that lost its connection sends `{ type: "reconnected" }` when it has it again, and the client lists the threads once more.
 
 Without an explicit query `limit`, refresh loads every page. Multi-page refreshes require two matching scans before replacing the cache. If three scans cannot agree because the list keeps changing, refresh raises `COMMENTS_R0015` and preserves the previous cache; refresh again to retry. An explicit `limit` makes one request.

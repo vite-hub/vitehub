@@ -2,7 +2,7 @@ import { clientRateLimitIssue } from "@vite-hub/internal/runtime/client-rate-lim
 
 import { markCommentsDefinition } from "./operations-core/define.ts"
 import { commentsErrorDiagnostics } from "./operations-core/errors.ts"
-import { can, createThread, editMessage, replyToThread, scopeOf, suggest } from "./operations-core/service.ts"
+import { can, createThread, earlierReply, earlierThread, editMessage, replyToThread, scopeOf, suggest } from "./operations-core/service.ts"
 import { commentsErrors } from "./errors.ts"
 import { pendingKey, runtimeOf, runtimes } from "./installed.ts"
 import { normalizeCommentPage } from "./page.ts"
@@ -20,6 +20,7 @@ import type {
   CommentsErrorCode,
   DefineCommentsOptions,
   EditCommentInput,
+  FindCommentThreadInput,
   ListCommentThreadsOptions,
   ReplyInput,
   ReplyOptions,
@@ -45,6 +46,13 @@ export interface Comments {
   getByMessage(messageId: string): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
   /** Thread `#n` of a numbering scope, such as `site`. */
   getByNumber(scope: string, n: number): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
+  /**
+   * The thread that a `create` with this `requestId` stored in the scope of the subject, else `null`. Check it before
+   * work that a retry must not do twice, such as storing files. It does not compare authors: `create` does.
+   */
+  findThread(input: FindCommentThreadInput): Promise<Result<CommentThread | null, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_INVALID_INPUT">>>
+  /** The message that a `reply` with this `requestId` stored in the thread, else `null`. */
+  findReply(threadId: string, requestId: string): Promise<Result<CommentMessage | null, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND" | "COMMENTS_INVALID_INPUT">>>
   /** Starts a thread with its first message, numbered next in the scope of its subject. Runs `onComment`. */
   create(input: CreateCommentThreadInput): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_INVALID_INPUT">>>
   /** Adds a message to an open thread. Runs `onComment`. */
@@ -87,6 +95,12 @@ function resultError(error: unknown, id: string): ReturnType<typeof commentsErro
   const code = error instanceof Error ? Reflect.get(error, "code") : undefined
   if (code === "COMMENTS_R0002" || code === "COMMENTS_R0003") return commentsErrors.COMMENTS_NOT_FOUND({ id })
   if (code === "COMMENTS_R0016") return commentsErrors.COMMENTS_RESOLVED()
+  return invalidInput(error)
+}
+
+/** A diagnostic of the shared core about the input, as `COMMENTS_INVALID_INPUT`. Any other error is thrown again. */
+function invalidInput(error: unknown): ReturnType<typeof commentsErrors.COMMENTS_INVALID_INPUT> {
+  const code = error instanceof Error ? Reflect.get(error, "code") : undefined
   if (typeof code === "string" && ["COMMENTS_R0005", "COMMENTS_R0007", "COMMENTS_R0008", "COMMENTS_R0017", "COMMENTS_R0018", "COMMENTS_R0022"].includes(code)) {
     return commentsErrors.COMMENTS_INVALID_INPUT({ issue: error instanceof Error ? error.message : String(error) })
   }
@@ -141,6 +155,31 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       const current = await runtime()
       if (!current) return notInstalled()
       return one(current, await current.store.getByNumber(scope, n), `${scope}#${n}`)
+    },
+    async findThread({ page, subject, requestId }) {
+      const current = await runtime()
+      if (!current) return notInstalled()
+      const target = subject ?? (page === undefined ? undefined : { id: normalizeCommentPage(page), kind: "page" })
+      if (!target) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "subject: Give a subject, or a page." }), undefined]
+      try {
+        const found = await earlierThread(current, { requestId, subject: target })
+        return [undefined, found ? (await withForge(current, [found]))[0]! : null]
+      }
+      catch (error) {
+        return [invalidInput(error), undefined]
+      }
+    },
+    async findReply(threadId, requestId) {
+      const current = await runtime()
+      if (!current) return notInstalled()
+      const found = await current.store.getById(threadId)
+      if (!found) return notFound(threadId)
+      try {
+        return [undefined, await earlierReply(found, requestId) ?? null]
+      }
+      catch (error) {
+        return [invalidInput(error), undefined]
+      }
     },
     async create({ page, subject, ...input }) {
       const current = await runtime()
