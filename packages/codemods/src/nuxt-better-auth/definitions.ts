@@ -65,7 +65,7 @@ function swapImport(program: File, output: MagicString, name: string, importText
 function optionsObject(argument: Node): ObjectExpression | undefined {
   const value = unwrapExpression(argument)
   if (value.type === "ObjectExpression") return value
-  if (value.type !== "ArrowFunctionExpression" && value.type !== "FunctionExpression") return undefined
+  if (value.type !== "ArrowFunctionExpression") return undefined
   if (value.body.type !== "BlockStatement") {
     const body = unwrapExpression(value.body)
     return body.type === "ObjectExpression" ? body : undefined
@@ -128,15 +128,24 @@ export function moveServerDefinition(input: ServerDefinitionInput): DefinitionMo
     return { followUps, moved: false }
   }
   const callback = unwrapExpression(argument)
+  if (callback.type === "FunctionExpression") {
+    follow(callback, "Use an arrow function for the Auth Definition callback before migrating.")
+    return { followUps, moved: false }
+  }
   const returned = optionsObject(argument)
   const options = returned && staticOptionsObject(returned)
   const database = options && findProperty(options, "database")
-  if (!options || (callback.type === "ObjectExpression" && ((database && literalValue(database.value) !== "memory") || findProperty(options, "secondaryStorage")))) {
-    follow(call, "Use explicit Auth options without spreads and return custom storage adapters from a callback.")
+  if (!options || options.properties.some(property => property.type === "ObjectProperty" && property.computed) || (callback.type === "ObjectExpression" && ((database && literalValue(database.value) !== "memory") || findProperty(options, "secondaryStorage")))) {
+    follow(call, "Use explicit Auth options without spreads or computed keys and return custom storage adapters from a callback.")
     return { followUps, moved: false }
   }
   if (input.accessRoutes.length && findProperty(options, "access")) {
     follow(call, "Merge the API route rules with the existing access option by hand.")
+    return { followUps, moved: false }
+  }
+  const basePath = findProperty(options, "basePath")
+  if (input.accessRoutes.length && basePath && literalValue(basePath.value) !== "/api/auth") {
+    follow(basePath, "Migrate the API route rules by hand to preserve access with a custom Auth basePath.")
     return { followUps, moved: false }
   }
   const style = detectStyle(code, program)
@@ -149,7 +158,7 @@ export function moveServerDefinition(input: ServerDefinitionInput): DefinitionMo
   let needsRuntimeConfig = false
   // Set when an expression body becomes a block, which indents it one level.
   let extraIndent = ""
-  if (callback.type === "ArrowFunctionExpression" || callback.type === "FunctionExpression") {
+  if (callback.type === "ArrowFunctionExpression") {
     const [context] = callback.params
     if (context?.type === "ObjectPattern") {
       const kept: string[] = []

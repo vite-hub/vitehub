@@ -51,6 +51,8 @@ describe("nuxt-better-auth", () => {
     ["server/auth.config.ts", "export default defineServerAuth({ database: customAdapter })", "return custom storage adapters"],
     ["server/auth.config.ts", "export default defineServerAuth({ ...options })", "without spreads"],
     ["server/auth.config.ts", "export default defineServerAuth(options)", "explicit Auth options"],
+    ["server/auth.config.ts", "export default defineServerAuth(function () { return {} })", "arrow function"],
+    ["server/auth.config.ts", "export default defineServerAuth({ ['emailAndPassword']: { enabled: true } })", "explicit Auth options"],
     ["server/auth.config.ts", "export default defineServerAuth({ access: { routes: [] } })", "existing access option"],
     ["layers/base/server/auth.config.ts", serverConfig, "Multiple source server configs"],
     ["layers/base/app/auth.config.ts", "export default defineClientAuth({ plugins: [twoFactorClient()] })", "only the app's app/auth.client.ts"],
@@ -68,6 +70,18 @@ describe("nuxt-better-auth", () => {
     expect(await readFile(join(cwd, file), "utf8")).toBe(source)
   })
 
+  it("emits a plain redirect literal without Nuxt config types in a page", async () => {
+    const cwd = await createApp({
+      "nuxt.config.ts": `const loginPath = '/sign-in'\nexport default defineNuxtConfig({ modules: ['@nuxtjs/better-auth'], routeRules: { '/reports': { auth: { only: 'user', redirectTo: '/sign-in' as typeof loginPath } } } })`,
+      "server/auth.config.ts": serverConfig,
+      "app/pages/reports.vue": "<template><div /></template>",
+    })
+    const run = await runCodemod("nuxt-better-auth", { cwd, dryRun: true })
+    const page = run.result.edits.find(edit => edit.path === "app/pages/reports.vue")?.after
+    expect(page).toContain("definePageMeta({ auth: { only: 'user', redirectTo: '/sign-in' } })")
+    expect(page).not.toContain("loginPath")
+  })
+
   it("leaves sign-in, callbacks and the exact health route outside the API guard", async () => {
     const cwd = await createApp({
       "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxtjs/better-auth'], routeRules: { '/api/health': { auth: false }, '/api/**': { auth: 'user' } } })",
@@ -77,6 +91,15 @@ describe("nuxt-better-auth", () => {
     const definition = run.result.edits.find(edit => edit.path === "server/auth.ts")?.after
     expect(definition).toContain("access: { routes: ['/api/**'], public: ['/api/health', '/api/auth/**'] }")
     expect(run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after).not.toContain("routeRules")
+  })
+
+  it("does not move a catch-all guard around a custom Auth basePath", async () => {
+    const config = "export default defineNuxtConfig({ modules: ['@nuxtjs/better-auth'], routeRules: { '/api/**': { auth: 'user' } } })"
+    const definition = "export default defineServerAuth({ basePath: '/api/login' })"
+    const cwd = await createApp({ "nuxt.config.ts": config, "server/auth.config.ts": definition })
+    await expect(runCodemod("nuxt-better-auth", { cwd })).rejects.toThrow("custom Auth basePath")
+    expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toBe(config)
+    expect(await readFile(join(cwd, "server/auth.config.ts"), "utf8")).toBe(definition)
   })
 
   it.each(["getUserSession", "getRequestSession"])("forwards cookies and preserves the optional result of %s", async (helper) => {

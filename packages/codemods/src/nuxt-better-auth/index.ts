@@ -118,7 +118,8 @@ function readRouteRules(layer: LayerConfig, plan: ConfigPlan): AuthRouteRule[] {
       if (!meta || dropped.length) throw unsupported(`Found an unsupported auth rule for ${pattern}.`, auth)
       const value = staticOptionsObject(auth.value)
       const redirect = value && findProperty(value, "redirectTo")
-      if (redirect && typeof literalValue(redirect.value) !== "string") {
+      const redirectTo = redirect && literalValue(redirect.value)
+      if (redirect && typeof redirectTo !== "string") {
         throw unsupported(`Use a literal redirectTo for ${pattern}.`, redirect)
       }
       if (rule.properties.length === 1) {
@@ -127,12 +128,17 @@ function readRouteRules(layer: LayerConfig, plan: ConfigPlan): AuthRouteRule[] {
       }
       else removals.push(auth)
       const server = pattern === "/api" || pattern.startsWith("/api/")
-      const isPublic = literalValue(auth.value) === false
+      const literal = literalValue(auth.value)
+      const isPublic = literal === false
       if (server && !user && !isPublic) {
         throw unsupported(`ViteHub cannot move the guest-only API rule for ${pattern}.`, auth)
       }
       if (server && redirect) throw unsupported(`The API rule for ${pattern} sets a redirect.`, auth)
-      rules.push({ pattern, meta, user: user === true, server, isPublic, file, line: line(auth) })
+      const mode = quoteString(user ? "user" : "guest", style)
+      const pageValue = typeof redirectTo === "string"
+        ? `{ only: ${mode}, redirectTo: ${quoteString(redirectTo, style)} }`
+        : typeof literal === "boolean" ? String(literal) : mode
+      rules.push({ pattern, meta: pageValue, user: user === true, server, isPublic, file, line: line(auth) })
     }
     if (removed && removed === routeRules.properties.length) plan.removals.push(routeRulesProperty)
     else plan.removals.push(...removals)
