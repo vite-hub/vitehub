@@ -11,6 +11,11 @@ Postgres holds the state that the instances share. Redis is optional. This page
 builds the app once, runs three instances with Docker Compose, and puts Caddy in
 front of them.
 
+Start with a ViteHub app from [Installation](/docs/getting-started/installation).
+Follow [Add feature packages](/docs/getting-started/installation#add-feature-packages)
+for Database, KV, Queue, Rate Limit, Realtime, Schedule, and Workflow before
+you turn them on. Use package versions that match your `vite-hub` release.
+
 ## Define one Postgres Database
 
 The Default Database is the shared store. Queue, Schedule, Workflow, KV, Rate
@@ -37,8 +42,6 @@ export default defineDatabase({
 ```
 
 The server reads `DATABASE_URL` when it starts. The build does not need it.
-Generate the first migration with `pnpm exec vitehub database generate` and
-keep the generated files in `server/databases/default/migrations/`.
 
 ## Configure the app
 
@@ -111,6 +114,10 @@ export default defineConfig({
 ```
 :::
 ::
+
+After you turn on Database, generate the first migration with
+`pnpm exec vitehub database generate`. Keep the generated files in
+`server/databases/default/migrations/` so the build can include them.
 
 ## What each primitive uses
 
