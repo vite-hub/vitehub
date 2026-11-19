@@ -55,7 +55,7 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
 ) {
   const bundle = normalizeSandboxTaskDefinitionBundle(source)
 
-  const files = createExecutionFiles(definitionName)
+  const files = createExecutionFiles(definitionName, sandbox.tempDir)
   let failure: { error: unknown } | undefined
   const throwIfAborted = () => {
     if (signal?.aborted)

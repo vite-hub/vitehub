@@ -268,11 +268,12 @@ describe("hubSandboxTask", () => {
     expect(facade).toContain("setSandboxTaskRuntimeConfig")
     expect(facade).toContain("setSandboxTaskRuntimeRegistry(sandboxTaskRegistry)")
     expect(facade).toContain("setSandboxTaskRuntimeDevelopment(true)")
+    expect(facade).toContain('import("@vite-hub/sandbox/_internal/task/runtime/providers/local")')
     expect(facade).toContain("export * from")
     expect(facade).not.toContain("providerImportAliases")
     expect(facade).not.toContain("@vite-hub/kv/runtime/upstash-driver")
     const facadePackageImports = [
-      facade.match(/import \{ setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeDevelopment, setSandboxTaskRuntimeRegistry \} from "([^"]+)"/)?.[1],
+      facade.match(/import \{ setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeDevelopment, setSandboxTaskRuntimeLocalProvider, setSandboxTaskRuntimeRegistry \} from "([^"]+)"/)?.[1],
       facade.match(/export \* from "([^"]+)"/)?.[1],
     ].filter((specifier): specifier is string => Boolean(specifier))
     expect(facadePackageImports).toEqual([

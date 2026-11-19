@@ -9,6 +9,7 @@ import { configureCloudflareSandboxNitro, defaultCloudflareSandboxClassName } fr
 import {
   sandboxTaskProviderLoaderSpecifiers,
   sandboxTaskRuntimeDependencyByProvider,
+  sandboxTaskRuntimeLocalProviderSpecifier,
   sandboxTaskRuntimeProviderSpecifiers,
   sandboxTaskRuntimeSpecifier,
   sandboxTaskRuntimeStateSpecifier,
@@ -108,6 +109,7 @@ export const sandboxTaskRuntimeStateModule: string = resolveFeatureRuntimePath(i
 const sandboxTaskRuntimePackageAliases: AliasMap = {
   [sandboxTaskRuntimeProviderSpecifiers.cloudflare]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/cloudflare', 'runtime/providers/cloudflare.js'),
   [sandboxTaskRuntimeProviderSpecifiers.vercel]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/vercel', 'runtime/providers/vercel.js'),
+  [sandboxTaskRuntimeLocalProviderSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/local', 'runtime/providers/local.js'),
   [sandboxTaskRuntimeSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './index', 'index.js'),
   [sandboxTaskRuntimeStateSpecifier]: sandboxTaskRuntimeStateModule,
 }

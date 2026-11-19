@@ -102,6 +102,11 @@
       "import": "./dist/task/runtime/providers/cloudflare.js",
       "default": "./dist/task/runtime/providers/cloudflare.js"
     },
+    "./_internal/task/runtime/providers/local": {
+      "types": "./dist/task/runtime/providers/local.d.ts",
+      "import": "./dist/task/runtime/providers/local.js",
+      "default": "./dist/task/runtime/providers/local.js"
+    },
     "./_internal/task/runtime/providers/vercel": {
       "types": "./dist/task/runtime/providers/vercel.d.ts",
       "import": "./dist/task/runtime/providers/vercel.js",

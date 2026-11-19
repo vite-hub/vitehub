@@ -11,7 +11,7 @@ import { isPlainObject } from '@vite-hub/internal/object'
 import { basename, dirname, resolve } from 'pathe'
 
 import { discoverSandboxTaskDefinitions } from '../discovery'
-import { createSandboxTaskFeaturePlan, resolveSandboxTaskFeatureConfig, sandboxTaskRuntimeSpecifier, sandboxTaskRuntimeStateSpecifier } from '../feature'
+import { createSandboxTaskFeaturePlan, resolveSandboxTaskFeatureConfig, sandboxTaskRuntimeLocalProviderSpecifier, sandboxTaskRuntimeSpecifier, sandboxTaskRuntimeStateSpecifier } from '../feature'
 import { getSandboxTaskFeatureDriver } from '../module-types'
 import {
   activateSandboxTaskRuntimeFile,
@@ -203,10 +203,14 @@ function createSandboxTaskRuntimeFacadeContents(
     ...(providerLoaderImport
       ? [`export { loadSandboxTaskRuntimeProvider } from ${JSON.stringify(providerLoaderImport)}`]
       : []),
-    `import { setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeDevelopment, setSandboxTaskRuntimeRegistry } from ${JSON.stringify(sandboxTaskRuntimeStateSpecifier)}`,
+    `import { setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeDevelopment, ${development ? 'setSandboxTaskRuntimeLocalProvider, ' : ''}setSandboxTaskRuntimeRegistry } from ${JSON.stringify(sandboxTaskRuntimeStateSpecifier)}`,
     '',
     `setSandboxTaskRuntimeConfig(${JSON.stringify(runtimeConfig, null, 2)})`,
     `setSandboxTaskRuntimeDevelopment(${development})`,
+    // A dynamic import keeps `node:child_process` out of the dev server until a Task runs locally.
+    ...(development
+      ? [`setSandboxTaskRuntimeLocalProvider(async () => (await import(${JSON.stringify(sandboxTaskRuntimeLocalProviderSpecifier)})).resolveLocalTaskSandbox())`]
+      : []),
     'setSandboxTaskRuntimeRegistry(sandboxTaskRegistry)',
     '',
     'export default sandboxTaskRegistry',

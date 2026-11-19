@@ -14,7 +14,7 @@ In this tutorial, you make a package that takes the width and height of an image
 A Sandbox is a separate package project, not another server route. It has its own `package.json`.
 
 > [!NOTE] Before you start
-> Use the app from [Installation](/docs/getting-started/installation). You also need a Vercel project with Sandbox access. The Sandbox runs on Vercel, not on your computer, so each run can cost money. Run every command from the app root.
+> Use the app from [Installation](/docs/getting-started/installation). You also need a Vercel project with Sandbox access. The dev server runs the package on your computer. After you build, it runs on Vercel, so each run can cost money. Run every command from the app root.
 
 ::tutorial-step{title="Install and choose a provider"}
 ## Install and choose a provider
@@ -139,7 +139,7 @@ export default defineEventHandler(async (event) => {
 - `runSandboxTask('image-optimizer', input)` runs the package with your input. It returns a normal `Response`.
 - If the run fails, `response.ok` is `false`. Always check it before you read the body.
 
-Start the dev server in the terminal where you set the Vercel keys:
+Start the dev server. It runs the package as a process on your computer and does not use the Vercel keys:
 
 ```bash [commands/dev]
 pnpm dev

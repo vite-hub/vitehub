@@ -16,7 +16,7 @@ import {
   withSandboxTaskProvider,
 } from './provider-resolution'
 import { err, ok } from './result'
-import { getSandboxTaskRuntimeConfig, getSandboxTaskRuntimeRegistry, isSandboxTaskRuntimeDevelopment, type SandboxTaskRegistryEntry, type SandboxTaskRuntimeRegistry } from './state'
+import { getSandboxTaskRuntimeConfig, getSandboxTaskRuntimeLocalProvider, getSandboxTaskRuntimeRegistry, isSandboxTaskRuntimeDevelopment, type SandboxTaskRegistryEntry, type SandboxTaskRuntimeRegistry } from './state'
 
 import type {
   AgentSandboxTaskConfig,
@@ -147,6 +147,10 @@ async function resolveSandboxTaskProvider(
   definition: SandboxTaskRegistryEntry,
 ): Promise<ResolvedTaskSandbox> {
   assertSandboxTaskDefinitionOptions(definition.options ?? {})
+  // `vite dev` runs Sandbox Tasks on this machine, unless `remote: true` asks for the host's Sandbox.
+  const local = getSandboxTaskRuntimeLocalProvider()
+  if (local && !(sandboxTaskConfig && sandboxTaskConfig.remote))
+    return await local()
   const config = getSandboxTaskFeatureDriver(sandboxTaskConfig)
   const provider = resolveRuntimeProvider(config)
 

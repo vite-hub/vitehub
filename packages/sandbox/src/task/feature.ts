@@ -32,6 +32,8 @@ export const sandboxTaskRuntimeProviderSpecifiers = {
   cloudflare: `${sandboxTaskRuntimeSpecifier}/providers/cloudflare`,
   vercel: `${sandboxTaskRuntimeSpecifier}/providers/vercel`,
 } as const
+/** Only the `vite dev` facade imports the local provider, so builds do not bundle it. */
+export const sandboxTaskRuntimeLocalProviderSpecifier = `${sandboxTaskRuntimeSpecifier}/providers/local`
 
 export const sandboxTaskRuntimeDependencyByProvider = {
   cloudflare: '@cloudflare/sandbox',

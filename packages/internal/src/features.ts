@@ -458,7 +458,7 @@ export default defineRealtime({
     hosts: {
       cloudflare: native("cloudflare", "CF Sandbox", "Cloudflare Sandbox execution provider."),
       deno: unsupported("No Deno Sandbox driver is provided."),
-      dev: unsupported("The default Node host has no Sandbox Provider. Development with the Vercel host uses Vercel Sandbox when Vercel credentials are set. The Vite or Nuxt dev server cannot host a Cloudflare Container: build, then run `wrangler dev` on the build output."),
+      dev: unsupported("The default Node host has no Sandbox Provider. With the Cloudflare or Vercel host, `vite dev` runs each Sandbox Task as a process on this machine, with no isolation and no provider account. `sandboxTask: { remote: true }` uses the host's Sandbox instead."),
       netlify: explicit("sandboxTask.driver", "Vercel Sandbox", "The Netlify host has no Sandbox, so `sandboxTask: true` fails. Set `sandboxTask: { driver: \"vercel\" }` and Vercel credentials to use Vercel Sandbox."),
       node: explicit("sandboxTask.driver", "Vercel Sandbox", "The Node host has no Sandbox, so `sandboxTask: true` fails. Set `sandboxTask: { driver: \"vercel\" }` and Vercel credentials to use Vercel Sandbox."),
       vercel: native("vercel", "Vercel Sandbox", "Vercel Sandbox execution provider."),

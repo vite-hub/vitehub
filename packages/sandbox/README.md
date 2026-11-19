@@ -367,7 +367,7 @@ pnpm add @vite-hub/sandbox typescript @vercel/sandbox vite
 
 Sandbox Task requires Node.js 24.15 or newer. The Vercel provider accepts `@vercel/sandbox` 3.9 and 4. Vercel execution also requires a Vercel project with Sandbox access. At runtime, use the project's environment or set `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, and `VERCEL_PROJECT_ID`.
 
-For Cloudflare, install `@cloudflare/sandbox` 1.x instead and use the ViteHub Cloudflare host integration so it can emit the required Container, Durable Object binding, migration, and Worker exports. Both providers run remote, potentially billed infrastructure; Sandbox does not include a local in-process provider.
+For Cloudflare, install `@cloudflare/sandbox` 1.x instead and use the ViteHub Cloudflare host integration so it can emit the required Container, Durable Object binding, migration, and Worker exports. Both providers run remote, potentially billed infrastructure. In `vite dev`, Sandbox Tasks run as local processes on the `trusted-host` runtime instead, with no isolation and no provider account; `sandboxTask: { remote: true }` uses the provider in dev too.
 
 ### Run one Sandbox Task
 

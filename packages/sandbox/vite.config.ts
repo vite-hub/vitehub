@@ -35,12 +35,14 @@ export default defineConfig({
       "src/task/runtime/empty-registry.ts",
       "src/task/runtime/provider-loader.ts",
       "src/task/runtime/providers/cloudflare.ts",
+      "src/task/runtime/providers/local.ts",
       "src/task/runtime/providers/vercel.ts",
       "src/task/runtime/state.ts",
     ],
     exports: {
       exclude: [
         "task/runtime/providers/cloudflare",
+        "task/runtime/providers/local",
         "task/runtime/providers/vercel",
       ],
       customExports(exports) {
@@ -50,6 +52,7 @@ export default defineConfig({
           ...renamed,
           ...(taskExport ? { "./_internal/task/runtime": taskExport } : {}),
           "./_internal/task/runtime/providers/cloudflare": "./dist/task/runtime/providers/cloudflare.js",
+          "./_internal/task/runtime/providers/local": "./dist/task/runtime/providers/local.js",
           "./_internal/task/runtime/providers/vercel": "./dist/task/runtime/providers/vercel.js",
         })
       },
