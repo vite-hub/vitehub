@@ -166,16 +166,18 @@ export function createWorkspaceDefinitionLoader(rootDir: string, alias: Record<s
 }
 
 async function importInPass(loader: Jiti, file: string): Promise<unknown> {
-  const cache = passModuleCaches.get(loader)
-  if (!cache || !isAbsolute(file) || !/\.[cm]?(?:js|ts|tsx)$/.test(file) || !existsSync(file)) return await loader.import(file)
-  try {
-    return await loader.evalModule(readFileSync(file, "utf8"), { async: true, cache, filename: file })
+  const shared = passModuleCaches.get(loader)
+  if (!shared || !isAbsolute(file)) return await loader.import(file)
+  const resolved = loader.esmResolve(file, { try: true })
+  const filename = resolved?.startsWith("file:") ? fileURLToPath(resolved) : resolved
+  if (!filename || !isAbsolute(filename) || !/\.[cm]?tsx?$/.test(filename) || !existsSync(filename)) return await loader.import(file)
+
+  const cache: ModuleCache = { ...shared }
+  const namespace = await loader.evalModule(readFileSync(filename, "utf8"), { async: true, cache, filename })
+  for (const [path, module] of Object.entries(cache)) {
+    if (path !== filename && module?.loaded) shared[path] = module
   }
-  catch (error) {
-    // A module that failed to run stays in the cache with part of its exports. Later Definitions run it again.
-    passModuleCaches.set(loader, Object.create(null))
-    throw error
-  }
+  return namespace
 }
 
 /**

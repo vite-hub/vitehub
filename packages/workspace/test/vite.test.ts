@@ -2147,6 +2147,31 @@ describe("hubWorkspace", () => {
     ])
   })
 
+  it("uses the aliased Definition entry to discover Cloudflare Artifacts bindings", async () => {
+    const root = await createViteRoot()
+    const source = join(root, "src")
+    const mapped = join(root, "mapped")
+    await mkdir(mapped, { recursive: true })
+    await writeFile(join(source, "docs.workspace.ts"), 'export default { rootDir: "." }\n')
+    await writeFile(join(mapped, "docs.workspace.ts"), 'export default { store: { binding: "MAPPED_FILES", namespace: "mapped", driver: "cloudflare" } }\n')
+
+    const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({ assets: false })
+    const configResolved = plugin.configResolved as (config: {
+      command: "build"
+      resolve: { alias: Array<{ find: string, replacement: string }> }
+      root: string
+    }) => Promise<void>
+    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+    await configResolved({ command: "build", resolve: { alias: [{ find: source, replacement: mapped }] }, root })
+    await prepareWorkspaceProviderOutput(plugin)
+    await closeBundle.handler()
+
+    const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
+    expect(wrangler.artifacts).toEqual([{ binding: "MAPPED_FILES", namespace: "mapped" }])
+  })
+
   it.each([false, ["notes"]] as Array<false | string[]>)("emits definition-level Cloudflare Artifacts bindings independently of asset selection", async (assets) => {
     const root = await createViteRoot()
     await writeFile(join(root, "src", "docs.workspace.ts"), [

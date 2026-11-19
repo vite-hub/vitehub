@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { mount } from "@vue/test-utils";
-import { nextTick, reactive } from "vue";
+import { nextTick, reactive, toRaw } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 interface TreeModelStub {
@@ -447,7 +447,7 @@ describe("Pierre lifecycle adapters", () => {
     wrapper.unmount();
   });
 
-  it("passes Pierre a new diff and annotation list when they change in place", async () => {
+  it("invalidates in-place diff and annotation changes without copying the diff", async () => {
     const fileDiff = reactive({ hunks: [], isPartial: true, name: "a.ts" });
     const lineAnnotations = reactive<DiffLineAnnotation<unknown>[]>([]);
     const wrapper = mount(PierreDiff, { props: { fileDiff: fileDiff as unknown as FileDiffMetadata, lineAnnotations } });
@@ -464,7 +464,8 @@ describe("Pierre lifecycle adapters", () => {
     fileDiff.name = "b.ts";
     await flushRender();
     const third = render.mock.lastCall![0];
-    expect(third.fileDiff).not.toBe(second.fileDiff);
+    expect(third.forceRender).toBe(true);
+    expect(third.fileDiff).toBe(toRaw(fileDiff));
     expect(third.fileDiff).toMatchObject({ name: "b.ts" });
 
     wrapper.unmount();

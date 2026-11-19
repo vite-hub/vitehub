@@ -129,6 +129,10 @@ function rangeKey(range: SelectedLineRange) {
   return [range.start, range.end, range.side, range.endSide];
 }
 
+function snapshotSelection(range: SelectedLineRange | null) {
+  return range === null ? null : { ...range };
+}
+
 function controlledOptions<T extends { controlledSelection?: boolean }>(
   options: T | undefined,
   selectedLines: unknown,
@@ -210,39 +214,43 @@ export const PierreDiff = defineComponent({
     let instance: SelectionDiffModel | undefined;
     const selectionScroll = createSelectionScroll(() => host, () => instance?.isSourceRendered() ?? false);
     const lineAnnotations = useLineAnnotations(() => props.lineAnnotations);
-    const fileDiff = computed<FileDiffMetadata | undefined>(() => {
-      // Pierre compares diffs without a cache key by reference. A copy shows it a change made in place.
-      if (props.fileDiff) return { ...trackShallow(props.fileDiff) };
-      if (props.patch !== undefined) return getSingularPatch(props.patch);
+    const diffInput = computed(() => {
+      if (props.fileDiff) return { diff: trackShallow(props.fileDiff) };
+      if (props.patch !== undefined) return { diff: getSingularPatch(props.patch) };
       if (props.oldFile !== undefined && props.newFile !== undefined) {
-        return parseDiffFromFile(
+        const diff = parseDiffFromFile(
           copyFile(props.oldFile),
           copyFile(props.newFile),
           copyParseDiffOptions(props.options?.parseDiffOptions),
         );
+        return { diff };
       }
     });
+    let renderedInput: typeof diffInput.value;
 
     const render = () => {
       if (!host) return;
-      if (!fileDiff.value) {
+      const input = diffInput.value;
+      if (!input) {
         instance?.cleanUp();
         instance = undefined;
+        renderedInput = undefined;
         return;
       }
-      const options = accessibleDiffOptions(props.options, props.selectedLines, fileDiff.value);
+      const options = accessibleDiffOptions(props.options, props.selectedLines, input.diff);
       if (!instance) instance = new SelectionDiffModel(options, undefined, true);
-      // Pierre skips an unchanged file, diff, annotation list, or theme by itself, but it cannot see changed options.
-      const forceRender = !areOptionsEqual(instance.options, options);
+      const diffChanged = renderedInput !== undefined && renderedInput !== input;
+      const forceRender = diffChanged || !areOptionsEqual(instance.options, options);
       instance.setOptions(options);
       instance.render({
         fileContainer: host,
-        fileDiff: fileDiff.value,
+        fileDiff: input.diff,
         forceRender,
         lineAnnotations: lineAnnotations.value,
       });
+      renderedInput = input;
       if (props.selectedLines !== undefined)
-        instance.setSelectedLines(trackShallow(props.selectedLines));
+        instance.setSelectedLines(snapshotSelection(props.selectedLines));
       selectionScroll.sync(props.scrollToSelectedLines ? props.selectedLines : undefined, [
         toRaw(props.fileDiff),
         props.patch,
@@ -300,7 +308,7 @@ export const PierreFile = defineComponent({
         lineAnnotations: lineAnnotations.value,
       });
       if (props.selectedLines !== undefined)
-        instance.setSelectedLines(trackShallow(props.selectedLines));
+        instance.setSelectedLines(snapshotSelection(props.selectedLines));
       selectionScroll.sync(props.scrollToSelectedLines ? props.selectedLines : undefined, [
         file.value.name,
         file.value.contents,
@@ -361,7 +369,7 @@ export const PierreUnresolvedFile = defineComponent({
       });
       renderedFile = file.value;
       if (props.selectedLines !== undefined)
-        instance.setSelectedLines(trackShallow(props.selectedLines));
+        instance.setSelectedLines(snapshotSelection(props.selectedLines));
       selectionScroll.sync(props.scrollToSelectedLines ? props.selectedLines : undefined, [
         file.value.name,
         file.value.contents,

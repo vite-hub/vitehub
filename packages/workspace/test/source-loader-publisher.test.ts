@@ -920,6 +920,19 @@ describe("sources and loaders", () => {
     }
   })
 
+  it("does not share partial exports after a Definition catches an import failure", async () => {
+    const root = await createRoot()
+    const optional = join(root, "optional.workspace.ts")
+    const required = join(root, "required.workspace.ts")
+    await writeFile(join(root, "helper.ts"), 'export const rootDir = "partial"\nthrow new Error("helper failed")\n')
+    await writeFile(optional, 'export default await import("./helper").catch(() => ({ rootDir: "fallback" }))\n')
+    await writeFile(required, 'import { rootDir } from "./helper"\nexport default { rootDir }\n')
+
+    const pass = createWorkspaceDefinitionLoader(root)
+    await expect(loadDiscoveredWorkspaceDefinition(pass, { handler: optional, name: "optional", path: optional, source: "test" })).resolves.toMatchObject({ rootDir: "fallback" })
+    await expect(loadDiscoveredWorkspaceDefinition(pass, { handler: required, name: "required", path: required, source: "test" })).rejects.toThrow("helper failed")
+  })
+
   it("ignores stale default Jiti transforms when loading raw imports", async () => {
     const root = await createRoot()
     const directory = join(root, "server", "agents", "review")
