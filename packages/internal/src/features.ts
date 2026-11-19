@@ -388,8 +388,10 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
   queue: feature({
     definition: starter("server/queues", name => `import { defineQueue } from "vite-hub/queue"
 
-export default defineQueue<{ id: string }>(async ({ payload }) => {
-  console.log("${name}", payload.id)
+export default defineQueue<{ id: string }>({
+  handler: async ({ payload }) => {
+    console.log("${name}", payload.id)
+  },
 })
 `, { suffix: "queue" }),
     docs: "/docs/queue",

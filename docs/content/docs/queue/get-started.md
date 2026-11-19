@@ -80,8 +80,10 @@ Create `server/queues/welcome-email.ts`. The file name is the name of the queue:
 ```ts [server/queues/welcome-email.ts]
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ email: string }>(async ({ payload, id }) => {
-  console.log(`Processing welcome job ${id} for ${payload.email}`)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload, id }) => {
+    console.log(`Processing welcome job ${id} for ${payload.email}`)
+  },
 })
 ```
 

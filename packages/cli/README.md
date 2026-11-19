@@ -74,6 +74,15 @@ The Agent integration contributes `info`, `dev`, and `invocations`, plus `channe
 
 See the [complete command index](https://vitehub.dev/docs/cli/reference#commands) for command availability and the task each command performs.
 
+## Update ViteHub packages
+
+`vitehub update` moves `vite-hub` and every `@vite-hub/*` package to one version: the latest npm release, or the pkg.pr.new build of a commit with `--preview <commit>`. It edits the dependencies of every workspace package, npm, Yarn, Bun, and pnpm overrides, and catalogs, then installs. With pnpm it adds `vite-hub` and `@vite-hub/*` to `minimumReleaseAgeExclude` for a release, and sets `blockExoticSubdeps: false` for a preview.
+
+```sh
+pnpm vitehub update
+pnpm vitehub update --preview 01898b8 --dry-run
+```
+
 ## Link and deploy several hosts
 
 `vitehub link` and `vitehub deploy` run before the CLI loads the project config. One app can link one project on each host. `.vitehub/link.json` keeps a target for each host and the default host:

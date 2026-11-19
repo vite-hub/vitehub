@@ -284,7 +284,7 @@ export default defineContent({
 
 | `seo` option | Description |
 | --- | --- |
-| `markdown` | `true` serves each page as Markdown at its URL plus `.md`, such as `/blog/hello.md`, and `/index.md` for `/`. The page URL also returns Markdown when the request sends `Accept: text/markdown` before `text/html`. `{ prefix: '/raw' }` also serves each copy below that folder, such as `/raw/blog/hello.md`, and the llms files link there. `{ pages: true }` also gives [every other app page](#app-pages-as-markdown) a copy, converted from its HTML. |
+| `markdown` | `true` serves each page as Markdown at its URL plus `.md`, such as `/blog/hello.md`, and `/index.md` for `/`. The page URL also returns Markdown when the request sends `Accept: text/markdown` before `text/html`. `{ prefix: '/raw' }` also serves each copy below that folder, such as `/raw/blog/hello.md`, and the llms files link there. `{ pages: true }` also gives [every other app page](#app-pages-as-markdown) a copy, converted from its HTML. `{ userAgents }` sets which [AI fetchers](#ai-fetchers) get Markdown. |
 | `llms` | `true`, or `{ title, description, details, sections, sort, headers, locales }`, serves `/llms.txt`, `/llms-full.txt`, and `/sitemap.md`. It also turns on `markdown`, because their links point at the `.md` copies. The title defaults to the host name. `details` is text under the description, such as rules for agents. `sections` adds sections of links, `[{ title, description?, links: [{ title, href, description? }] }]`, before the sections of pages, or is a function that builds them from `{ pages, markdown(page) }`. `sort(left, right)` puts the pages in the order of your app. `headers` adds response headers to the three files. `locales` sets the `title`, `description`, and `details` of each translated `llms-full.txt`, such as `{ es: { description: 'Guía para los invitados.' } }`. |
 
 The copy starts with the document title, unless the body has its own heading, and its description as a quote. Root-relative links become absolute.
@@ -355,7 +355,9 @@ To keep the copies and the llms files out of search results, such as for an unli
 
 A `site` with a path, such as `https://example.com/docs` for an app mounted there, keeps the path in every URL that these files and the MCP server write.
 
-An HTML page that has a copy gets `Vary: Accept`, so a cache keeps the HTML and the Markdown apart, and a `Link: </blog/hello.md>; rel="alternate"; type="text/markdown"` header, so an agent finds the copy from the response alone. Every response at a URL with a copy varies on `Accept`, including JSON, assets, and redirects. URLs without copies keep their headers unless they return a 404. A copy has `Content-Location`, its `.md` URL, and an `ETag`, so a request with `If-None-Match` gets a `304` when the copy did not change. When a request asks for Markdown, with `.md` or with `Accept`, and no page answers it, the response is a `404` with a Markdown body. A `.md` URL that only an HTML page answers, such as the shell of a single-page app, gets the same `404`. The body names `/llms.txt` and the sitemaps, so an agent knows where to look next.
+Page responses that can negotiate Markdown vary on `Accept` and, unless `userAgents` is empty, `User-Agent`. This includes the normal page response and 404s, so a cache keeps them apart from the Markdown answers. Since a page URL can have an app route that serves its copy, the middleware sets `Vary` without running that route for a browser request. The public `/robots.txt` does not negotiate. An HTML page with a known copy also gets a `Link: </blog/hello.md>; rel="alternate"; type="text/markdown"` header.
+
+A copy has `Content-Location`, its `.md` URL, and an `ETag`, so a request with `If-None-Match` gets a `304` when the copy did not change. When a request asks for Markdown, with `.md` or with `Accept`, and no page answers it, the response is a `404` with a Markdown body. A `.md` URL that only an HTML page answers, such as the shell of a single-page app, gets the same `404`. The body names `/llms.txt` and the sitemaps, so an agent knows where to look next.
 
 ### App pages as Markdown
 
@@ -376,6 +378,40 @@ export default defineContent({
 
 Off by default. [Docs sites](/docs/docs-site/configure#agent-resources) turn it on. ViteHub renders the page with `serverFetch` from `nitro`. In another server, pass your own renderer: `defineContentMarkdownHandler(content, { render: request => app.fetch(request) })`.
 
+### A page that draws its text in the browser
+
+Some pages send an empty shell and draw their text in the browser, such as a shared note. Their HTML has nothing to convert. Serve the copy from a server route at the page URL plus `.md`:
+
+```ts [server/routes/notes/[id].md.get.ts]
+import { defineHandler, getRouterParam, HTTPError } from 'h3'
+import { blob } from 'vite-hub/blob'
+
+export default defineHandler(async (event) => {
+  const [error, file] = await blob.get(`notes/${getRouterParam(event, 'id')}.md`)
+  if (error) throw error
+  if (!file) throw new HTTPError({ status: 404 })
+  return new Response(await file.text(), {
+    headers: { 'content-type': 'text/markdown; charset=utf-8' },
+  })
+})
+```
+
+`/notes/launch-plan.md` reaches the route. A request for `/notes/launch-plan` with `Accept: text/markdown`, or from an [AI fetcher](#ai-fetchers), gets the same answer, with `Vary`, `ETag`, `Content-Location`, and the canonical `Link` of a copy. The route's `Cache-Control: private`, `X-Robots-Tag`, and `Set-Cookie` headers stay. This works with `markdown: true`. A Content document at the same URL keeps its own copy, and the route wins over a [converted page](#app-pages-as-markdown). Only a `200` answer with `Content-Type: text/markdown` counts. For other answers, the page URL gives its own answer.
+
+### AI fetchers
+
+Some AI fetchers ask for HTML, but their readers want Markdown. A request whose `User-Agent` names one gets the copy as if it sent `Accept: text/markdown`, with `Vary: User-Agent`. The default list is `ChatGPT-User`, `OAI-SearchBot`, `GPTBot`, `Claude-User`, `Claude-SearchBot`, `ClaudeBot`, `Perplexity-User`, and `PerplexityBot`. `userAgents` replaces it. Each entry matches a part of the header, without case:
+
+```ts [server/content.ts]
+import { defineContent } from 'vite-hub/content'
+
+export default defineContent({
+  seo: { site: 'https://example.com', markdown: { userAgents: ['Claude-User', 'ChatGPT-User'] } },
+})
+```
+
+`userAgents: []` turns it off.
+
 Check the output from code:
 
 ```ts [server/utils/agent-check.ts]
@@ -391,7 +427,7 @@ export async function checkAgentFiles() {
 }
 ```
 
-ViteHub generates these routes from `server/content.ts` like the sitemap, when `seo` sets `markdown` or `llms` to anything but literal `false`. The Markdown copies are middleware, because no route pattern matches a URL plus `.md`. The middleware loads when the server starts, so it can see a missing page, but it loads `server/content.ts` only on the first request that asks for Markdown or gets an HTML page. In another server, mount `defineContentLlmsHandler(content)` at the three paths and at `/:locale/llms-full.txt` and `defineContentMarkdownHandler(content)` as middleware.
+ViteHub generates these routes from `server/content.ts` like the sitemap, when `seo` sets `markdown` or `llms` to anything but literal `false`. The Markdown copies are middleware, because no route pattern matches a URL plus `.md`. The middleware loads when the server starts, so it can see a missing page, but it loads `server/content.ts` only on the first page request. In another server, mount `defineContentLlmsHandler(content)` at the three paths and at `/:locale/llms-full.txt` and `defineContentMarkdownHandler(content)` as middleware.
 
 ## Console
 

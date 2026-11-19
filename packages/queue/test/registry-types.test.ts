@@ -19,7 +19,7 @@ it.each(["@vite-hub/queue", "vite-hub/queue"])("checks %s dispatch through gener
     const handler = join(root, "welcome.queue.ts")
     await writeFile(handler, [
       `import { defineQueue } from ${JSON.stringify(importBase)}`,
-      'export default defineQueue<{ email: string }>(job => job.payload.email)',
+      'export default defineQueue<{ email: string }>({ handler: ({ payload }) => payload.email })',
     ].join("\n"))
     await writeQueueTypes(root, [{ handler, name: "welcome" }], importBase)
     await writeFile(join(root, "consumer.ts"), [

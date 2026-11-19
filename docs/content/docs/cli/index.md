@@ -41,7 +41,7 @@ The [command reference](/docs/cli/reference) has the full help output and every 
 
 | Page | Commands |
 | --- | --- |
-| [Project](/docs/cli/project) | `init`, `catalog`, `status`, `add`, `remove`, and the dev Setup endpoints. |
+| [Project](/docs/cli/project) | `init`, `catalog`, `status`, `add`, `remove`, `update`, and the dev Setup endpoints. |
 | [Link and deploy](/docs/cli/deploy) | `link`, `unlink`, `deploy`, `deployments`. |
 | [Blob, KV, Rate Limit](/docs/cli/storage) | `blob`, `kv`, `rate-limit`. |
 | [Database](/docs/cli/database) | `database generate`, `migrate`, `up`, `export`, `sql`, `drop`, `reset`, `tables`, `rows`, and `vitehub seed`. |

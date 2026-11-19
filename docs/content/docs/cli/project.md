@@ -141,6 +141,17 @@ It deletes only unchanged starter files, and uninstalls a package only when no e
 | [`SETUP_FEATURE_REQUIRED`](/docs/cli/diagnostics/setup_feature_required) | An enabled feature's options require this one, such as `cache: { driver: "kv" }` for KV. `--force` cannot remove it. | Remove both in one command, or change the dependent options first. |
 | [`SETUP_UNINSTALL_FAILED`](/docs/cli/diagnostics/setup_uninstall_failed) | The package manager failed after the starter files were deleted. | Run the uninstall command by hand to see the error, then plan the removal again. |
 
+## Update ViteHub packages
+
+```bash [Terminal]
+pnpm vitehub update
+pnpm vitehub update --preview <commit> --dry-run
+```
+
+`vitehub update` moves `vite-hub` and all `@vite-hub/*` packages in the workspace to the latest npm release. Use `--preview <commit>` to move them to one pkg.pr.new build instead. The command updates dependencies, overrides, and catalogs, then installs without loading the project config. `--dry-run` shows the plan without writing files or installing.
+
+For a pnpm workspace, a release adds the ViteHub packages to `minimumReleaseAgeExclude`, and a preview sets `blockExoticSubdeps: false` so pnpm can install the preview URLs.
+
 ## Use Setup during development
 
 `vite dev` serves Setup endpoints under `/__vitehub/setup` that plan and apply the same changes as `add` and `remove`, with the same JSON. They exist only on the dev server, never in a build.
