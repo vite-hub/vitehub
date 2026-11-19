@@ -34,6 +34,17 @@ describe("the KV config in a Nitro prerender build", () => {
     expect(module).toContain(`"localBase":".vitehub/data/kv-cloudflare/CACHE"`)
   })
 
+  it("uses a local Cloudflare store even when development uses the remote binding", async () => {
+    const { module } = await prerenderConfig({ binding: "CACHE", driver: "cloudflare", remote: true }, "cloudflare")
+    expect(module).toContain(`"localBase":".vitehub/data/kv-cloudflare/CACHE"`)
+    expect(module).not.toContain(`"remote":true`)
+  })
+
+  it("does not apply development-only remote validation during prerender", async () => {
+    const { module } = await prerenderConfig({ remote: true }, "node")
+    expect(module).toContain(`"driver":"fs-lite"`)
+  })
+
   // Deno KV needs Deno, so the Node prerender worker keeps the runtime fallback for it.
   it.each([{}, { driver: "deno-kv" as const }])("adds no module for a Deno KV store: %j", async (options) => {
     expect((await prerenderConfig(options, "deno")).module).toBeUndefined()

@@ -441,10 +441,9 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
         // Prerender bundles the server again with Rolldown, without Vite plugins, so `resolveId` below never sees the
         // config import there. Nitro copies its virtual modules into that build.
         nitro.hooks?.hook("prerender:config", (config: KVPrerenderConfig) => {
-          // The prerenderer is a Node worker, not the deployed host, so it gets the stores of `vite dev`: a Cloudflare
-          // store uses its local folder and an inferred store is fs-lite. Deno KV needs Deno, so such an app keeps the
-          // runtime fallback. The prerenderer prints no store notice at boot.
-          const prerender = resolveKVViteConfig(options, { dev: true, hosting: input.hosting, postgresDatabase: postgresDatabase() })
+          // The prerenderer is a Node worker. Cloudflare stores use their local folders, and apps with Deno KV keep
+          // the runtime fallback. The prerenderer prints no store notice at boot.
+          const prerender = resolveKVViteConfig(options, { hosting: input.hosting, prerender: true })
           if (prerender.kv && Object.values({ ...prerender.kv.stores, default: prerender.kv.store }).some(store => store.driver === "deno-kv")) return
           config.virtual = { ...config.virtual, [KV_VIRTUAL_CONFIG_ID]: () => serializeVirtualConfig(prerender, databaseImport, true) }
         })
