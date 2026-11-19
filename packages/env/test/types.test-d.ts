@@ -1,3 +1,4 @@
+import * as v from "valibot"
 import { describe, expectTypeOf, it } from "vitest"
 import type { Result } from "@vite-hub/runtime"
 import type { Plugin } from "vite"
@@ -31,7 +32,9 @@ describe("types", () => {
 
   it("types verifyWebhook()", () => {
     const request = new Request("https://example.test/")
-    expectTypeOf(verifyWebhook<{ type: string }>(request, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" })).toEqualTypeOf<Promise<Result<{ type: string }, WebhookErrorCode>>>()
+    expectTypeOf(verifyWebhook(request, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET", schema: v.object({ type: v.string() }) })).toEqualTypeOf<Promise<Result<{ type: string }, WebhookErrorCode>>>()
+    // @ts-expect-error The body is not checked, so the caller cannot name its type. Pass `schema`.
+    void verifyWebhook<{ type: string }>(request, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" })
     expectTypeOf(verifyWebhook(request, { provider: "github", secret: "GITHUB_WEBHOOK_SECRET" })).toEqualTypeOf<Promise<Result<unknown, WebhookErrorCode>>>()
     // @ts-expect-error A custom HMAC needs the header that carries the signature.
     void verifyWebhook(request, { provider: "hmac", secret: "LULU_WEBHOOK_SECRET" })

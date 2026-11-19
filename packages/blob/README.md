@@ -52,6 +52,8 @@ export default defineConfig({
 })
 ```
 
+`blob.put(pathname, body, { ifMatch })` writes only when the stored file still has the `httpEtag` that you read, and `{ overwrite: false }` writes only when no file exists. Otherwise it writes nothing and returns `BLOB_CONFLICT`. R2 with its binding, Vercel Blob, Netlify Blobs, and S3 on AWS check the condition in the provider, and `fs` checks it in the process. Other drivers throw `BLOB_PUT_CONDITION_UNSUPPORTED`.
+
 `blob.copy(from, to, { overwrite? })` copies a file in the same store with its content type and custom metadata, and returns the new `BlobObject`. A missing source returns `BLOB_NOT_FOUND`, and a file at `to` returns `BLOB_CONFLICT` unless `overwrite` is `true`. S3-compatible stores and Vercel Blob copy on the server, `fs` copies the file, R2 streams the object from the binding, and Netlify Blobs reads and writes it.
 
 ## Vite Integration
@@ -97,7 +99,7 @@ export default defineConfig({
 
 With `remote: true`, `vite dev` uses the real store and prints `Blob store "<name>" is remote` on first use. Writes then change real data. `vitehub inspect definitions --kind blob` shows `Development: Remote`. On a `cloudflare` store, `remote: true` uses the R2 API and its HTTP credentials, not the local binding. Builds ignore `remote`. An explicit `driver` is used in `vite dev` as configured, with or without `remote`. A `remote` value that is not a boolean fails with `BLOB_C0017`, and `remote: true` on a local `fs` store fails with `BLOB_C0018`.
 
-Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. Each route says who may read the files: `serve: { access: "public" }` sends every object of the served store to anyone, and `serve: { authorize: true }` requires a signed-in session. A route without one of them, or with both, fails with `BLOB_C0021`. `authorize: false` does not make a route public and fails with `BLOB_C0021` too. The route uses `/api/_vitehub/blob` as a safe namespaced API route by default. Use `serve.route` for product-facing paths such as `/assets`.
+Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. Each route says who may read the files: `serve: { access: "public" }` sends every object of the served store to anyone, and `serve: { authorize: true }` requires a signed-in session. A route without one of them, or with both, fails with `BLOB_C0021`. `authorize: false` does not make a route public and fails with `BLOB_C0021` too. The route is `/_vitehub/blob` by default. Use `serve.route` for product-facing paths such as `/assets`.
 `put()` has no `access` option. One object cannot be private in a public store, so `put()` with `access` throws `BLOB_R0045`. Keep private files in a store that the route does not serve, or serve that store with `authorize: true`. On Vercel Blob, `access` on the store sets the provider access. It defaults to `"private"`, or to `"public"` when `serve: { access: "public" }` serves the store, and `access: "public"` on a store that `authorize: true` serves fails with `BLOB_C0022`.
 Objects from the served store receive an absolute URL when `serve.publicBaseUrl` is configured, or a route-relative URL otherwise.
 `servedBlobUrl(pathname, store?)` from `@vite-hub/blob/served` returns the same URL for a pathname from the generated Blob config, without loading the Blob runtime, so code such as `contentHead()` can link a stored image. It returns `undefined` when the store is not served, and in the browser, where the config is not loaded.
@@ -245,7 +247,7 @@ export async function shareAudio(file: Blob) {
 
   const [uploadError, upload] = await blob.sign("private/audio.mp3", {
     method: "PUT",
-    expiresIn: 15 * 60,
+    expiresIn: "15m",
     contentType: "audio/mpeg",
     createOnly: true,
   })
@@ -266,7 +268,7 @@ The returned headers are part of the request contract and must be sent unchanged
 
 `maxSize`, such as `"8MB"`, limits the body of a `PUT`. Only the `fs` and `vercel` drivers bind it.
 
-The `fs` driver, the `cloudflare` driver, the files-sdk drivers, and the `vercel` driver sign requests. The `vercel` driver signs a `PUT` only, as a request to the Vercel Blob API with a client token from `BLOB_READ_WRITE_TOKEN`. The token binds the pathname, `contentType`, `maxSize`, `createOnly`, and the expiry. An `fs` store signs a link to the `/_vitehub/blob/signed/<store>/<pathname>` route of the app, which ViteHub adds only when a store uses the `fs` driver. The route checks the link, then serves the file with `serve()` or stores the body with `put()`. It answers `403` for an expired or changed link (`BLOB_R0042`, `BLOB_R0041`), `405` for another method, and `413` for a body larger than `maxSize` (`BLOB_R0043`). The HMAC-SHA256 key comes from `VITEHUB_SECRET` or `NUXT_APP_SECRET` with the purpose `vitehub:blob:sign`, so a link works on another instance only with the same secret and the same folder, such as a shared volume. Set `urlBaseUrl` on the store for absolute links, with the base URL of the app when it has one, such as `https://app.example/app`. The `fs` driver cannot bind `createOnly`. A files-sdk driver signs a `GET` only when its provider issues a URL with an exact expiry, and a `PUT` only when its provider issues a direct upload URL. Files-sdk drivers cannot bind `createOnly`. When the provider cannot sign the request, `sign()` returns a `BLOB_OPERATION_FAILED` error with the reason in `cause`.
+The `fs` driver, the `cloudflare` driver, the files-sdk drivers, and the `vercel` driver sign requests. The `vercel` driver signs a `PUT` only, as a request to the Vercel Blob API with a client token from `BLOB_READ_WRITE_TOKEN`. The token binds the pathname, `contentType`, `maxSize`, `createOnly`, and the expiry. An `fs` store signs a link to the `/_vitehub/blob-signed/<store>/<pathname>` route of the app, which ViteHub adds only when a store uses the `fs` driver. The route checks the link, then serves the file with `serve()` or stores the body with `put()`. It answers `403` for an expired or changed link (`BLOB_R0042`, `BLOB_R0041`), `405` for another method, and `413` for a body larger than `maxSize` (`BLOB_R0043`). The HMAC-SHA256 key comes from `VITEHUB_SECRET` or `NUXT_APP_SECRET` with the purpose `vitehub:blob:sign`, so a link works on another instance only with the same secret and the same folder, such as a shared volume. Set `urlBaseUrl` on the store for absolute links, with the base URL of the app when it has one, such as `https://app.example/app`. The `fs` driver cannot bind `createOnly`. A files-sdk driver signs a `GET` only when its provider issues a URL with an exact expiry, and a `PUT` only when its provider issues a direct upload URL. Files-sdk drivers cannot bind `createOnly`. When the provider cannot sign the request, `sign()` returns a `BLOB_OPERATION_FAILED` error with the reason in `cause`.
 
 ## S3-compatible storage
 

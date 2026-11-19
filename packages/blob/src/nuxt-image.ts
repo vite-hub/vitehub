@@ -7,7 +7,7 @@ import type { BlobImageFit, BlobImageFormat, BlobImageVariant } from "./media/va
 
 /** Options of the `vitehub` provider, from `image.providers.vitehub.options` in `nuxt.config.ts`. */
 export interface BlobImageProviderOptions {
-  /** The `blob.serve` route, or a public URL of it. Defaults to `/api/_vitehub/blob`. */
+  /** The `blob.serve` route, or a public URL of it. Defaults to `/_vitehub/blob`. */
   baseURL?: string
   /** Sizes that widths and heights snap to. Use the same list as `blob.images.sizes`. */
   imageSizes?: readonly number[]

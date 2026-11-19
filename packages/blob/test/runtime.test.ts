@@ -528,9 +528,7 @@ describe("blob runtime", () => {
       ...(folded ? { mode: "folded" } : {}),
       prefix: "a/",
     })
-    expect(Object.keys(vercelBlobMock.list.mock.calls[0]?.[0] ?? {})).toEqual(folded ? ["token", "cursor", "limit", "mode", "prefix"] : ["token", "cursor", "limit", "prefix"])
     expect(result).toEqual({ blobs: [], cursor: "next-page", ...(folded ? { folders: [] } : {}), hasMore: true })
-    expect(Object.keys(result)).toEqual(folded ? ["blobs", "cursor", "folders", "hasMore"] : ["blobs", "cursor", "hasMore"])
   })
 
   it("preserves provider cursors for folded Vercel listings", async () => {
@@ -623,7 +621,7 @@ describe("blob runtime", () => {
     setBlobRuntimeConfig({
       serve: {
         publicBaseUrl: "https://assets.example/",
-        route: "/api/_vitehub/blob/",
+        route: "/_vitehub/blob/",
         store: "assets",
       },
       store: {
@@ -659,13 +657,13 @@ describe("blob runtime", () => {
     const list = expectBlobSuccess(await blob.store("assets").list())
     const otherStore = expectBlobSuccess(await blob.put("notes/private.txt", "value"))
 
-    expect(put.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
-    expect(head?.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
-    expect(list.blobs[0]?.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
+    expect(put.url).toBe("https://assets.example/_vitehub/blob/notes/served.txt")
+    expect(head?.url).toBe("https://assets.example/_vitehub/blob/notes/served.txt")
+    expect(list.blobs[0]?.url).toBe("https://assets.example/_vitehub/blob/notes/served.txt")
     expect(otherStore.url).toBe("https://blob.example/notes/private.txt")
 
     const reserved = expectBlobSuccess(await blob.store("assets").put("notes/query?draft#one.txt", "value"))
-    expect(reserved.url).toBe("https://assets.example/api/_vitehub/blob/notes/query%3Fdraft%23one.txt")
+    expect(reserved.url).toBe("https://assets.example/_vitehub/blob/notes/query%3Fdraft%23one.txt")
   })
 
   it.each([

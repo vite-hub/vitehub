@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createWorkflow } from "../src/runtime/client.ts"
 import { getWorkflowRunState, resetWorkflowRuntime, setWorkflowRun, setWorkflowRuntimeConfig } from "../src/runtime/state.ts"
+import { unwrap } from "./unwrap.ts"
 
 function gate() {
   let resolve!: () => void
@@ -23,13 +24,13 @@ describe("inline Workflow run retention", () => {
     const first = createWorkflow("tenant", () => "first result")
     const second = createWorkflow("tenant\0admin", () => "second result")
 
-    await first.start(undefined, { id: "admin\0run" })
+    await unwrap(first.start(undefined, { id: "admin\0run" }))
     await getWorkflowRunState(first.name, "admin\0run")!.promise
-    await second.start(undefined, { id: "run" })
+    await unwrap(second.start(undefined, { id: "run" }))
     await getWorkflowRunState(second.name, "run")!.promise
 
-    const firstRun = await first.getRun("admin\0run")
-    const secondRun = await second.getRun("run")
+    const firstRun = await unwrap(first.getRun("admin\0run"))
+    const secondRun = await unwrap(second.getRun("run"))
     expect(firstRun.status).toBe("completed")
     expect(secondRun.status).toBe("completed")
     expect(firstRun.result).toBe("first result")
@@ -136,19 +137,19 @@ describe("inline Workflow run retention", () => {
     setWorkflowRuntimeConfig({ driver: "vercel" })
     const first = gate()
     const remaining = gate()
-    const workflow = createWorkflow<boolean, string>("pending", async (payload) => {
+    const workflow = createWorkflow<boolean, string>("pending", async ({ payload }) => {
       await (payload ? first.promise : remaining.promise)
       return "done"
     })
-    await workflow.start(true, { id: "first" })
+    await unwrap(workflow.start(true, { id: "first" }))
     const firstState = getWorkflowRunState("pending", "first")!
-    const started = await Promise.all(Array.from({ length: 1_024 }, (_, index) => workflow.start(false, { id: String(index) })))
+    const started = await Promise.all(Array.from({ length: 1_024 }, (_, index) => unwrap(workflow.start(false, { id: String(index) }))))
     const pending = started.map(run => getWorkflowRunState("pending", run.id)!.promise)
     try {
-      await expect(workflow.getRun("first")).resolves.toMatchObject({ status: "running" })
+      await expect(unwrap(workflow.getRun("first"))).resolves.toMatchObject({ status: "running" })
       first.resolve()
       await firstState.promise
-      await expect(workflow.getRun("first")).resolves.toMatchObject({ result: "done", status: "completed" })
+      await expect(unwrap(workflow.getRun("first"))).resolves.toMatchObject({ result: "done", status: "completed" })
     } finally {
       first.resolve()
       remaining.resolve()

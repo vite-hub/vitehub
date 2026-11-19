@@ -262,6 +262,7 @@ const config: KnipConfiguration = {
     ".": {
       entry: [
         "scripts/*.mjs",
+        ".github/scripts/claim-npm-packages.mjs",
         // Root tasks come from `test/tasks.ts`, which the vite-plus plugin cannot read
         // (https://github.com/webpro-nl/knip/issues/2406).
         "test/package-metadata.mjs",

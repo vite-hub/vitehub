@@ -80,7 +80,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     console: { auth: false },
     env: {
       providers: { credentials: './server/env/credentials.ts' },
@@ -105,7 +104,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     console: { auth: false },
     env: {
       providers: { credentials: './server/env/credentials.ts' },
@@ -129,7 +127,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     console: { auth: false },
     env: {
       providers: { credentials: './server/env/credentials.ts' },
@@ -365,4 +362,4 @@ A context that your code builds now fails with `ENV_BRIDGE_UNTRUSTED`.
 
 - Declare provider-backed values with [Env](/docs/env/server-api#read-external-env-storage).
 - Call third-party APIs for connected accounts with [Connections](/docs/connections).
-- Protect management with [Auth](/docs/auth) and the [Console](/docs/development/console#protect-the-console-route).
+- Protect management with [Auth](/docs/auth) and the [Console](/docs/console/access#who-can-call-the-endpoint).

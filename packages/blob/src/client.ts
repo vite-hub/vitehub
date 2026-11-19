@@ -247,7 +247,7 @@ async function uploadDirect(apiBase: string, files: File[], options: UploadFiles
   return objects
 }
 
-// The `fs` driver signs links on the app origin, such as `/_vitehub/blob/signed/...`. Resolve them like the route.
+// The `fs` driver signs links on the app origin, such as `/_vitehub/blob-signed/...`. Resolve them like the route.
 function resolveUrl(url: string, apiBase: string): string {
   try {
     return new URL(url, apiBase).href

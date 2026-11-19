@@ -278,7 +278,7 @@ describe("actions across definitions", () => {
       },
     })
     const app = await createHarness({ name: "cards", definition: board, ddl: [ddl, activityDdl], definitions: { cards: board, activity: activityDefinition }, live: { interval: 60_000, seconds: 30 } })
-    const pullActivity = async (caller: { user: string, teams: string[] }, query: string) => await handleSyncRequest("activity", activityDefinition, new Request(`https://app.test/api/_vitehub/sync/activity${query}`, { headers: { "x-user": caller.user, "x-teams": caller.teams.join(",") } }), app.services)
+    const pullActivity = async (caller: { user: string, teams: string[] }, query: string) => await handleSyncRequest("activity", activityDefinition, new Request(`https://app.test/_vitehub/sync/activity${query}`, { headers: { "x-user": caller.user, "x-teams": caller.teams.join(",") } }), app.services)
     return {
       ...app,
       rows: async () => await app.db.select().from(cards).orderBy(cards.title),

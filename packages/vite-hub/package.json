@@ -1,6 +1,6 @@
 {
   "name": "vite-hub",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "The cohesive ViteHub framework distribution for Vite applications and agents.",
   "keywords": [
     "agent",
@@ -1377,7 +1377,7 @@
     }
   },
   "engines": {
-    "node": ">=22.22.0"
+    "node": ">=24.15.0"
   },
   "vitehub": {
     "agent": {

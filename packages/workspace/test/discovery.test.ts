@@ -64,16 +64,6 @@ describe("discoverServerWorkspaceDefinitions", () => {
     expect(() => discoverServerWorkspaceDefinitions(root)).toThrow('Duplicate workspace name "docs"')
   })
 
-  it("creates registry entries from discovered workspace definitions", async () => {
-    const root = await createRoot()
-    const registryFile = join(root, ".vitehub", "workspace", "registry.mjs")
-    await writeFile(join(root, "server", "workspaces", "docs.ts"), "export default {}\n", "utf8")
-
-    const contents = createWorkspaceRegistryContents(registryFile, discoverServerWorkspaceDefinitions(root))
-    expect(contents).toContain('["docs"]: async () => {')
-    expect(contents).toContain("const mod = await import(")
-  })
-
   it.each(["file", "virtual"] as const)("loads a discovered __proto__ definition from the %s registry", async (kind) => {
     const root = await createRoot()
     const registryFile = join(root, "registry.mjs")

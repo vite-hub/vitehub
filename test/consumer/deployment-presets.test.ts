@@ -177,7 +177,7 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
     await writeFile(join(root, "index.html"), "<!doctype html><title>ViteHub</title>\n", "utf8")
     await writeFile(join(root, "server/queues/image-optimization.ts"), [
       'import { defineQueue } from "vite-hub/queue"',
-      'export default defineQueue<string>(async () => undefined)',
+      'export default defineQueue<string>({ handler: async () => undefined })',
       '',
     ].join("\n"), "utf8")
     await writeFile(join(root, "server/api/upload.get.ts"), [

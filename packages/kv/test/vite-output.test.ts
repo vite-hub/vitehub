@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs"
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
+import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -290,6 +290,12 @@ describe("KV Vite output", () => {
       import("vite"),
       import("../src/vite.ts"),
     ])
+    await appendFile(entry, [
+      `export async function atomic() {`,
+      `  return [await kv.getAndDelete("a"), await kv.increment("a"), await kv.setIfAbsent("a", 1), await kv.lock("a").run(async () => 1)]`,
+      `}`,
+      ``,
+    ].join("\n"))
 
     await build({
       appType: "custom",
@@ -318,15 +324,14 @@ describe("KV Vite output", () => {
     expect(output).not.toContain("#vitehub/kv/config")
     expect(output).not.toContain("@upstash/redis")
     expect(output).toContain("cloudflare-kv-binding")
-    expect(output).toContain("needs atomic operations")
     expect(output).toContain("KV_STORE_NOT_FOUND")
     expect(output).toContain("KV_UNSUPPORTED_OPERATION")
     expect(output).toContain("KV_INVALID_LIMIT")
-    expect(output).toMatch(/async getAndDelete\(\)\s*{\s*return unsupported\("getAndDelete", name\);/)
-    expect(output).toMatch(/async increment\(\)\s*{\s*return unsupported\("increment", name\);/)
-    expect(output).toMatch(/async setIfAbsent\(\)\s*{\s*return unsupported\("setIfAbsent", name\);/)
-    expect(output).toMatch(/async run\(\)\s*{\s*return unsupported\("lock", name\);/)
     expect(output).toContain("KV_CUSTOM")
+    // SAFETY: The fixture entry exports the atomic operations of the generated Cloudflare runtime.
+    const worker = await import(pathToFileURL(join(rootDir, "dist", "worker.js")).href) as { atomic: () => Promise<unknown[]> }
+    const unsupported = (operation: string) => [expect.objectContaining({ code: "KV_UNSUPPORTED_OPERATION", message: expect.stringContaining(`kv.${operation}() needs`) }), undefined]
+    expect(await worker.atomic()).toEqual([unsupported("getAndDelete"), unsupported("increment"), unsupported("setIfAbsent"), unsupported("lock")])
   })
 
   it("exports driver lookup from the generated Cloudflare runtime without opening a binding", async () => {

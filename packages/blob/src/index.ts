@@ -37,6 +37,7 @@ export type {
   BlobMultipartPart,
   BlobMultipartUpload,
   BlobObject,
+  BlobPutCondition,
   BlobPutOptions,
   BlobSignedRequest,
   BlobSignOptions,

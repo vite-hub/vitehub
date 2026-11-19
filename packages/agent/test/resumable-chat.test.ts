@@ -14,8 +14,8 @@ function chatRequest(
   messageId = "message-1",
 ): Request {
   const url = method === "POST"
-    ? "https://example.com/api/_vitehub/agents/support/chat"
-    : `https://example.com/api/_vitehub/agents/support/chat?id=chat-1${method === "DELETE" ? `&messageId=${messageId}` : ""}`
+    ? "https://example.com/_vitehub/agents/support/chat"
+    : `https://example.com/_vitehub/agents/support/chat?id=chat-1${method === "DELETE" ? `&messageId=${messageId}` : ""}`
   return new Request(url, {
     ...(body ? { body: JSON.stringify(body) } : {}),
     headers: { "content-type": "application/json", "x-user": user },

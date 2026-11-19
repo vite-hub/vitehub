@@ -20,7 +20,7 @@ The `comments()` plugin has one option of its own, [`database`](#choose-the-data
 
 ## Turn Comments on in a ViteHub app
 
-In a ViteHub app, `server/comments.ts` turns Comments on. `vitehub({ comments: true })` does it without the file, with `defineComments()` and no options. The [Console](/docs/development/console) alone does not. Comments turns the Database on when `database` is unset, and adds the Comments section to the Console. An object also turns Comments on, and sets the Database, SQL dialect, or `overlay: false`:
+In a ViteHub app, `server/comments.ts` turns Comments on. `vitehub({ comments: true })` does it without the file, with `defineComments()` and no options. The [Console](/docs/console) alone does not. Comments turns the Database on when `database` is unset, and adds the Comments section to the Console. An object also turns Comments on, and sets the Database, SQL dialect, or `overlay: false`:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -28,7 +28,6 @@ In a ViteHub app, `server/comments.ts` turns Comments on. `vitehub({ comments: t
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     console: true,
     comments: { database: 'team' },
   },
@@ -45,7 +44,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       console: true,
       comments: { database: 'team' },
     }),
@@ -63,7 +61,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       console: true,
       comments: { database: 'team' },
     }),
@@ -139,7 +136,7 @@ A person who may not read sees **Sign in with GitHub** in the overlay. GitHub re
 
 | GitHub App setting | Value |
 | --- | --- |
-| Callback URL | `https://<your site>/api/_vitehub/comments/auth/callback/github`, one per site. A GitHub App takes up to 10. |
+| Callback URL | `https://<your site>/_vitehub/comments/auth/callback/github`, one per site. A GitHub App takes up to 10. |
 | Expire user authorization tokens | Off. When on, GitHub's token lasts 8 hours, and Comments cannot store a renewed one in the cookie, so people must sign in again. |
 | Webhook | Off |
 | Permissions | Only the default. Add **Pull requests: Read and write** to [post as each person](#post-as-each-person). |
@@ -191,7 +188,7 @@ Comments needs no email permission. When GitHub hides a person's email, Comments
 
 ### Comments through the Console
 
-Comment operations from the [Console](/docs/development/console), the CLI, and the [ViteHub MCP](/docs/development/mcp) need Console access to the **Comments** section. In an app without `identify`, the Console caller is the author, and `authorize` runs after the Console check. With `identify`, `authorize` decides, and it gets `console: true` for these calls: see [Use your own login](#use-your-own-login).
+Comment operations from the [Console](/docs/console), the CLI, and the [ViteHub MCP](/docs/console/mcp) need Console access to the **Comments** section. In an app without `identify`, the Console caller is the author, and `authorize` runs after the Console check. With `identify`, `authorize` decides, and it gets `console: true` for these calls: see [Use your own login](#use-your-own-login).
 
 The overlay on the app's pages does not read Console access. On pages, people get in through `identify`, through ViteHub Auth with `authorize`, or through [Sign in with GitHub](#sign-in-with-github), which an app with the Console also gets.
 
@@ -229,7 +226,7 @@ export default defineConfig({
 :::
 ::
 
-See [Limit a user to some sections](/docs/development/console#limit-a-user-to-some-sections) for `console-authorize.ts`. To limit Comments to some Console users, return the sections from it, such as `{ sections: ['comments', 'content'] }`.
+See [Limit a user to some sections](/docs/console/access#what-authorize-returns) for `console-authorize.ts`. To limit Comments to some Console users, return the sections from it, such as `{ sections: ['comments', 'content'] }`.
 
 A `comments:read` grant allows reading threads and joining page presence. Creating, replying, resolving, reopening, deleting, and Content field edits need the full `comments` grant and the Comments policy.
 
@@ -303,7 +300,7 @@ A write over the limit fails with [`COMMENTS_GUEST_RATE_LIMITED`](/docs/comments
 
 ### Roles from Site access
 
-[Site access](/docs/development/console#give-browsers-site-access) in the Console signs members and invited guests in to the app, with roles of Better Auth's `admin()` plugin, or, in an app without Auth, roles in its sealed `vitehub_site` cookie: `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`. Any of the last three also lets the person read. Members get all four. A guest gets the ones the member picked, and comments under the name the member gave them.
+[Site access](/docs/console/site-access#sign-browsers-in) in the Console signs members and invited guests in to the app, with roles of Better Auth's `admin()` plugin, or, in an app without Auth, roles in its sealed `vitehub_site` cookie: `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`. Any of the last three also lets the person read. Members get all four. A guest gets the ones the member picked, and comments under the name the member gave them.
 
 Without `authorize`, these roles decide. With `authorize`, your policy decides, so check the roles there with `commentsRoleAllows()` from `vite-hub/comments`:
 
@@ -317,7 +314,7 @@ export const comments = defineComments({
 
 ## Comments in your own UI
 
-The overlay and the Console show threads on `page` subjects, pinned on the app's pages. To keep comments on your own records, such as a document, and show them in your UI, define a subject kind. The overlay, the Console section, and the [ViteHub MCP](/docs/development/mcp) never show or change these threads.
+The overlay and the Console show threads on `page` subjects, pinned on the app's pages. To keep comments on your own records, such as a document, and show them in your UI, define a subject kind. The overlay, the Console section, and the [ViteHub MCP](/docs/console/mcp) never show or change these threads.
 
 ```ts [server/comments.ts]
 import { defineCommentSubject, defineComments } from 'vite-hub/comments'
@@ -596,7 +593,7 @@ The server has checked each person in `users`. `link` is the app path that opens
 
 ## Attach files
 
-A message can keep files, with keys in `attachments`. The `comments.upload` operation, or `POST /api/_vitehub/comments/attachments`, stores a file and returns `{ key, name, type, size }`. Pass the key in `attachments` of `comments.create` or `comments.reply`. A message with attachments may have no text. Uploads need `write` on the subject.
+A message can keep files, with keys in `attachments`. The `comments.upload` operation, or `POST /_vitehub/comments/attachments`, stores a file and returns `{ key, name, type, size }`. Pass the key in `attachments` of `comments.create` or `comments.reply`. A message with attachments may have no text. Uploads need `write` on the subject.
 
 By default, files go to the app's [Blob](/docs/blob) store, under `comments/<id>/<name>`. To store them yourself, return the key from `storeAttachment`:
 
@@ -616,7 +613,7 @@ export const comments = defineComments({
 
 Comments checks size and type before it calls `storeAttachment`: at most 5 MB of PNG, JPEG, GIF, WebP, AVIF, PDF, or plain text. See [Limits](/docs/comments/limits-and-errors#limits). Without Blob or `storeAttachment`, uploads fail with `COMMENTS_R0014`.
 
-**Show attachments.** `GET /api/_vitehub/comments/attachments/<key>` returns the file to people who may read a thread with a message that lists the key. Others, and unlisted keys, get `404` with `COMMENTS_R0020`. It reads with `readAttachment`, else from Blob. With `storeAttachment` and no `readAttachment`, it returns `COMMENTS_R0021`. Use `transport.attachmentUrl(key)` of [`createRestTransport()`](/docs/comments/server-api#rest-transport), or `commentAttachmentUrl(key)`, as a thumbnail `src`. For the CLI, the `comments.attachment` operation returns the file in Base64.
+**Show attachments.** `GET /_vitehub/comments/attachments/<key>` returns the file to people who may read a thread with a message that lists the key. Others, and unlisted keys, get `404` with `COMMENTS_R0020`. It reads with `readAttachment`, else from Blob. With `storeAttachment` and no `readAttachment`, it returns `COMMENTS_R0021`. Use `transport.attachmentUrl(key)` of [`createRestTransport()`](/docs/comments/server-api#rest-transport), or `commentAttachmentUrl(key)`, as a thumbnail `src`. For the CLI, the `comments.attachment` operation returns the file in Base64.
 
 The response keeps a browser from running the file:
 
@@ -712,7 +709,7 @@ export default defineConfig({
 | Arrow | An arrow from where the drag starts to where it ends. Its shaft bows a little, and <kbd>Shift</kbd> draws it straight. |
 | Text | A click types a label there. A click on a label edits it, a drag moves it, and a label with no words goes. <kbd>Cmd</kbd> <kbd>Enter</kbd> or <kbd>Ctrl</kbd> <kbd>Enter</kbd> puts the label down and comments on the ink. |
 
-When Comments or the [Console link](/docs/development/console#open-the-console-from-your-pages) is on, every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=14">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
+When Comments or the [Console link](/docs/console/site-access#open-the-console-from-your-pages) is on, every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=14">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
 
 - Nitro 3 apps, including Nuxt 5, get the script from the server response.
 - A single-page app whose `index.html` Vite serves or builds gets the bootstrap in `index.html`.
@@ -720,7 +717,7 @@ When Comments or the [Console link](/docs/development/console#open-the-console-f
 
 ### Apps below a base path
 
-With a Vite `base`, such as `base: '/docs/'`, or a Nuxt `app.baseURL`, Comments and the page tools follow it. The session route is `/docs/_vitehub/page/session`, the loader is `/docs/_vitehub/page/assets/loader.js`, and the Comments API is `/docs/api/_vitehub/comments`. The loader and overlay read the base from their own URL. Paths under `/docs/_vitehub` and `/docs/api` never get the loader.
+With a Vite `base`, such as `base: '/docs/'`, or a Nuxt `app.baseURL`, Comments and the page tools follow it. The session route is `/docs/_vitehub/page/session`, the loader is `/docs/_vitehub/page/assets/loader.js`, and the Comments API is `/docs/_vitehub/comments`. The loader and overlay read the base from their own URL. Paths under `/docs/_vitehub` and `/docs/api` never get the loader.
 
 ViteHub registers these routes below the part of the base that Nitro does not add. When Nitro `baseURL` is the same path, as Nuxt sets for `app.baseURL`, Nitro adds the base and ViteHub adds nothing.
 
@@ -834,15 +831,15 @@ App mentions and thread numbers stay plain text on GitHub: `@ada` does not notif
 
 ## Triage in the Console
 
-The Comments section of the [Console](/docs/development/console) lists the 500 threads with the newest activity, open first: first comment, page, author, replies, status, and last activity. Select a thread to read its comments, with the page context below. **Open on page** opens its `?vitehub=comments#comment-<id>` link in a new tab. Reply and resolve on the page, where the context is.
+The Comments section of the [Console](/docs/console) lists the 500 threads with the newest activity, open first: first comment, page, author, replies, status, and last activity. Select a thread to read its comments, with the page context below. **Open on page** opens its `?vitehub=comments#comment-<id>` link in a new tab. Reply and resolve on the page, where the context is.
 
 `vitehub inspect` lists the Comments route, the `comments` Realtime Definition when presence runs, and the tables in the Database.
 
 ## Fix comments with an Agent
 
-Connect the Agent to the [ViteHub MCP](/docs/development/mcp) of the Console. It runs the Comments operations of your app, such as `comments.threads` and `comments.reply`: it lists open threads, reads their page context and source files, changes the code, then replies and resolves. It acts as you, and `authorize` applies to each call. The `page` filter takes a path such as `/pricing` or a full URL of the page. When `authorize` hides threads, the list says how many and why, and `hidden` counts them.
+Connect the Agent to the [ViteHub MCP](/docs/console/mcp) of the Console. It runs the Comments operations of your app, such as `comments.threads` and `comments.reply`: it lists open threads, reads their page context and source files, changes the code, then replies and resolves. It acts as you, and `authorize` applies to each call. The `page` filter takes a path such as `/pricing` or a full URL of the page. When `authorize` hides threads, the list says how many and why, and `hidden` counts them.
 
-Your own MCP server can register the same tools. `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them, each with a JSON Schema and a `call(input, { user })` function.
+Your own MCP server can register the same tools. `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them, each with a JSON Schema and a `call(input, { user })` function. Pass the answer of a call to `mcpToolResult()` from the same import to get the MCP result. `comments_get_thread` sends the images attached to the thread as `image` blocks, so the Agent sees the screenshots, up to 4 MB in one answer.
 
 ::warning
 Your server must authenticate `user` before it calls a tool. Pass `null` for an anonymous caller.

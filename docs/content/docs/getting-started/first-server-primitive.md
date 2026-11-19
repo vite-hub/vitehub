@@ -16,7 +16,7 @@ account or credentials.
 ## Before you start
 
 Complete [Installation](/docs/getting-started/installation), check
-`/api/health`, and continue in that app with Node.js 22.22 or newer and pnpm.
+`/api/health`, and continue in that app with Node.js 24.15 or newer and pnpm.
 
 ::run-tutorial{to="/learn/first-server-primitive"}
 ::
@@ -39,7 +39,6 @@ Add `kv: true`. On the `node` host, KV stores values in files under
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: "node",
     kv: true,
   },
 })
@@ -55,7 +54,6 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       kv: true,
     }),
     nitro(),
@@ -72,7 +70,6 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       kv: true,
     }),
   ],

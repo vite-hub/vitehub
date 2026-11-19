@@ -37,8 +37,8 @@ import { docsAppManifest, docsAppManifestSource, docsAppPanelSource, readDocsCon
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawPath, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { docsContentSource } from "./agent-copy.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
-import { DocsRedirectError, docsRedirectProblems, docsRedirects, type DocsRouteRule } from "./redirects.ts"
-import { DocsSeoError, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type DocsSeoPage } from "./seo-audit.ts"
+import { docsRedirectError, docsRedirectProblems, docsRedirects, type DocsRouteRule } from "./redirects.ts"
+import { docsSeoError, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type DocsSeoPage } from "./seo-audit.ts"
 import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi, type DocsThemeUi } from "./theme.ts"
 import { docsThemeCss } from "./theme-css.ts"
 
@@ -50,11 +50,7 @@ import type { DocsSectionFile } from "./schema.ts"
 import type { DocsImageSizes } from "./markdown.ts"
 import type { DocsPage } from "./types.ts"
 
-export { DocsAssistantSetupError } from "./assistant-nuxt.ts"
-export { DocsCommentsSetupError } from "./comments-nuxt.ts"
-export { DocsRedirectError } from "./redirects.ts"
 export type { DocsThemeScope } from "./theme.ts"
-export { DocsSeoError } from "./seo-audit.ts"
 export type { DocsCommentsOptions } from "./comments-nuxt.ts"
 
 export interface DocsSiteOptions {
@@ -146,7 +142,7 @@ export interface DocsModuleOptions {
    * duplicate title or description, a title outside 10 to 60 characters or a description outside 70 to 160, not exactly
    * one `h1`, a skipped heading level, fewer than 150 words, or a page that no other page links to. Pages with `noindex`
    * or a canonical link to another page are left out. `"warn"`, the default, logs the problems. `"error"` or `true` stops the
-   * build with `DocsSeoError`. `false` turns the check off.
+   * build with `DOCS_SEO_FAILED`. `false` turns the check off.
    */
   seoAudit?: "warn" | "error" | boolean
   /** The docs assistant: an Agent that answers from these pages. `true` uses the Agent named `docs`. */
@@ -451,17 +447,21 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // from the live site. The Markdown copies are neither, so it is told that every page has one.
     // A build that prerenders only some routes, such as a bundle analysis, also has indexed pages that are not on the
     // live site yet, like a new section. The manifest has them, so they are valid too. Only the link checker module
-    // skips them: `checkDocsLinks()` reads the built pages and still checks their fragments.
-    const indexedPagePaths = new Set(docsManifestPages(manifest).filter(page => docsPageIndexed(page)).map(page => docsAppPath(page.path, config.appBase)))
+    // skips them, including links with queries or fragments: `checkDocsLinks()` still checks the built pages.
+    const indexedPagePaths = docsManifestPages(manifest).filter(docsPageIndexed).map(page => docsAppPath(page.path, config.appBase))
+    const indexedPageExclusions = new Set<string | RegExp>(indexedPagePaths)
+    if (indexedPagePaths.length)
+      indexedPageExclusions.add(new RegExp(`^(?:${indexedPagePaths.map(path => RegExp.escape(path)).join("|")})[?#]`))
     if (options.linkChecker !== false) {
       const linkChecker = (moduleOptions.linkChecker ??= {})
       linkChecker.excludeLinks = [
         ...linkChecker.excludeLinks ?? [],
         ...options.linkChecker?.excludeLinks ?? [],
+        ...config.mcp ? [/^(?:cursor:\/\/anysphere\.cursor-deeplink\/mcp\/install|vscode:mcp\/install)\?/] : [],
         ...docsManifestPages(manifest).map(page => docsAppPath(docsRawPath(page.path), config.appBase)),
         // A page with `seo.index: false` is not prerendered, but the manifest has it, so links to it are valid.
         ...docsManifestPages(manifest).filter(page => !docsPageIndexed(page)).map(page => docsAppPath(page.path, config.appBase)),
-        ...indexedPagePaths,
+        ...indexedPageExclusions,
       ]
     }
 
@@ -832,14 +832,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // All nitro:config hooks have run, including those registered by modules installed after the docs module.
       if (options.linkChecker !== false && building) {
         const problems = docsRedirectProblems(manifest, docsRedirects(nitro.options.routeRules ?? {}))
-        if (problems.length) throw new DocsRedirectError(problems)
+        if (problems.length) throw docsRedirectError(problems)
         nitro.hooks?.hook("compiled", () => {
           if (!nitro.options.output) return
           const redirects = docsRedirects(nitro.options.routeRules ?? {})
           const settings = options.linkChecker || {}
           const result = checkDocsLinks({ dir: nitro.options.output.publicDir, siteUrl: config.site.url || "https://docs.local", appBase: config.appBase, ...settings, isRuntimePath: docsRuntimePath(nitro.options, config.appBase, docsMount(manifest)), excludeLinks: [
             // Indexed pages stay checked here, with their fragments.
-            ...(moduleOptions.linkChecker?.excludeLinks ?? []).filter(link => typeof link !== "string" || !indexedPagePaths.has(link)),
+            ...(moduleOptions.linkChecker?.excludeLinks ?? []).filter(link => !indexedPageExclusions.has(link)),
             ...settings.excludeLinks ?? [],
             ...redirects.map(redirect => docsAppPath(redirect.from, config.appBase)),
             // The MCP endpoint is a server route, so the built output has no file for it.
@@ -862,7 +862,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         nitro.hooks?.hook("prerender:done", () => {
           const problems = docsSeoProblems(pages, sitemap, { endpoints: config.mcp ? ["/mcp"] : [], siteUrl: Boolean(config.site.url) })
           if (!problems.length) return
-          const error = new DocsSeoError(problems)
+          const error = docsSeoError(problems)
           if (seoAudit === "error" || seoAudit === true) throw error
           useLogger("@vite-hub/docs").warn(`${error.message}\nSet \`docs.seoAudit\` to "error" to stop the build on these, or to false to turn the check off.`)
         })
@@ -947,7 +947,7 @@ function docsRuntimePath(nitro: NitroOptions, appBase: string, mount: string): (
 const shellIcons = [
   "i-lucide-arrow-left", "i-lucide-arrow-right", "i-lucide-book-open", "i-lucide-check", "i-lucide-chevron-down", "i-lucide-chevron-right", "i-lucide-copy", "i-lucide-file",
   "i-lucide-folder-open", "i-lucide-link", "i-lucide-panel-left", "i-lucide-plug", "i-lucide-search", "i-lucide-x",
-  "i-simple-icons-anthropic", "i-simple-icons-cursor",
+  "i-simple-icons-anthropic", "i-simple-icons-claude", "i-simple-icons-cursor", "i-simple-icons-windsurf",
   "i-simple-icons-github", "i-simple-icons-markdown", "i-simple-icons-openai", "i-simple-icons-visualstudiocode",
   "i-vscode-icons-file-type-dotenv", "i-vscode-icons-file-type-js", "i-vscode-icons-file-type-js-official", "i-vscode-icons-file-type-json", "i-vscode-icons-file-type-markdown",
   "i-vscode-icons-file-type-nuxt", "i-vscode-icons-file-type-node", "i-vscode-icons-file-type-text", "i-vscode-icons-file-type-typescript",

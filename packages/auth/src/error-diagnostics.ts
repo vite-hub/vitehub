@@ -11,6 +11,29 @@ const withFix = (fix: string) => ({ ...dynamicError, fix })
 export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/auth/diagnostics",
   codes: {
+    // Account deletion errors. `defineAuth()` throws them for its options, and a user deletion for the rows of a
+    // Server Primitive.
+    AUTH_DELETE_ACCOUNT_FAILED: {
+      why: ({ owner }: { owner: string }) => `Auth could not delete the ${owner} data of the user, so it kept the account.`,
+      fix: "Read `error.cause` for the error of the Server Primitive, such as a missing table or a Database that does not answer. Fix it, then let the user delete the account again. Rows that Auth already deleted stay deleted.",
+    },
+    AUTH_DELETE_ACCOUNT_INVALID: {
+      why: "`defineAuth()` deleteAccount must be `true` or an object of Better Auth `user.deleteUser` options without `enabled`.",
+      fix: "Pass `deleteAccount: true` or an options object. If specifying `userApiKeyConfigIds`, pass an array of nonempty configuration IDs.",
+    },
+    AUTH_DELETE_ACCOUNT_REFERENCE_UNSUPPORTED: {
+      why: ({ model, field, userField }: { model: string, field: string, userField: string }) => `Auth cannot match ${model}.${field} to user.${userField}: the stored user field is not a string, number, boolean, or date.`,
+      fix: "Point the Better Auth plugin field at `user.id` or another user field stored as a string, number, boolean, or date.",
+    },
+    AUTH_DELETE_ACCOUNT_SESSION: {
+      why: "`defineAuth()` deleteAccount cannot revoke sessions that Auth accepts from cookies alone.",
+      fix: "Use stored Auth without `stateless()` or `session.cookieCache.enabled` to enable account deletion.",
+    },
+    AUTH_DELETE_USER_UNSUPPORTED: {
+      why: "`defineAuth()` does not take Better Auth `user.deleteUser`, because it would delete the user without the user's rows in ViteHub Server Primitives.",
+      fix: "Move the options to `deleteAccount`, without `enabled`: `user: { deleteUser: { enabled: true, beforeDelete } }` becomes `deleteAccount: { beforeDelete }`.",
+    },
+
     // Event, password, and sign-out errors. The event store, the events route, the password verifier, and `signOut()`
     // throw them.
     AUTH_EVENT_CALLBACK_FAILED: {
@@ -103,7 +126,7 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_C0062: withFix("Return a Better Auth `secondaryStorage` adapter, an object with `get`, `set`, and `delete`, or remove `secondaryStorage`."),
     AUTH_C0063: withFix("Set `database: authDatabase()` with `import { authDatabase } from 'vite-hub/auth/database'` to keep users in the app Database. Use `preset: stateless()` for social sign-in without a database. Set `database: \"memory\"` only when one server process may keep users until it restarts."),
     AUTH_C0064: withFix("Write `access.public` as an inline array of route strings, for example `public: ['/', '/login', '/api/health']`. The Vite plugin reads it at build time."),
-    AUTH_C0065: withFix("Set `access.policy` to an object with an `allow` function, for example `policy: { allow: ({ user }) => user.emailVerified === true, recheck: 300_000 }`. `recheck` is a number of milliseconds, 0 or more."),
+    AUTH_C0065: withFix("Set `access.policy` to an object with an `allow` function, for example `policy: { allow: ({ user }) => user.emailVerified === true, recheck: \"5m\" }`. `recheck` is a duration string, such as `\"30s\"` or `\"5m\"`."),
     AUTH_C0066: withFix("Return `database: authDatabase()` or another Better Auth adapter, or a `secondaryStorage` adapter. `access.policy` ends sessions, so Auth must store them."),
     AUTH_C0067: withFix("Pass both options, for example `forwardAuth({ header: 'x-auth-request-access-token', verify: async ({ value }) => lookUpIdentity(value) })`. `verify` must prove the header, for example with the provider or a secret that only the proxy sends."),
     AUTH_C0068: withFix("Write each access route as a literal path, without percent-encoded pattern syntax or `.` and `..` segments. To guard a path and every path below it, end the route with `/**`, for example `/api/users/**` in place of `/api/users/:id` or `/api/admin/*`. Check the parameter in the handler."),

@@ -1,4 +1,5 @@
 import { clientAddressKey, createClientRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
+import { registerViteHubUserData } from "@vite-hub/internal/runtime/user-data"
 
 import { createDrizzleFormsStore } from "./database.ts"
 import { isFormDefinition } from "./define.ts"
@@ -6,6 +7,7 @@ import { formsDiagnostics } from "./errors.ts"
 import { handleFormRequest } from "./handler.ts"
 import { createFormsInbox } from "./inbox.ts"
 import { createMemoryFormsStore } from "./memory.ts"
+import { formsTableNames } from "./table-names.ts"
 
 import type { FormsDatabase } from "./database.ts"
 import type { FormsInbox } from "./inbox.ts"
@@ -55,6 +57,7 @@ const emptyFormsStore: FormsStore = {
   list: async () => [],
   get: async () => undefined,
   setStatus: async () => undefined,
+  deleteUser: async () => undefined,
 }
 
 /** The forms and inbox of the running app, for the Console and MCP tools. */
@@ -70,10 +73,10 @@ export function installedForms(): InstalledForms | undefined {
 }
 
 /**
- * The `{ fetch }` route of every form at `<base>api/_vitehub/forms/<name>`. The generated Nitro handler of a ViteHub
+ * The `{ fetch }` route of every form at `<base>_vitehub/forms/<name>`. The generated Nitro handler of a ViteHub
  * app calls it with the forms of `server/forms/` and the services of the app.
  */
-export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (request: Request) => Promise<Response> } {
+export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (request: Request) => Promise<Response>, registerUserData: (app: unknown) => void } {
   const forms = new Map<string, FormDefinition>()
   for (const [name, form] of Object.entries(options.forms)) {
     if (!isFormDefinition(form)) throw formsDiagnostics.FORMS_C0001({ message: `[vitehub] server/forms/${name} must default-export defineForm({ schema }).` })
@@ -111,6 +114,9 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
     }
   }
   return {
+    registerUserData(app) {
+      if (store) registerViteHubUserData(app, { owner: "forms", tables: Object.values(formsTableNames), delete: userId => store.deleteUser(userId) })
+    },
     async fetch(request) {
       const segment = new URL(request.url).pathname.split("/").filter(Boolean).at(-1) ?? ""
       let name = segment

@@ -12,7 +12,7 @@
  */
 export const viteHubServerImports = {
   agent: { "vite-hub/agent": ["runAgent", "streamAgent"] },
-  auth: { "vite-hub/auth/server": ["auth", "can", "getAuth", "requireAbility", "requireAuth", "requireAuthorization", "useAuth", "withAnonymousAuthorization", "withAuth", "withAuthorization"] },
+  auth: { "vite-hub/auth/server": ["auth", "can", "getAuth", "requireAbility", "requireAuth", "requireAuthorization", "requireCaller", "useAuth", "withAnonymousAuthorization", "withAuth", "withAuthorization"] },
   blob: { "vite-hub/blob": ["blob"] },
   browser: { "vite-hub/browser": ["defineBrowser", "runBrowser"] },
   // `defineCachedFunction` and `defineCachedHandler` keep Nitro's auto-imports. Import the tagged ones from `vite-hub/cache`.
@@ -26,7 +26,7 @@ export const viteHubServerImports = {
   i18n: { "vite-hub/i18n/server": ["getRequestI18n", "useTranslations"] },
   kv: { "vite-hub/kv": ["kv"] },
   queue: { "vite-hub/queue": ["defineQueue", "deferQueue", "useQueue", "sendQueue"] },
-  rateLimit: { "vite-hub/rate-limit": ["checkRateLimit", "peekRateLimit", "requireRateLimit", "resetRateLimit"] },
+  rateLimit: { "vite-hub/rate-limit": ["checkRateLimit", "peekRateLimit", "refundRateLimit", "requireRateLimit", "resetRateLimit"] },
   realtime: { "vite-hub/realtime": ["defineRealtime"], "vite-hub/realtime/server": ["isRealtimeAvailable", "refreshRealtimeDocument"] },
   sandboxTask: { "vite-hub/sandbox/task": ["runSandboxTask"] },
   schedule: { "vite-hub/schedule": ["cancelSchedule", "getSchedule", "listSchedules", "startSchedule"] },

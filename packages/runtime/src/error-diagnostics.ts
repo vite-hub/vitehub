@@ -2,9 +2,17 @@ import { defineDiagnostics } from "nostics"
 
 import type { Diagnostics } from "nostics"
 
+interface RuntimeCodeParams {
+  counter?: string
+  message?: unknown
+  option?: string
+  suggestion?: string
+  value?: string
+}
+
 interface RuntimeCodeDefinition {
-  why: (params: { counter?: string, message?: unknown, value?: string }) => string
-  fix?: string
+  why: (params: RuntimeCodeParams) => string
+  fix?: string | ((params: RuntimeCodeParams) => string)
 }
 
 const dynamicError: RuntimeCodeDefinition = {
@@ -28,6 +36,7 @@ type RuntimeErrorCode =
   | "RUNTIME_R0018"
   | "RUNTIME_CONSOLE_PATH_INVALID"
   | "RUNTIME_CONSOLE_PROJECT_URL_INVALID"
+  | "RUNTIME_DURATION_INVALID"
   | "RUNTIME_EXECUTION_BUDGET_AMOUNT_INVALID"
   | "RUNTIME_EXECUTION_BUDGET_EXCEEDED"
   | "RUNTIME_EXECUTION_BUDGET_LIMIT_INVALID"
@@ -60,6 +69,12 @@ const codes: Record<RuntimeErrorCode, RuntimeCodeDefinition> = {
     why: ({ value }) => `${value} is not a project URL. Use the https:// origin of the app, with its base path if it has one.`,
     fix: "Pass `hostedConsoleUrl()` the `https://` origin of the app, or `http://localhost` in development, with its base path and without a user name or password.",
   },
+  RUNTIME_DURATION_INVALID: {
+    why: ({ option, value }) => `${option ? `\`${option}\`` : "The value"} is ${value}, which is not a duration. A duration is a string with a number of 0 or more and a unit, such as "30s", "5m", or "1 day".`,
+    fix: ({ suggestion, value }) => suggestion
+      ? `Write the time as a string with a unit: ${value} milliseconds is ${suggestion}.`
+      : "Write a number of 0 or more and one unit: `ms`, `s`, `m`, `h`, `d`, or `w`, or a long name such as `minutes` or `days`. For example `\"30s\"`, `\"5m\"`, or `\"1 day\"`.",
+  },
   RUNTIME_EXECUTION_BUDGET_AMOUNT_INVALID: {
     why: ({ counter }) => `[vitehub] Execution budget ${counter} amount must be a finite non-negative number.`,
     fix: "Pass `consume()` and the `record*()` methods of the execution budget a finite number of 0 or more.",
@@ -79,6 +94,6 @@ const codes: Record<RuntimeErrorCode, RuntimeCodeDefinition> = {
 }
 
 export const runtimeErrorDiagnostics: Diagnostics<typeof codes, []> = /*#__PURE__*/ defineDiagnostics({
-  docsBase: "https://vitehub.dev/docs/development/diagnostics",
+  docsBase: "https://vitehub.dev/docs/runtime/diagnostics",
   codes,
 })

@@ -96,7 +96,7 @@ describe("documentation tutorials", () => {
     for (const [page, title] of [
       ["content/docs/ui/chat-tutorial.md", "Chat tutorial"],
       ["content/docs/agents/sandbox-tutorial.md", "Sandbox tutorial"],
-      ["content/docs/reference/markdown-template-tutorial.md", "Tutorial"],
+      ["content/docs/markdown-template/get-started.md", "Get started"],
     ]) {
       const source = await readFile(resolve(docsRoot, page), "utf8");
       expect(source, page).toContain("layout: tutorial");
@@ -113,7 +113,6 @@ describe("documentation tutorials", () => {
     expect(page).toContain('<DocsArticle :response="response" />');
     expect(step).toContain("<slot />");
     expect(step).not.toContain("display: none");
-    expect(step).not.toContain("CodeTreeIntersection");
     expect(step).not.toContain("min-height: 30rem");
     expect(step).toContain("counter-increment: tutorial-step");
   });

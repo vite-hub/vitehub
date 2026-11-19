@@ -11,7 +11,7 @@ import type { DocsDevFiles, DocsPackedFiles } from "../src/files.ts"
 import type { DocsModuleOptions, DocsPublicConfig } from "../src/nuxt.ts"
 import { docsAgentCopy } from "../src/agent-copy.ts"
 import { createDocsManifest } from "../src/manifest.ts"
-import { findDocsPage } from "../src/navigation.ts"
+import { docsMcpInstallLinks, findDocsPage } from "../src/navigation.ts"
 
 type Hook = (...args: never[]) => unknown
 const hooks = new Map<string, Hook[]>()
@@ -66,7 +66,7 @@ vi.mock("node:module", async (importOriginal) => {
     }),
   }
 })
-const { default: setup, DocsCommentsSetupError } = await import("../src/nuxt.ts")
+const { default: setup } = await import("../src/nuxt.ts")
 const { extendPages } = await import("@nuxt/kit")
 // SAFETY: the @nuxt/kit mock above keeps the module definition's moduleDependencies on the setup function.
 const moduleDependencies = (setup as unknown as { moduleDependencies: (nuxt: unknown) => Promise<Record<string, unknown>> }).moduleDependencies
@@ -247,6 +247,7 @@ describe("docs in an existing app", () => {
     // Absolute files, so they resolve from a template outside the app and in an app that lists neither package.
     expect(docsCss()).toMatch(/@import "\/.+\/tailwindcss\/index\.css";/)
     expect(docsCss()).toMatch(/@import "\/.+\/@nuxt\/ui\/dist\/runtime\/index\.css";/)
+    expect(docsCss()).toMatch(/@layer theme, base, comark, components, utilities;[\s\S]*@import "[^"]+\/tailwindcss\/index\.css";/)
     for (const [, file] of docsCss().matchAll(/@import "([^"]+(?:tailwindcss|@nuxt\/ui)[^"]+)";/g)) expect(existsSync(file!)).toBe(true)
   })
 
@@ -380,17 +381,35 @@ describe("docs Nuxt setup", () => {
     expect(() => compiled[0]!()).toThrow(/\/mcp, which has no page or file/)
   })
 
+  it("skips HTTP checks for MCP app install links but not web links", async () => {
+    const options = await setupDocs({})
+    const exclusions: Array<string | RegExp> = Reflect.get(options, "linkChecker").excludeLinks
+    const excluded = (link: string) => exclusions.some(filter => typeof filter === "string" ? filter === link : filter.test(link))
+    const { cursor, vscode } = docsMcpInstallLinks({ name: "fixture", url: "https://docs.example.com/mcp" })
+    expect(excluded(cursor)).toBe(true)
+    expect(excluded(vscode)).toBe(true)
+    expect(excluded("https://docs.example.com/mcp/install")).toBe(false)
+  })
+
   it("tells the link checker module that indexed pages exist, but still checks them in the compiled output", async () => {
     const options = await setupDocs({})
     // A build that prerenders some routes must not fetch a new page from the live site.
-    expect(Reflect.get(options, "linkChecker")).toMatchObject({ excludeLinks: expect.arrayContaining(["/docs/kv/configure"]) })
+    const { excludeLinks } = Reflect.get(options, "linkChecker") as { excludeLinks: Array<string | RegExp> }
+    const excluded = (path: string) => excludeLinks.some(rule => typeof rule === "string" ? rule === path : rule.test(path))
+    expect(excluded("/docs/kv/configure")).toBe(true)
+    expect(excluded("/docs/kv/configure#missing")).toBe(true)
+    expect(excluded("/docs/kv/configure?tab=node#missing")).toBe(true)
+    expect(excluded("/docs/kv/configure-extra#missing")).toBe(false)
     const publicDir = join(options.buildDir, "public")
     mkdirSync(publicDir)
-    writeFileSync(join(publicDir, "index.html"), `<a href="/docs/kv/configure">Configure</a>`)
+    writeFileSync(join(publicDir, "index.html"), `<a href="/docs/kv/configure#missing">Configure</a>`)
     const compiled: Array<() => void> = []
     const nitro = { options: { routeRules: {}, output: { publicDir } }, hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) } }
     for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
     expect(() => compiled[0]!()).toThrow(/\/docs\/kv\/configure, which has no page or file/)
+    mkdirSync(join(publicDir, "docs/kv"), { recursive: true })
+    writeFileSync(join(publicDir, "docs/kv/configure.html"), `<h2 id="present">Present</h2>`)
+    expect(() => compiled[0]!()).toThrow(/has no element with id "missing"/)
   })
 
   it.each(["/", "/portal/"])("combines Docs and app link exclusions in the compiled output under %s", async (appBase) => {
@@ -836,18 +855,16 @@ describe("docs Nuxt setup", () => {
     const routes = nitro.prerender.routes
     expect(routes).toEqual(expect.arrayContaining(["/blog", "/docs/kv", "/api/_docs/page/docs/kv.json", "/api/_docs/search.json", "/sitemap.xml", "/raw/docs/kv.md", "/sitemap.md", "/llms.txt", "/llms-full.txt"]))
     expect(routes.some(path => path.startsWith("/portal"))).toBe(false)
-    expect(handlers.map(handler => handler.route)).toEqual([
-      "/api/_docs/page/**", "/api/_docs/search.json", "/sitemap.xml",
-      // The trailing-slash redirect: middleware, with no route.
-      undefined,
-      "/llms.txt", "/llms-full.txt", "/sitemap.md",
-      "/llms.txt", "/llms-full.txt", "/sitemap.md",
-      "/mcp",
-      // The Markdown copies of app pages: middleware, with no route.
-      undefined,
+    expect(handlers.flatMap(handler => handler.route ? [`${handler.method ?? "all"} ${handler.route}`] : []).sort()).toEqual([
+      "all /api/_docs/page/**", "all /api/_docs/search.json", "all /mcp", "all /sitemap.xml",
+      "get /llms-full.txt", "get /llms.txt", "get /sitemap.md",
+      "head /llms-full.txt", "head /llms.txt", "head /sitemap.md",
     ])
-    expect(handlers[3]).toMatchObject({ middleware: true, handler: expect.stringMatching(/runtime\/server\/trailing-slash\.js$/) })
-    expect(handlers.at(-1)).toMatchObject({ middleware: true, handler: expect.stringMatching(/runtime\/server\/markdown\.js$/) })
+    // The trailing-slash redirect runs before the Markdown copies of app pages.
+    expect(handlers.filter(handler => handler.middleware).map(handler => handler.handler)).toEqual([
+      expect.stringMatching(/runtime\/server\/trailing-slash\.js$/),
+      expect.stringMatching(/runtime\/server\/markdown\.js$/),
+    ])
     // Nitro gets the raw route directly, so nuxt-agent-discovery still lets the build prerender the copies.
     expect((nitro as { handlers?: Array<{ route: string, method: string }> }).handlers?.map(handler => [handler.route, handler.method])).toEqual([["/raw/**", "get"], ["/raw/**", "head"]])
   })
@@ -875,7 +892,7 @@ describe("docs search checks", () => {
 
   it.each(["error", true] as const)("stops the build on a page that fails a check when seoAudit is %s", async (seoAudit) => {
     await expect(prerender({ seoAudit }, routes)).rejects.toMatchObject({
-      name: "DocsSeoError",
+      code: "DOCS_SEO_FAILED",
       problems: ["/guides is in the sitemap, but it redirects. List the page that it redirects to instead."],
     })
   })
@@ -949,7 +966,7 @@ describe("docs Comments", () => {
 
   it("has no Comments without vite-hub/nuxt, and fails the build when docs asks for them", async () => {
     expect(await moduleDependencies(app(["@vite-hub/docs/nuxt"]))).not.toHaveProperty("vite-hub/nuxt")
-    await expect(moduleDependencies(app(["@vite-hub/docs/nuxt"], { comments: true }))).rejects.toThrow(DocsCommentsSetupError)
+    await expect(moduleDependencies(app(["@vite-hub/docs/nuxt"], { comments: true }))).rejects.toMatchObject({ code: "DOCS_COMMENTS_VITEHUB_MISSING", fix: expect.stringContaining("docs: { comments: false }") })
   })
 
   it("requires an installed module even when the vitehub config key exists", async () => {
@@ -968,11 +985,11 @@ describe("docs Comments", () => {
     expect(await moduleDependencies(nuxt)).not.toHaveProperty("vite-hub/nuxt")
     expect(await moduleDependencies(app([["vite-hub/nuxt", { comments: false, database: false }]], { comments: true }, false))).not.toHaveProperty("vite-hub/nuxt")
     nuxt.options.modules = [["vite-hub/nuxt", { comments: true }]]
-    await expect(moduleDependencies(nuxt)).rejects.toThrow(/pnpm add @vite-hub\/comments/)
+    await expect(moduleDependencies(nuxt)).rejects.toMatchObject({ code: "DOCS_COMMENTS_PACKAGE_MISSING", fix: expect.stringContaining("pnpm add @vite-hub/comments") })
   })
 
   it("names the package or the opt-out when Comments cannot run", async () => {
-    await expect(moduleDependencies(app(["vite-hub/nuxt"], undefined, false))).rejects.toThrow(/pnpm add @vite-hub\/comments.*docs: \{ comments: false \}/)
-    await expect(moduleDependencies(app([["vite-hub/nuxt", { database: false }]]))).rejects.toThrow(/Remove database: false, or set docs: \{ comments: false \}/)
+    await expect(moduleDependencies(app(["vite-hub/nuxt"], undefined, false))).rejects.toMatchObject({ fix: expect.stringMatching(/pnpm add @vite-hub\/comments.*docs: \{ comments: false \}/) })
+    await expect(moduleDependencies(app([["vite-hub/nuxt", { database: false }]]))).rejects.toMatchObject({ fix: expect.stringMatching(/Remove `database: false`.*docs: \{ comments: false \}/) })
   })
 })

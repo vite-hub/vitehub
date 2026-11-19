@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/source",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Typed source retrieval primitives for ViteHub.",
   "keywords": [
     "content",
@@ -121,6 +121,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

@@ -15,8 +15,8 @@ In this tutorial, you build a Workflow with two steps that signs up a new user. 
 > [!NOTE] Before you start
 > Use the app from [Installation](/docs/getting-started/installation). Run every command from the app root. You need no account. With the `node` host, the dev server runs Workflows with [OpenWorkflow](/docs/workflows/hosts#run-workflows-on-node) and keeps each run in a SQLite file in `.vitehub/data`, so a run survives a restart.
 
-::tutorial-step{title="Install and enable Workflows"}
-## Install and enable Workflows
+::tutorial-step{title="Install"}
+## Install
 
 Add the Workflow package:
 
@@ -24,67 +24,31 @@ Add the Workflow package:
 pnpm add @vite-hub/workflow
 ```
 
-Add `workflow: true` to the ViteHub options of your app. Keep the other options of your app.
-
-:::tabs{sync="framework"}
-::::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', workflow: true },
-})
-```
-::::
-
-::::tabs-item{label="Nitro"}
-```ts [vite.config.ts]
-import { nitro } from 'nitro/vite'
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ host: 'node', workflow: true }), nitro()],
-})
-```
-::::
-
-::::tabs-item{label="Vite"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ host: 'node', workflow: true })],
-})
-```
-::::
-:::
-
-
 ::
 
 ::tutorial-step{title="Define the Workflow steps"}
 ## Define the Workflow steps
 
-Create the folder `server/workflows/onboard-user`. The folder name is the name of the Workflow: `onboard-user`. Each file in it with a number in front is one step: `01.create-user` and `02.send-welcome`. Because each step is its own file, each step can be retried or replayed independently.
+Create the folder `server/workflows/onboard-user`. The folder name is the name of the Workflow: `onboard-user`. The `server/workflows` folder turns Workflows on, so you do not add a `workflow` option. Each file in it with a number in front is one step: `01.create-user` and `02.send-welcome`. Because each step is its own file, each step can be retried or replayed independently.
 
 First, create `index.ts`. It gets the input and calls the steps in order:
 
 ```ts [server/workflows/onboard-user/index.ts]
 import { defineWorkflow } from 'vite-hub/workflow'
 
-export default defineWorkflow('onboard-user', async (payload: { email: string }, { steps }) => {
-  const user = await steps.createUser(payload)
-  return await steps.sendWelcome(user)
+export default defineWorkflow<{ email: string }>({
+  handler: async ({ payload, steps }) => {
+    const user = await steps.createUser(payload)
+    return await steps.sendWelcome(user)
+  },
 })
 ```
 
-- The first argument is the Workflow name, the same as the folder name.
-- `payload` is the input that starts the run. Here, it is an email.
+- `{ email: string }` is the type of `payload`, the input that starts the run.
 - `steps.createUser` runs the file `01.create-user.ts`, and `steps.sendWelcome` runs `02.send-welcome.ts`. ViteHub makes these names from the file names.
-- To wait between steps, call `await sleep('1 day')` from the same context object. See [Retries and sleeps](/docs/workflows/limits-and-errors#retries-and-sleeps).
+- To wait between steps, call `await sleep('1 day')` from the same object. See [Retries and sleeps](/docs/workflows/limits-and-errors#retries-and-sleeps).
 
-ViteHub writes the step types to `.vitehub/workflow.d.ts`. Each step takes the input type of its file and returns its result, so `user` is typed and a misspelled step is a type error. The step runner works with each Workflow provider.
+ViteHub writes the types to `.vitehub/workflow.d.ts`, so `user` is typed and a step name with no file is a type error. If folders share a step name, the generated type accepts only inputs valid for every step with that name and returns any of their result types. At runtime, only the current folder's steps are available. `startWorkflow('onboard-user', payload)` checks the name and payload type.
 
 Then create the two steps:
 
@@ -121,7 +85,10 @@ import { startWorkflow } from 'vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   const payload = await readBody<{ email: string }>(event)
-  return startWorkflow('onboard-user', payload)
+  if (!payload) return new Response('Missing body', { status: 400 })
+  const [error, run] = await startWorkflow('onboard-user', payload)
+  if (error) throw error
+  return run
 })
 ```
 
@@ -189,12 +156,12 @@ pnpm vitehub workflow get <run-id>
 }
 ```
 
-For a run that you started from the route, add `--workflow onboard-user` to `get`. Or open the Workflows page of the [Console](/docs/development/console) and click **Start**.
+For a run that you started from the route, add `--workflow onboard-user` to `get`. Or open the Workflows page of the [Console](/docs/console) and click **Start**.
 
 With `vitehub()`, `pnpm vitehub workflow runs list` lists the runs that the dev server ran inline, for example with the `vercel` host. `pnpm vitehub workflow runs show <runId>` shows the steps, result, and error of one run. `pnpm vitehub workflow runs clear --yes` clears that history. The history does not include OpenWorkflow runs yet, so with the `node` host `runs list` prints `No runs.`. Read an OpenWorkflow run with `pnpm vitehub workflow get`.
 
 :::details{summary="When the Start button and the commands are available"}
-The commands call the Console RPC of the running app. They read a run back with `workflow.get` and cancel it with `workflow.cancel` where the provider supports it. `workflow.start` and `workflow.resume` are registered only when `console.invoke` is on, and the Console hides Start and Resume when they are not (`workflow.cancel` stays available). See [Run Workflows in development](/docs/development/cli#run-workflows-in-development).
+The commands call the Console RPC of the running app. They read a run back with `workflow.get` and cancel it with `workflow.cancel` where the provider supports it. `workflow.start` and `workflow.resume` are registered only when `console.invoke` is on, and the Console hides Start and Resume when they are not (`workflow.cancel` stays available). See [Run Workflows in development](/docs/cli/primitives#run-workflows-in-development).
 :::
 
 ::

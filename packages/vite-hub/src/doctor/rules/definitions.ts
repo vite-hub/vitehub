@@ -230,9 +230,8 @@ function nonTupleResult(r: Resolver, call: unknown): { name: string, kind: "resp
   const reference = r.callee(call)
   if (!reference) return
   if (isExport(reference, ["sandbox/task"], "runSandboxTask") || isExport(reference, ["browser"], "runBrowser")) return { name: reference.name, kind: "response" }
-  if (isExport(reference, ["workflow"], ["startWorkflow", "deferWorkflow", "getWorkflowRun", "cancelWorkflow", "resumeWorkflow"])
-    || isExport(reference, ["queue"], "useQueue")
-    || isExport(reference, ["schedule"], "runSchedule")) return { name: reference.name, kind: "value" }
+  if (isExport(reference, ["workflow"], "deferWorkflow")
+    || isExport(reference, ["queue"], "useQueue")) return { name: reference.name, kind: "value" }
 }
 
 function arrayPatternTarget(awaited: unknown): AstNode | undefined {
@@ -259,14 +258,10 @@ export const noDestructureNonTuples: DoctorRule = createRule({
         ctx.report(diagnostics.VHUB0018({
           why: result.kind === "response"
             ? `\`${result.name}()\` returns a Web \`Response\`, not an \`[error, value]\` tuple. A \`Response\` is not iterable, so this destructuring throws.`
-            : result.name === "runSchedule"
-              ? "`runSchedule()` returns a Schedule Run record, not an `[error, value]` tuple. A failed handler resolves with `status: \"failed\"`, so this destructuring throws."
-              : `\`${result.name}()\` returns its value and throws on failure. It does not return an \`[error, value]\` tuple, so this destructuring throws or reads the wrong values.`,
+            : `\`${result.name}()\` returns its value and throws on failure. It does not return an \`[error, value]\` tuple, so this destructuring throws or reads the wrong values.`,
           fix: result.kind === "response"
             ? `Read the response: \`const response = await ${result.name}(...)\`, check \`response.ok\`, then call \`await response.json()\`.`
-            : result.name === "runSchedule"
-              ? "Assign the run, then check it: `const run = await runSchedule(name)`, then `if (run.status === \"failed\")`."
-              : `Assign the result directly: \`const value = await ${result.name}(...)\`. Use \`try\`/\`catch\` to handle failures.`,
+            : `Assign the result directly: \`const value = await ${result.name}(...)\`. Use \`try\`/\`catch\` to handle failures.`,
         }), { range: ctx.range(pattern) })
       },
     }
@@ -330,24 +325,27 @@ function stepPropertyName(file: string): string {
 const sourceFile = /\.(?:c|m)?[jt]sx?$/
 
 /**
- * The handler of a folder Workflow index: the function passed to `defineWorkflow(name, handler)`, or the
- * default-exported function. A handler gets `(payload, context)`: `context` names the whole second parameter
- * (`ctx.steps`), and `steps` names its destructured `steps` property.
+ * The handler of a folder Workflow index: the `handler` of the object passed to `defineWorkflow({ handler })`, or the
+ * default-exported function. A handler gets one object: `context` names the whole parameter (`ctx.steps`), and
+ * `steps` names its destructured `steps` property.
  */
 function workflowHandler(ctx: RuleContext, r: Resolver): { fn: AstNode, context?: string, steps?: string } | undefined {
   const value = unwrap(defaultExport(ctx)?.value)
-  let fn = isNodeType(value, "CallExpression") ? unwrap(callArguments(value)[1]) : value
-  // `defineWorkflow("onboard", onboard)` names a function declared in this file.
+  let fn = isNodeType(value, "CallExpression") ? unwrap(objectValue(callArguments(value)[0], "handler")) : value
+  // `defineWorkflow({ handler: onboard })` names a function declared in this file.
   if (isIdentifier(fn)) {
     const declaration = r.binding(fn)?.declaration
     fn = isNodeType(declaration, "VariableDeclarator") ? unwrap(declaration.init) : declaration
   }
   if (!isFunctionNode(fn) || !isNode(fn) || !Array.isArray(fn.params)) return
-  let param = unwrap(fn.params[1])
+  let param = unwrap(fn.params[0])
   if (isNodeType(param, "AssignmentPattern")) param = unwrap(param.left)
   if (isIdentifier(param)) return { fn, context: param.name }
   const properties = isNodeType(param, "ObjectPattern") && Array.isArray(param.properties) ? param.properties.filter(isNode) : []
   const property = properties.find(entry => propertyName(entry) === "steps")
+  // `({ payload, ...context })` keeps `steps` in the rest object: `context.steps`.
+  const rest = property ? undefined : unwrap(properties.find(entry => isNodeType(entry, "RestElement"))?.argument)
+  if (isIdentifier(rest)) return { fn, context: rest.name }
   let target = unwrap(property?.value)
   if (isNodeType(target, "AssignmentPattern")) target = unwrap(target.left)
   return { fn, ...(isIdentifier(target) ? { steps: target.name } : {}) }

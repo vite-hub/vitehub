@@ -9,7 +9,7 @@
 primitives. Each preset is a subpath. The package depends on
 [`@vite-hub/agent`](../agent/README.md); the Agent package does not know these presets.
 
-Most applications use the `vite-hub/presets/*` imports of the `vite-hub` framework distribution.
+Most applications use the `vite-hub/presets/*` imports of the `vite-hub` framework distribution. User docs: [Agent presets](https://vitehub.dev/docs/presets).
 
 | Import | Preset |
 | --- | --- |
@@ -35,7 +35,7 @@ Most applications use the `vite-hub/presets/*` imports of the `vite-hub` framewo
 import { labeller } from "@vite-hub/presets/labeller"
 ```
 
-See the [Labeller docs](https://vitehub.dev/docs/agents/labeller).
+See the [Labeller docs](https://vitehub.dev/docs/presets/labeller).
 
 ## Workspace preset
 
@@ -43,7 +43,7 @@ See the [Labeller docs](https://vitehub.dev/docs/agents/labeller).
 import workspace from "@vite-hub/presets/workspace"
 ```
 
-See the [workspace preset docs](https://vitehub.dev/docs/agents/workspace-preset).
+See the [workspace preset docs](https://vitehub.dev/docs/presets/workspace).
 
 ## Babysitter
 
@@ -295,9 +295,9 @@ installations can access, except archived ones and `filter.repository.deny`),
 claims, repair passes, and wake handling. Installing the App on a repository
 enrolls it; `installation` and `installation_repositories` webhooks update the
 list at once, and the host lists the installations again every 10 minutes. Signed
-GitHub deliveries to `/api/_vitehub/agents/<name>/webhooks/github` feed the
-inbox; they never start the Agent directly. `GET /api/_vitehub/host/drain`
-reports drain status, and `GET /api/_vitehub/host/health` reports each host's
+GitHub deliveries to `/_vitehub/agents/<name>/webhooks/github` feed the
+inbox; they never start the Agent directly. `GET /_vitehub/host/drain`
+reports drain status, and `GET /_vitehub/host/health` reports each host's
 health and queue. SIGUSR2 starts a drain. The build fails with `AGENT_B0022` on
 hosts that cannot keep a process running, and with `AGENT_B0023` without SQL
 Agent State. Hosts start in production builds, or in development only with

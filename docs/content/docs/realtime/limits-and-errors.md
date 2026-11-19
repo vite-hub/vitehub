@@ -129,18 +129,29 @@ One peer sent more than 1,024 awareness clients.
 
 ### REALTIME_MISSING_ACCESS
 
-The definition sets no access rule. Without one, each person could read and write each room. Set `auth: true` to require a signed-in user, add `authorize()` to decide each request, or set `access: 'public'` for open rooms.
+The definition sets no access rule. Without one, each person could read and write each room. Set `authorize: true` to require a signed-in user, set `authorize()` to decide each request, or set `access: 'public'` for open rooms.
 
 ```diff [server/realtime/docs.ts]
  export default defineRealtime({
-+  auth: true,
++  authorize: true,
    document: { workspace: 'docs' },
  })
 ```
 
 ### REALTIME_INVALID_ACCESS
 
-The access rule is not clear. `access` accepts only `'public'`, and you cannot use it with `auth` or `authorize()`. `origins()` with `auth: true` and no `identify()` is also an error, because the ViteHub Auth session is a cookie that only the app's own origin can use.
+The access rule is not clear. `access` accepts only `'public'`, and you cannot use it with `authorize`. `authorize` accepts only `true` or a function. `origins()` with `authorize: true` and no `identify()` is also an error. Only the Auth trusted-origin policy can allow a different origin to use the ViteHub Auth session.
+
+A definition that still sets `auth` fails too. Replace `auth: true` with `authorize: true`. Next to an `authorize()` callback, remove `auth`: the callback now also runs for signed-out callers, so return `false` when `user` is `null`. `vitehub migrate` makes the first change and lists the second.
+
+```diff [server/realtime/pages.ts]
+ export default defineRealtime({
+-  auth: true,
+-  authorize: ({ user, mode }) => mode === 'read' || isEditor(user),
++  authorize: ({ user, mode }) => user !== null && (mode === 'read' || isEditor(user)),
+   document: pagesDocument,
+ })
+```
 
 ### REALTIME_CHECKPOINT_UNSUPPORTED
 

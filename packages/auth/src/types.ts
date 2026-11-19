@@ -1,4 +1,4 @@
-import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize } from "@vite-hub/runtime"
+import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize, Duration } from "@vite-hub/runtime"
 // From the H3 entry, so the declarations also carry its `H3Event` augmentation and an H3 2 event is an `AuthRequestInput`.
 import type { ViteHubContext } from "@vite-hub/runtime/internal/h3"
 import type { Auth, BetterAuthOptions, DBAdapter, Session, User } from "better-auth"
@@ -24,12 +24,22 @@ export type AuthReservedOption =
   | "adminClaim"
   | "basePath"
   | "database"
+  | "deleteAccount"
   | "preset"
   | "route"
   | "runtime"
   | "secondaryStorage";
 export type AuthBetterAuthOptions = Omit<BetterAuthOptions, AuthReservedOption | "session"> & {
   session?: AuthSessionOptions
+}
+
+/**
+ * Better Auth `user.deleteUser` options without `enabled`. `beforeDelete` runs first: delete the app's own rows of the
+ * user there, or throw an `APIError` to keep the account.
+ */
+export type AuthDeleteAccountOptions = Omit<NonNullable<NonNullable<BetterAuthOptions["user"]>["deleteUser"]>, "enabled"> & {
+  /** Database-backed `apiKey()` configuration IDs that reference users, never organizations. Use `"default"` for the unnamed configuration. */
+  userApiKeyConfigIds?: readonly string[]
 }
 
 /** Session fields to write when a refresh extends the session. */
@@ -65,6 +75,7 @@ export interface AuthRuntimeContext<TEnv extends Record<string, unknown> = AuthR
 export type AuthRuntimeOptions = Partial<Omit<BetterAuthOptions, "basePath" | "database">> & {
   /** A Better Auth adapter, or `"memory"` to keep users and sessions in the memory of one server process. */
   database?: BetterAuthOptions["database"] | "memory"
+  deleteAccount?: true | AuthDeleteAccountOptions
   events?: AuthEventsConfiguration | false
 }
 
@@ -121,8 +132,8 @@ export interface AuthAccessPolicy {
    * request fails and the session stays.
    */
   allow: (context: AuthAccessPolicyContext) => boolean | Promise<boolean>
-  /** Milliseconds that an allowed answer holds for one session or one MCP user. `0` asks on each request. Default: 300000. */
-  recheck?: number
+  /** How long an allowed answer holds for one session or one MCP user, such as `"5m"`. `"0s"` asks on each request. Default: `"5m"`. */
+  recheck?: Duration
 }
 
 export interface AuthAccessConfiguration {
@@ -139,6 +150,12 @@ export type AuthAppDatabase = ((options: BetterAuthOptions) => DBAdapter<BetterA
 export interface AuthViteHubOptions {
   /** Ignore `VITEHUB_ADMIN_CLAIM` for this Auth Definition. Independent Console Auth sets this to `false`. */
   adminClaim?: false
+  /**
+   * Let users delete their account with Better Auth `deleteUser()`. Auth also deletes the rows of the user in ViteHub
+   * Server Primitives, such as their comments and form submissions. Pass options to run `beforeDelete` for the app's
+   * own rows.
+   */
+  deleteAccount?: true | AuthDeleteAccountOptions
   /** Opt in to durable auth events with an explicit store. */
   events?: AuthEventsConfiguration | false
   console?: AuthConsoleOptions;
@@ -225,6 +242,7 @@ export type AuthBetterAuthRuntimeOptions<
       | "access"
       | "adminClaim"
       | "database"
+      | "deleteAccount"
       | "preset"
       | "route"
       | "runtime"
@@ -238,6 +256,7 @@ export type AuthBetterAuthRuntimeOptions<
       | "access"
       | "adminClaim"
       | "database"
+      | "deleteAccount"
       | "preset"
       | "route"
       | "runtime"

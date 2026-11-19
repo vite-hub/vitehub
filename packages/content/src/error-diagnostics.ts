@@ -245,7 +245,7 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Set `previews: true` in `defineContent()`, with one `github()` Source, so the app serves `/pr/<number>/<path>`.",
       why: () => "[vitehub] content.sources.previewLinks() needs defineContent({ previews: true }): without it, the app serves no /pr/<number> URLs.",
     },
-    // Named errors. Each names what failed. Keep them in alphabetical order.
+    // Named errors. Keep these codes in alphabetical order.
     CONTENT_ACCESS_INVALID: {
       fix: "Set `defineContent({ access: \"public\" })` to serve Content to everyone, or remove `access`.",
       why: ({ access }: { access: unknown }) => `[vitehub] defineContent({ access }) must be "public" when it is set, received ${JSON.stringify(access)}.`,
@@ -253,6 +253,10 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     CONTENT_AUTHORIZE_INVALID: {
       fix: "Set `defineContent({ authorize })` to a function that gets `{ user, action }` and returns true to allow.",
       why: () => "[vitehub] defineContent({ authorize }) must be a function.",
+    },
+    CONTENT_CACHE_KEY_UNKNOWN: {
+      why: ({ key }: { key: string }) => `Unknown content cache key ${JSON.stringify(key)}.`,
+      fix: "Pass `content.cache` a key that starts with the name of a Content source and a colon, such as `default:<path>`.",
     },
     CONTENT_CAN_INPUT_INVALID: {
       fix: "Pass `content.can()` `{ action: \"read\" }` without `collection` or `id`, or `{ collection, action, id? }` with `read-draft`, `write`, or `publish`. Set `user` to the Auth user or null, and `actor` to an Agent Actor with an `id`.",
@@ -326,6 +330,10 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Pass an id that a `path` glob of the collection matches, or add a glob for it in `documents({ path })`.",
       why: ({ id, collection, path }: { id: string, collection: string, path: string }) => `[vitehub] Content document ${JSON.stringify(id)} is outside collection ${JSON.stringify(collection)} (${path}).`,
     },
+    CONTENT_EDITOR_FAILED: {
+      why: ({ command, code }: { command: string, code: number | null }) => `The editor \`${command}\` exited with code ${code}.`,
+      fix: "Set `$VISUAL` or `$EDITOR` to an editor command that waits until you close the file and then exits with code 0, such as `code --wait`. Or pass `--file <path>` to `vitehub content edit`.",
+    },
     CONTENT_HISTORY_CURSOR_INVALID: {
       fix: "Pass the `cursor` that the previous `content.history()` call returned, or no cursor for the first page.",
       why: ({ cursor }: { cursor: string }) => `[vitehub] content.history() received the cursor ${JSON.stringify(cursor)}, which is not a cursor of a Source page. Pass the cursor of the previous call.`,
@@ -334,9 +342,17 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Call `content.history(path, { limit })` with an app path such as `/docs/guide`, an options object, and a whole `limit` from 1 to 100.",
       why: ({ problem }: { problem: string }) => `[vitehub] content.history() ${problem}`,
     },
+    CONTENT_LIVE_DOCUMENT_HELD: {
+      why: ({ holder }: { holder: string }) => `${holder} is editing this document alone. Live edits save once they stop or someone takes over.`,
+      fix: "Wait until the person that the message names stops editing, or take over their edit lease. Then open the live document again.",
+    },
     CONTENT_LIVE_INVALID: {
       fix: "Set `defineContent({ live })` to `\"auto\"` or `false`, or remove it.",
       why: () => "[vitehub] defineContent({ live }) must be 'auto' or false.",
+    },
+    CONTENT_LIVE_ROOM_UNKNOWN: {
+      why: ({ documentId }: { documentId: string }) => `No Content Markdown document matches the live room ${JSON.stringify(documentId)}.`,
+      fix: "Join the live room of a Markdown document of a Content collection: `<collection>/<id>`, or the collection name of a singleton.",
     },
     CONTENT_LOCALE_UNKNOWN: {
       fix: "Pass a locale from the `locales` of the collection, or no locale when the collection has none.",
@@ -390,6 +406,10 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Pass the pull request number, a whole number from 1, to `content.sources.previewLinks()`.",
       why: ({ pull }: { pull: unknown }) => `[vitehub] content.sources.previewLinks() needs a pull request number, received ${JSON.stringify(pull)}.`,
     },
+    CONTENT_PREWARM_HEAD_NOT_VISIBLE: {
+      fix: "Retry the prewarm job. If retries keep failing, check that the webhook and the Queue consumer use the same default KV store.",
+      why: ({ source, sha, headVersion }: { source: string, sha: string, headVersion: number }) => `[vitehub] Content source ${JSON.stringify(source)} has not read published head ${sha} (version ${headVersion}) from KV.`,
+    },
     CONTENT_PUBLIC_SOURCE_UNDECIDED: {
       fix: "Set `defineContent({ authorize })` to decide who reads, or `access: \"public\"` when the Content is public, or turn off the readers that the message names.",
       why: ({ readers, names, route }: { readers: string, names: string, route: boolean }) => `[vitehub] ${readers} would serve the potentially token-backed Source ${names} to everyone, and a github() Source or an opaque registered name, reader, or factory can read a private repository with a token. Set authorize to decide who may read (it gets action: "read"), or access: "public" when the content is public (or pass a direct non-GitHub Source definition).${route ? " route: false removes /api/content/**." : ""}`,
@@ -422,6 +442,10 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Set `defineContent({ route })` to `true` or `false`. To serve Content to everyone, set `access: \"public\"`.",
       why: ({ route }: { route: unknown }) => route === "public" ? '[vitehub] defineContent({ route: "public" }) is now defineContent({ access: "public" }). route only turns /api/content/** on or off.' : `[vitehub] defineContent({ route }) must be true or false, received ${JSON.stringify(route)}.`,
     },
+    CONTENT_RUNTIME_EXPORT_INVALID: {
+      why: "[vitehub] server/content.ts must default-export the defineContent() runtime.",
+      fix: "Default-export the result of `defineContent({ ... })` from `server/content.ts`.",
+    },
     CONTENT_SEO_FIELD_INVALID: {
       fix: "Pass an options object to `seo()`, with `image` as a Standard Schema validator, such as `seo({ image: image() })`.",
       why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
@@ -450,6 +474,10 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Pass `site` as an absolute http or https URL, such as `https://example.com`.",
       why: ({ site }: { site: unknown }) => `[vitehub] site must be an absolute http(s) URL such as https://example.com, received ${JSON.stringify(site)}.`,
     },
+    CONTENT_SOURCE_CONFLICT: {
+      why: "Define either source or sources, not both.",
+      fix: "Keep `source` for one Content source, or move it into `sources` beside the others, in `defineContent()`.",
+    },
     CONTENT_SOURCE_DIGEST_INVALID: {
       fix: "Pass `sourceDigest` only when you save a translation with its `locale`, and set it to `source.digest` of the `get()` that you translated.",
       why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
@@ -458,6 +486,10 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Run `vitehub content advance` or call `content.sources.advance()`. `content.sources.head()` shows a rejected commit and the reason.",
       why: ({ source }: { source: string }) => `[vitehub] Content source ${JSON.stringify(source)} has no validated head. Resolve its GitHub commit, then call content.sources.advance().`,
     },
+    CONTENT_SOURCE_MISSING: {
+      why: ({ name }: { name: string }) => `Content source ${JSON.stringify(name)} is missing.`,
+      fix: "Give the source that the message names a value in `defineContent({ sources })`, or remove its key.",
+    },
     CONTENT_SOURCE_OPTIONS_INVALID: {
       fix: "Pass `contentSource(input, { url })` a path that starts with `/`, such as `/:id`, or a function, with `label` as text and `seo` and `markdown` as functions. `label`, `seo`, and `markdown` need `url`.",
       why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
@@ -465,6 +497,10 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     CONTENT_SOURCE_REFS_UNSUPPORTED: {
       fix: "Update `@vite-hub/source` to the version that `@vite-hub/content` depends on, such as with `pnpm update @vite-hub/source`.",
       why: ({ source, action }: { source: string, action: "open" | "check" }) => `[vitehub] Content source ${JSON.stringify(source)} cannot ${action} refs. Update @vite-hub/source.`,
+    },
+    CONTENT_SOURCE_UNKNOWN: {
+      why: ({ name }: { name: string }) => `Unknown content source ${JSON.stringify(name)}.`,
+      fix: "Pass `content.from()` the name of a source that `defineContent({ sources })` declares, or `default` for `defineContent({ source })`.",
     },
     CONTENT_SOURCE_VIEWS_DISPOSED: {
       fix: "Call `content.sources.at()` before `content.dispose()`, or create a new runtime with `defineContent()`.",
@@ -484,4 +520,3 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
   },
 })
-

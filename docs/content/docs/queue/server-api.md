@@ -6,7 +6,7 @@ navigation.order: 4
 icon: i-lucide-code-2
 ---
 
-Queue runs on Cloudflare, on Vercel, or on `host: 'node'`, where the server processes run jobs from Postgres or from local files. Do [Get started](/docs/queue/get-started) first to set up the host and the `welcome-email` queue used below.
+Queue runs on Cloudflare, on Vercel, or on a Node server, where the server processes run jobs from Postgres or from local files. Do [Get started](/docs/queue/get-started) first to set up the host and the `welcome-email` queue used below.
 
 ## Public imports
 
@@ -32,8 +32,10 @@ The handler gets one job in the same shape on every provider. The examples on th
 ```ts [server/queues/welcome-email.ts]
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ email: string }>(async ({ payload, id }) => {
-  console.log(`Processing welcome job ${id} for ${payload.email}`)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload, id }) => {
+    console.log(`Processing welcome job ${id} for ${payload.email}`)
+  },
 })
 ```
 
@@ -65,23 +67,24 @@ import { getViteHubErrorShape, ViteHubError } from 'vite-hub/runtime'
 import { defineQueue } from 'vite-hub/queue'
 import { deleteImage } from '../utils/images'
 
-export default defineQueue<{ key?: string }>(async ({ payload }) => {
-  if (!payload.key) {
-    throw new ViteHubError('EXPIRY_INVALID_PAYLOAD', 'Image expiry payload requires a key.', {
-      details: { field: 'key' },
-    })
-  }
+export default defineQueue<{ key?: string }>({
+  handler: async ({ payload }) => {
+    if (!payload.key) {
+      throw new ViteHubError('EXPIRY_INVALID_PAYLOAD', 'Image expiry payload requires a key.', {
+        details: { field: 'key' },
+      })
+    }
 
-  try {
-    await deleteImage(payload.key)
-  }
-  catch (cause) {
-    throw new ViteHubError('EXPIRY_FAILED', 'Image expiry failed.', {
-      cause,
-      details: { key: payload.key },
-    })
-  }
-}, {
+    try {
+      await deleteImage(payload.key)
+    }
+    catch (cause) {
+      throw new ViteHubError('EXPIRY_FAILED', 'Image expiry failed.', {
+        cause,
+        details: { key: payload.key },
+      })
+    }
+  },
   onError: error => getViteHubErrorShape(error)?.code === 'EXPIRY_INVALID_PAYLOAD' ? 'ack' : undefined,
   callbackOptions: {
     retry: error => getViteHubErrorShape(error)?.code === 'EXPIRY_INVALID_PAYLOAD'

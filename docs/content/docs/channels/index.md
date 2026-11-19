@@ -33,9 +33,11 @@ export default defineChannel({
 import type { StripeEvent } from 'vite-hub/channels'
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<StripeEvent>(async ({ payload }) => {
-  // Fulfil the order of payload.data.object
-  console.log('fulfil', payload.data.object.id)
+export default defineQueue<StripeEvent>({
+  handler: async ({ payload }) => {
+    // Fulfil the order of payload.data.object
+    console.log('fulfil', payload.data.object.id)
+  },
 })
 ```
 
@@ -77,7 +79,7 @@ export default defineEventHandler(async () => {
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', agent: true, channels: true, queue: true },
+  vitehub: { agent: true, channels: true, queue: true },
 })
 ```
 :::
@@ -88,7 +90,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', agent: true, channels: true, queue: true }), nitro()],
+  plugins: [vitehub({ agent: true, channels: true, queue: true }), nitro()],
 })
 ```
 :::
@@ -98,7 +100,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', agent: true, channels: true, queue: true })],
+  plugins: [vitehub({ agent: true, channels: true, queue: true })],
 })
 ```
 :::
@@ -133,7 +135,7 @@ export default defineConfig({
 ::agent-only{skill="channels"}
 A Channel is one connection to a platform, defined once in `server/channels/<name>.ts` with `defineChannel({ adapter, on })` from `vite-hub/channels`. Use it for both directions: inbound webhooks go to the `on` targets (a handler, a Queue or Workflow through a handler, or a `defineChannelTrigger()`), or to the Agent that lists the Channel in `defineAgent({ channels: ['name'] })`. Outbound messages go through `useChannel(name).send()` from any server code. `sendChannelTrigger(name, trigger, input)` starts a trigger from code, such as a Schedule, with the same delivery rules as a webhook.
 
-Use `stripe()` or `webhook({ signature, secret })` from `vite-hub/channels` for HTTP senders, and `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, or `gmail()` from `vite-hub/agent/channels` for chat, forge, and mail. Inbound Channels need `agent: true` next to `channels: true`. Keep secrets in Server Env and never parse or verify a webhook by hand. To only check the signature in a plain route, without Agents, use `verifyWebhook(event, { provider: 'stripe', secret: 'STRIPE_WEBHOOK_SECRET' })` from `vite-hub/env`.
+Use `stripe()` or `webhook({ signature, secret })` from `vite-hub/channels` for HTTP senders, and `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, or `gmail()` from `vite-hub/agent/channels` for chat, forge, and mail. Files in `server/channels/` turn Channels on. Inbound Channels need `agent: true`. Keep secrets in Server Env and never parse or verify a webhook by hand. To only check the signature in a plain route, without Agents, use `verifyWebhook(event, { provider: 'stripe', secret: 'STRIPE_WEBHOOK_SECRET' })` from `vite-hub/env`.
 
 Prove one signed delivery reaching its target, one duplicate that does not run twice, and one outbound send with its receipt.
 ::

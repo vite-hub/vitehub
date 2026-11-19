@@ -156,7 +156,7 @@ export default defineNuxtConfig({
 })
 ```
 
-The link checker accepts links to the old URL. Instead, a production build checks the rule. It stops with [`DocsRedirectError`](/docs/docs-site/limits-and-errors#docsredirecterror) when the rule leads to a docs URL that no page answers, or starts at a page that still exists. Rules from other modules count too. Wildcard rules, such as `/docs/old/**`, are not checked this way.
+The link checker accepts links to the old URL. Instead, a production build checks the rule. It stops with [`DOCS_REDIRECTS_BROKEN`](/docs/docs-site/diagnostics/docs_redirects_broken) when the rule leads to a docs URL that no page answers, or starts at a page that still exists. Rules from other modules count too. Wildcard rules, such as `/docs/old/**`, are not checked this way.
 
 Rules added in a module's `nitro:config` hook are also checked, and keep the link checker's own redirect warnings.
 
@@ -563,7 +563,7 @@ pnpm add @vite-hub/comments
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: [
-    ['vite-hub/nuxt', { host: 'node', console: { auth: false } }],
+    ['vite-hub/nuxt', { console: { auth: false } }],
     'vite-hub/docs/nuxt',
   ],
 })
@@ -574,7 +574,7 @@ The docs module turns on `vite-hub/nuxt`'s `comments` option, which turns on the
 - **Each page has its own threads.** A thread belongs to the page path, such as `/docs/kv`. A deploy keeps threads on their page. A renamed page starts with none.
 - **Readers see nothing.** The page loads the overlay only with `?vitehub` or the `vitehub-tools` cookie, and only for people `authorize` lets read. Without `authorize`, a production build admits GitHub users who can push to the repository. Signed-out readers get no toolbar. With no Console and no Auth, but GitHub sign-in set up, `?vitehub` shows **Sign in with GitHub**. The development server lets everyone comment.
 - **`@` lists your people.** With [Auth](/docs/auth), it suggests Auth users who may read the thread. Without Auth, it suggests people who wrote in threads you can read.
-- **The Console lists the threads.** Open the app in the [Console](/docs/development/console) and select **Comments** to see every thread with its page.
+- **The Console lists the threads.** Open the app in the [Console](/docs/console) and select **Comments** to see every thread with its page.
 
 `comments: false` turns Comments off, and sets `comments: false` on `vite-hub/nuxt`. To change the Database or leave the overlay out of the pages, pass `vite-hub/nuxt`'s `comments` options:
 
@@ -587,7 +587,7 @@ export default defineNuxtConfig({
 })
 ```
 
-A site without `vite-hub/nuxt` has no server for threads, so it has no Comments. Setting `comments` to `true` or an object there stops the build with [`DocsCommentsSetupError`](/docs/docs-site/limits-and-errors#docscommentssetuperror).
+A site without `vite-hub/nuxt` has no server for threads, so it has no Comments. Setting `comments` to `true` or an object there stops the build with [`DOCS_COMMENTS_VITEHUB_MISSING`](/docs/docs-site/diagnostics/docs_comments_vitehub_missing).
 
 ## Edit in the Console
 
@@ -606,7 +606,7 @@ export default defineContent({
 })
 ```
 
-Open the app in the [Console](/docs/development/console), select **Content**, then **Docs**. The build reads this file without running it, so keep `defineContent({ extends, collections })` as written and give `cms` options as string literals. Leave out the Content `seo` option. The docs module already serves the sitemap and each page's Markdown copy, and Content's `.md` copies would compete in another format.
+Open the app in the [Console](/docs/console), select **Content**, then **Docs**. The build reads this file without running it, so keep `defineContent({ extends, collections })` as written and give `cms` options as string literals. Leave out the Content `seo` option. The docs module already serves the sitemap and each page's Markdown copy, and Content's `.md` copies would compete in another format.
 
 `docsCollection()` is a `documents()` collection over the pages:
 

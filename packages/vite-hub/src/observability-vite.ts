@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { resolveHost } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -81,7 +82,7 @@ export interface ObservabilityOptions {
    */
   logs?: boolean | ObservabilityLogsOptions
   /**
-   * Send uncaught browser errors to `POST /api/_vitehub/browser-errors`. The server logs each one as an error on the
+   * Send uncaught browser errors to `POST /_vitehub/browser-errors`. The server logs each one as an error on the
    * request's Evlog event. Same origin only, 16 KiB at most, and 20 reports a minute for each address.
    */
   browserErrors?: boolean
@@ -98,10 +99,10 @@ function renderObservabilityNitroPlugin(options: ObservabilityTelemetryOptions):
   const settings = { service: options.service, environment: options.environment, maxPending: options.maxPending }
   const posthog = options.posthog ? { host: options.posthog.host, service: options.service } : undefined
   return [
-    `import { installObservability } from "@vite-hub/agent/observability/host"`,
+    `import { installObservability } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@vite-hub/agent/observability/host")))}`,
     ...(posthog
       ? [
-          `import { posthog } from "@vite-hub/agent/observability/posthog"`,
+          `import { posthog } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@vite-hub/agent/observability/posthog")))}`,
           `import { loadServerEnv } from "#vitehub/env/server"`,
         ]
       : []),

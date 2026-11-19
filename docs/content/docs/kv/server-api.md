@@ -66,7 +66,7 @@ export async function savePreferences(tenantId: string, value: unknown) {
 const [writeError] = await kv.setMany([
   { key: 'profile:ada', value: { name: 'Ada' } },
   { key: 'profile:linus', value: { name: 'Linus' } },
-], { ttl: 3600 })
+], { ttl: '1h' })
 if (writeError) throw writeError
 
 const [readError, profiles] = await kv.getMany<{ name: string }>(['profile:ada', 'profile:grace', 'profile:linus'])
@@ -121,7 +121,7 @@ if (incrementError) throw incrementError
 Use `setIfAbsent()` for single-use tokens, such as upload tickets, invite codes, and nonces. It writes only when the key is empty, in one atomic step. It returns `true` to the one call that wrote:
 
 ```ts [server/api/uploads/[ticket].put.ts] fragment
-const [claimError, claimed] = await kv.setIfAbsent(`uploads:${ticket}`, 1, { ttl: 600 })
+const [claimError, claimed] = await kv.setIfAbsent(`uploads:${ticket}`, 1, { ttl: '10m' })
 if (claimError) throw claimError
 if (!claimed) throw new HTTPError({ status: 409, message: 'Ticket already used' })
 ```
@@ -159,7 +159,7 @@ KV compares the stored text with `expected` serialized as `set()` stores it, so 
 `kv.lock(key, { ttl })` gives a lock that one runner holds at a time, across all server processes that share the store. Use it for a cron job or a sync that must not run twice at once. `run()` takes the lock, calls your function, and releases the lock, also when the function throws:
 
 ```ts [server/tasks/daily-report.ts] fragment
-const [error, result] = await kv.lock('cron:daily-report', { ttl: 60 }).run(async () => {
+const [error, result] = await kv.lock('cron:daily-report', { ttl: '1m' }).run(async () => {
   return await sendDailyReport()
 })
 if (error) throw error
@@ -167,7 +167,7 @@ if (!result.acquired) return // Another runner holds the lock.
 console.log(result.value)
 ```
 
-- `ttl` is required, in seconds. The lock expires after `ttl`, so a crashed runner never keeps it. Pick a value longer than the work.
+- `ttl` is required: a duration such as `'1m'`, or a number of seconds. The lock expires after `ttl`, so a crashed runner never keeps it. Pick a value longer than the work.
 - `wait` is optional, in seconds. Without it, `run()` returns `{ acquired: false }` at once when the lock is held. With it, `run()` polls with backoff until the lock is free or `wait` ends.
 - An error from your function is thrown again after the release. A failed release returns `KV_OPERATION_FAILED`, after your function ran. The lock then expires after `ttl`.
 
@@ -208,7 +208,7 @@ The type `KVDriversWith<'deleteIfEquals'>` lists the drivers that support `lock(
 | `kv.get<T>(key, { type? })` | Reads a value or returns `null`. Pass `type` to convert it, see [Typed reads](#typed-reads). |
 | `kv.getMany<T>(keys, { type? })` | Reads many keys in one call. Returns one value or `null` per key, in the order of `keys`. See [Read and write many keys](#read-and-write-many-keys). |
 | `kv.getAndDelete<T>(key, { type? })` | Atomically returns and deletes a value on `redis`, `database`, and Upstash. `{ type: 'text' }` returns the stored text. |
-| `kv.set<T>(key, value, { ttl? })` | Writes a value. With `ttl`, every driver expires the value after that many seconds. Without `ttl`, the value stays until you delete or replace it. Other options return `KV_INVALID_OPTION`. |
+| `kv.set<T>(key, value, { ttl? })` | Writes a value. With `ttl`, a duration such as `'1h'` or a number of seconds, every driver expires the value after that time. Without `ttl`, the value stays until you delete or replace it. Other options return `KV_INVALID_OPTION`. |
 | `kv.setMany<T>(entries, { ttl? })` | Writes an array of `{ key, value }` entries, with the options of `kv.set()`. Not atomic. |
 | `kv.setIfAbsent<T>(key, value, { ttl? })` | Writes only when the key is empty, in one step. Returns `true` when this call wrote. Not on Cloudflare KV. |
 | `kv.has(key)` | Checks whether a key exists. |

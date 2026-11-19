@@ -73,14 +73,16 @@ Channels passes the original options object to the adapter. It keeps object iden
 
 ## Receive webhooks
 
-A Channel with `webhook()` or `stripe()` receives webhooks at `/api/_vitehub/channels/<name>`, and at `path` when you set it. ViteHub checks the signature, stores the delivery, drops a delivery whose ID it already has, and runs the target of the event. Inbound Channels run on the Agent webhook route, so set `agent: true` next to `channels: true` in `vitehub()`.
+A Channel with `webhook()` or `stripe()` receives webhooks at `/_vitehub/channels/<name>`, and at `path` when you set it. ViteHub checks the signature, stores the delivery, drops a delivery whose ID it already has, and runs the target of the event. Inbound Channels run on the Agent webhook route, so set `agent: true` next to `channels: true` in `vitehub()`.
 
 ```ts [server/queues/fulfil.ts]
 import type { StripeEvent } from 'vite-hub/channels'
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<StripeEvent>(async ({ payload }) => {
-  console.log('fulfil', payload.data.object.id)
+export default defineQueue<StripeEvent>({
+  handler: async ({ payload }) => {
+    console.log('fulfil', payload.data.object.id)
+  },
 })
 ```
 
@@ -179,7 +181,7 @@ export default defineChannel({ adapter: teams() })
 
 | Adapter | Chat SDK adapter for sends | `thread` | `replace` |
 | --- | --- | --- | --- |
-| `teams()` | Built from `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and `TEAMS_API_URL`. Install `@chat-adapter/teams`. | Yes | Yes |
+| `teams()` | Built from `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and the optional `TEAMS_API_URL`. Install `@chat-adapter/teams`. | Yes | Yes |
 | `slack({ adapter })` | Required. Pass your adapter, such as `createSlackAdapter()` from `@chat-adapter/slack`. | Yes | Yes |
 | `discord()` | Built from `DISCORD_APPLICATION_ID`, `DISCORD_BOT_TOKEN`, and `DISCORD_PUBLIC_KEY`. Install `@chat-adapter/discord`. | No | Yes |
 | `telegram()` | Built from `TELEGRAM_BOT_TOKEN` and `TELEGRAM_API_BASE_URL`, or the `botToken` and `apiBaseUrl` options. | No | Yes |
@@ -199,9 +201,11 @@ if (error) throw error
 | --- | --- |
 | `recipient` | A Chat SDK thread ID where the bot got a message, or `user:<id>` for a direct message. |
 | `thread` | Optional. Sends with the same `key` reply under one root. ViteHub posts the root once, from `root` or the first message, and stores it in KV. The recipient must be a channel without a message ID. |
-| `idempotencyKey` | Optional. A repeated key for the same recipient returns the stored receipt and posts nothing. |
+| `idempotencyKey` | Optional. A repeated key for the same recipient returns the stored receipt and posts nothing, even if the platform posted the message without returning its ID. |
 | `update` | Optional. With `idempotencyKey`, a repeated key edits the stored message and returns the same receipt. Without a stored receipt, it posts as usual. |
 | `replace` | Optional. Needs `idempotencyKey`. Set it to the `idempotencyKey` of an earlier send to the same `recipient` and `thread`, not this send's key. After this send posts or edits, ViteHub deletes that message and its receipt. Without a stored receipt, it deletes nothing. |
+
+If the platform posts a message without returning its ID, the receipt has no `id`. The Channel client returns `CHANNEL_SEND_FAILED` with `AGENT_CHANNEL_MESSAGE_ID_MISSING` on `error.cause` if `update` or `replace` targets that message. With `replace`, the new message is already posted or edited, but the old message stays. Retrying with the same key does not post the new message again.
 
 Send a card with `fallbackText` for notifications and clients that cannot show it. The `ChatMessage` type from `vite-hub/agent/channels` lists every form.
 

@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDefinitionRegistry } from "../types.ts"
-import { assertWorkflowDefinitionName } from "../definition.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 import { setWorkflowDevRecorder } from "./dev-recorder.ts"
 
@@ -244,7 +243,6 @@ export async function loadWorkflowDefinition(name: string): Promise<WorkflowDefi
     // SAFETY: Registry module exports are validated as WorkflowDefinitions at this boundary.
     const definition = ("default" in loaded ? loaded.default : loaded) as WorkflowDefinition | undefined
     if (definition && typeof definition.handler === "function") {
-      assertWorkflowDefinitionName(name, definition)
       return definition
     }
     if (registeredInlineDefinition) return registeredInlineDefinition

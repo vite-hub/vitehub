@@ -18,7 +18,7 @@ import { vitehub } from 'vite-hub'
 import { doctor } from 'vite-doctor'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node' }), doctor()],
+  plugins: [vitehub(), doctor()],
 })
 ```
 
@@ -160,6 +160,8 @@ The rule checks these calls:
 - every async method of the `kv` and `blob` Runtime Helpers, of stores from `.store(name)`, and of `blob.media`
 - `email.send()` from `vite-hub/email`
 - `sendQueue()`, `dynamicQueue.send()`, and `send()` and `sendBatch()` of a client from `useQueue()`
+- `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, and `resumeWorkflow()` from `vite-hub/workflow`
+- `runSchedule()` from `vite-hub/schedule`
 - `send()` of a Channel from `useChannel()` or `createChannel()`
 - `callMcpTool()` from `vite-hub/agent/mcp`
 - `enqueueChannelTask()` and `cancelChannelTask()` from `vite-hub/agent/server`
@@ -613,8 +615,10 @@ Move helpers out, for example to `server/utils/`, and default-export each Defini
 // Valid
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ email: string }>(async ({ payload }) => {
-  console.log(`Welcome ${payload.email}`)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload }) => {
+    console.log(`Welcome ${payload.email}`)
+  },
 })
 ```
 
@@ -677,8 +681,10 @@ The rule accepts a `payload` field with no option keys, because that is app data
 ```ts [server/queues/warmup.ts]
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue(async () => {
-  console.log('Warming the cache')
+export default defineQueue({
+  handler: async () => {
+    console.log('Warming the cache')
+  },
 })
 ```
 
@@ -708,22 +714,21 @@ The rule does not check test files.
 
 Code destructures `[error, value]` from an API that returns no tuple:
 
-- `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, and `useQueue()` return the value and throw on failure.
+- `useQueue()` returns the client and throws on failure.
 - `deferWorkflow()` returns `void` and logs start failures.
-- `runSchedule()` returns a Schedule Run record. A failed handler resolves with `status: "failed"`.
 - `runSandboxTask()` and `runBrowser()` return a Web `Response`, which is not iterable.
 
-```ts [server/api/onboard.post.ts] fragment
-import { startWorkflow } from 'vite-hub/workflow'
+```ts [server/api/welcome.post.ts] fragment
+import { useQueue } from 'vite-hub/queue'
 
 // Invalid
-const [error, run] = await startWorkflow('onboard-user', body)
+const [error, queue] = await useQueue('welcome-email')
 
 // Valid
-const run = await startWorkflow('onboard-user', body)
+const queue = await useQueue('welcome-email')
 ```
 
-The rule skips `runAgent()` and `streamAgent()`, because they return error/result tuples.
+The rule skips the calls that return `[error, value]`, such as `startWorkflow()`, `runSchedule()`, `runAgent()`, and `streamAgent()`.
 
 ## VHUB0019
 
@@ -753,18 +758,20 @@ The rule reports property reads and destructuring of names that are not `Respons
 
 **Call folder Workflow steps by their file names.** Rule `vitehub/workflow-step-names`.
 
-In a folder Workflow, each numbered file is a step. ViteHub drops the number and converts the rest to camelCase: `01.send-email.ts` becomes `steps.sendEmail`. The rule reports `steps.<name>` in `index.ts` that matches no step file, and step files that map to the same property or an empty one. Without `index.ts`, it reports on each step file. TypeScript also reports an unknown step through `.vitehub/workflow.d.ts`; the rule covers JavaScript files and runs without a type check.
+In a folder Workflow, each numbered file is a step. ViteHub drops the number and converts the rest to camelCase: `01.send-email.ts` becomes `steps.sendEmail`. The rule reports `steps.<name>` in `index.ts` that matches no step file, and step files that map to the same property or an empty one. Without `index.ts`, it reports on each step file. TypeScript also reports a step that no folder Workflow has, through `.vitehub/workflow.d.ts`. The rule checks the steps of each folder, covers JavaScript files, and runs without a type check.
 
 ```ts [server/workflows/onboard-user/index.ts] fragment
 import { defineWorkflow } from 'vite-hub/workflow'
 
 // The folder has 01.create-user.ts and 02.send-welcome.ts.
-export default defineWorkflow('onboard-user', async (payload: { email: string }, { steps }) => {
-  const user = await steps.createUser(payload)
-  // Invalid: there is no send-welcome-email step file.
-  return await steps.sendWelcomeEmail(user)
-  // Valid
-  // return await steps.sendWelcome(user)
+export default defineWorkflow<{ email: string }>({
+  handler: async ({ payload, steps }) => {
+    const user = await steps.createUser(payload)
+    // Invalid: there is no send-welcome-email step file.
+    return await steps.sendWelcomeEmail(user)
+    // Valid
+    // return await steps.sendWelcome(user)
+  },
 })
 ```
 
@@ -875,7 +882,7 @@ import { defineRealtime } from 'vite-hub/realtime'
 
 // Invalid
 export default defineRealtime({
-  auth: true,
+  authorize: true,
   document: { workspace: 'docs' },
   persistence: { debounce: 5000, maxWait: 1000 },
 })
@@ -886,7 +893,7 @@ import { defineRealtime } from 'vite-hub/realtime'
 
 // Valid
 export default defineRealtime({
-  auth: true,
+  authorize: true,
   document: { workspace: 'docs' },
   persistence: { debounce: 500, maxWait: 5000 },
 })
@@ -968,13 +975,13 @@ It skips options from a variable or a spread.
 // Invalid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vite: { plugins: [vitehub({ host: 'node' })] },
+  vite: { plugins: [vitehub()] },
 })
 
 // Valid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node' },
+  vitehub: {},
 })
 ```
 
@@ -1046,7 +1053,7 @@ export default defineNuxtConfig({
 // Valid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', kv: true },
+  vitehub: { kv: true },
 })
 ```
 
@@ -1102,7 +1109,7 @@ import renderReply from './reply.template.md'
 const prompt = await renderReply({ pullRequest })
 ```
 
-To read the file at runtime, pass `new URL('./reply.md', import.meta.url)`. Read [Markdown templates](/docs/reference/markdown-templates).
+To read the file at runtime, pass `new URL('./reply.md', import.meta.url)`. Read [Markdown templates](/docs/markdown-template).
 
 ## VHUB0035
 

@@ -8,14 +8,14 @@ icon: i-lucide-sliders-horizontal
 
 ## Configure the Vite Integration
 
-Turn on Queue with `queue: true`. The `host` picks the Queue Provider (the service that stores and delivers jobs).
+A file in `server/queues/` turns on Queue, so you do not add a `queue` option. Set `queue` to an object only to change the options below, or `queue: false` to keep Queue off. The `host` picks the Queue Provider (the service that stores and delivers jobs).
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'cloudflare', queue: true },
+  vitehub: { host: 'cloudflare' },
 })
 ```
 :::
@@ -27,7 +27,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'cloudflare', queue: true }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare' }), nitro()],
 })
 ```
 :::
@@ -38,20 +38,20 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'cloudflare', queue: true })],
+  plugins: [vitehub({ host: 'cloudflare' })],
 })
 ```
 :::
 ::
 
-With `vitehub()`, the host sets `driver`, and on Cloudflare the app name sets `namePrefix`. On `host: 'node'`, ViteHub picks `postgres` when the app has a Postgres Default Database, else `local`. To pick it yourself, set `queue: { driver: 'postgres' }` or `queue: { driver: 'local' }`:
+With `vitehub()`, the host sets `driver`, and on Cloudflare the app name sets `namePrefix`. On a Node server, ViteHub picks `postgres` when the app has a Postgres Default Database, else `local`. To pick it yourself, set `queue: { driver: 'postgres' }` or `queue: { driver: 'local' }`:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', queue: { driver: 'postgres' } },
+  vitehub: { queue: { driver: 'postgres' } },
 })
 ```
 :::
@@ -63,7 +63,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', queue: { driver: 'postgres' } }), nitro()],
+  plugins: [vitehub({ queue: { driver: 'postgres' } }), nitro()],
 })
 ```
 :::
@@ -74,7 +74,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', queue: { driver: 'postgres' } })],
+  plugins: [vitehub({ queue: { driver: 'postgres' } })],
 })
 ```
 :::
@@ -120,7 +120,7 @@ With `@vite-hub/queue` alone, pass the same options to `hubQueue()` from `@vite-
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `driver` | `'cloudflare' \| 'vercel' \| 'local' \| 'postgres'` | inferred | The Queue Provider. Cloudflare on Cloudflare hosting, and Vercel for other production builds. On a Node server (`host: 'node'` or Nitro `node-server`), `postgres` with a Postgres Default Database, else `local`. On Netlify, set `driver` or turn Queue off. |
+| `driver` | `'cloudflare' \| 'vercel' \| 'local' \| 'postgres'` | inferred | The Queue Provider. Cloudflare on Cloudflare hosting, and Vercel for other production builds. On a Node server, `postgres` with a Postgres Default Database, else `local`. On Netlify, set `driver` or turn Queue off. |
 | `cache` | `boolean` | `true` | Reuses named QueueClients where the driver allows it. Cloudflare clients still read the request's binding on each request. |
 | `binding` | `string` | derived | Cloudflare only. Overrides the generated binding name. Works with one Queue Definition only. |
 | `namePrefix` | `string` | none | Cloudflare only. Prefix of generated queue names: `<namePrefix>queue--<hex-name>`. |
@@ -159,8 +159,10 @@ Create a Queue Definition (the file that handles one queue's jobs) in `server/qu
 ```ts [server/queues/welcome-email.ts] fragment
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ email: string }>(async (job) => {
-  await sendWelcomeEmail(job.payload.email)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload }) => {
+    await sendWelcomeEmail(payload.email)
+  },
 })
 ```
 
@@ -168,14 +170,15 @@ The file path gives the queue name. Runtime helpers call this file `welcome-emai
 
 ## Queue Definition options
 
-Pass options as the second argument to `defineQueue()`.
+Put the options next to `handler` in the object that you pass to `defineQueue()`.
 
 ```ts [server/queues/report.ts] fragment
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ reportId: string }>(async (job) => {
-  await buildReport(job.payload.reportId)
-}, {
+export default defineQueue<{ reportId: string }>({
+  handler: async ({ payload }) => {
+    await buildReport(payload.reportId)
+  },
   concurrency: 5,
 })
 ```

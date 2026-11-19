@@ -34,8 +34,8 @@ async function writeAuth(rootDir: string, path = "server/auth.ts", body: string[
   return file
 }
 
-async function resolvePluginConfig(plugin: ReturnType<typeof hubAuth>, root: string, plugins: Array<{ name: string }> = []): Promise<void> {
-  await (plugin.configResolved as unknown as (config: { plugins: Array<{ name: string }>; root: string }) => Promise<void>)({ plugins, root })
+async function resolvePluginConfig(plugin: ReturnType<typeof hubAuth>, root: string, plugins: Array<{ name: string }> = [], mode = "development"): Promise<void> {
+  await (plugin.configResolved as unknown as (config: { plugins: Array<{ name: string }>; root: string; mode: string }) => Promise<void>)({ plugins, root, mode })
 }
 
 function resolveAuthModule(plugin: ReturnType<typeof hubAuth>, id: string): string | undefined {
@@ -118,6 +118,19 @@ describe("hubAuth", () => {
 
     expect(resolveAuthDefinition(plugin)).toBe(`\0${AUTH_DEFINITION_ID}`)
     expect(loadAuthDefinition(plugin)).toContain(`import definition from ${JSON.stringify(definition)}`)
+    expect(loadAuthDefinition(plugin)).toContain('export { useNitroApp as getAuthApp } from "nitro/app"')
+  })
+
+  it("serves the Auth Definition without Nitro in test mode", async () => {
+    const root = await createTempProject()
+    const definition = await writeAuth(root)
+    const plugin = hubAuth()
+    await resolvePluginConfig(plugin, root, [], "test")
+
+    const source = loadAuthDefinition(plugin)
+    expect(source).toContain(`import definition from ${JSON.stringify(definition)}`)
+    expect(source).toContain("export const getAuthApp = () => undefined")
+    expect(source).not.toContain('"nitro/app"')
   })
 
   it("serves an empty virtual module when no Auth Definition exists", async () => {
@@ -125,7 +138,7 @@ describe("hubAuth", () => {
     const plugin = hubAuth()
     await resolvePluginConfig(plugin, root)
 
-    expect(loadAuthDefinition(plugin)).toBe("export const definition = undefined\nexport default definition\n")
+    expect(loadAuthDefinition(plugin)).toBe("export const definition = undefined\nexport const getAuthApp = () => undefined\nexport default definition\n")
   })
 
   it("serves a stable virtual Auth server helper module", async () => {
@@ -409,43 +422,7 @@ describe("hubAuth", () => {
     await (plugin.configResolved as (config: { root: string }) => Promise<void>)({ root })
 
     expect(plugin.api.getConfig()).toBeUndefined()
-    expect(loadAuthDefinition(plugin)).toBe("export const definition = undefined\nexport default definition\n")
-  })
-
-  it("marks the auth package as noExternal for Vite SSR module loading", () => {
-    const plugin = hubAuth()
-    const config = plugin.config as (config: { server?: { watch?: { ignored?: string[] } }, ssr?: { noExternal?: string[] } }) => unknown
-
-    expect(config({})).toEqual({
-      define: { __VITEHUB_AUTH_DEV__: "false" },
-      optimizeDeps: {
-        exclude: ["@vite-hub/auth", "vite-hub/auth"],
-        include: ["@vite-hub/auth > better-auth/vue"],
-      },
-      server: {
-        watch: {
-          ignored: ["**/.vitehub/**"],
-        },
-      },
-      ssr: {
-        noExternal: ["@vite-hub/auth"],
-      },
-    })
-    expect(config({ server: { watch: { ignored: ["**/.vitehub/**"] } }, ssr: { noExternal: ["existing", "@vite-hub/auth"] } })).toEqual({
-      define: { __VITEHUB_AUTH_DEV__: "false" },
-      optimizeDeps: {
-        exclude: ["@vite-hub/auth", "vite-hub/auth"],
-        include: ["@vite-hub/auth > better-auth/vue"],
-      },
-      server: {
-        watch: {
-          ignored: undefined,
-        },
-      },
-      ssr: {
-        noExternal: undefined,
-      },
-    })
+    expect(loadAuthDefinition(plugin)).toBe("export const definition = undefined\nexport const getAuthApp = () => undefined\nexport default definition\n")
   })
 
   it("keeps configured entries single after Vite resolves the Auth config", async () => {

@@ -17,17 +17,17 @@ In this tutorial, you send a welcome job from an API route, and the handler writ
 >
 > The steps up to **Build and inspect** run on your computer, with no account. The last two steps deploy to Cloudflare. For them, you need a Cloudflare account with Queues, permission to create a queue and deploy a Worker, and access to Worker logs. These steps create real Cloudflare resources, and they can cost money.
 
-::tutorial-step{title="Enable Queue for Cloudflare"}
-## Enable Queue for Cloudflare
+::tutorial-step{title="Build for Cloudflare"}
+## Build for Cloudflare
 
-In `nuxt.config.ts` or `vite.config.ts`, change the ViteHub options to use Cloudflare and turn on Queue. Keep the other options of your app.
+In `nuxt.config.ts` or `vite.config.ts`, change the ViteHub options to use Cloudflare. Keep the other options of your app.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'cloudflare', queue: true },
+  vitehub: { host: 'cloudflare' },
 })
 ```
 ::::
@@ -40,7 +40,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ host: 'cloudflare', queue: true }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare' }), nitro()],
 })
 ```
 ::::
@@ -52,14 +52,14 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ host: 'cloudflare', queue: true })],
+  plugins: [vitehub({ host: 'cloudflare' })],
 })
 ```
 ::::
 :::
 
 - `host: 'cloudflare'` builds the app for Cloudflare. It was `node` before. If your app uses other ViteHub features, they now need their Cloudflare resources too.
-- `queue: true` turns on Queue.
+- You do not add a `queue` option. The queue file that you create in the next step turns on Queue.
 
 For Vercel, see [Queue hosts](/docs/queue/hosts). Deno has no Queue provider.
 
@@ -80,8 +80,10 @@ Create `server/queues/welcome-email.ts`. The file name is the name of the queue:
 ```ts [server/queues/welcome-email.ts]
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ email: string }>(async ({ payload, id }) => {
-  console.log(`Processing welcome job ${id} for ${payload.email}`)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload, id }) => {
+    console.log(`Processing welcome job ${id} for ${payload.email}`)
+  },
 })
 ```
 
@@ -248,7 +250,7 @@ pnpm vitehub queue send welcome-email '{"email":"dev@example.com"}' --url https:
 The second argument is the payload, as JSON. Add `--url` to send to a deployed app. `queue send` returns `{ queue, status: "queued", messageId }`. Like the route, this means that the queue took the job, not that the job ran.
 
 ::details{summary="Options, access, and errors of the CLI commands"}
-Both commands call the `queue.list` and `queue.send` [operations](/docs/development/operations) of the Queues section, on the dev server or on a deployment with `--url`. They need `vitehub()` (the Console RPC), and `queue.send` is registered only when `console.invoke` is on.
+Both commands call the `queue.list` and `queue.send` [operations](/docs/console/operations) of the Queues section, on the dev server or on a deployment with `--url`. They need `vitehub()` (the Console RPC), and `queue.send` is registered only when `console.invoke` is on.
 
 `--delay-seconds` and `--idempotency-key` are the options of [`QueueEnqueueOptions`](/docs/queue/server-api#queue-enqueue-options). A provider that does not support one fails with `QUEUE_UNSUPPORTED_OPTION`. An unknown name fails with `QUEUE_DEFINITION_NOT_FOUND`.
 
