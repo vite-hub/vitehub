@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createCommentsClient, type CommentThread, type CommentUser } from "../src/client.ts"
+import { createCommentsClient, replyMessageId, type CommentThread, type CommentUser } from "../src/client.ts"
 import { createMemoryTransport } from "../src/testing.ts"
 
 function deferred<T>() {
@@ -593,4 +593,14 @@ it("bounds refresh retries and preserves the cache while pages keep changing", a
   expect(client.status).toBe("ready")
   expect(client.error).toBeUndefined()
   expect(client.threads).toEqual(store.threads.sort((a, b) => a.n - b.n))
+})
+
+describe("replyMessageId", () => {
+  it("exports the id that a reply with a retry key gets, so a waiting copy finds its server copy", async () => {
+    const { client, store } = setup()
+    const thread = await client.create({ subject, anchor, body: "Wrong price" })
+    const replied = await store.reply({ threadId: thread.id, body: "Yearly too", requestId: "draft-1" })
+    expect(replied.messages.at(-1)!.id).toBe(await replyMessageId(thread.id, "draft-1"))
+    expect(await replyMessageId(thread.id, "draft-1")).toMatch(/^message_[0-9a-f]{32}$/)
+  })
 })

@@ -2195,6 +2195,9 @@ function attachmentId(threadId: string): string {
 }
 
 const defaultProviderAttachmentMaxBytes = 25 * 1024 * 1024
+// The image types that the provider runtime sends to the model as image input
+// (`isProviderSendTurnSupportedImageMimeType` in `@t3tools/contracts`).
+const providerInlineImageMediaTypes = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"])
 // `attachmentBytes` raises these when an attachment does not fit in the remaining bytes.
 const overBudgetAttachmentCodes = new Set(["AGENT_R0702", "AGENT_R0705", "AGENT_R0706", "AGENT_R0707"])
 
@@ -2219,7 +2222,7 @@ async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<
  * Current and coalesced input attachments use the byte budget first and must resolve. Images
  * from the other user messages in this turn's prompt, such as chat history kept by
  * `triggerHistory.maxImages`, use what remains; one that cannot be read or does not fit is left out.
- * The report names every attachment that was staged or left out, with the reason.
+ * The report names every attachment that the model receives or that was left out, with the reason.
  */
 async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number, resumed: boolean, includeHistory: boolean) {
   const owners = new Map<AttachmentPart, Message>(context.messages.flatMap(message => message.parts.filter(isAttachmentPart).map(part => [part, message] as const)))
@@ -2227,7 +2230,7 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
   const current = providerInputAttachments(context.messages, context.runtime.run?.messageId)
   const currentParts = new Set<AttachmentPart>(current)
   const historyMessages = (resumed ? latestUserMessages(context.messages) : context.messages).filter(message => message.role === "user")
-  const report: InputAttachmentsReport = { prepared: [], skipped: selectedOutAttachments(historyMessages) }
+  const report: InputAttachmentsReport = { sent: [], skipped: selectedOutAttachments(historyMessages) }
   const history: AttachmentPart[] = []
   for (const part of historyMessages.flatMap(message => message.parts.filter(isAttachmentPart))) {
     if (currentParts.has(part)) continue
@@ -2269,9 +2272,11 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
     if (!bytes) continue
     const id = attachmentId(threadId)
     const extension = imageExtensions[part.mediaType.toLowerCase()] || extname(part.name || "").toLowerCase() || ".bin"
-    const path = join(runtime.attachmentsDirectory, `${id}${extension}`)
-    await writeFile(path, bytes)
-    report.prepared.push({ ...entry(part, currentParts.has(part) ? "current" : "history"), bytes: bytes.byteLength, path })
+    await writeFile(join(runtime.attachmentsDirectory, `${id}${extension}`), bytes)
+    const staged = { ...entry(part, currentParts.has(part) ? "current" : "history"), bytes: bytes.byteLength }
+    // The provider runtime gives the model only the saved path of other image types.
+    if (providerInlineImageMediaTypes.has(part.mediaType.toLowerCase())) report.sent.push(staged)
+    else report.skipped.push({ ...staged, reason: "not-inline" })
     attachments.push({
       id,
       mimeType: part.mediaType,
@@ -3692,14 +3697,6 @@ async function* runProvider<
       deferRuntimeCleanup,
       () => finalizeDeferredRuntime(threadId),
     )
-    await traceAgentInputAttachments({
-      context: context.context,
-      driverContributions: context.driverContributions,
-      input: context.input,
-      invoker: context.invoker,
-      run: context.runtime.run,
-      runtime: context.runtime,
-    }, attachmentReport)
     // The lost native thread had the earlier attachments, so replay them like an unpreserved session.
     const replayAttachments = (!preservesProviderSession || resumeFailed) && context.messages.length > 1
     const prompt = providerPrompt(context.messages, resumed, context.prompt, replayAttachments) || (attachments?.length ? "Inspect the attached image." : undefined)
@@ -3782,6 +3779,16 @@ async function* runProvider<
     }
     if (effectiveSignal?.aborted) abort()
     else effectiveSignal?.addEventListener("abort", abort, { once: true })
+    // Recorded once the provider accepts the turn, so a rejected or cancelled turn shows no images as sent.
+    // The abort handler is already installed, so a slow trace write cannot delay cancelling the turn.
+    await Promise.race([traceAgentInputAttachments({
+      context: context.context,
+      driverContributions: context.driverContributions,
+      input: context.input,
+      invoker: context.invoker,
+      run: context.runtime.run,
+      runtime: context.runtime,
+    }, attachmentReport), aborted])
     for (;;) {
       if (pendingToolEvents.length) {
         yield pendingToolEvents.shift()!

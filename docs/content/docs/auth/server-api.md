@@ -209,8 +209,8 @@ export default defineHandler(async (event) => {
 | `'browser'` | `user`, the Better Auth user with the fields of your plugins, and `session`. |
 | `'agent'` | `user`, the person who approved the client. `client: { id, name }`, such as `Claude Code`. `scopes`, the scopes the person approved. |
 
-- A request with an `Authorization: Bearer` header is checked as an MCP access token, with the checks of [`verifyMcpRequest()`](/docs/auth/configure#check-the-token-of-an-mcp-request). The token works on every route of the app, not only on the MCP resource. A cookie next to the token does not count.
-- Without `mcpOAuth()`, `requireCaller()` reads only the session.
+- When the Auth has MCP OAuth, `jwt()` and `oauthProvider()` with `resources` from `mcpOAuth()` or added by hand, an `Authorization: Bearer` JWT is checked as an MCP access token, with the checks of [`verifyMcpRequest()`](/docs/auth/configure#check-the-token-of-an-mcp-request). The token works on every route of the app, not only on the MCP resource. A cookie next to the token does not count.
+- Another bearer token, such as a session token of `bearer()`, is read as a session. Without MCP OAuth, also with `disableJwtPlugin`, `requireCaller()` reads only the session.
 - Both caller kinds omit user fields marked `returned: false`. With `advanced.trustedProxyHeaders` enabled, Auth uses the forwarded origin to match MCP resources.
 - Errors are `AUTH_SIGNED_OUT` without a session or a token, and `AUTH_MCP_TOKEN_INVALID` for a token that fails a check.
 - All calls for one request share one read, so middleware and the handler can both call it.
