@@ -65,7 +65,7 @@ With `console: false`, ViteHub registers no Console RPC route, Console Nitro plu
 
 ### In development
 
-The Console calls each app from its server, so it cannot reach a `vite dev` server on your machine. During development, use the [`vitehub` commands](/docs/development/cli). Without a `console` option, `vite dev` serves the Operations endpoint for them, and answers only this machine. `console: true` works the same way until you set a `VITEHUB_CONSOLE_KEY_<NAME>` on the dev server, and so does `console: { auth: false }`. See [Share a development server](#share-a-development-server).
+The Console calls each app from its server, so it cannot reach a `vite dev` server on your machine. During development, use the [`vitehub` commands](/docs/cli). Without a `console` option, `vite dev` serves the Operations endpoint for them, and answers only this machine. `console: true` works the same way until you set a `VITEHUB_CONSOLE_KEY_<NAME>` on the dev server, and so does `console: { auth: false }`. See [Share a development server](#share-a-development-server).
 
 ```bash [Terminal]
 pnpm vitehub project info
@@ -337,7 +337,7 @@ A docs site or another app without Auth gets Site access too. Opening the link s
 
 ### Site access from the terminal
 
-Each operation is also a [`vitehub` command](/docs/development/cli#run-any-operation). Without `--url`, it calls your development server. With `--url https://app.example.com` and a [Console key](#sign-console-requests), it calls the deployed app.
+Each operation is also a [`vitehub` command](/docs/cli/inspect#run-any-operation). Without `--url`, it calls your development server. With `--url https://app.example.com` and a [Console key](#sign-console-requests), it calls the deployed app.
 
 ```bash [Terminal]
 pnpm vitehub site sessions
@@ -792,7 +792,7 @@ To repair a quarantined record:
 
 If you cannot get the original UUIDs, keep the quarantine record. Guessing can delete kept images.
 
-In production, the operator must still decide how long to keep records that may contain sensitive data. Workflow, Queue, and Schedule inspection do not use the journal. Workflow and Queue do not show run or message history, because ViteHub does not yet have provider-independent contracts for that data. Use [`vitehub schedule`](/docs/development/cli#run-and-inspect-schedules) to run Schedules or list recorded runs, in development or on a deployment with `--url`.
+In production, the operator must still decide how long to keep records that may contain sensitive data. Workflow, Queue, and Schedule inspection do not use the journal. Workflow and Queue do not show run or message history, because ViteHub does not yet have provider-independent contracts for that data. Use [`vitehub schedule`](/docs/cli/primitives#run-and-inspect-schedules) to run Schedules or list recorded runs, in development or on a deployment with `--url`.
 
 A journal from `defineAgent({ invocations })` or from the app-wide `agent.invocations` option replaces the default journal. The Console reads that journal instead. An Agent with `invocations: false` records no sessions. With `agent: { invocations: false }`, the Console lists no sessions. Configure the same journal on every discovered Agent, or set [`agent.invocations`](/docs/agents/invocation-storage#use-one-journal-for-every-agent). Distinct journals fail during runtime setup because the Console reads one combined journal.
 

@@ -222,7 +222,7 @@ export default defineHandler(async (event) => {
 | `auth` | Proxy to the discovered Better Auth instance. |
 | `getAuth()` | Returns the discovered Better Auth instance. |
 | `useAuth(event)` | Returns the Better Auth instance of the app's Auth Definition for a request event or a Web `Request`. |
-| `handleAuth(input)` | Handles an Auth HTTP request. `input` is a Web `Request` or a request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as an H3 2 event in a ViteHub app. Auth reads the client address and the Cloudflare bindings from the Standard Context of the Request. A Request that Nitro did not create gets one that reads srvx `ip` and `runtime.cloudflare`. |
+| `handleAuth(input)` | Handles an Auth HTTP request. `input` is a Web `Request` or a request event with [Standard Context](/docs/runtime/context#standard-context) properties, such as an H3 2 event in a ViteHub app. Auth reads the client address and the Cloudflare bindings from the Standard Context of the Request. A Request that Nitro did not create gets one that reads srvx `ip` and `runtime.cloudflare`. |
 | `signOut(event, { redirectTo }?)` | Ends the session of the request. Returns a `303` redirect to `redirectTo`, or `204`, with the cookies that clear the session. |
 | `createAuthHandler(definition)` | Creates a handler called as `handler(request, { clientAddress }?)`. Manual hosts pass the peer address for rate limiting and session IPs. |
 | `withAuth(handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when a session exists. Else it returns JSON `401` with the code `SIGNED_OUT`, or the sign-in redirect for an HTML request. |

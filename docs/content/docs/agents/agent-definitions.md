@@ -9,7 +9,7 @@ navigation.kind: Reference
 
 An Agent Definition is the single configuration object for one Agent. It selects an [Agent Driver](/docs/agents/agent-drivers), attaches Capabilities and Workspace context, and defines any Channels, Invoker resolution, hooks, or hosted runtime behavior.
 
-ViteHub finds definitions in `server/agents`. Both `server/agents/support.ts` and `server/agents/support/agent.ts` create an Agent named `support`.
+ViteHub finds definitions in `server/agents`. Both `server/agents/support.ts` and `server/agents/support/agent.ts` create an Agent named `support`. Each of these files must export its Agent Definition as default. A file without a default export stops `vite dev` and the build with `AGENT_DEFINITION_EXPORT_MISSING`, so keep helper files outside `server/agents`. A CommonJS file can use `module.exports`.
 
 ## Define an Agent
 
@@ -88,7 +88,7 @@ When a model calls a known tool with arguments that fail its input schema, an AI
 
 Pass the imported Agent Definition as `extends`. Set its typed options with `options` or its named configuration block.
 
-Choose a [ready-made preset](/docs/agents/presets), or [publish your own](/docs/agents/agent-presets#presets-from-a-package) with typed options and a `configure` callback.
+Choose a [ready-made preset](/docs/presets), or [publish your own](/docs/agents/agent-presets#presets-from-a-package) with typed options and a `configure` callback.
 
 ## Return structured output
 

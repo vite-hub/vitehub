@@ -161,7 +161,7 @@ For a run that you started from the route, add `--workflow onboard-user` to `get
 With `vitehub()`, `pnpm vitehub workflow runs list` lists the runs that the dev server ran inline, for example with the `vercel` host. `pnpm vitehub workflow runs show <runId>` shows the steps, result, and error of one run. `pnpm vitehub workflow runs clear --yes` clears that history. The history does not include OpenWorkflow runs yet, so with the `node` host `runs list` prints `No runs.`. Read an OpenWorkflow run with `pnpm vitehub workflow get`.
 
 :::details{summary="When the Start button and the commands are available"}
-The commands call the Console RPC of the running app. They read a run back with `workflow.get` and cancel it with `workflow.cancel` where the provider supports it. `workflow.start` and `workflow.resume` are registered only when `console.invoke` is on, and the Console hides Start and Resume when they are not (`workflow.cancel` stays available). See [Run Workflows in development](/docs/development/cli#run-workflows-in-development).
+The commands call the Console RPC of the running app. They read a run back with `workflow.get` and cancel it with `workflow.cancel` where the provider supports it. `workflow.start` and `workflow.resume` are registered only when `console.invoke` is on, and the Console hides Start and Resume when they are not (`workflow.cancel` stays available). See [Run Workflows in development](/docs/cli/primitives#run-workflows-in-development).
 :::
 
 ::
