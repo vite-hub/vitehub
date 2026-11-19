@@ -1,5 +1,6 @@
 import * as buildRevisions from "../src/internal/build-revision.ts";
 import { createCheckWait } from "../src/babysitter/wait.ts";
+import { mergeReviewEvidenceKey } from "../src/babysitter/merge.ts";
 import { babysitterBudgetWindows, resolveBabysitterAdmissionLimits, type BabysitterAdmissionResult } from "../src/babysitter/admission.ts";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { execFile } from "node:child_process";
@@ -1365,6 +1366,33 @@ describe("Babysitter preset runtime", () => {
       expect(createProviderRuntime).not.toHaveBeenCalled();
       expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("terminal");
       expect(await f.runtime.inbox.meta("inherited-merge-proof:acme/app#12")).toMatchObject({ head: "a".repeat(40), base: "c".repeat(40), checks: ["test"], checkIds: [1] });
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("does not settle a failing head when its assigned base failed but the live tip passed", async () => {
+    const liveBase = "e".repeat(40);
+    const f = await fixture(false, false, { baseBranchHead: liveBase,
+      merge: { strategy: "direct", bypassInheritedChecks: { "acme/app": ["test"] } }, options: { ciRecovery: false },
+      result: { disposition: "park", text: "Reviewed", reviewedHead: "a".repeat(40) } });
+    inheritFailure(f, failedLog([" FAIL  test/a.test.ts > adds"]));
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => {
+      if (args.includes(`repos/acme/app/commits/${liveBase}/check-runs?per_page=100`)) {
+        return { stdout: JSON.stringify({ id: 3, name: "test", head_sha: liveBase, status: "completed", conclusion: "success", app: { slug: "github-actions", id: 15368 } }), stderr: "" };
+      }
+      return command(args, request);
+    });
+    try {
+      await f.reconcile();
+      expect(f.passes).toHaveLength(1);
+      expect(f.passes[0]?.prompt).not.toContain("<live-base-attribution>");
+      expect((await f.runtime.inbox.meta("review-assessment:acme/app#12") as { head?: string } | undefined)?.head).toBeUndefined();
+      const current = (await f.runtime.inbox.get("acme/app", 12))!;
+      expect(current.status).toBe("ready");
+      await f.runtime.inbox.setMeta("review-assessment:acme/app#12", { version: 2, head: f.pr().head.sha, evidenceKey: mergeReviewEvidenceKey(current), feedback: [] });
+      await f.reconcile();
+      expect(f.passes).toHaveLength(2);
+      expect(f.command.mock.calls.some(([args]) => args.includes("repos/acme/app/pulls/12/merge-async"))).toBe(false);
     } finally { await f.runtime.inbox.close(); }
   });
 
