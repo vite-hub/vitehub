@@ -114,7 +114,7 @@ The codemod moves the collections of `content.config.ts` to `server/content.ts`.
 +export default defineContent({
 +  access: 'public',
 +  sources: {
-+    blog: glob({ cwd: 'content', include: 'blog/**/*.md' }),
++    blog: glob({ cwd: 'content', include: 'blog/**/*.md', ignore: ['**/.DS_Store', '**/*.tmp', '**/*.tmp.*', '**/*~', '**/.#*', '**/~*'] }),
 +  },
 +})
 ```

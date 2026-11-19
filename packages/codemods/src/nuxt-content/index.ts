@@ -20,6 +20,7 @@ import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from 
 
 const moduleName = "@nuxt/content"
 const ignored = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/dist/**", "**/.vitehub/**"]
+const nuxtContentDefaultExcludes = ["**/.DS_Store", "**/*.tmp", "**/*.tmp.*", "**/*~", "**/.#*", "**/~*"]
 const guide = "https://vitehub.dev/docs/content/get-started"
 
 /** Nuxt Content reads that have no one-to-one ViteHub Content call. */
@@ -95,7 +96,8 @@ function readSource(node: Node, code: string, style: CodeStyle, followUp: (messa
     const trimmed = prefix.replace(/^\/+|\/+$/g, "")
     if (trimmed) fields.push(`prefix: ${quote(trimmed)}`)
   }
-  if (ignore.length) fields.push(`ignore: [${ignore.map(quote).join(", ")}]`)
+  const excludes = new Set([...ignore, ...nuxtContentDefaultExcludes])
+  fields.push(`ignore: [${Array.from(excludes, quote).join(", ")}]`)
   return `{ ${fields.join(", ")} }`
 }
 

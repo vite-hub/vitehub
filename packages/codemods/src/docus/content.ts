@@ -105,16 +105,17 @@ export function movePage(file: string, code: string, order: number | undefined):
 
   const lines = body.split("\n")
   const firstBodyLine = closing ? code.slice(0, code.length - body.length).split("\n").length : 1
-  let fence: string | undefined
+  let fence: { marker: string, topLevel: boolean } | undefined
   let title = typeof frontmatter.title === "string" ? frontmatter.title : undefined
   const output = lines.flatMap((text, index) => {
+    const topLevel = /^ {0,3}(?:`{3,}|~{3,})/.test(text)
     const marker = /^[ \t]*(?:(?:>|[-+*]|\d+[.)])[ \t]+)*(`{3,}|~{3,})(.*)$/.exec(text)
     if (fence) {
-      if (marker && marker[1]![0] === fence[0] && marker[1]!.length >= fence.length && !marker[2]!.trim()) fence = undefined
+      if (marker && (!fence.topLevel || topLevel) && marker[1]![0] === fence.marker[0] && marker[1]!.length >= fence.marker.length && !marker[2]!.trim()) fence = undefined
       return [text]
     }
     if (marker) {
-      fence = marker[1]
+      fence = { marker: marker[1]!, topLevel }
       return [text]
     }
     if (/^(?: {4}|\t)/.test(text)) return [text]

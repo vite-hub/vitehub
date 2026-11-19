@@ -164,6 +164,13 @@ describe("docus content", () => {
     expect(movePage("content/usage.md", code, 1)).toEqual({ code, followUps: [] })
   })
 
+  it("does not close a top-level fence with an indented marker", () => {
+    const example = "```md\n    ```\n# Example heading\n::callout\n```"
+    const { code } = movePage("content/usage.md", `${example}\n\n# Usage\n`, undefined)
+    expect(code).toContain(example)
+    expect(code).toContain("title: Usage")
+  })
+
   it("writes the folder order into .navigation.yml", () => {
     expect(moveSection("content/1.guide/.navigation.yml", "title: Guide\nicon: i-lucide-book\nbadge: new\n", 1)).toEqual({
       code: "title: Guide\nicon: i-lucide-book\norder: 1\n",
