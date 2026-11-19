@@ -48,12 +48,12 @@ function matcher(patterns: Array<string | RegExp> | undefined): (value: string) 
   return (value) => paths.has(value) || tests.some((test) => test(value));
 }
 
-export function docsLinkExclusion(patterns: DocsLinkCheckOptions["excludeLinks"]) {
+export function docsLinkExclusion(patterns: DocsLinkCheckOptions["excludeLinks"]): (url: URL, href: string) => boolean {
   const excluded = matcher(patterns);
   return (url: URL, href: string) => excluded(href) || excluded(url.pathname) || excluded(url.pathname + url.hash);
 }
 
-export function docsOutputFile(dir: string, base = "/") {
+export function docsOutputFile(dir: string, base = "/"): (pathname: string) => string | undefined {
   const root = resolve(dir);
   const appBase = `/${base.replace(/^\/+|\/+$/g, "")}`.replace(/\/$/, "");
   return (pathname: string) => {

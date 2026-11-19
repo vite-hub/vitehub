@@ -39,7 +39,7 @@ export function docsContentLinkProblems(result: ContentCheckResult): string[] {
 }
 
 /** Add a source location only when Content and the rendered audit found the same problem. */
-export function docsContentSeoLocation(result: ContentCheckResult, pages: ReadonlyMap<string, DocsPage>, appBase: string) {
+export function docsContentSeoLocation(result: ContentCheckResult, pages: ReadonlyMap<string, DocsPage>, appBase: string): (page: DocsSeoPage, field: "title" | "description", message: string) => string {
   const byMessage = new Map(result.findings.filter(finding => finding.line !== null && (finding.rule === "title" || finding.rule === "description")).map(finding => [finding.message, finding]))
   return (page: DocsSeoPage, field: "title" | "description", message: string) => {
     const source = pages.get(page.path)
