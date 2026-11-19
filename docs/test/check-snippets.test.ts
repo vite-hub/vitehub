@@ -657,13 +657,13 @@ useDatabase('default').db.query.users.findMany({ with: { comments: true } })`),
     ])
   }, 60_000)
 
-  it("types auth.api with the plugins of the page's Auth Definition", async () => {
+  it("types useAuth().api with the plugins of the page's Auth Definition", async () => {
     const pageRoot = join(repoRoot, "docs/.snippets/auth-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "auth-page.md", pageRoot })
     const snippets = [
       snippet("server/auth.ts", "import { admin } from 'better-auth/plugins'\nimport { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ plugins: [admin()] })"),
-      snippet("server/roles.ts", "import { auth } from 'vite-hub/auth/server'\nexport const setRole = auth.api.setRole"),
-      snippet("server/typo.ts", "import { auth } from 'vite-hub/auth/server'\nexport const setRole = auth.api.setRoles"),
+      snippet("server/roles.ts", "import { useAuth } from 'vite-hub/auth/server'\nexport const setRole = useAuth().api.setRole"),
+      snippet("server/typo.ts", "import { useAuth } from 'vite-hub/auth/server'\nexport const setRole = useAuth().api.setRoles"),
     ]
     const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
     expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
@@ -690,7 +690,7 @@ useDatabase('default').db.query.users.findMany({ with: { comments: true } })`),
     expect(declarations.map(declaration => declaration.file.split(".vitehub/")[1])).toEqual(expect.arrayContaining(["types/email-templates.d.ts", "types/email.d.ts"]))
     expect(checkSnippets(snippets, declarations).failures).toEqual([])
 
-    const wrong = snippets.map(snippet => ({ ...snippet, code: snippet.code.replace('data: { user: { name: "Maxi" } },\n  from', 'data: { user: { name: { first: "Maxi" } } },\n  from') }))
+    const wrong = snippets.map(snippet => ({ ...snippet, code: snippet.code.replace('data: { user: { name: "Ada" } },\n  from', 'data: { user: { name: { first: "Ada" } } },\n  from') }))
     const failures = checkSnippets(wrong, declarations).failures
     expect(failures.map(failure => failure.diagnostics.map(diagnostic => diagnostic.code))).toEqual([[2322]])
   }, 60_000)

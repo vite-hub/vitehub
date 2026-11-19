@@ -2,7 +2,7 @@ import { resolveHostCredentials } from "@vite-hub/internal/host-credentials"
 import { mergeProvisionState, PROVISION_STATE_FILE, readProvisionState, writeProvisionState } from "@vite-hub/internal/provision-state"
 import { planProvisionSteps, resolveCloudflareProvisionConfig, resolveVercelProvisionConfig } from "@vite-hub/internal/provision"
 
-import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
+import type { ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliProvision } from "@vite-hub/internal/cli"
 import type { HostCredentials } from "@vite-hub/internal/host-credentials"
 import type {
   PlannedProvisionAction,
@@ -16,9 +16,11 @@ import type {
 type ProvisionFeatureContext = Pick<ViteHubCliContext, "env" | "rootDir" | "runHostCli" | "stderr" | "stdout">
 type ProvisionCommand = "run" | "status"
 
-interface ProvisionFeatureOptions {
-  collectSteps: () => Promise<ProvisionStep[]>
-}
+/**
+ * Loads the project config for a build on `host`, as `vitehub deploy --host` does, so a config that reads `detectHost()`
+ * declares the resources of that host. Returns the Provision Steps, config root, and any environment loaded by discovery.
+ */
+export type LoadProvision = (host: ProvisionProvider) => Promise<ViteHubCliProvision & { env?: NodeJS.ProcessEnv }>
 
 interface ParsedProvisionArgs {
   dryRun: boolean
@@ -170,8 +172,8 @@ async function withHostCredentials(host: ProvisionProvider, context: ProvisionFe
 }
 
 // Runs only the plan phase. Step messages go to stderr so stdout stays one JSON document in --json mode.
-async function planProvision(provider: ProvisionProvider, context: ProvisionFeatureContext, options: ProvisionFeatureOptions, json: boolean): Promise<ProvisionPlan> {
-  return await planProvisionSteps(provider, await options.collectSteps(), {
+async function planProvision(provider: ProvisionProvider, context: ProvisionFeatureContext, steps: readonly ProvisionStep[], json: boolean): Promise<ProvisionPlan> {
+  return await planProvisionSteps(provider, [...steps], {
     env: context.env,
     fetch: globalThis.fetch,
     logger: {
@@ -282,12 +284,13 @@ export function writeProvisionActions(actions: readonly PlannedProvisionAction[]
   }
 }
 
-async function runProvision(args: string[], cliContext: ProvisionFeatureContext, options: ProvisionFeatureOptions): Promise<number> {
+async function runProvision(args: string[], cliContext: ProvisionFeatureContext, load: LoadProvision): Promise<number> {
   const parsed = parseArgs("run", args)
   const resolved = resolveHost("run", parsed, cliContext)
   if ("exitCode" in resolved) return resolved.exitCode
   const { host: provider } = resolved
-  const context = await withHostCredentials(provider, cliContext)
+  const { env = cliContext.env, rootDir, steps } = await load(provider)
+  const context = await withHostCredentials(provider, { ...cliContext, env, rootDir })
 
   // Fail closed outside --dry-run: a credential-less run silently creating
   // nothing would mask missing CI secrets behind a green step.
@@ -299,7 +302,7 @@ async function runProvision(args: string[], cliContext: ProvisionFeatureContext,
   // Reject unreadable state before providers can create resources whose IDs would be lost.
   if (!parsed.dryRun) await readProvisionState(context.rootDir)
 
-  const { actions, checked, warnings } = await planProvision(provider, context, options, parsed.json)
+  const { actions, checked, warnings } = await planProvision(provider, context, steps, parsed.json)
   // A step that could not look up its resources planned nothing for them, so applying would report success for an incomplete plan.
   const blocked = !checked && !parsed.dryRun
   if (!parsed.json) {
@@ -345,18 +348,19 @@ async function runProvision(args: string[], cliContext: ProvisionFeatureContext,
   return blocked ? 1 : 0
 }
 
-async function runProvisionStatus(args: string[], cliContext: ProvisionFeatureContext, options: ProvisionFeatureOptions): Promise<number> {
+async function runProvisionStatus(args: string[], cliContext: ProvisionFeatureContext, load: LoadProvision): Promise<number> {
   const parsed = parseArgs("status", args)
   const resolved = resolveHost("status", parsed, cliContext)
   if ("exitCode" in resolved) return resolved.exitCode
   const { host: provider } = resolved
-  const context = await withHostCredentials(provider, cliContext)
+  const { env = cliContext.env, rootDir, steps } = await load(provider)
+  const context = await withHostCredentials(provider, { ...cliContext, env, rootDir })
 
   const recorded = (await readProvisionState(context.rootDir))[provider] ?? {}
-  const undeclared = findUndeclaredEntries(provider, recorded, await options.collectSteps(), context.env)
+  const undeclared = findUndeclaredEntries(provider, recorded, steps, context.env)
   const hasCredentials = hasHostCredentials(provider, context.env)
   const { actions, checked, warnings } = hasCredentials
-    ? await planProvision(provider, context, options, parsed.json)
+    ? await planProvision(provider, context, steps, parsed.json)
     : { actions: [], checked: false, warnings: [`provision: plan not checked, missing ${HOST_CREDENTIALS[provider]}.`] }
   const pending = actions.filter(({ action }) => action.pending ?? !action.exists).length
 
@@ -401,20 +405,22 @@ async function runProvisionStatus(args: string[], cliContext: ProvisionFeatureCo
   return 0
 }
 
-/** Built-in namespace that orchestrates package-contributed Provision Steps. */
-export function createProvisionNamespace(steps: readonly ProvisionStep[]): ViteHubCliCommandNamespace {
-  const options: ProvisionFeatureOptions = { collectSteps: async () => [...steps] }
+/**
+ * Built-in namespace that orchestrates package-contributed Provision Steps. `load` reads the steps of a build for the
+ * `--host` of the command, so `provision run --host cloudflare` plans what `vitehub deploy --host cloudflare` creates.
+ */
+export function createProvisionNamespace(load: LoadProvision): ViteHubCliCommandNamespace {
   return {
     description: "Idempotently create missing provider resources.",
     features: [{
       description: "Create missing provider resources for the app's Definitions.",
       name: "run",
-      run: (args, context) => runProvision(args, context, options),
+      run: (args, context) => runProvision(args, context, load),
       usage: USAGE.run,
     }, {
       description: "Show recorded provider ids and pending plan actions.",
       name: "status",
-      run: (args, context) => runProvisionStatus(args, context, options),
+      run: (args, context) => runProvisionStatus(args, context, load),
       usage: USAGE.status,
     }],
     name: "provision",

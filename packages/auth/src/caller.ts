@@ -12,11 +12,11 @@ export type AuthCallerUser = User & Record<string, unknown>
  * Who calls a route, as `requireCaller()` returns it: a person in the browser with an Auth Session, or an Agent with
  * an MCP access token that the person approved. Check `kind` before an action that only the person may do.
  */
-export type AuthCaller =
+export type AuthCaller<TRegistry = ViteHub.AuthRegistry> =
   | {
     kind: "browser"
     user: AuthCallerUser
-    session: AuthAuthorization<false>["session"]
+    session: AuthAuthorization<TRegistry>["session"]
   }
   | {
     kind: "agent"

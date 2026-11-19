@@ -1,9 +1,9 @@
 # @vite-hub/agent
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="AI SDK" src="https://comark-ui.onmax.me/badge.svg?label=AI+SDK&amp;value=v7">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="AI SDK" src="https://img.shields.io/static/v1?label=AI+SDK&amp;message=v7&amp;color=blue">
 </p>
 
 `@vite-hub/agent` defines Agents from files such as `server/agents/support/agent.ts`. Each Agent selects one Driver: an AI SDK model, a built-in coding provider, typed TypeSafe Jev questions, or application-owned `driver.run` logic.
@@ -615,6 +615,8 @@ For GitHub Channels, `activity: true` links pull request webhook activity to its
 ## Default invocation journal
 
 The private `@vite-hub/agent/internal/default-invocations` entry exports `createDefaultAgentInvocations({ projectRoot, databaseUrl?, d1?, observations?, retention? })`. It is the journal that `vite-hub` installs for Agents that set no journal, with the Console on or off. It keeps prompts, messages, results, and tool input and output (`configuration: "content"` with `defaultAgentInvocationsMetadataContent`). Without `databaseUrl` it opens local SQLite at `.vitehub/data/agent-invocations.sqlite` under `projectRoot` on its first operation. With `d1: { binding, env }` it uses the D1 store, which rejects `retention.maxSize`. On a Worker without D1 or a remote URL it keeps records in memory. The runtime env var `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` wins over `databaseUrl` and `d1`, and `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` authenticates a libSQL endpoint. The libSQL journal keeps every terminal record unless `retention` sets a limit. `resolveDefaultAgentInvocationsLocation()` reports where records go without touching the file system. `defaultAgentInvocationsDatabase(invocations)` returns `{ driver, open }` for the libSQL client or the D1 binding of the current request, after the journal created its tables. `vitehub agent invocations` reads the same default file.
+
+On Node, the default journal goes next to a configured `file:` Agent State unless the journal has its own URL. `vitehub agent invocations` can infer this location from a literal Node config. If it cannot, pass the path from the boot Durability report with `--database`.
 
 A `file:` URL selected on a Cloudflare Worker throws `AGENT_R1029`, including an override through `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`. Set a remote libSQL URL, or remove the file URL to use the host default journal.
 

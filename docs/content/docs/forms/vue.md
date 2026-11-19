@@ -179,4 +179,4 @@ const { send, sent } = useFormSubmit('feedback', form)
 </template>
 ```
 
-Without Vue, `submitForm(name, values)` from `vite-hub/forms/client` posts the values and returns `[error, data]`. `values` is an object, or the `FormData` of a form. `error.issues` holds the error of each field, and `fieldErrors(error)` gives them by field name.
+Without Vue, `submitForm(name, values)` from `vite-hub/forms/client` posts the values and returns `[error, data]`. `values` is an object, or the `FormData` of a form. A retry after a failure with the same values sends the same `Idempotency-Key`, so the server stores the message once. See [Retries](/docs/forms/server-api#retries). `error.issues` holds the error of each field, and `fieldErrors(error)` gives them by field name.

@@ -54,10 +54,9 @@ The Agent answers the messages of each Channel that it lists. A Channel sends it
 
 The server bundle contains only the adapters that you import, so an Agent with only `webChat()` does not ship the Discord or Teams adapters. Every Channel also answers webhooks at `/_vitehub/channels/<name>`.
 
-Built-in adapters include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/docs/agents/forge-channels), [`gmail()`](/docs/agents/gmail), `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `channelAdapter(kind, options)` for a platform without a built-in adapter, such as your own Chat SDK adapter.
+Built-in adapters include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/docs/agents/forge-channels), [`gmail()`](/docs/agents/gmail), `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `channelAdapter(kind, options)` for a platform without a built-in adapter, such as your own Chat SDK adapter.
 
 - `webChat()` adds a generated AI SDK chat route by default.
-- `http()` is a generic HTTP Channel. Its route stays off until `http({ route: true })`.
 - `teams()` tells the Agent to cite sources as descriptive Markdown links to verified URLs. A native web citation that the Chat SDK cannot resolve shows `[source link unavailable]`, also while streaming. Codex app-server gives no citation-ID-to-URL map, so those links cannot be recovered. Ordinary links stay as they are.
 
 ## Try Channels without credentials
@@ -1247,7 +1246,7 @@ export default defineAgent({
 })
 ```
 
-Set `messages.commentary: 'message'` only when the Driver emits explicit commentary phases for public progress. Commentary is hidden by default, and reasoning is never published.
+Set `messages.commentary: 'message'` only when the Driver emits explicit commentary phases for public progress. Commentary is hidden by default, and reasoning is never posted as a message.
 
 Use `messages.delivery: 'manual'` when finish hooks send replies. A generated Workflow can carry it across a durable boundary when the Channel and host support it. An explicit `messages.timeout` limits inline execution and the handoff's typing indicator, not the durable Workflow. `steer` queues overlapping messages and keeps the handoff. `serial`, `drop`, `queue`, and `reject` stay inline and cannot combine with required durable delivery.
 
@@ -1257,7 +1256,7 @@ With native reply support in the adapter (Telegram among the built-ins), a non-s
 
 - `text` (required): a string, rotating strings, a callback, or `null`.
 - `intervalMs`: minimum time between updates.
-- `updates: 'commentary'`: shows explicit commentary, each part replacing the last, so the current step is visible.
+- `updates: 'commentary'`: shows explicit commentary and the reasoning summaries of a provider Driver such as Codex ("Inspecting the config"), each part replacing the last, so the current step is visible. Text that a custom Driver marks as `phase: 'reasoning'` stays hidden.
 - It selects manual delivery, so it excludes `messages.stream` and `messages.commentary`.
 - `messages.final.delivery: 'new-message'` posts the answer separately, then removes the placeholder.
 

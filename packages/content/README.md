@@ -1,9 +1,9 @@
 # @vite-hub/content
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fcontent&icon=npm)](https://npmx.dev/package/@vite-hub/content)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fcontent&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/content)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/content)](https://npmx.dev/package/@vite-hub/content)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/content)](https://npmx.dev/package/@vite-hub/content)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 ViteHub content integration for Comark Content: read-only Sources and editable document collections.
 
@@ -143,6 +143,8 @@ defineContent({
   seo: { site: "https://acme.dev" }, // absolute links to this origin are checked too; `check.site` overrides it
 })
 ```
+
+When the host app knows its routes or assets, `check.isLinkTarget(url, href)` can accept a local link that Content cannot resolve. `url` is the resolved URL and `href` is the link as written. The callback runs only for unresolved local links.
 
 `CONTENT_R0069` means the check could not run, such as for an unknown Source, a `sha` that is not a full commit SHA, or a commit that GitHub does not give. `vitehub content check` prints the same result.
 

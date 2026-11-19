@@ -2,12 +2,10 @@
 export {
   AbilityError,
   aggregateAuthEvents,
-  auth,
   can,
   checkAuthMember,
   createAuthHandler,
   default,
-  getAuth,
   getAuthConsoleForRequest,
   getAuthEvents,
   handleAuth,
@@ -22,6 +20,6 @@ export {
   withAuth,
   withAuthorization,
 } from "./internal/server.ts"
-export type { AbilityErrorData } from "./internal/server.ts"
+export type { AbilityErrorData, AuthEventReadErrorCode } from "./internal/server.ts"
 export type { AuthCaller, AuthCallerErrorCode, AuthCallerUser } from "./caller.ts"
 export type { AuthMemberErrorCode } from "./members.ts"

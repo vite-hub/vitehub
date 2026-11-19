@@ -371,7 +371,7 @@ export function resolveRealtimeDefinition(definition: RealtimeDocumentDefinition
   if (cached) return cached
   assertRealtimeCheckpoint(definition)
   const document = definition.document
-  const adapter = isDocumentAdapter(document) ? document : workspaceDocument(document.workspace)
+  const adapter = isDocumentAdapter(document) ? document : workspaceDocument(document.workspace, document.checkpointAuthor)
   const persistence = definition.persistence === false
     ? false as const
     : {
@@ -1417,7 +1417,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
 
   function persistRoom(room: DocumentRoom): void {
     if (!room.sql) return
-    // ponytail: full snapshots keep recovery atomic; use compacted update logs when document write cost becomes measurable.
+    // Full snapshots keep recovery atomic; use compacted update logs when document write cost becomes measurable.
     const row = [room.key, room.epoch, room.digest, room.dirty ? 1 : 0, Uint8Array.from(Y.encodeStateAsUpdate(room.document)).buffer]
     try {
       room.sql.exec(
@@ -2013,7 +2013,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       snapshot = await adapter.checkpoint!(room.context, {
         digest: saved.digest,
         message: configured === true ? undefined : configured?.message,
-        user: user ?? saved.savedBy ?? undefined,
+        user: user ?? undefined,
       })
     }
     catch (error) {

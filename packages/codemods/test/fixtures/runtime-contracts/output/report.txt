@@ -14,7 +14,7 @@ Manual follow-ups (7):
   2. server/api/sync.post.ts:6 `checkRateLimit()` returns `[error, decision]` now, and it no longer throws when the request has no key or the Cloudflare binding is missing. Read the decision from the Result: `const [error, decision] = await checkRateLimit(...)`.
   3. server/api/sync.post.ts:9 `checkRateLimit()` returns `[error, decision]` now, and it no longer throws when the request has no key or the Cloudflare binding is missing. Read the decision from the Result: `const [error, decision] = await checkRateLimit(...)`.
   4. server/api/sync.post.ts:16 `checkRateLimit()` returns `[error, decision]` now, and it no longer throws when the request has no key or the Cloudflare binding is missing. Read the decision from the Result: `const [error, decision] = await checkRateLimit(...)`.
-  5. server/utils/auth.ts:1 `getAuthForDefinition` is no longer public. Read the discovered Better Auth instance with `useAuth(event)` or `auth`, or create a handler for another Definition with `createAuthHandler(definition)`.
+  5. server/utils/auth.ts:1 `getAuthForDefinition` is no longer public. Read the discovered Better Auth instance with `useAuth(event)` in a route or `useAuth()` outside a request. To create a handler for another Definition, use `createAuthHandler(definition)`.
   6. server/utils/auth.ts:1 `setAuthRuntimeEnvResolver` is no longer public. ViteHub sets it in generated code. Remove the call. To read host bindings, use the request event: `getStandardContext(event).runtime.cloudflare.env` from `vite-hub/runtime`.
   7. server/utils/auth.ts:2 `vite-hub/auth/console-runtime` is no longer public. Read users and sessions with `getAuthConsoleForRequest(request)` from `vite-hub/auth/server`.
 

@@ -38,7 +38,6 @@ const typedInstances = new WeakSet<ComarkContent>()
 
 /**
  * Comark writes JSON Schema's `integer`, from a field such as `z.number().int()`, as a TypeScript type name.
- * Not reported upstream yet (repro: https://github.com/onmax/repros/tree/repro/comark-content-typegen-integer/comark-content-typegen-integer).
  */
 function integerAsNumber(field: TypegenFieldContext): void {
   if (![field.schema.type].flat().includes("integer")) return
