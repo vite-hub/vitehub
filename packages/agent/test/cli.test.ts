@@ -1655,18 +1655,18 @@ describe("agent CLI", () => {
     const serverId = `${process.pid + 1}:5173`
     const token = await refreshWorkspaceDevToken(rootDir, { serverId })
     try {
-      const fetchInvocations = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => Response.json(init?.method === "POST"
-        ? { id: "invocation-1", outcome: "requested" }
-        : { root: rootDir, runtime: "nitro", workspaceDevTokenServerId: serverId }))
+      const fetchInvocations = vi.fn(async (target: string | URL | Request, init?: RequestInit) => String(target).endsWith("/_vitehub/rpc")
+        ? new Response(null, { status: 403 })
+        : Response.json(init?.method === "POST"
+          ? { id: "invocation-1", outcome: "requested" }
+          : { root: rootDir, runtime: "nitro", workspaceDevTokenServerId: serverId }))
       const stderr = stream()
       const exitCode = await runAgentInvocationsCli([
         "cancel", "invocation-1", ...(url ? ["--url", url] : []),
       ], { env: { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" }, rootDir, stderr, stdout: stream() }, { fetch: fetchInvocations })
 
       expect(exitCode, stderr.output()).toBe(0)
-      // An app URL asks its Console first, then the dev endpoint of that dev server.
       expect(fetchInvocations.mock.calls.map(([called]) => String(called))).toEqual([
-        ...(url ? ["http://localhost:5173/_vitehub/rpc"] : []),
         "http://localhost:5173/__vitehub/agent/invocations/dev",
         "http://localhost:5173/__vitehub/agent/invocations/dev",
       ])

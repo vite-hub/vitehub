@@ -3,6 +3,7 @@ import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { createServer } from "vite"
 import { describe, expect, it, vi } from "vitest"
 
 import { runWorkspaceDevCli } from "../src/cli.ts"
@@ -49,6 +50,33 @@ async function profileResettingHost() {
 }
 
 describe("workspace CLI", () => {
+  it("discovers the standalone Workspace Vite listener without an app URL", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-listener-"))
+    try {
+      const server = await createServer({
+        appType: "custom",
+        configFile: false,
+        logLevel: "silent",
+        plugins: [hubWorkspace()],
+        root: rootDir,
+        server: { host: "127.0.0.1", port: 0, watch: null, ws: false },
+      })
+      try {
+        await server.listen()
+        const stderr = stream()
+        const exitCode = await runWorkspaceDevCli(["missing"], { cwd: rootDir, env: {}, rootDir, stderr, stdout: stream() })
+        expect(exitCode).toBe(1)
+        expect(stderr.output()).toBe("Unknown Workspace Dev target: missing\n")
+      }
+      finally {
+        await server.close()
+      }
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("keeps the private Workspace Dev token outside the Vite root", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-token-"))
     try {
