@@ -23,6 +23,7 @@ icon: i-lucide-code-2
 | `withAuth` from `vite-hub/auth/server` | Run a handler only when a session exists. |
 | `withAuthorization` from `vite-hub/auth/server` | Run a handler only after `true` or an `authorize` callback accepts the request. Never redirects to sign-in. |
 | `requireAuth`, `requireAuthorization` from `vite-hub/auth/server` | Check the session inside a handler. They return the checked session or throw an HTTP error. |
+| `requireCaller` from `vite-hub/auth/server` | Return who calls: a person with a session or an Agent with an [MCP access token](/docs/auth/configure#sign-mcp-clients-in). See [Tell a person from an Agent](#tell-a-person-from-an-agent). |
 | `requireServiceToken`, `checkServiceToken` from `vite-hub/env` | Check the bearer token of a route that a script or a runner calls. No session and no Auth setup. See [Service tokens](/docs/env/service-tokens). |
 | `defineAbilities`, `deny`, `guest` from `vite-hub/auth/abilities` | Write the rules of `shared/abilities.ts`. See [Abilities](/docs/auth/abilities). |
 | `requireAbility`, `can`, `AbilityError` from `vite-hub/auth/server` | Check a rule of `shared/abilities.ts` in server code. |
@@ -185,6 +186,35 @@ export default defineHandler(async (event) => {
 })
 ```
 
+### Tell a person from an Agent
+
+`requireAuth()` accepts only a session. When your app also signs MCP clients in with [`mcpOAuth()`](/docs/auth/configure#sign-mcp-clients-in), call `requireCaller(event)`. It returns `[error, caller]`. `caller.kind` is `'browser'` for a person with a session, and `'agent'` for an MCP client with the person's access token:
+
+```ts [server/api/notes/[id].delete.ts]
+import { defineHandler, HTTPError } from 'h3'
+import { requireCaller } from 'vite-hub/auth/server'
+
+export default defineHandler(async (event) => {
+  const [error, caller] = await requireCaller(event)
+  if (error) throw new HTTPError({ status: 401, message: error.why })
+  if (caller.kind === 'agent') {
+    throw new HTTPError({ status: 403, message: `${caller.client.name ?? 'An Agent'} cannot delete notes. Do it in the browser.` })
+  }
+  return { deletedBy: caller.user.id }
+})
+```
+
+| `caller.kind` | Fields |
+| --- | --- |
+| `'browser'` | `user`, the Better Auth user with the fields of your plugins, and `session`. |
+| `'agent'` | `user`, the person who approved the client. `client: { id, name }`, such as `Claude Code`. `scopes`, the scopes the person approved. |
+
+- A request with an `Authorization: Bearer` header is checked as an MCP access token, with the checks of [`verifyMcpRequest()`](/docs/auth/configure#check-the-token-of-an-mcp-request). The token works on every route of the app, not only on the MCP resource. A cookie next to the token does not count.
+- Without `mcpOAuth()`, `requireCaller()` reads only the session.
+- Both caller kinds omit user fields marked `returned: false`. With `advanced.trustedProxyHeaders` enabled, Auth uses the forwarded origin to match MCP resources.
+- Errors are `AUTH_SIGNED_OUT` without a session or a token, and `AUTH_MCP_TOKEN_INVALID` for a token that fails a check.
+- All calls for one request share one read, so middleware and the handler can both call it.
+
 ## Server helpers
 
 | Helper | Description |
@@ -200,6 +230,7 @@ export default defineHandler(async (event) => {
 | `withAnonymousAuthorization(authorize, handler, definition?)` | Like `withAuthorization()`, but a signed-out caller also reaches `authorize`, with `session` and `user` set to `null`. `false` returns JSON `401` (`SIGNED_OUT`) for a signed-out caller and `403` (`FORBIDDEN`) for a signed-in one. |
 | `requireAuth(event, definition?)` | Returns the checked `authorization` when a session exists. Otherwise it throws an `HTTPError` with the status and headers of the `withAuth()` response. |
 | `requireAuthorization(event, authorize, definition?)` | Returns the checked `authorization` when allowed. Otherwise it throws an `HTTPError` with the status and headers of the `withAuthorization()` response. |
+| `requireCaller(event, definition?)` | Returns `[error, caller]`: a person with a session (`kind: 'browser'`) or an Agent with an MCP access token (`kind: 'agent'`). See [Tell a person from an Agent](#tell-a-person-from-an-agent). |
 | `requireAbility(event, name, ...args)` | Returns `authorization` when the [ability](/docs/auth/abilities) allows the caller. Else throws `AbilityError`, which H3 sends with status `401`, `403`, or the status of `deny()`, and `{ code, details }` in `data`. |
 | `can(event, name, ...args)` | Returns `true` when the ability allows the caller, else `false`. |
 | `checkAuthMember(userId, event?)` | Checks [`VITEHUB_MEMBERS`](/docs/auth/configure#choose-who-can-sign-in) for a user without a session. See [Check a member without a session](#check-a-member-without-a-session). |
