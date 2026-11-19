@@ -16,7 +16,7 @@ type NuxtApp = {
   runWithContext<T>(run: () => T): T
   payload: { prerenderedAt?: unknown, isCached?: unknown }
 }
-type RouteLike = { fullPath: string, meta: { auth?: AuthPageMeta } }
+type RouteLike = { path: string, fullPath: string, meta: { auth?: AuthPageMeta } }
 type ResponseLike = { headers: Headers }
 type EventLike = { req?: { headers?: Headers }, res?: { headers?: Headers } }
 
@@ -126,15 +126,17 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
     const runtimeConfig = useRuntimeConfig() as { app?: { baseURL?: string }, public?: { vitehubAuth?: false | { basePath?: string, redirects?: AuthRedirects } } }
     const config = runtimeConfig.public?.vitehubAuth
     const redirects = (config || undefined)?.redirects ?? {}
+    const routeModes = new WeakMap<RouteLike, "user" | "guest">()
     /** The page guard of `to`: where a visitor goes, or nothing when the page has no guard. */
-    const guardOf = (to: RouteLike) => {
-      const meta = to.meta.auth
+    const guardOf = (to: RouteLike, meta = to.meta.auth) => {
       if (config === false || meta === undefined || meta === false) return
       const mode = typeof meta === "string" ? meta : meta === true ? "user" : meta.only ?? "user"
       const redirectTo = typeof meta === "object" ? meta.redirectTo : undefined
       return (loggedIn: boolean) => {
-        if (mode === "guest") return loggedIn ? navigateTo(redirectTo ?? redirects.guest ?? "/") : undefined
-        if (!loggedIn) return navigateTo({ path: redirectTo ?? redirects.login ?? "/login", query: { redirect: to.fullPath } })
+        const target = mode === "guest" ? loggedIn && (redirectTo ?? redirects.guest ?? "/") : !loggedIn && (redirectTo ?? redirects.login ?? "/login")
+        // A wide `vitehub.auth.routes` pattern also covers the login page. Do not redirect it to itself.
+        if (!target || target.split(/[?#]/)[0] === to.path) return
+        return navigateTo(mode === "guest" ? target : { path: target, query: { redirect: to.fullPath } })
       }
     }
     if ("window" in globalThis) {
@@ -145,7 +147,8 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
         // Nuxt throws for a URL on another site without `external`.
         if (redirectTo) return navigateTo(redirectTo, { external: /^(?:[\w+.-]{2,}:|[/\\]{2})/.test(redirectTo) })
         // The guard runs only when the route changes, so do its work for the page on screen.
-        return guardOf((useRouter() as { currentRoute: { value: RouteLike } }).currentRoute.value)?.(false)
+        const route = (useRouter() as { currentRoute: { value: RouteLike } }).currentRoute.value
+        return guardOf(route, route.meta.auth ?? routeModes.get(route))?.(false)
       }))
     }
     if (config === false) return
@@ -189,8 +192,8 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       }
     })
 
-    addRouteMiddleware("vitehub-auth", (to: RouteLike) => {
-      const decide = guardOf(to)
+    const guard = (to: RouteLike, meta: AuthPageMeta | undefined) => {
+      const decide = guardOf(to, meta)
       if (!decide) return
       // Decide synchronously on the server when the session is known, to keep Nuxt's request context. Browser
       // navigations read the session into the state that `useUserSession()` and `useSession()` share, so the page and
@@ -204,7 +207,17 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
         : session instanceof Promise ? session.then(Boolean) : Boolean(session)
       if (typeof loggedIn === "boolean") return decide(loggedIn)
       return loggedIn.then(value => inApp(() => decide(value)))
-    }, { global: true })
+    }
+    addRouteMiddleware("vitehub-auth", (to: RouteLike) => guard(to, to.meta.auth), { global: true })
+    // `definePageMeta({ auth })` wins over the named guards attached by `vitehub.auth.routes`.
+    for (const mode of ["user", "guest"] as const) {
+      addRouteMiddleware(`vitehub-auth-${mode}`, (to: RouteLike) => {
+        if (to.meta.auth !== undefined) return
+        // Keep the policy on this route, so an aborted navigation cannot replace the page's sign-out guard.
+        routeModes.set(to, mode)
+        return guard(to, mode)
+      })
+    }
   },
 })
 

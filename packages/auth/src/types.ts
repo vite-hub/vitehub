@@ -3,7 +3,7 @@ import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult
 import type { ViteHubContext } from "@vite-hub/runtime/internal/h3"
 import type { Auth, BetterAuthOptions, DBAdapter, Session, User } from "better-auth"
 import type { AuthEventsConfiguration } from "./events.ts"
-import type { AuthRedirects } from "./nuxt-types.ts"
+import type { AuthRedirects, AuthRoutes } from "./nuxt-types.ts"
 import type { AuthConsoleOptions } from "./console-types.ts";
 import type { AuthPreset } from "./presets.ts"
 import type { AuthSchemaOptions } from "./table-specs.ts"
@@ -281,8 +281,13 @@ export type RegisteredAuth<TRegistry = ViteHub.AuthRegistry> = TRegistry extends
   ? AuthFor<TDefinition>
   : ViteHubAuth
 export interface AuthObjectOptions {
-  /** Where the Nuxt page guard of `definePageMeta({ auth })` sends visitors. Vite apps without Nuxt ignore it. */
+  /** Where the Nuxt page guard of `definePageMeta({ auth })` and `routes` sends visitors. Vite apps without Nuxt ignore it. */
   redirects?: AuthRedirects
+  /**
+   * Nuxt pages that the page guard protects, by route pattern: `'user'`, `'guest'`, or `false`. The most specific
+   * pattern wins, and `definePageMeta({ auth })` of a page wins over all patterns. Vite apps without Nuxt ignore it.
+   */
+  routes?: AuthRoutes
 }
 
 export type AuthOptions = false | AuthObjectOptions
