@@ -499,6 +499,21 @@ export default defineNuxtPlugin({
 }
 
 /**
+ * Restarts the dev server when a file of `server/sync/` comes or goes. Sync reads the folder when the server starts, for
+ * the routes and the types of `useSync()`, so a new definition answers `SYNC_UNKNOWN_NAME` until a restart.
+ */
+function restartOnSyncDefinitions(nuxt: NuxtLike, projectRoot: string): void {
+  const folders = (resolveNuxtServerDirs(nuxt.options) ?? ["server"]).map(directory => resolve(projectRoot, directory, "sync"))
+  // SAFETY: Nuxt's hook overload includes builder:watch with this callback contract.
+  const hookBuilderWatch = nuxt.hook as unknown as ((name: "builder:watch", callback: (event: string, path: string) => Promise<void>) => void) | undefined
+  hookBuilderWatch?.("builder:watch", async (event, path) => {
+    if (event !== "add" && event !== "unlink" && event !== "addDir" && event !== "unlinkDir") return
+    const file = resolve(projectRoot, path)
+    if (folders.some(folder => file === folder || dirname(file) === folder)) await nuxt.callHook?.("restart")
+  })
+}
+
+/**
  * Adds the client plugin that forgets the synced rows after a sign-out of ViteHub Auth, so the next person on the device
  * does not see them. The plugin goes to `.vitehub/sync/`, because Nuxt clears its build directory after modules run.
  */
@@ -1629,6 +1644,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     addVueImports(nuxt, "vite-hub/sync/client", ["clearSync"])
     if (effectiveAuth) await addSyncSignOutPlugin(nuxt, projectRoot)
   }
+  if (nuxt.options.dev && isPackageInstalled("@vite-hub/sync")) restartOnSyncDefinitions(nuxt, projectRoot)
   if (options.i18n) {
     await requireOptionalOwner(ownerModules.i18nNuxt, "i18n").installI18nNuxt({ options: { plugins: (nuxt.options.plugins ??= []) } }, { importBase: "vite-hub/i18n", nitroMajorVersion: 3, projectRoot })
     addVueImports(nuxt, "vite-hub/i18n/vue", ["useLocale"])
