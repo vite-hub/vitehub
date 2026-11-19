@@ -75,7 +75,6 @@ import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "./console/r
 
 import type { AgentOptions as AgentPluginOptions } from "@vite-hub/agent"
 import type { AgentInvocationsDefault } from "@vite-hub/agent"
-import type { AuthOptions } from "@vite-hub/auth"
 import type { BlobOptions } from "@vite-hub/blob"
 import type { BrowserOptions } from "@vite-hub/browser/vite"
 import type { ChannelsOptions } from "@vite-hub/channels/vite"
@@ -534,7 +533,8 @@ export interface ViteHubOptions {
    */
   security?: SecurityOptions
   agent?: boolean | AgentOptions
-  auth?: boolean | AuthOptions
+  /** `false` turns Auth off. `server/auth.ts` turns it on, and `defineAuth()` in that file holds every Auth option. */
+  auth?: boolean
   blob?: boolean | BlobOptions
   browser?: boolean | BrowserOptions
   /**
@@ -1678,7 +1678,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       rateLimitScanDirs: options.rateLimit && options.rateLimit !== true ? options.rateLimit.scanDirs : undefined,
       resolveAuthConfig: options.auth
         ? (root, serverDirs) => requireOptionalOwner(ownerModules.authVite, "auth").resolveAuthViteConfig(
-            options.auth === true ? undefined : options.auth,
+            undefined,
             root,
             { serverDirs },
           )
@@ -1721,9 +1721,10 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
 
   if (options.auth) {
     plugins.push(requireOptionalOwner(ownerModules.authVite, "auth").hubAuth(
-      options.auth === true ? {} : options.auth || false,
+      // `true` comes from `server/auth.ts`. `hubAuth()` fails for the removed object form with its move fix.
+      options.auth === true ? undefined : options.auth,
       {
-      importBase: "vite-hub/auth",
+        importBase: "vite-hub/auth",
       },
     ))
   }
@@ -1913,7 +1914,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
     ...options.seo?.sitemap || options.seo?.robots ? { appSeo: { sitemap: Boolean(options.seo.sitemap), robots: options.seo.robots !== false } } : {},
     auth: options.auth
       ? ({ projectRoot, serverDirs }) => Boolean(requireOptionalOwner(ownerModules.authVite, "auth").resolveAuthViteConfig(
-          options.auth === true ? undefined : options.auth,
+          undefined,
           projectRoot,
           { serverDirs },
         ))
