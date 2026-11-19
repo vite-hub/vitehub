@@ -569,11 +569,16 @@ hooks can normalize the file. Realtime merges the stored form back into the
 room. Saves need a Workspace Store with conditional writes. A Cloudflare room
 also needs a durable Workspace Store.
 
-`history.checkpoint()` commits the working tree to Workspace history. The
-signed-in user who asked for the checkpoint is the commit author, so the GitHub
-Store writes their name and email as the Git author. A user without an email
-keeps the Store's author. The
-commit includes every staged path, also other documents saved by their rooms.
+`history.checkpoint()` commits the working tree to Workspace history with the
+Store's author by default. Set `document.checkpointAuthor(user)` to look up a
+name and email approved for Git history, such as a GitHub `noreply` identity.
+The callback receives the identified requester, not the last editor. Anonymous
+requests and callbacks that return `undefined` keep the Store's author.
+Realtime does not use the sign-in email as a Git author automatically. On
+GitHub, custom authors produce unsigned commits. Leave this option unset for
+branches that require signed commits.
+
+The commit includes every staged path, also other documents saved by their rooms.
 If Workspace history moved, Realtime rebases onto the remote head and retries.
 A path changed both locally and remotely takes the remote version and re-seeds
 the room.

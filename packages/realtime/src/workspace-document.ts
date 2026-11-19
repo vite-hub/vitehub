@@ -3,7 +3,7 @@ import { isWorkspaceConflict, resolveWorkspaceStoreTarget, useWorkspaceFiles } f
 import { HTTPError } from "nitro/h3"
 
 import type { ReadonlyWorkspaceFiles, WorkspaceSnapshot, WritableWorkspaceFiles } from "@vite-hub/workspace/files"
-import type { RealtimeDocumentAdapter } from "./types.ts"
+import type { RealtimeDocumentAdapter, RealtimeWorkspaceDocumentOptions } from "./types.ts"
 import { RealtimeDocumentConflict } from "./conflict.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -70,10 +70,10 @@ async function serializeWorkspace<T>(workspaceName: string, operation: () => Pro
 
 /**
  * Stores each Realtime document as the Markdown file at its path in a Workspace working tree.
- * `history.checkpoint()` commits the working tree to Workspace history, with the signed-in user as the author.
+ * `history.checkpoint()` commits the working tree to Workspace history with the Store's author by default.
  * `document: { workspace }` in a Realtime Definition uses this adapter.
  */
-export function workspaceDocument(workspaceName: string): RealtimeWorkspaceDocumentAdapter {
+export function workspaceDocument(workspaceName: string, checkpointAuthor?: RealtimeWorkspaceDocumentOptions["checkpointAuthor"]): RealtimeWorkspaceDocumentAdapter {
   return {
     kind: "workspace",
     workspace: workspaceName,
@@ -125,10 +125,10 @@ export function workspaceDocument(workspaceName: string): RealtimeWorkspaceDocum
     async checkpoint({ documentId }, { digest, message, user }): Promise<WorkspaceSnapshot> {
       return await serializeWorkspace(workspaceName, async () => {
         const workspace = useWorkspaceFiles(workspaceName, { mode: "write" })
-        // The user who saved is the commit author. A Git author needs an email, so a user without one keeps the Store's.
+        const author = user && checkpointAuthor ? await checkpointAuthor(user) : undefined
         const options = {
           message: message || `docs: checkpoint ${documentId}`,
-          ...(user?.email ? { author: { email: user.email, name: user.name || user.email } } : {}),
+          ...(author ? { author } : {}),
         }
         let snapshot: WorkspaceSnapshot
         try {

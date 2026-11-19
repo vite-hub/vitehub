@@ -534,6 +534,69 @@ describe("realtime server handler", () => {
     client.destroy()
   })
 
+  it.each([
+    { scenario: "uses the Store author by default", optIn: false, requester: "requester", authored: false },
+    { scenario: "uses an approved author for the requester, not the editor", optIn: true, requester: "requester", authored: true },
+    { scenario: "uses the Store author for an anonymous requester after an identified edit", optIn: true, requester: undefined, authored: false },
+    { scenario: "uses the Store author for an unmapped requester", optIn: true, requester: "unmapped", authored: false },
+  ])("$scenario", async ({ optIn, requester, authored }) => {
+    const author = { email: "123+ana@users.noreply.github.com", name: "Ana" }
+    const checkpointAuthor = vi.fn(async ({ id }: { id: string }) => id === "unmapped" ? undefined : author)
+    const checkpoint = vi.fn(async () => ({ entries: { "page.md": { digest: "saved" } }, id: "snapshot-1" }))
+    let markdown: string | undefined
+    const writeFile = vi.fn(async (_path: string, body: string) => { markdown = body })
+    serverMocks.useWorkspaceFiles.mockReturnValue({
+      ...workspaceFacade({
+        exists: async () => markdown !== undefined,
+        readFile: async () => markdown,
+        stat: async () => markdown === undefined ? undefined : { digest: "saved" },
+        writeFile,
+      }),
+      history: { checkpoint },
+    })
+    const handler = createRealtimeHandler({
+      docs: async () => ({ default: {
+        access: "public",
+        document: { workspace: "test", ...(optIn ? { checkpointAuthor } : {}) },
+        history: { checkpoint: true },
+        identify: ({ request }) => {
+          const id = request.headers.get("x-test-user")
+          return id ? { email: `${id}@example.com`, id } : null
+        },
+        persistence: false,
+      } }),
+    })
+    const url = "https://example.com/_vitehub/realtime/docs/page.md"
+    const connection = await handler.fetch(new Request(url, {
+      headers: { upgrade: "websocket", "x-test-user": "editor" },
+    })) as Response & { crossws: { close(peer: object): void, message(peer: object, message: object): void, open(peer: object): void } }
+    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    const client = await markdownToYDoc("# Saved by the editor")
+    const update = Y.encodeStateAsUpdate(client)
+    connection.crossws.open(peer)
+    connection.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(update) })
+    try {
+      const response = await handler.fetch(new Request(`${url}?history=checkpoint`, {
+        body: Uint8Array.from(update).buffer,
+        headers: requester ? { "x-test-user": requester } : undefined,
+        method: "POST",
+      }))
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toMatchObject({ savedBy: { id: "editor" } })
+      expect(writeFile).toHaveBeenCalledOnce()
+      expect(checkpoint).toHaveBeenCalledExactlyOnceWith({
+        message: "docs: checkpoint page.md",
+        ...(authored ? { author } : {}),
+      })
+      expect(checkpointAuthor.mock.calls.map(([user]) => user.id)).toEqual(optIn && requester ? [requester] : [])
+    }
+    finally {
+      connection.crossws.close(peer)
+      client.destroy()
+    }
+  })
+
   it("accepts workspace changes only on the workspace room", async () => {
     serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(true),
@@ -1424,22 +1487,6 @@ describe("tiptap-markdown documents", () => {
         preservePath: true,
       }],
     ])
-  })
-
-  it.each([
-    ["Ana", { email: "ana@example.com", id: "u1", name: "Ana" }, { author: { email: "ana@example.com", name: "Ana" }, message: "docs: checkpoint docs/page.md" }],
-    ["a user without a name", { email: "ana@example.com", id: "u1" }, { author: { email: "ana@example.com", name: "ana@example.com" }, message: "docs: checkpoint docs/page.md" }],
-    ["a user without an email", { id: "u1", name: "Ana" }, { message: "docs: checkpoint docs/page.md" }],
-    ["no user", undefined, { message: "docs: checkpoint docs/page.md" }],
-  ] as const)("commits a Workspace checkpoint as %s", async (_name, user, expected) => {
-    const checkpoint = vi.fn(async () => ({ entries: { "docs/page.md": { digest: "saved" } }, id: "snapshot-1" }))
-    serverMocks.useWorkspaceFiles.mockReturnValue({ history: { checkpoint } })
-
-    await workspaceDocument("docs").checkpoint!(
-      { authority: "memory", definition: "docs", documentId: "docs/page.md" },
-      { digest: "saved", user },
-    )
-    expect(checkpoint).toHaveBeenCalledWith(expected)
   })
 
   it.each([
