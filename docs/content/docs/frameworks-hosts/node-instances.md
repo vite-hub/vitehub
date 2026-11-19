@@ -298,7 +298,9 @@ such as `REALTIME_NAMESPACE=shop-staging`. KV needs its own Redis database or
 
 ## Run three instances with Docker Compose
 
-Build the app in a Dockerfile. The image needs only `.output`.
+Build the app in a Dockerfile. Commit `pnpm-lock.yaml` and set `packageManager`
+in `package.json` to the pnpm version you use locally so Corepack uses the
+same version in the build. The runtime image needs only `.output`.
 
 ```dockerfile [Dockerfile]
 FROM node:24-slim AS build
@@ -309,12 +311,24 @@ RUN pnpm install --frozen-lockfile && pnpm build
 
 FROM node:24-slim
 WORKDIR /app
-ENV NODE_ENV=production PORT=3000
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
 COPY --from=build /app/.output .output
 CMD ["node", ".output/server/index.mjs"]
 ```
 
-Add `node_modules`, `.output`, `.nuxt`, and `.vitehub` to `.dockerignore`.
+Add this `.dockerignore` to keep local state and secrets out of the build context.
+Pass secrets at runtime instead.
+
+```text [.dockerignore]
+.git
+.env
+.env.*
+node_modules
+.output
+.nuxt
+.vitehub
+```
+
 Build on the same CPU type as the server, because the build copies native
 binaries for one platform only.
 
@@ -323,7 +337,7 @@ The compose file runs Postgres, Redis, three instances of one image, and Caddy.
 ```yaml [compose.yaml]
 x-app: &app
   image: my-app
-  build: .
+  pull_policy: never
   restart: unless-stopped
   environment:
     DATABASE_URL: postgres://app:app@postgres:5432/app
@@ -338,7 +352,9 @@ x-app: &app
       condition: service_healthy
 
 services:
-  app1: *app
+  app1:
+    <<: *app
+    build: .
   app2: *app
   app3: *app
 
@@ -387,10 +403,11 @@ answer, Caddy tries another one for up to 5 seconds.
 }
 ```
 
-Start it, then open `http://localhost:8080`:
+Build the image once, then start the three instances and open `http://localhost:8080`:
 
 ```bash [Terminal]
-docker compose up --build
+docker compose build app1
+docker compose up --no-build
 ```
 
 The three instances start together. One applies the migrations, and the
