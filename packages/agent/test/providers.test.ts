@@ -24262,7 +24262,14 @@ describe("server helpers", () => {
       expect(fetch).not.toHaveBeenCalled()
       expect(runs).toEqual([["", "current after stale history"]])
       expect(receivedMessages[0]?.parts).toEqual([
-        { data: { modelText: "[Wed 2026-06-10 12:00:00 +00:00 · msg 40 · file (not shown)]" }, id: "message-header", type: "data-chat-message-header" },
+        {
+          data: {
+            modelText: "[Wed 2026-06-10 12:00:00 +00:00 · msg 40 · file (not shown)]",
+            omittedAttachments: [{ id: "attachment-1", mediaType: "text/plain", name: "old.txt", reason: "not-image" }],
+          },
+          id: "message-header",
+          type: "data-chat-message-header",
+        },
       ])
     } finally {
       fetch.mockRestore()

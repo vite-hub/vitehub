@@ -3,6 +3,7 @@ import { emitTraceEvent } from "@vite-hub/runtime"
 
 import { redactCredentialText } from "./internal/credential-redaction.ts"
 import { agentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
+import type { InputAttachmentsReport } from "./internal/input-attachments.ts"
 
 import { agentErrorDetails } from "./agent-error.ts"
 import { agentInvokerInputReplayProvenance, agentInvokerLabel, hasReplayableAgentInvokerProfile, hasResolvedAgentInvokerInput, hasResolverDerivedAgentInvoker } from "./invoker.ts"
@@ -539,6 +540,30 @@ export async function traceAgentChannelDeliveryEffect<TRuntimeConfig extends Age
         : {}),
     }),
     name: "agent.channel.delivery.effect",
+    type: "run",
+  })
+}
+
+/**
+ * Records which attachments a Driver prepared, and why it left out the others. Records nothing when the
+ * messages had no attachments.
+ */
+export async function traceAgentInputAttachments<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentTraceContext<TRuntimeConfig>,
+  report: InputAttachmentsReport,
+): Promise<void> {
+  if (!report.prepared.length && !report.skipped.length) return
+  await traceAgentEvent(context, {
+    attributes: {
+      "input.attachments.prepared": report.prepared,
+      "input.attachments.preparedBytes": report.prepared.reduce((total, item) => total + item.bytes, 0),
+      "input.attachments.preparedCount": report.prepared.length,
+      "input.attachments.skipped": report.skipped,
+      "input.attachments.skippedCount": report.skipped.length,
+      "vitehub.action.name": "input.attachments",
+      "vitehub.activity.kind": "action",
+    },
+    name: "agent.input.attachments",
     type: "run",
   })
 }

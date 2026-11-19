@@ -4463,6 +4463,66 @@ cli_auth_credentials_store = "keyring"
     await rm(provider.attachmentsDirectory as string, { force: true, recursive: true })
   })
 
+  it("records which images were staged and why the others were left out", async () => {
+    const threadId = "thread-attachment-report"
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const adapter = createProviderAgentAdapter({ execution: { attachments: { maxBytes: 6 } }, provider: "codex" })
+    const traceLog = createTraceEventLog({ content: "content" })
+    const base = context(threadId)
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate({
+      ...base,
+      messages: [
+        {
+          id: "m-1",
+          parts: [
+            // Chat message selection left this message's second image out (`triggerHistory.maxImages`).
+            { data: { modelText: "[msg 1 · photo · photo (not shown)]", omittedAttachments: [{ id: "attachment-2", mediaType: "image/png", name: "older.png", reason: "max-images" }] }, id: "message-header", type: "data-chat-message-header" },
+            { fetchData: async () => new Uint8Array([1, 2, 3]), id: "attachment-1", mediaType: "image/png", name: "screenshot.png", type: "image" },
+          ],
+          role: "user",
+        },
+        { id: "m-2", parts: [{ fetchData: async () => { throw Object.assign(new Error("Forbidden"), { status: 403 }) }, id: "attachment-1", mediaType: "image/png", name: "expired.png", type: "image" }], role: "user" },
+        { id: "m-3", parts: [{ fetchData: async () => new Uint8Array(8), id: "attachment-1", mediaType: "image/jpeg", name: "large.jpg", type: "image" }], role: "user" },
+        {
+          id: "m-4",
+          parts: [
+            { data: { modelText: "[msg 4 · photo]", omittedAttachments: [{ id: "attachment-1", mediaType: "image/png", messageId: "m-0", reason: "max-age" }] }, id: "message-header", type: "data-chat-message-header" },
+            { text: "@bot what does the screenshot show?", type: "text" },
+            { fetchData: async () => new Uint8Array([4, 5]), id: "attachment-1", mediaType: "image/png", name: "current.png", type: "image" },
+          ],
+          role: "user",
+        },
+      ],
+      runtime: { ...base.runtime, run: { messageId: "m-4", runId: `run-${threadId}`, threadId }, traceLog },
+    } as never)
+
+    const [record, ...others] = traceLog.entries().filter(entry => entry.name === "agent.input.attachments")
+    expect(others).toEqual([])
+    const directory = provider.attachmentsDirectory
+    expect(record?.attributes).toMatchObject({
+      "input.attachments.prepared": [
+        { bytes: 3, mediaType: "image/png", messageId: "m-1", name: "screenshot.png", origin: "history", partId: "attachment-1", path: expect.stringMatching(new RegExp(`^${directory}/.+\\.png$`)) },
+        { bytes: 2, mediaType: "image/png", messageId: "m-4", name: "current.png", origin: "current", partId: "attachment-1", path: expect.stringMatching(new RegExp(`^${directory}/.+\\.png$`)) },
+      ],
+      "input.attachments.preparedBytes": 5,
+      "input.attachments.preparedCount": 2,
+      "input.attachments.skipped": [
+        { mediaType: "image/png", messageId: "m-1", name: "older.png", origin: "history", partId: "attachment-2", reason: "max-images" },
+        { mediaType: "image/png", messageId: "m-0", origin: "history", partId: "attachment-1", reason: "max-age" },
+        { mediaType: "image/png", messageId: "m-2", name: "expired.png", origin: "history", partId: "attachment-1", reason: "fetch-failed:403" },
+        { mediaType: "image/jpeg", messageId: "m-3", name: "large.jpg", origin: "history", partId: "attachment-1", reason: "byte-budget" },
+      ],
+      "input.attachments.skippedCount": 4,
+    })
+    expect(provider.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: [expect.objectContaining({ name: "screenshot.png" }), expect.objectContaining({ name: "current.png" })],
+    }))
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await rm(directory as string, { force: true, recursive: true })
+  })
+
   it("leaves earlier images out of a resumed provider thread", async () => {
     const threadId = "thread-attachment-history-resumed"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], { turnResumeCursor: "opaque-history-cursor" })
