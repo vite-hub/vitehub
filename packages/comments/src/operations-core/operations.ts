@@ -366,7 +366,7 @@ export const commentActions = {
   async setStatus(input: CommentStatusInput, who: CommentsCaller, status: "open" | "resolved"): Promise<CommentThread> {
     const found = await load(who, input.threadId)
     await allow(who, "resolve", { thread: found })
-    const next = await who.runtime.store.setStatus(found.id, status, author(who), Date.now())
+    const next = await who.runtime.store.setStatus(found.id, status, author(who), Date.now(), who.actor)
     who.runtime.forge?.changed(found.id)
     return next
   },
