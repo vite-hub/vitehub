@@ -6,6 +6,7 @@ import { realpath } from 'node:fs/promises'
 import { basename, normalize, relative, resolve } from 'pathe'
 
 import { configureCloudflareSandboxNitro, defaultCloudflareSandboxClassName } from './cloudflare'
+import { sandboxTaskErrorDiagnostics } from './error-diagnostics'
 import {
   sandboxTaskProviderLoaderSpecifiers,
   sandboxTaskRuntimeDependencyByProvider,
@@ -255,18 +256,30 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
   let rawEnv: ConfigEnv = { command: 'serve', mode: 'development' }
   let resolvedConfig: ResolvedConfig | undefined
   let sandboxTaskEnabled = integrationOptions !== false
+  let localDev = false
+  let nitroOptions: Record<string, unknown> | undefined
   let selectedProvider: SandboxTaskHostingProvider | undefined
   let earlyNitroTarget: Record<string, unknown> | undefined
   let earlyNitroSnapshot: Record<string, unknown> | undefined
   let composedCloudflareEarly = false
   let cloudflareSandbox: SandboxTaskResourceInspectionOptions | undefined
   let sandboxTaskRuntimeRefresh = Promise.resolve()
+
+  function assertLocalDevRunner() {
+    const devServer = nitroOptions?.devServer
+    const runner = (isPlainRecord(devServer) && devServer.runner) || process.env.NITRO_DEV_RUNNER
+    if (localDev && nitroOptions?.dev && runner === 'miniflare')
+      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_LOCAL_NITRO_RUNNER()
+  }
+
   const sandboxTaskNitroModule = (nitro: {
     hooks: { hook: (name: 'build:before', callback: () => void) => void }
     options: object
   }) => {
     // SAFETY: Nitro options are a plain object; the merges below only read and set its alias and noExternals keys.
     const options = nitro.options as Record<string, unknown>
+    nitroOptions = options
+    assertLocalDevRunner()
     mergeSandboxTaskNitroNoExternals(options, selectedProvider)
     if (selectedProvider)
       mergeSandboxTaskNitroProviderAliases(options, generatedAliases)
@@ -300,6 +313,8 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
       writeArtifacts,
     })
     sandboxTaskStateModule = prepared.stateModule
+    localDev = prepared.localDev
+    assertLocalDevRunner()
     return prepared
   }
 
@@ -492,4 +507,3 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
     },
   }
 }
-

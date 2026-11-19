@@ -196,6 +196,7 @@ function createSandboxTaskRuntimeFacadeContents(
   runtimeConfig: AgentSandboxTaskConfig | false,
   registryFile: string,
   development: boolean,
+  localDev: boolean,
   providerLoaderImport?: string,
 ) {
   return [
@@ -203,12 +204,12 @@ function createSandboxTaskRuntimeFacadeContents(
     ...(providerLoaderImport
       ? [`export { loadSandboxTaskRuntimeProvider } from ${JSON.stringify(providerLoaderImport)}`]
       : []),
-    `import { setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeDevelopment, ${development ? 'setSandboxTaskRuntimeLocalProvider, ' : ''}setSandboxTaskRuntimeRegistry } from ${JSON.stringify(sandboxTaskRuntimeStateSpecifier)}`,
+    `import { setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeDevelopment, ${localDev ? 'setSandboxTaskRuntimeLocalProvider, ' : ''}setSandboxTaskRuntimeRegistry } from ${JSON.stringify(sandboxTaskRuntimeStateSpecifier)}`,
     '',
     `setSandboxTaskRuntimeConfig(${JSON.stringify(runtimeConfig, null, 2)})`,
     `setSandboxTaskRuntimeDevelopment(${development})`,
     // A dynamic import keeps `node:child_process` out of the dev server until a Task runs locally.
-    ...(development
+    ...(localDev
       ? [`setSandboxTaskRuntimeLocalProvider(async () => (await import(${JSON.stringify(sandboxTaskRuntimeLocalProviderSpecifier)})).resolveLocalTaskSandbox())`]
       : []),
     'setSandboxTaskRuntimeRegistry(sandboxTaskRegistry)',
@@ -474,12 +475,17 @@ export async function prepareSandboxTaskRuntime(options: {
       definitions: [],
       files: [],
       hosting: context.hosting,
+      localDev: false,
       provider: undefined,
       rootDir,
       stateModule,
       watchFiles: [],
     }
   }
+
+  const localDev = context.command === 'serve' && !context.config.remote
+  if (localDev && process.platform === 'win32')
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_LOCAL_WINDOWS()
 
   const facadeFile = resolve(ensureGeneratedDir(rootDir, 'sandbox-task'), 'runtime/sandbox-task.mjs')
   const plan = await createSandboxTaskFeaturePlan(
@@ -503,6 +509,7 @@ export async function prepareSandboxTaskRuntime(options: {
       definitions,
       files: [],
       hosting: context.hosting,
+      localDev,
       provider: getSandboxTaskFeatureDriver(context.config)?.driver,
       rootDir,
       stateModule,
@@ -518,6 +525,7 @@ export async function prepareSandboxTaskRuntime(options: {
       context.runtimeConfig.sandboxTask,
       registryFile,
       context.command === 'serve',
+      localDev,
       providerLoaderImport,
     ),
     options.platform,
@@ -532,6 +540,7 @@ export async function prepareSandboxTaskRuntime(options: {
       ...(plan.artifacts || []).map(artifact => resolve(ensureGeneratedDir(rootDir, 'sandbox-task'), artifact.filename)),
     ],
     hosting: context.hosting,
+    localDev,
     provider: getSandboxTaskFeatureDriver(context.config)?.driver,
     rootDir,
     stateModule,

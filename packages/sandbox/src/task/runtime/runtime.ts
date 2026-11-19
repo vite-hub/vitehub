@@ -149,8 +149,12 @@ async function resolveSandboxTaskProvider(
   assertSandboxTaskDefinitionOptions(definition.options ?? {})
   // `vite dev` runs Sandbox Tasks on this machine, unless `remote: true` asks for the host's Sandbox.
   const local = getSandboxTaskRuntimeLocalProvider()
-  if (local && !(sandboxTaskConfig && sandboxTaskConfig.remote))
+  if (local && !(sandboxTaskConfig && sandboxTaskConfig.remote)) {
+    const policy = sandboxTaskConfig && 'networkPolicy' in sandboxTaskConfig ? sandboxTaskConfig.networkPolicy : undefined
+    if (policy !== undefined && policy !== 'allow-all')
+      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_LOCAL_NETWORK_POLICY()
     return await local()
+  }
   const config = getSandboxTaskFeatureDriver(sandboxTaskConfig)
   const provider = resolveRuntimeProvider(config)
 

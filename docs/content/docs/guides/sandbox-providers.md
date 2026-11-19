@@ -176,7 +176,7 @@ Each Sandbox Task run gets a new Sandbox, closed at the end, unless you set `san
 
 Limits:
 
-- The Vite dev server cannot host the Container, so `vite dev` runs each task as a local process ([Development](/docs/sandbox/hosts#development)). To test the Container, build, then run `npx wrangler dev --config .output/server/wrangler.json`, which needs Docker.
+- The Vite dev server cannot host the Container. With Nitro's `node-worker` dev runner, `vite dev` runs tasks as local processes without isolation or a restrictive network policy ([Development](/docs/sandbox/hosts#development)). To test the Container, build, then run `npx wrangler dev --config .output/server/wrangler.json`, which needs Docker.
 - There is no network policy option, and ViteHub reports `network: 'unknown'`.
 - The generated Durable Object has no preview URLs, so `session.ports` is unavailable. Spawned process output lives in the Durable Object's memory and ends with the Container.
 

@@ -139,7 +139,7 @@ export default defineEventHandler(async (event) => {
 - `runSandboxTask('image-optimizer', input)` runs the package with your input. It returns a normal `Response`.
 - If the run fails, `response.ok` is `false`. Always check it before you read the body.
 
-Start the dev server. It runs the package as a process on your computer and does not use the Vercel keys:
+Start the dev server on macOS, Linux, or WSL. It runs the package as a process on your computer and does not use the Vercel keys:
 
 ```bash [commands/dev]
 pnpm dev
@@ -159,7 +159,7 @@ The response is:
 { "pixels": 786432, "format": "webp" }
 ```
 
-This JSON is the response body, not a file that the Sandbox writes. If the run takes more than 30 seconds, the response has an error status and a `SANDBOX_TASK_TIMEOUT` error. The provider decides what the code in the Sandbox can reach, such as the network and files.
+This JSON is the response body, not a file that the Sandbox writes. If the run takes more than 30 seconds, the response has an error status and a `SANDBOX_TASK_TIMEOUT` error. In dev, the process can access your filesystem and network. In a deployed app, the provider decides what the code can reach.
 
 ::
 
