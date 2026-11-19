@@ -119,6 +119,18 @@ function agentOf(endpoint: { agent: string | null, host: string | null } | undef
 
 const lastOf = (thread: CommentThread) => thread.messages.at(-1)
 
+/** The string fields of JSON that Send wrote itself, such as a sealed secret or the sender snapshot. */
+function readFields(text: string): Record<string, unknown> {
+  const value: unknown = JSON.parse(text)
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? { ...value } : {}
+}
+
+function stringField(fields: Record<string, unknown>, name: string): string {
+  const value = fields[name]
+  if (typeof value !== "string") throw new TypeError(`Send expected the field \`${name}\` in its own stored JSON.`)
+  return value
+}
+
 /** A thread waits for an answer while it is open and its last message is not an agent's. */
 export function commentThreadWaits(thread: CommentThread): boolean {
   const last = lastOf(thread)
@@ -239,7 +251,8 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
   }
 
   async function view(row: SendRow): Promise<CommentSendView> {
-    const sender: CommentsUser = JSON.parse(row.sender)
+    const fields = readFields(row.sender)
+    const sender: CommentsUser = { ...fields, id: stringField(fields, "id") }
     const threads: CommentSendThread[] = []
     for (const entry of threadsOf(row)) {
       const [, thread] = await comments.get(entry.id)
@@ -381,7 +394,7 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       }
       const [openError, opened] = await tools.unsealWebhooksText(label, row.sealed)
       if (openError) throw openError
-      const { secret } = JSON.parse(opened) as { secret: string }
+      const secret = stringField(readFields(opened), "secret")
       const [sealError, sealed] = await tools.sealWebhooksText(label, JSON.stringify({ secret, url: checked.href }))
       if (sealError) throw sealError
       const moved = await store.moveCode(id, "waiting", "paired", now, { agent: "t3", host: checked.host, sealed })
@@ -416,8 +429,8 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       if (used.host) {
         const [openError, opened] = await tools.unsealWebhooksText(`comments-send-code:${id}`, used.sealed)
         if (openError) throw openError
-        const target = JSON.parse(opened) as { secret: string, url: string }
-        created = await tools.createMemberEndpoint({ owner: user.id, name: `${agent.name} thread`, agent: used.agent ?? "t3", kind: "url", url: target.url, secret: target.secret, hosts })
+        const target = readFields(opened)
+        created = await tools.createMemberEndpoint({ owner: user.id, name: `${agent.name} thread`, agent: used.agent ?? "t3", kind: "url", url: stringField(target, "url"), secret: stringField(target, "secret"), hosts })
       }
       else {
         created = await tools.createMemberEndpoint({ owner: user.id, name: `${agent.name} inbox`, agent: used.agent ?? "claude-code", kind: "inbox" })
