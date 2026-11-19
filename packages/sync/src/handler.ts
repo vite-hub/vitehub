@@ -56,6 +56,13 @@ export interface SyncServices {
    */
   live?: { interval?: number, seconds?: number, calls?: number }
   /**
+   * Pushes. `calls` is the most Database calls of one push, where a batch is one call (default 40). A plain write makes
+   * 2: the read of its row and its batch. The server applies the mutations in order, and stops before one that could
+   * pass `calls`. The answer then has results for the mutations that it applied, and the client sends the others in its
+   * next push, which is a new Worker invocation. The first mutation always applies, so a long queue drains.
+   */
+  push?: { calls?: number }
+  /**
    * The Sync definitions of the app by name, so an action can write another one with `sync(name)`, and the live stream
    * serves each of them. A ViteHub app passes every definition of `server/sync/`. They all use the Database of `db`.
    */
@@ -73,6 +80,8 @@ interface Resolved {
   now: number
   version: string
   services: SyncServices
+  /** The Database calls of the request so far, where a batch is one call. Every scope of the request shares it. */
+  calls: { count: number }
 }
 
 interface Scoped extends Resolved {
@@ -204,7 +213,7 @@ async function otherScope(scoped: Scoped, name: string): Promise<[Refusal, undef
   const { services } = scoped
   const found = definitionOf(scoped, name)
   const table = describeSyncTable(found.options.table)
-  const resolved: Resolved = { name, definition: found, table, db: scoped.db, now: scoped.now, version: await syncTableVersion(table), services }
+  const resolved: Resolved = { name, definition: found, table, db: scoped.db, now: scoped.now, version: await syncTableVersion(table), services, calls: scoped.calls }
   const context = found.options.identify === scoped.definition.options.identify ? scoped.context : await callerContext(resolved, scoped.context.request, services)
   const [refused, values] = await whereOf(resolved, context)
   if (refused) return [refused, undefined]
@@ -433,6 +442,7 @@ type Reads = Map<string, { scoped: Scoped, key: SyncKey, scopedOnly: boolean, js
 
 async function readRow(scoped: Scoped, key: SyncKey, scopedOnly: boolean, reads?: Reads): Promise<Record<string, unknown> | undefined> {
   const { db, table } = scoped
+  scoped.calls.count++
   const [found] = await db.select({ row: getTableColumns(table.table), json: sql<string>`${rowObjectSql(table)}` }).from(table.table)
     .where(and(eq(column(table, table.key), key), scopedOnly ? scopeSql(table, scoped.scope.values) : undefined))
     .limit(1)
@@ -488,6 +498,7 @@ function ledgerStatement({ db, name, now }: Scoped, id: string, guard: SQL | und
 }
 
 async function guardHolds(scoped: Scoped, guard: SQL): Promise<boolean> {
+  scoped.calls.count++
   const row = await scoped.db.get<{ ok: number }>(sql`SELECT CASE WHEN ${guard} THEN 1 ELSE 0 END AS ok`)
   return row?.ok === 1
 }
@@ -609,11 +620,27 @@ async function plan(scoped: Scoped, write: Write, overlay: Overlay, reads: Reads
   return [undefined, [db.update(target).set(patch).where(inScope)]]
 }
 
+function duplicateOf(id: string, result: string | null): SyncMutationResult {
+  return result === null ? { id, status: "duplicate" } : { id, status: "duplicate", result: JSON.parse(result) }
+}
+
 /** The answer for a mutation id that the server applied before, with the stored result of an action, or `undefined`. */
 async function duplicate(scoped: Scoped, id: string): Promise<SyncMutationResult | undefined> {
+  scoped.calls.count++
   const [done] = await scoped.db.select({ result: syncMutations.result }).from(syncMutations).where(eq(syncMutations.id, id)).limit(1)
-  if (!done) return undefined
-  return done.result === null ? { id, status: "duplicate" } : { id, status: "duplicate", result: JSON.parse(done.result) }
+  return done ? duplicateOf(id, done.result) : undefined
+}
+
+/**
+ * The mutation ids of a push that the server applied before, with their answers, in one Database call. The ids are one
+ * `json_each()` parameter, so D1's limit of 100 parameters never applies.
+ */
+async function duplicates(scoped: Scoped, ids: readonly string[]): Promise<Map<string, SyncMutationResult>> {
+  if (!ids.length) return new Map()
+  scoped.calls.count++
+  const done = await scoped.db.select({ id: syncMutations.id, result: syncMutations.result }).from(syncMutations)
+    .where(sql`${syncMutations.id} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`)
+  return new Map(done.map(({ id, result }) => [id, duplicateOf(id, result)]))
 }
 
 /** An action as the handler calls it, with a loose row type. */
@@ -755,9 +782,9 @@ const maxConflicts = 3
  * the whole batch, and the rows stay as they are. When a write that ran at the same time changed a row that the checks
  * read, the batch fails, and the mutation is checked again from the start.
  */
-async function apply(scoped: Scoped, mutation: SyncMutation, touched: Set<string>): Promise<SyncMutationResult> {
+async function apply(scoped: Scoped, mutation: SyncMutation, touched: Set<string>, applied: Map<string, SyncMutationResult>): Promise<SyncMutationResult> {
   const { id } = mutation
-  const before = await duplicate(scoped, id)
+  const before = applied.get(id)
   if (before) return before
   // An action is server code, so `write: false` does not stop the writes of the definition's own actions.
   if (mutation.op !== "action" && scoped.definition.options.write === false) return rejected(id, { error: syncErrors.SYNC_READ_ONLY() })
@@ -780,6 +807,7 @@ async function apply(scoped: Scoped, mutation: SyncMutation, touched: Set<string
     }
     const guard = guardSql(reads)
     try {
+      scoped.calls.count++
       await scoped.db.batch([ledgerStatement(scoped, id, guard, result), ...statements])
       for (const table of tables) touched.add(table)
       return result === undefined ? { id, status: "applied" } : { id, status: "applied", result }
@@ -806,6 +834,7 @@ async function apply(scoped: Scoped, mutation: SyncMutation, touched: Set<string
  */
 async function compact(scoped: Scoped): Promise<void> {
   const { db, name, now } = scoped
+  scoped.calls.count++
   const table = scoped.table.name
   const removable = and(eq(syncChanges.tableName, table), ne(syncChanges.op, "put"), lt(syncChanges.createdAt, now - exitRetention))
   await db.batch([
@@ -1014,7 +1043,7 @@ async function resolve(name: string, definition: unknown, services: SyncServices
   // The handler reads rows as plain objects. `where` and `write` get the rows that the table returns.
   if (!isSyncDefinition(definition)) throw syncErrors.SYNC_INVALID_DEFINITION({ message: `[vitehub] server/sync/${name} must default-export defineSync({ table, where }).` })
   const table = describeSyncTable(definition.options.table)
-  return { name, definition, table, db, now: services.now?.() ?? Date.now(), version: await syncTableVersion(table), services }
+  return { name, definition, table, db, now: services.now?.() ?? Date.now(), version: await syncTableVersion(table), services, calls: { count: 0 } }
 }
 
 /**
@@ -1063,7 +1092,17 @@ export async function handleSyncRequest<TTable, TRow, TArgs>(name: string, defin
   const results: SyncMutationResult[] = []
   // Other tables that actions wrote.
   const touched = new Set<string>()
-  for (const mutation of mutations) results.push(await apply(scoped, mutation, touched))
+  const budget = services.push?.calls ?? 40
+  const applied = await duplicates(scoped, mutations.map(mutation => mutation.id))
+  // The most calls that one mutation of this push made, at least the 2 of a plain write.
+  let largest = 2
+  for (const mutation of mutations) {
+    // Room for the compaction and the pull of the answer, up to 3 calls. The mutations after this one go in the next push.
+    if (results.length && scoped.calls.count + largest + 3 > budget) break
+    const before = scoped.calls.count
+    results.push(await apply(scoped, mutation, touched, applied))
+    largest = Math.max(largest, scoped.calls.count - before)
+  }
   if (results.some(result => result.status === "applied")) {
     for (const name of [table.name, ...touched]) wakeLiveStreams(services.db, name)
     await maybeCompact(scoped, services)

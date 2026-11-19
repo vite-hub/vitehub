@@ -39,6 +39,8 @@ export interface FakeSyncServer {
   refuse: ((mutation: SyncMutation) => SyncWireError | undefined) | undefined
   /** The most changes in one pull. */
   pageSize: number
+  /** The most mutations that one push applies, as a server that stops at its call budget. The answer has their results only. */
+  pushSize: number
   readonly rows: Map<SyncKey, SyncRow>
   /** Every request that reached the server, in order. */
   readonly requests: { method: string, url: URL, body?: SyncPushRequest, live?: SyncLiveRequest }[]
@@ -103,6 +105,7 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
     failWith: undefined,
     refuse: undefined,
     pageSize: 500,
+    pushSize: Number.POSITIVE_INFINITY,
     rows,
     requests: [],
     applied: [],
@@ -150,7 +153,7 @@ export function createFakeSyncServer(name = "todos"): FakeSyncServer {
       }
       if (!body) return error(400, { code: "SYNC_BAD_REQUEST", message: "No body." })
       if (body.account !== account) return error(409, { code: "SYNC_ACCOUNT_CHANGED", message: "The writes were made for another account." })
-      const results = body.mutations.map(mutation => apply(mutation, scope.values, user))
+      const results = body.mutations.slice(0, server.pushSize).map(mutation => apply(mutation, scope.values, user))
       const answer = json({ results, pull: pull(scope, account, body.cursor, body.scope, body.version) })
       if (server.loseNextResponse) {
         server.loseNextResponse = false
