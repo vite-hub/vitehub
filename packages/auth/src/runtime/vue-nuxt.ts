@@ -199,7 +199,7 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       const decide = guardOf(to)
       if (!decide) return
       // Decide synchronously on the server when the session is known, to keep Nuxt's request context. Browser
-      // navigations read the session into the state that `useUserSession()` and `useSession()` share, so the page and
+      // navigations read the session into the state that `useUserSession()` and `useAbility()` share, so the page and
       // the guard see the same answer.
       const session = serverSession?.()
       // Keep the Nuxt app for the session read and the navigation after it answers.

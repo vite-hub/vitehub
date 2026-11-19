@@ -179,6 +179,7 @@ describe("migrate", () => {
   it.each([
     ["empty directory", {}, "Cannot find package.json or nuxt.config in"],
     ["invalid config", { "nuxt.config.ts": "export default defineNuxtConfig({" }, "Cannot parse nuxt.config.ts"],
+    ["invalid config with a provider comment", { "nuxt.config.ts": "export default defineNuxtConfig({\n  // provider\n" }, "Cannot parse nuxt.config.ts"],
   ])("rejects %s without supported modules", async (name, files, message) => {
     const directory = await app(name, files)
     const result = await cli([directory])
@@ -307,6 +308,45 @@ describe("upgradeCodemods", () => {
   it("holds every codemod that is not a move from another module", () => {
     // A new codemod must land in one of the two lists, so `vitehub migrate` cannot miss an upgrade.
     expect([...upgradeCodemods.map(codemod => codemod.name), ...fromOtherModules].sort()).toEqual(codemods.map(codemod => codemod.name).sort())
+  })
+
+  it("renames a former driver value in nuxt.config.ts", async () => {
+    const directory = await app("upgrade-driver-value", {
+      "package.json": '{"type":"module","dependencies":{"vite-hub":"0.1.0"}}\n',
+      "nuxt.config.ts": "export default defineNuxtConfig({\n  modules: ['vite-hub/nuxt'],\n  vitehub: { host: 'cloudflare', kv: { driver: 'cloudflare-kv-binding', binding: 'KV' } },\n})\n",
+    })
+    const migration = await runMigration({ cwd: directory, codemods: upgradeCodemods })
+    expect(migration.steps.map(step => [step.codemod.name, step.detection.reason, step.error])).toEqual([
+      ["driver-key", "nuxt.config.ts uses a former backend key or driver name", undefined],
+    ])
+    expect(await readFile(join(directory, "nuxt.config.ts"), "utf8")).toContain("kv: { driver: 'cloudflare', binding: 'KV' }")
+    expect(await detectCodemods(directory, upgradeCodemods)).toEqual([])
+  })
+
+  it.each([["default", codemods], ["upgrade", upgradeCodemods]] as const)("renames drivers in options moved by the %s registry", async (name, registry) => {
+    const directory = await app(`${name}-moved-driver`, {
+      "nuxt.config.ts": "export default defineNuxtConfig({ vitehub: {}, vite: { kv: { driver: 'cloudflare-kv-binding', binding: 'KV' } } })\n",
+    })
+    const migration = await runMigration({ cwd: directory, codemods: registry })
+    expect(migration.steps.map(step => [step.codemod.name, step.error])).toEqual([["vitehub-options", undefined], ["driver-key", undefined]])
+    expect(await readFile(join(directory, "nuxt.config.ts"), "utf8")).toContain("kv: { driver: 'cloudflare', binding: 'KV' }")
+  })
+
+  it("detects a driver conflict even when it has no edit", async () => {
+    const directory = await app("driver-conflict", {
+      "nuxt.config.ts": "export default defineNuxtConfig({ vitehub: { queue: { provider: 'cloudflare', driver: 'cloudflare' } } })\n",
+    })
+    const migration = await runMigration({ cwd: directory, codemods: upgradeCodemods })
+    expect(migration.edits).toEqual([])
+    expect(formatMigrationReport(migration)).toContain("`queue` sets both `provider` and `driver`. Keep one `driver`.")
+  })
+
+  it("keeps a computed queue driver key static", async () => {
+    const directory = await app("computed-driver-key", {
+      "nuxt.config.ts": "export default defineNuxtConfig({ vitehub: { queue: { ['provider']: 'cloudflare' } } })\n",
+    })
+    await runMigration({ cwd: directory, codemods: upgradeCodemods })
+    expect(await readFile(join(directory, "nuxt.config.ts"), "utf8")).toContain("queue: { ['driver']: 'cloudflare' }")
   })
 
   it("runs the codemods that touch the same code in a working order", async () => {
