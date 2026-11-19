@@ -1,3 +1,4 @@
+import { accessSpellings } from "./access-spellings/index.ts"
 import { agentSurface } from "./agent-surface/index.ts"
 import { defineForms } from "./define-forms/index.ts"
 import { driverKey } from "./driver-key/index.ts"
@@ -40,6 +41,7 @@ export const codemods: readonly Codemod[] = [
   renamedApis,
   tsconfigPaths,
   shellDriver,
+  accessSpellings,
 ]
 
 /**
@@ -64,4 +66,5 @@ export const upgradeCodemods: readonly Codemod[] = [
   renamedApis,
   tsconfigPaths,
   shellDriver,
+  accessSpellings,
 ]
