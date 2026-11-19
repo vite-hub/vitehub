@@ -527,6 +527,54 @@ describe("the browser with a Workspace", () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it.each([
+    ["Hola {name}", { name: "Ana" }, "Hola Ana"],
+    ["{n, plural, offset:1 one {uno} other {{name}: #}}", { n: 3, name: "Ana" }, "Ana: 2"],
+    ["{n, selectordinal, one {primero} other {otro}}", { n: 2 }, "otro"],
+    ["{kind, select, a {{n, plural, one {uno} other {varios}}} other {otro}}", { kind: "a", n: 2 }, "varios"],
+  ])("loads valid compiled live messages: %s", async (message, values, expected) => {
+    vi.stubGlobal("document", { cookie: "", documentElement: { lang: "en" } })
+    vi.stubGlobal("fetch", async () => Response.json({ revision: "rev-2", messages: { [deploy.id]: compileMessage(message) } }))
+    try {
+      configureI18n({ ...config, live: "/_vitehub/i18n", catalogs: {} })
+      expect(await setLocale("es")).toEqual([undefined, "es"])
+      expect(getI18n()._(deploy.id, values)).toBe(expected)
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it.each<[string, unknown]>([
+    ["messages that are not a record", { revision: "rev-2", messages: "Publica tu agente" }],
+    ["a message that is not compiled", { revision: "rev-2", messages: { [deploy.id]: 42 } }],
+    ...[
+      [], ["n", "plural", null], ["n", "select", { other: [null] }],
+      ["n", "plural", { other: [["n", "selectordinal", null]] }],
+      ["n", "plural", { one: ["one"] }], ["n", "plural", { offset: "bad", other: ["many"] }],
+    ].map<[string, unknown]>(token => ["a malformed placeholder", { revision: "rev-2", messages: { [deploy.id]: [token] } }]),
+    ["a revision that is not a string", { revision: 2, messages: {} }],
+    ["a body that is not an object", ["Publica tu agente"]],
+  ])("keeps the build catalog and warns I18N_LIVE_CATALOG_INVALID for %s", async (_name, body) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    vi.stubGlobal("document", { cookie: "", documentElement: { lang: "en" } })
+    vi.stubGlobal("fetch", async () => Response.json(body))
+    try {
+      configureI18n({
+        ...config,
+        live: "/_vitehub/i18n",
+        catalogs: { es: async () => ({ messages: { [deploy.id]: ["Despliega tu agente"] } }) },
+      })
+      expect(await setLocale("es")).toEqual([undefined, "es"])
+      expect(getI18n()._(deploy)).toBe("Despliega tu agente")
+      expect(warn).toHaveBeenCalledWith(expect.objectContaining({ code: "I18N_LIVE_CATALOG_INVALID" }))
+    }
+    finally {
+      warn.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
 })
 
 describe("missing translations for Agents", () => {

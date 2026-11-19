@@ -4532,6 +4532,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] MCP tools/list must return a tools array.",
       fix: "Check that the MCP server answers `tools/list` with a `tools` array, and update the server if it does not.",
     },
+    AGENT_MEMORY_EVENT_INVALID: {
+      why: ({ issues, line, path }: { issues: string, line: number, path: string }) => `[vitehub] Line ${path}:${line} of the workspaceJsonlMemoryStore() file is JSON, but not a memory event: ${issues}`,
+      fix: "Fix or remove that line. The memory tools write each line as an upsert, supersede, or delete event, so do not edit the file by hand or with another tool.",
+    },
     AGENT_NAME_DUPLICATE: {
       why: ({ name }: { name: string }) => `[vitehub] Duplicate Agent name "${name}" discovered.`,
       fix: "Rename one of the Agent files so that each Agent has its own name, such as `server/agents/<name>/agent.ts`.",
