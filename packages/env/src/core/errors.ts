@@ -27,7 +27,7 @@ export type EnvSourceIdentifier = typeof envSourceIdentifiers[number]
 interface EnvErrorDetailsByCode {
   ENV_ASYNC_REQUIRED: { path?: string }
   ENV_DECLARATION_INVALID: { path?: string }
-  ENV_REQUIRED_MISSING: { path?: string, source?: EnvSourceIdentifier }
+  ENV_REQUIRED_MISSING: { names?: string[], path?: string, source?: EnvSourceIdentifier }
   ENV_RUNTIME_VALUE_INVALID: { path?: string, source?: EnvSourceIdentifier }
   ENV_SOURCE_FAILED: { source?: EnvSourceIdentifier }
 }
@@ -41,9 +41,9 @@ interface EnvErrorOptions<TCode extends EnvErrorCode = EnvErrorCode>
 
 const envSourceIdentifierSet = new Set<EnvSourceIdentifier>(envSourceIdentifiers)
 
-function createEnvError<TCode extends EnvErrorCode>(options: EnvErrorOptions<TCode>): ViteHubError<TCode, EnvErrorDetails<TCode>> {
+function createEnvError<TCode extends EnvErrorCode>(options: EnvErrorOptions<TCode>, message: string = envErrorMessages[options.code]): ViteHubError<TCode, EnvErrorDetails<TCode>> {
   const { code, cause, details } = options
-  return new ViteHubError(code, envErrorMessages[code], {
+  return new ViteHubError(code, message, {
     ...(cause === undefined ? {} : { cause }),
     ...(details === undefined || Object.keys(details).length === 0 ? {} : { details }),
   })
@@ -65,16 +65,28 @@ export function asyncServerEnvRequired(path: string): ViteHubError<"ENV_ASYNC_RE
   })
 }
 
-export function missingRequiredEnv(source: string, diagnostic: string, path?: string): ViteHubError<"ENV_REQUIRED_MISSING", EnvErrorDetails<"ENV_REQUIRED_MISSING">> {
+/**
+ * The message and details name the declaration path and the variables that can supply it, so the operator
+ * knows what to set. Names are not secret; the value never appears because there is none.
+ */
+export function missingRequiredEnv(source: string, diagnostic: string, path?: string, names: readonly string[] = []): ViteHubError<"ENV_REQUIRED_MISSING", EnvErrorDetails<"ENV_REQUIRED_MISSING">> {
   const pathDetails = optionalPath(path)
+  const variables = names.filter(isEnvVariableName).slice(0, 8)
+  const subject = pathDetails.path ? `Required Env value ${pathDetails.path} is missing.` : "Required Env value is missing."
+  const supply = variables.length ? ` Set ${variables.join(" or ")}.` : ""
   return createEnvError({
     cause: envErrorDiagnostics.ENV_R0010({ message: diagnostic }),
     code: "ENV_REQUIRED_MISSING",
     details: {
+      ...(variables.length ? { names: variables } : {}),
       ...pathDetails,
       source: publicSourceIdentifier(source),
     },
-  })
+  }, `[vitehub] ${subject}${supply}`)
+}
+
+function isEnvVariableName(name: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name)
 }
 
 export function invalidRuntimeEnvValue(source: string, diagnostic: string, path?: string): ViteHubError<"ENV_RUNTIME_VALUE_INVALID", EnvErrorDetails<"ENV_RUNTIME_VALUE_INVALID">> {
