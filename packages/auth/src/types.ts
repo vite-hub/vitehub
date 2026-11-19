@@ -99,23 +99,31 @@ export type AuthAccessAuthorizationContext<TEvent = ViteHubContext> = AccessAuth
 export type AuthAccessAuthorizeResult = AccessAuthorizeResult
 export type AuthAccessAuthorize<TEvent = ViteHubContext> = AccessAuthorize<TEvent>
 
-/** The checked request, Session, and user that a guarded handler receives. Only Auth guards create it. */
-export type AuthAuthorization = Readonly<Omit<AuthAccessAuthorizationContext, "event"> & {
-  /** `impersonatedBy` is the id of the administrator who opened this session as `user`. Better Auth's admin plugin sets it. */
-  session: AuthAccessAuthorizationContext["session"] & { impersonatedBy?: string | null }
+/** The Session and user that the app's Auth Definition returns, with the fields of its plugins and `additionalFields`. */
+type RegisteredSession<TRegistry> = RegisteredAuth<TRegistry>["$Infer"]["Session"]
+
+/**
+ * The checked request, Session, and user that a guarded handler receives. Only Auth guards create it.
+ * Guards using the default Definition read plugin and custom fields from the generated Auth registry.
+ */
+export type AuthAuthorization<TRegistry = ViteHub.AuthRegistry> = Readonly<{
+  request: AuthAccessAuthorizationContext["request"]
+  /** API-key sessions can omit plugin and custom fields. The admin plugin sets `impersonatedBy` for impersonation. */
+  session: Session & Partial<Omit<RegisteredSession<TRegistry>["session"], keyof Session>> & { impersonatedBy?: string | null }
+  user: RegisteredSession<TRegistry>["user"]
 }>
 
 /** A server handler that runs only after an Auth guard accepts the request. */
-export type AuthGuardedHandler<TInput, TResult> = (input: TInput, authorization: AuthAuthorization) => TResult | Promise<TResult>
+export type AuthGuardedHandler<TInput, TResult, TRegistry = ViteHub.AuthRegistry> = (input: TInput, authorization: AuthAuthorization<TRegistry>) => TResult | Promise<TResult>
 
 /** The checked request of a signed-out caller that `withAnonymousAuthorization()` accepted. */
 export type AuthAnonymousAuthorization = Readonly<Omit<AnonymousAccessAuthorizationContext, "event">>
 export type AuthAnonymousAuthorize<TEvent = ViteHubContext> = AnonymousAccessAuthorize<TEvent>
 
 /** A server handler that runs after `authorize` accepts a signed-in or signed-out caller. */
-export type AuthAnonymousGuardedHandler<TInput, TResult> = (
+export type AuthAnonymousGuardedHandler<TInput, TResult, TRegistry = ViteHub.AuthRegistry> = (
   input: TInput,
-  authorization: AuthAuthorization | AuthAnonymousAuthorization,
+  authorization: AuthAuthorization<TRegistry> | AuthAnonymousAuthorization,
 ) => TResult | Promise<TResult>
 
 /** What `access.policy.allow` gets: the user, and the provider access tokens of the user's accounts. */
