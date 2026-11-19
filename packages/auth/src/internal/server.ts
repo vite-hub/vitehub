@@ -384,6 +384,7 @@ export function createAuthHandler(definition: AuthDefinition) {
     auth.handler(setRequestClientAddress(request, host?.clientAddress))
 }
 
+/** The Better Auth instance of the app's Auth Definition, for sibling packages. Apps call `useAuth()`. */
 export function getAuth(): RegisteredAuth {
   return getAuthForDefinition(resolveDefaultDefinition()) as RegisteredAuth
 }
@@ -396,8 +397,7 @@ export function getAuth(): RegisteredAuth {
  * the request's Cloudflare bindings.
  */
 export async function checkAuthMember(userId: string, event?: AuthRequestInput): Promise<Result<void, AuthMemberErrorCode>> {
-  const auth = event ? useAuth(event) : getAuth()
-  const context = await auth.$context
+  const context = await useAuth(event).$context
   const members = findAccessPolicyPlugin(context.options.plugins)?.members
   if (!members) return [undefined, undefined]
   const user = await context.internalAdapter.findUserById(userId)
@@ -409,8 +409,12 @@ export async function checkAuthMember(userId: string, event?: AuthRequestInput):
  * Return the Better Auth instance of the app's Auth Definition for a request event or a Web `Request`.
  * The generated types give it the endpoints and fields of the Definition's plugins, so `useAuth(event).api.banUser`
  * type-checks when `server/auth.ts` uses `admin()`.
+ *
+ * Pass the event in a route. The instance then reads the request's host and Cloudflare bindings. Leave it out only
+ * where no request exists, such as in a Schedule or a Queue job.
  */
-export function useAuth(event: AuthRequestInput): RegisteredAuth {
+export function useAuth(event?: AuthRequestInput): RegisteredAuth {
+  if (!event) return getAuth()
   return authForRequest(unwrapAuthRequest(event), authRequestEvent(event))
 }
 
@@ -1226,21 +1230,6 @@ const authRoute = {
 }
 
 export default authRoute
-
-export const auth = new Proxy({}, {
-  get(_target, property, receiver) {
-    return Reflect.get(getAuth() as object, property, receiver)
-  },
-  getOwnPropertyDescriptor(_target, property) {
-    return Reflect.getOwnPropertyDescriptor(getAuth() as object, property)
-  },
-  has(_target, property) {
-    return Reflect.has(getAuth() as object, property)
-  },
-  ownKeys() {
-    return Reflect.ownKeys(getAuth() as object)
-  },
-}) as RegisteredAuth
 
 /** Read the configured log from server code. Apply access checks before returning it to a caller. */
 export function getAuthEvents(definition: AuthDefinition = resolveDefaultDefinition(), request?: Pick<Request, "headers" | "url">): AuthEventStore | undefined {
