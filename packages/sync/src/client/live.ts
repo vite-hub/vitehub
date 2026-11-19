@@ -62,6 +62,7 @@ interface SyncLiveHeld {
   cursor: number
   scope: string
   version: string
+  paged?: boolean
 }
 
 /** A store in the live stream of its tab. */

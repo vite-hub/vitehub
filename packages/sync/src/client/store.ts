@@ -108,6 +108,7 @@ function isUnchanged(meta: SyncMeta | undefined, change: SyncStorageChange): boo
     && meta!.scope.id === change.meta!.scope.id
     && meta!.account === change.meta!.account
     && meta!.version === change.meta!.version
+    && meta!.after === change.meta!.after
     && !change.reset
     && !change.put?.length && !change.delete?.length && !change.add?.length && !change.update?.length && !change.remove?.length
     && !change.results?.length
@@ -681,10 +682,11 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       query.set("cursor", String(meta.cursor))
       query.set("scope", meta.scope.id)
       query.set("version", meta.version)
+      if (meta.after !== undefined) query.set("after", meta.after)
     }
     if (subset) query.set("where", subset)
-    const text = query.toString()
-    return text ? `?${text}` : ""
+    query.set("paged", "1")
+    return `?${query.toString()}`
   }
 
   async function pull(): Promise<boolean> {
@@ -708,6 +710,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       scope: sentMeta.scope.id,
       version: sentMeta.version,
       ...(subset ? { where } : {}),
+      paged: true,
+      ...(sentMeta.after === undefined ? {} : { after: sentMeta.after }),
       mutations: sent.map(write => toMutation(write, sentMeta)),
     }
     const answer = await request(url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body) })
@@ -871,7 +875,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     held() {
       if (!meta) return undefined
       streamGeneration = generationOf(meta, subset)
-      return { cursor: meta.cursor, scope: meta.scope.id, version: meta.version }
+      return { cursor: meta.cursor, scope: meta.scope.id, version: meta.version, paged: true }
     },
     live: setLive,
     pull(next, base) {

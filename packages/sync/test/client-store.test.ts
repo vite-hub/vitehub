@@ -75,6 +75,44 @@ describe("start and pull", () => {
     expect(store.getState().rows.map(item => item.id)).toEqual(["a", "b", "c", "d"])
   })
 
+  it("pulls a snapshot in pages, and takes the rows that changed between two pages", async () => {
+    const h = setup()
+    h.server.snapshotPageSize = 5
+    seed(h, Array.from({ length: 12 }, (_, index) => ({ id: `r${String(index).padStart(2, "0")}`, ownerId: "ada", title: "old" })))
+    let answered = 0
+    const { store } = h.open({
+      fetch: async (input, init) => {
+        const response = await h.server.fetch(input, init)
+        if (++answered === 1) h.server.write({ id: "r00", ownerId: "ada", title: "changed" })
+        return response
+      },
+    })
+    await store.refresh()
+    expect(pulls(h).map(request => [request.url.searchParams.get("paged"), request.url.searchParams.get("after")])).toEqual([["1", null], ["1", "r04"], ["1", "r09"], ["1", null]])
+    expect(store.getState().rows).toHaveLength(12)
+    expect(store.get("r00")?.title).toBe("changed")
+  })
+
+  it("goes on with a paged snapshot from the stored page after a reload", async () => {
+    const h = setup()
+    h.server.snapshotPageSize = 5
+    seed(h, Array.from({ length: 12 }, (_, index) => ({ id: `r${String(index).padStart(2, "0")}`, ownerId: "ada", title: "old" })))
+    let answered = 0
+    const first = h.open({
+      fetch: async (input, init) => {
+        if (++answered > 1) throw new TypeError("Failed to fetch")
+        return await h.server.fetch(input, init)
+      },
+    })
+    await first.store.refresh()
+    expect(first.store.getState().rows).toHaveLength(5)
+    first.store.destroy()
+    const { store } = h.open()
+    await store.refresh()
+    expect(pulls(h).at(-2)!.url.searchParams.get("after")).toBe("r04")
+    expect(store.getState().rows).toHaveLength(12)
+  })
+
   it("pulls again while the server has more changes", async () => {
     const h = setup()
     const { store } = h.open()
@@ -1190,7 +1228,7 @@ describe("live", () => {
     const { store } = h.open({ interval: 30_000 })
     await store.refresh()
     await until(() => store.getState().live)
-    expect(streams(h)[0]!.live!.pulls).toEqual([{ name: "todos", cursor: 1, scope: scopeIdOf({ name: "todos", ownerId: "ada" }), version: "v1" }])
+    expect(streams(h)[0]!.live!.pulls).toEqual([{ name: "todos", cursor: 1, scope: scopeIdOf({ name: "todos", ownerId: "ada" }), version: "v1", paged: true }])
     const count = pulls(h).length
     h.server.write({ id: "b", ownerId: "ada", title: "Eggs" })
     h.server.write({ id: "c", ownerId: "bob", title: "Not mine" })
