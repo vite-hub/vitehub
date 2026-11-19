@@ -59,7 +59,8 @@ export interface SyncServices {
    * Pushes. `calls` is the most Database calls of one push, where a batch is one call (default 40). A plain write makes
    * 2: the read of its row and its batch. The server applies the mutations in order. Before a call that would leave no
    * room for the answer, it stops, and the mutation that it was checking goes in the next push with the others, which is
-   * a new Worker invocation. The first mutation always applies, so a long queue drains.
+   * a new Worker invocation. The budget does not count request setup or stop the first mutation, so a long queue
+   * can drain when each mutation fits in its own Worker invocation.
    */
   push?: { calls?: number }
   /**
@@ -194,10 +195,10 @@ async function whereOf(resolved: Resolved, context: SyncContext): Promise<[Refus
 }
 
 /** Before any rows go out or change, the triggers must record a move of each column that the scope uses. */
-async function captureScope(resolved: Resolved, whereValues: SyncValues): Promise<void> {
+async function captureScope(resolved: Resolved, whereValues: SyncValues, reserve?: (calls: number) => void): Promise<void> {
   const { table } = resolved
   const subsets: readonly string[] = resolved.definition.options.subsets ?? []
-  await captureChanges(resolved.services.db, resolved.db, table.name, column(table, table.key).name, [...new Set([...Object.keys(whereValues), ...subsets])].map(name => column(table, name).name))
+  await captureChanges(resolved.services.db, resolved.db, table.name, column(table, table.key).name, [...new Set([...Object.keys(whereValues), ...subsets])].map(name => column(table, name).name), reserve)
 }
 
 /** The definition of a Sync name, for `sync(name)` in an action. */
@@ -220,7 +221,7 @@ async function otherScope(scoped: Scoped, name: string): Promise<[Refusal, undef
   const context = found.options.identify === scoped.definition.options.identify ? scoped.context : await callerContext(resolved, scoped.context.request, services)
   const [refused, values] = await whereOf(resolved, context)
   if (refused) return [refused, undefined]
-  await captureScope(resolved, values)
+  await captureScope(resolved, values, calls => spend(scoped, calls))
   return [undefined, { ...resolved, context, scope: { id: await fingerprint(`${name}\n${canonical(values)}`), values }, account: scoped.account }]
 }
 
@@ -626,9 +627,12 @@ async function plan(scoped: Scoped, write: Write, overlay: Overlay, reads: Reads
 /** Thrown before a Database call that would pass the call budget of a push. The mutation then goes in the next push. */
 const deferred = new Error("The push reached its Database call budget.")
 
-function spend(scoped: Scoped): void {
-  if (scoped.calls.count >= scoped.calls.limit) throw deferred
-  scoped.calls.count++
+function spend(scoped: Scoped, calls = 1): void {
+  if (scoped.calls.count + calls > scoped.calls.limit) {
+    scoped.calls.limit = scoped.calls.count
+    throw deferred
+  }
+  scoped.calls.count += calls
 }
 
 function duplicateOf(id: string, result: string | null): SyncMutationResult {
@@ -1117,7 +1121,7 @@ export async function handleSyncRequest<TTable, TRow, TArgs>(name: string, defin
       if (error === deferred) break
       throw error
     }
-    // The first mutation always applies. Each later one stops before a call that leaves no room for the compaction
+    // The budget does not stop the first mutation. Each later one stops before a call that leaves no room for compaction
     // and the pull of the answer, up to 3 calls, and goes in the next push.
     scoped.calls.limit = (services.push?.calls ?? 40) - 3
   }

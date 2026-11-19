@@ -11,7 +11,7 @@ icon: i-lucide-circle-alert
 | Limit | Value |
 | --- | --- |
 | Writes in one push | 100. The client sends a longer queue in parts. |
-| Database calls of one push | 40, where a batch is one call. A write makes about 2. The server stops before a write that could pass 40 and answers for the writes that it applied, and the browser sends the others in its next push. On the Workers Free plan, D1 allows 50 calls in an invocation. |
+| Push Database call budget | 40, where a batch is one call. The budget does not count request setup or stop the first mutation. The browser sends any mutations without results in its next push. On the Workers Free plan, D1 allows 50 calls in an invocation. |
 | Changes in one pull | 500. The client pulls again until it has all. |
 | Values in a `where` list | No fixed limit. A list is one SQL parameter, also on D1. |
 | Live stream | The server sends `: open` at once, checks the change log every second, sends `: ping` every 15 seconds, and ends the stream after 25 seconds. A push in the same server process wakes the stream at once. The browser opens a new one at once. |

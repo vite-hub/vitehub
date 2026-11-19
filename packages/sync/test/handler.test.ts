@@ -289,6 +289,20 @@ describe("push", () => {
     expect(body.results).toEqual([{ id: "m1", status: "applied" }, { id: "m1", status: "duplicate" }])
   })
 
+  it("answers `duplicate` when another push applies an insert after the ledger read", async () => {
+    let retry: (() => Promise<void>) | undefined
+    const app = await setup({ actions: { retry: async () => await retry?.() } })
+    const alice = await app.start("alice")
+    const write = insert("m1", { id: "a1", title: "Milk" })
+    retry = async () => {
+      const { body } = await app.push("alice", { ...as(alice), mutations: [write] })
+      expect(body.results).toEqual([{ id: "m1", status: "applied" }])
+    }
+
+    const { body } = await app.push("alice", { ...as(alice), mutations: [{ id: "race", op: "action", name: "retry" }, write] })
+    expect(body.results).toEqual([{ id: "race", status: "applied" }, { id: "m1", status: "duplicate" }])
+  })
+
   it("applies the first mutation of a push also when it passes `push.calls`", async () => {
     const app = await setup()
     const alice = await app.start("alice")
