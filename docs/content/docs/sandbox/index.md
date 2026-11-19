@@ -38,6 +38,7 @@ export default async function count(
 
 ```ts [server/api/pixels.post.ts]
 import { defineEventHandler, readBody } from 'h3'
+import { toResponse } from 'vite-hub/runtime'
 import { runSandboxTask } from 'vite-hub/sandbox/task'
 
 type ImageSize = { width: number, height: number }
@@ -45,12 +46,12 @@ type ImageSize = { width: number, height: number }
 // Run the pixels package and return its result
 export default defineEventHandler(async (event) => {
   const input = await readBody<ImageSize>(event)
-  const response = await runSandboxTask('pixels', input)
+  const [error, pixels] = await runSandboxTask('pixels', input)
 
-  // A failed or timed-out run has an error status
-  if (!response.ok)
-    throw new Error(await response.text())
-  return response.json()
+  // A failed or timed-out run answers with an error status
+  if (error)
+    return toResponse(error)
+  return pixels
 })
 ```
 
@@ -117,7 +118,7 @@ export default defineConfig({
   :::
 
   :::product-feature-item{title="Call it from a route" icon="i-lucide-code-2" to="/docs/sandbox/server-api#run-a-sandbox-task"}
-  `runSandboxTask()` sends the input and returns a `Response`. Your function sets the input type.
+  `runSandboxTask()` sends the input and returns `[error, data]`. Your function sets the input and result types.
   :::
 
   :::product-feature-item{title="Time limits and clear errors" icon="i-lucide-timer" to="/docs/sandbox/limits-and-errors#limits"}
