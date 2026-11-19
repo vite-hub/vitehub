@@ -51,18 +51,20 @@ A `<path>.sandbox-task.ts` file still default-exports `defineSandboxTask(...)`.
 ```ts [server/queues/welcome-email.ts] fragment
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue<{ email: string }>(async (job) => {
-  await sendWelcomeEmail(job.payload.email)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload }) => {
+    await sendWelcomeEmail(payload.email)
+  },
 })
 ```
 
 ## Define forms
 
-A define function takes one handler, or one object with `handler` and the options. The file default-exports the result:
+A define function takes one object with `handler` and the options. The file default-exports the result:
 
 | Definition | Form |
 | --- | --- |
-| Queue | `defineQueue(handler, options)` |
+| Queue | `defineQueue({ handler, concurrency })` |
 | Schedule | `defineSchedule({ cron, handler, manual, timeZone })` |
 | Sandbox Task | `defineSandboxTask({ handler, timeout, env, project })` |
 | Content | `export default defineContent({ ... })` |
@@ -70,7 +72,7 @@ A define function takes one handler, or one object with `handler` and the option
 
 `defineWorkflow()` is the one exception. Its typed-steps form, `defineWorkflow(name, handler)`, repeats the Workflow name so that the build can type the steps of the Workflow. Do not copy this form to other primitives.
 
-The removed forms fail with a diagnostic that names the new form: `defineSchedule(cron, handler)` fails with `SCHEDULE_C0007`, `defineSandboxTask({ run })` with `SANDBOX_TASK_C0014`, a named `content` export with `SOURCE_B0009`, and `server/databases/config.ts` with `DATABASE_LEGACY_CONFIG_FILE`. The [`define-forms` codemod](/docs/codemods/upgrade-vitehub#define-forms) rewrites all four.
+The removed forms fail with a diagnostic that names the new form: `defineQueue(handler)` fails with `QUEUE_INVALID_DEFINITION`, `defineSchedule(cron, handler)` with `SCHEDULE_C0007`, `defineSandboxTask({ run })` with `SANDBOX_TASK_C0014`, a named `content` export with `SOURCE_B0009`, and `server/databases/config.ts` with `DATABASE_LEGACY_CONFIG_FILE`. The [`define-forms` codemod](/docs/codemods/upgrade-vitehub#define-forms) rewrites all five.
 
 Avoid aggregate named exports for discovered Definitions. The generated Runtime Registry expects one discovered boundary per file convention.
 

@@ -108,6 +108,15 @@ describe("workflow request payloads", () => {
     await expect(readRequestPayload(request)).resolves.toBe("plain payload")
   })
 
+  it("throws WORKFLOW_PAYLOAD_JSON_INVALID for a JSON request with a malformed body", async () => {
+    const request = new Request("https://example.com/workflow", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{\"email\": ",
+    })
+    await expect(readRequestPayload(request)).rejects.toMatchObject({ code: "WORKFLOW_PAYLOAD_JSON_INVALID", cause: expect.any(SyntaxError) })
+  })
+
   it("passes parsed JSON to the validator for mixed-case media types", async () => {
     const request = new Request("https://example.com/workflow", {
       method: "POST",

@@ -12,7 +12,7 @@
  */
 export const viteHubServerImports = {
   agent: { "vite-hub/agent": ["runAgent", "streamAgent"] },
-  auth: { "vite-hub/auth/server": ["auth", "can", "getAuth", "requireAbility", "requireAuth", "requireAuthorization", "useAuth", "withAnonymousAuthorization", "withAuth", "withAuthorization"] },
+  auth: { "vite-hub/auth/server": ["auth", "can", "getAuth", "requireAbility", "requireAuth", "requireAuthorization", "requireCaller", "useAuth", "withAnonymousAuthorization", "withAuth", "withAuthorization"] },
   blob: { "vite-hub/blob": ["blob"] },
   browser: { "vite-hub/browser": ["defineBrowser", "runBrowser"] },
   // `defineCachedFunction` and `defineCachedHandler` keep Nitro's auto-imports. Import the tagged ones from `vite-hub/cache`.

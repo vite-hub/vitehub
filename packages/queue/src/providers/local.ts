@@ -338,7 +338,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
       try {
         const definition = await options.load(job.queue)
         if (!definition) throw options.missing(job.queue)
-        const limit = Number(definition.options?.concurrency ?? 1)
+        const limit = Number(definition.concurrency ?? 1)
         concurrency.set(job.queue, Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : 1)
         // The first job of a queue reads its limit, so start the other due jobs now.
         schedule()
