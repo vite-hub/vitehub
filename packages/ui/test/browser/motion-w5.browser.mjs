@@ -245,7 +245,9 @@ describe("installs", () => {
       window.MotionPill.installMotion(document.querySelector("#host"))
       return window.pressAll()
     })
-    assert.deepEqual(pressed, ["MotionApp:page", "MotionApp:light", "MotionApp:shadow"])
+    // The app installed first, so it is the shared layer: the pill gives it its install and its effect, and one press
+    // runs each effect once on each element.
+    assert.deepEqual(pressed, ["MotionApp:page", "MotionPill:page", "MotionApp:light", "MotionPill:light", "MotionApp:shadow", "MotionPill:shadow"])
     await context.close()
   })
 })
