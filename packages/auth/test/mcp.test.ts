@@ -370,20 +370,30 @@ describe("requireCaller", () => {
     expect(error?.code).toBe("AUTH_SIGNED_OUT")
   })
 
-  it("returns an agent caller for a plain oauthProvider() with resources, as verifyMcpRequest() does", async () => {
-    // The OAuth plugins of Better Auth, without mcpOAuth(): the setup that the AUTH_MCP_OAUTH_MISSING check accepts.
-    const auth = await setup({}, false, undefined, false, [
-      jwt(),
-      oauthProvider({
-        allowDynamicClientRegistration: true,
-        allowUnauthenticatedClientRegistration: true,
-        clientRegistrationDefaultApplicationType: "infer",
-        clientRegistrationDefaultResources: [resource],
-        consentPage: "/oauth",
-        loginPage: "/oauth",
-        resources: [resource],
-      }),
-    ])
+  /** Better Auth's own OAuth plugins with the `mcpOAuth()` resource, and `bearer()`, as an app adds them without `mcpOAuth()`. */
+  const plainProvider = (options: { disableJwtPlugin?: boolean } = {}) => [
+    ...(options.disableJwtPlugin ? [] : [jwt()]),
+    oauthProvider({
+      allowDynamicClientRegistration: true,
+      allowUnauthenticatedClientRegistration: true,
+      clientRegistrationDefaultApplicationType: "infer",
+      clientRegistrationDefaultResources: [resource],
+      consentPage: "/oauth",
+      loginPage: "/oauth",
+      resources: [resource],
+      ...options,
+    }),
+    bearer(),
+  ]
+
+  async function sessionBearer({ post }: Setup) {
+    const signup = await post("/sign-up/email", { email: "grace@example.com", name: "Grace", password: "test-password-123" })
+    expect(signup.status).toBe(200)
+    return signup.headers.get("set-auth-token") ?? ""
+  }
+
+  it("returns an agent caller for jwt() and a plain oauthProvider() with resources, as verifyMcpRequest() does", async () => {
+    const auth = await setup({}, false, undefined, false, plainProvider())
     const { accessToken, clientId } = await signInAgent(auth)
     expect((await verifyMcpRequest(mcpRequest(accessToken), { auth: auth.auth }))[0]).toBeUndefined()
 
@@ -391,6 +401,31 @@ describe("requireCaller", () => {
 
     expect(error).toBeUndefined()
     expect(caller).toMatchObject({ client: { id: clientId, name: "Claude Code" }, kind: "agent", user: { email: "ada@example.com" } })
+    // A tampered JWT stays an invalid MCP token, and the cookie next to it does not count.
+    const { cookie } = await signInAgent(auth, "bob@example.com")
+    const [invalid] = await requireCaller(apiRequest({ authorization: `Bearer ${accessToken.slice(0, -4)}AAAA`, cookie }), auth.definition)
+    expect(invalid?.code).toBe("AUTH_MCP_TOKEN_INVALID")
+  })
+
+  it("reads a session bearer of bearer() as a session next to a plain oauthProvider() with resources", async () => {
+    const auth = await setup({}, false, undefined, false, plainProvider())
+    const token = await sessionBearer(auth)
+
+    const [error, caller] = await requireCaller(apiRequest({ authorization: `Bearer ${token}` }), auth.definition)
+
+    expect(error).toBeUndefined()
+    expect(caller).toMatchObject({ kind: "browser", user: { email: "grace@example.com" } })
+  })
+
+  it("has no MCP OAuth with opaque access tokens (disableJwtPlugin), in verifyMcpRequest() and requireCaller()", async () => {
+    const auth = await setup({}, false, undefined, false, plainProvider({ disableJwtPlugin: true }))
+    const token = await sessionBearer(auth)
+
+    await expect(verifyMcpRequest(mcpRequest("a.b.c"), { auth: auth.auth })).rejects.toMatchObject({ code: "AUTH_MCP_OAUTH_MISSING" })
+    const [error, caller] = await requireCaller(apiRequest({ authorization: `Bearer ${token}` }), auth.definition)
+    expect(error).toBeUndefined()
+    expect(caller).toMatchObject({ kind: "browser", user: { email: "grace@example.com" } })
+    expect((await requireCaller(apiRequest({ authorization: "Bearer a.b.c" }), auth.definition))[0]?.code).toBe("AUTH_SIGNED_OUT")
   })
 
   it("accepts a session bearer when the OAuth provider is not configured by mcpOAuth()", async () => {

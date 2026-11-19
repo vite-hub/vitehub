@@ -3,7 +3,7 @@ import { verifyJwsAccessToken } from "better-auth/oauth2"
 
 import { findAccessPolicyPlugin } from "./access-policy.ts"
 import { authForRequest } from "./auth-instance.ts"
-import { mcpResourcesOf } from "./mcp-config.ts"
+import { mcpOAuthResources } from "./mcp-config.ts"
 import { isRecord } from "@vite-hub/internal/object"
 
 import type { Result } from "@vite-hub/runtime"
@@ -17,7 +17,7 @@ const mcpErrors = /*#__PURE__*/ defineErrors({
   codes: {
     // Config errors. They throw because the Auth must change.
     AUTH_MCP_OAUTH_MISSING: {
-      why: "The Auth has no MCP OAuth: its plugins do not include `oauthProvider()` with `resources`.",
+      why: "The Auth has no MCP OAuth: its plugins do not include `jwt()` and `oauthProvider()` with `resources`.",
       fix: "Add `...mcpOAuth({ resource, loginPage })` from `vite-hub/auth/mcp` to the `plugins` of `defineAuth()`.",
     },
 
@@ -71,7 +71,7 @@ export async function stateOf(auth: McpOAuthAuth): Promise<McpOAuthState> {
   const context = await auth.$context
   const plugins = context.options.plugins ?? []
   const provider = plugins.find(plugin => plugin.id === "oauth-provider")?.options
-  const resources = mcpResourcesOf(plugins)
+  const resources = mcpOAuthResources(plugins)
   if (!resources.length) throw mcpErrors.AUTH_MCP_OAUTH_MISSING()
   const jwtOptions = plugins.find(plugin => plugin.id === "jwt")?.options
   const issuer = isRecord(jwtOptions) && isRecord(jwtOptions.jwt) && typeof jwtOptions.jwt.issuer === "string" ? jwtOptions.jwt.issuer : context.baseURL

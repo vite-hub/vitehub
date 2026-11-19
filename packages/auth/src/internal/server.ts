@@ -59,7 +59,7 @@ import { notMemberError } from "../members.ts"
 import type { AuthMemberErrorCode } from "../members.ts"
 import type { Result } from "@vite-hub/runtime"
 import { signedOutError } from "../caller.ts"
-import { mcpResourcesOf } from "../mcp-config.ts"
+import { isJwsToken, mcpOAuthResources } from "../mcp-config.ts"
 import type { AuthCaller, AuthCallerErrorCode, AuthCallerUser } from "../caller.ts"
 
 export { createBetterAuthOptions, getAuthForDefinition } from "../auth-instance.ts"
@@ -1025,8 +1025,9 @@ const callerReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<Result<A
 /**
  * Return who calls: a person with an Auth Session (`kind: "browser"`), or an Agent with an MCP access token of
  * `mcpOAuth()` (`kind: "agent"`), checked like `verifyMcpRequest()` for any `mcpOAuth()` resource of the origin. Like
- * `verifyMcpRequest()`, it accepts an `oauthProvider()` with `resources` that the app adds without `mcpOAuth()`.
- * Returns `AUTH_SIGNED_OUT` without either, and `AUTH_MCP_TOKEN_INVALID` for a bearer token that fails a check.
+ * `verifyMcpRequest()`, it accepts `jwt()` and an `oauthProvider()` with `resources` that the app adds without
+ * `mcpOAuth()`. A bearer token that is not a JWT, such as a session token of `bearer()`, is read as a session.
+ * Returns `AUTH_SIGNED_OUT` without either, and `AUTH_MCP_TOKEN_INVALID` for a JWT bearer token that fails a check.
  * `requireAuth()` stays session-only.
  *
  * ```ts [server/api/notes.delete.ts]
@@ -1058,9 +1059,9 @@ async function readCaller(event: AuthRequestInput, definition: AuthDefinition): 
   if (token) {
     const auth = authForRequest(request, authRequestEvent(event), definition)
     const { options } = await auth.$context
-    // Without MCP OAuth (`oauthProvider()` with `resources`), a bearer token is Better Auth's, such as a session token of
-    // `bearer()`. This is the rule of `verifyMcpRequest()`.
-    if (mcpResourcesOf(options.plugins).length) {
+    // An MCP access token is a JWT of MCP OAuth, by the rule of `verifyMcpRequest()`. Another bearer token is Better
+    // Auth's, such as a session token of `bearer()`.
+    if (isJwsToken(token) && mcpOAuthResources(options.plugins).length) {
       const { verifyAppAccessToken } = await import("../mcp-token.ts")
       const url = new URL(request.url)
       const origin = trustsProxyHeaders(options) ? forwardedRequestOrigin(request) : url.origin
