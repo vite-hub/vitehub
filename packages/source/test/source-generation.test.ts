@@ -26,10 +26,21 @@ async function project(files: Record<string, string>) {
   return projectRoot
 }
 
-it("registers the default export of each server/sources file by its name", async () => {
+// Each generated test Source adds its file name here when its module runs.
+const evaluatedKey = "__vitehubSourceTestEvaluated"
+const evaluated = () => Reflect.get(globalThis, evaluatedKey) ?? []
+const trackedSource = (name: string, keys: string[]) => `(globalThis.${evaluatedKey} ??= []).push(${JSON.stringify(name)})
+export default { name: ${JSON.stringify(name)}, getKeys: async () => ${JSON.stringify(keys)}, getItem: async key => ({ key, content: "# Intro" }) }
+`
+
+afterEach(() => {
+  Reflect.deleteProperty(globalThis, evaluatedKey)
+})
+
+it("registers each server/sources file by its name and loads it on the first read", async () => {
   const projectRoot = await project({
-    "server/sources/custom.mjs": `export default { name: "custom", getKeys: async () => ["intro.md"], getItem: async key => ({ key, content: "# Intro" }) }\n`,
-    "server/sources/team/handbook.mjs": `export default { name: "handbook", getKeys: async () => ["a.md"], getItem: async key => ({ key, content: "A" }) }\n`,
+    "server/sources/custom.mjs": trackedSource("custom", ["intro.md"]),
+    "server/sources/team/handbook.mjs": trackedSource("handbook", ["a.md"]),
   })
   const handlers = await prepareSourceGeneration({ projectRoot })
   const registry = join(projectRoot, ".vitehub/source/registry.mjs")
@@ -38,11 +49,16 @@ it("registers the default export of each server/sources file by its name", async
   const types = await readFile(join(projectRoot, ".vitehub/types/source/sources.d.ts"), "utf8")
   expect(types).toContain(`"custom": typeof import(${JSON.stringify(join(projectRoot, "server/sources/custom.mjs"))})["default"]`)
   expect(types).toContain(`"team/handbook": typeof import(`)
-
-  expect(await readFile(registry, "utf8")).toContain(`"team/handbook": source1,`)
+  expect(await readFile(registry, "utf8")).toContain(`"team/handbook": () => import(${JSON.stringify(pathToFileURL(join(projectRoot, "server/sources/team/handbook.mjs")).href)}),`)
 
   await import(pathToFileURL(registry).href)
-  await expect(useSource("custom").get("intro.md")).resolves.toEqual({ key: "intro.md", content: "# Intro" })
+  // Server start and opening a reader evaluate no Source module.
+  const reader = useSource("custom")
+  expect(evaluated()).toEqual([])
+
+  await expect(reader.get("intro.md")).resolves.toEqual({ key: "intro.md", content: "# Intro" })
+  await expect(useSource("custom").keys()).resolves.toEqual(["intro.md"])
+  expect(evaluated()).toEqual(["custom"])
 })
 
 it("removes the registry when server/sources is empty", async () => {

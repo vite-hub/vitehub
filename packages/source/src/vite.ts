@@ -395,8 +395,8 @@ async function writeCollectionArtifacts(
 }
 
 /**
- * Writes the `ViteHubSourceMap` types and a Nitro plugin that registers the default export of each file in
- * `server/sources/` by its name, so `useSource("docs")` opens `server/sources/docs.ts`.
+ * Writes the `ViteHubSourceMap` types and a Nitro plugin that registers a loader for each file in `server/sources/`
+ * by its name, so `useSource("docs")` opens the default export of `server/sources/docs.ts`.
  */
 async function writeSourceArtifacts(options: SourceGenerationOptions, sources: DiscoveredSource[]): Promise<GeneratedSourceHandler[]> {
   const types = resolve(options.projectRoot, sourceTypesEntry)
@@ -415,12 +415,12 @@ async function writeSourceArtifacts(options: SourceGenerationOptions, sources: D
     "export {}",
     "",
   ].join("\n"))
+  // Each Source file loads on the first read of its name, so a large bundled `glob()` costs nothing at server start.
   await writeFileIfChanged(registry, [
-    `import { registerSources } from ${JSON.stringify(toRuntimeModuleSpecifier(ownModule(import.meta.url, "internal/registry")))}`,
-    ...sources.map(({ file }, index) => `import source${index} from ${JSON.stringify(toRuntimeModuleSpecifier(file))}`),
+    `import { registerSourceLoaders } from ${JSON.stringify(toRuntimeModuleSpecifier(ownModule(import.meta.url, "internal/registry")))}`,
     "",
-    "registerSources({",
-    ...sources.map(({ name }, index) => `  ${JSON.stringify(name)}: source${index},`),
+    "registerSourceLoaders({",
+    ...sources.map(({ file, name }) => `  ${JSON.stringify(name)}: () => import(${JSON.stringify(toRuntimeModuleSpecifier(file))}),`),
     "})",
     "",
     "export default () => {}",
