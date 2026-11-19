@@ -282,7 +282,14 @@ export const driverKey: Codemod = {
   name: "driver-key",
   description: "Rename provider and authority options to driver, and name host drivers cloudflare and vercel",
   usage: "[dir]",
-  // This upgrade runs by name; it does not migrate a third-party module.
-  detect: async () => undefined,
+  async detect({ cwd }) {
+    // Reuse the edit planner, so `vitehub migrate` runs this codemod for every form that it rewrites.
+    const result = await migrate({ cwd })
+    const [edit] = result.edits
+    if (edit) return { reason: `${edit.path} uses a former backend key or driver name` }
+    const [followUp] = result.followUps
+    if (followUp) return { reason: `${followUp.file} needs a driver key migration` }
+    return undefined
+  },
   run: migrate,
 }

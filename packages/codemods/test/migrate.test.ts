@@ -309,6 +309,19 @@ describe("upgradeCodemods", () => {
     expect([...upgradeCodemods.map(codemod => codemod.name), ...fromOtherModules].sort()).toEqual(codemods.map(codemod => codemod.name).sort())
   })
 
+  it("renames a former driver value in nuxt.config.ts", async () => {
+    const directory = await app("upgrade-driver-value", {
+      "package.json": '{"type":"module","dependencies":{"vite-hub":"0.1.0"}}\n',
+      "nuxt.config.ts": "export default defineNuxtConfig({\n  modules: ['vite-hub/nuxt'],\n  vitehub: { host: 'cloudflare', kv: { driver: 'cloudflare-kv-binding', binding: 'KV' } },\n})\n",
+    })
+    const migration = await runMigration({ cwd: directory, codemods: upgradeCodemods })
+    expect(migration.steps.map(step => [step.codemod.name, step.detection.reason, step.error])).toEqual([
+      ["driver-key", "nuxt.config.ts uses a former backend key or driver name", undefined],
+    ])
+    expect(await readFile(join(directory, "nuxt.config.ts"), "utf8")).toContain("kv: { driver: 'cloudflare', binding: 'KV' }")
+    expect(await detectCodemods(directory, upgradeCodemods)).toEqual([])
+  })
+
   it("runs the codemods that touch the same code in a working order", async () => {
     const directory = await app("upgrade-order", {
       "package.json": '{"type":"module","dependencies":{"vite-hub":"0.0.9"}}\n',
