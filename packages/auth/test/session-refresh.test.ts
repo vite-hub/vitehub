@@ -165,8 +165,18 @@ describe("session.onRefresh with a database", () => {
 })
 
 describe("session.onRefresh without a database", () => {
-  it("preserves unrelated Better Auth unauthorized errors", async () => {
+  it("keeps the status and code of unrelated Better Auth unauthorized errors", async () => {
     const cause = APIError.from("UNAUTHORIZED", { code: "CUSTOM_UNAUTHORIZED", message: "Custom unauthorized" })
+    const auth = { api: { getSession: () => Promise.reject(cause) } }
+
+    await expect(getAuthenticationSession(auth, { headers: new Headers() })).resolves.toMatchObject({
+      refusal: { code: "CUSTOM_UNAUTHORIZED", message: "Custom unauthorized", status: 401 },
+      session: null,
+    })
+  })
+
+  it("wraps Better Auth server errors", async () => {
+    const cause = APIError.from("INTERNAL_SERVER_ERROR", { code: "CUSTOM_FAILURE", message: "Custom failure" })
     const auth = { api: { getSession: () => Promise.reject(cause) } }
 
     await expect(getAuthenticationSession(auth, { headers: new Headers() })).rejects.toMatchObject({

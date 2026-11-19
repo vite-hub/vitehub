@@ -4232,8 +4232,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "In the Channel file, load the Agent with a lazy task target, such as `tasks: { triage: { agent: () => import('../../agents/triage') } }`, or remove the Channel from `defineAgent({ channels })`.",
     },
     AGENT_CHANNEL_MESSAGE_ID_MISSING: {
-      why: ({ label, root }: { label: string, root: boolean }) => root ? `[vitehub] ${label} did not return a root message ID.` : `[vitehub] ${label} did not return a message ID.`,
-      fix: "Make the `postMessage()` and `postChannelMessage()` methods of the Chat adapter return the `id` of the message that the provider created.",
+      why: ({ label, root }: { label: string, root: boolean }) => root
+        ? `[vitehub] ${label} did not return a root message ID, so replies cannot go under it.`
+        : `[vitehub] ${label} posted this message without returning its ID, so it cannot be edited or deleted.`,
+      fix: "Make the `postMessage()` and `postChannelMessage()` methods of the Chat adapter return the `id` of the message that the provider created. Edit or delete the original message in the chat client if needed.",
     },
     AGENT_CHANNEL_PULL_CURSOR_INVALID: {
       why: ({ key, cursor, next, kind }: { key: string, cursor: string | number, next: string | number | undefined, kind: "back" | "gap" | "repeated" | "stuck" }) => kind === "gap"
@@ -4529,6 +4531,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_MCP_TOOLS_LIST_INVALID: {
       why: "[vitehub] MCP tools/list must return a tools array.",
       fix: "Check that the MCP server answers `tools/list` with a `tools` array, and update the server if it does not.",
+    },
+    AGENT_MEMORY_EVENT_INVALID: {
+      why: ({ issues, line, path }: { issues: string, line: number, path: string }) => `[vitehub] Line ${path}:${line} of the workspaceJsonlMemoryStore() file is JSON, but not a memory event: ${issues}`,
+      fix: "Fix or remove that line. The memory tools write each line as an upsert, supersede, or delete event, so do not edit the file by hand or with another tool.",
     },
     AGENT_NAME_DUPLICATE: {
       why: ({ name }: { name: string }) => `[vitehub] Duplicate Agent name "${name}" discovered.`,

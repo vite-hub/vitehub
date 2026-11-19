@@ -68,13 +68,6 @@ export type HostSupport
 /** A feature that this feature turns on, unless the app sets the other feature to `false`. */
 export interface FeatureImplication {
   feature: FeatureId
-  /** Hosts where the implication does not apply. */
-  except?: readonly ViteHubHost[]
-  /**
-   * Hosts where the implied feature needs no provider option, because it runs inline in the request process. A
-   * restart loses its work. The feature still needs its option when the app turns it on itself.
-   */
-  inline?: readonly ViteHubHost[]
 }
 
 /** The starter Definition file that `vitehub add <feature> --name <name>` creates. */
@@ -189,7 +182,6 @@ export default defineAgent({
       netlify: native("nitro", "Nitro", "Agent HTTP routes run in generated functions. `agent.invocations` is not supported."),
     },
     id: "agent",
-    implies: [{ except: ["netlify"], feature: "workflow", inline: ["deno"] }],
     packages: ["@vite-hub/agent"],
     summary: "Agents in `server/agents/` with tools, Capabilities, channels, and invocations.",
     title: "Agent",
@@ -396,8 +388,10 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
   queue: feature({
     definition: starter("server/queues", name => `import { defineQueue } from "vite-hub/queue"
 
-export default defineQueue<{ id: string }>(async ({ payload }) => {
-  console.log("${name}", payload.id)
+export default defineQueue<{ id: string }>({
+  handler: async ({ payload }) => {
+    console.log("${name}", payload.id)
+  },
 })
 `, { suffix: "queue" }),
     docs: "/docs/queue",
@@ -493,7 +487,7 @@ export default defineSchedule({
       deno: native("deno", "Deno.cron", "`Deno.cron` output that the generated `.output/main.ts` loads before the Nitro server."),
       dev: native("local", "Local / process", "Local development runner and the explicit process runtime.", "single-host"),
       netlify: native("netlify", "Scheduled fn", "One generated Netlify scheduled function per static Schedule."),
-      node: native("process", "process", "Process runtime for one long-lived process or replica. A build needs `schedule: { runtime: { driver: \"process\" } }`, or `providerOutput: false` to wake Schedules yourself.", "single-host"),
+      node: native("process", "process", "Process runtime for one long-lived process or replica. `schedule: true` uses it. Set `providerOutput: false` to wake Schedules yourself.", "single-host"),
       vercel: native("vercel", "Vercel Cron", "Vercel Cron Jobs provider output."),
     },
     id: "schedule",
@@ -512,7 +506,7 @@ export default defineWorkflow(${JSON.stringify(name)}, async (payload: { id: str
     enabledByDiscovery: ["workflows"],
     hosts: {
       cloudflare: native("cloudflare", "CF Workflows", "Cloudflare Workflows provider."),
-      deno: explicit("workflow.driver", "OpenWorkflow", "Set `workflow.driver` to \"openworkflow\" with `workflow.postgres.url`, and start its worker. A build without a driver fails. Workflow that only the Agent turns on runs inline in the request process, so a restart loses the run."),
+      deno: explicit("workflow.driver", "OpenWorkflow", "Set `workflow.driver` to \"openworkflow\" with `workflow.postgres.url`, and start its worker. A build without a driver fails."),
       dev: native("openworkflow", "OpenWorkflow", "The Node host runs OpenWorkflow and its worker in the dev server, on .vitehub/data/openworkflow.sqlite.db. workflow.remote lets it use the Postgres Default Database or OPENWORKFLOW_POSTGRES_URL."),
       netlify: explicit("workflow.driver", "OpenWorkflow", "Use OpenWorkflow explicitly. No Netlify-native Workflow driver is provided."),
       node: {
@@ -605,24 +599,19 @@ export function featureSupport(id: FeatureId, host: FeatureHost, appHost?: ViteH
   return definition.hosts[appHost === "node" || definition.developmentOverrides?.includes(appHost) ? "dev" : appHost]
 }
 
-/** True when one of the `enabled` features turns `id` on, and `id` then runs inline on `host` without a provider option. */
-export function impliedInline(id: FeatureId, enabled: readonly FeatureId[], host: ViteHubHost): boolean {
-  return enabled.some(source => features[source].implies.some(implication => implication.feature === id && implication.inline?.includes(host)))
-}
-
 /**
- * The features that `enabled` turn on through implications on `host`, without the ones already in `enabled`.
+ * The features that `enabled` turn on through implications, without the ones already in `enabled`.
  * This follows implications transitively.
  * `disabled` lists features that the app sets to `false`; an implication never turns them on.
  */
-export function impliedFeatures(enabled: readonly FeatureId[], host: ViteHubHost, disabled: readonly FeatureId[] = []): FeatureId[] {
+export function impliedFeatures(enabled: readonly FeatureId[], disabled: readonly FeatureId[] = []): FeatureId[] {
   const on = new Set(enabled)
   const implied: FeatureId[] = []
   const pending = [...enabled]
   while (pending.length) {
     const id = pending.shift()!
     for (const implication of features[id].implies) {
-      if (implication.except?.includes(host) || on.has(implication.feature) || disabled.includes(implication.feature)) continue
+      if (on.has(implication.feature) || disabled.includes(implication.feature)) continue
       on.add(implication.feature)
       implied.push(implication.feature)
       pending.push(implication.feature)

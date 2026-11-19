@@ -115,7 +115,7 @@ it("reports a deferred validation failure through the host task and dispatch-err
   const onDispatchError = vi.fn()
   const log = vi.spyOn(console, "error").mockImplementation(() => {})
   setQueueRuntimeConfig({ driver: "cloudflare" })
-  setQueueRuntimeRegistry({ welcome: async () => ({ handler, options: { onDispatchError } }) })
+  setQueueRuntimeRegistry({ welcome: async () => ({ handler, onDispatchError }) })
   setQueueRuntimeEventDefaults({ waitUntil: (promise: Promise<unknown>) => pending.push(promise) })
   try {
     dynamicQueue.defer("welcome", {}, { region: "iad1" })

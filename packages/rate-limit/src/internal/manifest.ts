@@ -6,6 +6,7 @@ import { cloudflareRateLimitDriver } from "../drivers/cloudflare.ts"
 import { kvRateLimitDriver } from "../drivers/kv.ts"
 import { memoryRateLimitDriver } from "../drivers/memory.ts"
 import { createRateLimiter } from "../limiter.ts"
+import { usesCloudflareBinding } from "./cloudflare-bindings.ts"
 
 import type { RateLimitDeclaration, RateLimitDriverCapabilities } from "../types.ts"
 
@@ -39,12 +40,15 @@ function createRateLimitManifest(
   declarations: RateLimitDeclaration[],
   provider: RateLimitManifestProvider,
 ): RateLimitManifest {
-  const capabilities = resolveProviderCapabilities(provider)
   return {
     schemaVersion: 2,
     rateLimits: [...declarations]
       .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
-      .map(definition => ({ name: definition.name, provider, capabilities })),
+      .map((definition) => {
+        // On Cloudflare, a window that the binding does not support counts in KV.
+        const counter = provider === "cloudflare" && !usesCloudflareBinding(definition) ? "kv" : provider
+        return { name: definition.name, provider: counter, capabilities: resolveProviderCapabilities(counter) }
+      }),
   }
 }
 

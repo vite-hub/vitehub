@@ -2,7 +2,9 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
 
 import { defineAgent } from "../src/index.ts"
 import { bindAgentInvocations } from "../src/invocations.ts"
@@ -11,6 +13,7 @@ import { agentInvocationId, applyAgentInvocationStoreUpdate, createMemoryAgentIn
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 
+import type { RunFailedEvent } from "@vite-hub/runtime/internal/run-failed"
 import type { AgentInvocationRecord, AgentInvocationStore } from "../src/server.ts"
 
 const scope = "webhook:review:github:github:"
@@ -62,8 +65,18 @@ const attemptId = (observation: { attributes?: Record<string, unknown> }) => obs
 
 describe.each(stores)("queued webhook retry after a failed attempt (%s store)", (_name, store) => {
   let cleanup: (() => Promise<void>) | undefined
+  let failures: RunFailedEvent[] = []
+  let stopFailures = () => {}
+
+  beforeEach(() => {
+    failures = []
+    stopFailures = onRunFailed((event) => {
+      failures.push(event)
+    })
+  })
 
   afterEach(async () => {
+    stopFailures()
     await cleanup?.()
     cleanup = undefined
     vi.restoreAllMocks()
@@ -89,6 +102,8 @@ describe.each(stores)("queued webhook retry after a failed attempt (%s store)", 
     ])
     expect(completed?.observations.filter(observation => observation.name === "agent.invocation.finish").map(attemptId)).toEqual([starts?.[1]])
     expect((await fixture.invocations.list()).invocations).toHaveLength(1)
+    // The failed attempt had a retry left, so it is not the end of the Invocation.
+    expect(failures).toEqual([])
   })
 
   it("leaves the Invocation failed with the last error when every attempt fails", async () => {
@@ -102,6 +117,7 @@ describe.each(stores)("queued webhook retry after a failed attempt (%s store)", 
     const failed = await fixture.invocations.get(fixture.id)
     expect(failed).toMatchObject({ error: { message: "GitHub is unavailable (attempt 3)." }, status: "failed" })
     expect(failed?.observations.filter(observation => observation.name === "agent.invocation.error")).toHaveLength(3)
+    expect(failures).toEqual([{ event: "invocation.failed", agent: "review", invocationId: fixture.id, error: { message: "GitHub is unavailable (attempt 3)." }, failedAt: failed?.failedAt }])
     expect(await fixture.invocations.cancel(fixture.id)).toMatchObject({ outcome: "terminal", status: "failed" })
   }, 20_000)
 

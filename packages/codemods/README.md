@@ -52,7 +52,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `root-accessors` | `db`, `schema`, `useDatabase`, `email`, `runSchedule`, and the Env accessors to the root of their primitive |
 | `agent-surface` | A ViteHub app from the old Agent names to `invoker`, `loadAgent()`, `agentWorkflow()`, `extends`, and the merged Agent entries |
 | `renamed-apis` | An app from the ViteHub names that this release renamed, such as `hubDb` and `kv.del()` |
-| `define-forms` | The former define forms of Schedule, Sandbox Task, Content, and Database to the one form of each |
+| `define-forms` | The former define forms of Queue, Schedule, Sandbox Task, Content, and Database to the one form of each |
 | `one-entry-imports` | Imports of subpaths that moved into one entry per concept, and `vite-hub/task` to `nitro/task` |
 | `vitehub-options` | The options that moved in `vitehub()`: `preset` to `host`, `logs` into `observability`, Env declarations into `vitehub({ env })`, and `devtools` and `contentImportBase` removed |
 | `tsconfig-paths` | `#vitehub/*` entries of tsconfig `paths` that point into `.vitehub/` or `.nuxt/`, which ViteHub now types itself |
@@ -124,6 +124,7 @@ ViteHub keeps one define form for each primitive. `define-forms` rewrites the fo
 
 | Former form | New form |
 | --- | --- |
+| `defineQueue(handler, { concurrency: 5 })` | `defineQueue({ handler, concurrency: 5 })` |
 | `defineSchedule("0 9 * * *", handler, { manual: true })` | `defineSchedule({ cron: "0 9 * * *", manual: true, handler })` |
 | `defineSandboxTask({ run })` | `defineSandboxTask({ handler })` |
 | `export const content = defineContent({ ... })` in `server/content.ts` | `export default defineContent({ ... })`, and `import content from` in the files that import it |
@@ -133,7 +134,9 @@ ViteHub keeps one define form for each primitive. `define-forms` rewrites the fo
 
 The codemod updates the import paths of moved files, also through the `~~`, `@@`, and `#server` aliases, and path strings such as `out: "./server/databases/migrations"` in `drizzle.config.ts`. It works in Nuxt layers too.
 
-The report lists what it cannot change: Schedule options that are not an object literal, which it spreads into the object, Sandbox Task options that are not an object literal, dynamic imports of `server/content.ts`, helper files left in `server/databases/` that the new discovery reads as Databases, and lines in `package.json` and host config files that name the former Database paths.
+The codemod leaves Queue handlers unchanged. They still receive the same job object, so destructuring it (for example, `({ payload }) => payload.email`) is optional. A one-argument call whose argument could be a definition object is left alone unless the codemod can identify a handler.
+
+The report lists what it cannot change: Queue calls with spread arguments or options the codemod cannot safely flatten, Schedule options that are not an object literal (which it spreads into the object), Sandbox Task options that are not an object literal, dynamic imports of `server/content.ts`, helper files left in `server/databases/` that the new discovery reads as Databases, and lines in `package.json` and host config files that name the former Database paths.
 
 ```sh
 npx @vite-hub/codemods define-forms [dir] [--dry-run]

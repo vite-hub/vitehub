@@ -36,9 +36,9 @@ async function createProject() {
   const module = join(packageDir, "deliver.mjs")
   await writeFile(module, [
     `import { defineQueue } from ${JSON.stringify(definitionModule)}`,
-    "export default defineQueue(async (job) => {",
-    "  globalThis.__contributedQueueJobs.push({ at: Date.now(), payload: job.payload })",
-    "})",
+    "export default defineQueue({ handler: async ({ payload }) => {",
+    "  globalThis.__contributedQueueJobs.push({ at: Date.now(), payload })",
+    "} })",
     "",
   ].join("\n"))
   return { module, root }

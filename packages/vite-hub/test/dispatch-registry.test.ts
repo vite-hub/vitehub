@@ -24,7 +24,7 @@ it.each([
     await writeFile(join(root, "package.json"), '{"name":"public-dispatch","type":"module"}')
     await writeFile(join(root, "src/welcome.queue.ts"), [
       'import { defineQueue } from "vite-hub/queue"',
-      'export default defineQueue<{ email: string }>(job => job.payload.email)',
+      'export default defineQueue<{ email: string }>({ handler: ({ payload }) => payload.email })',
     ].join("\n"))
     await writeFile(join(root, "src/report.schedule.ts"), [
       'import { defineSchedule } from "vite-hub/schedule"',
