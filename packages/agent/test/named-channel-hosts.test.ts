@@ -26,14 +26,14 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
       "import { defineChannelTrigger } from '@vite-hub/agent/channels'",
       "import other from '../agents/other'",
       "export default defineChannel({",
-      "  adapter: webhook({ signature: 'bearer', secret: 'secret', path: '/hooks', aliases: ['/old-hooks'] }),",
+      "  adapter: webhook({ signature: 'bearer', secret: () => 'secret', path: '/hooks', aliases: ['/old-hooks'] }),",
       "  on: { webhook: defineChannelTrigger({ invoke: context => Response.json({ agent: context.agentName, channel: context.trigger.channelId, other: other.description }) }) },",
       "})",
     ].join("\n"))
     await writeFile(join(root, "server/channels/custom.ts"), [
       "import { defineChannel } from '@vite-hub/channels'",
       "import { channelAdapter as customAdapter, defineChannelTrigger } from '@vite-hub/agent/channels'",
-      "const registration = { path: '/custom', aliases: ['/old-custom'], secretToken: 'secret', secretHeader: 'authorization', signature: 'bearer' }",
+      "const registration = { path: '/custom', aliases: ['/old-custom'], secret: () => 'secret', secretHeader: 'authorization', signature: 'bearer' }",
       "export default defineChannel({ adapter: customAdapter('custom', {",
       "  messages: false, webhooks: [registration, { ...registration, path: '/custom-two', aliases: [] }],",
       "  triggers: { webhook: defineChannelTrigger({ invoke: context => Response.json({ agent: context.agentName, channel: context.trigger.channelId }) }) },",
@@ -47,7 +47,7 @@ it.each(["deno", "netlify"] as const)("serves listed Channel registration paths 
     await writeFile(join(root, "server/channels/tasks.ts"), [
       "import { defineChannel, webhook } from '@vite-hub/channels'",
       "import { defineChannelTrigger } from '@vite-hub/agent/channels'",
-      "export default defineChannel({ adapter: webhook({ signature: 'bearer', secret: 'secret', path: '/task-hooks' }), on: { webhook: defineChannelTrigger({",
+      "export default defineChannel({ adapter: webhook({ signature: 'bearer', secret: () => 'secret', path: '/task-hooks' }), on: { webhook: defineChannelTrigger({",
       "  tasks: { reply: { agent: () => import('../agents/support'), prepare: context => Response.json({ agent: context.agentName, channel: context.trigger.channelId }) } },",
       "  invoke: () => ({ task: 'reply', input: { prompt: 'reply' } }),",
       "}) } })",
