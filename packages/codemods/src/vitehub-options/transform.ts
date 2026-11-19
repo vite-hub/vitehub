@@ -69,7 +69,7 @@ function findConfigRoot(program: File, followUps: FollowUp[], file: string): Obj
       })
       const returned = returns.length === 1 ? objectValue(returns[0]) : undefined
       if (!returned) {
-        followUps.push({ file, line: line(value), message: "The config factory does not return one object literal. Move top-level feature and Env options into vitehub() or owner plugin arguments, and move logs into observability.logs by hand." })
+        followUps.push({ file, line: line(value), message: "The config factory does not return one object literal. Move top-level feature and Env options into vitehub() or owner plugin arguments, and move observability.logs to the top-level logs key by hand." })
         return undefined
       }
       value = returned
@@ -210,49 +210,51 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
       remove(contentImportBase)
       notes.push(`${file}: removed contentImportBase. ViteHub always imports Content from vite-hub/content.`)
     }
-    const logs = property(options, "logs")
-    if (!logs) continue
-    const logsValue = unwrapExpression(logs.value)
-    if (logsValue.type === "BooleanLiteral" && !logsValue.value) {
-      remove(logs)
-      continue
-    }
+    // `logs` is a top-level key: `observability.logs` moves out to it, and an old `logs.evlog` goes to `observability.evlog`.
     const observability = property(options, "observability")
     const observabilityValue = observability ? unwrapExpression(observability.value) : undefined
     const observabilityObject = objectValue(observability?.value)
-    const logsObject = objectValue(logs.value)
+    const logs = property(options, "logs")
+    const nestedLogs = observabilityObject ? property(observabilityObject, "logs") : undefined
+    if (observability && nestedLogs) {
+      if (logs) {
+        follow(nestedLogs, "Both logs and observability.logs are set. Merge observability.logs into logs by hand.")
+        continue
+      }
+      const logsText = reindent(text(nestedLogs.value), indentAt(code, start(nestedLogs)), indentAt(code, start(observability)))
+      // `logs` registers Evlog for its buffer by itself, so an `observability` key that held only `logs` becomes `logs`.
+      if (observabilityObject?.properties.length === 1) editor.output.overwrite(start(observability), end(observability), `logs: ${logsText}`)
+      else {
+        const multiline = text(options).includes("\n")
+        editor.output.appendLeft(end(observability), `${multiline ? `,\n${indentAt(code, start(observability))}` : ", "}logs: ${logsText}`)
+        remove(nestedLogs)
+      }
+      changed = true
+      continue
+    }
+    if (observability && !observabilityObject && /\blogs\s*:/u.test(text(observability.value))) {
+      follow(observability, "observability is an expression, so the codemod cannot move its logs. Move observability.logs to the top-level logs key by hand.")
+    }
+    const logsObject = objectValue(logs?.value)
     const evlog = logsObject ? property(logsObject, "evlog") : undefined
-    if (evlog && observabilityObject && property(observabilityObject, "evlog")) {
-      follow(logs, "Both logs.evlog and observability.evlog are set. Merge logs.evlog into observability.evlog, then move logs into observability.logs.")
+    if (!logs || !logsObject || !evlog) continue
+    if (observabilityObject && property(observabilityObject, "evlog")) {
+      follow(logs, "Both logs.evlog and observability.evlog are set. Merge logs.evlog into observability.evlog by hand.")
       continue
     }
-    if (observabilityObject && property(observabilityObject, "logs")) {
-      follow(logs, "observability.logs is already set. Merge the logs option into it by hand.")
+    if (observability && !observabilityObject && !(observabilityValue?.type === "BooleanLiteral" && observabilityValue.value)) {
+      follow(logs, "observability is not an object literal. Move logs.evlog into observability.evlog by hand.")
       continue
     }
-    if (!logsObject && logsValue.type !== "BooleanLiteral") {
-      follow(logs, "logs is an expression, so the codemod cannot move it. Move it into observability.logs by hand, and move any evlog options in it to observability.evlog.")
-      continue
-    }
-    // `logs.evlog` becomes `observability.evlog`. The other `logs` options stay under `observability.logs`.
-    const rest = logsObject?.properties.filter(item => item !== evlog) ?? []
-    const logsText = !evlog ? text(logs.value) : rest.length ? `{ ${rest.map(text).join(", ")} }` : "true"
-    const entries = [...(evlog ? [text(evlog)] : []), `logs: ${logsText}`]
-    if (!observability) {
-      editor.output.overwrite(start(logs), end(logs), `observability: { ${entries.join(", ")} }`)
+    if (!observability) insertProperties(options, [`observability: { ${text(evlog)} }`])
+    else if (observabilityObject) insertProperties(observabilityObject, [text(evlog)])
+    else if (observabilityValue) editor.output.overwrite(start(observabilityValue), end(observabilityValue), `{ ${text(evlog)} }`)
+    // `logs.evlog` becomes `observability.evlog`. The other `logs` options stay.
+    if (logsObject.properties.length === 1) {
+      editor.output.overwrite(start(logs.value), end(logs.value), "true")
       changed = true
     }
-    else if (observabilityObject) {
-      insertProperties(observabilityObject, entries)
-      remove(logs)
-    }
-    else if (observabilityValue?.type === "BooleanLiteral" && observabilityValue.value) {
-      editor.output.overwrite(start(observabilityValue), end(observabilityValue), `{ ${entries.join(", ")} }`)
-      remove(logs)
-    }
-    else {
-      follow(logs, "observability is not an object literal. Move logs into observability.logs by hand.")
-    }
+    else remove(evlog)
   }
 
   // Env declarations: the top-level Vite `env` key, or `vite.env` in a Nuxt config, move into the Env options.

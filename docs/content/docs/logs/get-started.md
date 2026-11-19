@@ -26,16 +26,16 @@ pnpm add evlog
 
 ::tutorial-step{title="Enable local capture"}
 
-Add `observability.logs` and `console` to the ViteHub options of your app. Keep the other options of your app. In Vite, `vitehub()` includes Nitro. In a Nitro app, keep `nitro()` after `vitehub()`.
+Add `logs` and `console` to the ViteHub options of your app. Keep the other options of your app. In Vite, `vitehub()` includes Nitro. In a Nitro app, keep `nitro()` after `vitehub()`.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { observability: { logs: false }, console: false },
+  vitehub: { logs: false, console: false },
   $development: {
-    vitehub: { observability: { logs: true }, console: { auth: false } },
+    vitehub: { logs: true, console: { auth: false } },
   },
 })
 ```
@@ -51,7 +51,7 @@ export default defineConfig(({ command }) => {
   return {
     plugins: [
       vitehub({
-        observability: { logs: command === 'serve' ? true : false },
+        logs: command === 'serve' ? true : false,
         console: command === 'serve' ? { auth: false } : false,
       }),
       nitro(),
@@ -70,7 +70,7 @@ export default defineConfig(({ command }) => {
   return {
     plugins: [
       vitehub({
-        observability: { logs: command === 'serve' ? true : false },
+        logs: command === 'serve' ? true : false,
         console: command === 'serve' ? { auth: false } : false,
       }),
     ],
@@ -80,7 +80,7 @@ export default defineConfig(({ command }) => {
 ::::
 :::
 
-- `observability: { logs: true }` saves log events on your computer only in development. The production configuration disables capture: each server process would otherwise keep its own short history. See [What happens when you deploy](#what-happens-when-you-deploy).
+- `logs: true` saves log events on your computer only in development. The production configuration disables capture: each server process would otherwise keep its own short history. See [What happens when you deploy](#what-happens-when-you-deploy).
 - `auth: false` lets you open the Console with no sign-in while the dev server runs. These configs disable the Console in production. See [Console](/docs/console) before you deploy.
 
 ::

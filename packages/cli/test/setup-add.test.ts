@@ -111,18 +111,6 @@ describe("vitehub add", () => {
     expect(config.ok && config.site.keys.sandboxTask).toMatchObject({ value: { driver: "cloudflare", keepAlive: true, migrationTag: "v2" } })
   })
 
-  it("adds a Logs source under observability", async () => {
-    const root = await createProject({
-      "package.json": pnpmManifest,
-      "vite.config.ts": viteConfig('{ host: "node" }'),
-      "server/logs.ts": "export default {}\n",
-    })
-    const applied = await add(["observability", "--option", "observability.logs.source=./server/logs.ts", "--no-install", "--yes"], root)
-    expect(applied.exitCode, applied.stdout).toBe(0)
-    const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
-    expect(config.ok && config.site.keys.observability).toMatchObject({ value: { logs: { source: "./server/logs.ts" } } })
-  })
-
   it("enables Server Env and installs PostHog when selected", async () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ host: "node", env: false }') })
     const args = ["observability", "--option", "observability.service=api", "--option", "observability.posthog.apiKey=key", "--no-install", "--yes"]

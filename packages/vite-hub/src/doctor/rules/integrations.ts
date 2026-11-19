@@ -312,17 +312,20 @@ export const noViteHubPluginInNuxt: DoctorRule = createRule({
 /** Feature keys that owner plugins no longer read from the top level of a Vite config. */
 const topLevelFeatureKeys = ["agent", "auth", "blob", "browser", "database", "kv", "queue", "rateLimit", "sandboxTask", "workflow", "workspace"]
 
-function checkViteHubOptions(ctx: RuleContext, options: unknown, where: string) {
+/** Option objects, such as `cloudflare`, that hold a removed nested key. */
+const nestedRemovedParents = new Set(Object.keys(removedViteHubOptions).flatMap(key => key.includes(".") ? [key.slice(0, key.indexOf("."))] : []))
+
+function checkViteHubOptions(ctx: RuleContext, options: unknown, where: string, parent?: string) {
   const target = unwrap(options)
   if (!isNodeType(target, "ObjectExpression")) return
   for (const property of objectProperties(target)) {
     const name = propertyName(property)
-    if (name === "cloudflare") {
-      checkViteHubOptions(ctx, property.value, `${where}.cloudflare`)
+    if (parent === undefined && name !== undefined && nestedRemovedParents.has(name)) {
+      checkViteHubOptions(ctx, property.value, `${where}.${name}`, name)
       continue
     }
     let report: { why: string, fix: string } | undefined
-    const key = name !== undefined && where.endsWith(".cloudflare") ? `cloudflare.${name}` : name
+    const key = name !== undefined && parent !== undefined ? `${parent}.${name}` : name
     const removed = key !== undefined && Object.hasOwn(removedViteHubOptions, key) ? removedViteHubOptions[key] : undefined
     if (removed) {
       report = { why: `${removed.why} The build fails on this key.`, fix: removed.fix }

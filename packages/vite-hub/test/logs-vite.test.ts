@@ -39,22 +39,25 @@ async function configure(
 
 describe("Logs host integration", () => {
   it("has one owner for request error logging", () => {
-    const names = (observability: NonNullable<Parameters<typeof vitehub>[0]>["observability"]) =>
-      vitehub({ host: "node", observability }).flatMap((plugin) =>
+    type Options = NonNullable<Parameters<typeof vitehub>[0]>;
+    const names = (options: Pick<Options, "logs" | "observability">) =>
+      vitehub({ host: "node", ...options }).flatMap((plugin) =>
         plugin && typeof plugin === "object" && "name" in plugin ? [plugin.name] : [],
       );
     expect(names({ logs: true })).not.toContain("vite-hub/error-log");
-    expect(names(true)).not.toContain("vite-hub/error-log");
+    expect(names({ observability: true })).not.toContain("vite-hub/error-log");
     expect(names({ logs: { source: "./server/logs.ts" } })).toContain("vite-hub/error-log");
-    expect(names({ logs: true, evlog: { enabled: false } })).toContain("vite-hub/error-log");
+    expect(names({ logs: true, observability: { evlog: { enabled: false } } })).toContain("vite-hub/error-log");
   });
-  it("starts no logger for a source without a service", () => {
-    const names = (observability: NonNullable<Parameters<typeof vitehub>[0]>["observability"]) =>
-      vitehub({ host: "node", observability }).flatMap((plugin) =>
+  it("starts no logger for a source without observability", () => {
+    type Options = NonNullable<Parameters<typeof vitehub>[0]>;
+    const names = (options: Pick<Options, "logs" | "observability">) =>
+      vitehub({ host: "node", ...options }).flatMap((plugin) =>
         plugin && typeof plugin === "object" && "name" in plugin ? [plugin.name] : [],
       );
     expect(names({ logs: { source: "./server/logs.ts" } })).not.toContain("vite-hub/observability");
     expect(names({ logs: { source: "./server/logs.ts" } })).toContain("vite-hub/logs");
+    expect(names({ logs: { source: "./server/logs.ts" }, observability: true })).toEqual(expect.arrayContaining(["vite-hub/observability", "vite-hub/logs"]));
     expect(names({ logs: true })).toEqual(expect.arrayContaining(["vite-hub/observability", "vite-hub/logs"]));
   });
   it("attaches a local drain once", async () => {
@@ -111,7 +114,8 @@ describe("Logs host integration", () => {
     try {
       const plugins = vitehub({
         host: "node",
-        observability: { logs: true, evlog: { redact: true } },
+        logs: true,
+        observability: { evlog: { redact: true } },
       }).flatMap((plugin) => plugin && typeof plugin === "object" && "name" in plugin ? [plugin] : []);
       const input: LogsConfig = {
         root,
