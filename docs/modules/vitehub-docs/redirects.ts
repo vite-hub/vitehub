@@ -184,7 +184,7 @@ export const docsPageRedirects = {
   ...Object.fromEntries(Object.entries(startGroups).flatMap(([dir, pages]) => pages.map(page => [`/docs/${dir}/${page}`, movedLearningPages.get(`/docs/getting-started/${dir}/${page}`) || `/docs/getting-started/${dir}/${page}`]))),
   ...Object.fromEntries(movedLearningPages),
   // Decisions was renamed to Choices.
-  ...Object.fromEntries(["", "/get-started", "/concepts", "/client", "/recipes", "/server-api", "/limits-and-errors"].map(page => [`/docs/decisions${page}`, `/docs/choices${page}`])),
+  ...Object.fromEntries(["", "/get-started", "/concepts", "/client", "/recipes", "/server-api", "/limits-and-errors", "/diagnostics"].map(page => [`/docs/decisions${page}`, `/docs/choices${page}`])),
   ...Object.fromEntries(Object.entries(movedDiagnostics).flatMap(([section, { from, codes }]) => codes.map(code => [`/docs/${from}/diagnostics/${code}`, `/docs/${section}/diagnostics/${code}`]))),
 } satisfies Record<string, string>;
 
@@ -343,7 +343,7 @@ export const docsLegacyFragmentRedirects = {
     "read-workspace-history-during-development": "/docs/cli/primitives",
     "remove-a-feature": "/docs/cli/project",
     "replay-channel-history": "/docs/cli/agents",
-    "run-a-decision": "/docs/cli/primitives",
+    "run-a-decision": "/docs/cli/primitives#run-choices",
     "run-a-schedule-on-demand": "/docs/cli/primitives",
     "run-agent-evals": "/docs/cli/agents",
     "run-and-inspect-schedules": "/docs/cli/primitives",
@@ -398,6 +398,9 @@ export const docsLegacyFragmentRedirects = {
     "talk-to-an-agent-during-development": "/docs/cli/agents",
     "use-setup-during-development": "/docs/cli/project",
     "work-on-workspace-files-in-a-local-folder": "/docs/cli/primitives",
+  },
+  "/docs/cli/primitives": {
+    "run-a-decision": "/docs/cli/primitives#run-choices",
   },
   "/docs/console": {
     "call-format": "/docs/console/operations#call-format",

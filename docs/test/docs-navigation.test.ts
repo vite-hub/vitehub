@@ -225,6 +225,15 @@ describe("docs product navigation", () => {
       .toBe("/docs/console/site-access#site-access-without-auth");
   });
 
+  it("preserves old Choices diagnostic and CLI bookmarks", () => {
+    const routeRules = createDocsRedirectRouteRules();
+    expect(routeRules["/docs/decisions/diagnostics"]?.redirect.to).toBe("/docs/choices/diagnostics");
+    expect(routeRules["/raw/docs/decisions/diagnostics.md"]?.redirect.to).toBe("/raw/docs/choices/diagnostics.md");
+    for (const path of ["/docs/cli", "/docs/cli/primitives"] as const) {
+      expect(docsLegacyFragmentRedirects[path]["run-a-decision"]).toBe("/docs/cli/primitives#run-choices");
+    }
+  });
+
   it("redirects each removed page and its raw Markdown copy to a published page, with one rule for both slash forms", () => {
     const routeRules = createDocsRedirectRouteRules();
 

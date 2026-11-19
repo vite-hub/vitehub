@@ -353,9 +353,9 @@ npx @vite-hub/codemods choices-package [dir] [--dry-run]
 
 | Old | New |
 | --- | --- |
-| `@vite-hub/decisions` in `package.json` | `@vite-hub/choices`, at the same version range |
+| `@vite-hub/decisions` in `package.json` | Keep an existing `@vite-hub/choices` constraint or choose a compatible version by hand |
 | `vite-hub/decisions` and `@vite-hub/decisions` in imports | `vite-hub/choices` and `@vite-hub/choices` |
 | `vite-hub/decisions/vue`, `@vite-hub/decisions/vue` | `vite-hub/choices/vue`, `@vite-hub/choices/vue` |
 | `vitehub decisions list` in a package script | `vitehub choices list` |
 
-Install again after the codemod, so the package manager replaces the old package. The diagnostic codes keep their `DECISIONS_` names.
+Check the manual follow-ups before you install again. A Choices release may not match a Decisions version. Named CLI imports keep their local names; for other CLI references, use `listChoices` and `createChoicesCliNamespace` from `@vite-hub/choices/cli`. The diagnostic codes keep their `DECISIONS_` names.
