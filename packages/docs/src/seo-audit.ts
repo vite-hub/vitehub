@@ -1,5 +1,8 @@
 import { ELEMENT_NODE, parse, walkSync } from "ultrahtml"
 
+import { docsErrorDiagnostics } from "./error-diagnostics.ts"
+import type { Diagnostic } from "nostics"
+
 /**
  * The search checks that every prerendered page must pass. The limits are those of common site audits, such as OpenSEO
  * and Ahrefs: a title of 10 to 60 characters, a description of 70 to 160, one `h1`, headings that go down one level at
@@ -179,14 +182,9 @@ export function docsSeoProblems(pages: readonly DocsSeoPage[], sitemap: readonly
 }
 
 /** Pages that search engines would flag. The build stops on them while the check is on. */
-export class DocsSeoError extends Error {
-  readonly problems: readonly string[]
-
-  constructor(problems: readonly string[]) {
-    super(`Docs pages fail the search checks:\n${problems.map(problem => `- ${problem}`).join("\n")}`)
-    this.name = "DocsSeoError"
-    this.problems = problems
-  }
+/** `DOCS_SEO_FAILED`, with the list of problems in `problems`. */
+export function docsSeoError(problems: readonly string[]): Diagnostic & { problems: readonly string[] } {
+  return Object.assign(docsErrorDiagnostics.DOCS_SEO_FAILED({ problems }), { problems })
 }
 
 function attribute(tag: string | undefined, name: string): string | undefined {

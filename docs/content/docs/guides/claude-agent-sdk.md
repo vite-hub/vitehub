@@ -35,7 +35,6 @@ The SDK installs one native Claude Code package for your OS and CPU. ViteHub use
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     agent: true,
     workflow: false,
   },
@@ -51,7 +50,6 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     agent: true,
     workflow: false,
   }), nitro()],
@@ -66,7 +64,6 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     agent: true,
     workflow: false,
   })],
@@ -122,14 +119,14 @@ To use another service, change the preset: `vercel()`, `openrouter()`, `litellm(
 ### Call the Agent from a route
 
 ```ts [server/api/code.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { runAgent } from 'vite-hub/agent'
 import coder from '../agents/coder'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ prompt?: unknown }>(event)
   if (typeof body?.prompt !== 'string' || !body.prompt.trim()) {
-    throw createError({ statusCode: 400, message: 'Send a non-empty prompt.' })
+    throw new HTTPError({ status: 400, message: 'Send a non-empty prompt.' })
   }
 
   const [error, result] = await runAgent(coder, { prompt: body.prompt })
@@ -220,7 +217,7 @@ Every run is an Invocation. Read it from code, the CLI, or the Console:
 
 | Host | Support |
 | --- | --- |
-| Self-hosted Node.js on Linux or macOS, arm64 or x64 | Supported. Use `host: 'node'`. |
+| Self-hosted Node.js on Linux or macOS, arm64 or x64 | Supported. ViteHub builds for Node when it detects no other host. |
 | `vite dev` on Linux or macOS | Supported. |
 | Cloudflare Workers | Not supported. A Worker build with a provider Driver fails with `AGENT_B0019`. In dev, the Invocation fails with `AGENT_R0928`. |
 | Deno | Not supported. |

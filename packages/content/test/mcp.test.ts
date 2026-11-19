@@ -164,8 +164,8 @@ describe("seo.mcp for collections", () => {
 
     const off = await site(false)
     expect((await defineContentMcpHandler(off).fetch(new Request("https://example.com/mcp", { method: "POST" }))).status).toBe(404)
-    await expect(site({ name: "" })).rejects.toMatchObject({ code: "CONTENT_R0006" })
-    await expect(site("yes")).rejects.toMatchObject({ code: "CONTENT_R0006" })
+    await expect(site({ name: "" })).rejects.toMatchObject({ code: "CONTENT_SEO_OPTIONS_INVALID" })
+    await expect(site("yes")).rejects.toMatchObject({ code: "CONTENT_SEO_OPTIONS_INVALID" })
   })
 })
 

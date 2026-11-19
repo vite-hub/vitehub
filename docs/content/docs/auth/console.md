@@ -144,7 +144,7 @@ Ban, unban, remove, role changes, field edits, session revocation, and impersona
 
 The client never gets session tokens, account passwords, access or refresh tokens, or OAuth client secrets. Session revocation looks up the stored token on the server. Impersonation forwards only Better Auth's HttpOnly cookies and opens the app.
 
-Impersonation is off until the host turns it on. In ViteHub, `console.impersonation: true` turns it on. It also needs `events.store`, so each start and stop is recorded. With it on, `describe(request)` returns `impersonation` with the session length and the user the session impersonates, and `user(id, request)` says if Better Auth accepts that user as a target. Server code passes `getAuthConsoleForRequest(request, event, { impersonation: true })`, and `inspect.stopImpersonating(request)` ends it.
+Impersonation is off until the host turns it on. In ViteHub, set it in the Vite config: `vitehub({ console: { impersonation: true } })`. It also needs Better Auth's `admin()` plugin and `events.store` in `server/auth.ts`, so each start and stop is recorded. With it on, `describe(request)` returns `impersonation` with the session length and the user the session impersonates, and `user(id, request)` says if Better Auth accepts that user as a target. Server code passes `getAuthConsoleForRequest(request, event, { impersonation: true })`, and `inspect.stopImpersonating(request)` ends it.
 
 In the Console, open a user and select **Impersonate**. The Console calls `auth.impersonate`, and a new tab opens the [one-time link](/docs/development/console#one-time-links) on your app. The app then checks the browser:
 

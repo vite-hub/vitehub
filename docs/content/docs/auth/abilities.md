@@ -53,13 +53,13 @@ export function findPost(id: string): Post | undefined {
 ```
 
 ```ts [server/api/posts/[id].get.ts]
-import { createError, defineEventHandler, getRouterParam } from 'h3'
+import { defineEventHandler, getRouterParam, HTTPError } from 'h3'
 import { requireAbility } from 'vite-hub/auth/server'
 import { findPost } from '../../utils/posts'
 
 export default defineEventHandler(async (event) => {
   const post = findPost(getRouterParam(event, 'id') ?? '')
-  if (!post) throw createError({ status: 404 })
+  if (!post) throw new HTTPError({ status: 404 })
 
   await requireAbility(event, 'posts.read', post)
   return post

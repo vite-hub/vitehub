@@ -1,6 +1,6 @@
 ---
 title: AI Gateways server API
-description: Use a gateway as an AI SDK model, ask typed questions with ask() or askWithModel(), and define a custom gateway.
+description: Use a gateway as an AI SDK model, get typed data with ask(), ask Jev questions with gateway.ask() or askWithModel(), and define a custom gateway.
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
@@ -36,6 +36,60 @@ The default `api` is `'chat'` with an `openai-compatible` URL, else `'messages'`
 - The gateway rereads its URL, key, and headers per request, so a rotated key applies at once.
 - `languageModel()` reads `process.env`, like a direct `ask()` call. Pass `fetch` for a custom implementation.
 - Put `providerOptions` under the name the API reads: the gateway name for `'chat'` (such as `{ openrouter: { ... } }`), `openai` for `'responses'`, and `anthropic` for `'messages'`.
+
+## Get typed data from a model
+
+`ask(prompt, { model, schema })` sends one request to a model and returns the answer that your schema validated, as `[error, data]`. Use it for one structured answer, such as a summary or fields read from text. It needs the `ai` package:
+
+```ts [server/utils/read-receipt.ts]
+import { z } from 'zod'
+import { ask, cliproxy } from 'vite-hub/gateways'
+import { languageModel } from 'vite-hub/gateways/ai-sdk'
+
+const Receipt = z.object({
+  merchant: z.string(),
+  amount: z.number().describe('Negative when money goes out.'),
+  category: z.enum(['groceries', 'eatingOut', 'other']),
+})
+
+export async function readReceipt(text: string) {
+  const [error, receipt] = await ask(text, {
+    instructions: 'Read one bank transaction. Use only facts from the text.',
+    model: languageModel(cliproxy(), 'claude-opus-5-5'),
+    schema: Receipt,
+  })
+  if (error) throw error
+  return receipt // { merchant: string, amount: number, category: 'groceries' | 'eatingOut' | 'other' }
+}
+```
+
+| Option | Description |
+| --- | --- |
+| `model` | An AI SDK model, such as `languageModel(gateway, modelId)` for any gateway, or an AI SDK gateway model ID. |
+| `schema` | A [Standard Schema](https://standardschema.dev) that converts to JSON Schema: Zod 4, ArkType, or Valibot wrapped with `toStandardJsonSchema()` from `@valibot/to-json-schema`. Without `schema`, `data` is the answer text. |
+| `instructions` | System instructions. |
+| `signal` | Cancels the request. |
+| `onUsage` | Gets the `model`, `provider`, and token `usage` of the request. |
+
+`error` is [`GATEWAYS_ASK_MODEL_FAILED`](/docs/gateways/diagnostics/gateways_ask_model_failed) when the request fails, and [`GATEWAYS_ASK_OUTPUT_INVALID`](/docs/gateways/diagnostics/gateways_ask_output_invalid) when the answer is not JSON that the schema accepts, or has no text. A setup error, such as a missing key or a schema without JSON Schema, throws. The AI SDK retries a failed request two times.
+
+Leave out `schema` to get text, such as a summary:
+
+```ts [server/utils/summarize-run.ts]
+import { ask, cliproxy } from 'vite-hub/gateways'
+import { languageModel } from 'vite-hub/gateways/ai-sdk'
+
+export async function summarizeRun(log: string) {
+  const [error, summary] = await ask(log, {
+    instructions: 'Summarize this eval run in three sentences.',
+    model: languageModel(cliproxy(), 'claude-opus-5-5'),
+  })
+  if (error) throw error
+  return summary // string
+}
+```
+
+`ask()` sends one request and calls no tools. Use an [Agent](/docs/agents) when the model must call tools, keep a conversation, or run in the background.
 
 ## Ask questions
 

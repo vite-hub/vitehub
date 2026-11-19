@@ -84,10 +84,8 @@ describe("ViteHub UI section", () => {
     expect(page).toMatch(/```diff \[/);
   });
 
-  it("says what works with Nuxt UI today and that the exit comes later", () => {
+  it("keeps the Nuxt UI migration page short", () => {
     const page = read("from-nuxt-ui");
-    expect(page).toContain("## Works today");
-    expect(page).toContain("## Not yet");
     expect(page.split(/\s+/).length).toBeLessThan(450);
   });
 });

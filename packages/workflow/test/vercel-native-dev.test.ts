@@ -6,6 +6,7 @@ import { resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegis
 import { setVercelWorkflowRuntimeLoader } from "../src/runtime/vercel.ts"
 
 import type { VercelWorkflowRuntime } from "../src/runtime/vercel.ts"
+import { unwrap } from "./unwrap.ts"
 
 afterEach(() => {
   resetWorkflowRuntime()
@@ -37,14 +38,14 @@ it("runs the normal handler of a native Vercel entry inline on a development ser
   enableWorkflowDevRuns()
   const { handler, native, runtime } = registerNativeWorkflow()
 
-  const started = await startWorkflow("onboard", { email: "ada@example.com" })
+  const started = await unwrap(startWorkflow("onboard", { email: "ada@example.com" }))
   expect(started).toMatchObject({ metadata: { mode: "inline" }, provider: "vercel", status: "queued" })
   await vi.waitFor(async () => {
-    await expect(getWorkflowRun("onboard", started.id)).resolves.toMatchObject({ status: "completed" })
+    await expect(unwrap(getWorkflowRun("onboard", started.id))).resolves.toMatchObject({ status: "completed" })
   })
-  const run = await getWorkflowRun("onboard", started.id)
+  const run = await unwrap(getWorkflowRun("onboard", started.id))
   expect(run.result).toEqual({ inline: "ada@example.com" })
-  await expect(cancelWorkflow("onboard", started.id)).rejects.toMatchObject({ code: "WORKFLOW_OPERATION_UNSUPPORTED" })
+  expect(await cancelWorkflow("onboard", started.id)).toMatchObject([{ code: "WORKFLOW_OPERATION_UNSUPPORTED" }, undefined])
 
   expect(handler).toHaveBeenCalledOnce()
   expect(native).not.toHaveBeenCalled()
@@ -57,14 +58,14 @@ it("keeps the native run id rule on a development server", async () => {
   const { handler } = registerNativeWorkflow()
 
   // A deployed native entry rejects caller run ids, so the dev server does too.
-  await expect(startWorkflow("onboard", { email: "ada@example.com" }, { id: "run-1" })).rejects.toMatchObject({ code: "WORKFLOW_RUN_ID_UNSUPPORTED" })
+  expect(await startWorkflow("onboard", { email: "ada@example.com" }, { id: "run-1" })).toMatchObject([{ code: "WORKFLOW_RUN_ID_UNSUPPORTED" }, undefined])
   expect(handler).not.toHaveBeenCalled()
 })
 
 it("still starts the native entry outside a development server", async () => {
   const { handler, runtime } = registerNativeWorkflow()
 
-  await expect(startWorkflow("onboard", { email: "ada@example.com" })).rejects.toMatchObject({ code: "WORKFLOW_PROVIDER_OPERATION_FAILED" })
+  expect(await startWorkflow("onboard", { email: "ada@example.com" })).toMatchObject([{ code: "WORKFLOW_PROVIDER_OPERATION_FAILED" }, undefined])
   expect(runtime.start).toHaveBeenCalledOnce()
   expect(handler).not.toHaveBeenCalled()
 })

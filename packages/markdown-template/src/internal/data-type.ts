@@ -86,16 +86,21 @@ async function visit(root: DataField, nodes: Node[], required: boolean): Promise
   }
 }
 
+// The renderer reads `null` as a missing path, so an optional value also takes `null`, as a database row gives it.
+function renderOptional(field: DataField, type: string): string {
+  return field.required || type === "unknown" ? type : `${type} | null`
+}
+
 function renderField(field: DataField, indent: string): string {
   if (!field.children.size) return typeByUse[field.use ?? "condition"]
   const inner = `${indent}  `
-  const entries = [...field.children].map(([key, child]) => `${inner}${JSON.stringify(key)}${child.required ? "" : "?"}: ${renderField(child, inner)}`)
+  const entries = [...field.children].map(([key, child]) => `${inner}${JSON.stringify(key)}${child.required ? "" : "?"}: ${renderOptional(child, renderField(child, inner))}`)
   return `{\n${entries.join("\n")}\n${indent}}`
 }
 
 /**
  * Infers the `data` type of a template from its `data.*` bindings. A value read only inside an `::if` branch is
- * optional, and a condition value is optional `unknown`.
+ * optional and takes `null`, and a condition value is optional `unknown`.
  */
 export async function inferMarkdownTemplateDataType(template: string, indent = ""): Promise<MarkdownTemplateDataType> {
   const prepared = await prepareTemplate(template)

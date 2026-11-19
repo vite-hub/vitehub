@@ -4,6 +4,7 @@ import * as v from "valibot"
 
 import { compileDocumentsPath, parseDocumentFile, renderDocumentFile } from "./documents.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
+import { contentInputErrorCodes } from "./input-errors.ts"
 import { contentSourceHeadsRuntime } from "./source-heads.ts"
 
 import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
@@ -77,7 +78,6 @@ const errorStatus = new Map([
   ["CONTENT_LEASE_HELD", 409],
   ["CONTENT_NOT_FOUND", 404],
   ["CONTENT_R0007", 409],
-  ["CONTENT_R0008", 400],
   ["CONTENT_R0009", 400],
   ["CONTENT_R0011", 400],
   ["CONTENT_R0013", 409],
@@ -103,7 +103,7 @@ async function attempt<T>(work: () => Promise<T>): Promise<T> {
   }
   catch (error) {
     const code = errorCode(error)
-    const status = code === undefined ? undefined : errorStatus.get(code)
+    const status = code === undefined ? undefined : errorStatus.get(code) ?? (contentInputErrorCodes.has(code) ? 400 : undefined)
     if (status && Reflect.get(Object(error), "status") === undefined) Object.assign(Object(error), { status })
     throw error
   }

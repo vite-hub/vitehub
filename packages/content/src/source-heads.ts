@@ -372,7 +372,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   function stateOf(name = "default"): HeadState {
     const state = states.get(name)
     if (state) return state
-    throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content source ${JSON.stringify(name)} has no head. Only github() Sources have one. Sources with a head: ${[...states.keys()].join(", ") || "none"}.` })
+    throw contentErrorDiagnostics.CONTENT_SOURCE_WITHOUT_HEAD({ source: name, heads: [...states.keys()].join(", ") || "none" })
   }
 
   function origin(state: HeadState): string {
@@ -714,7 +714,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     if (held && (parsed.kind === "commit" || Date.now() - held.at < REF_HOLD_MS)) return await held.target
     const target = (async (): Promise<ContentSourceRef> => {
       const resolve = state.definition.resolveRef
-      if (!resolve) throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content source ${JSON.stringify(state.name)} cannot open refs. Update @vite-hub/source.` })
+      if (!resolve) throw contentErrorDiagnostics.CONTENT_SOURCE_REFS_UNSUPPORTED({ source: state.name, action: "open" })
       let resolved: GitHubRefTarget | undefined
       try {
         resolved = await resolve.call(state.definition, parsed.lookup)
@@ -748,7 +748,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   }
 
   function assertActive(): void {
-    if (disposed) throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content source views have been disposed." })
+    if (disposed) throw contentErrorDiagnostics.CONTENT_SOURCE_VIEWS_DISPOSED()
   }
 
   /** The open view of one commit. Opening a view past the bound closes the least recently used one. */
@@ -818,7 +818,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
   /** The GitHub facts of the public rule for one commit. A failed request becomes `CONTENT_R0032` and holds no decision. */
   function publicFacts(state: HeadState, target: ContentSourceRef) {
     const ask = async <T>(read: (() => Promise<T>) | undefined): Promise<T> => {
-      if (!read) throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content source ${JSON.stringify(state.name)} cannot check refs. Update @vite-hub/source.` })
+      if (!read) throw contentErrorDiagnostics.CONTENT_SOURCE_REFS_UNSUPPORTED({ source: state.name, action: "check" })
       try {
         return await read()
       }
@@ -867,7 +867,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     state.failed = undefined
     if (!head?.sha) {
       if (head?.rejected) throw contentErrorDiagnostics.CONTENT_R0019({ source: state.name, ...head.rejected, head: null })
-      throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content source ${JSON.stringify(state.name)} has no validated head. Resolve its GitHub commit, then call content.sources.advance().` })
+      throw contentErrorDiagnostics.CONTENT_SOURCE_HEAD_UNVALIDATED({ source: state.name })
     }
     await serve(state, head)
   }
@@ -891,7 +891,7 @@ export function createContentSourceHeads(options: ContentOptions, access: { priv
     async pin(sha, source) {
       const state = stateOf(source)
       if (typeof sha !== "string" || !fullSha.test(sha)) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.sources.pin() needs a full 40-character commit SHA, received ${JSON.stringify(sha)}.` })
+        throw contentErrorDiagnostics.CONTENT_PIN_SHA_INVALID({ sha })
       }
       if (!await isLive(state)) throw contentKV() ? contentErrorDiagnostics.CONTENT_R0020({ source: state.name }) : contentErrorDiagnostics.CONTENT_R0021({ source: state.name })
       const before = await read(state)

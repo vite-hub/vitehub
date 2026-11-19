@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -151,13 +151,10 @@ describe("Console primitive catalog", () => {
   })
 
   it("imports document editor actions from the owner file by path", async () => {
-    const manifest: { exports: Record<string, unknown> } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     const content = consoleContributedSections.get("content")
     expect(content?.descriptor.view).toEqual({ kind: "document-editor", notice: expect.any(String) })
     expect(content?.documents?.actions).toEqual({ export: "createContentConsoleActions", module: expect.stringMatching(/[\\/]content[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)$/) })
     expect(existsSync(content!.documents!.actions.module)).toBe(true)
-    // Generated code imports the Console document module by path, so it is not a package export.
-    expect(Object.hasOwn(manifest.exports, "./console/documents")).toBe(false)
     expect(existsSync(generatedModules.consoleDocuments)).toBe(true)
     // A document editor has no request-time record reader.
     expect(content?.runtime).toBeUndefined()

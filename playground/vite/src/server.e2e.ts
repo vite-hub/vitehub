@@ -379,10 +379,9 @@ app.post("/api/workflows/welcome", async (event) => {
   const body = await readValidatedBody(event, workflowBody)
   const marker = resolveMarker(body, event)
 
-  return {
-    ok: true,
-    result: await startWorkflow(workflowName, { email: body?.email || "ava@example.com", marker }, { id: resolveWorkflowId(body, marker) }),
-  }
+  const [error, run] = await startWorkflow(workflowName, { email: body?.email || "ava@example.com", marker }, { id: resolveWorkflowId(body, marker) })
+  if (error) throw error
+  return { ok: true, result: run }
 })
 
 app.post("/api/workflows/welcome-defer", async (event) => {
@@ -396,7 +395,10 @@ app.post("/api/workflows/welcome-defer", async (event) => {
 
 app.get("/api/workflows/welcome/:id", async (event) => {
   const id = event.context.params?.id
-  return id ? await getWorkflowRun(workflowName, id) : { status: "unknown" }
+  if (!id) return { status: "unknown" }
+  const [error, run] = await getWorkflowRun(workflowName, id)
+  if (error) throw error
+  return run
 })
 
 export default app

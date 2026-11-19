@@ -78,6 +78,7 @@ export const componentNames = [
   "MorphText",
   "RollNumber",
   "SwapIcon",
+  "RelativeTime",
   "Status",
   "MotionList",
   "Progress",

@@ -37,8 +37,8 @@ import { docsAppManifest, docsAppManifestSource, docsAppPanelSource, readDocsCon
 import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawPath, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { docsContentSource } from "./agent-copy.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
-import { DocsRedirectError, docsRedirectProblems, docsRedirects, type DocsRouteRule } from "./redirects.ts"
-import { DocsSeoError, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type DocsSeoPage } from "./seo-audit.ts"
+import { docsRedirectError, docsRedirectProblems, docsRedirects, type DocsRouteRule } from "./redirects.ts"
+import { docsSeoError, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type DocsSeoPage } from "./seo-audit.ts"
 import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi, type DocsThemeUi } from "./theme.ts"
 import { docsThemeCss } from "./theme-css.ts"
 
@@ -50,11 +50,7 @@ import type { DocsSectionFile } from "./schema.ts"
 import type { DocsImageSizes } from "./markdown.ts"
 import type { DocsPage } from "./types.ts"
 
-export { DocsAssistantSetupError } from "./assistant-nuxt.ts"
-export { DocsCommentsSetupError } from "./comments-nuxt.ts"
-export { DocsRedirectError } from "./redirects.ts"
 export type { DocsThemeScope } from "./theme.ts"
-export { DocsSeoError } from "./seo-audit.ts"
 export type { DocsCommentsOptions } from "./comments-nuxt.ts"
 
 export interface DocsSiteOptions {
@@ -146,7 +142,7 @@ export interface DocsModuleOptions {
    * duplicate title or description, a title outside 10 to 60 characters or a description outside 70 to 160, not exactly
    * one `h1`, a skipped heading level, fewer than 150 words, or a page that no other page links to. Pages with `noindex`
    * or a canonical link to another page are left out. `"warn"`, the default, logs the problems. `"error"` or `true` stops the
-   * build with `DocsSeoError`. `false` turns the check off.
+   * build with `DOCS_SEO_FAILED`. `false` turns the check off.
    */
   seoAudit?: "warn" | "error" | boolean
   /** The docs assistant: an Agent that answers from these pages. `true` uses the Agent named `docs`. */
@@ -449,6 +445,10 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     nuxt.hook("build:before", async () => { agentCopies = await writeAgentSources() })
     // The link checker counts a link as built only when it was prerendered or sits in `public/`, and fetches any other
     // from the live site. The Markdown copies are neither, so it is told that every page has one.
+    // A build that prerenders only some routes, such as a bundle analysis, also has indexed pages that are not on the
+    // live site yet, like a new section. The manifest has them, so they are valid too. Only the link checker module
+    // skips them: `checkDocsLinks()` reads the built pages and still checks their fragments.
+    const indexedPagePaths = new Set(docsManifestPages(manifest).filter(page => docsPageIndexed(page)).map(page => docsAppPath(page.path, config.appBase)))
     if (options.linkChecker !== false) {
       const linkChecker = (moduleOptions.linkChecker ??= {})
       linkChecker.excludeLinks = [
@@ -457,6 +457,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         ...docsManifestPages(manifest).map(page => docsAppPath(docsRawPath(page.path), config.appBase)),
         // A page with `seo.index: false` is not prerendered, but the manifest has it, so links to it are valid.
         ...docsManifestPages(manifest).filter(page => !docsPageIndexed(page)).map(page => docsAppPath(page.path, config.appBase)),
+        ...indexedPagePaths,
       ]
     }
 
@@ -739,9 +740,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     nuxt.options.alias["#docs/components"] = addTemplate({
       filename: "docs/components.mjs",
       write: true,
-      getContents: () => `export default {\n${contentComponents.map(component => `  ${JSON.stringify(component.kebabName)}: () => import(${JSON.stringify(component.filePath)}),`).join("\n")}\n}\n`,
+      getContents: () => [
+        `export default {\n${contentComponents.map(component => `  ${JSON.stringify(component.kebabName)}: () => import(${JSON.stringify(component.filePath)}),`).join("\n")}\n}`,
+        // The app's own blocks, not the package's. A `home` page draws them at full width.
+        `export const pageBlocks = ${JSON.stringify(contentComponents.filter(component => !component.filePath.startsWith(`${contentDirs[0]}/`)).map(component => component.kebabName))}`,
+        "",
+      ].join("\n"),
     }).dst
-    addTemplate({ filename: "docs/components.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const components: Record<string, (() => Promise<{ default: Component }>) | undefined>\nexport default components\n` })
+    addTemplate({ filename: "docs/components.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const components: Record<string, (() => Promise<{ default: Component }>) | undefined>\nexport default components\nexport declare const pageBlocks: string[]\n` })
     addImportsDir([join(runtime, "app/composables"), join(runtime, "app/utils")])
     nuxt.hook("app:templates", (app) => {
       app.layouts.docs ??= { file: join(runtime, "app/layouts/docs.vue"), name: "docs" }
@@ -822,13 +828,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // All nitro:config hooks have run, including those registered by modules installed after the docs module.
       if (options.linkChecker !== false && building) {
         const problems = docsRedirectProblems(manifest, docsRedirects(nitro.options.routeRules ?? {}))
-        if (problems.length) throw new DocsRedirectError(problems)
+        if (problems.length) throw docsRedirectError(problems)
         nitro.hooks?.hook("compiled", () => {
           if (!nitro.options.output) return
           const redirects = docsRedirects(nitro.options.routeRules ?? {})
           const settings = options.linkChecker || {}
           const result = checkDocsLinks({ dir: nitro.options.output.publicDir, siteUrl: config.site.url || "https://docs.local", appBase: config.appBase, ...settings, isRuntimePath: docsRuntimePath(nitro.options, config.appBase, docsMount(manifest)), excludeLinks: [
-            ...moduleOptions.linkChecker?.excludeLinks ?? [],
+            // Indexed pages stay checked here, with their fragments.
+            ...(moduleOptions.linkChecker?.excludeLinks ?? []).filter(link => typeof link !== "string" || !indexedPagePaths.has(link)),
             ...settings.excludeLinks ?? [],
             ...redirects.map(redirect => docsAppPath(redirect.from, config.appBase)),
             // The MCP endpoint is a server route, so the built output has no file for it.
@@ -851,7 +858,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         nitro.hooks?.hook("prerender:done", () => {
           const problems = docsSeoProblems(pages, sitemap, { endpoints: config.mcp ? ["/mcp"] : [], siteUrl: Boolean(config.site.url) })
           if (!problems.length) return
-          const error = new DocsSeoError(problems)
+          const error = docsSeoError(problems)
           if (seoAudit === "error" || seoAudit === true) throw error
           useLogger("@vite-hub/docs").warn(`${error.message}\nSet \`docs.seoAudit\` to "error" to stop the build on these, or to false to turn the check off.`)
         })
@@ -874,7 +881,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // The `/raw/**` route goes to Nitro directly: nuxt-agent-discovery skips the prerender of raw copies that an app
       // route of Nuxt serves, and the build prerenders them.
       nitro.handlers = [...nitro.handlers ?? [], ...(["get", "head"] as const).map(method => ({ route: "/raw/**", method, handler: resolver.resolve("./runtime/server/raw.js") }))]
-      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile, "#docs/image-sizes": imageSizesFile, "#docs/agent": agentFile }
+      nitro.alias = {
+        ...nitro.alias,
+        "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile, "#docs/example-sources": exampleSourcesFile, "#docs/image-sizes": imageSizesFile, "#docs/agent": agentFile,
+        // nuxt-og-image replaces `bufferutil`, `utf-8-validate`, and other optional server packages with virtual modules
+        // that import `mocked-exports/proxy`. Nitro resolves that import from the app, and a pnpm app has no such
+        // dependency, so the build failed when a package such as `ws` imported one of them.
+        "mocked-exports/proxy": mockedExportsProxy(),
+      }
       // Pack production files into one module to stay below Cloudflare's module limit. Development imports each file
       // through Vite: Nitro server assets read the folders from disk, and the Cloudflare dev server runs in workerd.
       const stores = [...sourceDirs ? sourceDirs.map((dir, index) => ({ name: `docs-${index}`, dir })) : [{ name: "docs", dir: contentDir }], { name: "docs-agent", dir: agentDir }]
@@ -1009,6 +1023,11 @@ function importsNuxtUi(css: ReadonlyArray<string | { src?: string }>, alias: Rec
 /** A module that this package depends on, by file path, so Nuxt finds it and transpiles its runtime. */
 function dependency(name: string): string {
   return fileURLToPath(import.meta.resolve(name))
+}
+
+/** The ESM proxy of `mocked-exports`, from the copy that nuxt-og-image depends on. */
+function mockedExportsProxy(): string {
+  return createRequire(dependency("nuxt-og-image")).resolve("mocked-exports/proxy-mjs")
 }
 
 /** The file a CSS `@import "<name>"` loads: the package's `style` export. */
