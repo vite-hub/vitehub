@@ -433,7 +433,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
           account,
           async uploaded(key) {
             const saved = await withClaim((current, drafts) => drafts.set(entry.id, { ...current, uploaded: [...(current.uploaded ?? []), key] }))
-            if (!saved) throw new Error("This draft is no longer in the outbox.")
+            if (!saved) throw new DOMException("This draft is no longer in the outbox.", "AbortError")
           },
         },
       }
