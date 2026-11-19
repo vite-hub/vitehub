@@ -29,7 +29,7 @@ export interface ChannelsVitePluginAPI {
   refresh: () => DiscoveredChannelDefinition[]
 }
 
-export type ChannelsVitePlugin = Plugin & { api: ChannelsVitePluginAPI, vitehub: ViteHubInspectionPluginMetadata }
+export type ChannelsVitePlugin = Plugin<ChannelsVitePluginAPI> & { api: ChannelsVitePluginAPI, vitehub: ViteHubInspectionPluginMetadata }
 
 export interface ChannelInspectionOptions {
   projectRoot: string
