@@ -1,5 +1,5 @@
 import { workspaceError } from "../core/errors.ts"
-import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryRef } from "../core/history.ts"
+import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryRef, rejectHistoryHead } from "../core/history.ts"
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { createWorkspaceGlobMatcher } from "../core/glob.ts"
 import { contentStreamToBytes, contentToBytes, decodeFile, isExcludedWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
@@ -756,7 +756,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         return await withWorkspaceStoreMutation(store, async () => {
           const ref = normalizeHistoryRef(options.ref)
           const head = await history.head({ ref })
-          if ((head?.id ?? null) !== options.ifHead) throw historyConflict(ref, options.ifHead, head?.id ?? null)
+          if ((head?.id ?? null) !== options.ifHead) rejectHistoryHead(options, historyConflict(ref, options.ifHead, head?.id ?? null))
           const forkRef = head || options.startFrom ? undefined : await history.forksFrom?.(ref)
           const startId = head?.id ?? options.startFrom ?? (forkRef ? (await history.head({ ref: forkRef }))?.id : undefined)
           const previous = startId ? await history.open(startId) : undefined

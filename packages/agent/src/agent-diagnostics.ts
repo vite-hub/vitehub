@@ -161,7 +161,6 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0357",
   "AGENT_R0358",
   "AGENT_R0371",
-  "AGENT_R0372",
   "AGENT_R0373",
   "AGENT_R0374",
   "AGENT_R0375",
@@ -1831,10 +1830,6 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R0371: {
       ...dynamicError,
       fix: "Pass channelAdapter() a non-empty Channel kind string, such as \"slack\".",
-    },
-    AGENT_R0372: {
-      ...dynamicError,
-      fix: "Remove path from http(), and set the route with http({ webhooks: { path } }).",
     },
     AGENT_R0373: {
       ...dynamicError,

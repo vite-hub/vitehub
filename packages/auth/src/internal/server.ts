@@ -1,6 +1,7 @@
 import { createAuthConsole, type AuthConsole } from "../console-runtime.ts";
 import type { AuthConsoleHostOptions, AuthConsoleOptions } from "../console-types.ts";
 import abilities from "#vitehub/auth/abilities"
+import { toResultError } from "@vite-hub/runtime"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 import { betterAuth } from "better-auth"
 import { parseUserOutput } from "better-auth/db"
@@ -30,7 +31,7 @@ import {
 } from "../auth-instance.ts"
 
 import type { AbilityArgs, AbilityAuthorization, AbilityName } from "../abilities.ts"
-import type { AuthEventAggregates, AuthEventListInput, AuthEventPage, AuthEventStore, AuthEventWindow } from "../events.ts"
+import { parseAuthEventList, parseAuthEventWindow, type AuthEventAggregates, type AuthEventListInput, type AuthEventPage, type AuthEventStore, type AuthEventWindow } from "../events.ts"
 import type { AuthAccessIdentityResolver } from "../runtime-state.ts"
 import type { AccessAuthorizeOption, ViteHubContext } from "@vite-hub/runtime"
 import type {
@@ -59,7 +60,7 @@ import { notMemberError } from "../members.ts"
 import type { AuthMemberErrorCode } from "../members.ts"
 import type { Result } from "@vite-hub/runtime"
 import { signedOutError } from "../caller.ts"
-import { mcpRegistrationPluginId } from "../mcp-config.ts"
+import { isJwsToken, mcpOAuthResources } from "../mcp-config.ts"
 import type { AuthCaller, AuthCallerErrorCode, AuthCallerUser } from "../caller.ts"
 
 export { createBetterAuthOptions, getAuthForDefinition } from "../auth-instance.ts"
@@ -212,7 +213,19 @@ function isAbortSignalLike(value: unknown): value is AbortSignal {
 type HeadersInput = ConstructorParameters<typeof Headers>[0]
 
 /** Where Better Auth returns after one sign-in that a guard starts. */
-type AuthSignInURLs = Pick<AuthSignInConfiguration, "callbackURL" | "errorCallbackURL">
+type AuthSignInURLs = Pick<AuthProviderSignIn, "callbackURL" | "errorCallbackURL">
+
+/** A provider sign-in with the page that Better Auth returns to. */
+type AuthProviderSignIn = AuthSignInConfiguration & { callbackURL?: string }
+
+/** The provider sign-in of `access`, which returns to `afterSignIn`. A sign-in page has none: the page signs in. */
+function providerSignIn(options: AuthRuntimeOptions & Record<string, unknown>): AuthProviderSignIn | undefined {
+  const access = (options as { access?: AuthAccessConfiguration }).access
+  const signIn = access?.signIn
+  return typeof signIn === "object"
+    ? { ...signIn, callbackURL: `${resolveAuthMountPath("/")}${(appPath(access?.afterSignIn ?? "/") ?? "/").slice(1)}` }
+    : undefined
+}
 
 /**
  * The Headers init of a host request. A Headers-like object without `Symbol.iterator`, from another
@@ -278,7 +291,7 @@ export function handleAuthRequest(
 }
 
 /**
- * With `access.signIn`, the Auth route also answers `GET <basePath>/sign-in` and `GET <basePath>/sign-out`, so a link
+ * With a provider in `access.signIn`, the Auth route also answers `GET <basePath>/sign-in` and `GET <basePath>/sign-out`, so a link
  * can sign in or out and come back to `?redirect=`. Better Auth has no GET endpoint at these paths.
  */
 function handleSignInRoute(
@@ -287,7 +300,7 @@ function handleSignInRoute(
   request: AuthRequest,
   address: string | undefined,
 ): Promise<Response> | undefined {
-  const signIn = (options as { access?: AuthAccessConfiguration }).access?.signIn
+  const signIn = providerSignIn(options)
   if (!signIn || request.method !== "GET") return
   const basePath = resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined))
   const url = new URL(request.url)
@@ -321,7 +334,7 @@ async function startSignIn(
   auth: ViteHubAuth,
   options: AuthRuntimeOptions & Record<string, unknown>,
   headers: Headers,
-  signIn: AuthSignInConfiguration,
+  signIn: AuthProviderSignIn,
   address: string | undefined,
 ): Promise<Response> {
   const { session, setCookies } = await getAuthenticationSession(auth, { headers })
@@ -371,6 +384,7 @@ export function createAuthHandler(definition: AuthDefinition) {
     auth.handler(setRequestClientAddress(request, host?.clientAddress))
 }
 
+/** The Better Auth instance of the app's Auth Definition, for sibling packages. Apps call `useAuth()`. */
 export function getAuth(): RegisteredAuth {
   return getAuthForDefinition(resolveDefaultDefinition()) as RegisteredAuth
 }
@@ -383,8 +397,7 @@ export function getAuth(): RegisteredAuth {
  * the request's Cloudflare bindings.
  */
 export async function checkAuthMember(userId: string, event?: AuthRequestInput): Promise<Result<void, AuthMemberErrorCode>> {
-  const auth = event ? useAuth(event) : getAuth()
-  const context = await auth.$context
+  const context = await useAuth(event).$context
   const members = findAccessPolicyPlugin(context.options.plugins)?.members
   if (!members) return [undefined, undefined]
   const user = await context.internalAdapter.findUserById(userId)
@@ -396,8 +409,12 @@ export async function checkAuthMember(userId: string, event?: AuthRequestInput):
  * Return the Better Auth instance of the app's Auth Definition for a request event or a Web `Request`.
  * The generated types give it the endpoints and fields of the Definition's plugins, so `useAuth(event).api.banUser`
  * type-checks when `server/auth.ts` uses `admin()`.
+ *
+ * Pass the event in a route. The instance then reads the request's host and Cloudflare bindings. Leave it out only
+ * where no request exists, such as in a Schedule or a Queue job.
  */
-export function useAuth(event: AuthRequestInput): RegisteredAuth {
+export function useAuth(event?: AuthRequestInput): RegisteredAuth {
+  if (!event) return getAuth()
   return authForRequest(unwrapAuthRequest(event), authRequestEvent(event))
 }
 
@@ -521,7 +538,7 @@ function authAccessRoutes(
 async function createSignInResponse(
   auth: ViteHubAuth,
   options: AuthRuntimeOptions & Record<string, unknown>,
-  signIn: AuthSignInConfiguration,
+  signIn: AuthProviderSignIn,
   address?: string,
 ): Promise<Response> {
   // SAFETY: The request resolver supplies baseURL from the runtime configuration or request origin.
@@ -856,7 +873,7 @@ async function checkAuthRequest(
     return reject(createTextRefusalResponse("Unauthorized.", "SIGNED_OUT"))
   }
 
-  const signIn = (options as { access?: AuthAccessConfiguration }).access?.signIn
+  const signIn = providerSignIn(options)
   return reject(signIn
     ? await createSignInResponse(auth, options, { ...signIn, ...signInURLs }, eventClientAddress(event))
     : createRefusalResponse("SIGNED_OUT"))
@@ -1024,8 +1041,10 @@ const callerReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<Result<A
 
 /**
  * Return who calls: a person with an Auth Session (`kind: "browser"`), or an Agent with an MCP access token of
- * `mcpOAuth()` (`kind: "agent"`), checked like `verifyMcpRequest()` for any `mcpOAuth()` resource of the origin.
- * Returns `AUTH_SIGNED_OUT` without either, and `AUTH_MCP_TOKEN_INVALID` for a bearer token that fails a check.
+ * `mcpOAuth()` (`kind: "agent"`), checked like `verifyMcpRequest()` for any `mcpOAuth()` resource of the origin. Like
+ * `verifyMcpRequest()`, it accepts `jwt()` and an `oauthProvider()` with `resources` that the app adds without
+ * `mcpOAuth()`. A bearer token that is not a JWT, such as a session token of `bearer()`, is read as a session.
+ * Returns `AUTH_SIGNED_OUT` without either, and `AUTH_MCP_TOKEN_INVALID` for a JWT bearer token that fails a check.
  * `requireAuth()` stays session-only.
  *
  * ```ts [server/api/notes.delete.ts]
@@ -1057,8 +1076,9 @@ async function readCaller(event: AuthRequestInput, definition: AuthDefinition): 
   if (token) {
     const auth = authForRequest(request, authRequestEvent(event), definition)
     const { options } = await auth.$context
-    // Without `mcpOAuth()`, a bearer token is Better Auth's, such as a session token of `bearer()`.
-    if (options.plugins?.some(plugin => plugin.id === mcpRegistrationPluginId)) {
+    // An MCP access token is a JWT of MCP OAuth, by the rule of `verifyMcpRequest()`. Another bearer token is Better
+    // Auth's, such as a session token of `bearer()`.
+    if (isJwsToken(token) && mcpOAuthResources(options.plugins).length) {
       const { verifyAppAccessToken } = await import("../mcp-token.ts")
       const url = new URL(request.url)
       const origin = trustsProxyHeaders(options) ? forwardedRequestOrigin(request) : url.origin
@@ -1211,37 +1231,45 @@ const authRoute = {
 
 export default authRoute
 
-export const auth = new Proxy({}, {
-  get(_target, property, receiver) {
-    return Reflect.get(getAuth() as object, property, receiver)
-  },
-  getOwnPropertyDescriptor(_target, property) {
-    return Reflect.getOwnPropertyDescriptor(getAuth() as object, property)
-  },
-  has(_target, property) {
-    return Reflect.has(getAuth() as object, property)
-  },
-  ownKeys() {
-    return Reflect.ownKeys(getAuth() as object)
-  },
-}) as RegisteredAuth
-
 /** Read the configured log from server code. Apply access checks before returning it to a caller. */
 export function getAuthEvents(definition: AuthDefinition = resolveDefaultDefinition(), request?: Pick<Request, "headers" | "url">): AuthEventStore | undefined {
   const events = resolveAuthOptions(definition, { request, env: envResolverFor(definition) }).options.events
   return events ? events.store : undefined
 }
 
-export async function listAuthEvents(input: AuthEventListInput = {}, definition?: AuthDefinition): Promise<AuthEventPage> {
+/** Why `listAuthEvents()` or `aggregateAuthEvents()` returned an error. */
+export type AuthEventReadErrorCode = "AUTH_EVENT_QUERY_INVALID" | "AUTH_EVENT_READ_FAILED"
+
+async function readAuthEvents<T>(
+  definition: AuthDefinition | undefined,
+  parse: () => unknown,
+  read: (store: AuthEventStore) => Promise<T>,
+): Promise<Result<T, AuthEventReadErrorCode>> {
   const store = getAuthEvents(definition)
   if (!store) throw authErrorDiagnostics.AUTH_R0018({ message: "Auth events are disabled. Configure events.store in defineAuth()." })
-  return store.list(input)
+  try {
+    parse()
+  }
+  catch (error) {
+    const invalid = authErrorDiagnostics.AUTH_EVENT_QUERY_INVALID.is(error) ? error : authErrorDiagnostics.AUTH_EVENT_QUERY_INVALID({ problem: "input", cause: error })
+    return [Object.assign(toResultError(invalid), { status: 400 }), undefined]
+  }
+  try {
+    return [undefined, await read(store)]
+  }
+  catch (error) {
+    return [toResultError(authErrorDiagnostics.AUTH_EVENT_READ_FAILED({ cause: error })), undefined]
+  }
 }
 
-export async function aggregateAuthEvents(window: AuthEventWindow, definition?: AuthDefinition): Promise<AuthEventAggregates> {
-  const store = getAuthEvents(definition)
-  if (!store) throw authErrorDiagnostics.AUTH_R0018({ message: "Auth events are disabled. Configure events.store in defineAuth()." })
-  return store.aggregate(window)
+/** Read one page of the Auth event log. Invalid filters and store failures return `[error, undefined]`. */
+export function listAuthEvents(input: AuthEventListInput = {}, definition?: AuthDefinition): Promise<Result<AuthEventPage, AuthEventReadErrorCode>> {
+  return readAuthEvents(definition, () => parseAuthEventList(input), store => store.list(input))
+}
+
+/** Count the Auth events of a window. An invalid window and store failures return `[error, undefined]`. */
+export function aggregateAuthEvents(window: AuthEventWindow, definition?: AuthDefinition): Promise<Result<AuthEventAggregates, AuthEventReadErrorCode>> {
+  return readAuthEvents(definition, () => parseAuthEventWindow(window), store => store.aggregate(window))
 }
 
 /**

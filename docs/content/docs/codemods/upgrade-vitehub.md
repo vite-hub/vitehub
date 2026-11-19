@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, and `access-spellings`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, and `auth-accessors`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -342,3 +342,78 @@ The codemod also changes default-export objects in `server/realtime/` and `serve
 A Realtime definition with both `auth: true` and `authorize()` stays as it is, and the report lists it. `authorize()` now also runs for signed-out callers, with `user: null`, so remove `auth` and return `false` when `user` is `null`. Until then, the server rejects the definition with [`REALTIME_INVALID_ACCESS`](/docs/realtime/limits-and-errors#realtime_invalid_access).
 
 If your browser app and Realtime API use different origins, keep the app origin in the Auth Definition's `trustedOrigins`. With no custom `identify()` or `origins()`, `authorize()` uses the same Auth origin check as `authorize: true`. Do not add `origins()` to pass the Auth session: an origin admitted by that hook does not get the session user.
+
+## auth-sign-in
+
+`auth-sign-in` moves the sign-in pages of Auth into `access` of `server/auth.ts`, where the Nuxt page guard reads them:
+
+```bash [Terminal]
+npx @vite-hub/codemods auth-sign-in [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `vitehub({ auth: { redirects: { login } } })` | `access: { signIn }` |
+| `vitehub({ auth: { redirects: { guest } } })` | `access: { afterSignIn }` |
+| `access.signIn.callbackURL` | `access.afterSignIn` |
+
+```diff [server/auth.ts]
+ export default defineAuth({
+   access: {
+     routes: ['/dashboard/**'],
+-    signIn: { provider: 'github', callbackURL: '/dashboard' },
++    signIn: { provider: 'github' },
++    afterSignIn: '/dashboard',
+   },
+ })
+```
+
+The codemod removes legacy `auth.redirects` only after it can move the settings without changing their meaning. It leaves the files unchanged and reports values that need manual migration, such as conflicting environment overrides, URLs that are not app paths, dynamic Definition options, or a `redirects.login` page next to a provider in `access.signIn`. Keep one sign-in method: the path of your sign-in page, or the provider that the Auth route starts.
+
+## channels
+
+`channels` replaces the removed Agent `http()` adapter. Use `webhook()` from `vite-hub/channels` for an HTTP sender. Use `channelAdapter("http", options)` from `vite-hub/agent/channels` to keep the Channel kind and State.
+
+```bash [Terminal]
+npx @vite-hub/codemods channels [dir] [--dry-run]
+```
+
+```diff [server/agents/support.ts]
+-import { http, slack } from 'vite-hub/agent/channels'
++import { channelAdapter, slack } from 'vite-hub/agent/channels'
+
+ export default defineAgent({
+-  channels: { portal: http({ route: true }), slack: slack() },
++  channels: { portal: channelAdapter('http', { route: true }), slack: slack() },
+ })
+```
+
+The codemod rewrites direct calls without options or with a literal Boolean `route` option. Import paths stay the same. The report flags references, typed or complex calls, namespace imports, dynamic loads, re-exports of `http`, and mocks for manual review. To preserve the kind on a typed route, use `channelAdapter("http", options)` and type callback parameters explicitly. Use `webChat()` only if changing the kind is acceptable.
+
+## auth-accessors
+
+`auth-accessors` moves server code to the one Auth accessor, `useAuth(event?)`:
+
+```bash [Terminal]
+npx @vite-hub/codemods auth-accessors [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `auth` from `vite-hub/auth/server` | `useAuth()` |
+| `getAuth()` from `vite-hub/auth/server` | `useAuth()` |
+| `await isGitHubOrgMember(token, 'acme')` from `vite-hub/auth` | `(!(await checkGitHubOrgMember(token, 'acme'))[0])` |
+
+```diff [server/api/roles.post.ts]
+-import { auth } from 'vite-hub/auth/server'
++import { useAuth } from 'vite-hub/auth/server'
+
+ export default defineHandler(async (event) => {
+-  return auth.api.listUsers({ query: {}, headers: event.req.headers })
++  return useAuth().api.listUsers({ query: {}, headers: event.req.headers })
+ })
+```
+
+The codemod also changes named imports from `#vitehub/auth/server`. It reports possible `auth` and `getAuth()` auto-imports in `server/` without editing them, because those names can come from your app. `useAuth()` without an event reads the app's Auth Definition, as `auth` did. In a route, pass the event yourself, `useAuth(event)`, so Auth reads the request's host and Cloudflare bindings.
+
+The report lists `useSession()` imports and possible app auto-imports. `useUserSession()` replaces it, with other names: `data.value`, `pending.value`, and `refresh()` replace `.value.data`, `.value.isPending`, and `.value.refetch()`. The codemod leaves membership imports unchanged if a call is not awaited or the organization may be empty. For an empty organization, keep returning `false` if your app relied on that result.
