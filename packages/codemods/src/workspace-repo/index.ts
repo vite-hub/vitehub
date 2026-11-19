@@ -6,9 +6,11 @@ import { parse as parseSfc } from "@vue/compiler-sfc"
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
+import { bindingResolver } from "../shared/binding-resolver.ts"
 import { unwrapExpression } from "../shared/nuxt-config.ts"
 
-import type { File, ObjectExpression } from "@babel/types"
+import type { File, Identifier, ObjectExpression } from "@babel/types"
+import type { Node } from "@vite-hub/internal/ast"
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 
 const sourcePatterns = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}"]
@@ -25,8 +27,29 @@ function scripts(file: string, code: string): Array<{ code: string, offset: numb
   })
 }
 
-function property(object: ObjectExpression, name: string) {
-  return object.properties.find(item => item.type === "ObjectProperty" && !item.computed && keyName(item.key) === name)
+function object(value: Node | undefined): ObjectExpression | undefined {
+  const node = value && unwrapExpression(value)
+  return node?.type === "ObjectExpression" ? node : undefined
+}
+
+function objectOption(options: ObjectExpression | undefined, name: string): ObjectExpression | undefined {
+  const property = options?.properties.findLast(item => item.type === "SpreadElement" || keyName(item.key, item.computed) === undefined || keyName(item.key, item.computed) === name)
+  return property?.type === "ObjectProperty" && keyName(property.key, property.computed) === name ? object(property.value) : undefined
+}
+
+function workspaceBindings(program: File) {
+  const bindings = new Map<Identifier, "definition" | "integration">()
+  for (const statement of program.program.body) {
+    if (statement.type !== "ImportDeclaration" || statement.importKind === "type") continue
+    for (const specifier of statement.specifiers) {
+      if (specifier.type !== "ImportSpecifier" || specifier.importKind === "type") continue
+      const name = keyName(specifier.imported)
+      const module = statement.source.value
+      if (name === "defineWorkspace" && (module === "vite-hub/workspace" || module === "@vite-hub/workspace")) bindings.set(specifier.local, "definition")
+      if (name === "vitehub" && module === "vite-hub") bindings.set(specifier.local, "integration")
+    }
+  }
+  return bindings
 }
 
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
@@ -34,9 +57,8 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const followUps: FollowUp[] = []
   for (const file of (await glob(sourcePatterns, { cwd, ignore: ignoredPatterns })).sort()) {
     const code = await readFile(join(cwd, file), "utf8")
-    if (!code.includes("repository") || !/driver\s*:\s*["'`]github["'`]/.test(code)) continue
+    if (!code.includes("repository") || !code.includes("github")) continue
     const output = new MagicString(code)
-    let changed = false
     for (const block of scripts(file, code)) {
       let program: File
       try {
@@ -45,24 +67,34 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
       catch {
         continue
       }
+      const bindings = workspaceBindings(program)
+      if (!bindings.size) continue
+      const resolve = bindingResolver(program)
       walk(program, (node) => {
-        // A GitHub Workspace Store: `store: { driver: "github", repository }`.
-        if (node.type !== "ObjectExpression") return
-        const driver = property(node, "driver")
+        if (node.type !== "CallExpression" || node.callee.type !== "Identifier") return
+        const binding = resolve(node.callee)
+        const kind = binding && bindings.get(binding)
+        if (!kind) return
+        const options = object(node.arguments[0])
+        const store = objectOption(kind === "integration" ? objectOption(options, "workspace") : options, "store")
+        if (!store) return
+        const driver = store.properties.findLast(item => item.type !== "SpreadElement" && keyName(item.key, item.computed) === "driver")
         const driverValue = driver?.type === "ObjectProperty" ? unwrapExpression(driver.value) : undefined
         if (driverValue?.type !== "StringLiteral" || driverValue.value !== "github") return
-        const repository = property(node, "repository")
-        if (repository?.type !== "ObjectProperty") return
-        if (property(node, "repo")) {
-          followUps.push({ file, line: block.lineOffset + line(repository), message: "This GitHub Workspace Store sets both `repo` and `repository`. Remove `repository`: the Store reads only `repo`." })
+        const repository = store.properties.find(item => item.type !== "SpreadElement" && keyName(item.key, item.computed) === "repository")
+        if (!repository) return
+        if (repository.type !== "ObjectProperty" || store.properties.some(item =>
+          item.type === "SpreadElement" || item.computed || keyName(item.key) === "repo" || (item !== repository && keyName(item.key) === "repository"))) {
+          followUps.push({ file, line: block.lineOffset + line(repository), message: "Move the previously effective repository to `repo`, then remove `repository`. The old Store used a usable `repository` value before falling back to `repo`. Check both keys, spreads, and computed properties before you edit." })
           return
         }
-        const text = repository.shorthand ? "repo: repository" : `repo: ${block.code.slice(start(repository.value), end(repository.value))}`
-        output.overwrite(block.offset + start(repository), block.offset + end(repository), text)
-        changed = true
+        const key = repository.key
+        const quote = block.code[start(key)]
+        const text = repository.shorthand ? "repo: repository" : quote === "'" || quote === '"' ? `${quote}repo${quote}` : "repo"
+        output.overwrite(block.offset + start(key), block.offset + end(key), text)
       })
     }
-    if (changed) edits.push({ path: file, before: code, after: output.toString() })
+    if (output.hasChanged()) edits.push({ path: file, before: code, after: output.toString() })
   }
   return {
     summary: edits.length ? `renamed the GitHub Workspace Store option repository to repo in ${edits.length} file(s)` : "found no GitHub Workspace Store that sets repository",

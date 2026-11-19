@@ -136,7 +136,7 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_R0069: withFix("Use a Store with retained history: `createBlobDatabaseWorkspaceStore()` or the `github` Store. Open the Workspace with a scope that grants the complete Workspace, not selected paths."),
     WORKSPACE_R0070: withFix("Pass a `limit` from 1 to 100, and pass a `cursor` only with the `ref` of the `history.list()` call that returned it."),
     WORKSPACE_R0071: withFix("Use a ref name with up to 128 letters, numbers, `_`, and `-`, joined by single `.` or `/`, for example `draft` or `team/review`. In a GitHub Store with `refs`, use `published` or `draft`, not the branch name."),
-    WORKSPACE_R0072: withFix("Set the `repository` option of the GitHub Store or `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, for example `owner/repo`. Set the `token` option or `VITEHUB_GITHUB_TOKEN`."),
+    WORKSPACE_R0072: withFix("Set the `repo` option of the GitHub Store or `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, for example `owner/repo`. Set the `token` option or `VITEHUB_GITHUB_TOKEN`."),
     WORKSPACE_R0073: withFix("Make the commit message or metadata shorter, as the message says. Remove each `Vitehub-Metadata:` line from the message, and pass the values in the `metadata` option."),
     WORKSPACE_R0001: withFix("Pass the path of a file or folder in the Workspace, for example `docs/guide.md`. The Workspace root itself cannot be written, moved, or deleted."),
     WORKSPACE_R0002: withFix("Enable at least one operation in `createWorkspaceTools(workspace, { operations })`, for example `{ operations: { read: true } }`."),

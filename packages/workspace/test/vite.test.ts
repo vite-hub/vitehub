@@ -1115,7 +1115,7 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({
       hosting: "cloudflare-module",
-      store: { driver: "github", repository: () => process.env.WORKSPACE_REPO, root: "", token: () => process.env.WORKSPACE_TOKEN },
+      store: { driver: "github", repo: () => process.env.WORKSPACE_REPO, root: "", token: () => process.env.WORKSPACE_TOKEN },
     } as never)
     const config = mergedConfigHook(plugin.config) as (
       config: { root: string },

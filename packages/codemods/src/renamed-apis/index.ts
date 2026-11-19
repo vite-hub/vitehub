@@ -191,7 +191,8 @@ function rewriteExports(context: FileContext) {
         overwrite(context, specifier.imported, to)
         continue
       }
-      overwrite(context, specifier, renameReferences(context, name, to, specifier) ? to : `${to} as ${name}`)
+      if (name === "fetch") overwrite(context, specifier.imported, `${to} as ${name}`)
+      else overwrite(context, specifier, renameReferences(context, name, to, specifier) ? to : `${to} as ${name}`)
     }
   }
 
@@ -226,6 +227,10 @@ function rewritePattern(context: FileContext, pattern: ObjectPattern, renames: R
     context.counts.exports++
     if (!property.shorthand) {
       overwrite(context, property.key, to)
+      continue
+    }
+    if (from === "fetch") {
+      overwrite(context, property.key, `${to}: ${from}`)
       continue
     }
     overwrite(context, property, renameReferences(context, from, to, property, property.value) ? to : `${to}: ${from}`)

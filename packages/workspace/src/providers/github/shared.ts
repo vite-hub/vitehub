@@ -267,7 +267,7 @@ export function requireGitHubOption(
 ): string {
   if (!value) {
     throw workspaceErrorDiagnostics.WORKSPACE_R0072({
-      message: `[vitehub] GitHub workspace store requires ${label}.${label === "a token" ? " Set VITEHUB_GITHUB_TOKEN, the token option, or a GitHub App with VITEHUB_GITHUB_APP_ID and VITEHUB_GITHUB_PRIVATE_KEY." : label === "a repository" ? " Set the repository option or VITEHUB_WORKSPACE_GITHUB_REPOSITORY." : ""}`,
+      message: `[vitehub] GitHub workspace store requires ${label}.${label === "a token" ? " Set VITEHUB_GITHUB_TOKEN, the token option, or a GitHub App with VITEHUB_GITHUB_APP_ID and VITEHUB_GITHUB_PRIVATE_KEY." : label === "a repository" ? " Set the repo option or VITEHUB_WORKSPACE_GITHUB_REPOSITORY." : ""}`,
     });
   }
   return value;
