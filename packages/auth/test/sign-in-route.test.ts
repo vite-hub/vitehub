@@ -175,7 +175,7 @@ describe("below Nuxt app.baseURL", () => {
     vi.stubGlobal("__VITEHUB_AUTH_APP_BASE_URL__", "/app/")
     const cookie = await signUp("/app/")
     const configured = defineFixedAuth({ ...options, access: { signIn: { provider: "github" }, afterSignIn } })
-    const request = (headers?: HeadersInit) => handleAuthRequest(configured, new Request(`${origin}/app/api/auth/sign-in`, { headers }))
+    const request = (headers?: RequestInit["headers"]) => handleAuthRequest(configured, new Request(`${origin}/app/api/auth/sign-in`, { headers }))
 
     expect((await request()).status).toBe(302)
     expect(JSON.stringify(db.verification)).toContain(`\\"callbackURL\\":\\"${destination}\\"`)
