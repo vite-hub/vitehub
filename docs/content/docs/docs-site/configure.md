@@ -601,7 +601,7 @@ import cms from 'vite-hub/cms'
 import { docsCollection } from 'vite-hub/docs'
 
 export default defineContent({
-  extends: [cms, { repo: 'owner/name', publish: 'pr', access: 'roles' }],
+  extends: [cms, { repo: 'owner/name', publish: 'pr', roles: true }],
   collections: { docs: docsCollection() },
 })
 ```
@@ -618,6 +618,6 @@ With `repo`, the CMS uses the GitHub store and needs `VITEHUB_GITHUB_TOKEN`. A s
 
 Without `repo`, the CMS uses the Blob + Database store. Its Workspace starts empty, and a publish does not change the files the site renders, so use it only to try the editor. Run `vitehub database generate` and `vitehub database migrate` once, then import a page with `vitehub content edit docs docs/kv/index --file content/docs/kv/index.md`.
 
-`access: 'roles'` uses the CMS roles of the Better Auth `admin` plugin. Your own `authorize` replaces it. For example, `authorize: () => import.meta.dev` lets everyone edit in development and nobody in production.
+`roles: true` uses the CMS roles of the Better Auth `admin` plugin. Your own `authorize` replaces it. For example, `authorize: () => import.meta.dev` lets everyone edit in development and nobody in production.
 
 The page route can render a draft: it reads the draft from the collection and parses it like a published page, with `Cache-Control: private, no-store`. Draft-only pages preview too. The sidebar, search, and previous and next links stay published. The preview needs a server that renders the page; a prerendered page on a static host shows the published file. Without `server/content.ts`, the page route reads only the files and bundles nothing from Content.

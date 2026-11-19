@@ -1,14 +1,16 @@
 import { defineContentPreset } from "@vite-hub/content"
 
 import { cmsErrorDiagnostics } from "./error-diagnostics.ts"
-import { cmsGitHubDefaults, cmsOptionKeys, cmsOptionProblem, cmsOptionsProblem, cmsStoreOf } from "./options.ts"
+import { cmsGitHubDefaults, cmsOptionKeys, cmsOptionProblem, cmsOptionsProblem, cmsRenamedAccessProblem, cmsStoreOf } from "./options.ts"
 
 import type { ContentAuthorize, ContentPreset } from "@vite-hub/content"
 
 /** Options of the `cms` Content preset. The build reads them from `server/content.ts`, so pass string literals. */
 export interface CmsPresetOptions {
   /** Opt into the CMS roles of `admin(cmsAccess)`. Without it, set `defineContent({ authorize })` to allow access. */
-  access?: "roles"
+  roles?: true
+  /** Renamed to `roles: true`. The preset fails with `CONTENT_CMS_OPTION_INVALID` when it is set. */
+  access?: never
   /**
    * Database that receives the Workspace history tables, and with the GitHub store only the editor sessions table.
    * Defaults to the Database named `default`, or the only one. Without a Database Definition, the tables go to the
@@ -40,7 +42,7 @@ export interface CmsPresetOptions {
 }
 
 /**
- * The policy for `access: "roles"` when the app sets no `authorize`. A user without a string role is denied before
+ * The policy for `roles: true` when the app sets no `authorize`. A user without a string role is denied before
  * Better Auth loads. The preset never interprets application roles unless the app explicitly opts in.
  */
 const cmsDefaultAuthorize: ContentAuthorize = async (context) => {
@@ -59,7 +61,7 @@ const cmsDefaultAuthorize: ContentAuthorize = async (context) => {
  * With `repo` (or `store: "github"`) the Workspace is a GitHub repository instead: published content on one branch, drafts on
  * another, and no Blob store. The Database keeps editor sessions.
  *
- * With `access: "roles"` and no `authorize` in `defineContent()`, the CMS roles of the Better Auth `admin` plugin decide
+ * With `roles: true` and no `authorize` in `defineContent()`, the CMS roles of the Better Auth `admin` plugin decide
  * who reads drafts, writes, and publishes. See `cmsAccess` from `@vite-hub/cms/access`.
  */
 const cms: ContentPreset<CmsPresetOptions> = defineContentPreset<CmsPresetOptions>({
@@ -72,11 +74,13 @@ const cms: ContentPreset<CmsPresetOptions> = defineContentPreset<CmsPresetOption
     draftBranch: undefined,
     publish: undefined,
     repo: undefined,
+    roles: undefined,
     root: undefined,
     store: undefined,
     workspace: "content",
   },
   configure(options) {
+    if (options.access !== undefined) throw cmsErrorDiagnostics.CONTENT_CMS_OPTION_INVALID({ problem: cmsRenamedAccessProblem })
     for (const key of cmsOptionKeys) {
       const problem = cmsOptionProblem(key, Reflect.get(options, key))
       if (problem) throw cmsErrorDiagnostics.CONTENT_CMS_OPTION_INVALID({ problem: `option ${JSON.stringify(key)} ${problem}` })
@@ -88,7 +92,7 @@ const cms: ContentPreset<CmsPresetOptions> = defineContentPreset<CmsPresetOption
     if (problem) throw cmsErrorDiagnostics.CONTENT_CMS_OPTION_INVALID({ problem })
     return {
       workspace: options.workspace,
-      ...(options.access === "roles" ? { authorize: cmsDefaultAuthorize } : {}),
+      ...(options.roles ? { authorize: cmsDefaultAuthorize } : {}),
       ...(github && options.publish === "pr" ? { publish: "pr" as const } : {}),
       // Drafts live on this branch: `content.sources.allow()` keeps it behind the preview cookie or a signed link.
       ...(github ? { privateBranches: [options.draftBranch ?? cmsGitHubDefaults.draftBranch] } : {}),

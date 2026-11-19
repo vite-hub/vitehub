@@ -28,7 +28,7 @@ The docs assistant: the **Ask** button on every page opens a chat that answers f
 | `.claude/skills/illustration-isometric-mono/` | The illustration skill from [skills.sh](https://skills.sh/mengto/skills/illustration-isometric-mono), copied by hand, see below |
 | `server/auth.ts` | Better Auth in the `users` Database through `authDatabase("users")`: email and password, GitHub when its secrets exist, the admin plugin with the CMS roles, and the CMS roles |
 | `server/databases/users/`, `server/databases/content/` | Two D1 Database Definitions and their migrations. `users`: the Better Auth and OAuth tables. `content`: the CMS history and editor sessions, and the Comments tables |
-| `server/content.ts` | The CMS with `access: 'roles'` and `database: 'content'`: `docsCollection()`, and the `blog`, `changelog`, and `authors` collections. Today on the Blob + Database store (R2 and D1). With a GitHub token it moves to the GitHub store of this repository with `publish: 'commit'`, see the comment in the file |
+| `server/content.ts` | The CMS with `roles: true` and `database: 'content'`: `docsCollection()`, and the `blog`, `changelog`, and `authors` collections. Today on the Blob + Database store (R2 and D1). With a GitHub token it moves to the GitHub store of this repository with `publish: 'commit'`, see the comment in the file |
 | `server/comments.ts`, `server/console-authorize.ts` | Comments in the `content` Database (`database: "content"`), and Console access with the CMS roles |
 | `server/api/blog/`, `server/api/changelog/`, `server/routes/*/rss.xml.get.ts` | The published posts and releases, parsed with the docs parser, and the feeds |
 

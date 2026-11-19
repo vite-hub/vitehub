@@ -50,14 +50,14 @@ The build follows a re-export of the default export from a relative file, such a
 
 The preset fills `workspace` in `defineContent()`, so you cannot use `extends` with `workspace`. It also:
 
-- fills `authorize` with the CMS role policy when you set `access: 'roles'` and no `authorize`. Without either, every action is denied.
+- fills `authorize` with the CMS role policy when you set `roles: true` and no `authorize`. Without either, every action is denied.
 - uses pull request publishing for `content.publish()` with the GitHub store and `publish: 'pr'`.
 
 ## Option values
 
 | Option | Accepts |
 | --- | --- |
-| `access` | `'roles'` to turn on the CMS role policy. |
+| `roles` | `true` to turn on the CMS role policy. |
 | `database`, `blob`, `workspace` | Letters, numbers, dots, underscores, and dashes, starting with a letter or number. Slashes separate parts, such as `content/main`. |
 | `store` | `'blob-database'` or `'github'`. |
 | `repo` | A repository as `owner/name`. The owner has letters, numbers, and dashes. The name has letters, numbers, dots, underscores, and dashes, and is not `.` or `..`. |

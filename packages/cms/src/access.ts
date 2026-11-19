@@ -5,9 +5,9 @@ import type { CommentsAuthorizeContext } from "@vite-hub/comments"
 import type { ContentAuthorize } from "@vite-hub/content"
 import type { AccessControl, Role, RoleAuthorizeRequest, Statements } from "better-auth/plugins/access"
 
-// `better-auth` is an optional peer, and `index.ts` imports this file for `access: "roles"`. Without `better-auth`, Vite
+// `better-auth` is an optional peer, and `index.ts` imports this file for `roles: true`. Without `better-auth`, Vite
 // puts a stub with no exports in its place, and a named import from the stub fails the app build. Namespace imports
-// build, and only `access: "roles"` loads this file.
+// build, and only `roles: true` loads this file.
 const { createAccessControl } = betterAuthAccess
 const { adminAc, defaultStatements, userAc } = betterAuthAdminAccess
 
@@ -93,7 +93,7 @@ export function cmsCan(user: CmsUser | null | undefined, permissions: CmsPermiss
 
 /**
  * `defineContent({ authorize })` from the CMS roles: `content.can()` allows an action when a role of the user has
- * `content:<action>`. `defineContent({ extends: [cms, { access: "roles" }] })` uses it when the app sets no `authorize`.
+ * `content:<action>`. `defineContent({ extends: [cms, { roles: true }] })` uses it when the app sets no `authorize`.
  * Only CMS roles have `content:read`, so `/api/content/**` needs `defineContent({ access: "public" })` to serve visitors.
  */
 export const cmsContentAuthorize: ContentAuthorize = ({ user, action }) => cmsCan(user, { content: [action] })

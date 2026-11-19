@@ -4,7 +4,7 @@ import { join, relative, resolve } from "node:path"
 
 import { renderDatabaseLookup } from "./database-lookup.injected.ts"
 import { cmsErrorDiagnostics } from "./error-diagnostics.ts"
-import { cmsGitHubDefaults, cmsOptionKeys, cmsOptionProblem, cmsOptionsProblem, cmsStoreOf } from "./options.ts"
+import { cmsGitHubDefaults, cmsOptionKeys, cmsOptionProblem, cmsOptionsProblem, cmsRenamedAccessProblem, cmsStoreOf } from "./options.ts"
 
 import type { CmsPresetOptions } from "./index.ts"
 
@@ -77,6 +77,13 @@ function propertyName(node: AstNode): string | undefined {
   if (!isNode(key)) return
   if (key.type === "Identifier") return String(key.name)
   if (key.type === "Literal" && String(key.value) === key.value) return key.value
+}
+
+/** A string or `true` literal: the values that the cms preset options take. */
+function literalValue(node: unknown): string | true | undefined {
+  const value = unwrap(node)
+  if (isNode(value) && value.type === "Literal" && value.value === true) return true
+  return stringValue(value)
 }
 
 function stringValue(node: unknown): string | undefined {
@@ -283,21 +290,22 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
   for (const property of Array.isArray(optionsNode.properties) ? optionsNode.properties : []) {
     const key = isNode(property) ? propertyName(property) : undefined
     if (!isNode(property) || key === undefined || property.kind !== "init" || property.method === true) {
-      throw presetError(file, projectRoot, "cms preset options must be plain properties with string literal values, because the build reads them without running the file.")
+      throw presetError(file, projectRoot, "cms preset options must be plain properties with literal values, because the build reads them without running the file.")
     }
+    if (key === "access") throw presetError(file, projectRoot, `cms preset ${cmsRenamedAccessProblem}`)
     if (!cmsOptionKeys.includes(key)) {
       throw presetError(file, projectRoot, `unknown cms preset option ${JSON.stringify(key)}. Use ${cmsOptionKeys.join(", ")}.`)
     }
     const valueNode = unwrap(property.value)
     // `database: undefined` keeps the default, like omitting the key.
     if (isNode(valueNode) && valueNode.type === "Identifier" && valueNode.name === "undefined") continue
-    const value = stringValue(valueNode)
+    const value = literalValue(valueNode)
     if (value === undefined) {
-      throw presetError(file, projectRoot, `cms preset option ${JSON.stringify(key)} must be a string literal, because the build reads it without running the file.`)
+      throw presetError(file, projectRoot, `cms preset option ${JSON.stringify(key)} must be a ${key === "roles" ? "`true`" : "string"} literal, because the build reads it without running the file.`)
     }
     const problem = cmsOptionProblem(key, value)
     if (problem) throw presetError(file, projectRoot, `cms preset option ${JSON.stringify(key)} ${problem}`)
-    // SAFETY: key is one of the option names and value is a valid string for it, both checked above.
+    // SAFETY: key is one of the option names and value is a valid literal for it, both checked above.
     Reflect.set(options, key, value)
   }
   const problem = cmsOptionsProblem(options)
