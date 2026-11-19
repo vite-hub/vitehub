@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, and `cli-get-list`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, and `cli-get-list`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -343,6 +343,33 @@ A Realtime definition with both `auth: true` and `authorize()` stays as it is, a
 
 If your browser app and Realtime API use different origins, keep the app origin in the Auth Definition's `trustedOrigins`. With no custom `identify()` or `origins()`, `authorize()` uses the same Auth origin check as `authorize: true`. Do not add `origins()` to pass the Auth session: an origin admitted by that hook does not get the session user.
 
+## auth-sign-in
+
+`auth-sign-in` moves the sign-in pages of Auth into `access` of `server/auth.ts`, where the Nuxt page guard reads them:
+
+```bash [Terminal]
+npx @vite-hub/codemods auth-sign-in [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `vitehub({ auth: { redirects: { login } } })` | `access: { signIn }` |
+| `vitehub({ auth: { redirects: { guest } } })` | `access: { afterSignIn }` |
+| `access.signIn.callbackURL` | `access.afterSignIn` |
+
+```diff [server/auth.ts]
+ export default defineAuth({
+   access: {
+     routes: ['/dashboard/**'],
+-    signIn: { provider: 'github', callbackURL: '/dashboard' },
++    signIn: { provider: 'github' },
++    afterSignIn: '/dashboard',
+   },
+ })
+```
+
+The codemod removes legacy `auth.redirects` only after it can move the settings without changing their meaning. It leaves the files unchanged and reports values that need manual migration, such as conflicting environment overrides, URLs that are not app paths, dynamic Definition options, or a `redirects.login` page next to a provider in `access.signIn`. Keep one sign-in method: the path of your sign-in page, or the provider that the Auth route starts.
+
 ## cli-get-list
 
 `cli-get-list` renames the read commands in the `vitehub` calls of `package.json` scripts, `.github/workflows/*.yml`, and `*.sh` files. `get` reads one record and `list` reads many:
@@ -357,17 +384,18 @@ npx @vite-hub/codemods cli-get-list [dir] [--dry-run]
 | `vitehub agent invocations show` | `vitehub agent invocations get` |
 | `vitehub content show`, `vitehub workspace show` | `get` |
 | `vitehub email outbox show`, `vitehub queue jobs show` | `outbox get`, `jobs get` |
-| `vitehub workflow get`, `vitehub workflow runs show` | `vitehub workflow runs get` |
+| `vitehub workflow get` | `vitehub workflow runs get --json` |
+| `vitehub workflow runs show` | `vitehub workflow runs get` (use `--run-id` for `--id`) |
 | `vitehub schedule runs <schedule>` | `vitehub schedule runs list <schedule>` |
 | `vitehub schedule attempts <run>` | `vitehub schedule runs get <run>` |
 | `vitehub env inspect` | `vitehub env list` |
-| `vitehub env status --url <app>` | `vitehub env list --url <app>` |
+| `vitehub env status --url <app>` | `vitehub env list --url <app> --json` |
 | `vitehub project info` | `vitehub project get` |
-| `vitehub definitions list` | `vitehub inspect definitions` |
+| `vitehub definitions list` | `vitehub inspect definitions --kind <kind>` for local definitions; use the Console for runtime records |
+
+The codemod updates simple shell invocations. It skips scripts and steps with complex shell syntax, such as command substitutions or parameter defaults, to avoid editing text that is not a command. It reports recognized calls that need a manual change. `env status` without `--url` asked the dev server; pass that URL explicitly rather than reading the local stage. Review old `env status` calls using `--timeout` or `--input`, which `env list` does not accept. For `workflow runs show --input`, rename `id` to `runId` in the JSON. Review `definitions list` calls to choose between local inspection and the Console.
 
 ```diff [package.json]
 -    "check:env": "vitehub env status --url https://app.example.com"
-+    "check:env": "vitehub env list --url https://app.example.com"
++    "check:env": "vitehub env list --json --url https://app.example.com"
 ```
-
-`vitehub env status` without `--url` asked the dev server. `vitehub env list` without `--url` reads the local stage, so add `--url` where a script asks an app. An old command fails with the new one, so a call that the codemod missed tells you what to run.
