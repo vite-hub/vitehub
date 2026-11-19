@@ -23,7 +23,7 @@ const dynamicSendMethods = new Set(["defer", "run", "send"])
 const dynamicClientMethods = new Set(["get", "use"])
 
 /** Nuxt auto-imports these in server code, so a file can call them without an import. */
-const autoImports = new Set(["defineQueue", "deferQueue", "sendQueue", "useQueue"])
+const autoImports = new Set(["defineQueue", ...sendFunctions, "getQueue", "useQueue"])
 
 const sourcePatterns = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"]
 const ignoredPatterns = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/.data/**", "**/.vitehub/**", "**/dist/**", "**/coverage/**"]
@@ -77,12 +77,11 @@ function unwrap(node: Node | null | undefined): Node | null | undefined {
   return current
 }
 
-/** The Queue export that `node` names: an imported or auto-imported function, or a property of a namespace import. */
+/** The Queue export that `node` names: an explicit import, or a property of a namespace import. */
 function queueExport(context: FileContext, node: Node): string | undefined {
   if (node.type === "Identifier") {
     const binding = context.resolve(node)
-    if (!binding) return autoImports.has(node.name) ? node.name : undefined
-    return context.imports.get(binding)
+    return binding && context.imports.get(binding)
   }
   if ((node.type === "MemberExpression" || node.type === "OptionalMemberExpression") && !node.computed && node.object.type === "Identifier") {
     const binding = context.resolve(node.object)
@@ -119,8 +118,10 @@ function collectClients(context: FileContext) {
   let added = true
   while (added) {
     added = false
-    walk(context.program, (node) => {
+    walk(context.program, (node, ancestors) => {
       if (node.type !== "VariableDeclarator" || node.id.type !== "Identifier" || context.clients.has(node.id) || !node.init) return
+      const declaration = ancestors.at(-1)
+      if (declaration?.type !== "VariableDeclaration" || declaration.kind !== "const") return
       if (!isClient(context, node.init)) return
       context.clients.add(node.id)
       added = true
@@ -217,12 +218,33 @@ function rewriteRetryActions(context: FileContext, definition: CallExpression) {
 function rewriteOnError(context: FileContext, options: ObjectExpression) {
   for (const property of options.properties) {
     if ((property.type !== "ObjectProperty" && property.type !== "ObjectMethod") || property.computed || keyName(property.key) !== "onError") continue
-    walk(property, (node) => {
-      if (node.type !== "ObjectExpression") return
-      for (const action of node.properties) {
-        if (action.type === "ObjectProperty" && !action.computed && keyName(action.key) === "retry") rewriteOptions(context, action.value)
-      }
+    const handler = property.type === "ObjectMethod" ? property : unwrap(property.value)
+    if (!handler || (handler.type !== "ObjectMethod" && handler.type !== "ArrowFunctionExpression" && handler.type !== "FunctionExpression")) continue
+    if (handler.body.type !== "BlockStatement") {
+      rewriteReturnedAction(context, handler.body)
+      continue
+    }
+    walk(handler.body, (node, ancestors) => {
+      if (node.type !== "ReturnStatement" || ancestors.some(isFunction)) return
+      rewriteReturnedAction(context, node.argument)
     })
+  }
+}
+
+function isFunction(node: Node) {
+  return node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression"
+    || node.type === "ObjectMethod" || node.type === "ClassMethod" || node.type === "ClassPrivateMethod"
+}
+
+function rewriteReturnedAction(context: FileContext, expression: Node | null | undefined) {
+  const action = unwrap(expression)
+  if (action?.type === "ConditionalExpression") {
+    rewriteReturnedAction(context, action.consequent)
+    rewriteReturnedAction(context, action.alternate)
+  }
+  if (action?.type !== "ObjectExpression") return
+  for (const property of action.properties) {
+    if (property.type === "ObjectProperty" && !property.computed && keyName(property.key) === "retry") rewriteOptions(context, property.value)
   }
 }
 

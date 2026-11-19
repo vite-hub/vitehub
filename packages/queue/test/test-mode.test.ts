@@ -110,6 +110,12 @@ it("uses the configured local delivery rules", async () => {
   expect(await dynamicQueue.send("welcome", {}, { idempotencyKey: "key" })).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
 })
 
+it("rejects a batch item with an explicitly undefined legacy timing key", async () => {
+  const queue = await dynamicQueue.use("welcome")
+  expect(await queue.sendBatch([{ body: {} }, { body: {}, delaySeconds: undefined } as never])).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION" }, undefined])
+  expect(mode.peek("queue")).toBeUndefined()
+})
+
 it("reports a deferred validation failure through the host task and dispatch-error hook", async () => {
   const pending: Promise<unknown>[] = []
   const onDispatchError = vi.fn()

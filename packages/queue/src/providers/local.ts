@@ -6,7 +6,7 @@ import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 
 import { readQueueTimes } from "../duration.ts"
 import { createQueueMessageId, normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { cloudflareUnsupportedEnqueueOptions, localUnsupportedEnqueueOptions, postgresUnsupportedEnqueueOptions, queueProviderResult, queueUnsupportedOptionsError } from "../errors.ts"
+import { cloudflareUnsupportedEnqueueOptions, localUnsupportedEnqueueOptions, postgresUnsupportedEnqueueOptions, queueProviderResult, queueRemovedOptionsError, queueUnsupportedOptionsError } from "../errors.ts"
 import { createQueueDeliveryErrorReport, isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
 import { checkQueueHandlerResponse } from "../internal/handler-response.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
@@ -578,6 +578,7 @@ function unsupportedOptions(options: QueueEnqueueOptions, rules: LocalQueueDeliv
 }
 
 export function createLocalQueueClient(engine: LocalQueueEngine, queue: string): LocalQueueClient {
+  const round = engine.rules.rules === "vercel" || engine.rules.rules === "cloudflare" ? "ceil" : undefined
   return {
     provider: "local",
     native: engine,
@@ -586,7 +587,7 @@ export function createLocalQueueClient(engine: LocalQueueEngine, queue: string):
       const normalized = normalizeQueueEnqueueInput(payload, options)
       const optionsError = unsupportedOptions(normalized.options, engine.rules)
       if (optionsError) return [optionsError, undefined]
-      const [timeError, times] = readQueueTimes(normalized.options)
+      const [timeError, times] = readQueueTimes(normalized.options, round)
       if (timeError) return [timeError, undefined]
       const [error, ids] = await queueProviderResult("local", "send", () => engine.enqueue(queue, [{
         ...times,
@@ -598,12 +599,14 @@ export function createLocalQueueClient(engine: LocalQueueEngine, queue: string):
       return [undefined, { messageId: ids[0], status: "queued" }]
     },
     async sendBatch(items, options) {
+      const removed = queueRemovedOptionsError(engine.rules.rules, options, items)
+      if (removed) return [removed, undefined]
       const entries: LocalQueueEntry[] = []
       for (const item of items) {
         // A Vercel app sends `retention` in `vite dev`. The local rules have no retention and ignore it.
-        const retention = "retention" in item ? item.retention : options && "retention" in options ? options.retention : undefined
+        const retention = ("retention" in item ? item.retention : undefined) ?? (options && "retention" in options ? options.retention : undefined)
         // SAFETY: readQueueTimes() checks the value at runtime, and returns RUNTIME_DURATION_INVALID for a wrong one.
-        const [timeError, times] = readQueueTimes({ delay: item.delay ?? options?.delay, retention: retention as Duration | number | undefined })
+        const [timeError, times] = readQueueTimes({ delay: item.delay ?? options?.delay, retention: retention as Duration | number | undefined }, round)
         if (timeError) return [timeError, undefined]
         entries.push({ ...times, id: createQueueMessageId(), idempotencyKey: item.idempotencyKey, payload: item.body })
       }

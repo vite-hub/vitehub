@@ -119,7 +119,7 @@ npx @vite-hub/codemods queue-durations [dir] [--dry-run]
 +await sendQueue('welcome-email', { email }, { delay: '60s', retention: 3600 })
 ```
 
-The codemod changes the options of `sendQueue()`, `deferQueue()`, `dynamicQueue.send()`, `dynamicQueue.defer()`, and the `send()` and `sendBatch()` methods of a client from `useQueue()`, and the `{ retry: { delaySeconds } }` that `onError` of `defineQueue()` returns. It also reads these calls without an import, as Nuxt server code writes them. It turns a number, or arithmetic on numbers such as `24 * 60 * 60`, into the same time in seconds, such as `'86400s'`. It keeps `delaySeconds` in Cloudflare's native `message.retry()` and `batch.retryAll()`. The report lists:
+The codemod changes the options of `sendQueue()`, `deferQueue()`, `dynamicQueue.send()`, `dynamicQueue.defer()`, and the `send()` and `sendBatch()` methods of a client from `useQueue()`, and the `{ retry: { delaySeconds } }` that `onError` of `defineQueue()` returns. It rewrites calls tied to explicit Queue imports. It reports unbound calls, including Nuxt auto-imports, without editing them because they can refer to app utilities. It turns a number, or arithmetic on numbers such as `24 * 60 * 60`, into the same time in seconds, such as `'86400s'`. It keeps `delaySeconds` in Cloudflare's native `message.retry()` and `batch.retryAll()`. The report lists:
 
 - a `delay` value that is not a number in the code, such as a variable, which you write as a duration,
 - `delaySeconds` and `retentionSeconds` that are left, such as options in a variable.

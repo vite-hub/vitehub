@@ -355,6 +355,18 @@ describe("cloudflare queue runtime", () => {
     expect(report).toHaveBeenCalledTimes(2)
   })
 
+  it("reports a removed Cloudflare retry option and uses the fallback", async () => {
+    const report = vi.spyOn(console, "error").mockImplementation(() => {})
+    const message = { ack: vi.fn(), attempts: 1, body: "fail", id: "1", retry: vi.fn() }
+    const batchHandler = createCloudflareQueueBatchHandler({
+      onError: () => ({ retry: { delaySeconds: 60 } }) as never,
+      onMessage: async () => { throw new Error("handler failed") },
+    })
+    await batchHandler({ ackAll: vi.fn(), messages: [message], queue: "queue--666f6f", retryAll: vi.fn() })
+    expect(report).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ error: expect.objectContaining({ code: "QUEUE_UNSUPPORTED_OPTION" }) }))
+    expect(message.retry).toHaveBeenCalledExactlyOnceWith()
+  })
+
   it("acknowledges non-retryable Cloudflare errors when the onError hook throws", async () => {
     const report = vi.spyOn(console, "error").mockImplementation(() => {})
     const ack = vi.fn()
@@ -920,15 +932,15 @@ describe("vercel provider", () => {
     })
 
     await expect(client.sendBatch([
-      { body: { email: "ava@example.com" } },
-      { body: { email: "ben@example.com" }, delay: "4500ms", idempotencyKey: "welcome-ben" },
-    ], { delay: "1m", retention: "1h" })).resolves.toEqual([undefined, [
+      { body: { email: "ava@example.com" }, retention: undefined },
+      { body: { email: "ben@example.com" }, delay: "4500ms", idempotencyKey: "welcome-ben", retention: "60.5s" },
+    ], { delay: "1m", retention: 60.5 })).resolves.toEqual([undefined, [
       { messageId: "message-0", status: "queued" },
       { messageId: undefined, status: "queued" },
     ]])
     expect(sendBatch).toHaveBeenCalledExactlyOnceWith("topic--77656c636f6d65", [
-      { delaySeconds: 60, idempotencyKey: expect.stringMatching(/^queue_/), payload: { email: "ava@example.com" }, retentionSeconds: 3600 },
-      { delaySeconds: 5, idempotencyKey: "welcome-ben", payload: { email: "ben@example.com" }, retentionSeconds: 3600 },
+      { delaySeconds: 60, idempotencyKey: expect.stringMatching(/^queue_/), payload: { email: "ava@example.com" }, retentionSeconds: 61 },
+      { delaySeconds: 5, idempotencyKey: "welcome-ben", payload: { email: "ben@example.com" }, retentionSeconds: 61 },
     ])
   })
 

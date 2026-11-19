@@ -1,6 +1,6 @@
 import { readQueueTimes } from "../duration.ts"
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { queueProviderResult, queueUnsupportedOptionsError } from "../errors.ts"
+import { queueProviderResult, queueRemovedOptionsError, queueUnsupportedOptionsError } from "../errors.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { getCloudflareQueueDefinitionName } from "../integrations/cloudflare.ts"
 import { isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
@@ -77,8 +77,10 @@ function toSendOptions(options: QueueEnqueueOptions = {}): Result<CloudflareSend
 /** Runs the action that `onError` returned. A `delay` that is not a duration throws, and the caller retries at once. */
 function resolveAction(action: CloudflareQueueBatchErrorAction | void, message: CloudflareQueueMessage, fallback: "ack" | "retry") {
   if (action && typeof action === "object" && !Array.isArray(action) && Object.hasOwn(action, "retry")) {
+    const removed = queueRemovedOptionsError("cloudflare", action.retry)
+    if (removed) throw removed
     const delay = action.retry?.delay
-    message.retry(delay === undefined ? undefined : { delaySeconds: Math.ceil(parseDuration(delay, "delay") / 1000) })
+    message.retry(delay === undefined ? undefined : { delaySeconds: Math.ceil(parseDuration(delay, "delay", undefined, "s") / 1000) })
     return
   }
 
@@ -165,6 +167,8 @@ export function createCloudflareQueueClient(provider: CloudflareQueueDriverOptio
       return [undefined, { status: "queued" }]
     },
     async sendBatch(items, options) {
+      const removed = queueRemovedOptionsError("cloudflare", options, items)
+      if (removed) return [removed, undefined]
       const messages: ({ body: unknown } & CloudflareSendOptions)[] = []
       for (const item of items) {
         const [optionsError, sendOptions] = toSendOptions({

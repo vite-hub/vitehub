@@ -691,7 +691,7 @@ describe("local queue delivery with hosted provider rules", () => {
     const [delayed] = await client.send({}, { delay: "86401s" })
     expect(causeMessage(delayed)).toBe("Cloudflare accepts a `delay` of up to 86400 seconds, got 86401 seconds.")
     const [number] = await client.send({}, { delay: 60 as never })
-    expect(number).toMatchObject({ code: "RUNTIME_DURATION_INVALID", why: expect.stringContaining("`delay` is 60") })
+    expect(number).toMatchObject({ code: "RUNTIME_DURATION_INVALID", fix: expect.stringContaining('60 seconds is "1m"'), why: expect.stringContaining("`delay` is 60") })
     const [renamed] = await client.send({}, { delaySeconds: 60 } as never)
     expect(renamed).toMatchObject({ code: "QUEUE_UNSUPPORTED_OPTION", fix: expect.stringContaining("Rename `delaySeconds` to `delay`") })
     const [batch] = await client.sendBatch(Array.from({ length: 101 }, () => ({ body: {} })))
@@ -751,9 +751,9 @@ describe("local queue delivery with hosted provider rules", () => {
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] })
     try {
       // The delay is longer than the retention, so Vercel never delivers the job.
-      const [error, sent] = await client.send({}, { delay: "2m", retention: "1m" })
+      const [error, sent] = await client.sendBatch([{ body: {}, delay: "2m", retention: undefined } as never], { retention: "59.9s" } as never)
       expect(error).toBeUndefined()
-      late = sent!.messageId!
+      late = sent![0]!.messageId!
       await vi.advanceTimersByTimeAsync(61_000)
     }
     finally {
