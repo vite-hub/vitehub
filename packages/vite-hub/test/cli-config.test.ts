@@ -73,22 +73,30 @@ describe("ViteHub CLI config loading", () => {
   })
 
   // The babysitter app's config: the Agent CLI must open the journal that the server writes next to this State.
-  const babysitterState = "providers: { state: { driver: 'sqlite', url: 'file:.vitehub/agent-state.db' } }"
+  const state = "providers: { state: { driver: 'sqlite', url: 'file:.vitehub/agent-state.db' } }"
+  const vite = (options: string, before = "") => `import { vitehub } from 'vite-hub'\n${before}export default { plugins: [vitehub({ ${options} })] }\n`
   it.each([
-    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ host: 'node', agent: { ${babysitterState} } })] }\n`, "file:.vitehub/agent-state.db"],
-    ["nuxt.config.ts", `export default defineNuxtConfig({ vitehub: { agent: { invocations: {}, providers: { state: { url: 'file:/srv/app/state.db' } } } } })\n`, "file:/srv/app/state.db"],
-    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ host: 'vercel', agent: { ${babysitterState} } })] }\n`, undefined],
-    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ dataDir: '/data', agent: { ${babysitterState} } })] }\n`, undefined],
-    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ agent: { invocations: { databaseUrl: 'file:x.sqlite' }, ${babysitterState} } })] }\n`, undefined],
-    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ agent: { invocations: 'database', ${babysitterState} } })] }\n`, undefined],
-    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ agent: { providers: { state: { url: process.env.STATE_URL } } } })] }\n`, undefined],
-    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nconst agent = {}\nexport default { plugins: [vitehub({ agent: { ...agent, ${babysitterState} } })] }\n`, undefined],
-    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ agent: { providers: { state: { url: 'libsql://db.example.com' } } } })] }\n`, undefined],
-  ])("reads the file: Agent State URL of %s for the Invocation journal: %#", async (file, source, expected) => {
+    ["vite.config.ts", vite(`host: 'node', agent: { ${state} }`), {}, "file:.vitehub/agent-state.db"],
+    ["nuxt.config.ts", `export default defineNuxtConfig({ vitehub: { host: 'node', agent: { invocations: {}, providers: { state: { url: 'file:/srv/app/state.db' } } } } })\n`, {}, "file:/srv/app/state.db"],
+    // Without `host`, the build environment picks the host, and only Node puts the journal next to State.
+    ["vite.config.ts", vite(`agent: { ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'vercel', agent: { ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { ${state} }`), { VITEHUB_HOST: "deno" }, undefined],
+    ["vite.config.ts", vite(`host: 'node', dataDir: '/data', agent: { ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { invocations: { databaseUrl: 'file:x.sqlite' }, ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { invocations: 'database', ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { providers: { state: { url: process.env.STATE_URL } } }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { ...agent, ${state} }`, "const agent = {}\n"), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { providers: { state: { url: 'libsql://db.example.com' } } }`), {}, undefined],
+    // Only the options that take effect count: a second `vitehub()` call, Nuxt module options, or a spread config.
+    ["vite.config.ts", vite(`host: 'node', agent: { ${state} }`, "const other = vitehub(options)\n"), {}, undefined],
+    ["nuxt.config.ts", `export default defineNuxtConfig({ modules: [['vite-hub/nuxt', { host: 'node', agent: { providers: { state: { url: 'file:prod/state.db' } } } }]], vitehub: { host: 'node', agent: { providers: { state: { url: 'file:dev/state.db' } } } } })\n`, {}, undefined],
+    ["nuxt.config.ts", `export default defineNuxtConfig({ vitehub: { host: 'node', agent: { ${state} } }, ...shared })\n`, {}, undefined],
+  ])("reads the file: Agent State URL of %s for the Invocation journal: %#", async (file, source, env, expected) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
     roots.push(root)
     await writeFile(join(root, file), source, "utf8")
-    await expect(readAgentJournalStateUrl(root)).resolves.toBe(expected)
+    await expect(readAgentJournalStateUrl(root, env)).resolves.toBe(expected)
   })
 
   it("does not treat an unrelated local vitehub function as the ViteHub plugin", async () => {

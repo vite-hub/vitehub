@@ -17,7 +17,7 @@ const agentRuntimeFeatures: ViteHubCliCommandNamespace = {
       const cli = requireOptionalOwner(await importOptionalOwner("@vite-hub/agent", () => import("@vite-hub/agent/cli")), "agent")
       // The default journal goes next to a `file:` Agent State, which only the config names. Read it without evaluating the config.
       const { readAgentJournalStateUrl } = await import("./internal/runtime-feature-guard.ts")
-      const stateUrl = await readAgentJournalStateUrl(context.rootDir)
+      const stateUrl = await readAgentJournalStateUrl(context.rootDir, context.env)
       return cli.runAgentInvocationsCli(args, { ...context, ...(stateUrl ? { stateUrl } : {}) })
     },
   }],
