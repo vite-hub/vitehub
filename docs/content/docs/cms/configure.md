@@ -88,7 +88,7 @@ import { documents } from 'vite-hub/content/collections'
 
 export default defineContent({
   extends: [cms, {
-    repo: 'onmax/docs',
+    repo: 'acme/docs',
     branch: 'main',
     draftBranch: 'vitehub/content',
     root: '',

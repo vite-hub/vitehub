@@ -47,7 +47,7 @@ import { sendQueue } from 'vite-hub/queue'
 // Run the same job in 10 minutes
 export default defineEventHandler(async (event) => {
   const { email } = await readValidatedBody(event, body => v.parse(v.object({ email: v.string() }), body))
-  const [error, result] = await sendQueue('welcome-email', { email }, { delaySeconds: 600 })
+  const [error, result] = await sendQueue('welcome-email', { email }, { delay: '10m' })
   if (error) throw error
   return result
 })
@@ -111,7 +111,7 @@ export default defineConfig({
   :::
 
   :::product-feature-item{title="Wait before a job runs" icon="i-lucide-clock-3" to="/docs/queue/server-api#queue-enqueue-options"}
-  Set `delaySeconds` to start a job later.
+  Set `delay`, such as `'10m'`, to start a job later.
   :::
 
   :::product-feature-item{title="Typed names and data" icon="i-lucide-shield-check" to="/docs/queue/server-api#definition-owned-dispatch-types"}

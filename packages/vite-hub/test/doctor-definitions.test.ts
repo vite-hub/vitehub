@@ -121,7 +121,7 @@ describe("vitehub/queue-payload-options", () => {
       "server/api/a.ts": [
         'import { sendQueue, dynamicQueue } from "vite-hub/queue"',
         "export async function send(email: string) {",
-        '  await sendQueue("welcome-email", { payload: { email }, delaySeconds: 60 })',
+        '  await sendQueue("welcome-email", { payload: { email }, delay: "1m" })',
         '  dynamicQueue.defer("welcome-email", { payload: { email }, idempotencyKey: email })',
         "}",
       ].join("\n"),
@@ -133,9 +133,9 @@ describe("vitehub/queue-payload-options", () => {
       "server/api/a.ts": [
         'import { sendQueue } from "vite-hub/queue"',
         "export async function send(email: string) {",
-        '  await sendQueue("welcome-email", { email }, { delaySeconds: 60 })',
+        '  await sendQueue("welcome-email", { email }, { delay: "1m" })',
         '  await sendQueue("audit", { payload: { email }, region: "eu" })',
-        '  await sendQueue("audit", { payload: { email } }, { delaySeconds: 1 })',
+        '  await sendQueue("audit", { payload: { email } }, { delay: "1s" })',
         "}",
       ].join("\n"),
     })).toEqual([])

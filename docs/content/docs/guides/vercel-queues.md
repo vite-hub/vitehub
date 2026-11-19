@@ -110,9 +110,9 @@ import { sendQueue } from 'vite-hub/queue'
 
 export async function enqueueWelcome(email: string) {
   const [error, result] = await sendQueue('welcome-email', { email }, {
-    delaySeconds: 600,
+    delay: '10m',
     idempotencyKey: `welcome:${email}`,
-    retentionSeconds: 3600,
+    retention: '1h',
   })
   if (error) throw error
   return result
@@ -121,16 +121,16 @@ export async function enqueueWelcome(email: string) {
 
 | Option | Description |
 | --- | --- |
-| `delaySeconds` | Seconds to wait before delivery. Cloudflare accepts it too. |
+| `delay` | Time to wait before delivery, such as `'10m'`. Cloudflare accepts it too. |
 | `idempotencyKey` | Vercel drops a second send with the same key. Defaults to the message `id`. |
 | `region` | The Vercel region for this send. |
-| `retentionSeconds` | How long Vercel keeps the message before it expires. |
+| `retention` | How long Vercel keeps the message before it expires, such as `'1h'`, or a number of seconds. |
 
-`idempotencyKey`, `region`, and `retentionSeconds` work only on Vercel. On Cloudflare, they return `QUEUE_UNSUPPORTED_OPTION` and the job is not sent.
+`idempotencyKey`, `region`, and `retention` work only on Vercel. On Cloudflare, they return `QUEUE_UNSUPPORTED_OPTION` and the job is not sent.
 
 ### Send many jobs in one request
 
-`sendBatch()` on `useQueue()` sends 1 to 100 jobs in one `@vercel/queue` request. Each job takes `body` and its own `delaySeconds`, `idempotencyKey`, and `retentionSeconds`. The second argument sets `delaySeconds` and `retentionSeconds` for jobs that do not. The batch uses the client's region. This excerpt uses the Queue registry generated when Vite loads the app configuration.
+`sendBatch()` on `useQueue()` sends 1 to 100 jobs in one `@vercel/queue` request. Each job takes `body` and its own `delay`, `idempotencyKey`, and `retention`. The second argument sets `delay` and `retention` for jobs that do not. The batch uses the client's region. This excerpt uses the Queue registry generated when Vite loads the app configuration.
 
 ```ts [server/utils/enqueue-welcomes.ts] fragment
 import { useQueue } from 'vite-hub/queue'
@@ -139,7 +139,7 @@ export async function enqueueWelcomes(emails: string[]) {
   const queue = await useQueue('welcome-email')
   const [error, results] = await queue.sendBatch(
     emails.map(email => ({ body: { email }, idempotencyKey: `welcome:${email}` })),
-    { delaySeconds: 600 },
+    { delay: '10m' },
   )
   if (error) throw error
   return results
@@ -194,7 +194,7 @@ Vercel Queues has no dead letter queue. Acknowledge a job that can never succeed
 
 ## How to use Vercel Queues locally
 
-`pnpm dev` runs jobs in the dev server, with no Vercel project or token. It uses Vercel's defaults: a retry every 60 seconds until the job expires, 24 hours of retention (set by `retentionSeconds`), `delaySeconds` up to 7 days, and payloads up to 100 MB. It does not call `callbackOptions.retry`. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery).
+`pnpm dev` runs jobs in the dev server, with no Vercel project or token. It uses Vercel's defaults: a retry every 60 seconds until the job expires, 24 hours of retention (set by `retention`), a `delay` of up to 7 days, and payloads up to 100 MB. It does not call `callbackOptions.retry`. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery).
 
 ```bash [Terminal]
 pnpm dev
@@ -252,8 +252,8 @@ See [Queue limits and errors](/docs/queue/limits-and-errors) for error codes.
 The queue file and route stay the same. To move to Cloudflare Queues:
 
 1. Change `host: 'vercel'` to `host: 'cloudflare'`.
-2. Remove `idempotencyKey`, `region`, and `retentionSeconds` from `sendQueue()` calls.
-3. Replace `callbackOptions` with `onError`, which returns `'ack'`, `'retry'`, or `{ retry: { delaySeconds } }`.
+2. Remove `idempotencyKey`, `region`, and `retention` from `sendQueue()` calls.
+3. Replace `callbackOptions` with `onError`, which returns `'ack'`, `'retry'`, or `{ retry: { delay: '30s' } }`.
 4. Create the queues with `vitehub provision run --host cloudflare`.
 
 See [Cloudflare Queues](/docs/guides/cloudflare-queues) for all steps. Self-hosted Node uses the local driver. Deno has no Queue Provider. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a host.

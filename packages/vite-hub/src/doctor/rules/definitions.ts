@@ -160,7 +160,7 @@ export const definitionLocation: DoctorRule = createRule({
   },
 })
 
-const queueOptionKeys = new Set(["delaySeconds", "idempotencyKey", "retentionSeconds", "contentType"])
+const queueOptionKeys = new Set(["contentType", "delay", "idempotencyKey", "retention"])
 
 function isQueueEnqueue(reference: ViteHubReference | undefined): boolean {
   if (isExport(reference, ["queue"], ["sendQueue", "deferQueue"])) return true
@@ -186,7 +186,7 @@ export const queuePayloadOptions: DoctorRule = createRule({
         if (!options.length) return
         ctx.report(diagnostics.VHUB0016({
           why: `This call sends \`{ payload, ${options.join(", ")} }\` as the job payload. ViteHub does not read enqueue options from the payload, so \`${options.join("`, `")}\` has no effect.`,
-          fix: "Pass the payload and the options as separate arguments: `sendQueue(name, payload, { delaySeconds })`.",
+          fix: "Pass the payload and the options as separate arguments: `sendQueue(name, payload, { delay })`.",
         }), { range: ctx.range(args[1]) })
       },
     }

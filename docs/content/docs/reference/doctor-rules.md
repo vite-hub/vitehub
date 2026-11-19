@@ -650,14 +650,14 @@ An Agent can extend an Agent from any file, so the rule checks `defineAgent()` o
 
 **Pass Queue options as the third argument.** Rule `vitehub/queue-payload-options`.
 
-`sendQueue()`, `deferQueue()`, `dynamicQueue.send()`, and `dynamicQueue.defer()` take the payload and the options as separate arguments. If you wrap the payload with `delaySeconds`, `idempotencyKey`, `retentionSeconds`, or `contentType`, the whole object is sent as the payload and the options do nothing.
+`sendQueue()`, `deferQueue()`, `dynamicQueue.send()`, and `dynamicQueue.defer()` take the payload and the options as separate arguments. If you wrap the payload with `delay`, `idempotencyKey`, `retention`, or `contentType`, the whole object is sent as the payload and the options do nothing.
 
 ```ts [server/utils/signup.ts] fails=TS2353
 import { sendQueue } from 'vite-hub/queue'
 
 export async function signUp(email: string) {
   // Invalid
-  await sendQueue('welcome-email', { payload: { email }, delaySeconds: 60 })
+  await sendQueue('welcome-email', { payload: { email }, delay: '1m' })
 }
 ```
 
@@ -666,7 +666,7 @@ import { sendQueue } from 'vite-hub/queue'
 
 export async function signUp(email: string) {
   // Valid
-  await sendQueue('welcome-email', { email }, { delaySeconds: 60 })
+  await sendQueue('welcome-email', { email }, { delay: '1m' })
 }
 ```
 

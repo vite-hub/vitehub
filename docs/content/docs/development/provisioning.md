@@ -20,7 +20,7 @@ sets `readReplication`.
 | Cloudflare | Queues | Queue |
 | Vercel | Blob stores, connected to the project | Blob |
 
-`vitehub provision` accepts only `--host cloudflare` and `--host vercel`. The old `--provider` flag exits with a fix line that names `--host`.
+`vitehub provision` accepts only `--host cloudflare` and `--host vercel`. The old `--provider` flag exits with a fix line that names `--host`. Like `vitehub deploy --host`, it loads the config of a build for that host, with `VITEHUB_HOST=<host>` and `VITEHUB_HOST_SOURCE=cli`. A config that picks its stores with `detectHost()` gets the stores of that host.
 
 `vitehub deploy` runs the same plan before each build on Cloudflare and Vercel,
 so you rarely need `provision run` yourself. See
