@@ -122,22 +122,23 @@ export default async function optimize({ width, height }: ImageInput) {
 Create `server/api/image-optimizer.post.ts`. This route sends the input to the Sandbox and returns the result.
 
 ```ts [server/api/image-optimizer.post.ts]
-import { defineEventHandler, HTTPError, readBody } from 'h3'
+import { defineEventHandler, readBody } from 'h3'
+import { toResponse } from 'vite-hub/runtime'
 import { runSandboxTask } from 'vite-hub/sandbox/task'
 
 export default defineEventHandler(async (event) => {
   const input = await readBody<{ width: number, height: number }>(event)
-  const response = await runSandboxTask('image-optimizer', input)
+  const [error, result] = await runSandboxTask('image-optimizer', input)
 
-  if (!response.ok)
-    throw new HTTPError({ status: response.status, data: await response.json() })
+  if (error)
+    return toResponse(error)
 
-  return await response.json()
+  return result
 })
 ```
 
-- `runSandboxTask('image-optimizer', input)` runs the package with your input. It returns a normal `Response`.
-- If the run fails, `response.ok` is `false`. Always check it before you read the body.
+- `runSandboxTask('image-optimizer', input)` runs the package with your input. It returns `[error, result]`.
+- If the run fails, `error` is set. `toResponse(error)` answers with its status and `{ code, why, fix }`.
 
 Start the dev server in the terminal where you set the Vercel keys:
 
@@ -159,7 +160,7 @@ The response is:
 { "pixels": 786432, "format": "webp" }
 ```
 
-This JSON is the response body, not a file that the Sandbox writes. If the run takes more than 30 seconds, the response has an error status and a `SANDBOX_TASK_TIMEOUT` error. The provider decides what the code in the Sandbox can reach, such as the network and files.
+This JSON is the response body, not a file that the Sandbox writes. If the run takes more than 30 seconds, the route answers 504, and `error.data.code` is `SANDBOX_TASK_TIMEOUT`. The provider decides what the code in the Sandbox can reach, such as the network and files.
 
 ::
 

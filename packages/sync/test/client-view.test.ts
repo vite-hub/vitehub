@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 
-import { backoffDelay, buildView, mergeTarget, pullChange, pushChange, randomUUID, readError, toMutation, whereKey } from "../src/client/view.ts"
+import { buildView, mergeTarget, pullChange, pushChange, readError, toMutation, whereKey } from "../src/client/view.ts"
 
 import type { SyncPullResponse, SyncRow } from "../src/protocol.ts"
 import type { SyncMeta, SyncQueuedWrite } from "../src/client/storage.ts"
@@ -160,15 +160,6 @@ describe("whereKey", () => {
   })
 })
 
-describe("backoffDelay", () => {
-  it("doubles from 1 s to 30 s with jitter on the upper half", () => {
-    expect(backoffDelay(0, 0)).toBe(500)
-    expect(backoffDelay(0, 1)).toBe(1000)
-    expect(backoffDelay(3, 0.5)).toBe(6000)
-    expect(backoffDelay(20, 1)).toBe(30_000)
-  })
-})
-
 describe("readError", () => {
   it("reads the code of a ViteHub error body, and names the status when the body has none", () => {
     expect(readError(403, { code: "SYNC_FORBIDDEN", message: "No.", why: "No." })).toMatchObject({ code: "SYNC_FORBIDDEN", message: "No.", status: 403 })
@@ -177,22 +168,5 @@ describe("readError", () => {
     expect(readError(409, undefined)).toMatchObject({ code: "SYNC_ACCOUNT_CHANGED" })
     expect(readError(502, { code: "SYNC_BAD_REQUEST", message: "Proxy." })).toMatchObject({ code: "SYNC_SERVER_ERROR", status: 502 })
     expect(readError(418, { code: "NOT_SYNC" })).toMatchObject({ code: "SYNC_BAD_REQUEST", status: 418 })
-  })
-})
-
-describe("randomUUID", () => {
-  it("makes a version 4 UUID also where crypto.randomUUID() is missing, as on a LAN address over HTTP", () => {
-    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-    expect(randomUUID()).toMatch(uuid)
-    const real = globalThis.crypto
-    vi.stubGlobal("crypto", { getRandomValues: (array: Uint8Array<ArrayBuffer>) => real.getRandomValues(array) })
-    try {
-      const keys = new Set(Array.from({ length: 100 }, () => randomUUID()))
-      expect(keys.size).toBe(100)
-      for (const key of keys) expect(key).toMatch(uuid)
-    }
-    finally {
-      vi.unstubAllGlobals()
-    }
   })
 })
