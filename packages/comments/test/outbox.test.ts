@@ -373,6 +373,23 @@ describe("the comments outbox", () => {
     expect(server.creates).toHaveLength(4)
   })
 
+  it("holds the queue on 402, as on 401, until a retry", async () => {
+    const { browser, server, client } = setup()
+    server.plan.push(failure(402))
+    await client.create({ subject, anchor, body: "Over the plan" })
+    await vi.waitFor(() => expect(client.outbox.queued[0]?.error?.status).toBe(402))
+    expect(client.outbox.failures).toEqual([])
+    expect(browser.waits).toEqual([])
+    browser.online = false
+    browser.online = true
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(server.creates).toHaveLength(1)
+
+    await client.outbox.retry()
+    await vi.waitFor(() => expect(client.outbox.entries).toHaveLength(0))
+    expect(server.creates).toHaveLength(2)
+  })
+
   it("backs off from 1 s on a server error", async () => {
     const { browser, server, client } = setup()
     server.plan.push(failure(503), failure(503))

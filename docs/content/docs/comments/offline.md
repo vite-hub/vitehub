@@ -61,7 +61,7 @@ The outbox sends one entry at a time, in the order they were written. Each one c
 | Answer | The outbox |
 | --- | --- |
 | No answer, `408`, `429`, `5xx` | Waits and tries again: after `Retry-After` when the server sends it, else after 1 s, doubling to 30 s. It tries at once when the page is back online or visible. |
-| `401` | Waits for `retry()`, such as after a sign-in. |
+| `401`, `402` | Waits for `retry()`, such as after a sign-in or a plan upgrade. |
 | Any other `4xx` | Moves the entry to `failures`. The next entries go on. |
 
 A reply to a waiting comment waits until the comment is on the server, then goes to its server ID. A refused comment holds its replies until you retry or dismiss it. Replies are saved even if the thread is outside the current list. For an uncached thread, the returned view contains the waiting reply only; it does not add a thread to the list.

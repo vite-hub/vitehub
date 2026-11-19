@@ -281,9 +281,9 @@ function deliveryError(error: unknown): CommentDeliveryError & { retryAfter?: nu
   }
 }
 
-/** `wait`: try again later. `hold`: wait for a sign-in. `fail`: the server refused this entry. */
+/** `wait`: try again later. `hold`: wait for `retry()`, such as after a sign-in or a plan upgrade. `fail`: the server refused this entry. */
 function outcomeOf(status: number): "wait" | "hold" | "fail" {
-  if (status === 401) return "hold"
+  if (status === 401 || status === 402) return "hold"
   if (status === 408 || status === 429) return "wait"
   return status >= 400 && status < 500 ? "fail" : "wait"
 }
