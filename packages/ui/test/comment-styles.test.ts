@@ -21,23 +21,21 @@ it("keeps a long thread in the margin inside the screen, its messages scrolling 
   expect(messages?.[1]).toContain("max-height: none;");
 });
 
-it("draws a picture in a comment box as Drop does: a 40px square with no name and a round Remove badge on its corner", () => {
-  const picture = '[data-slot="comment-composer"] [data-slot="attachment"]:has(> [data-slot="attachment-media"][data-variant="image"])';
-  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const square = new RegExp(`${escape(picture)} \\{([\\s\\S]*?)\\n  \\}\\n`).exec(stylesheet)?.[1];
-  expect(square).toContain("padding: 0;");
-  expect(square).toMatch(/> \[data-slot="attachment-media"\] \{[^}]*width: 2\.5rem;/);
-  expect(square).toMatch(/> \[data-slot="attachment-media"\] \{[^}]*outline: 1px solid color-mix\(in oklab, var\(--vh-highlighted\) 10%, transparent\);/);
-  // The name is hidden on screen only. The image's alt and the button's label still name the file.
-  expect(square).toMatch(/> \[data-slot="attachment-content"\] \{[^}]*clip-path: inset\(50%\);/);
-  expect(square).toMatch(/> \[data-slot="attachment-actions"\] \{[^}]*right: -0\.375rem;[^}]*top: -0\.375rem;/);
+it("stacks the pictures of a comment box, and fans them out as 3.5rem cards with a round Remove badge", () => {
+  const card = /\n  \[data-slot="comment-image-stack-card"\] \{([\s\S]*?)\n  \}\n/.exec(stylesheet)?.[1];
+  expect(card).toContain("width: 1.75rem;");
+  expect(card).toMatch(/\[data-slot="comment-image-stack-remove"\] \{[^}]*visibility: hidden;/);
+  const fanned = /\[data-slot="comment-image-stack"\]\[data-fanned="true"\] \[data-slot="comment-image-stack-card"\] \{([\s\S]*?)\n  \}\n/.exec(stylesheet)?.[1];
+  expect(fanned).toContain("width: 3.5rem;");
+  expect(fanned).toContain("left: calc(var(--vh-stack-index) * var(--vh-stack-step));");
+  expect(fanned).toMatch(/\[data-slot="comment-image-stack-remove"\] \{[^}]*visibility: visible;/);
   // The badge is a Nuxt UI button, so its rule is outside the layers to win over Nuxt UI's classes.
-  const badge = new RegExp(`\\n${escape(picture)} \\[data-slot="attachment-actions"\\] > button \\{([^}]*)`).exec(stylesheet)?.[1];
+  const badge = /\n\[data-slot="comment-image-stack-remove"\] \{([^}]*)/.exec(stylesheet)?.[1];
   expect(badge).toContain("background: var(--vh-highlighted);");
   expect(badge).toContain("color: var(--vh-inverted);");
   expect(badge).toContain("border-radius: 9999px;");
   expect(badge).toContain("width: 1.25rem;");
-  expect(stylesheet.indexOf(`\n${picture} [data-slot="attachment-actions"] > button`)).toBeLessThan(stylesheet.indexOf("@layer components {"));
+  expect(stylesheet.indexOf('\n[data-slot="comment-image-stack-remove"] {')).toBeLessThan(stylesheet.indexOf("@layer components {"));
 });
 
 it("draws the sm reply box as a soft field with no divider, and its accented edge only while it has the focus", () => {
@@ -52,10 +50,14 @@ it("draws the sm reply box as a soft field with no divider, and its accented edg
   expect(stylesheet).toContain("--vh-border-accented: var(--vh-ui-border-accented, var(--ui-border-accented, ");
 });
 
-it("keeps the shape of a comment's image, up to 10rem tall, instead of a 4:3 crop", () => {
-  const images = /\[data-slot="comment-reply-images"\] \{([\s\S]*?)\n  \}\n/.exec(stylesheet)?.[1];
-  expect(images).toMatch(/& \.vh-image-preview \{[^}]*aspect-ratio: auto;[^}]*max-height: 10rem;[^}]*max-width: 100%;[^}]*width: auto;/);
-  expect(images).toMatch(/& \.vh-image-preview img \{[^}]*height: auto;[^}]*max-height: 10rem;[^}]*object-fit: contain;/);
+it("keeps the shape of a comment's only image, up to 10rem tall, and crops the tiles of more", () => {
+  const only = /\[data-count="1"\] > \[data-slot="comment-reply-image"\] \{([\s\S]*?)\n  \}\n/.exec(stylesheet)?.[1];
+  expect(only).toMatch(/& img \{[^}]*height: auto;[^}]*max-height: 10rem;[^}]*width: auto;/);
+  const tile = /\n  \[data-slot="comment-reply-image"\] \{([\s\S]*?)\n  \}\n/.exec(stylesheet)?.[1];
+  expect(tile).toMatch(/& img \{[^}]*object-fit: cover;/);
+  const mosaic = /\n  \[data-slot="comment-reply-images"\] \{([\s\S]*?)\n  \}\n/.exec(stylesheet)?.[1];
+  expect(mosaic).toMatch(/&\[data-count="2"\] \{[^}]*grid-template-columns: 1fr 1fr;/);
+  expect(mosaic).toMatch(/&\[data-count="4"\] \{[^}]*grid-template-columns: 1fr 1fr;/);
 });
 
 it("opens an sm thread beside its pin in Drop's 340px card, pointing at the pin, with its messages filling the card", () => {

@@ -13,7 +13,7 @@ import { displayName, writerName, writerPerson } from "../internal/comment-perso
 import { messagesSinceResolved } from "../internal/comment-status.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { type CommentCan, type CommentThreadAction, defaultCommentCan } from "../headless/comments.ts";
-import { ImagePreview } from "../internal/image-preview.ts";
+import { ImageGallery } from "../internal/image-gallery.ts";
 import { Attachment, AttachmentContent, AttachmentGroup, AttachmentMedia, AttachmentTitle } from "./attachment.ts";
 import { AvatarStack } from "./avatar-stack.ts";
 import { CommentComposer, type CommentComposerSize, type CommentComposerSlots, type CommentComposerSubmit } from "./comment-composer.ts";
@@ -84,7 +84,7 @@ function attachmentHref(value: string | undefined): string | undefined {
   }
 }
 
-// Shows the attachments of a message: images as thumbnails that open full size, and other files as chips. An attachment
+// Shows the attachments of a message: images as a mosaic that opens full size, and other files as chips. An attachment
 // is an image when its media type says so, or, without one, when its name has an image extension or none.
 function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | undefined, icon: Component, fileIcon: string) {
   if (message.attachments.length === 0) return null;
@@ -97,11 +97,11 @@ function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | und
     const image = href !== undefined && (link?.type ? link.type.startsWith("image/") : extension === undefined || imageExtensions.has(extension));
     return { href, image, key, name };
   });
-  const images = items.filter((item) => item.image);
+  const images = items.flatMap((item) => (item.image && item.href ? [{ key: item.key, name: item.name, src: item.href }] : []));
   const files = items.filter((item) => !item.image);
   return [
     images.length > 0
-      ? h("div", { "data-slot": "comment-reply-images" }, images.map((item) => h(ImagePreview, { alt: item.name, key: item.key, src: item.href })))
+      ? h(ImageGallery, { images })
       : null,
     files.length > 0
       ? h(AttachmentGroup, { "data-slot": "comment-reply-attachments" }, () =>

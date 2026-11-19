@@ -32,6 +32,7 @@ A number changes                                           → Digit roll
 Something appears next to its trigger: tooltip, hint       → Rises from behind its trigger, widens to fit, then slides between triggers
 Something arrives on its own: toast, banner, new message   → Comes in from its edge; the others make room with a spring
 Something moves to a new place: a picture that zooms         → It travels from its old box to its new one, position and size on springs
+Pictures wait in a comment box: a stack beside the text       → A new one comes out of where it came from; the stack fans out above the box, each card travelling to its place
 A share shows: the bars of a poll after a vote               → Each bar grows from where it was to its share, with the travel helper
 Something the person reads opens: menu, popover, dialog    → Opens at once; only the trigger reacts
 Show or hide content: details, a collapsible section       → The chevron turns with a spring; the content opens at once

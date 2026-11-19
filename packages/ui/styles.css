@@ -179,7 +179,13 @@
  */
 .vh-image-overlay {
   background: rgb(from var(--vh-media-scrim, var(--vh-bg-elevated)) r g b / 80%);
+  transition: opacity 150ms;
   z-index: 59;
+}
+
+/* The page shows again while a comment's picture travels back to its tile. */
+.vh-image-overlay--closing {
+  opacity: 0;
 }
 
 .vh-image-dialog {
@@ -377,7 +383,7 @@
 
 /* A picture's Remove button in a comment box is a 20px round badge in the inverted color, as in Drop. The button is a
    Nuxt UI button, so this rule stays outside a layer to win over its classes. */
-[data-slot="comment-composer"] [data-slot="attachment"]:has(> [data-slot="attachment-media"][data-variant="image"]) [data-slot="attachment-actions"] > button {
+[data-slot="comment-image-stack-remove"] {
   background: var(--vh-highlighted);
   border: 0;
   border-radius: 9999px;
@@ -2456,43 +2462,11 @@
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--vh-primary) 20%, transparent);
   }
 
-  /* The files in a comment box wrap, as in Drop, so the Remove badge on a picture's corner is not cut off. */
+  /* The files in a comment box wrap, as in Drop. */
   [data-slot="comment-composer"] [data-slot="prompt-input-attachments"] {
     flex-wrap: wrap;
     gap: 0.375rem;
     overflow: visible;
-  }
-
-  /* A picture in a comment box is a 40px square, as in Drop: no name, and the Remove button on its top right corner.
-     The name stays for a screen reader. Other files keep their chip with the name. */
-  [data-slot="comment-composer"] [data-slot="attachment"]:has(> [data-slot="attachment-media"][data-variant="image"]) {
-    background: none;
-    border: 0;
-    border-radius: calc(var(--vh-radius) * 0.75);
-    min-width: 0;
-    padding: 0;
-
-    & > [data-slot="attachment-media"] {
-      border-radius: inherit;
-      outline: 1px solid color-mix(in oklab, var(--vh-highlighted) 10%, transparent);
-      outline-offset: -1px;
-      width: 2.5rem;
-    }
-
-    & > [data-slot="attachment-content"] {
-      clip-path: inset(50%);
-      height: 1px;
-      overflow: hidden;
-      position: absolute;
-      white-space: nowrap;
-      width: 1px;
-    }
-
-    & > [data-slot="attachment-actions"] {
-      position: absolute;
-      right: -0.375rem;
-      top: -0.375rem;
-    }
   }
 
   [data-slot="comment-reply-attachments"] {
@@ -2521,27 +2495,190 @@
     padding: 0.75rem 0.75rem 0.25rem;
   }
 
+  /*
+   * The pictures of a message as a mosaic, as in a chat: one keeps its own shape up to 10rem tall, so a wide screenshot
+   * shows whole; two split the width; three put the first beside the other two; four or more show four, and the last
+   * says how many more. Each tile crops its picture to fill it.
+   */
   [data-slot="comment-reply-images"] {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
+    display: grid;
+    gap: 0.25rem;
     margin-top: 0.5rem;
 
-    /* A comment's image keeps its own shape, up to 10rem tall, so a wide screenshot shows whole instead of a 4:3 crop. */
-    & .vh-image-preview {
-      aspect-ratio: auto;
-      max-height: 10rem;
-      max-width: 100%;
-      width: auto;
+    &[data-count="1"] {
+      display: flex;
     }
 
-    & .vh-image-preview img {
+    &[data-count="2"] {
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 7rem;
+    }
+
+    &[data-count="3"] {
+      grid-template-columns: 2fr 1fr;
+      grid-template-rows: 4.75rem 4.75rem;
+
+      & > [data-slot="comment-reply-image"]:first-child {
+        grid-row: span 2;
+      }
+    }
+
+    &[data-count="4"] {
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 5.25rem 5.25rem;
+    }
+  }
+
+  [data-slot="comment-reply-image"] {
+    appearance: none;
+    background: var(--vh-bg-elevated);
+    border: 1px solid var(--vh-border);
+    border-radius: calc(var(--vh-radius) * 0.75);
+    color: var(--vh-muted);
+    cursor: zoom-in;
+    display: flex;
+    min-width: 0;
+    overflow: hidden;
+    padding: 0;
+    position: relative;
+
+    & img {
+      display: block;
+      height: 100%;
+      object-fit: cover;
+      width: 100%;
+    }
+
+    /* The tile of the open picture is empty while the picture is out of it. */
+    &[data-open="true"] {
+      visibility: hidden;
+    }
+  }
+
+  [data-count="1"] > [data-slot="comment-reply-image"] {
+    max-width: 100%;
+
+    & img {
       height: auto;
       max-height: 10rem;
       max-width: 100%;
-      object-fit: contain;
       width: auto;
     }
+  }
+
+  [data-slot="comment-reply-image-more"] {
+    background: color-mix(in oklab, var(--vh-highlighted) 55%, transparent);
+    color: var(--vh-inverted);
+    display: grid;
+    font-size: 0.9375rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    inset: 0;
+    place-items: center;
+    position: absolute;
+  }
+
+  /*
+   * The pictures of a comment box as one stack of cards beside the text. The top card sits in front, and up to two
+   * more peek out behind it. The count sits on its corner. Hover, focus, or a tap fans the cards out above the box,
+   * each 3.5rem square with its Remove badge, and the motion layer travels them between the two places.
+   */
+  [data-slot="comment-image-stack"] {
+    align-self: flex-end;
+    flex: none;
+    height: 2rem;
+    position: relative;
+    width: 2.5rem;
+
+    &:not(:has([data-slot="comment-image-stack-card"])) {
+      display: none;
+    }
+  }
+
+  [data-slot="comment-image-stack-cards"] {
+    inset: 0;
+    position: absolute;
+  }
+
+  [data-slot="comment-image-stack-card"] {
+    --vh-stack-near: clamp(0, var(--vh-stack-depth), 2);
+    background: var(--vh-bg-elevated);
+    border-radius: calc(var(--vh-radius) * 0.75);
+    box-shadow: 0 0 0 2px var(--vh-bg), 0 1px 3px color-mix(in oklab, var(--vh-highlighted) 18%, transparent);
+    height: 1.75rem;
+    left: calc(0.125rem + var(--vh-stack-near) * 0.1875rem);
+    opacity: clamp(0, 3 - var(--vh-stack-depth), 1);
+    position: absolute;
+    top: calc(0.25rem - var(--vh-stack-near) * 0.1875rem);
+    width: 1.75rem;
+    z-index: calc(10 - var(--vh-stack-near));
+
+    & .vh-image-preview {
+      border-radius: inherit;
+    }
+
+    & [data-slot="comment-image-stack-remove"] {
+      position: absolute;
+      right: -0.375rem;
+      top: -0.375rem;
+      visibility: hidden;
+    }
+  }
+
+  [data-slot="comment-image-stack"][data-fanned="true"] [data-slot="comment-image-stack-card"] {
+    bottom: calc(100% + 0.5rem);
+    height: 3.5rem;
+    left: calc(var(--vh-stack-index) * var(--vh-stack-step));
+    opacity: 1;
+    top: auto;
+    width: 3.5rem;
+    z-index: calc(20 + var(--vh-stack-index));
+
+    & [data-slot="comment-image-stack-remove"] {
+      visibility: visible;
+    }
+  }
+
+  [data-slot="comment-image-stack-toggle"] {
+    appearance: none;
+    background: none;
+    border: 0;
+    border-radius: calc(var(--vh-radius) * 0.75);
+    cursor: pointer;
+    inset: 0;
+    padding: 0;
+    position: absolute;
+    z-index: 15;
+  }
+
+  [data-slot="comment-image-stack-count"] {
+    background: var(--vh-highlighted);
+    border-radius: 9999px;
+    box-shadow: 0 0 0 2px var(--vh-bg);
+    color: var(--vh-inverted);
+    font-size: 0.6875rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    height: 1.125rem;
+    line-height: 1.125rem;
+    min-width: 1.125rem;
+    padding: 0 0.3125rem;
+    pointer-events: none;
+    position: absolute;
+    right: -0.25rem;
+    text-align: center;
+    top: -0.25rem;
+    transition: opacity 150ms;
+    z-index: 16;
+  }
+
+  [data-fanned="true"] > [data-slot="comment-image-stack-count"] {
+    opacity: 0;
+  }
+
+  /* Once the text of a row box wraps, the stack moves to the row of the buttons, after attach. */
+  [data-slot="comment-composer"][data-layout="row"][data-multiline="true"] [data-slot="comment-image-stack"] {
+    order: 1;
   }
 
   [data-slot="comment-thread-actions"] {
@@ -3009,6 +3146,51 @@
     max-height: calc(92dvh - 3rem);
     max-width: 92vw;
     object-fit: contain;
+  }
+
+  /* The preview of a comment's pictures: the toolbar with the name and the count, and the picture between its arrows. */
+  .vh-image-gallery__body {
+    display: contents;
+  }
+
+  .vh-image-gallery .vh-image-dialog__toolbar {
+    transition: opacity 150ms;
+
+    &[data-closing="true"] {
+      opacity: 0;
+    }
+  }
+
+  .vh-image-gallery__count {
+    color: var(--vh-on-media, var(--vh-muted));
+    display: inline-flex;
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    margin-inline-end: 0.25rem;
+    opacity: 0.8;
+    white-space: pre;
+  }
+
+  .vh-image-gallery__stage {
+    display: flex;
+    justify-content: center;
+    position: relative;
+  }
+
+  .vh-image-gallery__step {
+    border-radius: 9999px;
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 1;
+
+    &.vh-image-gallery__step--previous {
+      left: 0.5rem;
+    }
+
+    &.vh-image-gallery__step--next {
+      right: 0.5rem;
+    }
   }
 
   .vh-image-dialog__error {
