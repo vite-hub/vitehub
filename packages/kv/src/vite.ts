@@ -81,7 +81,7 @@ export type KVVitePlugin = Plugin & {
   api: KVVitePluginAPI
   nitro: {
     name: string
-    setup: (nitro: { options: NitroCloudflareKVTarget }) => void
+    setup: (nitro: KVNitroBuild) => void
   }
   vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & { operations: readonly OperationContributionEntry[] }
 }
@@ -287,6 +287,12 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
   ].join("\n")
 }
 
+/** The parts of a Nitro build that KV changes. */
+interface KVNitroBuild {
+  hooks?: { hook: (name: "prerender:config", callback: (config: { virtual?: Record<string, string | (() => string)> }) => void) => unknown }
+  options: NitroCloudflareKVTarget
+}
+
 interface NitroCloudflareKVTarget {
   handlers?: unknown[]
   kv?: Record<string, unknown>
@@ -427,6 +433,11 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
       setup(nitro) {
         nitroOptions = nitro.options
         if (runtimeConfig) reconcileNitroCloudflareKV(nitroOptions, runtimeConfig.kv, ownedNitroNamespaces, readProvisionStateSync(projectRoot))
+        // Prerender bundles the server again with Rolldown, without Vite plugins, so `resolveId` below never sees the
+        // config import there. Nitro copies its virtual modules into that build, and this one has the build's config.
+        nitro.hooks?.hook("prerender:config", (config) => {
+          config.virtual = { ...config.virtual, [KV_VIRTUAL_CONFIG_ID]: () => serializeVirtualConfig(getConfig(), databaseImport) }
+        })
       },
     },
     vitehub: {
