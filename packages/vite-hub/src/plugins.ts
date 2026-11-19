@@ -16,7 +16,7 @@ import { hubBundle } from "@vite-hub/bundle/vite"
 import { hubSource } from "@vite-hub/source/vite"
 import { viteHubHintsPlugin } from "@vite-hub/internal/hints"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { collapseWranglerConfigFile } from "@vite-hub/internal/build/cloudflare"
+import { collapseWranglerConfigFile, defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { collectDeploymentEnv, describeDeploymentPlanOutput, finalizeDeploymentPlanOutput, mergeDeploymentEnv } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DeploymentDeployManifest, DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-plan-output"
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
@@ -847,6 +847,21 @@ type ResolvedBuildConfig = {
 
 interface BundlerConfig { plugins?: unknown }
 
+interface NitroCompatibilityDateOptions {
+  _c12?: { layers?: ReadonlyArray<{ config?: { compatibilityDate?: unknown } | null }> }
+  _config?: { compatibilityDate?: unknown }
+  compatibilityDate: Record<string, string>
+}
+
+const compatibilityDateEnv = ["NITRO_COMPATIBILITY_DATE", "SERVER_COMPATIBILITY_DATE", "COMPATIBILITY_DATE", "COMPATIBILITY_DATE_CLOUDFLARE"]
+
+/** Whether the app picks the Nitro compatibility date: in `nitro()`, the Vite config, a Nitro config file, or the env. */
+function setsCompatibilityDate(options: NitroCompatibilityDateOptions): boolean {
+  if (compatibilityDateEnv.some(name => process.env[name])) return true
+  if (options._config?.compatibilityDate !== undefined) return true
+  return options._c12?.layers?.some(layer => layer.config?.compatibilityDate !== undefined) ?? false
+}
+
 function deploymentNitroModule(
   plan: DeploymentPlan,
   services: DeploymentServicesManifest,
@@ -868,9 +883,13 @@ function deploymentNitroModule(
         & ((name: "build:config", callback: (nitro: unknown, config: { rolldown?: BundlerConfig, rollup?: BundlerConfig }) => void) => void)
     }
     logger: { warn(message: string): void }
-    options: { cloudflare?: { deployConfig?: boolean }, commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
+    options: NitroCompatibilityDateOptions & { cloudflare?: { deployConfig?: boolean }, commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
   }) => {
     if (hostFromNitroPreset(nitro.options.preset) !== plan.host) return
+    if (plan.host === "cloudflare" && !setsCompatibilityDate(nitro.options)) {
+      // Without a date, Nitro writes the build day into wrangler.json, and Wrangler refuses a date newer than its workerd.
+      nitro.options.compatibilityDate = { default: defaultCloudflareCompatibilityDate }
+    }
     if (plan.host === "cloudflare" && nitro.options.cloudflare?.deployConfig !== false && !isDeployCommandOwned()) {
       // Nitro's `--cwd ./` relies on the `.wrangler/deploy` redirect in the project root, which a copied output lacks and a parent Wrangler config breaks.
       // `--cwd` into the server directory fails once that redirect exists, so name the config file.
