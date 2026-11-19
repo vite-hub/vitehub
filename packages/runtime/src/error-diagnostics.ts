@@ -40,6 +40,7 @@ type RuntimeErrorCode =
   | "RUNTIME_EXECUTION_BUDGET_AMOUNT_INVALID"
   | "RUNTIME_EXECUTION_BUDGET_EXCEEDED"
   | "RUNTIME_EXECUTION_BUDGET_LIMIT_INVALID"
+  | "RUNTIME_HIDDEN_ERROR"
   | "RUNTIME_SERIALIZED_RESPONSE_INVALID"
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
@@ -86,6 +87,10 @@ const codes: Record<RuntimeErrorCode, RuntimeCodeDefinition> = {
   RUNTIME_EXECUTION_BUDGET_LIMIT_INVALID: {
     why: () => "[vitehub] Execution budget limits must be finite non-negative numbers.",
     fix: "Set each limit of `executionBudget`, such as `maxToolCalls` or `maxOutputBytes`, to a finite number of 0 or more, or remove it.",
+  },
+  RUNTIME_HIDDEN_ERROR: {
+    why: () => "The server failed. The error is not a ViteHub error, so its message and stack stay on the server.",
+    fix: "Read the server logs for the error. To send a code, a why, and a fix to the client, return a `ResultError` from `defineErrors()` and pass it to `toResponse()`.",
   },
   RUNTIME_SERIALIZED_RESPONSE_INVALID: {
     why: () => "Invalid serialized Response",

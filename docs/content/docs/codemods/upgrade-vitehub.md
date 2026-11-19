@@ -121,6 +121,17 @@ npx @vite-hub/codemods result-tuples [dir] [--dry-run]
 
 `return startWorkflow(...)` in an async function and a call in an `if` test move to a `const` before the statement. The codemod reads imports from `vite-hub/workflow`, `vite-hub/schedule`, and their `@vite-hub/*` forms. In Nuxt's `server/` directory, it also reads Workflow auto-imports. It only rewrites `runSchedule()` with a Schedule import, so it leaves app auto-imports with the same name alone. The report lists the calls that it cannot change, such as a call in a function that is not `async`, a call without `await`, or a handle that another file creates.
 
+These calls changed in the same way, and `result-tuples` reads them too:
+
+| Call | Before | Import |
+| --- | --- | --- |
+| `listAuthEvents()`, `aggregateAuthEvents()` | threw | `vite-hub/auth/server`, `vite-hub/auth/runtime/console` |
+| `runBrowserContent()` | threw | `vite-hub/browser` |
+| `ask()` of `typesafe()`, `vercel()`, `cloudflare()`, and `askWithModel(model)` | threw | `vite-hub/gateways` |
+| `runBrowser()`, `runSandboxTask()` | returned a `Response` | `vite-hub/browser`, `vite-hub/sandbox/task`, and their Nuxt auto-imports |
+
+`runBrowser()` and `runSandboxTask()` returned a `Response`, and now return the value of the handler as `data`. The codemod rewrites them only where a route file returns the call, as in `return runBrowser(...)`, because the route then answers with the same body. It lists the other calls, such as `const response = await runSandboxTask(...)` followed by `response.json()`. It also lists a gateway that a file exports. i18n `save()` already returned `[error, data]`, so it needs no change. A custom gateway `ask()` that `defineChoices({ gateway })` gets must return `[undefined, answers]` now. Change it by hand.
+
 ## one-entry-imports
 
 ViteHub folded some subpaths into one entry per concept. `one-entry-imports` moves each import:

@@ -36,7 +36,7 @@ A catalog code can give static or computed `data`, which stays in memory. Each f
 
 ### Return an error from a route
 
-`toResponse(error)` from `vite-hub/runtime` turns a `ResultError` into a JSON `Response` with `code`, `why`, and `fix`. The status is the `status` of the catalog code, such as 409 for a conflict, or 500 when the code has none.
+`toResponse(error)` from `vite-hub/runtime` turns a `ResultError` into a JSON `Response` with `code`, `why`, and `fix`. The status is the `status` of the catalog code, such as 409 for a conflict, or 500 when the code has none. The body never has the `stack`, `cause`, or `data` of the error. Any other Nostics diagnostic gets the same body. Any other `Error` answers 500 with [`RUNTIME_HIDDEN_ERROR`](/docs/development/diagnostics/runtime_hidden_error), because its message can name server details.
 
 In the body of a handler that has already authorized the caller to edit translations:
 

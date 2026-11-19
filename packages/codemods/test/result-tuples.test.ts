@@ -60,7 +60,7 @@ export async function run() {
     const cwd = await mkdtemp(join(tmpdir(), "vitehub-result-tuples-"))
     try {
       await cp(join(fixture, "input"), cwd, { recursive: true })
-      await expect(resultTuples.detect({ cwd })).resolves.toMatchObject({ reason: expect.stringContaining("reads a Workflow or Schedule call") })
+      await expect(resultTuples.detect({ cwd })).resolves.toMatchObject({ reason: expect.stringContaining("reads a call that returns") })
       await runCodemod("result-tuples", { cwd })
       const again = await runCodemod("result-tuples", { cwd, dryRun: true })
       expect(again.result.edits).toEqual([])

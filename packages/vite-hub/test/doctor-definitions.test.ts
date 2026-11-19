@@ -176,6 +176,23 @@ describe("vitehub/no-destructure-non-tuples", () => {
     })).toEqual(["VHUB0018", "VHUB0018"])
   })
 
+  it("accepts the tuple form of the calls that returned their value before", async () => {
+    expect(await codes(noDestructureNonTuples, {
+      "server/api/a.ts": [
+        'import { listAuthEvents } from "vite-hub/auth/server"',
+        'import { runBrowser, runBrowserContent } from "vite-hub/browser"',
+        'import { typesafe } from "vite-hub/gateways"',
+        "export async function run() {",
+        "  const [eventsError, events] = await listAuthEvents({})",
+        '  const [browserError, page] = await runBrowser("page-html", {})',
+        '  const [contentError, html] = await runBrowserContent("https://example.com")',
+        '  const [askError, answers] = await typesafe().ask("text", {})',
+        "  return { eventsError, events, browserError, page, contentError, html, askError, answers }",
+        "}",
+      ].join("\n"),
+    })).toEqual([])
+  })
+
   it("accepts the tuple form of startWorkflow, runSandboxTask, and runAgent", async () => {
     expect(await codes(noDestructureNonTuples, {
       "server/api/a.ts": [

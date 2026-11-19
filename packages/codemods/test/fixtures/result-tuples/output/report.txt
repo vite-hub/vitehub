@@ -1,16 +1,23 @@
-result-tuples: read 7 Workflow or Schedule call(s) as `[error, data]` in 5 file(s)
+result-tuples: read 12 call(s) as `[error, data]` in 8 file(s)
 Dry run: no files were written.
 
-Files to change (5):
+Files to change (8):
+  server/api/audit.get.ts
   server/api/onboard.post.ts
+  server/api/pages/render.post.ts
   server/api/runs/[id].delete.ts
   server/api/runs/[id].get.ts
   server/api/schedules/run.post.ts
+  server/utils/label.ts
   server/utils/reminders.ts
 
-Manual follow-ups (2):
-  1. server/utils/reminders.ts:13 `reminders.start()` returns `[error, data]` now. It no longer throws on a runtime failure, such as a provider or store failure or an input that is not valid. Read the error first: `const [error, data] = await reminders.start(...)`, then `if (error) throw error`.
-  2. server/utils/reminders.ts:17 `reminders.start()` returns `[error, data]` now. It no longer throws on a runtime failure, such as a provider or store failure or an input that is not valid. Read the error first: `const [error, data] = await reminders.start(...)`, then `if (error) throw error`.
+Manual follow-ups (6):
+  1. server/api/audit.get.ts:5 `aggregateAuthEvents()` returns `[error, data]` now. It no longer throws on a runtime failure, such as a provider or store failure or an input that is not valid. Read the error first: `const [error, data] = await aggregateAuthEvents(...)`, then `if (error) throw error`.
+  2. server/api/pages/render.post.ts:6 `runBrowser()` returns `[error, data]` now, not a `Response`. `data` is the value that the handler returned, so code that reads `response.ok`, `response.status`, or `response.json()` must change. Read `const [error, data] = await runBrowser(...)`, then `if (error) return toResponse(error)` with `toResponse` from `vite-hub/runtime`.
+  3. server/utils/label.ts:3 `gateway` is an exported gateway. In other files, read `.ask()` as `[error, answers]`. Those call sites are not rewritten automatically.
+  4. server/utils/label.ts:15 `runSandboxTask()` returns `[error, data]` now, not a `Response`. `data` is the value that the handler returned, so code that reads `response.ok`, `response.status`, or `response.json()` must change. Read `const [error, data] = await runSandboxTask(...)`, then `if (error) return toResponse(error)` with `toResponse` from `vite-hub/runtime`.
+  5. server/utils/reminders.ts:13 `reminders.start()` returns `[error, data]` now. It no longer throws on a runtime failure, such as a provider or store failure or an input that is not valid. Read the error first: `const [error, data] = await reminders.start(...)`, then `if (error) throw error`.
+  6. server/utils/reminders.ts:17 `reminders.start()` returns `[error, data]` now. It no longer throws on a runtime failure, such as a provider or store failure or an input that is not valid. Read the error first: `const [error, data] = await reminders.start(...)`, then `if (error) throw error`.
 
 Notes:
   - Each rewritten call throws its error, as the call did before. Return the error to the client, or handle it, where that is better.
