@@ -853,13 +853,23 @@ interface NitroCompatibilityDateOptions {
   compatibilityDate: Record<string, string>
 }
 
-const compatibilityDateEnv = ["NITRO_COMPATIBILITY_DATE", "SERVER_COMPATIBILITY_DATE", "COMPATIBILITY_DATE", "COMPATIBILITY_DATE_CLOUDFLARE"]
+function applyCloudflareCompatibilityDate(options: NitroCompatibilityDateOptions): void {
+  if (options._config?.compatibilityDate !== undefined
+    || options._c12?.layers?.some(layer => layer.config?.compatibilityDate !== undefined)) return
+  const value = process.env.NITRO_COMPATIBILITY_DATE || process.env.SERVER_COMPATIBILITY_DATE || process.env.COMPATIBILITY_DATE
+  const date = value === "latest" ? new Date() : new Date(value ?? "")
+  const cloudflare = process.env.COMPATIBILITY_DATE_CLOUDFLARE && options.compatibilityDate.cloudflare
+  options.compatibilityDate = {
+    default: Number.isNaN(date.getTime()) ? defaultCloudflareCompatibilityDate : date.toISOString().slice(0, 10),
+    ...(cloudflare ? { cloudflare } : {}),
+  }
+}
 
-/** Whether the app picks the Nitro compatibility date: in `nitro()`, the Vite config, a Nitro config file, or the env. */
-function setsCompatibilityDate(options: NitroCompatibilityDateOptions): boolean {
-  if (compatibilityDateEnv.some(name => process.env[name])) return true
-  if (options._config?.compatibilityDate !== undefined) return true
-  return options._c12?.layers?.some(layer => layer.config?.compatibilityDate !== undefined) ?? false
+export function applyCloudflareNodeCompatOptOut(cloudflare: Record<string, unknown>, rootDir: string): void {
+  if (cloudflare.nodeCompat !== true) return
+  const inline = isRecord(cloudflare.wrangler) ? cloudflare.wrangler.compatibility_flags : undefined
+  const project = readProjectWranglerConfig(rootDir)?.compatibility_flags
+  if ([inline, project].some(flags => Array.isArray(flags) && flags.includes("no_nodejs_compat"))) cloudflare.nodeCompat = false
 }
 
 function deploymentNitroModule(
@@ -883,12 +893,12 @@ function deploymentNitroModule(
         & ((name: "build:config", callback: (nitro: unknown, config: { rolldown?: BundlerConfig, rollup?: BundlerConfig }) => void) => void)
     }
     logger: { warn(message: string): void }
-    options: NitroCompatibilityDateOptions & { cloudflare?: { deployConfig?: boolean }, commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
+    options: NitroCompatibilityDateOptions & { cloudflare?: { deployConfig?: boolean, nodeCompat?: boolean, wrangler?: unknown }, commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
   }) => {
     if (hostFromNitroPreset(nitro.options.preset) !== plan.host) return
-    if (plan.host === "cloudflare" && !setsCompatibilityDate(nitro.options)) {
-      // Without a date, Nitro writes the build day into wrangler.json, and Wrangler refuses a date newer than its workerd.
-      nitro.options.compatibilityDate = { default: defaultCloudflareCompatibilityDate }
+    if (plan.host === "cloudflare") {
+      applyCloudflareCompatibilityDate(nitro.options)
+      if (nitro.options.cloudflare) applyCloudflareNodeCompatOptOut(nitro.options.cloudflare, nitro.options.rootDir)
     }
     if (plan.host === "cloudflare" && nitro.options.cloudflare?.deployConfig !== false && !isDeployCommandOwned()) {
       // Nitro's `--cwd ./` relies on the `.wrangler/deploy` redirect in the project root, which a copied output lacks and a parent Wrangler config breaks.
