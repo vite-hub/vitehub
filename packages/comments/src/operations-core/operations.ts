@@ -3,6 +3,7 @@ import { clientAddressKey, createClientRateLimit } from "@vite-hub/internal/runt
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import * as v from "valibot"
 
+import { outboxAccountHeader } from "../client-files.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
 import { commentThreadSummary, commentThreadsText, describeCommentThread, hiddenThreadsNote } from "../thread-text.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
@@ -158,6 +159,13 @@ function author(who: CommentsCaller): CommentUser {
   return guest
 }
 
+function checkOutboxAccount(who: CommentsCaller): void {
+  const expected = who.request?.headers.get(outboxAccountHeader)
+  if (expected != null && expected !== encodeURIComponent(author(who).id)) {
+    throw fail(commentsErrorDiagnostics.COMMENTS_OUTBOX_ACCOUNT_CHANGED(), 401)
+  }
+}
+
 const guestLimits = new WeakMap<CommentsRuntime, ReturnType<typeof createClientRateLimit>>()
 
 /**
@@ -303,6 +311,7 @@ export const commentActions = {
 
   /** `context` is the page context that the overlay read and its transport checked. */
   async create(input: CommentCreateInput & { context?: CommentContext }, who: CommentsCaller): Promise<CommentThread> {
+    checkOutboxAccount(who)
     const canRead = (thread: CommentThread) => permitted(who, "read", { thread })
     // A retry gets the first thread even when the caller lost write access since the first call.
     const earlier = await earlierThread(who.runtime, input)
@@ -315,6 +324,7 @@ export const commentActions = {
 
   /** `allowResolved`: the operations keep a reply box on resolved threads, and a reply keeps the thread resolved. */
   async reply(input: CommentReplyInput, who: CommentsCaller, options: { allowResolved?: boolean } = {}): Promise<{ thread: CommentThread, message: CommentMessage }> {
+    checkOutboxAccount(who)
     const found = await load(who, input.threadId)
     // A retry gets the first message even when the caller lost write access or the thread was resolved since then.
     const earlier = await earlierReply(found, input.requestId)
@@ -388,6 +398,7 @@ export const commentActions = {
   },
 
   async upload(input: CommentUploadInput, who: CommentsCaller): Promise<CommentAttachment> {
+    checkOutboxAccount(who)
     const target = input.subject ? { subject: input.subject } : {}
     await allow(who, "read", target)
     await allow(who, "write", target)
