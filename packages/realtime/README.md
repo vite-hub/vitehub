@@ -110,6 +110,8 @@ console.log(checkpoint.document.body)
 console.log(checkpoint.snapshot.id)
 ```
 
+Checkpoints use the Workspace Store's author by default. Set `document.checkpointAuthor` only to look up a Git identity approved for publication for the identified requester. Leave it unset for GitHub branches that require signed commits.
+
 ## Share presence without a document
 
 Set `document: false` when a room only shows who is there and what each person shares, such as a cursor. Nothing loads or saves, `authorize()` is asked only for `read`, and the rooms work with every Realtime driver.
