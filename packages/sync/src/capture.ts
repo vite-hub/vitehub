@@ -111,14 +111,16 @@ const maxAttempts = 3
  *
  * Each install raises the floor, so every client with a cursor gets a full snapshot: triggers that were missing, such as
  * after a migration rebuilt the table, missed writes, and older exits lack a new scope column.
+ * `reserve` leaves room for both batches of an attempt before it registers columns.
  */
-export async function captureChanges(owner: object, db: SyncDatabase, table: string, key: string, columns: readonly string[]): Promise<void> {
+export async function captureChanges(owner: object, db: SyncDatabase, table: string, key: string, columns: readonly string[], reserve?: (calls: number) => void): Promise<void> {
   let tables = installed.get(owner)
   if (!tables) installed.set(owner, tables = new Map())
   const done = tables.get(table)
   if (done && columns.every(column => column === key || done.has(column))) return
   const names = syncTriggerNames(table)
   for (let attempt = 1; ; attempt++) {
+    reserve?.(2)
     const [, registered, shape, existing, indexes] = await db.batch([
       db.run(sql`INSERT OR IGNORE INTO ${syncColumns} (${sql.identifier("table_name")}, ${sql.identifier("column")}) SELECT ${table}, value FROM json_each(${JSON.stringify(columns)})`),
       db.select({ column: syncColumns.column }).from(syncColumns).where(eq(syncColumns.tableName, table)),

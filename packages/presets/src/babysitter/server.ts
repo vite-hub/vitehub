@@ -51,7 +51,7 @@ import { dailyPassResumeAt, nextReviewPushBudget, repairPushAllowance, type Prog
 import { createForgeQuota, createProviderQuota } from "./provider-quota.ts";
 import { baseFixedSinceFailure, staleBaseOverlap, type BaseFreshnessReader } from "./base-freshness.ts";
 import { currentActionRuns, failedOwnActions, inheritedBypassSafety, inheritedCheckEvaluation, jobFailureFacts, parseFailedActionOutput, sameActionFailure, unrelatedFailureWait, type FailedActionOutput, type FailureCause, type InheritedCheckEvaluation, type JobFailureFacts } from "./ci-attribution.ts";
-import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety, sameRepositoryBranches, stackChildBaseDeletion, foldParent, foldMethod } from "./stack.ts";
+import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety, sameRepositoryBranches, stackChildBaseDeletion, foldParent, foldMethod, isForkHead } from "./stack.ts";
 import { babysitterModelAdmission, type BabysitterAdmissionResult } from "./admission.ts";
 import { boundedMergeReady } from "./merge-ready.ts";
 import { createBabysitterInstaller } from "./install.ts";
@@ -551,8 +551,129 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   }
 
   /**
-   * A required check that never reported gets a fresh run: a branch behind its base is updated, and a
-   * current one has its head's Actions runs rerun. Once per head every six hours.
+   * Pushes a fork PR's head to its `merge.forkHeadBranches` branch, so required checks that run only on
+   * pushes to the repository report on it. A push runs the workflow files of the pushed commit with the
+   * repository's permissions, so the host pushes only a head that GitHub reports, now, as:
+   * - approved at that exact SHA by a reviewer with write access, with no change request standing;
+   * - carrying the same `.github` tree as the base branch, so every workflow and action is the base's own.
+   * It moves only a branch it created itself. Once per head; a refused or failed push is tried again after an hour.
+   */
+  async function pushForkHead(snapshot: Snapshot, owner: Record<string, unknown>, missing: string[], signal: AbortSignal): Promise<boolean> {
+    const { repository, number } = snapshot;
+    const head = snapshot.pr?.head?.sha;
+    const baseRef = snapshot.pr?.base?.ref;
+    const template = merge.mode === "direct" ? merge.forkHeadBranches?.get(repository.toLowerCase()) : undefined;
+    if (!template || !head || !baseRef || !isForkHead(snapshot.pr, repository)) return false;
+    const key = forkHeadKey(repository, number);
+    const previous = await pullRequestInbox.meta(key);
+    const record = isRuntimeRecord(previous) ? previous : {};
+    if (record.head === head && (record.pushed === true || Number(record.at) > Date.now() - 60 * 60_000)) return false;
+    const branch = template.replaceAll("{number}", String(number));
+    const settle = async (pushed: boolean, fields: Record<string, unknown>) => {
+      await pullRequestInbox.setMeta(key, { ...record, head, at: Date.now(), pushed, ...fields });
+    };
+    try {
+      const { provider } = await forge(repository, signal);
+      const read = async (path: string) => (await retryTransient(() => provider.request<unknown>("GET", path, { signal }), signal)).data;
+      const refusal = await forkHeadRefusal(repository, number, head, baseRef, read);
+      if (refusal) {
+        await settle(false, {});
+        schedulerEvent("babysitter.fork_head.skipped", { ...owner, missing, branch, reason: refusal });
+        return false;
+      }
+      const ref = await read(`/repos/${repository}/git/ref/heads/${branch}`).catch((error: unknown) => {
+        if (forgeErrorStatus(error) === 404) return undefined;
+        throw error;
+      });
+      const tip = isRuntimeRecord(ref) && isRuntimeRecord(ref.object) ? ref.object.sha : undefined;
+      if (tip === head) {
+        await settle(true, { branch, sha: head });
+        return false;
+      }
+      if (ref !== undefined && !(record.branch === branch && tip === record.sha)) {
+        await settle(false, {});
+        schedulerEvent("babysitter.fork_head.skipped", { ...owner, missing, branch, reason: "branch exists and the host did not create it" });
+        return false;
+      }
+      if (ref !== undefined) await provider.request("PATCH", `/repos/${repository}/git/refs/heads/${branch}`, { body: { sha: head, force: true }, signal });
+      else await provider.request("POST", `/repos/${repository}/git/refs`, { body: { ref: `refs/heads/${branch}`, sha: head }, signal });
+    } catch (error) {
+      await noteForgeQuota(error, "fork-head-push");
+      await settle(false, {});
+      schedulerEvent("babysitter.fork_head.push_failed", { ...owner, missing, branch, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+      return false;
+    }
+    await settle(true, { branch, sha: head });
+    schedulerEvent("babysitter.fork_head.pushed", { ...owner, missing, branch, head_sha: head });
+    return true;
+  }
+
+  /** Why GitHub's current state does not allow pushing a fork head, or undefined when it does. */
+  async function forkHeadRefusal(repository: string, number: number, head: string, baseRef: string, read: (path: string) => Promise<unknown>): Promise<string | undefined> {
+    const pr = await read(`/repos/${repository}/pulls/${number}`);
+    if (!isRuntimeRecord(pr) || pr.state !== "open" || !isRuntimeRecord(pr.head) || pr.head.sha !== head) return "head changed";
+    const latest = new Map<string, { state: string; commit: unknown }>();
+    const reviews = await readRest(`repos/${repository}/pulls/${number}/reviews?per_page=100`, ".[]");
+    for (const review of reviews) {
+      if (!isRuntimeRecord(review) || !isRuntimeRecord(review.user) || !hasRuntimeType(review.user.login, "string")) continue;
+      const state = String(review.state ?? "").toUpperCase();
+      if (state === "APPROVED" || state === "CHANGES_REQUESTED" || state === "DISMISSED") latest.set(review.user.login.toLowerCase(), { state, commit: review.commit_id });
+    }
+    if ([...latest.values()].some(review => review.state === "CHANGES_REQUESTED")) return "changes requested";
+    let approved = false;
+    for (const [login, review] of latest) {
+      if (review.state !== "APPROVED" || review.commit !== head) continue;
+      const permission = await read(`/repos/${repository}/collaborators/${encodeURIComponent(login)}/permission`);
+      if (isRuntimeRecord(permission) && ["admin", "maintain", "write"].includes(String(permission.permission))) approved = true;
+    }
+    if (!approved) return `no approval of ${head.slice(0, 7)} by a reviewer with write access`;
+    const githubTree = async (treeish: string) => {
+      const tree = await read(`/repos/${repository}/git/trees/${encodeURIComponent(treeish)}`);
+      const entries = isRuntimeRecord(tree) && Array.isArray(tree.tree) ? tree.tree : [];
+      const entry = entries.find(item => isRuntimeRecord(item) && item.path === ".github" && item.type === "tree");
+      return isRuntimeRecord(entry) ? entry.sha : undefined;
+    };
+    const [headTree, baseTree] = await Promise.all([githubTree(head), githubTree(baseRef)]);
+    return headTree === baseTree ? undefined : `.github differs from ${baseRef}`;
+  }
+
+  const forkHeadKey = (repository: string, number: number) => `fork-head-push:${repository}#${number}`;
+
+  /**
+   * Deletes the `merge.forkHeadBranches` branches of PRs that are no longer open, at most every ten minutes.
+   * A branch is deleted only while it still points at the SHA the host pushed.
+   */
+  async function sweepForkHeadBranches(): Promise<void> {
+    if (merge.mode !== "direct" || !merge.forkHeadBranches?.size) return;
+    if ((await pullRequestInbox.metaNumber("fork-head-sweep-next") ?? 0) > Date.now()) return;
+    await pullRequestInbox.setMeta("fork-head-sweep-next", Date.now() + 10 * 60_000);
+    for (const [key, value] of await pullRequestInbox.metaEntries("fork-head-push:")) {
+      const match = /^fork-head-push:(.+)#(\d+)$/.exec(key);
+      if (!match || !isRuntimeRecord(value) || !hasRuntimeType(value.branch, "string") || !hasRuntimeType(value.sha, "string")) continue;
+      const [, repository, number] = match;
+      if ((await pullRequestInbox.get(repository, Number(number)))?.status !== "terminal") continue;
+      try {
+        const { provider } = await forge(repository);
+        const ref = await provider.request<unknown>("GET", `/repos/${repository}/git/ref/heads/${value.branch}`).then(response => response.data, (error: unknown) => {
+          if (forgeErrorStatus(error) === 404) return undefined;
+          throw error;
+        });
+        if (isRuntimeRecord(ref) && isRuntimeRecord(ref.object) && ref.object.sha === value.sha) {
+          await provider.request("DELETE", `/repos/${repository}/git/refs/heads/${value.branch}`);
+          schedulerEvent("babysitter.fork_head.deleted", { repository, pullRequest: Number(number), branch: value.branch });
+        }
+        await pullRequestInbox.deleteMeta(key);
+      } catch (error) {
+        await noteForgeQuota(error, "fork-head-delete");
+        schedulerEvent("babysitter.fork_head.delete_failed", { repository, pullRequest: Number(number), branch: value.branch, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+      }
+    }
+  }
+
+  /**
+   * A required check that never reported gets a fresh run: an approved fork head is pushed to its
+   * `merge.forkHeadBranches` branch, a branch behind its base is updated, and a current one has its
+   * head's Actions runs rerun. Once per head every six hours.
    */
   async function retestMissingRequiredChecks(snapshot: Snapshot, owner: Record<string, unknown>, signal: AbortSignal): Promise<boolean> {
     const { repository, number } = snapshot;
@@ -562,6 +683,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (!head || !baseRef || pr.draft || conflicted(snapshot)) return false;
     const missing = missingRequiredChecks(snapshot, await requiredCheckEvaluation(snapshot, signal));
     if (!missing.length) return false;
+    if (await pushForkHead(snapshot, owner, missing, signal)) return true;
     const key = `missing-check-retest:${repository}#${number}`;
     const previous = await pullRequestInbox.meta(key);
     if (isRuntimeRecord(previous) && previous.head === head && Number(previous.at) > Date.now() - 6 * 60 * 60_000) return false;
@@ -1578,6 +1700,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       }
     }
     await checkMainRepairs(repositories, track);
+    await sweepForkHeadBranches().catch(error => schedulerError("babysitter.fork_head.sweep_failed", error));
     try {
       // One open-PR query per repository and minute finds lost deliveries; only changed PRs are probed.
       await detectChangedPullRequests(pullRequestInbox, repository => readGraphql(repository), repositories, Date.now(), !eventScopedBootstrap, (repository, error) => {

@@ -8,3 +8,4 @@ export {
   defineBrowser,
   runBrowser,
 } from "./runtime.ts"
+export type { BrowserRunErrorCode } from "./run-errors.ts"

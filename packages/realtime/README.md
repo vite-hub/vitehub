@@ -110,6 +110,8 @@ console.log(checkpoint.document.body)
 console.log(checkpoint.snapshot.id)
 ```
 
+Checkpoints use the Workspace Store's author by default. Set `document.checkpointAuthor` only to look up a Git identity approved for publication for the identified requester. Leave it unset for GitHub branches that require signed commits.
+
 ## Share presence without a document
 
 Set `document: false` when a room only shows who is there and what each person shares, such as a cursor. Nothing loads or saves, `authorize()` is asked only for `read`, and the rooms work with every Realtime driver.
@@ -173,7 +175,7 @@ const [error, answer] = await requestRealtimeRoom("tabs", tabId, { want: "title"
 - Realtime routes follow the app base, including a Nuxt `app.baseURL`. With Vite `base: "/portal/"`, connections use `/portal/_vitehub/realtime/**`; Nitro's own `baseURL` is counted once.
 - `refreshRealtimeDocument(definition, id)` tells an open room that its stored copy changed outside it. Document adapters may implement `hold()` and `release()` to keep a lease while writers are in a room.
 - One WebSocket message is limited to 1 MiB. Document state and awareness state are each limited to 8 MiB per room, and one peer can own at most 1,024 awareness clients.
-- Changing or disabling the document, or disposing its Vue scope, destroys the document provider. `save()`, `history.checkpoint()`, and `refresh()` return `[error, data]` with a `RealtimeRequestErrorCode`. A checkpoint returns `REALTIME_DISCONNECTED` during a document switch until the Vue watcher creates the new document, and when its original document is disconnected or replaced during a retry. The application still owns editor disposal, checkpoint error handling, and reconnect UX.
+- Changing or disabling the document, or disposing its Vue scope, destroys the document provider. `save()`, `history.checkpoint()`, and `refresh()` return `[error, data]` with a `RealtimeRequestErrorCode`. A `REALTIME_REQUEST_FAILED` error has the HTTP status in `error.data.status`. A checkpoint returns `REALTIME_DISCONNECTED` during a document switch until the Vue watcher creates the new document, and when its original document is disconnected or replaced during a retry. The application still owns editor disposal, checkpoint error handling, and reconnect UX.
 
 ## Public imports
 

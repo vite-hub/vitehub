@@ -9,7 +9,6 @@ import { defineChannel, webhook } from "../src/index.ts"
 import { hubChannels } from "../src/vite.ts"
 
 const fixedCodes = [
-  "CHANNELS_B0001",
   "CHANNELS_C0001",
   "CHANNELS_C0007",
   "CHANNELS_C0008",
@@ -42,7 +41,7 @@ it("names signature and secret when a webhook adapter cannot verify requests", (
   }))
 })
 
-it("names the agent option when a webhook Channel builds without the Agent plugin", async () => {
+it("names the webhook host when a webhook Channel builds without the Agent plugin", async () => {
   const root = await mkdtemp(join(tmpdir(), "channels-error-fixes-"))
   try {
     await mkdir(join(root, "server/channels"), { recursive: true })
@@ -50,8 +49,8 @@ it("names the agent option when a webhook Channel builds without the Agent plugi
     // SAFETY: configResolved reads only `plugins` and `root` in this test.
     const configure = hubChannels().configResolved as unknown as (config: { plugins: Array<{ name: string }>, root: string }) => Promise<void>
     await expect(configure({ plugins: [], root })).rejects.toMatchObject({
-      code: "CHANNELS_B0001",
-      fix: expect.stringContaining("`agent: true`"),
+      code: "CHANNELS_WEBHOOK_HOST_OFF",
+      fix: expect.stringContaining("Remove `agent: false`"),
     })
   }
   finally {

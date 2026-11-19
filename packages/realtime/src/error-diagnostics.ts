@@ -2,6 +2,12 @@ import { defineErrors } from "@vite-hub/runtime"
 
 export type RealtimeRequestAction = "checkpoint" | "refresh" | "save"
 
+/** The `data` of a `REALTIME_REQUEST_FAILED` error. */
+export type RealtimeRequestFailure = {
+  /** HTTP status of the server answer, such as `409` when the stored document changed. `undefined` for a network error. */
+  status: number | undefined
+}
+
 type RealtimeInvalidAccessReason = "auth" | "not-authorize" | "not-public" | "origins-without-identify" | "public-with-rule"
 
 // Keep published codes stable. Each code has a heading on the docs page.
@@ -28,7 +34,8 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
     REALTIME_REQUEST_FAILED: {
       why: ({ action, message, status }: { action: RealtimeRequestAction, message?: string, status?: number }) =>
         `The realtime \`${action}()\` request failed${status === undefined ? "" : ` with HTTP ${status}`}${message ? `: ${message}` : "."}`,
-      fix: "Read `error.why` for the server message, and `error.cause` for a network error. Retry when the server is available again.",
+      fix: "Read `error.why` for the server message, `error.data.status` for the HTTP status, and `error.cause` for a network error. Retry when the server is available again.",
+      data: ({ status }: { action: RealtimeRequestAction, message?: string, status?: number }): RealtimeRequestFailure => ({ status }),
     },
 
     // Room request errors. `requestRealtimeRoom()` returns them as `[error, undefined]`.
