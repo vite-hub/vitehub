@@ -32,7 +32,7 @@ describe("createSync in the browser", () => {
     }, "/docs/")
     await store.refresh()
     expect(store.getState()).toMatchObject({ status: "ready", persisted: false, rows: [{ id: "a" }] })
-    expect(urls[0]).toBe("/docs/_vitehub/sync/todos")
+    expect(urls[0]).toBe("/docs/_vitehub/sync/todos?paged=1")
   })
 
   it("shares one store for one name, until the last user destroys it", async () => {
