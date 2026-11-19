@@ -21,7 +21,7 @@ function isDiagnostic(error: unknown): error is Diagnostic {
  * `[CODE] message`, then the sources, the cause, the docs link and the fix, so the last line says what to do. nostics
  * prints the fix before the docs link.
  */
-function formatViteHubDiagnostic(diagnostic: Diagnostic, cause?: string): string {
+function formatViteHubDiagnostic(diagnostic: Diagnostic<unknown>, cause?: string): string {
   const details = [
     ...(diagnostic.sources?.length ? [`sources: ${diagnostic.sources.join(", ")}`] : []),
     ...(cause ? [`cause: ${cause}`] : []),
@@ -32,7 +32,7 @@ function formatViteHubDiagnostic(diagnostic: Diagnostic, cause?: string): string
 }
 
 /** Prints to stderr, with the original error of a diagnostic after it when the diagnostic has a `cause`. */
-const printDiagnostic = createConsoleReporter({ method: "error", formatter: diagnostic => formatViteHubDiagnostic(diagnostic) })
+const printDiagnostic = createConsoleReporter({ method: "error", formatter: formatViteHubDiagnostic })
 
 /**
  * Makes `util.inspect` show a diagnostic as its short text, with the fix on the last line. Vite prints an error of the
