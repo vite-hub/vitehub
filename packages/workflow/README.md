@@ -1,10 +1,10 @@
 # @vite-hub/workflow
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=discovery">
-  <img alt="Workflow" src="https://comark-ui.onmax.me/badge.svg?label=Workflow&amp;value=durable+steps">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Vite" src="https://img.shields.io/static/v1?label=Vite&amp;message=discovery&amp;color=blue">
+  <img alt="Workflow" src="https://img.shields.io/static/v1?label=Workflow&amp;message=durable+steps&amp;color=blue">
 </p>
 
 `@vite-hub/workflow` discovers named long-running work and exposes one provider-neutral API for starting and inspecting runs.
@@ -37,20 +37,22 @@ The former `workflow.database` option was never connected to Named Databases. It
 // server/workflows/onboard-user.ts
 import { defineWorkflow } from "@vite-hub/workflow";
 
-export default defineWorkflow("onboard-user", async (payload: { email: string }, { id, provider }) => {
-  const idempotencyKey = `onboard-user:${payload.email}`;
-  const user = await upsertUser(payload.email, { idempotencyKey });
-  await sendWelcomeEmail(user.email, { idempotencyKey: `${idempotencyKey}:welcome-email` });
+export default defineWorkflow<{ email: string }>({
+  handler: async ({ payload, id, provider }) => {
+    const idempotencyKey = `onboard-user:${payload.email}`;
+    const user = await upsertUser(payload.email, { idempotencyKey });
+    await sendWelcomeEmail(user.email, { idempotencyKey: `${idempotencyKey}:welcome-email` });
 
-  return { id, provider };
+    return { id, provider };
+  },
 });
 ```
 
 Both external operations receive keys derived from stable input. Preserve that idempotency when adding side effects so retrying a completed operation does not duplicate it.
 
-ViteHub discovers `server/workflows/<name>.ts`, folder workflows such as `server/workflows/onboard-user/index.ts`, and `src/<name>.workflow.ts`. The file or folder name is the Workflow name. Pass the same name to `defineWorkflow(name, handler)` and to the runtime helpers. A definition that passes another name fails with `WORKFLOW_C0019` when the Workflow loads.
+ViteHub discovers `server/workflows/<name>.ts`, folder workflows such as `server/workflows/onboard-user/index.ts`, and `src/<name>.workflow.ts`. The file or folder path is the Workflow name. `defineWorkflow()` takes one object and no name. Pass the name to the runtime helpers.
 
-The handler gets `(payload, context)`. Annotate `payload` to type it. `context` has `id`, `name`, `provider`, and `steps`.
+The handler gets one object with `payload`, `id`, `name`, `provider`, `sleep`, and `steps`. Pass the payload type as the type argument of `defineWorkflow()`. ViteHub writes the names and payload types to `.vitehub/workflow.d.ts`, so `startWorkflow("onboard-user", payload)` checks both.
 
 ## Call typed steps
 
@@ -60,9 +62,11 @@ A folder Workflow runs its numbered files as steps. `01.create-user.ts` becomes 
 // server/workflows/onboard-user/index.ts
 import { defineWorkflow } from "@vite-hub/workflow";
 
-export default defineWorkflow("onboard-user", async (payload: { email: string }, { steps }) => {
-  const user = await steps.createUser(payload);
-  return await steps.sendWelcome(user);
+export default defineWorkflow<{ email: string }>({
+  handler: async ({ payload, steps }) => {
+    const user = await steps.createUser(payload);
+    return await steps.sendWelcome(user);
+  },
 });
 ```
 
@@ -80,7 +84,7 @@ export default async function sendWelcome(user: { id: string, email: string }) {
 }
 ```
 
-The Vite Integration writes `.vitehub/workflow.d.ts`. It declares the step files of each folder Workflow, so each step takes the input type of its file and returns its result type. A call to a step that has no file is a type error. Include `.vitehub/workflow.d.ts` in your TypeScript project; `vite-hub` includes it through `.vitehub/types.d.ts`.
+The Vite Integration writes `.vitehub/workflow.d.ts`. A step name shared by multiple folders accepts only inputs that all those steps accept and can return any of their result types. A call to a step that has no file is a type error. At runtime, only the current folder's steps are available. Include `.vitehub/workflow.d.ts` in your TypeScript project; `vite-hub` includes it through `.vitehub/types.d.ts`.
 
 ## Configure the driver
 
@@ -254,12 +258,13 @@ async function durableOnboard({ payload }: WorkflowProviderContext<OnboardPayloa
   return { userId: user.id };
 }
 
-async function inlineOnboard(payload: OnboardPayload) {
-  const user = await upsertUser(payload.email, { idempotencyKey: `onboard-user:${payload.email}` });
-  return { userId: user.id };
-}
-
-export default defineWorkflow("onboard-user", inlineOnboard, { native: durableOnboard });
+export default defineWorkflow<OnboardPayload>({
+  handler: async ({ payload }) => {
+    const user = await upsertUser(payload.email, { idempotencyKey: `onboard-user:${payload.email}` });
+    return { userId: user.id };
+  },
+  native: durableOnboard,
+});
 ```
 
 ViteHub transforms `native` when it generates Vercel output. Other providers keep using the normal handler. `vite dev` does not transform `native`, so the dev server runs the normal handler inline, also with the Vercel provider. Test the durable entry on a Vercel preview deployment. Vercel calls `native` with a `WorkflowProviderContext`, which has no `steps` runner. Put external side effects in idempotent `use step` functions because a durable step may be retried.
@@ -308,11 +313,13 @@ Only a folder Workflow can sleep. Its `index.ts` calls `context.sleep()` between
 
 ```ts fragment
 // server/workflows/remind-user/index.ts, next to 01.send-welcome.ts and 02.send-reminder.ts
-export default defineWorkflow("remind-user", async (payload: { email: string, remindAt: string }, { sleep, steps }) => {
-  await steps.sendWelcome(payload);
-  await sleep("1 day");
-  await sleep(new Date(payload.remindAt));
-  await steps.sendReminder(payload);
+export default defineWorkflow<{ email: string, remindAt: string }>({
+  handler: async ({ payload, sleep, steps }) => {
+    await steps.sendWelcome(payload);
+    await sleep("1 day");
+    await sleep(new Date(payload.remindAt));
+    await steps.sendReminder(payload);
+  },
 });
 ```
 
@@ -344,7 +351,7 @@ A single-file Workflow runs as one root step, and a replay after a sleep would r
 A typed Workflow handle requires a payload when its handler requires one. Both `start()` and `defer()` use this rule. A handle with an optional payload or `void` input can still start with no argument. To set start options for a no-input Workflow, pass `undefined` first.
 
 ```ts fragment
-const welcome = createWorkflow("welcome", async (payload: { email: string }) => {
+const welcome = createWorkflow<{ email: string }>("welcome", async ({ payload }) => {
   await sendWelcomeEmail(payload.email)
 })
 await welcome.start({ email: "ada@example.com" })

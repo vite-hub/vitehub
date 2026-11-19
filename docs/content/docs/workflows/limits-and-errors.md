@@ -14,16 +14,18 @@ Throw `ViteHubError` for failures that look the same on every provider. ViteHub'
 import { ViteHubError } from 'vite-hub/runtime'
 import { defineWorkflow } from 'vite-hub/workflow'
 
-export default defineWorkflow('transcribe', async (payload: { recordingId: string }) => {
-  try {
-    return await transcribeRecording(payload.recordingId)
-  }
-  catch (cause) {
-    throw new ViteHubError('TRANSCRIPTION_FAILED', 'Transcription failed.', {
-      cause,
-      details: { recordingId: payload.recordingId },
-    })
-  }
+export default defineWorkflow<{ recordingId: string }>({
+  handler: async ({ payload }) => {
+    try {
+      return await transcribeRecording(payload.recordingId)
+    }
+    catch (cause) {
+      throw new ViteHubError('TRANSCRIPTION_FAILED', 'Transcription failed.', {
+        cause,
+        details: { recordingId: payload.recordingId },
+      })
+    }
+  },
 })
 ```
 
@@ -117,11 +119,13 @@ A `setTimeout` in a handler is not durable. Only a folder Workflow can sleep. It
 ```ts [server/workflows/remind-user/index.ts] fragment
 import { defineWorkflow } from 'vite-hub/workflow'
 
-export default defineWorkflow('remind-user', async (payload: { email: string, remindAt: string }, { sleep, steps }) => {
-  await steps.sendWelcome(payload)
-  await sleep('1 day')
-  await sleep(new Date(payload.remindAt))
-  await steps.sendReminder(payload)
+export default defineWorkflow<{ email: string, remindAt: string }>({
+  handler: async ({ payload, sleep, steps }) => {
+    await steps.sendWelcome(payload)
+    await sleep('1 day')
+    await sleep(new Date(payload.remindAt))
+    await steps.sendReminder(payload)
+  },
 })
 ```
 
