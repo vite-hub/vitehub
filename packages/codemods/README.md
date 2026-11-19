@@ -401,7 +401,7 @@ npx @vite-hub/codemods choices-package [dir] [--dry-run]
 | Old | New |
 | --- | --- |
 | `@vite-hub/decisions` in `package.json` | `@vite-hub/choices`, at the same version range |
-| `import { defineChoices } from 'vite-hub/decisions'` | `import { defineChoices } from 'vite-hub/choices'` |
+| `vite-hub/decisions` and `@vite-hub/decisions` in imports | `vite-hub/choices` and `@vite-hub/choices` |
 | `vite-hub/decisions/vue`, `@vite-hub/decisions/vue` | `vite-hub/choices/vue`, `@vite-hub/choices/vue` |
 | `vitehub decisions list` in a package script | `vitehub choices list` |
 
