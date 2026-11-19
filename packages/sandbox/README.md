@@ -1,9 +1,9 @@
 # @vite-hub/sandbox
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fsandbox&icon=npm)](https://npmx.dev/package/@vite-hub/sandbox)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fsandbox&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/sandbox)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/sandbox)](https://npmx.dev/package/@vite-hub/sandbox)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/sandbox)](https://npmx.dev/package/@vite-hub/sandbox)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/sandbox` owns portable execution for ViteHub. A project declares environment inputs, immutable Home files, writable Home state, and boot checks; a runtime Adapter turns that declaration into an inspectable preparation plan and opens active Sandbox sessions without exposing a provider SDK.
 

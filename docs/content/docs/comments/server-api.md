@@ -311,7 +311,7 @@ const transport = createRestTransport({
   // The name that a guest typed, when `authorize` lets anonymous people write.
   guest: () => readGuest(),
 })
-const client = createCommentsClient({ transport, user, query: { subject: { kind: 'drop', id: '42' } } })
+const client = createCommentsClient({ transport, user, query: { subject: { kind: 'doc', id: '42' } } })
 
 // A thumbnail of an attachment: the URL checks that the reader may read its thread.
 const src = transport.attachmentUrl(thread.messages[0].attachments[0])
