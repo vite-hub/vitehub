@@ -2697,7 +2697,7 @@ function providerEvent(event: ProviderRuntimeEvent, tools: AgentToolSet | undefi
     case "content.delta":
       if (event.payload.streamKind === "assistant_text") return [{ id: providerTextDeltaId(event), messageId: event.itemId ?? event.turnId ?? "provider", phase: isSubAgentText(event) ? "commentary" : event.itemId ? messagePhases.get(event.itemId) ?? "final" : "final", text: event.payload.delta, type: "text-delta" }]
       if (event.payload.streamKind === "command_output") return [providerDataEvent(event)]
-      return [{ id: providerTextDeltaId(event), phase: "commentary", text: event.payload.delta, type: "text-delta" }]
+      return [{ id: providerTextDeltaId(event), phase: event.payload.streamKind === "reasoning_text" || event.payload.streamKind === "reasoning_summary_text" ? "reasoning" : "commentary", text: event.payload.delta, type: "text-delta" }]
     case "item.started": {
       const details = providerToolDetails(event)
       return isProviderToolItem(event.itemId, event.payload.itemType)
@@ -4162,7 +4162,7 @@ async function generateProvider<CALL_OPTIONS, TRuntimeConfig extends AgentRuntim
     for await (const event of iterable) {
       await tracer?.write(event)
       // A turn can end with several final assistant messages. The result is the latest one.
-      if (event.type === "text-delta" && event.phase !== "commentary") {
+      if (event.type === "text-delta" && (event.phase === "final" || event.phase === undefined)) {
         const next = appendLatestFinalText(text, textIdentity, event)
         text = next.text
         textIdentity = next.identity

@@ -718,8 +718,8 @@ export function toAgentStreamEvent(
   }
   const messageId = explicitMessageId ?? messageState?.messageId
   const hasExplicitPhase = "phase" in value && value.phase !== undefined
-  const phase = value.phase === "commentary"
-    ? "commentary"
+  const phase = value.phase === "commentary" || value.phase === "reasoning"
+    ? value.phase
     : value.phase === "final" || value.phase === "final_answer"
       ? "final"
       : undefined

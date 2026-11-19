@@ -358,7 +358,8 @@ export interface Message {
   role: MessageRole
 }
 
-export type AgentMessagePhase = "commentary" | "final"
+/** `final` is the answer, `commentary` is progress the Agent writes for the user, and `reasoning` is the model's own thinking, which a Channel never posts. */
+export type AgentMessagePhase = "commentary" | "final" | "reasoning"
 
 export type AgentActivity =
   | { kind: "action", name: string }

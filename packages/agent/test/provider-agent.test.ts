@@ -3077,7 +3077,7 @@ cli_auth_credentials_store = "keyring"
       "usage",
       "finish",
     ])
-    expect(events[1]).toMatchObject({ phase: "commentary", text: "thinking" })
+    expect(events[1]).toMatchObject({ phase: "reasoning", text: "thinking" })
     expect(events[6]).toMatchObject({ phase: "final", text: "done" })
     expect(events[7]).toMatchObject({ usageRecord: { usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } } })
     expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ runtimeMode: "approval-required", threadId }))
@@ -3399,9 +3399,34 @@ cli_auth_credentials_store = "keyring"
 
     const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as StreamEvent[]
     expect(events.filter(event => event.type === "text-delta")).toEqual([
-      { id: "reasoning_summary_text:reasoning-1:0", phase: "commentary", text: "**Reading related facts**", type: "text-delta" },
+      { id: "reasoning_summary_text:reasoning-1:0", phase: "reasoning", text: "**Reading related facts**", type: "text-delta" },
       { id: "assistant_text:message-1:0", messageId: "message-1", phase: "commentary", text: "I’m also applying the evidence skill.", type: "text-delta" },
     ])
+  })
+
+  it("labels Codex reasoning text as reasoning, keeps it out of the result, and keeps other progress as commentary", async () => {
+    const threadId = "thread-reasoning-phase"
+    runtime(threadId, [
+      event("content.delta", threadId, { delta: "**Previewing old output**", streamKind: "reasoning_text" }, { itemId: "rs-1", turnId: "turn-1" }),
+      event("content.delta", threadId, { delta: "- Read the files", streamKind: "plan_text" }, { itemId: "plan-1", turnId: "turn-1" }),
+      event("content.delta", threadId, { delta: "Done.", streamKind: "assistant_text" }, { itemId: "answer", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+
+    const events = await collect(await adapter.stream!(context(threadId) as never)) as StreamEvent[]
+    expect(events.filter(event => event.type === "text-delta")).toEqual([
+      { id: "reasoning_text:rs-1:0", phase: "reasoning", text: "**Previewing old output**", type: "text-delta" },
+      { id: "plan_text:plan-1:0", phase: "commentary", text: "- Read the files", type: "text-delta" },
+      { id: "assistant_text:answer:0", messageId: "answer", phase: "final", text: "Done.", type: "text-delta" },
+    ])
+
+    runtime("thread-reasoning-result", [
+      event("content.delta", "thread-reasoning-result", { delta: "**Previewing old output**", streamKind: "reasoning_summary_text" }, { itemId: "rs-1", turnId: "turn-1" }),
+      event("content.delta", "thread-reasoning-result", { delta: "Done.", streamKind: "assistant_text" }, { itemId: "answer", turnId: "turn-1" }),
+      event("turn.completed", "thread-reasoning-result", { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    await expect(adapter.generate(context("thread-reasoning-result") as never)).resolves.toMatchObject({ text: "Done." })
   })
 
   it("preserves a shared message identity across final content segments", async () => {

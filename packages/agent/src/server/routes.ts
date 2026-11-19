@@ -2464,7 +2464,8 @@ function createManualDeliveryProgressUpdater(
 
   const textFromEvent = (event: unknown): string | undefined => {
     if (options?.updates === "commentary") {
-      if (!isRecord(event) || event.type !== "text-delta" || event.phase !== "commentary" || typeof event.text !== "string") return
+      // Codex sends its live progress as reasoning titles, such as "**Inspecting the config**", so the loading message shows them next to commentary.
+      if (!isRecord(event) || event.type !== "text-delta" || (event.phase !== "commentary" && event.phase !== "reasoning") || typeof event.text !== "string") return
       // Show the current step, not the whole run: a new commentary segment replaces the previous one.
       if (event.id !== undefined) {
         if (commentaryId !== undefined && event.id !== commentaryId) commentary = ""
