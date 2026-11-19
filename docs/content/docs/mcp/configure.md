@@ -6,13 +6,13 @@ navigation.order: 3
 icon: i-lucide-sliders-horizontal
 ---
 
-Set `mcp: true` in the ViteHub options, or pass an object with these options:
+Set `mcp: true` and `auth` in the ViteHub options, or pass an object with these options. `mcp: true` needs sign-in, so without `auth` the build fails with `VITE_HUB_MCP_AUTH_MISSING`. See [Sign in with MCP OAuth](#sign-in-with-mcp-oauth), or set `mcp: { auth: false }` for a public server.
 
 | Option | Default | Use |
 | --- | --- | --- |
 | `route` | `/mcp` | The path of the server below the application base. |
-| `auth` | `true` | Require an access token from `mcpOAuth()`. The app needs `auth`. `'optional'` also lets anyone call the tools with `public: true`. `false` lets anyone call every tool. |
-| `publicRoute` | none | A second path that serves the tools, prompts, and resources with `public: true` without sign-in. Needs `auth: true`. |
+| `auth` | `true` | Require an access token from `mcpOAuth()`. The app needs `auth`. `'optional'` also lets anyone call the tools with `access: 'public'`. `false` lets anyone call every tool. |
+| `publicRoute` | none | A second path that serves the tools, prompts, and resources with `access: 'public'` without sign-in. Needs `auth: true`. |
 | `instructions` | A short generic text | What `initialize` tells the Agent about the server. |
 | `serverInfo` | The app name, version `"1"` | The `name`, `title`, `version`, `description`, `websiteUrl`, and `icons` that MCP clients show. |
 
@@ -103,7 +103,7 @@ For a Nuxt application with `app.baseURL: "/portal/"` (or Nitro `baseURL: "/port
 
 ## Let anyone call some tools
 
-Set `public: true` on the tools that anyone may call. Then choose how the server serves them:
+Set `access: 'public'` on the tools that anyone may call. Then choose how the server serves them:
 
 - `auth: 'optional'` serves one address. ChatGPT lists every tool, runs the public ones, and asks the person to sign in when they call another tool. Use it for an app in ChatGPT.
 - `publicRoute` serves a second address with only the public tools. Most other MCP clients, such as Claude Code and Cursor, sign in only on an address that answers `401` without a token, so they need the second address.
@@ -151,7 +151,7 @@ import { z } from 'zod'
 export default defineMcpTool({
   description: 'Play a lesson in the chat.',
   input: z.object({ lessonId: z.string() }),
-  public: true,
+  access: 'public',
   handler: ({ lessonId }, { caller }) => `Playing ${lessonId} for ${caller ? caller.user.name : 'a guest'}.`,
 })
 ```
@@ -173,7 +173,7 @@ export default defineMcpTool({
 - A call of `create_lesson` without a token does not run the handler. It returns a tool error with an `insufficient_scope` challenge in `_meta["mcp/www_authenticate"]`, and ChatGPT shows the sign-in.
 - A signed-in caller whose token lacks the `scopes` of a tool gets the same kind of tool error, so ChatGPT asks the person to approve them.
 - A request with an invalid token gets `401`, as with `auth: true`.
-- Prompts and resources without `public: true` are hidden from a request without a token. Set `public: true` on the `ui://` resource of a public MCP App tool.
+- Prompts and resources without `access: 'public'` are hidden from a request without a token. Set `access: 'public'` on the `ui://` resource of a public MCP App tool.
 
 ### A second address for other clients
 
@@ -218,11 +218,11 @@ import { defineMcpTool } from 'vite-hub/mcp'
 
 export default defineMcpTool({
   description: 'Search the public pages.',
-  public: true,
+  access: 'public',
   handler: () => 'results',
 })
 ```
 
-`/mcp` lists only the tools with `public: true`. Prompts and resources with `public: true` are on it too. It answers without a token and never sends an OAuth challenge, and the protected resource metadata names only `/mcp/account`. `/mcp/account` lists every tool and needs a token, so set the `mcpOAuth()` resource to `${requestOrigin}/mcp/account`. On `/mcp`, `caller` is `undefined`.
+`/mcp` lists only the tools with `access: 'public'`. Prompts and resources with `access: 'public'` are on it too. It answers without a token and never sends an OAuth challenge, and the protected resource metadata names only `/mcp/account`. `/mcp/account` lists every tool and needs a token, so set the `mcpOAuth()` resource to `${requestOrigin}/mcp/account`. On `/mcp`, `caller` is `undefined`.
 
-Set `public` on a tool only with `publicRoute`. Without `publicRoute`, a tool with `public: true` or `public: false` fails the server with [`MCP_R0001`](/docs/mcp/limits-and-errors#mcp_r0001), because the option would do nothing.
+Set `access` on a tool only with `publicRoute` or `auth: 'optional'`. Without one of them, a tool with `access` fails the server with [`MCP_R0001`](/docs/mcp/limits-and-errors#mcp_r0001), because the option would do nothing.

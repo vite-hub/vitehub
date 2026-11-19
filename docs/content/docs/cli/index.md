@@ -218,7 +218,7 @@ Available namespaces:
 
 ## Next steps
 
-- Use [Project commands](/docs/cli/project) to create, link, and deploy an app.
+- Use [Project commands](/docs/cli/project) to create, link, and deploy an app, or [update ViteHub packages](/docs/cli/project#update-vitehub-packages).
 - Use [Server Primitive commands](/docs/cli/primitives) to read and write the data of a running app.
 - Use [Agent commands](/docs/cli/agents) to talk to an Agent and run Agent Evals.
 - Use [Inspect, operate, and provision](/docs/cli/inspect) to see what ViteHub discovered and to call any operation.

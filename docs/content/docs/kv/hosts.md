@@ -23,7 +23,7 @@ pnpm vitehub kv set settings '{"theme":"dark"}' --json-value
 pnpm vitehub kv delete settings
 ```
 
-- They run the app's `kv.*` [operations](/docs/development/operations) in the Nitro runtime, on the same storage. They target the dev server or, with `--url`, a deployed app with the [Console](/docs/development/console) on. `--store <name>` picks a named store.
+- They run the app's `kv.*` [operations](/docs/console/operations) in the Nitro runtime, on the same storage. They target the dev server or, with `--url`, a deployed app with the [Console](/docs/console) on. `--store <name>` picks a named store.
 - Each write prints what it changed. There is no `clear` command.
 - `kv set` and `kv delete` refuse `vitehub:` keys (`KV_RESERVED_KEY`), where ViteHub keeps its state. Reads work.
 
