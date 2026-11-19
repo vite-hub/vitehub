@@ -41,7 +41,7 @@ The command finds every module in the app that a codemod supports and runs those
 | [`shell-driver`](/docs/codemods/upgrade-vitehub#shell-driver) | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()` |
 | [`access-spellings`](/docs/codemods/upgrade-vitehub#access-spellings) | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: 'public'` |
 | [`auth-sign-in`](/docs/codemods/upgrade-vitehub#auth-sign-in) | `vitehub({ auth: { redirects } })` and `access.signIn.callbackURL` to `access: { signIn, afterSignIn }` in `server/auth.ts` |
-| [`channels`](/docs/codemods/upgrade-vitehub#channels) | Replace simple Agent `http()` calls with `channelAdapter('http')` |
+| [`channels`](/docs/codemods/upgrade-vitehub#channels) | Replace simple Agent `http()` calls with `channelAdapter('http')`, and move webhook `secretToken` and signature names to the ones of Webhooks |
 | [`auth-accessors`](/docs/codemods/upgrade-vitehub#auth-accessors) | Auth `auth` and `getAuth()` to `useAuth()`, and `isGitHubOrgMember()` to `checkGitHubOrgMember()` |
 | [`choices-package`](/docs/codemods/upgrade-vitehub#choices-package) | `@vite-hub/decisions` and `vite-hub/decisions` imports and the `vitehub decisions` command to `choices` |
 

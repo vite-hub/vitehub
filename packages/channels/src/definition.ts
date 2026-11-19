@@ -1,3 +1,6 @@
+import { parseDuration } from "@vite-hub/runtime"
+
+import type { Duration } from "@vite-hub/runtime"
 import type { ChannelAdapter, ChannelDefinition, ChannelDefinitionOptions } from "./types.ts"
 import { channelDefinitionBrand } from "./brand.ts"
 import { channelsErrorDiagnostics } from "./error-diagnostics.ts"
@@ -16,7 +19,42 @@ export function isWebhookChannelAdapter(adapter: unknown): adapter is ChannelAda
   return isObject(adapter) && isObject(adapter.webhook)
 }
 
-const verifyHint = "Use `webhook({ signature, secret })`, such as `webhook({ signature: 'bearer', secret: () => useServerEnv().hooks.secret })`. To accept requests that anyone can send, use `webhook({ secret: false })`."
+const verifyHint = "Use `webhook({ signature, secret })`, such as `webhook({ signature: 'bearer', secret: 'HOOKS_SECRET' })`. To accept requests that anyone can send, use `webhook({ secret: false })`."
+
+/** A server variable name, as Webhooks accepts it. */
+const variableName = /^[A-Z_][A-Z0-9_]*$/i
+
+const signatureNames = new Set(["bearer", "token", "github", "stripe"])
+
+/** The signature names before they followed `defineWebhook({ signature })`. */
+const renamedSignatures: Record<string, string> = { "github-sha256": "github", "stripe-sha256": "stripe" }
+
+/** Why `signature` is not valid, or undefined when it is. */
+function signatureProblem(signature: unknown): [problem: string, fix: string] | undefined {
+  if (typeof signature === "string") {
+    if (signatureNames.has(signature)) return
+    const renamed = renamedSignatures[signature]
+    return renamed
+      ? [`uses \`signature: '${signature}'\`, which is now \`'${renamed}'\``, `Set \`signature: '${renamed}'\`.`]
+      : [`has an unknown \`signature\``, "Set `signature` to `'bearer'`, `'token'`, `'github'`, `'stripe'`, `{ type: 'hmac-sha256' }`, `{ type: 'stripe', tolerance }`, or `{ verify }`."]
+  }
+  if (!isObject(signature)) return [`has an unknown \`signature\``, "Set `signature` to `'bearer'`, `'token'`, `'github'`, `'stripe'`, `{ type: 'hmac-sha256' }`, `{ type: 'stripe', tolerance }`, or `{ verify }`."]
+  if (typeof signature.verify === "function") return
+  if ("preset" in signature) {
+    const type = signature.preset === "stripe-sha256" ? "stripe" : String(signature.preset)
+    return [`sets \`signature: { preset }\`, which is now \`signature: { type }\``, `Set \`signature: { type: '${type}' }\`${"toleranceSeconds" in signature ? " and `tolerance`, such as `tolerance: '5m'`" : ""}.`]
+  }
+  if (signature.type === "hmac-sha256") return
+  if (signature.type !== "stripe") return [`has an unknown \`signature.type\``, "Set `type: 'hmac-sha256'` or `type: 'stripe'`."]
+  if ("toleranceSeconds" in signature) return ["sets `toleranceSeconds`, which is now `tolerance`", "Set `tolerance` to a duration, such as `tolerance: '5m'`."]
+  if (signature.tolerance === undefined) return
+  try {
+    parseDuration(signature.tolerance as Duration, "tolerance")
+  }
+  catch {
+    return ["sets a `tolerance` that is not a duration", "Set `tolerance` to a duration, such as `tolerance: '5m'` or `tolerance: '30s'`."]
+  }
+}
 
 /** A webhook adapter must verify requests, or turn verification off with `secret: false`. */
 function validateWebhookVerification(kind: string, webhook: Record<string, unknown>): void {
@@ -31,6 +69,12 @@ function validateWebhookVerification(kind: string, webhook: Record<string, unkno
   if (signature === undefined && secret === undefined) fail("has no `signature` and no `secret`, so anyone can send it events")
   if (signature === undefined) fail("has a `secret` but no `signature`, so it cannot verify requests")
   if (secret === undefined) fail("has a `signature` but no `secret`, so it cannot verify requests")
+  // Do not print the string: it can be a secret value from before `secret` named a variable.
+  if (typeof secret === "string" && !variableName.test(secret)) {
+    fail("has a `secret` string that is not a server variable name", "Set `secret` to the name of the server variable that holds the secret, such as `secret: 'PREFECT_WEBHOOK_SECRET'`, or to a function that returns it, such as `secret: () => useServerEnv().prefect.webhookSecret`.")
+  }
+  const problem = signatureProblem(signature)
+  if (problem) fail(...problem)
   if (signature === "token" && (typeof header !== "string" || !header.trim())) {
     fail("uses `signature: 'token'`, which needs a `header`", "Set `header` to the header that carries the secret, such as `header: 'x-gitlab-token'`.")
   }

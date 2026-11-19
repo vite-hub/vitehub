@@ -1334,7 +1334,7 @@ describe("agent chat capability discovery", () => {
         telegram: telegram({
           // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => ({}) as never,
-          webhooks: { secretToken: "secret-token" },
+          webhooks: { secret: () => "secret-token" },
         }),
       },
       driver: { run: ({ messages }) => `nuxt ${getMessageText(messages[0]!)}` },
@@ -1398,7 +1398,7 @@ describe("agent chat capability discovery", () => {
               },
             },
           },
-          webhooks: { secretHeader: "x-test-secret", secretToken: "secret-token" },
+          webhooks: { secretHeader: "x-test-secret", secret: () => "secret-token" },
         }),
       },
       driver: { run: ({ context, input }) => `context ${context.get("review.context")?.number} ${input.prompt}` },
@@ -1619,7 +1619,7 @@ describe("agent chat capability discovery", () => {
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const agent = defineAgent({
       channels: {
-        github: github({ pullRequest: { reply: false, workspace: false }, webhooks: { secretToken: "secret-token" } }),
+        github: github({ pullRequest: { reply: false, workspace: false }, webhooks: { secret: () => "secret-token" } }),
       },
       driver: { run: ({ context, input }) => {
           const github = context.get("github")

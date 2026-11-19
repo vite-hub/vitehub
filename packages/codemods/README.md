@@ -60,7 +60,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `shell-driver` | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()`. `vitehub migrate` runs it. |
 | `access-spellings` | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: "public"`. `vitehub migrate` runs it. |
 | `auth-sign-in` | `vitehub({ auth: { redirects } })` and `access.signIn.callbackURL` to `access: { signIn, afterSignIn }` in `server/auth.ts`. `vitehub migrate` runs it. |
-| `channels` | Agent `http()` calls to `channelAdapter("http", options)` where safe. `vitehub migrate` runs it. |
+| `channels` | Agent `http()` calls to `channelAdapter("http", options)` where safe, and webhook secrets and signatures to the names of Webhooks. `vitehub migrate` runs it. |
 | `auth-accessors` | Auth `auth` and `getAuth()` to `useAuth()`, and `isGitHubOrgMember()` to `checkGitHubOrgMember()`. `vitehub migrate` runs it. |
 | `choices-package` | `@vite-hub/decisions` and `vite-hub/decisions` imports and the `vitehub decisions` command to `choices`. `vitehub migrate` runs it. |
 
@@ -395,6 +395,19 @@ npx @vite-hub/codemods auth-sign-in [dir] [--dry-run]
 `http()` is removed. Use `webhook()` from `vite-hub/channels` for an HTTP sender. Use `channelAdapter("http", options)` from `vite-hub/agent/channels` to keep the Channel kind and State.
 
 The codemod rewrites direct calls without options or with a literal Boolean `route` option. Import paths stay the same. The report flags references, typed or complex calls, namespace imports, dynamic loads, re-exports of `http`, and mocks for manual review. To preserve the kind on a typed route, use `channelAdapter("http", options)` and type callback parameters explicitly. Use `webChat()` only if changing the kind is acceptable.
+
+It also moves webhook secrets and signatures to the names of Webhooks:
+
+| Old | New |
+| --- | --- |
+| `secretToken: process.env.X` in a `webhooks` registration | `secret: "X"` |
+| `secretToken: () => …` in a `webhooks` registration | `secret: () => …` |
+| `secret: process.env.X` in `webhook()` or `stripe()` | `secret: "X"` |
+| `signature: "github-sha256"` or `"stripe-sha256"` | `signature: "github"` or `"stripe"` |
+| `signature: { preset: "hmac-sha256", … }` | `signature: { type: "hmac-sha256", … }` |
+| `{ preset: "stripe-sha256", toleranceSeconds: 600 }`, `stripe({ toleranceSeconds: 600 })` | `{ type: "stripe", tolerance: "600s" }`, `stripe({ tolerance: "600s" })` |
+
+A string `secret` is the name of the server variable that holds the secret, in `webhook()`, `stripe()`, and every `webhooks` registration of `channelAdapter()`, `defineChannelTrigger()`, and the chat adapters. A direct read like `useServerEnv().github.webhookSecret` moves into a function. Existing resolvers stay intact. The report lists expressions the codemod cannot classify, `secretToken` strings, and possible hard-coded secrets on `stripe()` or with an old signature. Move hard-coded secrets to server variables and set `secret` to the variable name.
 
 ```sh
 npx @vite-hub/codemods channels [dir] [--dry-run]
