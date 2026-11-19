@@ -1,9 +1,9 @@
 # @vite-hub/rate-limit
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Frate-limit&icon=npm)](https://npmx.dev/package/@vite-hub/rate-limit)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Frate-limit&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/rate-limit)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/rate-limit)](https://npmx.dev/package/@vite-hub/rate-limit)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/rate-limit)](https://npmx.dev/package/@vite-hub/rate-limit)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/rate-limit` gives server code one atomic consume-and-decide operation for fixed-window request budgets. It keeps policy separate from the driver that stores and updates each counter.
 

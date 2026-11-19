@@ -26,9 +26,9 @@ function get(path: string, headers: Record<string, string> = {}): Promise<Respon
   return handleAuthRequest(definition, new Request(`${origin}${path}`, { headers: { accept: "text/html", ...headers } }))
 }
 
-async function signUp(): Promise<string> {
+async function signUp(base = "/"): Promise<string> {
   Object.assign(db, { account: [], session: [], user: [], verification: [] })
-  const response = await handleAuthRequest(definition, new Request(`${origin}/api/auth/sign-up/email`, {
+  const response = await handleAuthRequest(definition, new Request(`${origin}${base}api/auth/sign-up/email`, {
     body: JSON.stringify({ email: "ada@example.com", name: "Ada", password: "passwordpassword" }),
     headers: { "content-type": "application/json", origin },
     method: "POST",
@@ -49,7 +49,7 @@ describe("GET <basePath>/sign-in", () => {
     expect(JSON.stringify(db.verification)).toContain(String.raw`\"callbackURL\":\"/docs?tab=examples\"`)
   })
 
-  it("uses access.signIn.callbackURL without ?redirect=", async () => {
+  it("uses access.afterSignIn without ?redirect=", async () => {
     Object.assign(db, { account: [], session: [], user: [], verification: [] })
     expect((await get("/api/auth/sign-in")).status).toBe(302)
     expect(JSON.stringify(db.verification)).toContain(String.raw`\"callbackURL\":\"/home\"`)
@@ -171,6 +171,19 @@ describe("GET <basePath>/sign-out", () => {
 })
 
 describe("below Nuxt app.baseURL", () => {
+  it.each([["/dashboard?tab=work", "/app/dashboard?tab=work"], ["/app/dashboard", "/app/app/dashboard"], [undefined, "/app/"]])("returns to %s inside the base without ?redirect=", async (afterSignIn, destination) => {
+    vi.stubGlobal("__VITEHUB_AUTH_APP_BASE_URL__", "/app/")
+    const cookie = await signUp("/app/")
+    const configured = defineFixedAuth({ ...options, access: { signIn: { provider: "github" }, afterSignIn } })
+    const request = (headers?: HeadersInit) => handleAuthRequest(configured, new Request(`${origin}/app/api/auth/sign-in`, { headers }))
+
+    expect((await request()).status).toBe(302)
+    expect(JSON.stringify(db.verification)).toContain(`\\"callbackURL\\":\\"${destination}\\"`)
+    const response = await request({ cookie })
+    expect(response.status).toBe(302)
+    expect(response.headers.get("location")).toBe(destination)
+  })
+
   it("serves both paths below the base and keeps ?redirect= inside it, like the page guard's path", async () => {
     const cookie = await signUp()
     resetAuth()

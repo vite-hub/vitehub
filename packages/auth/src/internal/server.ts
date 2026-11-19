@@ -221,7 +221,9 @@ type AuthProviderSignIn = AuthSignInConfiguration & { callbackURL?: string }
 function providerSignIn(options: AuthRuntimeOptions & Record<string, unknown>): AuthProviderSignIn | undefined {
   const access = (options as { access?: AuthAccessConfiguration }).access
   const signIn = access?.signIn
-  return typeof signIn === "object" ? { ...signIn, callbackURL: access?.afterSignIn } : undefined
+  return typeof signIn === "object"
+    ? { ...signIn, callbackURL: `${resolveAuthMountPath("/")}${(appPath(access?.afterSignIn ?? "/") ?? "/").slice(1)}` }
+    : undefined
 }
 
 /**

@@ -66,12 +66,52 @@ describe("auth-sign-in", () => {
     })
   })
 
+  it("writes both redirects into an empty access object", async () => {
+    const { after } = await migrate({
+      "nuxt.config.ts": nuxtConfig,
+      "server/auth.ts": "export default defineAuth({ access: {} })\n",
+    })
+    expect(after["server/auth.ts"]).toBe('export default defineAuth({ access: { signIn: "/sign-in", afterSignIn: "/dashboard" } })\n')
+  })
+
+  it("moves redirects into the static return of a Nuxt Better Auth migration callback", async () => {
+    const definition = "export default defineAuth(() => {\n  const runtimeConfig = useRuntimeConfig()\n  return ({\n    access: { routes: ['/api/notes/**'] },\n    secret: runtimeConfig.authSecret,\n  })\n})\n"
+    const { after, run } = await migrate({ "nuxt.config.ts": nuxtConfig, "server/auth.ts": definition })
+    expect(after["server/auth.ts"]).toBe(definition.replace("routes: ['/api/notes/**']", "routes: ['/api/notes/**'], signIn: '/sign-in', afterSignIn: '/dashboard'"))
+    expect(after["nuxt.config.ts"]).not.toContain("redirects")
+    expect(run.result.followUps).toEqual([])
+  })
+
+  it.each(["login", "guest"])("keeps conflicting %s redirects in config overrides", async (key) => {
+    const { after, run } = await migrate({
+      "nuxt.config.ts": nuxtConfig.replace("  vitehub: {", `  $production: { vitehub: { auth: { redirects: { ${key}: '/staff' } } } },\n  vitehub: {`),
+      "server/auth.ts": "export default defineAuth({})\n",
+    })
+    expect(after).toEqual({})
+    expect(run.result.followUps).toEqual([3, 6].map(line => expect.objectContaining({ file: "nuxt.config.ts", line, message: expect.stringContaining("/staff") })))
+  })
+
+  it.each([
+    ["nuxt.config.ts", "https://app.example.com/sign-in", "login"],
+    ["nuxt.config.ts", "//app.example.com/dashboard", "guest"],
+    ["server/auth.ts", "https://app.example.com/dashboard", "callbackURL"],
+  ])("keeps an unsupported destination in %s", async (file, path, key) => {
+    const { after, run } = await migrate({
+      "server/auth.ts": "export default defineAuth({})\n",
+      [file]: file === "server/auth.ts"
+        ? `export default defineAuth({ access: { signIn: { provider: 'github', ${key}: '${path}' } } })`
+        : `export default defineNuxtConfig({ vitehub: { auth: { redirects: { ${key}: '${path}' } } } })`,
+    })
+    expect(after).toEqual({})
+    expect(run.result.followUps).toEqual([expect.objectContaining({ file, message: expect.stringContaining("path of the app") })])
+  })
+
   it("reports a login page next to a provider sign-in", async () => {
     const { after, run } = await migrate({
       "nuxt.config.ts": nuxtConfig,
       "server/auth.ts": "export default defineAuth({\n  access: { signIn: { provider: 'github' } },\n})\n",
     })
-    expect(after["server/auth.ts"]).toBe("export default defineAuth({\n  access: { signIn: { provider: 'github' }, afterSignIn: '/dashboard' },\n})\n")
+    expect(after).toEqual({})
     expect(run.result.followUps.map(entry => entry.message)).toEqual([expect.stringContaining("Keep one: the path of your sign-in page, or the provider")])
   })
 

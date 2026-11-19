@@ -1,6 +1,6 @@
 // Nuxt provides this virtual module to applications that install the module.
 // @ts-expect-error The package's standalone typecheck has no Nuxt virtual modules.
-import { addRouteMiddleware, createError, defineNuxtPlugin, navigateTo, tryUseNuxtApp, useRequestEvent, useRequestFetch, useRequestURL, useRouter, useRuntimeConfig, useState } from "#app"
+import { addRouteMiddleware, createError, defineNuxtPlugin, navigateTo, showError, tryUseNuxtApp, useRequestEvent, useRequestFetch, useRequestURL, useRouter, useRuntimeConfig, useState } from "#app"
 
 import { viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 
@@ -137,8 +137,7 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
         if (mode === "guest") return loggedIn ? navigateTo(redirectTo ?? afterSignIn) : undefined
         if (loggedIn) return
         if (redirectTo || signInPage !== null) return navigateTo({ path: redirectTo ?? signInPage ?? "/login", query: { redirect: to.fullPath } })
-        // A provider sign-in after a sign-out would sign the visitor in again, so go to the app root.
-        if (signedOut) return navigateTo("/")
+        if (signedOut) return showError({ statusCode: 401, statusMessage: "Signed out" })
         // The Auth route starts the provider sign-in and comes back to `?redirect=`, a path below `app.baseURL`.
         const signIn = `${resolveAuthMountPath(config?.basePath ?? "/api/auth", runtimeConfig.app?.baseURL)}/sign-in`
         return navigateTo(`${signIn}?${new URLSearchParams({ redirect: to.fullPath })}`, { external: true })

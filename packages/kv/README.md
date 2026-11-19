@@ -1,10 +1,10 @@
 # @vite-hub/kv
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=config">
-  <img alt="KV" src="https://comark-ui.onmax.me/badge.svg?label=KV&amp;value=stores">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Vite" src="https://img.shields.io/static/v1?label=Vite&amp;message=config&amp;color=blue">
+  <img alt="KV" src="https://img.shields.io/static/v1?label=KV&amp;message=stores&amp;color=blue">
 </p>
 
 `@vite-hub/kv` gives server code one small-state API for settings, flags, cache entries, and JSON-like records.
@@ -87,6 +87,8 @@ Development reads Upstash credentials from Vite's `.env` files for the current m
 An explicit `driver` is honored as before; an `upstash` store prints the same notice. Builds ignore `remote`. A `remote` value that is not a boolean fails with `KV_INVALID_REMOTE`. `remote: true` with `fs-lite` or `deno-kv`, `remote: false` with `upstash`, and `remote: true` in development without a hosted store fail with `KV_REMOTE_CONFLICT`.
 
 ## Nitro storage
+
+During Nuxt prerender, the Node worker uses the configured KV stores and ignores the development `remote` option. Cloudflare stores use their local folders, and an app with a Deno KV store keeps the runtime fallback.
 
 When KV is enabled in a Nitro app, the default store is the Nitro storage mount `kv`, and a named store is the mount `kv-<name>`. `useStorage("kv").getItem("a")` reads the same value as `kv.get("a")`, and `clear()` on a mount clears only that store. Store names escape `%`, `:`, `/`, `\\`, and `?` as percent-encoded characters; an empty name uses `%` (for example, `a/b` mounts at `kv-a%2Fb`). A mount with the same name in `nitro.kv` (or the deprecated `nitro.storage`) wins. Nuxt modules that take a mount name, such as nuxt-og-image's `runtimeCacheStorage: "kv"`, store their data in KV this way.
 

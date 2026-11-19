@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   sessionPaths: [] as unknown[],
   navigateTo: vi.fn((target: unknown) => target),
   signOut: vi.fn(),
+  showError: vi.fn(),
   currentRoute: { value: { fullPath: "/", meta: {} } as Route },
   middleware: undefined as Middleware | undefined,
 }))
@@ -38,6 +39,7 @@ vi.mock("#app", () => ({
   defineNuxtPlugin: (plugin: unknown) => plugin,
   addRouteMiddleware: (_name: string, middleware: Middleware) => { mocks.middleware = middleware },
   navigateTo: mocks.navigateTo,
+  showError: mocks.showError,
   tryUseNuxtApp: () => mocks.app,
   useRequestEvent: () => mocks.event,
   useRequestFetch: () => mocks.requestFetch,
@@ -421,13 +423,14 @@ describe("signOut() in Nuxt", () => {
     expect(mocks.navigateTo).toHaveBeenCalledExactlyOnceWith({ path: "/join", query: { redirect: "/team" } })
   })
 
-  it("goes to the app root after a sign-out when the Auth route starts a provider sign-in", async () => {
+  it("does not navigate after provider sign-out, even on a protected app root", async () => {
     mocks.config = { public: { vitehubAuth: { basePath: "/api/auth", signInPage: null, afterSignIn: "/" } } }
-    await openInBrowser(userPage)
+    await openInBrowser({ ...userPage, fullPath: "/" })
 
     await useUserSession(createAuthClient()).signOut()
 
-    expect(mocks.navigateTo).toHaveBeenCalledExactlyOnceWith("/")
+    expect(mocks.navigateTo).not.toHaveBeenCalled()
+    expect(mocks.showError).toHaveBeenCalledExactlyOnceWith({ statusCode: 401, statusMessage: "Signed out" })
   })
 })
 

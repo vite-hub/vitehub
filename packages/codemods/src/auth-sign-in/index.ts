@@ -18,6 +18,7 @@ const ignored = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/.vite
 interface Redirects {
   file: string
   line: number
+  range: [number, number]
   login?: string
   guest?: string
 }
@@ -46,6 +47,10 @@ function stringValue(property: ObjectProperty | undefined): string | undefined {
   return value?.type === "StringLiteral" ? value.value : value?.type === "TemplateLiteral" && value.expressions.length === 0 ? value.quasis[0]?.value.cooked ?? undefined : undefined
 }
 
+function isAppPath(value: string): boolean {
+  return /^\/(?![/\\])/.test(value)
+}
+
 /** The `auth` options of `vitehub()`: the `vitehub` key of a Nuxt config, the argument of `vitehub()`, or inline module options. */
 function authOptionProperties(program: File): ObjectProperty[] {
   const found: ObjectProperty[] = []
@@ -64,10 +69,11 @@ function authOptionProperties(program: File): ObjectProperty[] {
 }
 
 /** Inserts `text` as the last property of `object`, on its own line when the object spans lines. */
-function appendProperty(output: MagicString, code: string, object: ObjectExpression, text: string) {
+function appendProperties(output: MagicString, code: string, object: ObjectExpression, entries: string[]) {
+  if (!entries.length) return
   const last = object.properties.at(-1)
   if (!last) {
-    output.overwrite(start(object), end(object), `{ ${text} }`)
+    output.appendLeft(start(object) + 1, ` ${entries.join(", ")} `)
     return
   }
   const multiline = code.slice(start(object), start(object.properties[0]!)).includes("\n")
@@ -76,20 +82,37 @@ function appendProperty(output: MagicString, code: string, object: ObjectExpress
   const comma = code[after] === ","
   if (multiline) {
     const indent = indentAt(code, start(last))
-    output.appendLeft(comma ? after + 1 : end(last), `${comma ? "" : ","}\n${indent}${text}${comma ? "," : ""}`)
+    output.appendLeft(comma ? after + 1 : end(last), `${comma ? "" : ","}\n${indent}${entries.join(`,\n${indent}`)}${comma ? "," : ""}`)
     return
   }
-  output.appendLeft(end(last), `, ${text}`)
+  output.appendLeft(end(last), `, ${entries.join(", ")}`)
 }
 
-/** The options object of `defineAuth()`, or of the object that its callback returns. */
+function callbackOptions(callback: Extract<Node, { type: "ArrowFunctionExpression" }>): ObjectExpression | undefined {
+  if (callback.body.type !== "BlockStatement") {
+    const value = unwrapExpression(callback.body)
+    return value.type === "ObjectExpression" ? value : undefined
+  }
+  const last = callback.body.body.at(-1)
+  if (last?.type !== "ReturnStatement" || !last.argument) return
+  const value = unwrapExpression(last.argument)
+  if (value.type !== "ObjectExpression") return
+  let returns = 0
+  walk(callback.body, (node, ancestors) => {
+    if (node.type === "ReturnStatement" && !ancestors.some(parent => ["ArrowFunctionExpression", "FunctionDeclaration", "FunctionExpression", "ObjectMethod", "ClassMethod", "ClassPrivateMethod"].includes(parent.type))) returns++
+  })
+  return returns === 1 ? value : undefined
+}
+
+/** The options object of `defineAuth()`, or the one object its callback returns. */
 function definitionOptions(program: File): { object?: ObjectExpression, callback: boolean } {
   let result: { object?: ObjectExpression, callback: boolean } = { callback: false }
   walk(program, (node) => {
     if (result.object || node.type !== "CallExpression" || node.callee.type !== "Identifier" || node.callee.name !== "defineAuth") return
     const argument = node.arguments[0] && unwrapExpression(node.arguments[0] as Node)
     if (argument?.type === "ObjectExpression") result = { object: argument, callback: false }
-    else if (argument?.type === "ArrowFunctionExpression" || argument?.type === "FunctionExpression") result = { callback: true }
+    else if (argument?.type === "ArrowFunctionExpression") result = { object: callbackOptions(argument), callback: true }
+    else if (argument?.type === "FunctionExpression") result = { callback: true }
   })
   return result
 }
@@ -121,7 +144,10 @@ function editDefinition(file: string, parsed: Parsed, moved: DefinitionEdit, fol
     const callbackURL = provider && findProperty(provider, "callbackURL")
     if (callbackURL) {
       const value = stringValue(callbackURL)
-      if (value === undefined || (afterSignIn !== undefined && afterSignIn !== value)) {
+      if (value !== undefined && !isAppPath(value)) {
+        followUps.push({ file, line: line(callbackURL), message: `Move \`access.signIn.callbackURL\` (${JSON.stringify(value)}) to \`access.afterSignIn\` by hand. Use a path of the app, such as '/dashboard'.` })
+      }
+      else if (value === undefined || (afterSignIn !== undefined && afterSignIn !== value)) {
         followUps.push({ file, line: line(callbackURL), message: "`access.signIn.callbackURL` moved to `access.afterSignIn`. Move it by hand, and keep one page for signed-in users." })
       }
       else {
@@ -141,7 +167,7 @@ function editDefinition(file: string, parsed: Parsed, moved: DefinitionEdit, fol
     else if (afterSignIn !== undefined && existing && stringValue(existing) !== afterSignIn) {
       followUps.push({ file, line: line(existing), message: `Signed-in users went to ${JSON.stringify(afterSignIn)}, and \`access.afterSignIn\` is set too. Keep one page.` })
     }
-    for (const entry of entries) appendProperty(output, code, accessObject, entry)
+    appendProperties(output, code, accessObject, entries)
   }
   else if (access) {
     followUps.push({ file, line: line(access), message: `Set \`signIn\` and \`afterSignIn\` in \`access\` by hand: ${JSON.stringify(moved)}.` })
@@ -151,7 +177,7 @@ function editDefinition(file: string, parsed: Parsed, moved: DefinitionEdit, fol
       ...moved.signIn === undefined ? [] : [`signIn: ${quoteString(moved.signIn, style)}`],
       ...afterSignIn === undefined ? [] : [`afterSignIn: ${quoteString(afterSignIn, style)}`],
     ]
-    appendProperty(output, code, object, `access: { ${values.join(", ")} }`)
+    appendProperties(output, code, object, [`access: { ${values.join(", ")} }`])
   }
   return output.hasChanged() ? output.toString() : undefined
 }
@@ -160,53 +186,79 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const edits: FileEdit[] = []
   const followUps: FollowUp[] = []
   const redirects: Redirects[] = []
+  const configFiles = new Map<string, string>()
   for (const file of (await glob(configPatterns, { cwd, ignore: ignored })).sort()) {
     const code = await readFile(join(cwd, file), "utf8")
     if (!/\bredirects\b/.test(code)) continue
     const parsed = parse(code, file)
     if (!parsed) continue
-    const output = new MagicString(code)
-    for (const auth of authOptionProperties(parsed.program)) {
+    configFiles.set(file, code)
+    for (const auth of new Set(authOptionProperties(parsed.program))) {
       const options = objectValue(auth)
       const property = options && findProperty(options, "redirects")
       if (!property) continue
       const value = objectValue(property)
       const login = value && findProperty(value, "login")
       const guest = value && findProperty(value, "guest")
-      const readable = value && value.properties.every(entry => entry.type === "ObjectProperty" && ["login", "guest"].includes(keyName(entry.key, entry.computed) ?? ""))
+      const readable = value && value.properties.every(entry => entry === login || entry === guest)
         && (!login || stringValue(login) !== undefined) && (!guest || stringValue(guest) !== undefined)
         && options.properties.length === 1
       if (!readable) {
         followUps.push({ file, line: line(property), message: "`vitehub({ auth: { redirects } })` was removed. Set `access: { signIn: '<sign-in page>', afterSignIn: '<page for signed-in users>' }` in `server/auth.ts`, then remove `auth` from `vitehub()`." })
         continue
       }
-      redirects.push({ file, line: line(property), login: stringValue(login), guest: stringValue(guest) })
-      const [from, to] = listItemRemoval(code, auth)
-      output.remove(from, to)
+      for (const [key, setting] of [["login", login], ["guest", guest]] as const) {
+        const path = stringValue(setting)
+        if (setting && path !== undefined && !isAppPath(path)) {
+          followUps.push({ file, line: line(setting), message: `Move \`auth.redirects.${key}\` (${JSON.stringify(path)}) by hand. Use a path of the app, such as '/dashboard'.` })
+        }
+      }
+      redirects.push({ file, line: line(property), login: stringValue(login), guest: stringValue(guest), range: listItemRemoval(code, auth) })
     }
-    if (output.hasChanged()) edits.push({ path: file, before: code, after: output.toString() })
   }
 
+  for (const key of ["login", "guest"] as const) {
+    const sources = redirects.filter(entry => entry[key] !== undefined)
+    const values = [...new Set(sources.map(entry => entry[key]))]
+    if (values.length < 2) continue
+    for (const { file, line } of sources) {
+      followUps.push({ file, line, message: `Conflicting \`auth.redirects.${key}\` values (${values.map(value => JSON.stringify(value)).join(", ")}). Move them to the Auth Definition by hand.` })
+    }
+  }
   const moved: DefinitionEdit = {
     signIn: redirects.find(entry => entry.login !== undefined)?.login,
     afterSignIn: redirects.find(entry => entry.guest !== undefined)?.guest,
   }
   const definitions = (await glob(definitionPatterns, { cwd, ignore: ignored })).sort()
   const [definition] = definitions
-  if (!definition) {
-    if (redirects.length) {
-      followUps.push({ file: redirects[0]!.file, line: redirects[0]!.line, message: `Add \`access: ${JSON.stringify(moved)}\` to \`defineAuth()\` in \`server/auth.ts\`. The codemod removed \`auth.redirects\` from \`vitehub()\`.` })
+  if (!followUps.length) {
+    if (definitions.length !== 1) {
+      const source = redirects[0]
+      if (source) followUps.push({ file: source.file, line: source.line, message: "Move `auth.redirects` by hand: the codemod could not find a single Auth Definition." })
+    }
+    else if (definition) {
+      const code = await readFile(join(cwd, definition), "utf8")
+      const parsed = /\bdefineAuth\b/.test(code) ? parse(code, definition) : undefined
+      if (!parsed && redirects.length) {
+        followUps.push({ file: definition, message: "Move `auth.redirects` by hand: the codemod could not read the Auth Definition." })
+      }
+      const after = parsed && (redirects.length || /\bcallbackURL\b/.test(code)) ? editDefinition(definition, parsed, moved, followUps) : undefined
+      if (after) edits.push({ path: definition, before: code, after })
     }
   }
+  if (followUps.length) {
+    edits.length = 0
+  }
   else {
-    const code = await readFile(join(cwd, definition), "utf8")
-    const parsed = /\bdefineAuth\b/.test(code) ? parse(code, definition) : undefined
-    const after = parsed && (redirects.length || /\bcallbackURL\b/.test(code)) ? editDefinition(definition, parsed, moved, followUps) : undefined
-    if (after) edits.push({ path: definition, before: code, after })
+    for (const [file, code] of configFiles) {
+      const output = new MagicString(code)
+      for (const entry of redirects) if (entry.file === file) output.remove(...entry.range)
+      if (output.hasChanged()) edits.push({ path: file, before: code, after: output.toString() })
+    }
   }
 
   return {
-    summary: edits.length ? `moved the Auth sign-in pages into server/auth.ts in ${edits.length} file(s)` : "found no Auth redirects or signIn.callbackURL",
+    summary: edits.length ? `moved the Auth sign-in pages into server/auth.ts in ${edits.length} file(s)` : followUps.length ? "left the Auth sign-in settings for manual migration" : "found no Auth redirects or signIn.callbackURL",
     edits,
     followUps,
     notes: redirects.length ? ["`access.signIn` is now the page that the Nuxt page guard opens for a signed-out visitor, and `access.afterSignIn` the page for a signed-in user on an `auth: 'guest'` page."] : [],

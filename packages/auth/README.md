@@ -1,10 +1,10 @@
 # @vite-hub/auth
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Better Auth" src="https://comark-ui.onmax.me/badge.svg?label=Better+Auth&amp;value=powered">
-  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=discovery">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Better Auth" src="https://img.shields.io/static/v1?label=Better+Auth&amp;message=powered&amp;color=blue">
+  <img alt="Vite" src="https://img.shields.io/static/v1?label=Vite&amp;message=discovery&amp;color=blue">
 </p>
 
 `@vite-hub/auth` defines one server-owned Auth Definition and turns it into a Better Auth server for ViteHub apps.
@@ -515,6 +515,8 @@ const { data: sessions } = await useAsyncData("sessions", async () => {
 
 ```ts
 // server/auth.ts
+import { defineAuth } from "@vite-hub/auth"
+
 export default defineAuth({
   access: { signIn: "/sign-in", afterSignIn: "/app" },
 })
@@ -522,7 +524,7 @@ export default defineAuth({
 
 On client navigation, the guard reads the session into the same state as `useUserSession()` and `useSession()`. When the guard finds that the session ended, such as after a sign-out in another tab, every component shows the visitor as signed out before the redirect.
 
-The guard runs when the route changes. A sign-out does not change the route, so `signOut()` of `useUserSession()` does the guard's work: on a `'user'` page, it sends the visitor to the login page of that page, with `?redirect=<the page>`. `redirectTo` takes priority. Other pages stay open.
+The guard runs when the route changes. On a `'user'` page, `signOut()` of `useUserSession()` sends the visitor to its sign-in page, with `?redirect=<the page>`. `redirectTo` takes priority. With provider sign-in and no `redirectTo`, Nuxt shows a signed-out page instead of starting OAuth again: even `/` might be protected. Pass `signOut({ redirectTo: '/goodbye' })` to send the visitor to a public page of your choice. Other pages stay open by default.
 
 The page guard decides where the browser goes. Protect data in server routes with `withAuth()`, `requireAuth()`, or `access.routes`. Read [Protect pages in Nuxt](https://vitehub.dev/docs/auth/protect-pages) for the full task.
 

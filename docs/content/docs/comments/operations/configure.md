@@ -60,8 +60,8 @@ import { defineCommentSubject, defineComments } from 'vite-hub/comments'
 export default defineComments({
   authorize: ({ user }) => Boolean(user),
   subjects: [
-    // Every version of a drop shares one number sequence.
-    defineCommentSubject({ kind: 'drop', scope: id => `drop:${id.split('@')[0]}` }),
+    // Every version of a doc shares one number sequence.
+    defineCommentSubject({ kind: 'doc', scope: id => `doc:${id.split('@')[0]}` }),
   ],
 })
 ```

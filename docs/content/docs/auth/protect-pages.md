@@ -166,15 +166,14 @@ Nuxt imports these composables for you:
 | `useSession()` | Better Auth's session ref: `data`, `error`, `isPending`, `isRefetching`, and `refetch`. |
 | `useAuthClient()` | The Better Auth client that the composables use. |
 
-The guard runs only when the route changes. After a sign-out, send the user to another page yourself:
+On a protected page, `signOut()` sends the visitor to the configured sign-in page. If Auth starts a provider directly, Nuxt instead shows a signed-out page so it does not restart OAuth. To open a different page after sign-out, pass a public destination:
 
 ```vue [app/components/UserMenu.vue]
 <script setup lang="ts">
 const { loggedIn, user, signOut } = useUserSession()
 
 async function logout() {
-  await signOut()
-  await navigateTo('/login')
+  await signOut({ redirectTo: '/goodbye' })
 }
 </script>
 
