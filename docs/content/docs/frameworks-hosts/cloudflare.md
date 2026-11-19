@@ -108,6 +108,8 @@ export default defineConfig({
 :::
 ::
 
+Keep `host: 'cloudflare'` in development too. `vite dev` and `nuxt dev` run the server on Node, and ViteHub gives the code it generates for Cloudflare a Node version of `cloudflare:workers`, whose `env` reads `process.env`. Set `NITRO_DEV_RUNNER=miniflare` to run the dev server in workerd instead.
+
 D1 metadata belongs to each Database Definition, because a Vite app can have several Named Databases.
 
 ```ts [src/database.ts] fragment

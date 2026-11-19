@@ -41,6 +41,7 @@ import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
 import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { vitestInlinePlugin } from "./vitest-inline.ts"
+import { cloudflareNodeDevPlugin } from "./cloudflare-node-dev.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { defaultHealthRoute, healthVitePlugin, type HealthOptions } from "./health-vite.ts"
 import { resolveDeployManifest, writeIndexNowKeyFile, type DeployOptions } from "./deploy-options.ts"
@@ -1594,6 +1595,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   plugins.push(devDefinesVitePlugin())
   plugins.push(standardContextVitePlugin())
   plugins.push(vitestInlinePlugin())
+  plugins.push(cloudflareNodeDevPlugin(plan.host))
   const providerImportAliases: Record<string, string> = {}
   const configuredKV = options.kv && options.kv !== true ? options.kv : undefined
   // hubKV() gets the preset only when `kv` is enabled; through the cache alone, it infers the host from env.
