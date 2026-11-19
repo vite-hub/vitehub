@@ -2132,6 +2132,104 @@
     top: -0.4rem;
   }
 
+  /* The bar over selected text: a flat surface in the ink color, so it is dark on a light page and light on a dark one.
+     It floats over any page, such as in the ViteHub pill's shadow root, so its sizes are in px and do not follow the
+     page's root font size: the page places it by its fixed 38px height. */
+  [data-slot="comment-selection-bar"] {
+    --vh-selection-bar-text: color-mix(in oklab, var(--vh-inverted) 82%, var(--vh-highlighted));
+    align-items: center;
+    animation: vh-comment-selection-bar-in 140ms cubic-bezier(0.23, 1, 0.32, 1);
+    background: var(--vh-highlighted);
+    border: 1px solid color-mix(in oklab, var(--vh-inverted) 12%, transparent);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px color-mix(in oklab, black 25%, transparent);
+    display: flex;
+    font-size: 12px;
+    font-weight: 500;
+    -webkit-font-smoothing: antialiased;
+    gap: 4px;
+    line-height: 1;
+    padding: 4px;
+    transform-origin: 50% 100%;
+    width: max-content;
+  }
+
+  [data-slot="comment-selection-bar"][data-side="bottom"] {
+    transform-origin: 50% 0;
+  }
+
+  [data-slot="comment-selection-bar-action"] {
+    align-items: center;
+    background: none;
+    border: 0;
+    border-radius: 8px;
+    color: var(--vh-selection-bar-text);
+    cursor: pointer;
+    display: inline-flex;
+    font: inherit;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px;
+    position: relative;
+    touch-action: manipulation;
+    transition-duration: 150ms;
+    transition-property: background-color, color, scale;
+    transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+    white-space: nowrap;
+  }
+
+  /* 28px to sit in the bar, with a 44px hit area for fingers. The 4px gap keeps the hit areas of two buttons apart. */
+  [data-slot="comment-selection-bar-action"]::before {
+    content: "";
+    inset: -8px -2px;
+    position: absolute;
+  }
+
+  [data-slot="comment-selection-bar-action"] > :first-child {
+    flex: none;
+    height: 14px;
+    width: 14px;
+  }
+
+  /* Only a real pointer hovers, so a tap does not leave the button lit. */
+  @media (hover: hover) and (pointer: fine) {
+    [data-slot="comment-selection-bar-action"]:hover {
+      background: color-mix(in oklab, var(--vh-inverted) 8%, transparent);
+      color: var(--vh-inverted);
+    }
+  }
+
+  [data-slot="comment-selection-bar-action"]:active {
+    scale: 0.96;
+  }
+
+  [data-slot="comment-selection-bar-kbd"] {
+    font: inherit;
+    margin-inline-start: 6px;
+    opacity: 0.6;
+  }
+
+  @keyframes vh-comment-selection-bar-in {
+    from {
+      opacity: 0;
+      scale: 0.96;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="comment-selection-bar"] {
+      animation: none;
+    }
+
+    [data-slot="comment-selection-bar-action"] {
+      transition-property: background-color, color;
+    }
+
+    [data-slot="comment-selection-bar-action"]:active {
+      scale: none;
+    }
+  }
+
   /* Floating surfaces take the layered shadow of the theme, which draws their hairline too. Without the theme, the hairline stays. */
   [data-slot="comment-layer-popover"] {
     --vh-comment-card-width: 22.5rem;

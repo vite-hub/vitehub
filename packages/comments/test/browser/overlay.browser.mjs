@@ -120,7 +120,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     const strong = await page.locator("#first strong").boundingBox()
     await drag(page, { x: box.x + 2, y: box.y + 10 }, { x: strong.x + strong.width * 0.8, y: box.y + 10 })
     assert.match(await page.evaluate(() => getSelection().toString()), /^Most of you/)
-    const bar = page.locator("vitehub-comments .selection-bar")
+    const bar = page.locator("vitehub-comments [data-slot='comment-selection-bar']")
     await bar.waitFor({ timeout: 5000 })
     await bar.getByRole("button", { name: /Comment/ }).click()
     await composer.waitFor({ timeout: 5000 })
@@ -336,7 +336,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       getSelection().removeAllRanges()
       getSelection().addRange(range)
     })
-    await page.locator("vitehub-comments .selection-bar").waitFor({ timeout: 5000 })
+    await page.locator("vitehub-comments [data-slot='comment-selection-bar']").waitFor({ timeout: 5000 })
     await page.keyboard.press("c")
     await composer.fill("Second quote")
     await composer.press("Enter")
@@ -549,7 +549,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
         getSelection().removeAllRanges()
         getSelection().addRange(range)
       })
-      const button = touch.locator("vitehub-comments .selection-bar button")
+      const button = touch.locator("vitehub-comments [data-slot='comment-selection-bar-action']")
       await button.waitFor({ timeout: 5000 })
       // No hover color on a touch screen, where a tap would leave it on.
       await button.hover()
@@ -584,9 +584,9 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
         return range.getBoundingClientRect().bottom
       })
       assert.ok(Math.abs(end - 700) < 2, `selection ends at ${end}`)
-      const button = touch.locator("vitehub-comments .selection-bar button")
+      const button = touch.locator("vitehub-comments [data-slot='comment-selection-bar-action']")
       await button.waitFor({ timeout: 5000 })
-      const box = await touch.locator("vitehub-comments .selection-bar").boundingBox()
+      const box = await touch.locator("vitehub-comments [data-slot='comment-selection-bar']").boundingBox()
       assert.ok(box.y >= 0 && box.y + box.height <= 720, `bar from ${box.y} to ${box.y + box.height}`)
       const start = await touch.evaluate(() => getSelection().getRangeAt(0).getBoundingClientRect().top)
       // The system's text menu opens just above the selection, so the bar leaves it 64px.
@@ -611,6 +611,33 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     }
     finally {
       await touch.close()
+    }
+  })
+
+  await t.test("the Comment bar keeps its size and stays on screen when the page's root text is larger", async () => {
+    const large = await browser.newPage({ viewport: { width: 1024, height: 720 } })
+    try {
+      await large.goto(`http://127.0.0.1:${port}/`)
+      await large.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
+      // Text near the top left corner, so the bar has to go under it and stay inside the left edge.
+      await large.evaluate(() => {
+        document.documentElement.style.fontSize = "24px"
+        const first = document.querySelector("#first")
+        Object.assign(first.style, { position: "fixed", left: "0", top: "20px", margin: "0" })
+        const range = document.createRange()
+        range.selectNodeContents(first.querySelector("strong"))
+        getSelection().removeAllRanges()
+        getSelection().addRange(range)
+      })
+      const bar = large.locator("vitehub-comments [data-slot='comment-selection-bar']")
+      await bar.waitFor({ timeout: 5000 })
+      await large.waitForTimeout(200)
+      const box = await bar.boundingBox()
+      assert.equal(Math.round(box.height), 38)
+      assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= 1024 && box.y + box.height <= 720, `bar at ${JSON.stringify(box)}`)
+    }
+    finally {
+      await large.close()
     }
   })
 

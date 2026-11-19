@@ -6,9 +6,17 @@ Use this for installation, upgrades, `pkg.pr.new`, missing imports, or dependenc
 
 For a fresh application, read [Installation](https://vitehub.dev/raw/docs/getting-started/installation.md), install `vite-hub`, inspect `node_modules/vite-hub/package.json`, and use the root `vitehub()` integration plus exported feature subpaths. Open [Import paths](https://vitehub.dev/raw/docs/reference/import-paths.md) only when an export is ambiguous or an existing import must migrate.
 
+To move an application that installs `vite-hub` to the latest release, run `pnpm vitehub update`. It changes every ViteHub dependency, override, and catalog entry of the workspace together, and installs.
+
 ## Preview packages
 
-Use an immutable full commit SHA. Probe the exact facade tarball before editing:
+Use an immutable full commit SHA. An application that installs `vite-hub` moves every ViteHub package to one preview with one command. It checks that the build has each package, edits dependencies, overrides, and catalogs, sets `blockExoticSubdeps: false` for pnpm, and installs:
+
+```bash
+pnpm vitehub update --preview <full-sha>
+```
+
+For an application without `vite-hub`, probe the exact facade tarball before editing:
 
 ```bash
 curl -I -L --fail "https://pkg.pr.new/vite-hub/vitehub/vite-hub@<full-sha>"

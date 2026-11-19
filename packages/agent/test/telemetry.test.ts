@@ -751,6 +751,34 @@ describe("Agent telemetry", () => {
       .toBe(configuration(inputs).fingerprint)
   })
 
+  it.each(["system", "assistant"] as const)("requires the role's content opt-in for a %s trigger message", async (role) => {
+    const inputs = vi.fn()
+    const permitted = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({ id: "inputs", telemetry: { content: { inputs: true }, exporter: inputs } }),
+        defineCapability({ id: "permitted", telemetry: { content: { [role === "system" ? "instructions" : "outputs"]: true }, exporter: permitted } }),
+      ],
+      driver: { run: () => "reply" },
+    })
+    await runAgentWithContext(agent, {
+      memo: vi.fn(),
+      run: { messageId: "selected", runId: `trigger-${role}` },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, { messages: [
+      { id: "selected", parts: [{ type: "text", text: "Private trigger content" }], role },
+      { id: "user", parts: [{ type: "text", text: "User input" }], role: "user" },
+    ] })
+    await Promise.all(tasks)
+
+    expect(JSON.stringify(inputs.mock.calls)).toContain("User input")
+    expect(JSON.stringify(inputs.mock.calls)).not.toContain("Private trigger content")
+    expect(JSON.stringify(permitted.mock.calls)).toContain('"input.trigger.message"')
+    expect(JSON.stringify(permitted.mock.calls)).toContain("Private trigger content")
+  })
+
   it.each([false, true])("classifies steered message telemetry by role (live: %s)", async (live) => {
     const inputs = vi.fn()
     const outputs = vi.fn()

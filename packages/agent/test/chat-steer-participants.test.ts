@@ -38,11 +38,16 @@ function mockTelegramApi() {
   }) as typeof fetch
 }
 
-function mention(handler: ReturnType<typeof createChannelWebhookRouteHandler>, chatId: number, from: typeof maxi, messageId: number, text: string) {
+function mention(handler: ReturnType<typeof createChannelWebhookRouteHandler>, chatId: number, from: typeof maxi, messageId: number, text: string, replyTo?: { from: typeof maxi, messageId: number, text: string }) {
+  return post(handler, chatId, from, messageId, `@vitehub_test_bot ${text}`, replyTo)
+}
+
+function post(handler: ReturnType<typeof createChannelWebhookRouteHandler>, chatId: number, from: typeof maxi, messageId: number, text: string, replyTo?: { from: typeof maxi, messageId: number, text: string }) {
   const chat = { id: chatId, title: "Support", type: "group" }
   const tasks: Array<Promise<unknown>> = []
+  const reply = replyTo ? { reply_to_message: { chat, date: telegramDate, from: replyTo.from, message_id: replyTo.messageId, text: replyTo.text } } : {}
   const response = handler(new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
-    body: JSON.stringify({ message: { chat, date: telegramDate, from, message_id: messageId, text: `@vitehub_test_bot ${text}` }, update_id: messageId }),
+    body: JSON.stringify({ message: { chat, date: telegramDate, from, message_id: messageId, text, ...reply }, update_id: messageId }),
     method: "POST",
   }), "telegram", {
     agentName: "support",
@@ -54,7 +59,7 @@ function mention(handler: ReturnType<typeof createChannelWebhookRouteHandler>, c
   })
 }
 
-function steerAgent(steerFromParticipants: boolean) {
+function steerAgent(steerFromParticipants: boolean, triggerHistory?: { maxMessages: number, source: "thread" }) {
   const started = deferred<void>()
   const released = deferred<void>()
   const sendInput = vi.fn(() => "accepted" as const)
@@ -77,7 +82,7 @@ function steerAgent(steerFromParticipants: boolean) {
       telegram: telegram({
         allowedUserIds: [maxi.id, ana.id],
         botToken: "test-token",
-        messages: { concurrency: "steer", delivery: "manual", durable: false, steerFromParticipants },
+        messages: { concurrency: "steer", delivery: "manual", durable: false, steerFromParticipants, ...(triggerHistory ? { triggerHistory } : {}) },
         mode: "webhook",
         webhookSecret: false,
       }),
@@ -109,15 +114,36 @@ describe("steerFromParticipants", () => {
     ])
   })
 
+  it("quotes the message that a steering reply answers, because the active run has not seen it", async () => {
+    mockTelegramApi()
+    const agent = steerAgent(true, { maxMessages: 2, source: "thread" })
+
+    const first = mention(agent.handler, -501, maxi, 8_501, "Check the import")
+    await agent.started.promise
+    // This message enters the thread after the run started, so the run's input does not have it.
+    const middle = post(agent.handler, -501, ana, 8_502, "The value is 73")
+    const second = mention(agent.handler, -501, ana, 8_503, "Use this value", { from: ana, messageId: 8_502, text: "The value is 73" })
+    await vi.waitFor(() => expect(agent.sendInput).toHaveBeenCalledTimes(1))
+    agent.released.resolve()
+    await Promise.all([first, middle, second])
+
+    const [input] = agent.sendInput.mock.calls[0] as unknown as [{ message: { parts: Array<{ data?: { modelText?: string }, type: string }> } }]
+    const replyLine = input.message.parts.find(part => part.type === "data-chat-reply-context")?.data?.modelText
+    expect(replyLine).toContain("\"The value is 73\"")
+    expect(replyLine).not.toContain("(shown above)")
+  })
+
   it("starts a separate run for another participant when the option is off", async () => {
     mockTelegramApi()
+    const info = vi.spyOn(console, "info")
     const agent = steerAgent(false)
 
     const first = mention(agent.handler, -401, maxi, 8_401, "Check the import")
     await agent.started.promise
     const second = mention(agent.handler, -401, ana, 8_402, "Use the March file")
-    // The second participant waits for the active run instead of steering it.
-    await new Promise(resolve => setTimeout(resolve, 50))
+    // The second participant waits for the active run instead of steering it. The route polls
+    // the active run every 50 ms while it waits.
+    await new Promise(resolve => setTimeout(resolve, 200))
     expect(agent.sendInput).not.toHaveBeenCalled()
     agent.released.resolve()
     await Promise.all([first, second])
@@ -126,5 +152,9 @@ describe("steerFromParticipants", () => {
     expect(agent.run).toHaveBeenCalledTimes(2)
     expect(agent.invokers[0]).toContain(String(maxi.id))
     expect(agent.invokers[1]).toContain(String(ana.id))
+    // One deferral event for the whole wait, not one for each poll.
+    const deferred = info.mock.calls.flatMap(([line]) => typeof line === "string" && line.includes("\"steer.deferred\"") ? [JSON.parse(line)] : [])
+    expect(deferred).toEqual([expect.objectContaining({ reason: "not-invoker", runId: expect.any(String), scope: "vitehub.channel.delivery", sourceId: "8402" })])
+    info.mockRestore()
   })
 })

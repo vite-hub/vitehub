@@ -97,6 +97,9 @@ export type RateLimitDecision = RateLimitAllowedDecision | RateLimitLimitedDecis
  */
 export type CheckRateLimitErrorCode = "RATE_LIMIT_R0009" | "RATE_LIMIT_R0013"
 
+/** The error that `refundRateLimit()` returns. `RATE_LIMIT_R0013`: the request has no client address and the call has no `key`. */
+export type RefundRateLimitErrorCode = "RATE_LIMIT_R0013"
+
 export interface RateLimitDriverCapabilities {
   readonly enforcement: RateLimitEnforcement
   readonly rejectedAttempts: RateLimitRejectedAttemptBehavior
@@ -118,6 +121,9 @@ export type RateLimitDriverPeekOutcome = Result<RateLimitDriverPeekResult>
 /** `[undefined, undefined]` after the driver deleted the counter, or `[error, undefined]` for an outage. */
 export type RateLimitDriverResetOutcome = Result<void>
 
+/** `[undefined, undefined]` after the driver gave back one request, or `[error, undefined]` for an outage. */
+export type RateLimitDriverRefundOutcome = Result<void>
+
 export interface RateLimitDriver {
   capabilities: RateLimitDriverCapabilities
   consume: (input: RateLimitDriverInput) => MaybePromise<RateLimitDriverOutcome>
@@ -127,6 +133,11 @@ export interface RateLimitDriver {
    * Rate Limiter then reports `unsupported`.
    */
   peek?: (input: RateLimitDriverInput) => MaybePromise<RateLimitDriverPeekOutcome>
+  /**
+   * Gives back one request to the counter of a key in the current window. It does nothing when the counter is at
+   * zero. Omit it when the provider cannot give back a request. The Rate Limiter then reports `unsupported`.
+   */
+  refund?: (input: RateLimitDriverInput) => MaybePromise<RateLimitDriverRefundOutcome>
   /** Deletes the counter of a key. Omit it when the provider cannot reset a counter. */
   reset?: (input: RateLimitDriverInput) => MaybePromise<RateLimitDriverResetOutcome>
 }
@@ -147,12 +158,22 @@ export type RateLimitResetResult =
   | { reason: string, status: "unsupported" }
   | { cause: unknown, status: "unavailable" }
 
+export type RateLimitRefundResult =
+  | { status: "refunded" }
+  | { reason: string, status: "unsupported" }
+  | { cause: unknown, status: "unavailable" }
+
 export interface RateLimiter {
   readonly capabilities: RateLimitDriverCapabilities
   consume: (input: RateLimitConsumeInput) => Promise<RateLimitDecision>
   /** Reads the counter of a key without consuming a token. */
   peek: (input: RateLimitConsumeInput) => Promise<RateLimitPeekResult>
   policy: ResolvedRateLimitPolicy
+  /**
+   * Gives back one request of a key in the current window, for example when the work that the request paid for
+   * failed. Refund only a request that the limiter allowed.
+   */
+  refund: (input: RateLimitConsumeInput) => Promise<RateLimitRefundResult>
   /** Deletes the counter of a key, so the next request starts a new window. */
   reset: (input: RateLimitConsumeInput) => Promise<RateLimitResetResult>
 }
@@ -188,6 +209,8 @@ export interface RateLimitOptions {
 
 export interface RateLimitRuntimeConfig {
   driver: Exclude<RateLimitDriverName, "auto">
+  /** Cloudflare deployment namespace for policies counted in KV. */
+  namespace?: string
   /**
    * With the `kv` driver: count in the memory of this process, with a warning, when the KV store cannot share counts.
    * Without it, such a store fails with `RATE_LIMIT_KV_RUNTIME_STORE_UNSUPPORTED`. ViteHub sets it in `vite dev` and when it selects `kv` itself.

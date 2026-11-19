@@ -5,7 +5,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       agent: { channels: { simulate: true } },
-      workflow: false,
     }),
   ],
 })
