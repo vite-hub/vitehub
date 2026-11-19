@@ -278,6 +278,11 @@
       "import": "./dist/runtime/client-rate-limit.js",
       "default": "./dist/runtime/client-rate-limit.js"
     },
+    "./runtime/user-data": {
+      "types": "./dist/runtime/user-data.d.ts",
+      "import": "./dist/runtime/user-data.js",
+      "default": "./dist/runtime/user-data.js"
+    },
     "./runtime/request-origin": {
       "types": "./dist/runtime/request-origin.d.ts",
       "import": "./dist/runtime/request-origin.js",
@@ -475,6 +480,6 @@
     "vitest": "catalog:tooling"
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

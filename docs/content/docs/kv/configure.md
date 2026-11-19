@@ -249,4 +249,4 @@ export default defineConfig({
 - The build fails when `kv` is not enabled.
 - A `cache` mount in `nitro.kv` (`nitro.storage` in Nuxt) wins over this option.
 - [Cache tags and `staleIfError`](/docs/guides/cache-server-results) work with this driver too.
-- The Console Cache section and `vitehub cache` list, read, and invalidate the entries. See [Read and invalidate the cache](/docs/development/cli#read-and-invalidate-the-cache).
+- The Console Cache section and `vitehub cache` list, read, and invalidate the entries. See [Read and invalidate the cache](/docs/cli/primitives#read-and-invalidate-the-cache).

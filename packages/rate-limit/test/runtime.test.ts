@@ -2,7 +2,7 @@ import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflar
 import { H3, HTTPError, mockEvent } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { checkRateLimit, peekRateLimit, requireRateLimit, resetRateLimit } from "../src/index.ts"
+import { checkRateLimit, peekRateLimit, refundRateLimit, requireRateLimit, resetRateLimit } from "../src/index.ts"
 import { getCloudflareRateLimitBindingName } from "../src/drivers/cloudflare.ts"
 import { setRateLimitRuntimeConfig } from "../src/runtime.ts"
 
@@ -356,6 +356,59 @@ describe("managed Rate Limit guard", () => {
       limit: 1,
       window: "1m",
     })).rejects.toThrow("was not found on the request event")
+  })
+})
+
+describe("Rate Limit refund", () => {
+  it("gives back one request of the same ID, policy, and key", async () => {
+    const event = requestEvent("192.0.2.40")
+    const policy = { key: "learner", limit: 1, window: "1d" } as const
+
+    await requireRateLimit(event, "tutor", policy)
+    await expect(requireRateLimit(event, "tutor", policy)).rejects.toMatchObject({ status: 429 })
+    await expect(refundRateLimit(event, "tutor", policy)).resolves.toEqual([undefined, { status: "refunded" }])
+    await expect(requireRateLimit(event, "tutor", policy)).resolves.toBeUndefined()
+    await expect(refundRateLimit(event, "tutor", { ...policy, message: "No." } as never)).rejects.toThrow('does not support the "message" option')
+    await expect(refundRateLimit(requestEvent(), "tutor", { limit: 1, window: "1d" })).resolves.toMatchObject([{ code: "RATE_LIMIT_R0013" }, undefined])
+  })
+
+  it("reports the Cloudflare binding as unsupported without calling it", async () => {
+    setRateLimitRuntimeConfig({ driver: "cloudflare" })
+    const limit = vi.fn(async () => ({ success: true }))
+    const [error, result] = await refundRateLimit(cloudflareEvent("uploads", { limit }), "uploads", { key: "user", limit: 1, window: "1m" })
+
+    expect(error).toBeUndefined()
+    expect(result).toMatchObject({ status: "unsupported" })
+    expect(limit).not.toHaveBeenCalled()
+  })
+
+  it("counts a window that the Cloudflare binding does not support in KV, and refunds it", async () => {
+    const values = new Map<string, number>()
+    const storage = {
+      delete: async (key: string) => (values.delete(key), [undefined, undefined] as [undefined, undefined]),
+      get: async (key: string) => [undefined, values.get(key) ?? null] as [undefined, unknown],
+      increment: async (key: string) => {
+        values.set(key, (values.get(key) ?? 0) + 1)
+        return [undefined, values.get(key)!] as [undefined, number]
+      },
+    }
+    const deploy = (namespace: string) => setRateLimitRuntimeConfig({ driver: "cloudflare", namespace }, { driver: async () => "upstash", storage, store: "default" })
+    deploy("production")
+    const limit = vi.fn(async () => ({ success: true }))
+    const event = cloudflareEvent("tutor", { limit }, { "cf-connecting-ip": "198.51.100.7" })
+    const policy = { limit: 1, window: "1d" } as const
+
+    await expect(checkRateLimit(event, "tutor", policy)).resolves.toMatchObject([undefined, { allowed: true, remaining: 0 }])
+    await expect(checkRateLimit(event, "tutor", policy)).resolves.toMatchObject([undefined, { allowed: false, reason: "limited" }])
+    await expect(refundRateLimit(event, "tutor", policy)).resolves.toEqual([undefined, { status: "refunded" }])
+    await expect(peekRateLimit("tutor", "198.51.100.7")).resolves.toMatchObject({ counters: [{ used: 1 }], provider: "cloudflare", scope: "global", status: "known" })
+    deploy("staging")
+    await expect(checkRateLimit(event, "tutor", policy)).resolves.toMatchObject([undefined, { allowed: true, remaining: 0 }])
+    await expect(refundRateLimit(event, "tutor", policy)).resolves.toEqual([undefined, { status: "refunded" }])
+    await resetRateLimit("tutor", "198.51.100.7")
+    deploy("production")
+    await expect(checkRateLimit(event, "tutor", policy)).resolves.toMatchObject([undefined, { allowed: false, reason: "limited" }])
+    expect(limit).not.toHaveBeenCalled()
   })
 })
 

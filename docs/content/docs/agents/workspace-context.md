@@ -9,7 +9,7 @@ navigation.kind: Guides
 
 A Workspace gives an Agent a named file tree and optional Sources, such as a folder or a GitHub repository. The Workspace decides which files exist. Capabilities (tools) and the Driver decide how the Agent reaches them.
 
-Use it for project files, docs, generated state, and controlled writeback. Do not hide prompts in it: put model rules in [Instructions](/docs/agents/instructions). The [Workspace preset](/docs/agents/workspace-preset) is a ready read-only Codex Agent that cites Sources.
+Use it for project files, docs, generated state, and controlled writeback. Do not hide prompts in it: put model rules in [Instructions](/docs/agents/instructions). The [Workspace preset](/docs/presets/workspace) is a ready read-only Codex Agent that cites Sources.
 
 ## Add a read-only Workspace
 
@@ -167,7 +167,7 @@ After the provider ends, the host can call `checkout.push(cwd)`. It refreshes so
 | Caller-specific file scope | Access plus a trusted Agent Invoker |
 | Provider working directory | A write-mode Workspace |
 
-Check the resolved Workspace, Sources, and access policy with the [CLI](/docs/development/cli) before production.
+Check the resolved Workspace, Sources, and access policy with the [CLI](/docs/cli) before production.
 
 ## Next steps
 

@@ -125,6 +125,46 @@ export default defineConfig({
 
 The deployment name comes from `name`, `WRANGLER_CI_OVERRIDE_NAME`, the `package.json` name, or the project directory, in that order.
 
-Cloudflare native enforcement is best-effort and has only 10-second and 60-second windows. It returns no portable quota metadata, so policies it cannot meet fail the build.
+Cloudflare native enforcement is best-effort and has only 10-second and 60-second windows. It returns no portable quota metadata, and it cannot give back a request. A policy with `enforcement: 'strict'` and a `10s` or `1m` window fails the build with `RATE_LIMIT_R0015`.
+
+### Windows longer than one minute
+
+A Rate Limit with another window, such as `'1h'` or `'1d'`, counts in the default KV store instead of a Cloudflare binding. KV needs a shared atomic `increment`, which Cloudflare KV does not have, so use Upstash:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { host: 'cloudflare', kv: { driver: 'upstash' }, rateLimit: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'cloudflare', kv: { driver: 'upstash' }, rateLimit: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'cloudflare', kv: { driver: 'upstash' }, rateLimit: true })],
+})
+```
+:::
+::
+
+The guard call does not change. The manifest reports `provider: 'kv'` for these Rate Limits, and they support `peekRateLimit()`, `resetRateLimit()`, and `refundRateLimit()`. The deployment name separates counters even when deployments use the same KV store. Without such a KV store, the build fails with `RATE_LIMIT_R0016`. Read [KV limits](/docs/rate-limit/limits-and-errors#kv-limits) for how the `kv` driver counts.
 
 Inspect the generated `wrangler.json` entries and test the deployed Worker. A Node script cannot check a request-scoped Cloudflare binding.

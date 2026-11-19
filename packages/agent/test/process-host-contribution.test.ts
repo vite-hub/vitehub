@@ -157,7 +157,7 @@ describe("generated process hosts", () => {
     }
     const node = config()
     expect(node.nitro.plugins).toEqual(expect.arrayContaining([expect.stringContaining("process-hosts-plugin.ts")]))
-    expect(node.nitro.handlers?.map(handler => handler.route)).toEqual(expect.arrayContaining(["/api/_vitehub/host/drain", "/api/_vitehub/host/health"]))
+    expect(node.nitro.handlers?.map(handler => handler.route)).toEqual(expect.arrayContaining(["/_vitehub/host/drain", "/_vitehub/host/health"]))
     expect(() => config("vercel")).toThrow(/AGENT_B0022|cannot run it/)
   })
 })

@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 In this guide, you render a project name field with ui-sdk parts and the kit styles. Then an Agent renames the project on the open page.
 
-You need Node.js 22.22 or newer and pnpm. For Nuxt, you need Nuxt 5, which is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. To try the parts without an install, open the [Playground](/playground?template=ui).
+You need Node.js 24.15 or newer and pnpm. For Nuxt, you need Node.js 24.15 or newer on 24.x, or 26 or newer, and Nuxt 5, which is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. To try the parts without an install, open the [Playground](/playground?template=ui).
 
 ::tutorial-step{title="Install"}
 ## Install
@@ -132,10 +132,10 @@ Start the dev server with `pnpm dev` and open the page. Select **Project name**:
 ::tutorial-step{title="Let an Agent work the page"}
 ## Let an Agent work the page
 
-Install the Agent, Realtime, and Workflow packages, and `ai` for the model. An Agent runs on Workflow on Node:
+Install the Agent and Realtime packages, and `ai` for the model:
 
 ```bash [commands/install-agent]
-pnpm add @vite-hub/agent @vite-hub/realtime @vite-hub/workflow ai
+pnpm add @vite-hub/agent @vite-hub/realtime ai
 ```
 
 Turn them on in `nuxt.config.ts` or `vite.config.ts`. This Node build keeps its rooms in memory, in one process:

@@ -1,9 +1,8 @@
 ---
 title: Runtime Context
-navigation.title: Runtime Context
 description: The host resources that ViteHub passes to a server operation or Agent request.
-navigation.order: 55.1
-navigation.group: Runtime and output
+navigation.order: 3
+navigation.group: Reference
 icon: i-lucide-waypoints
 ---
 
@@ -186,4 +185,4 @@ A Runtime Capability handle passes an implementation between packages. An Agent 
 
 The generated route or custom server call that starts the operation shows where the runtime, background work, provider resources, and trace data come from.
 
-See [Runtime events](/docs/reference/runtime-events) for the records in Runtime Context and [Agent Invocations](/docs/agents/invocations) for the request record.
+See [Runtime events](/docs/runtime/events) for the records in Runtime Context and [Agent Invocations](/docs/agents/invocations) for the request record.

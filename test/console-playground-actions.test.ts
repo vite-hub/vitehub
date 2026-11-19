@@ -4,13 +4,13 @@ import { describe, expect, it } from "vitest"
 
 import { consoleMockAPI } from "../playground/console/mock-api.ts"
 
-async function invoke(body: string, id = "missing", method: "GET" | "POST" = "POST"): Promise<{ body: unknown, status: number }> {
+async function requestConsole(url: string, method: "GET" | "POST", body: string): Promise<{ body: unknown, status: number }> {
   let middleware: ((request: IncomingMessage, response: ServerResponse, next: () => void) => Promise<void>) | undefined
   // SAFETY: The local plugin defines configureServer as a callable hook.
   const configureServer = consoleMockAPI().configureServer as (server: { middlewares: { use: (handler: NonNullable<typeof middleware>) => void } }) => void
   // SAFETY: The hook reads only the middleware registration boundary in this test.
   configureServer({ middlewares: { use: (handler) => { middleware = handler } } })
-  const request = Object.assign(Readable.from([body]), { method, url: `/_vitehub/api/invocations/${id}` })
+  const request = Object.assign(Readable.from([body]), { method, url })
   let value: unknown
   const response = {
     statusCode: 200,
@@ -21,6 +21,24 @@ async function invoke(body: string, id = "missing", method: "GET" | "POST" = "PO
   await middleware!(request as IncomingMessage, response as unknown as ServerResponse, () => { throw new Error("Unexpected next") })
   return { body: value, status: response.statusCode }
 }
+
+function invoke(body: string, id = "missing", method: "GET" | "POST" = "POST") {
+  return requestConsole(`/_vitehub/api/invocations/${id}`, method, body)
+}
+
+it("shows the simulated Resend authentication failure in the Console playground Email outbox", async () => {
+  const response = await requestConsole("/_vitehub/api/definitions?section=email", "GET", "")
+  expect(response).toMatchObject({
+    status: 200,
+    body: {
+      section: "email",
+      records: expect.arrayContaining([expect.objectContaining({
+        cells: expect.objectContaining({ delivery: "Failed", subject: "Reset your password" }),
+        fields: expect.arrayContaining([{ label: "Delivery", value: "Failed (AUTH): Resend rejected the API key." }]),
+      })]),
+    },
+  })
+})
 
 describe("Console playground Invocation actions", () => {
   it.each(["{", '{"action":"rerun"}', '{"action":"cancel","extra":true}', "[]", "null", "{}"])("rejects unsupported input %s before cancellation", async (body) => {

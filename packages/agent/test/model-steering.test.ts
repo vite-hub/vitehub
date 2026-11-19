@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAgent, defineCapability, startAgentInvocation } from "../src/index.ts"
 import { telegram } from "../src/channels.ts"
-import { openModelSteering } from "../src/internal/model-steering.ts"
-import { agentInvocationInputSupport, sendAgentInvocationInput } from "../src/internal/agent-invocation-control.ts"
+import { agentSteeringInput, openModelSteering } from "../src/internal/model-steering.ts"
+import { agentInvocationInputSupport, sendAgentInvocationInput, sendAgentInvocationInputResult } from "../src/internal/agent-invocation-control.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 
 import type { AgentRuntimeContext } from "../src/index.ts"
@@ -66,7 +66,35 @@ function lookupTool(execute: () => Promise<string>) {
   })
 }
 
+describe("agentSteeringInput", () => {
+  const header = { data: { modelText: "[msg 1002 · from Gergo (id 29:gergo)]" }, id: "message-header", type: "data-chat-message-header" as const }
+  const text = (value: string) => ({ text: value, type: "text" as const })
+
+  it("puts chat context lines before the message text and keeps text parts joined as sent", () => {
+    const reply = { data: { modelText: "↪ replying to Maxi's msg 1001" }, id: "reply-context", type: "data-chat-reply-context" as const }
+    const replyText = { data: { modelText: "", text: "open pr" }, id: "reply-text-0", type: "data-chat-reply-text" as const }
+    expect(agentSteeringInput({ messages: [{ id: "m1", parts: [header, reply, replyText, text("use the "), text("March file")], role: "user" }] }))
+      .toEqual({ text: "[msg 1002 · from Gergo (id 29:gergo)]\n↪ replying to Maxi's msg 1001\nuse the March file" })
+    expect(agentSteeringInput({ messages: [{ id: "m2", parts: [text("one")], role: "user" }, { id: "m3", parts: [text("two")], role: "user" }] })).toEqual({ text: "one\n\ntwo" })
+  })
+
+  it("names why input cannot steer as text", () => {
+    expect(agentSteeringInput({ messages: [{ id: "m4", parts: [header], role: "user" }] })).toEqual({ issue: "empty" })
+    expect(agentSteeringInput({ prompt: " " })).toEqual({ issue: "empty" })
+    expect(agentSteeringInput({ messages: [{ id: "m5", parts: [header, text("see"), { data: new Uint8Array([1]), mediaType: "image/png", type: "image" }], role: "user" }] })).toEqual({ issue: "attachments" })
+    expect(agentSteeringInput({ messages: [{ id: "m6", parts: [text("see"), { data: "private", type: "data" }], role: "user" }] })).toEqual({ issue: "unsupported-parts" })
+  })
+})
+
 describe("model Driver steering", () => {
+  it("tells the caller why a model-backed run cannot steer an attachment", async () => {
+    const steering = openModelSteering("attachment-steering")
+    const message = { id: "attachment", parts: [{ text: "see", type: "text" as const }, { data: new Uint8Array([1]), mediaType: "image/png", type: "image" as const }], role: "user" as const }
+    await expect(sendAgentInvocationInputResult("attachment-steering", { message, messages: [message] }, { mode: "steer" }))
+      .resolves.toEqual({ outcome: "unsupported", reason: "attachments" })
+    steering.close()
+  })
+
   it.each([false, true])("keeps copied steering once across steps (SDK 6-style messages: %s)", async (resetMessages) => {
     const steering = openModelSteering("copied-steering")
     let submitted: Promise<unknown> | undefined
@@ -214,7 +242,7 @@ describe("model Driver steering", () => {
     }))
     const tasks: Array<Promise<unknown>> = []
 
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+    const response = await handler(new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
       body: JSON.stringify({ message: { chat: { id: 456, type: "private" }, date: telegramDate, from: maxi, message_id: 8_601, text: "Why is the connector down?" }, update_id: 8_601 }),
       method: "POST",
     }), "telegram", { agentName: "support", waitUntil: task => tasks.push(Promise.resolve(task)) })

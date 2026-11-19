@@ -659,14 +659,27 @@ export function createFakeGitHub(options: { owner?: string, repo?: string, etags
      * The webhook request that GitHub sends for the last push to `branch`, signed with `secret` in
      * `X-Hub-Signature-256`. `event: "ping"` sends the ping of a new webhook instead.
      */
-    webhook(url: string, secret: string, input: { branch?: string, event?: "ping" | "push" | (string & {}), repo?: string, signature?: string } = {}) {
+    /**
+     * A signed webhook delivery of the branch head. `commits` are the push payload's commits with their `added`,
+     * `modified`, and `removed` paths; `before` and `forced` override the payload fields.
+     */
+    webhook(url: string, secret: string, input: { before?: string, branch?: string, commits?: Array<{ added?: string[], modified?: string[], removed?: string[] }>, event?: "ping" | "push" | (string & {}), forced?: boolean, repo?: string, signature?: string } = {}) {
       const branch = input.branch ?? "main"
       const after = branches.get(branch) ?? null
       const repository = { full_name: input.repo ?? `${owner}/${repo}`, default_branch: state.defaultBranch }
       const event = input.event ?? "push"
       const body = JSON.stringify(event === "ping"
         ? { zen: "Keep it logically awesome.", hook_id: 1, repository }
-        : { ref: `refs/heads/${branch}`, before: commits.get(after ?? "")?.parents[0] ?? "0".repeat(40), after, created: false, deleted: false, repository, commits: [] })
+        : {
+            ref: `refs/heads/${branch}`,
+            before: input.before ?? commits.get(after ?? "")?.parents[0] ?? "0".repeat(40),
+            after,
+            created: false,
+            deleted: false,
+            forced: input.forced ?? false,
+            repository,
+            commits: (input.commits ?? []).map(commit => ({ added: commit.added ?? [], modified: commit.modified ?? [], removed: commit.removed ?? [] })),
+          })
       const signature = input.signature ?? `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
       return new Request(url, {
         method: "POST",

@@ -9,7 +9,7 @@ export const cloudflareWorkerSizeLimit = 64 * 1024 * 1024
 
 // Keep published codes stable. Each code has a generated docs page.
 export const bundleDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: "https://vitehub.dev/docs/development/diagnostics",
+  docsBase: "https://vitehub.dev/docs/bundle/diagnostics",
   codes: {
     BUNDLE_STARTUP_UNUSED: {
       why: ({ packages, reason }: { packages: ReadonlyArray<{ name: string, bytes: number }>, reason: string }) =>

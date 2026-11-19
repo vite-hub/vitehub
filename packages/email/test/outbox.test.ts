@@ -20,7 +20,7 @@ const message: EmailMessage = {
   to: ["ada@example.com", { email: "grace@example.com", name: "Grace" }],
 }
 
-function providerDriver(send: EmailDriver["send"] = () => ({ data: { at: new Date(), driver: "resend", id: "re_1" }, error: null })): EmailDriver {
+function providerDriver(send: EmailDriver["send"] = () => [undefined, { at: new Date(), driver: "resend", id: "re_1" }]): EmailDriver {
   return { initialize: vi.fn(), name: "resend", send: vi.fn(send) }
 }
 
@@ -36,9 +36,9 @@ describe("Email development outbox", () => {
     expect(getEmailOutbox()?.list().map(entry => [entry.id, entry.subject, entry.delivery.status])).toEqual([
       ["outbox-2", "second", "pending"], ["outbox-1", "first", "pending"],
     ])
-    completions[1]!({ data: { at: new Date(), driver: "resend", id: "second" }, error: null })
+    completions[1]!([undefined, { at: new Date(), driver: "resend", id: "second" }])
     await second
-    completions[0]!({ data: { at: new Date(), driver: "resend", id: "first" }, error: null })
+    completions[0]!([undefined, { at: new Date(), driver: "resend", id: "first" }])
     await first
     expect(getEmailOutbox()?.list().map(entry => [entry.id, entry.delivery.status])).toEqual([["outbox-2", "sent"], ["outbox-1", "sent"]])
   })
@@ -190,7 +190,7 @@ describe("Email development outbox", () => {
   })
 
   it("does not record malformed provider ids as sent", async () => {
-    const driver = providerDriver(() => ({ data: { at: new Date(), driver: "resend", id: "" }, error: null }))
+    const driver = providerDriver(() => [undefined, { at: new Date(), driver: "resend", id: "" }])
     const email = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: true, driver, provider: "resend" }) })
 
     expect((await email.send(message))[0]).toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
@@ -198,7 +198,7 @@ describe("Email development outbox", () => {
   })
 
   it("does not throw before recording a non-string provider id as failed", async () => {
-    const driver = providerDriver(() => ({ data: { at: new Date(), driver: "resend", id: 123 as unknown as string }, error: null }))
+    const driver = providerDriver(() => [undefined, { at: new Date(), driver: "resend", id: 123 as unknown as string }])
     const email = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: true, driver, provider: "resend" }) })
 
     expect((await email.send(message))[0]).toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
@@ -219,7 +219,7 @@ describe("Email development outbox", () => {
   })
 
   it("records failed deliveries with a redacted error and keeps the original failure", async () => {
-    const rejected = providerDriver(() => ({ data: null, error: emailProviderError("resend", "AUTH", "Invalid key token=re_live_secret") }))
+    const rejected = providerDriver(() => [emailProviderError("resend", "AUTH", "Invalid key token=re_live_secret"), undefined])
     const email = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: true, driver: rejected, provider: "resend" }) })
     expect((await email.send(message))[0]).toMatchObject({ code: "EMAIL_AUTHENTICATION" })
 

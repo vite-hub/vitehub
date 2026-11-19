@@ -603,10 +603,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "server/queues/welcome.ts"), [
           'import { blob } from "vite-hub/blob"',
           'import { defineQueue } from "vite-hub/queue"',
-          "export default defineQueue<{ name: string }>(async ({ payload }) => {",
+          "export default defineQueue<{ name: string }>({ handler: async ({ payload }) => {",
           "  const [error] = await blob.put(`welcome/${payload.name}.txt`, payload.name)",
           "  if (error) throw error",
-          "})",
+          "} })",
           "",
         ].join("\n"), "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
@@ -949,10 +949,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         `),
         // `defineQueue<...>()` does not compile when `defineQueue` is untyped (TS2347).
         writeFile(join(appDir, "server/queues/welcome.ts"), `
-          export default defineQueue<{ id: string }>(async ({ payload }) => {
+          export default defineQueue<{ id: string }>({ handler: async ({ payload }) => {
             const [error] = await kv.set(\`welcome:\${payload.id}\`, "done")
             if (error) throw error
-          })
+          } })
         `),
         writeFile(join(appDir, "server/api/welcome.post.ts"), `
           import { defineEventHandler, getQuery } from "nitro/h3"
@@ -1161,9 +1161,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           headers: { "content-type": "application/json" },
           method: "POST",
         } as const
-        const response = await fetch(`${origin}/api/_vitehub/agents/contract/chat`, request)
+        const response = await fetch(`${origin}/_vitehub/agents/contract/chat`, request)
         const body = await response.text()
-        const disabledResponse = await fetch(`${origin}/api/_vitehub/agents/disabled/chat`, request)
+        const disabledResponse = await fetch(`${origin}/_vitehub/agents/disabled/chat`, request)
         const disabledBody = await disabledResponse.text()
         await new Promise(resolve => setTimeout(resolve, 50))
         return {

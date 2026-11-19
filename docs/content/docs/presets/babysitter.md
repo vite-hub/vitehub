@@ -1,8 +1,8 @@
 ---
 title: Babysitter
 description: Run an Agent that fixes your pull requests, waits for checks, and merges the ready ones.
-navigation.group: Presets
-navigation.order: 91
+navigation.order: 2
+icon: i-lucide-git-pull-request
 navigation.kind: Guides
 ---
 
@@ -25,7 +25,7 @@ export default defineAgent({
 Then:
 
 1. Turn on the Agent integration with the Node preset ([Enable the Agent integration](#enable-the-agent-integration)).
-2. Create a GitHub App with read and write access to contents, pull requests, issues, checks, and Actions. Subscribe it to pull request, review, review comment, review thread, issue comment, check run, check suite, status, push, and workflow run events, and set its webhook URL to `https://<host>/api/_vitehub/agents/babysitter/webhooks/github`. Install it on the repositories.
+2. Create a GitHub App with read and write access to contents, pull requests, issues, checks, and Actions. Subscribe it to pull request, review, review comment, review thread, issue comment, check run, check suite, status, push, and workflow run events, and set its webhook URL to `https://<host>/_vitehub/agents/babysitter/webhooks/github`. Install it on the repositories.
 3. Set these variables on the host:
 
 | Variable | Value |
@@ -364,7 +364,7 @@ The worker records and recovers Invocations under `<discovered-agent-name>-worke
 
 ## Configure GitHub
 
-Create a GitHub App with read and write access to contents, pull requests, issues, checks (to publish the `babysitter` check run), and Actions (to rerun failed workflow jobs). Subscribe it to pull request, review, review comment, review thread, issue comment, check run, check suite, status, push, and workflow run events. The workflow run event lets [`mainRepair`](#repair-a-red-default-branch) react to a failed run at once. Set its webhook URL to `https://<host>/api/_vitehub/agents/babysitter/webhooks/github`.
+Create a GitHub App with read and write access to contents, pull requests, issues, checks (to publish the `babysitter` check run), and Actions (to rerun failed workflow jobs). Subscribe it to pull request, review, review comment, review thread, issue comment, check run, check suite, status, push, and workflow run events. The workflow run event lets [`mainRepair`](#repair-a-red-default-branch) react to a failed run at once. Set its webhook URL to `https://<host>/_vitehub/agents/babysitter/webhooks/github`.
 
 Set these variables on the host, or declare them in `env.server.github`:
 
@@ -424,8 +424,8 @@ It starts with the server. A development server starts it only with `VITEHUB_AGE
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/_vitehub/host/health` | Health and the pull request queue: working, ready, waiting, and `parked` (parked by a budget, with the reason). |
-| `GET /api/_vitehub/host/drain` | Drain status: `accepting`, `draining`, or `drained`. |
+| `GET /_vitehub/host/health` | Health and the pull request queue: working, ready, waiting, and `parked` (parked by a budget, with the reason). |
+| `GET /_vitehub/host/drain` | Drain status: `accepting`, `draining`, or `drained`. |
 
 To replace the process, send SIGUSR2, wait for the drain route to report `drained`, then restart. Running passes finish first.
 
