@@ -149,7 +149,7 @@ export interface SyncPushRequest {
   paged?: boolean
   /** As `SyncPullQuery.after`, for the pull in the answer. */
   after?: SyncKey
-  /** Applied in order, one after the other. At most 100. */
+  /** Applied in order, one after the other. At most 100. The answer can stop early, see `SyncPushResponse.results`. */
   mutations: SyncMutation[]
 }
 
@@ -167,6 +167,11 @@ export type SyncMutationResult =
 
 /** The answer to a push with status 200. */
 export interface SyncPushResponse {
+  /**
+   * The results of the first mutations of the push, in order. The server stops before a mutation that could pass its
+   * Database call budget, so a long push can get results for its first mutations only. The client sends the others
+   * again in its next push.
+   */
   results: SyncMutationResult[]
   pull: SyncPullResponse
 }

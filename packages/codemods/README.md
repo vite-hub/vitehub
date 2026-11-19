@@ -28,7 +28,7 @@ The command exits with `0` when every codemod completes, also when they report f
 vitehub migrate [dir] [--dry-run]
 ```
 
-`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, and `channels`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
+`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, and `auth-accessors`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
 ## Run one codemod
 
@@ -61,6 +61,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `access-spellings` | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: "public"`. `vitehub migrate` runs it. |
 | `auth-sign-in` | `vitehub({ auth: { redirects } })` and `access.signIn.callbackURL` to `access: { signIn, afterSignIn }` in `server/auth.ts`. `vitehub migrate` runs it. |
 | `channels` | Agent `http()` calls to `channelAdapter("http", options)` where safe, and webhook secrets and signatures to the names of Webhooks. `vitehub migrate` runs it. |
+| `auth-accessors` | Auth `auth` and `getAuth()` to `useAuth()`, and `isGitHubOrgMember()` to `checkGitHubOrgMember()`. `vitehub migrate` runs it. |
 
 ## `runtime-contracts`
 
@@ -409,6 +410,22 @@ A string `secret` is the name of the server variable that holds the secret, in `
 
 ```sh
 npx @vite-hub/codemods channels [dir] [--dry-run]
+```
+
+## `auth-accessors`
+
+Auth has one server accessor, `useAuth(event?)`:
+
+| Old | New |
+| --- | --- |
+| `auth` from `vite-hub/auth/server` | `useAuth()` |
+| `getAuth()` from `vite-hub/auth/server` | `useAuth()` |
+| `await isGitHubOrgMember(token, 'acme')` from `vite-hub/auth` | `(!(await checkGitHubOrgMember(token, 'acme'))[0])` |
+
+The codemod also changes named imports from `#vitehub/auth/server`. It reports possible `auth` and `getAuth()` auto-imports in `server/` without editing them, because those names can come from your app. `useAuth()` without an event reads the app's Auth Definition, as before. In a route, pass the event yourself: `useAuth(event)`. The report lists `useSession()` imports and possible app auto-imports, because `useUserSession()` names its refs differently. The codemod leaves membership imports unchanged if a call is not awaited or the organization may be empty.
+
+```sh
+npx @vite-hub/codemods auth-accessors [dir] [--dry-run]
 ```
 
 ## Check real apps
