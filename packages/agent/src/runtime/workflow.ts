@@ -98,7 +98,7 @@ async function reconcileAgentWorkflowInvocation<TRuntimeConfig extends AgentRunt
   )
   if (!journal) return
   const { getWorkflowRun } = await loadAgentWorkflowModule()
-  // ponytail: Recovery is bounded to one day; add provider events or re-enqueueing if runs routinely exceed it.
+  // Recovery is bounded to one day; add provider events or re-enqueueing if runs routinely exceed it.
   for (let attempt = 0; attempt < 166; attempt++) {
     try {
       const [error, run] = await getWorkflowRun(recovery.workflowName, recovery.runId)
