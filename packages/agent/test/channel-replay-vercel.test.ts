@@ -71,8 +71,8 @@ function fixture(options: { rejectAcknowledgement?: boolean, failConfirmation?: 
   })
   setWorkflowRuntimeConfig({ driver: "vercel" })
   setWorkflowRuntimeRegistry({
-    [name]: async () => ({ default: { handler: native, options: { native } } }),
-    [getAgentInvocationRecoveryWorkflowName(name)]: async () => ({ default: { internalAgentInvocationRecovery: true, handler: recoveryNative, options: { native: recoveryNative } } }),
+    [name]: async () => ({ default: { handler: native, native } }),
+    [getAgentInvocationRecoveryWorkflowName(name)]: async () => ({ default: { internalAgentInvocationRecovery: true, handler: recoveryNative, native: recoveryNative } }),
   })
   setAgentWorkflowRuntimeLoaders({ state: () => import("../../workflow/src/runtime/state.ts"), workflow: () => import("../../workflow/src/index.ts") })
   const primaryStarts = () => vi.mocked(start).mock.calls.filter(([handler]) => handler === native)

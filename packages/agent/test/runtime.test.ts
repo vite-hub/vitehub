@@ -5616,11 +5616,11 @@ describe("agent message protocol", () => {
 
   it("keeps generated webhook ids unique for channel webhook arrays", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
     const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
     const agent = defineAgent({
       channels: {
-        support: http({
+        support: channelAdapter("http", {
           // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
           adapter: () => ({}) as never,
           webhooks: [
@@ -5671,20 +5671,13 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("rejects unwired HTTP channel paths", async () => {
-    const { http } = await import("../src/channels.ts")
-
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    expect(() => http({ path: "/api/support/chat" } as never)).toThrow("[vitehub] http({ path }) is not wired yet.")
-  })
-
   it("rejects channel webhooks without an adapter", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { http } = await import("../src/channels.ts")
+    const { channelAdapter } = await import("../src/channels.ts")
 
     expect(() => defineAgent({
       channels: {
-        support: http({
+        support: channelAdapter("http", {
           webhooks: { path: "/api/support/chat" },
         }),
       },
@@ -16006,7 +15999,7 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ driver: "vercel" })
       setWorkflowRuntimeRegistry({
         // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-        support: async () => ({ handler: async (_payload, context) => `registry:${(context.payload as { input?: { prompt?: string } }).input?.prompt}` }),
+        support: async () => ({ handler: async context => `registry:${(context.payload as { input?: { prompt?: string } }).input?.prompt}` }),
       })
 
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -16052,7 +16045,7 @@ describe("agent message protocol", () => {
       setWorkflowRuntimeConfig({ driver: "vercel" })
       setWorkflowRuntimeRegistry({
         "named-discovered": async () => ({
-          handler: async (_payload, context) => ({ marker: "registry", payload: context.payload }),
+          handler: async context => ({ marker: "registry", payload: context.payload }),
         }),
       })
 

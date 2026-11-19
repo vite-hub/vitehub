@@ -1,9 +1,9 @@
 # @vite-hub/schedule
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fschedule&icon=npm)](https://npmx.dev/package/@vite-hub/schedule)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fschedule&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/schedule)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/schedule)](https://npmx.dev/package/@vite-hub/schedule)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/schedule)](https://npmx.dev/package/@vite-hub/schedule)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/schedule` discovers recurring work, generates cron output for supported hosts, and can run Static Schedule Definitions in one long-lived process.
 
@@ -199,7 +199,7 @@ Every server checks every Schedule. Before a server runs an occurrence, it takes
 - A failed run is final, as on one server. It is not retried.
 - When a server stops during a run, for example after a crash, its lease ends after `leaseTtlMs`. Then another server runs the occurrence, unless it has a done marker. With shared run history, the run gets a new attempt, and the stopped attempt is marked as failed. This also works when every server restarts: at start, a server reads the runs inside `catchUpMs` that are still pending or running, and tries them again.
 
-The generated runtime keeps the leases in the `vitehub_leases` table of the Default Database, through `useLeases()` from `@vite-hub/database`. That works on Postgres, remote libSQL, and D1. A local libSQL file is safe for one server process only, because `@libsql/client` can lose writes when several processes write to one file. The server prints a warning at the first lease in that case. Without a Database, the leases stay in memory and the build prints a warning: each server then runs every occurrence, so run one server only. The run history stays in KV. Use a KV store that all servers share, such as Upstash, so catch-up and the Console see the runs of every server.
+The generated runtime keeps the leases in the `vitehub_leases` table of the Default Database, through `useLeases()` from `@vite-hub/database`. That works on Postgres, remote libSQL, and D1. A local libSQL file is safe for one server process only, because `@libsql/client` can lose writes when several processes write to one file. The server prints a warning at the first lease in that case. Without a Database, the leases stay in memory and the build reports the hint `SCHEDULE_PROCESS_CLAIMS_IN_MEMORY` in its output and in `.vitehub/hints.json`: each server then runs every occurrence, so run one server only. The run history stays in KV. Use a KV store that all servers share, such as Upstash, so catch-up and the Console see the runs of every server.
 
 With the Process Runtime, the default `providerOutput: "auto"` emits no host Provider Output, so the process owns Static Schedule wakes. Set `providerOutput: "standalone"` or `"nitro"` to move Static Schedule wakes to that Provider Output. `providerOutput: false` records the same wake ownership as `"auto"` in this configuration.
 

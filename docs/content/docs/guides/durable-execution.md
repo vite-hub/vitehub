@@ -112,15 +112,14 @@ In a Workflow folder, each numbered file is one durable step. `01.charge-card.ts
 ```ts [server/workflows/checkout/index.ts]
 import { defineWorkflow } from 'vite-hub/workflow'
 
-export default defineWorkflow(
-  'checkout',
-  async (payload: { orderId: string, amountCents: number, email: string }, { steps }) => {
+export default defineWorkflow<{ orderId: string, amountCents: number, email: string }>({
+  handler: async ({ payload, steps }) => {
     // This code runs again on each replay. Keep side effects in the step files.
     const charged = await steps.chargeCard(payload)
     const shipped = await steps.createShipment(charged)
     return await steps.sendReceipt(shipped)
   },
-)
+})
 ```
 
 Each step sends the same key on every attempt. Replace the `example.com` URLs with your services.

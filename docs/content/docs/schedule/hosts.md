@@ -43,7 +43,7 @@ Provider Wake output requires a static five-field cron string compatible with ge
 
 ## Run and inspect Schedules during development
 
-`vitehub()` adds the `vitehub schedule` commands, which call the [Console RPC](/docs/development/operations). `hubSchedule()` alone adds none. Start the Vite dev server, then run a manual schedule or list runs from another terminal.
+`vitehub()` adds the `vitehub schedule` commands, which call the [Console RPC](/docs/console/operations). `hubSchedule()` alone adds none. Start the Vite dev server, then run a manual schedule or list runs from another terminal.
 
 ```bash [Terminal]
 pnpm vitehub schedule run daily-report
@@ -51,7 +51,7 @@ pnpm vitehub schedule runs daily-report --limit 5 --json
 pnpm vitehub schedule attempts <runId>
 ```
 
-The commands use the same run store and registry as the server. Read [CLI](/docs/development/cli#run-and-inspect-schedules) for every command and option.
+The commands use the same run store and registry as the server. Read [CLI](/docs/cli/primitives#run-and-inspect-schedules) for every command and option.
 
 The Console Schedules page lists the schedules, with cron and time zone under the process driver. `manual: true` schedules show a run action when Console invocation is on. Each Schedule that code started has its own row with its id, time or cron, and payload. `vitehub schedule list`, `start`, and `cancel` read and change the same Schedules.
 

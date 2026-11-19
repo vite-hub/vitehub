@@ -47,7 +47,7 @@ import {
 } from "./cloudflare.ts"
 import { agentStateAuthTokenEnvNames, normalizeAgentOptions } from "./config.ts"
 import { agentDeploymentEnv } from "./deployment-env.ts"
-import { discoverAgentDefinitions, discoverAgentEvalFiles, discoverAgentOptionsStarts, discoverProcessHostAgentNames, isFolderAgentDefinition } from "./discovery.ts"
+import { assertAgentDefaultExport, discoverAgentDefinitions, discoverAgentEvalFiles, discoverAgentOptionsStarts, discoverProcessHostAgentNames, isFolderAgentDefinition } from "./discovery.ts"
 import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 import { resolveProviderRuntimePackages } from "./internal/provider-runtime-packages.ts"
 import { isPortableAgentWorkflowCapability } from "./internal/final-channel-output.ts"
@@ -244,6 +244,7 @@ function resolveNetlifyAgentBundleExternals(options: AgentGeneratedImportOptions
 }
 
 interface InternalAgentModuleOptions extends AgentOptions {
+  channelProjectRoot?: string
   /** The specifier that generated code uses to import the KV package. */
   kvImport?: string
   processDiscordGateway?: boolean
@@ -2784,6 +2785,14 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
   let closeDiscoveryWatcher: (() => Promise<void>) | undefined
   let serverDirs: string[] | undefined
 
+  function discoverHostedChannels(config: { root?: string }, agentServerDirs?: string[]) {
+    const root = resolve(config.root || process.cwd())
+    const projectRoot = frameworkOptions?.channelProjectRoot
+    return projectRoot
+      ? discoverStandaloneChannels(resolve(root, projectRoot))
+      : discoverStandaloneChannels(viteHubProjectRoot(config), agentServerDirs ?? [join(root, "server")])
+  }
+
   function workflowState(config: ResolvedConfig) {
     const normalized = normalizeAgentOptions(agent)
     installsCloudflareState ||= shouldInstallCloudflareAgentState(normalized, config)
@@ -2803,7 +2812,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
     const processDiscordGateway = Boolean(getInternalAgentOptions(agent)?.processDiscordGateway)
     const generatedRoot = resolveViteHubGeneratedRoot(config)
     const definitionServerDirs = serverDirs ?? [join(config.root, "server")]
-    const standaloneChannels = normalized ? discoverStandaloneChannels(viteHubProjectRoot(config), definitionServerDirs) : []
+    const standaloneChannels = normalized ? discoverHostedChannels(config, definitionServerDirs) : []
     const hasHostedAgents = hasHostedAgentDefinitions(config.root, definitionServerDirs, standaloneChannels)
     const registryDefinitions = normalized
       ? [
@@ -2811,6 +2820,9 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           ...discoverAgentDefinitions({ mode: "server-agents", scanDirs: definitionServerDirs }),
         ]
       : []
+    // Before the registry and routes import a file that exports no Agent. Discovery itself still lists the file, so
+    // inventory callers such as Vite Doctor can report it.
+    for (const definition of registryDefinitions) await assertAgentDefaultExport(definition)
     await writeAgentRuntimeRegistry(generatedRoot, registryDefinitions, {
       agentHost: Boolean(normalized && hasHostedAgents && normalized.runtime !== "deno"),
     })
@@ -3190,7 +3202,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       }
       const generatedRoot = resolveViteHubGeneratedRoot(config)
       const nitroContext = hasNitroConfigContext(config)
-      const standaloneChannels = resolved ? discoverStandaloneChannels(viteHubProjectRoot(config), serverDirs ?? [join(root, "server")]) : []
+      const standaloneChannels = resolved ? discoverHostedChannels(config, serverDirs) : []
       const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs, standaloneChannels))
       const hasAgentDefinitions = Boolean(resolved && discoverProjectAgentDefinitions(root, serverDirs).length)
       const denoOutput = resolved && resolved.runtime === "deno"
@@ -3493,7 +3505,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         const channelModules = definitions.length ? discoverAgentChannelModules(buildServerDirs ?? [join(config.root, "server")]) : []
         const channelNames = listedAgentChannelNames(hostedDefinitions)
         const standaloneChannels = normalized && isNetlifyHosting(config)
-          ? discoverStandaloneChannels(viteHubProjectRoot(config), buildServerDirs ?? [join(config.root, "server")]).filter(channel => channelNames.has(channel.name))
+          ? discoverHostedChannels(config, buildServerDirs).filter(channel => channelNames.has(channel.name))
           : []
         const parse = await parseTypeScript()
         const definitionSources = await Promise.all(definitions.map(async (definition) => {

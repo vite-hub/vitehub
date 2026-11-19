@@ -1,7 +1,9 @@
 import type { AnyExtension, JSONContent } from "@tiptap/core"
-import type { WorkspaceSnapshot } from "@vite-hub/workspace"
-import type { ViteHubContext } from "@vite-hub/runtime"
+import type { WorkspaceAuthor, WorkspaceSnapshot } from "@vite-hub/workspace"
+import type { ResultError, ViteHubContext } from "@vite-hub/runtime"
 import type { H3Event } from "h3"
+
+import type { RealtimeRequestFailure } from "./error-diagnostics.ts"
 
 /** JSON value stored in one field of a structured Realtime document. */
 export type RealtimeFieldValue = null | boolean | number | string | RealtimeFieldValue[] | { [key: string]: RealtimeFieldValue }
@@ -69,6 +71,7 @@ export interface RealtimeHistoryOptions {
   /** Digest of the save that the history entry must contain. */
   digest: string
   message?: string
+  /** The checkpoint requester, when identified. */
   user?: RealtimeUser
 }
 
@@ -105,6 +108,8 @@ export interface RealtimeHoldOptions {
 export interface RealtimeWorkspaceDocumentOptions {
   /** Workspace whose working tree stores the Markdown file at the document path. */
   workspace: string
+  /** Resolve an author's name and email approved for Git history. Return undefined to keep the Store's author. */
+  checkpointAuthor?: (user: RealtimeUser) => WorkspaceAuthor | undefined | Promise<WorkspaceAuthor | undefined>
 }
 
 /**
@@ -185,9 +190,9 @@ interface RealtimeDefinitionIdentity {
   identify?: (context: RealtimeRequestContext) => RealtimeUser | null | undefined | Promise<RealtimeUser | null | undefined>
   /**
    * Let a page on another origin connect, such as a script that sites load from the app. Return `true` to accept
-   * `origin`. Without it, only the app's own origin connects. The browser sends cookies with a cross-site handshake
+   * `origin`. Without it, only the app's own origin or an origin trusted by Auth connects. The browser sends cookies with a cross-site handshake
    * too, so `identify` and `authorize` must then trust only what the page sends on purpose, such as a ticket in
-   * `params`, never the session cookie. `auth: true` without `identify` rejects it: the Auth session is a cookie.
+   * `params`, never the session cookie. `authorize: true` without `identify` rejects it: the Auth session is a cookie.
    */
   origins?: (context: RealtimeOriginContext) => boolean | Promise<boolean>
 }
@@ -195,28 +200,22 @@ interface RealtimeDefinitionIdentity {
 type RealtimeAuthorize = (context: RealtimeAuthorizeContext) => boolean | Promise<boolean>
 
 /**
- * Who can use the rooms. Set one: `auth: true` requires an identified user, `authorize()` decides each request, and
- * `access: "public"` lets anyone read and write.
+ * Who can use the rooms. Set one: `authorize: true` requires an identified user, `authorize()` decides each request,
+ * and `access: "public"` lets anyone read and write.
  */
 export type RealtimeDefinitionAccess = RealtimeDefinitionIdentity & (
   | {
     access?: never
-    /** Require an identified user. Without `identify`, the identity is the ViteHub Auth session. */
-    auth: true
-    /** Allow or deny one access mode. Only `true` allows. Write denial makes a connection read-only. */
-    authorize?: RealtimeAuthorize
-  }
-  | {
-    access?: never
-    /** Require an identified user. Without `identify`, the identity is the ViteHub Auth session. */
-    auth?: boolean
-    /** Allow or deny one access mode. Only `true` allows. Write denial makes a connection read-only. */
-    authorize: RealtimeAuthorize
+    /**
+     * `true` requires an identified user: `identify()`, or the ViteHub Auth session without it. A callback decides each
+     * request and access mode. It gets the identified user, or `null` when the caller is signed out. Only `true` allows.
+     * Write denial makes a connection read-only.
+     */
+    authorize: true | RealtimeAuthorize
   }
   | {
     /** Let anyone who can reach the app read and write every room of this definition. */
     access: "public"
-    auth?: never
     authorize?: never
   }
 )
@@ -252,7 +251,7 @@ interface RealtimePresenceFields {
    * `"user"`: each person gets their own rooms. A room is keyed by the identity of whoever joins it, so the same room id
    * for two people is two rooms, and `requestRealtimeRoom()` must name the person with `{ user }`. The identity is the
    * ViteHub Auth session when the app has Auth, read without requiring one; everyone without a session shares one
-   * `anonymous` scope. With `identify` or `auth: true`, those decide the identity.
+   * `anonymous` scope. With `identify` or `authorize: true`, those decide the identity.
    */
   scope?: "user"
 }
@@ -325,9 +324,6 @@ export type RealtimeResetReason = "source-changed" | "stale"
 
 export type RealtimeRegistry = Record<string, () => Promise<{ default: RealtimeDefinition }>>
 
-/**
- * Codes that `save()`, `history.checkpoint()`, and `refresh()` of `useRealtimeTiptap()` return in the `[error, data]` tuple.
- */
 /** The codes that `requestRealtimeRoom()` returns in `[error, undefined]`. */
 export type RealtimeRoomRequestErrorCode =
   | "REALTIME_ROOM_ABORTED"
@@ -338,12 +334,25 @@ export type RealtimeRoomRequestErrorCode =
   | "REALTIME_ROOM_REQUESTS_OFF"
   | "REALTIME_ROOM_TIMEOUT"
 
+/** Codes that `save()`, `history.checkpoint()`, and `refresh()` of `useRealtimeTiptap()` return in the `[error, data]` tuple. */
 export type RealtimeRequestErrorCode =
   | "REALTIME_DISABLED"
   | "REALTIME_DISCONNECTED"
   | "REALTIME_INVALID_RESPONSE"
   | "REALTIME_MISSING_DOCUMENT"
   | "REALTIME_REQUEST_FAILED"
+
+export type { RealtimeRequestFailure }
+
+/** The error of `save()`, `history.checkpoint()`, and `refresh()`. Check `code` to read the typed `data`. */
+export type RealtimeRequestError =
+  | ResultError<Exclude<RealtimeRequestErrorCode, "REALTIME_REQUEST_FAILED">, undefined>
+  | ResultError<"REALTIME_REQUEST_FAILED", RealtimeRequestFailure>
+
+/** The `[error, data]` tuple of `save()`, `history.checkpoint()`, and `refresh()`. */
+export type RealtimeRequestResult<TData> =
+  | [error: RealtimeRequestError, data: undefined]
+  | [error: undefined, data: TData]
 
 /**
  * Whether this build has a Realtime room driver. ViteHub generates it for each build; an unavailable build says why

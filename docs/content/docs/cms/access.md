@@ -55,7 +55,7 @@ Call the Better Auth admin API from server code. Better Auth checks that the ses
 ```ts [server/routes/api/roles.post.ts]
 import { defineHandler, readValidatedBody } from 'h3'
 import * as v from 'valibot'
-import { auth } from 'vite-hub/auth/server'
+import { useAuth } from 'vite-hub/auth/server'
 
 const body = v.object({
   userId: v.string(),
@@ -64,7 +64,7 @@ const body = v.object({
 
 export default defineHandler(async (event) => {
   const { userId, role } = await readValidatedBody(event, body)
-  return auth.api.setRole({ body: { userId, role }, headers: event.req.headers })
+  return useAuth(event).api.setRole({ body: { userId, role }, headers: event.req.headers })
 })
 ```
 
@@ -125,7 +125,7 @@ import { cmsCommentsAuthorize } from 'vite-hub/cms/access'
 export const comments = defineComments({ authorize: cmsCommentsAuthorize })
 ```
 
-`cmsConsoleAuthorize` decides which [Console sections](/docs/development/console#limit-a-user-to-some-sections) a user sees. `admin` sees all. `content:read-draft` shows Content, and `comment:read` shows Comments. A user with neither gets `403`.
+`cmsConsoleAuthorize` decides which [Console sections](/docs/console/access#what-authorize-returns) a user sees. `admin` sees all. `content:read-draft` shows Content, and `comment:read` shows Comments. A user with neither gets `403`.
 
 ```ts [server/console-authorize.ts]
 import { defineConsoleAuthorize } from 'vite-hub/console/auth'

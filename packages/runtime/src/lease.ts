@@ -4,7 +4,7 @@ import type { Result } from "./result.ts"
 
 // Keep published codes stable. Each code has a heading on the diagnostics page.
 const leaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
-  docs: "https://vitehub.dev/docs/development/diagnostics",
+  docs: "https://vitehub.dev/docs/runtime/diagnostics",
   codes: {
     // Runtime errors. Lease operations return them as `[error, undefined]`.
     RUNTIME_LEASE_INVALID_TTL: {

@@ -7,6 +7,7 @@ interface RuntimeCodeParams {
   message?: unknown
   option?: string
   suggestion?: string
+  unit?: string
   value?: string
 }
 
@@ -72,8 +73,8 @@ const codes: Record<RuntimeErrorCode, RuntimeCodeDefinition> = {
   },
   RUNTIME_DURATION_INVALID: {
     why: ({ option, value }) => `${option ? `\`${option}\`` : "The value"} is ${value}, which is not a duration. A duration is a string with a number of 0 or more and a unit, such as "30s", "5m", or "1 day".`,
-    fix: ({ suggestion, value }) => suggestion
-      ? `Write the time as a string with a unit: ${value} milliseconds is ${suggestion}.`
+    fix: ({ suggestion, unit = "milliseconds", value }) => suggestion
+      ? `Write the time as a string with a unit: ${value} ${unit} is ${suggestion}.`
       : "Write a number of 0 or more and one unit: `ms`, `s`, `m`, `h`, `d`, or `w`, or a long name such as `minutes` or `days`. For example `\"30s\"`, `\"5m\"`, or `\"1 day\"`.",
   },
   RUNTIME_EXECUTION_BUDGET_AMOUNT_INVALID: {
@@ -99,6 +100,6 @@ const codes: Record<RuntimeErrorCode, RuntimeCodeDefinition> = {
 }
 
 export const runtimeErrorDiagnostics: Diagnostics<typeof codes, []> = /*#__PURE__*/ defineDiagnostics({
-  docsBase: "https://vitehub.dev/docs/development/diagnostics",
+  docsBase: "https://vitehub.dev/docs/runtime/diagnostics",
   codes,
 })

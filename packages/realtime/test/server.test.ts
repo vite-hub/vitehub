@@ -50,9 +50,9 @@ beforeEach(() => {
   serverMocks.useWorkspaceFiles.mockReset()
 })
 
-function realtimeRegistry(options: { auth?: boolean, checkpoint?: boolean, persistence?: false } = {}) {
+function realtimeRegistry(options: { authorize?: true | ((context: { user: unknown }) => boolean), checkpoint?: boolean, persistence?: false } = {}) {
   const definition = {
-    ...options.auth ? { auth: true } : { access: "public" },
+    ...options.authorize ? { authorize: options.authorize } : { access: "public" },
     document: { workspace: "test" },
     history: options.checkpoint ? { checkpoint: true } : undefined,
     persistence: options.persistence,
@@ -268,7 +268,7 @@ describe("realtime server handler", () => {
 
   it("rejects unauthenticated definitions before opening a room", async () => {
     serverMocks.getSession.mockResolvedValue(null)
-    const handler = createRealtimeHandler(realtimeRegistry({ auth: true }))
+    const handler = createRealtimeHandler(realtimeRegistry({ authorize: true }))
 
     const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md?history=checkpoint", {
       headers: { origin: "https://example.com" },
@@ -279,6 +279,52 @@ describe("realtime server handler", () => {
     expect(serverMocks.useWorkspaceFiles).not.toHaveBeenCalled()
   })
 
+  it("gives an authorize() callback the Auth session user of a same-origin request, and answers 401 when it denies a signed-out caller", async () => {
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const authorize = vi.fn(({ user }: { user: unknown }) => user !== null)
+    const handler = createRealtimeHandler(realtimeRegistry({ authorize }))
+    const refresh = () => handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md?document=refresh", {
+      headers: { origin: "https://example.com" },
+      method: "POST",
+    }))
+
+    serverMocks.getSession.mockResolvedValue(null)
+    expect((await refresh()).status).toBe(401)
+    expect(authorize).toHaveBeenLastCalledWith(expect.objectContaining({ user: null }))
+
+    serverMocks.getSession.mockResolvedValue({ user: { id: "ana" } })
+    expect((await refresh()).status).toBe(200)
+    expect(authorize).toHaveBeenLastCalledWith(expect.objectContaining({ user: { id: "ana" } }))
+
+    // Server code sends no Origin, so it is signed out instead of failing the Auth origin check.
+    serverMocks.assertAuthOrigin.mockClear()
+    const server = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md?document=refresh", { method: "POST" }))
+    expect(server.status).toBe(401)
+    expect(serverMocks.assertAuthOrigin).not.toHaveBeenCalled()
+  })
+
+  it("does not read the Auth session for an origin accepted by origins()", async () => {
+    serverMocks.getSession.mockResolvedValue({ user: { id: "ana" } })
+    const authorize = vi.fn(() => false)
+    const handler = createRealtimeHandler({
+      docs: async () => ({ default: { authorize, document: { workspace: "test" }, origins: () => true } }),
+    } as never)
+
+    const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md?document=refresh", {
+      headers: { origin: "https://embed.example" },
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(401)
+    expect(serverMocks.assertAuthOrigin).not.toHaveBeenCalled()
+    expect(serverMocks.getSession).not.toHaveBeenCalled()
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ user: null }))
+  })
+
   it("uses the Auth Definition trusted-origin policy", async () => {
     serverMocks.getSession.mockResolvedValue({ user: { id: "user" } })
     serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
@@ -286,13 +332,38 @@ describe("realtime server handler", () => {
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
     }))
-    const handler = createRealtimeHandler(realtimeRegistry({ auth: true }))
+    const handler = createRealtimeHandler(realtimeRegistry({ authorize: true }))
 
     await handler.fetch(new Request("https://api.example.com/_vitehub/realtime/docs/page.md", {
       headers: { origin: "https://app.example.com", upgrade: "websocket" },
     }))
 
     expect(serverMocks.assertAuthOrigin).toHaveBeenCalledWith(expect.objectContaining({ url: "https://api.example.com/_vitehub/realtime/docs/page.md" }), expect.anything())
+  })
+
+  it("uses Auth trusted origins for authorize() when there is no custom origin or identity rule", async () => {
+    serverMocks.getSession.mockResolvedValue({ user: { id: "ana" } })
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const authorize = vi.fn(({ user }: { user: unknown }) => user !== null)
+    const handler = createRealtimeHandler(realtimeRegistry({ authorize }))
+    const refresh = () => handler.fetch(new Request("https://api.example.com/_vitehub/realtime/docs/page.md?document=refresh", {
+      headers: { origin: "https://app.example.com" },
+      method: "POST",
+    }))
+
+    expect((await refresh()).status).toBe(200)
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ user: { id: "ana" } }))
+
+    authorize.mockClear()
+    serverMocks.getSession.mockClear()
+    serverMocks.assertAuthOrigin.mockRejectedValueOnce(new Error("Origin is not trusted"))
+    expect((await refresh()).status).toBe(403)
+    expect(serverMocks.getSession).not.toHaveBeenCalled()
+    expect(authorize).not.toHaveBeenCalled()
   })
 
   it("compares the identify() origin with the origin behind a TLS-terminating proxy", async () => {
@@ -370,7 +441,7 @@ describe("realtime server handler", () => {
     expect(save).not.toHaveBeenCalled()
   })
 
-  it("keeps public and authorize() definitions on the app origin unless origins() accepts", async () => {
+  it("rejects origins not accepted by origins() or the Auth policy", async () => {
     serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
@@ -390,6 +461,7 @@ describe("realtime server handler", () => {
     expect((await connect("docs", "https://preview.example")).crossws).toBeDefined()
     expect((await connect("docs", "https://app.example")).crossws).toBeDefined()
     expect((await connect("docs")).crossws).toBeDefined()
+    serverMocks.assertAuthOrigin.mockRejectedValueOnce(new Error("Origin is not trusted"))
     expect((await connect("notes", "https://evil.example")).status).toBe(403)
     expect(authorize).not.toHaveBeenCalled()
     expect((await connect("notes", "https://app.example")).crossws).toBeDefined()
@@ -460,6 +532,69 @@ describe("realtime server handler", () => {
     await expect(response.json()).resolves.toMatchObject({ data: { code: "REALTIME_SYNC_PENDING" } })
     expect(writeFile).not.toHaveBeenCalled()
     client.destroy()
+  })
+
+  it.each([
+    { scenario: "uses the Store author by default", optIn: false, requester: "requester", authored: false },
+    { scenario: "uses an approved author for the requester, not the editor", optIn: true, requester: "requester", authored: true },
+    { scenario: "uses the Store author for an anonymous requester after an identified edit", optIn: true, requester: undefined, authored: false },
+    { scenario: "uses the Store author for an unmapped requester", optIn: true, requester: "unmapped", authored: false },
+  ])("$scenario", async ({ optIn, requester, authored }) => {
+    const author = { email: "123+ana@users.noreply.github.com", name: "Ana" }
+    const checkpointAuthor = vi.fn(async ({ id }: { id: string }) => id === "unmapped" ? undefined : author)
+    const checkpoint = vi.fn(async () => ({ entries: { "page.md": { digest: "saved" } }, id: "snapshot-1" }))
+    let markdown: string | undefined
+    const writeFile = vi.fn(async (_path: string, body: string) => { markdown = body })
+    serverMocks.useWorkspaceFiles.mockReturnValue({
+      ...workspaceFacade({
+        exists: async () => markdown !== undefined,
+        readFile: async () => markdown,
+        stat: async () => markdown === undefined ? undefined : { digest: "saved" },
+        writeFile,
+      }),
+      history: { checkpoint },
+    })
+    const handler = createRealtimeHandler({
+      docs: async () => ({ default: {
+        access: "public",
+        document: { workspace: "test", ...(optIn ? { checkpointAuthor } : {}) },
+        history: { checkpoint: true },
+        identify: ({ request }) => {
+          const id = request.headers.get("x-test-user")
+          return id ? { email: `${id}@example.com`, id } : null
+        },
+        persistence: false,
+      } }),
+    })
+    const url = "https://example.com/_vitehub/realtime/docs/page.md"
+    const connection = await handler.fetch(new Request(url, {
+      headers: { upgrade: "websocket", "x-test-user": "editor" },
+    })) as Response & { crossws: { close(peer: object): void, message(peer: object, message: object): void, open(peer: object): void } }
+    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    const client = await markdownToYDoc("# Saved by the editor")
+    const update = Y.encodeStateAsUpdate(client)
+    connection.crossws.open(peer)
+    connection.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(update) })
+    try {
+      const response = await handler.fetch(new Request(`${url}?history=checkpoint`, {
+        body: Uint8Array.from(update).buffer,
+        headers: requester ? { "x-test-user": requester } : undefined,
+        method: "POST",
+      }))
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toMatchObject({ savedBy: { id: "editor" } })
+      expect(writeFile).toHaveBeenCalledOnce()
+      expect(checkpoint).toHaveBeenCalledExactlyOnceWith({
+        message: "docs: checkpoint page.md",
+        ...(authored ? { author } : {}),
+      })
+      expect(checkpointAuthor.mock.calls.map(([user]) => user.id)).toEqual(optIn && requester ? [requester] : [])
+    }
+    finally {
+      connection.crossws.close(peer)
+      client.destroy()
+    }
   })
 
   it("accepts workspace changes only on the workspace room", async () => {
@@ -892,7 +1027,7 @@ describe("realtime server handler", () => {
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
     }))
-    const handler = createRealtimeHandler(realtimeRegistry({ auth: true }))
+    const handler = createRealtimeHandler(realtimeRegistry({ authorize: true }))
     const response = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md", {
       headers: { origin: "https://example.com", upgrade: "websocket" },
     })) as Response & { crossws: { close(peer: object): void, message(peer: object, message: object): void, open(peer: object): void } }

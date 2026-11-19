@@ -1,8 +1,8 @@
 # @vite-hub/cms
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fcms&icon=npm)](https://www.npmjs.com/package/@vite-hub/cms)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/cms)](https://www.npmjs.com/package/@vite-hub/cms)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/cms` is the CMS of ViteHub. It stores the editable collections of [`@vite-hub/content`](https://www.npmjs.com/package/@vite-hub/content) without wiring: Content is the primitive, collections on a Workspace, and the CMS adds that Workspace and its Database tables.
 

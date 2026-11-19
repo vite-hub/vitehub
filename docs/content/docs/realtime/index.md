@@ -18,7 +18,7 @@ import { defineRealtime } from 'vite-hub/realtime'
 // This file defines the docs room.
 export default defineRealtime({
   // Only signed-in users can read and edit
-  auth: true,
+  authorize: true,
   // Save each document to the docs Workspace
   document: { workspace: 'docs' },
   // Let the editor save a version on request
@@ -172,7 +172,7 @@ checkpoint.snapshot
   :::
 
   :::product-feature-item{title="Decide who can join" icon="i-lucide-lock" to="/docs/realtime/server-api#identity-and-authorization"}
-  `auth: true` allows only signed-in people. `authorize()` decides who reads or edits each document.
+  `authorize: true` allows only signed-in people. `authorize()` decides who reads or edits each document.
   :::
 
   :::product-feature-item{title="Runs on Node or Cloudflare" icon="i-lucide-server" to="/docs/realtime/configure#host-support"}

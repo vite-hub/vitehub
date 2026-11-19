@@ -508,7 +508,7 @@ function githubPullRequestRunContextFromUnknown(input: unknown): GitHubPullReque
   if (!isRecord(input)) return
   const value = isRecord(input.pullRequest) && isRecord(input.pullRequest.pullRequest) ? input.pullRequest : input
   if (!isRecord(value.pullRequest) || !isRecord(value.repository) || !isRecord(value.run) || !isRecord(value.trigger)) return
-  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: Required records are structurally validated above; optional fields are normalized before use.
+  // SAFETY: Required records are structurally validated above; optional fields are normalized before use.
   return value as unknown as GitHubPullRequestRunContext
 }
 
@@ -5037,15 +5037,6 @@ export async function gmailClient(channel: AgentChannelDefinition, options: Gmai
     return { memo: created.memo, runtime: created.runtime, waitUntil: created.waitUntil }
   })()
   return await resolveClient(createExecutionContext(runtime))
-}
-
-export function http<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "http", TData, TMethods>
-export function http<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: AgentChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "http", TData, TMethods>
-export function http<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "http", TData, TMethods> {
-  if ("path" in options) {
-    throw agentDiagnostics.AGENT_R0372({ message: "[vitehub] http({ path }) is not wired yet. Webhook routes are configured with webhooks.path." })
-  }
-  return channelAdapter("http", options)
 }
 
 function slackChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): ChatChannelAdapter<AgentChannelDefinitionOf<TRuntimeConfig, "slack", TData, TMethods>>

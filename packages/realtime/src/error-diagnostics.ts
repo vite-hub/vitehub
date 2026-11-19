@@ -2,6 +2,14 @@ import { defineErrors } from "@vite-hub/runtime"
 
 export type RealtimeRequestAction = "checkpoint" | "refresh" | "save"
 
+/** The `data` of a `REALTIME_REQUEST_FAILED` error. */
+export type RealtimeRequestFailure = {
+  /** HTTP status of the server answer, such as `409` when the stored document changed. `undefined` for a network error. */
+  status: number | undefined
+}
+
+type RealtimeInvalidAccessReason = "auth" | "not-authorize" | "not-public" | "origins-without-identify" | "public-with-rule"
+
 // Keep published codes stable. Each code has a heading on the docs page.
 export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/realtime/diagnostics",
@@ -26,7 +34,8 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
     REALTIME_REQUEST_FAILED: {
       why: ({ action, message, status }: { action: RealtimeRequestAction, message?: string, status?: number }) =>
         `The realtime \`${action}()\` request failed${status === undefined ? "" : ` with HTTP ${status}`}${message ? `: ${message}` : "."}`,
-      fix: "Read `error.why` for the server message, and `error.cause` for a network error. Retry when the server is available again.",
+      fix: "Read `error.why` for the server message, `error.data.status` for the HTTP status, and `error.cause` for a network error. Retry when the server is available again.",
+      data: ({ status }: { action: RealtimeRequestAction, message?: string, status?: number }): RealtimeRequestFailure => ({ status }),
     },
 
     // Room request errors. `requestRealtimeRoom()` returns them as `[error, undefined]`.
@@ -114,17 +123,25 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     REALTIME_MISSING_ACCESS: {
       why: "The Realtime definition sets no access rule, so it does not say who can read and write its rooms.",
-      fix: "Set `auth: true` to require a signed-in user, add `authorize()` to decide each request, or set `access: \"public\"` to let anyone read and write.",
+      fix: "Set `authorize: true` to require a signed-in user, set `authorize()` to decide each request, or set `access: \"public\"` to let anyone read and write.",
     },
     REALTIME_INVALID_ACCESS: {
-      why: ({ reason }: { reason: "public-with-rule" | "not-public" | "origins-without-identify" }) => reason === "public-with-rule"
-        ? "The Realtime definition sets `access: \"public\"` together with `auth` or `authorize()`, so its access rule is not clear."
-        : reason === "not-public"
-          ? "The Realtime definition sets `access` to a value other than \"public\"."
-          : "The Realtime definition sets `origins()` with `auth: true` and no `identify()`. The ViteHub Auth session is a cookie, so ViteHub accepts it only from the app's own origin.",
-      fix: ({ reason }: { reason: "public-with-rule" | "not-public" | "origins-without-identify" }) => reason === "origins-without-identify"
-        ? "Remove `origins()`, or add `identify()` that reads a credential the page sends on purpose, such as a ticket in `params`."
-        : "Use `access: \"public\"` alone for open rooms. To limit access, remove `access` and set `auth: true` or `authorize()`.",
+      why: ({ reason }: { reason: RealtimeInvalidAccessReason }) => reason === "auth"
+        ? "The Realtime definition sets `auth`. Realtime replaced it with `authorize: true`, and an `authorize()` callback now also runs for signed-out callers."
+        : reason === "public-with-rule"
+          ? "The Realtime definition sets `access: \"public\"` together with `authorize`, so its access rule is not clear."
+          : reason === "not-public"
+            ? "The Realtime definition sets `access` to a value other than \"public\"."
+            : reason === "not-authorize"
+              ? "The Realtime definition sets `authorize` to a value that is not `true` or a function."
+              : "The Realtime definition sets `origins()` with `authorize: true` and no `identify()`. Only the Auth trusted-origin policy can allow a different origin to use the ViteHub Auth session.",
+      fix: ({ reason }: { reason: RealtimeInvalidAccessReason }) => reason === "auth"
+        ? "Replace `auth: true` with `authorize: true`. With an `authorize()` callback, remove `auth` and return `false` from the callback when `user` is `null`."
+        : reason === "origins-without-identify"
+          ? "Remove `origins()`, or add `identify()` that reads a credential the page sends on purpose, such as a ticket in `params`."
+          : reason === "not-authorize"
+            ? "Set `authorize: true` to require a signed-in user, or set `authorize()` to a function that returns `true` to allow."
+            : "Use `access: \"public\"` alone for open rooms. To limit access, remove `access` and set `authorize`.",
     },
     REALTIME_CHECKPOINT_UNSUPPORTED: {
       why: "The Realtime definition sets `history.checkpoint`, but its document adapter has no `checkpoint()` method, so `history.checkpoint()` could never run.",

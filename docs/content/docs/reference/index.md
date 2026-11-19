@@ -45,12 +45,13 @@ Capabilities, and other app APIs come from feature subpaths.
 | `@vite-hub/i18n` | [i18n](/docs/i18n): messages in the source language with no keys, PO catalogs, message IDs at build time, and one locale for each request on Nitro 3 | `@vite-hub/i18n`, `@vite-hub/i18n/vue`, `@vite-hub/i18n/vite`, `@vite-hub/i18n/nuxt` |
 | `@vite-hub/kit` | The headless Vue parts that [ui-sdk](https://ui-sdk.dev) does not have, a Nuxt module that auto-imports them, and a style family for apps without Nuxt UI: ui-sdk's `web.css` on shadcn token names. Import every other part from `@ui-sdk/vue`. | The `tags-input`, `form`, and `nuxt` subpaths, and `styles/tokens.css` and `styles/default.css` |
 | `@vite-hub/kv` | KV Runtime Helper and configured KV Stores | `@vite-hub/kv`, `@vite-hub/kv/vite` |
-| `@vite-hub/markdown-template` | Markdown with data bindings, conditions, and fragments | `@vite-hub/markdown-template` |
+| `@vite-hub/markdown-template` | [Markdown templates](/docs/markdown-template): Markdown with data bindings, conditions, and fragments | `@vite-hub/markdown-template` |
 | `@vite-hub/mcp` | [MCP server](/docs/mcp): app MCP server, tool Definitions, Standard Schema validation, and MCP OAuth integration | `@vite-hub/mcp`, `@vite-hub/mcp/vite` |
+| `@vite-hub/presets` | [Agent presets](/docs/presets): ready-made Agents such as Babysitter, the Workspace preset, and the Gmail Labeller | `@vite-hub/presets/babysitter`, `@vite-hub/presets/labeller`, `@vite-hub/presets/workspace` |
 | `@vite-hub/queue` | Queue Definitions, dispatch helpers, provider queue output | `@vite-hub/queue`, `@vite-hub/queue/vite` |
 | `@vite-hub/rate-limit` | Rate Limit declarations, runtime decisions, drivers, provider output | `@vite-hub/rate-limit`, `@vite-hub/rate-limit/runtime`, `@vite-hub/rate-limit/drivers/*`, `@vite-hub/rate-limit/vite` |
 | `@vite-hub/realtime` | Realtime documents, server routes, history, Vue bindings | `@vite-hub/realtime`, `@vite-hub/realtime/server`, `@vite-hub/realtime/vue`, `@vite-hub/realtime/vite` |
-| `@vite-hub/runtime` | Runtime Host Context, Capability handles, Policy Decisions, approvals, Trace Events, leases | `@vite-hub/runtime` |
+| `@vite-hub/runtime` | [Runtime](/docs/runtime): Runtime Host Context, Capability handles, Policy Decisions, approvals, Trace Events, leases | `@vite-hub/runtime` |
 | `@vite-hub/schedule` | Static schedules, manual runs, cron Provider Output | `@vite-hub/schedule`, `@vite-hub/schedule/runtime`, `@vite-hub/schedule/vite` |
 | `@vite-hub/shell` | Shell drivers and Workspace shell helpers | `@vite-hub/shell`, `@vite-hub/shell/workspace` |
 | `@vite-hub/source` | Source Definitions and Loaders for file, glob, markdown, GitHub, custom, and MCP resources | `@vite-hub/source`, `@vite-hub/source/*` |
@@ -82,7 +83,7 @@ Capabilities, and other app APIs come from feature subpaths.
 
 - [Build your first chat view](/docs/ui/chat-tutorial) for `@vite-hub/ui`.
 - [Run your first Sandbox](/docs/agents/sandbox-tutorial) for `@vite-hub/sandbox`.
-- [Render your first Markdown template](/docs/reference/markdown-template-tutorial) for `@vite-hub/markdown-template`.
+- [Render your first Markdown template](/docs/markdown-template/get-started) for `@vite-hub/markdown-template`.
 
 ## Related
 
@@ -90,5 +91,3 @@ Capabilities, and other app APIs come from feature subpaths.
 - [Config options](/docs/reference/config-options)
 - [Provider output](/docs/reference/provider-output)
 - [Runtime and host support](/docs/frameworks-hosts/support-matrix)
-
-- `@vite-hub/presets`

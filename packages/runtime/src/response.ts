@@ -109,7 +109,7 @@ const jsonHeaders = { "content-type": "application/json; charset=utf-8" }
 /**
  * Normalize a primitive value into the native Web Response contract.
  * An error answers with `{ code, why, fix }` and never with its `stack`, `cause`, or `data`:
- * - A ViteHub or Nostics error answers its `status`, or 500, so a route can `return toResponse(error)`.
+ * - A ResultError or other Nostics diagnostic answers its `status`, or 500, so a route can `return toResponse(error)`.
  * - A `ViteHubError` answers 500 with its `code` and its message as `why`.
  * - Any other `Error` answers 500 with `RUNTIME_HIDDEN_ERROR`, because its message can hold server details.
  */

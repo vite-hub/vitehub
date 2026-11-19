@@ -161,7 +161,6 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0357",
   "AGENT_R0358",
   "AGENT_R0371",
-  "AGENT_R0372",
   "AGENT_R0373",
   "AGENT_R0374",
   "AGENT_R0375",
@@ -447,6 +446,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_INSTRUCTION_SLOT_INVALID",
   "AGENT_INVOCATIONS_DATABASE_DRIVER_UNSUPPORTED",
   "AGENT_INVOCATIONS_DATABASE_WITHOUT_STORE",
+  "AGENT_MCP_BEARER_TOKEN_RENAMED",
   "AGENT_MCP_RETRIES_INVALID",
   "AGENT_MCP_TOOLS_LIST_INVALID",
   "AGENT_OBSERVABILITY_INSTALLED",
@@ -1830,10 +1830,6 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R0371: {
       ...dynamicError,
       fix: "Pass channelAdapter() a non-empty Channel kind string, such as \"slack\".",
-    },
-    AGENT_R0372: {
-      ...dynamicError,
-      fix: "Remove path from http(), and set the route with http({ webhooks: { path } }).",
     },
     AGENT_R0373: {
       ...dynamicError,
@@ -4390,6 +4386,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] context.customInstructions requires a {{{ context.customInstructions }}} slot outside code in the Agent instructions.",
       fix: "Add a `{{{ context.customInstructions }}}` line outside code blocks to the Agent instructions, or do not pass `context.customInstructions`.",
     },
+    AGENT_DEFINITION_EXPORT_MISSING: {
+      why: ({ file, name }: { file: string, name: string }) => `[vitehub] Agent "${name}" has no default export in ${file}. Every file that Agent discovery finds must export its Agent Definition as default.`,
+      fix: "Export the Agent from the file with `export default defineAgent({ ... })`. If the file holds helpers and not an Agent, move it out of `server/agents/`, or set `agent: false` in `vitehub()` when the app has no Agents.",
+    },
     AGENT_DISPATCH_DRY_RUN_WITH_QUEUE: {
       why: ({ channelId }: { channelId: string }) => `[vitehub] Channel "${channelId}" cannot combine dispatch dryRun with queue.`,
       fix: "Remove `dryRun` or `queue` from the `dispatch()` options. A queued dispatch cannot be a dry run.",
@@ -4523,6 +4523,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_MAX_RETRIES_INVALID: {
       why: "maxRetries must be a non-negative integer",
       fix: "Set `maxRetries` of the model call settings to an integer of 0 or more.",
+    },
+    AGENT_MCP_BEARER_TOKEN_RENAMED: {
+      why: "[vitehub] driver.env sets T3_MCP_BEARER_TOKEN. Codex now reads the token of the ViteHub tools MCP server from VITEHUB_MCP_BEARER_TOKEN, so the old variable has no effect.",
+      fix: "Remove `T3_MCP_BEARER_TOKEN` from `driver.env`. ViteHub sets `VITEHUB_MCP_BEARER_TOKEN`. Update any `launch` wrapper that hard-codes the old name to forward the new one. A wrapper that forwards `requiredEnvironment` needs no change.",
     },
     AGENT_MCP_RETRIES_INVALID: {
       why: "[vitehub] callMcpTool({ retries }) must be a non-negative integer.",

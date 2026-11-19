@@ -160,7 +160,7 @@ export const definitionLocation: DoctorRule = createRule({
   },
 })
 
-const queueOptionKeys = new Set(["delaySeconds", "idempotencyKey", "retentionSeconds", "contentType"])
+const queueOptionKeys = new Set(["contentType", "delay", "idempotencyKey", "retention"])
 
 function isQueueEnqueue(reference: ViteHubReference | undefined): boolean {
   if (isExport(reference, ["queue"], ["sendQueue", "deferQueue"])) return true
@@ -186,7 +186,7 @@ export const queuePayloadOptions: DoctorRule = createRule({
         if (!options.length) return
         ctx.report(diagnostics.VHUB0016({
           why: `This call sends \`{ payload, ${options.join(", ")} }\` as the job payload. ViteHub does not read enqueue options from the payload, so \`${options.join("`, `")}\` has no effect.`,
-          fix: "Pass the payload and the options as separate arguments: `sendQueue(name, payload, { delaySeconds })`.",
+          fix: "Pass the payload and the options as separate arguments: `sendQueue(name, payload, { delay })`.",
         }), { range: ctx.range(args[1]) })
       },
     }
@@ -272,24 +272,27 @@ function stepPropertyName(file: string): string {
 const sourceFile = /\.(?:c|m)?[jt]sx?$/
 
 /**
- * The handler of a folder Workflow index: the function passed to `defineWorkflow(name, handler)`, or the
- * default-exported function. A handler gets `(payload, context)`: `context` names the whole second parameter
- * (`ctx.steps`), and `steps` names its destructured `steps` property.
+ * The handler of a folder Workflow index: the `handler` of the object passed to `defineWorkflow({ handler })`, or the
+ * default-exported function. A handler gets one object: `context` names the whole parameter (`ctx.steps`), and
+ * `steps` names its destructured `steps` property.
  */
 function workflowHandler(ctx: RuleContext, r: Resolver): { fn: AstNode, context?: string, steps?: string } | undefined {
   const value = unwrap(defaultExport(ctx)?.value)
-  let fn = isNodeType(value, "CallExpression") ? unwrap(callArguments(value)[1]) : value
-  // `defineWorkflow("onboard", onboard)` names a function declared in this file.
+  let fn = isNodeType(value, "CallExpression") ? unwrap(objectValue(callArguments(value)[0], "handler")) : value
+  // `defineWorkflow({ handler: onboard })` names a function declared in this file.
   if (isIdentifier(fn)) {
     const declaration = r.binding(fn)?.declaration
     fn = isNodeType(declaration, "VariableDeclarator") ? unwrap(declaration.init) : declaration
   }
   if (!isFunctionNode(fn) || !isNode(fn) || !Array.isArray(fn.params)) return
-  let param = unwrap(fn.params[1])
+  let param = unwrap(fn.params[0])
   if (isNodeType(param, "AssignmentPattern")) param = unwrap(param.left)
   if (isIdentifier(param)) return { fn, context: param.name }
   const properties = isNodeType(param, "ObjectPattern") && Array.isArray(param.properties) ? param.properties.filter(isNode) : []
   const property = properties.find(entry => propertyName(entry) === "steps")
+  // `({ payload, ...context })` keeps `steps` in the rest object: `context.steps`.
+  const rest = property ? undefined : unwrap(properties.find(entry => isNodeType(entry, "RestElement"))?.argument)
+  if (isIdentifier(rest)) return { fn, context: rest.name }
   let target = unwrap(property?.value)
   if (isNodeType(target, "AssignmentPattern")) target = unwrap(target.left)
   return { fn, ...(isIdentifier(target) ? { steps: target.name } : {}) }
@@ -458,7 +461,7 @@ export const manualScheduleRun: DoctorRule = createRule({
   },
 })
 
-const chatAdapterNames = ["channelAdapter", "discord", "forgejo", "github", "gitlab", "gmail", "http", "slack", "teams", "telegram", "webChat"]
+const chatAdapterNames = ["channelAdapter", "discord", "forgejo", "github", "gitlab", "gmail", "slack", "teams", "telegram", "webChat"]
 
 export const validChannel: DoctorRule = createRule({
   meta: {

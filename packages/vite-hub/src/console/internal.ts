@@ -52,6 +52,8 @@ export interface ConsoleState {
   definitions?: ConsoleSectionCatalog
   /** Whether generated output was created for a development server. */
   development?: boolean
+  /** The project root, installed only in development output. */
+  projectRoot?: string
   /** The Agent Invocation journal that the Console reads (`installConsoleInvocations()`). */
   invocations?: AgentInvocations
   /** The Setup endpoint route, installed only in development output. */
