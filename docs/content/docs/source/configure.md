@@ -20,7 +20,7 @@ A loader reads one kind of origin, such as a GitHub repository. Use a built-in o
 | `mcpResources(options)` | `server`, `include`, `ignore`, `path`, `request`, `cache`. | Reads MCP Resource content. `server` is a client, a client config with an `http` or `sse` transport, or a resolver. Install `@modelcontextprotocol/sdk` to use it. Agent apps already have it. |
 | `defineSource(loader)` | A loader with `name`, `getKeys`, and `getItem`. | Defines your own loader, with inferred item types. |
 
-`github()` reads only GitHub.com repositories, with `repo` as `owner/name`. It ignores `GH_TOKEN` and `GITHUB_TOKEN`, so in GitHub Actions set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. The token goes only to the GitHub API and the sparse Git fetch, never to the `codeload.github.com` redirect. Without a token, public archives come from `codeload.github.com`, outside the anonymous API limit.
+`github()` needs `@vite-hub/forge`: run `pnpm add @vite-hub/forge`. Without it, the build fails with `VITE_HUB_R0136` and that command. `github()` reads only GitHub.com repositories, with `repo` as `owner/name`. It ignores `GH_TOKEN` and `GITHUB_TOKEN`, so in GitHub Actions set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. The token goes only to the GitHub API and the sparse Git fetch, never to the `codeload.github.com` redirect. Without a token, public archives come from `codeload.github.com`, outside the anonymous API limit.
 
 `sourceIgnores` holds reusable ignore patterns. Workspace GitHub Sources apply `sourceIgnores.defaults`. `ignore: false` turns them off; more patterns extend them.
 

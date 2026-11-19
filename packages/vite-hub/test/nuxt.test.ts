@@ -535,6 +535,20 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("checks for a missing Forge in Nuxt builds, before the optional peers become external", async () => {
+    const pluginNames = async (dev: boolean) => {
+      const { nuxt, runNitroConfigHook } = createNuxt(dev)
+      await viteHubNuxtModule({ host: "cloudflare" }, nuxt)
+      const config: Record<string, unknown> = {}
+      await runNitroConfigHook(config)
+      return (config.rollupConfig as { plugins: Plugin[] }).plugins.map(plugin => plugin.name)
+    }
+    const names = await pluginNames(false)
+    expect(names.indexOf("vite-hub/forge-build-check")).toBeGreaterThanOrEqual(0)
+    expect(names.indexOf("vite-hub/forge-build-check")).toBeLessThan(names.indexOf("vite-hub/nitro-optional-peers"))
+    expect(await pluginNames(true)).not.toContain("vite-hub/forge-build-check")
+  })
+
   it.each([false, true])("resolves unstorage's Cloudflare import during Nitro replay (dev: %s)", async (dev) => {
     mocks.vitehub.mockReturnValue([hubKV({ driver: "cloudflare", binding: "KV" })])
     const { nuxt, runNitroConfigHook } = createNuxt(dev)
@@ -1038,6 +1052,7 @@ describe("ViteHub Nuxt integration", () => {
 
     const plugins = nitroConfig.rollupConfig.plugins as unknown as Plugin[]
     expect(plugins.map(plugin => plugin.name)).toEqual([
+      "vite-hub/forge-build-check",
       "vite-hub/console-operation-features",
       "vite-hub/nitro-optional-peers",
       "vite-hub/nitro-h3",
