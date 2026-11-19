@@ -213,7 +213,19 @@ function isAbortSignalLike(value: unknown): value is AbortSignal {
 type HeadersInput = ConstructorParameters<typeof Headers>[0]
 
 /** Where Better Auth returns after one sign-in that a guard starts. */
-type AuthSignInURLs = Pick<AuthSignInConfiguration, "callbackURL" | "errorCallbackURL">
+type AuthSignInURLs = Pick<AuthProviderSignIn, "callbackURL" | "errorCallbackURL">
+
+/** A provider sign-in with the page that Better Auth returns to. */
+type AuthProviderSignIn = AuthSignInConfiguration & { callbackURL?: string }
+
+/** The provider sign-in of `access`, which returns to `afterSignIn`. A sign-in page has none: the page signs in. */
+function providerSignIn(options: AuthRuntimeOptions & Record<string, unknown>): AuthProviderSignIn | undefined {
+  const access = (options as { access?: AuthAccessConfiguration }).access
+  const signIn = access?.signIn
+  return typeof signIn === "object"
+    ? { ...signIn, callbackURL: `${resolveAuthMountPath("/")}${(appPath(access?.afterSignIn ?? "/") ?? "/").slice(1)}` }
+    : undefined
+}
 
 /**
  * The Headers init of a host request. A Headers-like object without `Symbol.iterator`, from another
@@ -279,7 +291,7 @@ export function handleAuthRequest(
 }
 
 /**
- * With `access.signIn`, the Auth route also answers `GET <basePath>/sign-in` and `GET <basePath>/sign-out`, so a link
+ * With a provider in `access.signIn`, the Auth route also answers `GET <basePath>/sign-in` and `GET <basePath>/sign-out`, so a link
  * can sign in or out and come back to `?redirect=`. Better Auth has no GET endpoint at these paths.
  */
 function handleSignInRoute(
@@ -288,7 +300,7 @@ function handleSignInRoute(
   request: AuthRequest,
   address: string | undefined,
 ): Promise<Response> | undefined {
-  const signIn = (options as { access?: AuthAccessConfiguration }).access?.signIn
+  const signIn = providerSignIn(options)
   if (!signIn || request.method !== "GET") return
   const basePath = resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined))
   const url = new URL(request.url)
@@ -322,7 +334,7 @@ async function startSignIn(
   auth: ViteHubAuth,
   options: AuthRuntimeOptions & Record<string, unknown>,
   headers: Headers,
-  signIn: AuthSignInConfiguration,
+  signIn: AuthProviderSignIn,
   address: string | undefined,
 ): Promise<Response> {
   const { session, setCookies } = await getAuthenticationSession(auth, { headers })
@@ -372,6 +384,7 @@ export function createAuthHandler(definition: AuthDefinition) {
     auth.handler(setRequestClientAddress(request, host?.clientAddress))
 }
 
+/** The Better Auth instance of the app's Auth Definition, for sibling packages. Apps call `useAuth()`. */
 export function getAuth(): RegisteredAuth {
   return getAuthForDefinition(resolveDefaultDefinition()) as RegisteredAuth
 }
@@ -384,8 +397,7 @@ export function getAuth(): RegisteredAuth {
  * the request's Cloudflare bindings.
  */
 export async function checkAuthMember(userId: string, event?: AuthRequestInput): Promise<Result<void, AuthMemberErrorCode>> {
-  const auth = event ? useAuth(event) : getAuth()
-  const context = await auth.$context
+  const context = await useAuth(event).$context
   const members = findAccessPolicyPlugin(context.options.plugins)?.members
   if (!members) return [undefined, undefined]
   const user = await context.internalAdapter.findUserById(userId)
@@ -397,8 +409,12 @@ export async function checkAuthMember(userId: string, event?: AuthRequestInput):
  * Return the Better Auth instance of the app's Auth Definition for a request event or a Web `Request`.
  * The generated types give it the endpoints and fields of the Definition's plugins, so `useAuth(event).api.banUser`
  * type-checks when `server/auth.ts` uses `admin()`.
+ *
+ * Pass the event in a route. The instance then reads the request's host and Cloudflare bindings. Leave it out only
+ * where no request exists, such as in a Schedule or a Queue job.
  */
-export function useAuth(event: AuthRequestInput): RegisteredAuth {
+export function useAuth(event?: AuthRequestInput): RegisteredAuth {
+  if (!event) return getAuth()
   return authForRequest(unwrapAuthRequest(event), authRequestEvent(event))
 }
 
@@ -522,7 +538,7 @@ function authAccessRoutes(
 async function createSignInResponse(
   auth: ViteHubAuth,
   options: AuthRuntimeOptions & Record<string, unknown>,
-  signIn: AuthSignInConfiguration,
+  signIn: AuthProviderSignIn,
   address?: string,
 ): Promise<Response> {
   // SAFETY: The request resolver supplies baseURL from the runtime configuration or request origin.
@@ -861,7 +877,7 @@ async function checkAuthRequest(
     return reject(createTextRefusalResponse("Unauthorized.", "SIGNED_OUT"))
   }
 
-  const signIn = (options as { access?: AuthAccessConfiguration }).access?.signIn
+  const signIn = providerSignIn(options)
   return reject(signIn
     ? await createSignInResponse(auth, options, { ...signIn, ...signInURLs }, eventClientAddress(event))
     : createRefusalResponse("SIGNED_OUT"))
@@ -1260,21 +1276,6 @@ const authRoute = {
 }
 
 export default authRoute
-
-export const auth = new Proxy({}, {
-  get(_target, property, receiver) {
-    return Reflect.get(getAuth() as object, property, receiver)
-  },
-  getOwnPropertyDescriptor(_target, property) {
-    return Reflect.getOwnPropertyDescriptor(getAuth() as object, property)
-  },
-  has(_target, property) {
-    return Reflect.has(getAuth() as object, property)
-  },
-  ownKeys() {
-    return Reflect.ownKeys(getAuth() as object)
-  },
-}) as RegisteredAuth
 
 /** Read the configured log from server code. Apply access checks before returning it to a caller. */
 export function getAuthEvents(definition: AuthDefinition = resolveDefaultDefinition(), request?: Pick<Request, "headers" | "url">): AuthEventStore | undefined {

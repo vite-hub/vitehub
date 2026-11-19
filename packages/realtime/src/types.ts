@@ -1,5 +1,5 @@
 import type { AnyExtension, JSONContent } from "@tiptap/core"
-import type { WorkspaceSnapshot } from "@vite-hub/workspace"
+import type { WorkspaceAuthor, WorkspaceSnapshot } from "@vite-hub/workspace"
 import type { ViteHubContext } from "@vite-hub/runtime"
 import type { H3Event } from "h3"
 
@@ -69,6 +69,7 @@ export interface RealtimeHistoryOptions {
   /** Digest of the save that the history entry must contain. */
   digest: string
   message?: string
+  /** The checkpoint requester, when identified. */
   user?: RealtimeUser
 }
 
@@ -105,6 +106,8 @@ export interface RealtimeHoldOptions {
 export interface RealtimeWorkspaceDocumentOptions {
   /** Workspace whose working tree stores the Markdown file at the document path. */
   workspace: string
+  /** Resolve an author's name and email approved for Git history. Return undefined to keep the Store's author. */
+  checkpointAuthor?: (user: RealtimeUser) => WorkspaceAuthor | undefined | Promise<WorkspaceAuthor | undefined>
 }
 
 /**
