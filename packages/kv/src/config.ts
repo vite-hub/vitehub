@@ -84,7 +84,7 @@ export function redisStorePrefix(name: string): string {
   return `vitehub:kv:${segment}`
 }
 
-/** An empty prefix would let `kv.clear()` and `kv.keys()` reach every key of the Redis or Upstash database. */
+/** An empty prefix would let `kv.clear()` and `kv.list()` reach every key of the Redis or Upstash database. */
 function resolveStoreBase(base: string | undefined, name: string): string {
   return normalizeKey(trimmed(base)) || redisStorePrefix(name)
 }

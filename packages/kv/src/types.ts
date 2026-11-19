@@ -5,7 +5,7 @@ export type KVDriver = "cloudflare" | "database" | "deno-kv" | "fs-lite" | "redi
 
 /**
  * The atomic operations of each driver. A store returns `KV_UNSUPPORTED_OPERATION` for an atomic operation that its
- * driver does not list. `get`, `set`, `delete`, `has`, `keys`, `list`, and `clear` work on every driver.
+ * driver does not list. `get`, `set`, `delete`, `has`, `list`, and `clear` work on every driver.
  */
 export interface KVDriverAtomicOperations {
   "cloudflare": never
@@ -45,7 +45,7 @@ export interface UpstashKVStoreConfig {
   token?: string
   url?: string
   /**
-   * Prefix of every key in Upstash. Default `vitehub:kv:<store>`, as for a Redis store, so `kv.clear()` and `kv.keys()`
+   * Prefix of every key in Upstash. Default `vitehub:kv:<store>`, as for a Redis store, so `kv.clear()` and `kv.list()`
    * stay inside the store. An empty value uses the default.
    */
   base?: string
@@ -174,7 +174,7 @@ export interface ResolvedKVModuleOptions {
   stores?: Record<string, ResolvedKVStoreConfig>
 }
 
-export type KVOperation = "clear" | "delete" | "deleteIfEquals" | "get" | "getAndDelete" | "getMany" | "has" | "increment" | "keys" | "list" | "lock" | "set" | "setIfAbsent" | "setMany"
+export type KVOperation = "clear" | "delete" | "deleteIfEquals" | "get" | "getAndDelete" | "getMany" | "has" | "increment" | "list" | "lock" | "set" | "setIfAbsent" | "setMany"
 
 /** Codes that KV operations return in the `[error, data]` tuple. Config errors throw instead. */
 export type KVErrorCode =
@@ -192,8 +192,19 @@ export type KVErrorCode =
 export interface KVListOptions {
   /** Opaque continuation cursor returned by a previous page. */
   cursor?: string
-  /** Maximum number of keys to read. Must be a positive integer. */
+  /** Maximum number of keys to read. Must be a positive integer. Without it, the page holds every key and no cursor. */
+  limit?: number
+  /** Only keys that start with this text, so `"user"` matches `users:1`. `"users:"` matches the keys below `users`. */
+  prefix?: string
+}
+
+/** One page that a driver reads: `limit` is set. */
+export interface KVPageOptions extends KVListOptions {
   limit: number
+}
+
+export interface KVClearOptions {
+  /** Only keys that start with this text, as in `list()`. Without it, `clear()` deletes every key of the store. */
   prefix?: string
 }
 
@@ -278,7 +289,7 @@ export interface KVListPage {
  * Config errors, for example an unknown store name, throw.
  */
 export interface KVStorage {
-  clear(base?: string, options?: unknown): Promise<Result<void, "KV_OPERATION_FAILED">>
+  clear(options?: KVClearOptions): Promise<Result<void, "KV_OPERATION_FAILED">>
   delete(key: string, options?: unknown): Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
   /**
    * Deletes the key only when its value equals `expected`, in one atomic step. Returns `true` when this call deleted it.
@@ -314,8 +325,7 @@ export interface KVStorage {
    * The drivers in {@link KVDriversWith}`<"increment">` support it. The others return `KV_UNSUPPORTED_OPERATION`.
    */
   increment(key: string, ttl: number | Duration): Promise<Result<number, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
-  keys(base?: string, options?: unknown): Promise<Result<string[], "KV_OPERATION_FAILED">>
-  list(options: KVListOptions): Promise<Result<KVListPage, "KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_OPERATION_FAILED">>
+  list(options?: KVListOptions): Promise<Result<KVListPage, "KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_OPERATION_FAILED">>
   /**
    * A lock on `key` that one runner holds at a time, across server processes that share the store. It writes a random
    * owner token with `setIfAbsent()` and a TTL, and frees it with `deleteIfEquals()`, so a runner never deletes a lock
@@ -357,7 +367,7 @@ export interface KVStoreOptions {
 }
 
 /**
- * KV handle from `kv.store(name, { mode: "read" })`, with only `get()`, `getMany()`, `has()`, `keys()`, and `list()`.
+ * KV handle from `kv.store(name, { mode: "read" })`, with only `get()`, `getMany()`, `has()`, and `list()`.
  * It limits this API, not the host: the KV binding or provider token keeps full access, so it is not a security
  * boundary against code that reads the binding directly.
  */
@@ -365,6 +375,5 @@ export interface ReadonlyKVStorage {
   get: KVStorage["get"]
   getMany: KVStorage["getMany"]
   has: KVStorage["has"]
-  keys: KVStorage["keys"]
   list: KVStorage["list"]
 }

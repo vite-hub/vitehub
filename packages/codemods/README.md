@@ -28,7 +28,7 @@ The command exits with `0` when every codemod completes, also when they report f
 vitehub migrate [dir] [--dry-run]
 ```
 
-`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, and `access-spellings`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
+`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, and `kv-list-prefix`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
 ## Run one codemod
 
@@ -59,6 +59,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `tsconfig-paths` | `#vitehub/*` entries of tsconfig `paths` that point into `.vitehub/` or `.nuxt/`, which ViteHub now types itself |
 | `shell-driver` | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()`. `vitehub migrate` runs it. |
 | `access-spellings` | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: "public"`. `vitehub migrate` runs it. |
+| `kv-list-prefix` | `kv.keys(base)` to `kv.list({ prefix })`, and `kv.clear(base)` to `kv.clear({ prefix })`. `vitehub migrate` runs it. |
 
 ## `runtime-contracts`
 
@@ -388,6 +389,22 @@ ViteHub types the `#vitehub/*` aliases itself, in `.vitehub/types/`. Older apps 
 ```sh
 npx @vite-hub/codemods tsconfig-paths [dir] [--dry-run]
 ```
+
+## `kv-list-prefix`
+
+`kv-list-prefix` moves the KV listing and clearing calls to one prefix option. `kv.keys()` is gone, and `kv.list()` reads every key when you set no `limit`. `{ prefix }` matches text, so the codemod adds a `:` to a literal base to keep the keys below it:
+
+```sh
+npx @vite-hub/codemods kv-list-prefix [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `const [error, keys] = await kv.keys('drafts')` | `const [error, { keys } = { keys: [] }] = await kv.list({ prefix: 'drafts:' })` |
+| `kv.clear('drafts')` | `kv.clear({ prefix: 'drafts:' })` |
+| `kv.store('sessions').clear('users:')` | `kv.store('sessions').clear({ prefix: 'users:' })` |
+
+The report lists a `keys()` call in another form, and a `keys()` or `clear()` call whose base is not a literal.
 
 ## Add a codemod
 

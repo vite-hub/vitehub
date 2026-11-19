@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, and `access-spellings`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, and `kv-list-prefix`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -342,3 +342,19 @@ The codemod also changes default-export objects in `server/realtime/` and `serve
 A Realtime definition with both `auth: true` and `authorize()` stays as it is, and the report lists it. `authorize()` now also runs for signed-out callers, with `user: null`, so remove `auth` and return `false` when `user` is `null`. Until then, the server rejects the definition with [`REALTIME_INVALID_ACCESS`](/docs/realtime/limits-and-errors#realtime_invalid_access).
 
 If your browser app and Realtime API use different origins, keep the app origin in the Auth Definition's `trustedOrigins`. With no custom `identify()` or `origins()`, `authorize()` uses the same Auth origin check as `authorize: true`. Do not add `origins()` to pass the Auth session: an origin admitted by that hook does not get the session user.
+
+## kv-list-prefix
+
+`kv-list-prefix` moves the KV listing and clearing calls to one prefix option. `kv.keys()` is gone, and `kv.list()` reads every key when you set no `limit`. `{ prefix }` matches text, so the codemod adds a `:` to a literal base to keep the keys below it:
+
+```bash [Terminal]
+npx @vite-hub/codemods kv-list-prefix [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `const [error, keys] = await kv.keys('drafts')` | `const [error, { keys } = { keys: [] }] = await kv.list({ prefix: 'drafts:' })` |
+| `kv.clear('drafts')` | `kv.clear({ prefix: 'drafts:' })` |
+| `kv.store('sessions').clear('users:')` | `kv.store('sessions').clear({ prefix: 'users:' })` |
+
+The report lists a `keys()` call in another form, and a `keys()` or `clear()` call whose base is not a literal.

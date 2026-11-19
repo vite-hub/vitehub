@@ -8,7 +8,7 @@ import { createCursorHistory, recordCursor } from "./cursor-history.ts"
 import { assertCloudflareKVKey, assertCloudflareKVWrite, installCloudflareKVLimits, validateCloudflareKVBatch } from "./cloudflare-kv-limits.ts"
 import { chunks, setItemsOneByOne } from "./batch.ts"
 
-import type { KVListOptions, KVListPage } from "../types.ts"
+import type { KVPageOptions, KVListPage } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 
 interface CloudflareKVNamespace {
@@ -108,7 +108,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
       cursorHistories.clear()
     }
   }
-  driver.listKeys = async ({ cursor, limit, prefix = "" }: KVListOptions): Promise<KVListPage> => {
+  driver.listKeys = async ({ cursor, limit, prefix = "" }: KVPageOptions): Promise<KVListPage> => {
     invariant(!disposed, "a KV store is open while the app runs, because Nitro disposes it only when it closes")
     const listOptions: { cursor?: string; limit: number; prefix?: string } = { limit }
     if (cursor) listOptions.cursor = cursor
@@ -141,6 +141,20 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
       throw error
     }
   }
+  // The unstorage driver clears the keys below a base. KV clears the keys that start with `prefix` as text, as `list()`
+  // matches them. It lists every key first, so a delete never moves a listing cursor.
+  const removeItem = driver.removeItem
+  invariant(removeItem, "the unstorage Cloudflare KV driver deletes keys")
+  driver.clear = async (prefix = "") => {
+    const keys: string[] = []
+    let cursor: string | undefined
+    do {
+      const page = await driver.listKeys({ cursor, limit: 1000, prefix })
+      keys.push(...page.keys)
+      cursor = page.cursor
+    } while (cursor)
+    for (const key of keys) await removeItem.call(driver, key, {})
+  }
   return driver
 }
 
@@ -148,7 +162,7 @@ export function createCloudflareKVStorage(options: Record<string, unknown>): unk
   const driver = createCloudflareDriver(options)
   // SAFETY: createKVStorage returns an extensible storage object; listKeys is installed before it escapes.
   const storage = createKVStorage(driver) as unknown as Record<string, unknown>
-  storage.listKeys = (listOptions: KVListOptions) => driver.listKeys({ ...listOptions, prefix: normalizeKVListPrefix(listOptions.prefix) })
+  storage.listKeys = (listOptions: KVPageOptions) => driver.listKeys({ ...listOptions, prefix: normalizeKVListPrefix(listOptions.prefix) })
   return storage
 }
 

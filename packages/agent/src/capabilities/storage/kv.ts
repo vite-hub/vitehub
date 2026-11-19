@@ -101,7 +101,7 @@ function kvTools(mode: AgentCapabilityMode, options: KVCapabilityOptions, scope:
           if (!hasExactlyOne(key, prefix)) throw agentDiagnostics.AGENT_R0224({ message: "[vitehub] kv_read requires exactly one of key or prefix." })
           if (typeof key === "string" && key.trim()) return storageValue(method<(key: string) => MaybePromise<unknown>>(store, "kv", "get")(scopedKVKey(key, scope, "kv_read key")))
           const listPrefix = scopedKVListPrefix(assertString(prefix, "kv_read prefix"), scope)
-          const keys = await storageValue<string[]>(method<(prefix: string) => MaybePromise<string[]>>(store, "kv", "keys")(listPrefix))
+          const { keys } = await storageValue<{ keys: string[] }>(method<(options: { prefix: string }) => MaybePromise<{ keys: string[] }>>(store, "kv", "list")({ prefix: listPrefix }))
           return scope === undefined ? keys : keys.filter(key => inKVScope(key, scope))
         },
         icon: "i-lucide-key-round",
