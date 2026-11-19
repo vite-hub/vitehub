@@ -15,7 +15,8 @@ catalog:
   forges: 0.3.1
   proper-lockfile: 4.1.2
   comark-chat: 0.10.1
-  vite-doctor: 0.1.3
+  # Doctor main (onmax/vite-doctor@084702c). Move to the next npm release once it exists.
+  vite-doctor: https://pkg.pr.new/vite-doctor@084702c3600540b8125fabf9cfc442ad45448557
   wrangler: 4.160.1
 
 catalogMode: prefer
