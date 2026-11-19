@@ -1417,7 +1417,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
 
   function persistRoom(room: DocumentRoom): void {
     if (!room.sql) return
-    // ponytail: full snapshots keep recovery atomic; use compacted update logs when document write cost becomes measurable.
+    // Full snapshots keep recovery atomic; use compacted update logs when document write cost becomes measurable.
     const row = [room.key, room.epoch, room.digest, room.dirty ? 1 : 0, Uint8Array.from(Y.encodeStateAsUpdate(room.document)).buffer]
     try {
       room.sql.exec(

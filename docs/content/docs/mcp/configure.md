@@ -29,8 +29,8 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     mcp: {
-      instructions: 'Drop stores docs for review. Call list_folders before you publish.',
-      serverInfo: { name: 'drop', title: 'Drop', version: '0.1.0', websiteUrl: '/', icons: [{ src: '/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }] },
+      instructions: 'Recipe Box stores family recipes. Call search_recipes before you add one.',
+      serverInfo: { name: 'recipe-box', title: 'Recipe Box', version: '0.1.0', websiteUrl: '/', icons: [{ src: '/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }] },
     },
   },
 })
@@ -46,8 +46,8 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     mcp: {
-      instructions: 'Drop stores docs for review. Call list_folders before you publish.',
-      serverInfo: { name: 'drop', title: 'Drop', version: '0.1.0', websiteUrl: '/', icons: [{ src: '/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }] },
+      instructions: 'Recipe Box stores family recipes. Call search_recipes before you add one.',
+      serverInfo: { name: 'recipe-box', title: 'Recipe Box', version: '0.1.0', websiteUrl: '/', icons: [{ src: '/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }] },
     },
   }), nitro()],
 })
@@ -62,8 +62,8 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     mcp: {
-      instructions: 'Drop stores docs for review. Call list_folders before you publish.',
-      serverInfo: { name: 'drop', title: 'Drop', version: '0.1.0', websiteUrl: '/', icons: [{ src: '/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }] },
+      instructions: 'Recipe Box stores family recipes. Call search_recipes before you add one.',
+      serverInfo: { name: 'recipe-box', title: 'Recipe Box', version: '0.1.0', websiteUrl: '/', icons: [{ src: '/favicon.svg', mimeType: 'image/svg+xml', sizes: ['any'] }] },
     },
   })],
 })

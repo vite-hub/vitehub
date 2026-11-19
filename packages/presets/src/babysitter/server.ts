@@ -143,7 +143,7 @@ const stoppedMergeRetryMs = 2 * 60 * 60_000;
 /**
  * GitHub settles most asynchronous merges in seconds, so poll a pending request less often as it ages:
  * after 30 seconds at first, then after as long as it has been pending, at most every five minutes.
- * vite-hub/vitehub#3350 was polled every 30 seconds for 19 hours.
+ * A fixed 30-second poll can run for hours on a request that GitHub never settles.
  */
 export function pendingMergeRetryAt(startedAt: number, now: number): number {
   return now + Math.min(5 * 60_000, Math.max(30_000, now - startedAt));
@@ -533,8 +533,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
 
   /**
    * A job that a runner or network error stopped gets a fresh CI run: the host updates the branch, once
-   * per head and base and at most hourly per PR. On 2026-11-09 vitehub#3534 waited 14 hours on a 504
-   * from setup-deno that nothing retried.
+   * per head and base and at most hourly per PR. Without it, a PR waits for hours on a transient error,
+   * such as a 504 from a setup action, that nothing retries.
    */
   async function retestInfrastructureFailure(snapshot: Snapshot, owner: Record<string, unknown>, signal: AbortSignal): Promise<boolean> {
     const { repository, number } = snapshot;
@@ -1051,7 +1051,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   /**
    * Proves from fresh GitHub reads that a bypass merge only skips inherited failures. The failures must
    * repeat on the base branch tip, where the merge lands: the PR's `base.sha` can be a day old and have no
-   * CI runs (vitehub#3715). Every other branch rule must be known and satisfied. Returns why it cannot.
+   * CI runs. Every other branch rule must be known and satisfied. Returns why it cannot.
    */
   async function verifyInheritedMerge(snapshot: Snapshot, live: Record<string, unknown>, signal: AbortSignal): Promise<{ fresh: Snapshot; evaluation: InheritedCheckEvaluation; baseSha: string } | { refused: string }> {
     const { repository, number } = snapshot;
@@ -1342,9 +1342,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   }
   /**
    * Only a wait for another pull request ends by itself, when it merges or closes. Every other external
-   * blocker gets a fresh pass after two hours: on 2026-10-19 about 45 PRs sat in external waits for
-   * 13 hours or more, 30 of them on an install error the host had already fixed, and one waited on the
-   * checks of a main commit 90 commits back, which never change. A host defect is the exception: only a
+   * blocker gets a fresh pass after two hours: the blocker may be fixed already, such as an install
+   * error the host repaired, or may never change, such as the checks of an old base commit. A host defect is the exception: only a
    * new worker release fixes it, and that release wakes the wait.
    */
   async function externalWait(observed: Snapshot, wake: PullRequestWake | undefined, reason: string) {
@@ -1368,7 +1367,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       const head = snapshot.pr?.head?.sha;
       if (!head) continue;
       // A spent same-head budget refuses model work until its cooldown retry, so a recovery pass would only
-      // park again. On 2026-10-31 three PRs did that every ten minutes.
+      // park again.
       if (snapshot.progressBudget?.exhausted && snapshot.progressBudget.head === head && (snapshot.wait?.retryAt ?? 0) > Date.now()) continue;
       const recoveryKey = `ci-recovery-next:${snapshot.repository}#${snapshot.number}:${head}`;
       if ((await pullRequestInbox.metaNumber(recoveryKey) ?? 0) > Date.now()) continue;
@@ -1381,7 +1380,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
 
   /**
    * A parked PR on another PR's branch gets no event when that parent merges, so read its parents every
-   * ten minutes. On 2026-10-31 a child sat parked on its parent's branch two days after the parent merged.
+   * ten minutes. Otherwise a child stays parked on its parent's branch after the parent merged.
    */
   async function stackParentMerged(snapshot: Snapshot): Promise<boolean> {
     const target = snapshot.pr && !snapshot.wait?.wake ? nonDefaultBase(snapshot.pr) : undefined;
@@ -1993,8 +1992,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 return;
               }
               // A direct merge lands only on the default branch, and never merges a draft, so retrying either
-              // every two minutes changes nothing. On 2026-10-31 a PR on a branch without a parent PR retried
-              // for two days, and on 2026-11-01 a draft reached generation 1929. Retargeting the PR or marking
+              // every two minutes changes nothing and only adds generations. Retargeting the PR or marking
               // it ready for review wakes it.
               const lockedBase = inboxClaim.snapshot.pr ? nonDefaultBase(inboxClaim.snapshot.pr) : undefined;
               const draft = inboxClaim.snapshot.pr?.draft === true;
@@ -2110,8 +2108,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             return;
           }
           if (inboxClaim.snapshot.pr?.mergeable === null || inboxClaim.snapshot.pr?.mergeable_state === "unknown") {
-            // GitHub sometimes never finishes: on 2026-10-21 15 stack PRs stayed unknown for hours although each
-            // merged cleanly. Wait at most 10 minutes per head, then run the pass; a merge re-reads mergeability.
+            // GitHub sometimes never finishes: a PR can stay unknown for hours although it merges cleanly. Wait at most 10 minutes per head, then run the pass; a merge re-reads mergeability.
             // Every recheck re-reads the snapshot, so a 30-second recheck on those PRs spent the GitHub App's
             // hourly quota in five minutes.
             const head = inboxClaim.snapshot.pr?.head?.sha;
@@ -2864,7 +2861,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           // Checks and bot reviews often arrive during a pass and move the claim revision. A review of the
           // unchanged head stays valid: its evidence key comes from the claim, so newer evidence still needs a pass.
           // With direct merges, a reviewed head stays assessed when the pass parks on an external reason such as
-          // a failing approval check: on 2026-10-19 one PR reported no P0 or P1 three times and never merged.
+          // a failing approval check. Otherwise a PR with no P0 or P1 findings can pass again and again and never merge.
           // Required checks, conflicts and the merge gate still decide the merge.
           const assessed = (passResult?.wait?.kind !== "external" || merge.mode === "direct") && !pushedHead && disposition === "park" && passResult?.reviewedHead === pullRequest.headRefOid
             && current?.pr?.head?.sha === pullRequest.headRefOid && await pullRequestInbox.holdsClaimedHead(inboxClaim);
