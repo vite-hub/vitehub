@@ -164,8 +164,8 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Pass an object, for example `queue: { driver: 'cloudflare' }`.",
     },
     QUEUE_INVALID_DEFINITION: {
-      why: "`defineQueue()` needs a handler function.",
-      fix: "Pass the handler as the first argument, for example `defineQueue(async (job) => { ... })`.",
+      why: ({ reason }: { reason: string }) => reason,
+      fix: "Pass one object with a `handler` function and the options next to it, for example `defineQueue({ handler: async ({ payload }) => { ... }, concurrency: 2 })`. Run `npx vitehub migrate` to move the former `defineQueue(handler, options)` form.",
     },
     QUEUE_INVALID_DRIVER: {
       why: ({ driver }: { driver: string }) => `\`queue.driver\` "${driver}" is not a Queue driver.`,

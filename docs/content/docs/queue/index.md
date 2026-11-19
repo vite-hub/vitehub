@@ -31,12 +31,12 @@ import { defineQueue } from 'vite-hub/queue'
 
 // The file name is the queue name.
 // This runs later, after the route replies.
-export default defineQueue<{ email: string }>(
-  async ({ payload, attempts }) => {
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload, attempts }) => {
     // Send the email here
     console.log(payload.email, attempts)
   },
-)
+})
 ```
 
 ```ts [server/api/reminder.post.ts]
