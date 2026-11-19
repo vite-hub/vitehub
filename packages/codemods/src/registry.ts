@@ -27,7 +27,6 @@ import type { Codemod } from "./types.ts"
 export const codemods: readonly Codemod[] = [
   nuxthub,
   nuxtSafeRuntimeConfig,
-  driverKey,
   t3Env,
   resend,
   rootAccessors,
@@ -39,6 +38,7 @@ export const codemods: readonly Codemod[] = [
   defineForms,
   oneEntryImports,
   vitehubOptions,
+  driverKey,
   agentSurface,
   renamedApis,
   tsconfigPaths,
