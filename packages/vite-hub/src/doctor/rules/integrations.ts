@@ -346,10 +346,24 @@ export const validViteHubOptions: DoctorRule = createRule({
     if (nuxtConfigFile.test(ctx.file.relativePath)) {
       const config = configObject(ctx)
       if (!config) return
-      const module = nuxtModules(config).find(entry => entry.name === "vite-hub/nuxt")
-      if (!module) return
-      checkViteHubOptions(ctx, objectValue(config, "vitehub"), "the `vitehub` key")
-      checkViteHubOptions(ctx, module.options, "the inline `vite-hub/nuxt` options")
+      const scopes = [{ name: "", config }, ...objectProperties(config).flatMap((item) => {
+        const name = propertyName(item)
+        const scope = unwrap(item.value)
+        if (!name?.startsWith("$") || !isNodeType(scope, "ObjectExpression")) return []
+        if (name !== "$env") return [{ name, config: scope }]
+        return objectProperties(scope).flatMap((entry) => {
+          const environment = propertyName(entry)
+          const override = unwrap(entry.value)
+          return environment && isNodeType(override, "ObjectExpression") ? [{ name: `${name}.${environment}`, config: override }] : []
+        })
+      })]
+      const hasBaseModule = nuxtModules(config).some(entry => entry.name === "vite-hub/nuxt")
+      for (const scope of scopes) {
+        const module = nuxtModules(scope.config).find(entry => entry.name === "vite-hub/nuxt")
+        if (!hasBaseModule && !module) continue
+        checkViteHubOptions(ctx, objectValue(scope.config, "vitehub"), scope.name ? `the \`${scope.name}.vitehub\` key` : "the `vitehub` key")
+        checkViteHubOptions(ctx, module?.options, "the inline `vite-hub/nuxt` options")
+      }
       return
     }
     if (!viteConfigFile.test(ctx.file.relativePath)) return

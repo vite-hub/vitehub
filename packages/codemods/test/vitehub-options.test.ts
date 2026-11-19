@@ -87,6 +87,28 @@ describe("vitehub-options transform", () => {
     expect(result.followUps).toEqual([expect.objectContaining({ message: expect.stringContaining("Both logs and observability.logs are set") })])
   })
 
+  it.each(["", "vitehub: { observability: { logs: false }, console: false }, "])("moves Nuxt development overrides (%s)", (base) => {
+    const input = `export default defineNuxtConfig({ modules: ['vite-hub/nuxt'], ${base}$development: { vitehub: { observability: { logs: true }, console: { auth: false } } } })`
+    const result = migrateViteHubOptions("nuxt.config.ts", input)
+    expect(result.followUps).toEqual([])
+    expect(result.code).toContain("$development: { vitehub: { logs: true, console: { auth: false } } }")
+    if (base) expect(result.code).toContain("vitehub: { observability: true, logs: false, console: false }")
+  })
+
+  it("preserves parentheses around a sequence expression", () => {
+    const input = "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ observability: { logs: (console.log('config'), true) } })] }"
+    const result = migrateViteHubOptions("vite.config.ts", input)
+    expect(result.followUps).toEqual([])
+    expect(result.code).toContain("logs: (console.log('config'), true)")
+  })
+
+  it.each(["{ source: './logs.ts' }, evlog: { pretty: true }", "loadLogs()"])("reports a manual follow-up when moving %s could change Evlog registration", (value) => {
+    const input = `import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ observability: { logs: ${value} } })] }`
+    const result = migrateViteHubOptions("vite.config.ts", input)
+    expect(result.code).toBe(input)
+    expect(result.followUps).toEqual([expect.objectContaining({ message: expect.stringContaining("Evlog") })])
+  })
+
   it("reports observability.logs inside an expression", () => {
     const input = "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ observability: dev ? { logs: true } : false })] }\n"
     const result = migrateViteHubOptions("vite.config.ts", input)

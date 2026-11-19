@@ -111,6 +111,10 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
           : "ViteHub did not write starter or config files; the package manager may have changed package manifests or lockfiles."}`,
       why: ({ command, exitCode }: { command?: unknown, exitCode?: unknown }) => `\`${String(command)}\` exited with code ${String(exitCode)}.`,
     },
+    SETUP_LOGS_OPTION_MOVED: {
+      why: "`observability.logs` is no longer a ViteHub option.",
+      fix: "Remove the option from the command. Configure the top-level `logs` key by hand, for example `logs: { source: './server/logs.ts' }` to set `logs.source`.",
+    },
     SETUP_FEATURE_IMPLIED: {
       fix: ({ by, feature }: { by?: unknown, feature?: unknown }) => `Remove ${String(by)} too, or pass --force to write \`${String(feature)}: false\`.`,
       why: ({ by, feature }: { by?: unknown, feature?: unknown }) => `${String(feature)} stays on because ${String(by)} turns it on.`,

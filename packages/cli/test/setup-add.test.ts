@@ -44,6 +44,15 @@ const fixtures: ReadonlyArray<readonly [string, ViteHubHost, string]> = [
 ]
 
 describe("vitehub add", () => {
+  it("rejects observability.logs.source without changing the project", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ host: "node" }') })
+    const before = await snapshot(root)
+    const result = await add(["observability", "--option", "observability.logs.source=./server/logs.ts", "--no-install", "--yes"], root)
+    expect(result.exitCode, result.stdout).toBe(3)
+    expect(result.json.error?.fix).toContain("logs.source")
+    expect(await snapshot(root)).toEqual(before)
+  })
+
   it.each([
     ['{ host: "netlify", agent: true }', ["observability", "--option", "observability.service=api"]],
     ['{ host: "netlify" }', ["agent", "observability", "--option", "observability.service=api"]],

@@ -35,4 +35,12 @@ describe("removed vitehub() options", () => {
   it("accepts `host`", () => {
     expect(() => vitehub({ host: "cloudflare", env: false })).not.toThrow()
   })
+
+  it("rejects legacy logs.evlog instead of ignoring enabled: false", () => {
+    const options = { host: "node", logs: { evlog: { enabled: false } } } as ViteHubOptions
+    expect(() => vitehub(options)).toThrow(expect.objectContaining({
+      code: "VITE_HUB_B0024",
+      message: expect.stringContaining("`observability.evlog`"),
+    }))
+  })
 })

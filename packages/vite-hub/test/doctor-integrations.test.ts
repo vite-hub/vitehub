@@ -192,6 +192,12 @@ describe("vitehub/no-vitehub-plugin-in-nuxt", () => {
 })
 
 describe("vitehub/valid-vitehub-options", () => {
+  it.each(["", "vitehub: { observability: { logs: false } },"])("reports obsolete Logs keys under Nuxt overrides (%s)", async (base) => {
+    expect(await codes(validViteHubOptions, {
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${base} $development: { vitehub: { observability: { logs: true }, logs: { evlog: { enabled: false } } } } })`,
+    }, "nuxt")).toEqual(Array(base ? 3 : 2).fill("VHUB0031"))
+  })
+
   it("accepts Worker vars and reports the removed secrets file", async () => {
     for (const [option, expected] of [["vars: true", []], ["vars: true, secretsFile: \".env\"", ["VHUB0031"]]] as const) {
       expect(await codes(validViteHubOptions, {

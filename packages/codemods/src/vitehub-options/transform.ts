@@ -87,6 +87,36 @@ function objectValue(node: Node | undefined): ObjectExpression | undefined {
   return value?.type === "ObjectExpression" ? value : undefined
 }
 
+function nuxtEnvironmentOverrides(root: ObjectExpression): ObjectExpression[] {
+  return root.properties.flatMap((item) => {
+    if (item.type !== "ObjectProperty") return []
+    const name = keyName(item.key, item.computed)
+    const scope = objectValue(item.value)
+    if (!scope || !name?.startsWith("$")) return []
+    if (name !== "$env") return [scope]
+    return scope.properties.flatMap((entry) => {
+      const override = entry.type === "ObjectProperty" ? objectValue(entry.value) : undefined
+      return override ? [override] : []
+    })
+  })
+}
+
+function logsMode(node: Node): "capture" | "possibly-disabled" | "source" | undefined {
+  const value = unwrapExpression(node)
+  if (value.type === "BooleanLiteral") return value.value ? "capture" : "possibly-disabled"
+  if (value.type === "ObjectExpression") {
+    if (value.properties.some(item => item.type === "SpreadElement" || keyName(item.key, item.computed) === undefined)) return
+    return value.properties.some(item => item.type !== "SpreadElement" && keyName(item.key, item.computed) === "source") ? "source" : "capture"
+  }
+  if (value.type === "SequenceExpression") return logsMode(value.expressions.at(-1)!)
+  if (value.type === "ConditionalExpression") {
+    const left = logsMode(value.consequent)
+    const right = logsMode(value.alternate)
+    if (left === right) return left
+    if (left && right && left !== "source" && right !== "source") return "possibly-disabled"
+  }
+}
+
 /** Value imports of the expected API, checked against each call's lexical binding. */
 function importedNames(program: File, sources: readonly string[], imported: string | readonly string[]): Map<string, Identifier> {
   const names = new Map<string, Identifier>()
@@ -170,6 +200,7 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
   for (const root of roots) {
   // The options objects of `vitehub()` in a Vite config, or of `vite-hub/nuxt` in a Nuxt config.
   const optionObjects: ObjectExpression[] = []
+  const environmentOptions: ObjectExpression[] = []
   const emptyCalls: Array<Node & { type: "CallExpression" }> = []
   if (nuxt) {
     const key = objectValue(property(root, "vitehub")?.value)
@@ -177,6 +208,13 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
     const entry = findViteHubEntry({ code, fileName: file, path: file, program, root })
     const inline = entry?.type === "ArrayExpression" ? objectValue(entry.elements[1] ?? undefined) : undefined
     if (inline) optionObjects.push(inline)
+    for (const scope of nuxtEnvironmentOverrides(root)) {
+      const options = objectValue(property(scope, "vitehub")?.value)
+      if (options) environmentOptions.push(options)
+      const entry = findViteHubEntry({ code, fileName: file, path: file, program, root: scope })
+      const inline = entry?.type === "ArrayExpression" ? objectValue(entry.elements[1] ?? undefined) : undefined
+      if (inline) environmentOptions.push(inline)
+    }
   }
   else {
     const names = importedNames(program, ["vite-hub"], "vitehub")
@@ -189,7 +227,7 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
     }
   }
 
-  for (const options of optionObjects) {
+  for (const options of [...optionObjects, ...environmentOptions]) {
     renameKey(options, "preset", "host", "Both preset and host are set. Remove preset: host picks the deployment target.")
     const sandbox = property(options, "sandbox")
     const sandboxValue = sandbox ? unwrapExpression(sandbox.value) : undefined
@@ -216,17 +254,28 @@ export function migrateViteHubOptions(file: string, code: string, findRoots?: (p
     const observabilityObject = objectValue(observability?.value)
     const logs = property(options, "logs")
     const nestedLogs = observabilityObject ? property(observabilityObject, "logs") : undefined
-    if (observability && nestedLogs) {
+    if (observability && observabilityObject && nestedLogs) {
       if (logs) {
         follow(nestedLogs, "Both logs and observability.logs are set. Merge observability.logs into logs by hand.")
         continue
       }
-      const logsText = reindent(text(nestedLogs.value), indentAt(code, start(nestedLogs)), indentAt(code, start(observability)))
-      // `logs` registers Evlog for its buffer by itself, so an `observability` key that held only `logs` becomes `logs`.
-      if (observabilityObject?.properties.length === 1) editor.output.overwrite(start(observability), end(observability), `logs: ${logsText}`)
+      const mode = logsMode(nestedLogs.value)
+      const onlyLogs = observabilityObject.properties.length === 1
+      const service = property(observabilityObject, "service")
+      const serviceValue = service && unwrapExpression(service.value)
+      const hasService = serviceValue?.type === "StringLiteral" && Boolean(serviceValue.value)
+      if (!mode || observabilityObject.properties.some(item => item.type === "SpreadElement") || (mode === "source" && !onlyLogs && !hasService)) {
+        follow(nestedLogs, "Move observability.logs to logs by hand. Keep observability to preserve Evlog when capture is disabled; omit or disable observability for a read-only source that did not run Evlog.")
+        continue
+      }
+      const parenStart = nestedLogs.value.extra?.parenStart
+      const value = code.slice(typeof parenStart === "number" ? parenStart : start(nestedLogs.value), end(nestedLogs))
+      const indent = indentAt(code, start(observability))
+      const logsText = `logs: ${reindent(value, indentAt(code, start(nestedLogs)), indent)}`
+      const separator = text(options).includes("\n") ? `,\n${indent}` : ", "
+      if (onlyLogs) editor.output.overwrite(start(observability), end(observability), mode === "possibly-disabled" ? `observability: true${separator}${logsText}` : logsText)
       else {
-        const multiline = text(options).includes("\n")
-        editor.output.appendLeft(end(observability), `${multiline ? `,\n${indentAt(code, start(observability))}` : ", "}logs: ${logsText}`)
+        editor.output.appendLeft(end(observability), `${separator}${logsText}`)
         remove(nestedLogs)
       }
       changed = true

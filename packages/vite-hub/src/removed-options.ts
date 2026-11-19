@@ -21,6 +21,10 @@ export const removedViteHubOptions: Readonly<Record<string, { why: string, fix: 
     why: "`observability.logs` moved to the top-level `logs` key.",
     fix: "Move it to `vitehub({ logs: ... })`. `vitehub migrate` moves it.",
   },
+  "logs.evlog": {
+    why: "`logs.evlog` moved to `observability.evlog`.",
+    fix: "Move Evlog settings to `vitehub({ observability: { evlog: ... } })`. `vitehub migrate` moves them.",
+  },
   "cloudflare.secretsFile": {
     why: "`cloudflare.secretsFile` was removed. `vitehub deploy` uploads the Worker secrets that the app reads with each new version.",
     fix: "Remove `cloudflare.secretsFile`. Keep the values in the shell or in `.env.production`, and deploy with `vitehub deploy`.",
