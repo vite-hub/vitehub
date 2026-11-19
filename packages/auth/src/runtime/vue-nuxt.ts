@@ -14,13 +14,15 @@ import type { RequestFetch } from "../nuxt-bridge.ts"
 
 type NuxtApp = {
   runWithContext<T>(run: () => T): T
+  isHydrating?: boolean
   payload: { prerenderedAt?: unknown, isCached?: unknown }
 }
-type RouteLike = { fullPath: string, meta: { auth?: AuthPageMeta } }
+type RouteLike = { path: string, fullPath: string, meta: { auth?: AuthPageMeta } }
 type ResponseLike = { headers: Headers }
 type EventLike = { req?: { headers?: Headers }, res?: { headers?: Headers } }
 
 const stateKey = "vitehub:auth:session"
+const guardRouteKey = "vitehub:auth:guard-route"
 
 /**
  * True when the request may have a session: ViteHub's `vitehub_session` marker cookie, which Auth sets next to the
@@ -133,8 +135,10 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       const mode = typeof meta === "string" ? meta : meta === true ? "user" : meta.only ?? "user"
       const redirectTo = typeof meta === "object" ? meta.redirectTo : undefined
       return (loggedIn: boolean) => {
-        if (mode === "guest") return loggedIn ? navigateTo(redirectTo ?? redirects.guest ?? "/") : undefined
-        if (!loggedIn) return navigateTo({ path: redirectTo ?? redirects.login ?? "/login", query: { redirect: to.fullPath } })
+        const target = mode === "guest" ? loggedIn && (redirectTo ?? redirects.guest ?? "/") : !loggedIn && (redirectTo ?? redirects.login ?? "/login")
+        // A redirect to the page itself would loop, including when only query or hash differs.
+        if (!target || target.split(/[?#]/)[0] === to.path) return
+        return navigateTo(mode === "guest" ? target : { path: target, query: { redirect: to.fullPath } })
       }
     }
     if ("window" in globalThis) {
@@ -189,9 +193,19 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       }
     })
 
+    // Counts navigations, so a read can tell that a newer navigation started while Better Auth answered.
+    let navigations = 0
+
     addRouteMiddleware("vitehub-auth", (to: RouteLike) => {
+      const navigation = ++navigations
       const decide = guardOf(to)
       if (!decide) return
+      const page = to.fullPath.split("#", 1)[0]
+      if (navigation === 1 && !serverSession && !stale && nuxtApp.isHydrating && useState(guardRouteKey).value === page) return decide(true)
+      const decideAndSeed = (loggedIn: boolean) => {
+        if (serverSession && loggedIn) useState(guardRouteKey).value = page
+        return decide(loggedIn)
+      }
       // Decide synchronously on the server when the session is known, to keep Nuxt's request context. Browser
       // navigations read the session into the state that `useUserSession()` and `useSession()` share, so the page and
       // the guard see the same answer.
@@ -200,10 +214,19 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       const app = tryUseNuxtApp() as NuxtApp | undefined
       const inApp = <T>(run: () => T): T => app ? app.runWithContext(run) : run()
       const loggedIn = !serverSession
-        ? import("../vue.ts").then(({ useUserSession }) => inApp(() => useUserSession().refresh())).then(current => Boolean(current?.session && current?.user))
+        // An explicit refetch owns its read instead of sharing a replaced navigation's in-flight read.
+        ? import("../vue.ts").then(({ useSession }) => inApp(() => {
+            const browserSession = useSession()
+            return browserSession.value.refetch({}).then(() => Boolean(browserSession.value.data?.session && browserSession.value.data?.user))
+          }))
         : session instanceof Promise ? session.then(Boolean) : Boolean(session)
-      if (typeof loggedIn === "boolean") return decide(loggedIn)
-      return loggedIn.then(value => inApp(() => decide(value)))
+      if (typeof loggedIn === "boolean") return decideAndSeed(loggedIn)
+      return loggedIn.then((value) => {
+        // Only the latest navigation decides. Vue Router cancels a navigation that a newer one replaced, but it still
+        // follows a redirect that the old navigation returns, so an old answer could open a page that is now wrong.
+        if (navigation !== navigations) return
+        return inApp(() => decideAndSeed(value))
+      })
     }, { global: true })
   },
 })
