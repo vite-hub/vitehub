@@ -22,6 +22,8 @@ The command finds every module in the app that a codemod supports and runs those
 | [`t3-env`](/docs/codemods/nuxt-modules#t3-env) | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env |
 | [`resend`](/docs/codemods/nuxt-modules#resend) | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub [Email](/docs/email) |
 | [`nuxt-cron`](/docs/codemods/nuxt-modules#nuxt-cron) | `nuxt-cron` jobs to ViteHub [Schedule](/docs/schedule) Definitions |
+| [`docus`](/docs/codemods/nuxt-modules#docus) | A Docus site to [`@vite-hub/docs`](/docs/docs-site) |
+| [`nuxt-content`](/docs/codemods/nuxt-modules#nuxt-content) | Nuxt Content collections to ViteHub [Content](/docs/content) Sources |
 
 ## Upgrade ViteHub
 
