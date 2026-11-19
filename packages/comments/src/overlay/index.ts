@@ -1,5 +1,6 @@
 import { viteHubPillButtonStyles } from "@vite-hub/internal/runtime/page-tools-shared"
 import commentMarks from "@vite-hub/ui/comment-marks.css?inline"
+import commentSend from "@vite-hub/ui/comment-send.css?inline"
 
 import { fieldElementOf } from "../anchor.ts"
 import { normalizeCommentPage } from "../page.ts"
@@ -59,7 +60,7 @@ class CommentsOverlay extends HTMLElement {
       busy.disabled = true
       busy.setAttribute("aria-busy", "true")
       busy.textContent = this.context?.tool.label ?? "Comments"
-      segment.replaceChildren(style(viteHubPillButtonStyles + pillBarStyles), this.toolbar)
+      segment.replaceChildren(style(viteHubPillButtonStyles + pillBarStyles + commentSend), this.toolbar)
       this.toolbar.replaceChildren(busy)
     }
     this.restoreDocumentState()

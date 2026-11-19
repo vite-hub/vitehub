@@ -448,6 +448,8 @@ export const send = createCommentSend(transport);
 </template>
 ```
 
+With Comments `send: true`, the server has these routes already: `createCommentSendTransport({ page })` of `vite-hub/comments/client` is the transport, and the ViteHub pill uses the same one. See [Send comments to your agent](/docs/comments/send).
+
 A member without an agent pairs one in place. **Send 2** copies a setup prompt and says where to paste it. The agent uses the one-time code in the prompt, and the pill asks once: **Allow and send 2**. `×` or `Esc` stops it, and nothing is saved.
 
 | State | The pill shows |
