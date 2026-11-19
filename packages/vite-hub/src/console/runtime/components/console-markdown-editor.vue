@@ -336,6 +336,7 @@ onBeforeUnmount(() => {
   flushVersion++;
   if (pending) clearTimeout(pending);
   clearTimeout(outlineTimer);
+  clearTimeout(sectionTimer);
 });
 
 /** The body as Markdown now, such as the live room body for a preview. Null while it cannot serialize. */
@@ -483,10 +484,12 @@ function toggleBlockMenu(instance: Editor, open: boolean, select: () => unknown)
 }
 
 // A link that names a section scrolls to it once the body loads.
+let sectionTimer: ReturnType<typeof setTimeout> | undefined;
 watch(editor, (instance) => {
   if (!instance || !window.location.hash) return;
   const target = decodeURIComponent(window.location.hash.slice(1));
-  setTimeout(() => {
+  clearTimeout(sectionTimer);
+  sectionTimer = setTimeout(() => {
     instance.state.doc.forEach((node, offset) => {
       if (node.type.name === "heading" && consoleHeadingSlug(node.textContent) === target) scrollTo(offset);
     });

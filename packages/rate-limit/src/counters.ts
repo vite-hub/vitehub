@@ -2,7 +2,8 @@ import * as v from "valibot"
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 import { listRuntimeRateLimiters, resolveRateLimitDriver } from "./runtime/state.ts"
 
-import type { RateLimitCounterScope, RateLimiter, RateLimitRuntimeConfig, RateLimitWindow } from "./types.ts"
+import type { RateLimitCounterScope, RateLimiter, RateLimitRuntimeConfig } from "./types.ts"
+import type { Duration } from "@vite-hub/runtime"
 
 type RateLimitRuntimeDriver = RateLimitRuntimeConfig["driver"]
 
@@ -13,7 +14,7 @@ export interface RateLimitCounterSnapshot {
   /** End of the current window in epoch milliseconds. Absent when the key has no active counter. */
   resetAt?: number
   used: number
-  window: RateLimitWindow
+  window: Duration
   windowMs: number
 }
 
@@ -58,7 +59,9 @@ function assertTarget(name: string, key: string): void {
 }
 
 function limitersFor(target: RateLimitCounterTarget): RateLimiter[] | undefined {
-  return target.provider === "cloudflare" ? undefined : listRuntimeRateLimiters(target.name)
+  const limiters = listRuntimeRateLimiters(target.name)
+  // On Cloudflare, only a Rate Limit whose window counts in KV has a limiter in this process.
+  return target.provider === "cloudflare" && limiters.length === 0 ? undefined : limiters
 }
 
 /**

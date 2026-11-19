@@ -109,7 +109,7 @@ import * as v from "valibot";
 const Upload = v.object({ userId: v.string() });
 
 export async function uploadUrl(userId: string) {
-  const ticket = await seal("my-app:upload", { userId }, { ttl: 900 });
+  const ticket = await seal("my-app:upload", { userId }, { ttl: "15m" });
   return `/api/uploads/${ticket}`;
 }
 
@@ -120,7 +120,7 @@ export async function readTicket(ticket: string) {
 }
 ```
 
-Each purpose gets its own key, derived from `VITEHUB_SECRET` with `deriveSecret()`, so a value sealed for one purpose does not open as another. `ttl` is in seconds; without it, the value does not expire. `schema` takes any Standard Schema and types the value; without it, the value is `unknown`. `unseal()` returns a `Result`; a missing root secret or a bad argument throws. Web Crypto does the work, so the same string opens on Node, Workers, Deno, and Bun.
+Each purpose gets its own key, derived from `VITEHUB_SECRET` with `deriveSecret()`, so a value sealed for one purpose does not open as another. `ttl` is a duration such as `"15m"`, or a number of seconds; without it, the value does not expire. `schema` takes any Standard Schema and types the value; without it, the value is `unknown`. `unseal()` returns a `Result`; a missing root secret or a bad argument throws. Web Crypto does the work, so the same string opens on Node, Workers, Deno, and Bun.
 
 To rotate `VITEHUB_SECRET`, put the old secret in `VITEHUB_SECRET_PREVIOUS` (one secret, or a comma-separated list). `seal()` uses `VITEHUB_SECRET`, and `unseal()` also tries each old secret, so open links and cookies keep working until they expire. For values that you store, such as provider credentials, pass a separate root secret: `seal("my-app:credentials", value, { secret: env.credentialsKey })`, with the same `secret` for `unseal()`. To rotate it, pass `[newKey, oldKey]`: `seal()` uses the first, and `unseal()` tries each. See [Sign and seal values](https://vitehub.dev/docs/env/seal).
 
@@ -134,7 +134,7 @@ import { defineEventHandler, getRouterParam, HTTPError } from "h3";
 import { unseal } from "vite-hub/env";
 import { db } from "vite-hub/database";
 
-// Create the link elsewhere: await seal("my-app:share", { apiKey }, { uses: 1, ttl: 3600, db })
+// Create the link elsewhere: await seal("my-app:share", { apiKey }, { uses: 1, ttl: "1h", db })
 export default defineEventHandler(async (event) => {
   const [error, shared] = await unseal("my-app:share", getRouterParam(event, "token")!, { db });
   if (error) throw new HTTPError({ status: 410, message: error.why }); // ENV_SEAL_USED_UP, ENV_SEAL_EXPIRED, ...
@@ -163,21 +163,24 @@ It compares in constant time. A wrong or missing token throws a `401` HTTP error
 
 ## Verify a webhook
 
-`verifyWebhook(event, { provider, secret })` from `vite-hub/env` checks the signature of a Stripe, GitHub, or other HMAC-SHA256 webhook in a plain route. `secret` is the name of the server variable with the signing secret. It reads the raw body once, compares in constant time, and returns `[error, body]` with the parsed JSON body.
+`verifyWebhook(event, { provider, secret, schema })` from `vite-hub/env` checks the signature of a Stripe, GitHub, or other HMAC-SHA256 webhook in a plain route. `secret` is the name of the server variable with the signing secret. It reads the raw body once, compares in constant time, and returns `[error, body]` with the parsed JSON body. `schema` is a Standard Schema, such as a Valibot or Zod schema: it checks the body and types it. Without `schema`, `body` is `unknown`.
 
 ```ts
 // server/api/stripe/webhook.post.ts
 import { defineEventHandler, HTTPError } from "h3";
+import * as v from "valibot";
 import { verifyWebhook } from "vite-hub/env";
 
+const schema = v.object({ type: v.string() });
+
 export default defineEventHandler(async (event) => {
-  const [error, stripeEvent] = await verifyWebhook<{ type: string }>(event, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" });
+  const [error, stripeEvent] = await verifyWebhook(event, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET", schema });
   if (error) throw new HTTPError({ status: 400, message: error.message });
   return { received: stripeEvent.type };
 });
 ```
 
-`provider` is `"stripe"` (`Stripe-Signature`, at most `toleranceSeconds` old, default 300), `"github"` (`X-Hub-Signature-256`, with a JSON or form body), or `"hmac"` with a `header` and optional `prefix`, `encoding`, and `secretEncoding`. The codes are `ENV_WEBHOOK_SIGNATURE_INVALID`, `ENV_WEBHOOK_SECRET_UNSET`, and `ENV_WEBHOOK_BODY_INVALID`. The variable holds one secret, or a comma-separated list while you rotate. See [Verify webhooks](https://vitehub.dev/docs/env/webhooks).
+`provider` is `"stripe"` (`Stripe-Signature`, at most `toleranceSeconds` old, default 300), `"github"` (`X-Hub-Signature-256`, with a JSON or form body), or `"hmac"` with a `header` and optional `prefix`, `encoding`, and `secretEncoding`. The codes are `ENV_WEBHOOK_SIGNATURE_INVALID`, `ENV_WEBHOOK_SECRET_UNSET`, `ENV_WEBHOOK_BODY_INVALID`, and `ENV_WEBHOOK_SCHEMA_MISMATCH`. The variable holds one secret, or a comma-separated list while you rotate. See [Verify webhooks](https://vitehub.dev/docs/env/webhooks).
 
 `signWebhook(body, { provider, secret })` signs an outgoing body and returns the headers to send with it. `provider` is `"github"` (`x-hub-signature-256: sha256=<hex>`) or `"stripe"` (`stripe-signature: t=<unix>,v1=<hex>`). Here `secret` is the secret itself, not a variable name. Send the exact body that you signed, so `verifyWebhook()` and other standard receivers accept it.
 

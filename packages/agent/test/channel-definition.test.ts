@@ -46,7 +46,7 @@ async function routeFor(agent: ReturnType<typeof hostAgent>, options: { queue?: 
     await state.disconnect()
     await rm(stateDir, { force: true, recursive: true })
   })
-  const send = (body: string, header = stripeHeader(body)) => handler(new Request("https://example.com/api/_vitehub/channels/payments", {
+  const send = (body: string, header = stripeHeader(body)) => handler(new Request("https://example.com/_vitehub/channels/payments", {
     body,
     headers: { "content-type": "application/json", "stripe-signature": header },
     method: "POST",

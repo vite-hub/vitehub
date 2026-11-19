@@ -26,6 +26,7 @@ npx @vite-hub/codemods define-forms [dir] [--dry-run]
 
 | Former form | New form |
 | --- | --- |
+| `defineQueue(handler, { concurrency: 5 })` | `defineQueue({ handler, concurrency: 5 })` |
 | `defineSchedule("0 9 * * *", handler, { manual: true })` | `defineSchedule({ cron: "0 9 * * *", manual: true, handler })` |
 | `defineSandboxTask({ run })` | `defineSandboxTask({ handler })` |
 | `export const content = defineContent({ ... })` in `server/content.ts` | `export default defineContent({ ... })`, and `import content from` in the files that import it |
@@ -35,15 +36,18 @@ npx @vite-hub/codemods define-forms [dir] [--dry-run]
 
 The codemod updates the import paths of moved files, also through the `~~`, `@@`, and `#server` aliases, and path strings such as `out: "./server/databases/migrations"` in `drizzle.config.ts`. It works in Nuxt layers too.
 
+The codemod leaves Queue handlers unchanged. They still receive the same job object, so destructuring it (for example, `({ payload }) => payload.email`) is optional. A one-argument call whose argument could be a definition object is left alone unless the codemod can identify a handler.
+
 The report lists what it cannot change:
 
+- Queue calls with spread arguments or options the codemod cannot safely flatten, such as shared options objects.
 - Schedule options that are not an object literal. The codemod spreads them into the object.
 - Sandbox Task options that are not an object literal.
 - Dynamic imports of `server/content.ts`.
 - Helper files left in `server/databases/` that the new discovery reads as Databases.
 - Lines in `package.json` and host config files that name the former Database paths.
 
-The former forms fail with `SCHEDULE_C0007`, `SANDBOX_TASK_C0014`, `SOURCE_B0009`, and [`DATABASE_LEGACY_CONFIG_FILE`](/docs/database/limits-and-errors#database_legacy_config_file). See [file conventions](/docs/reference/file-conventions).
+The former forms fail with `QUEUE_INVALID_DEFINITION`, `SCHEDULE_C0007`, `SANDBOX_TASK_C0014`, `SOURCE_B0009`, and [`DATABASE_LEGACY_CONFIG_FILE`](/docs/database/limits-and-errors#database_legacy_config_file). See [file conventions](/docs/reference/file-conventions).
 
 ## vitehub-options
 
@@ -99,7 +103,7 @@ The codemod reads imports from `vite-hub/queue`, `vite-hub/workflow`, and their 
 
 ## result-tuples
 
-`startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, and `resumeWorkflow()` return `[error, data]` now, as `sendQueue()` does. They threw before. The `start()`, `getRun()`, and `cancel()` methods of a `createWorkflow()` handle changed in the same way. `result-tuples` reads each call as a Result that throws the error, so the code keeps its behavior:
+`startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, and `runSchedule()` return `[error, data]` now, as `sendQueue()` does. They threw before. The `start()`, `getRun()`, and `cancel()` methods of a `createWorkflow()` handle changed in the same way. `result-tuples` reads each call as a Result that throws the error, so the code keeps its behavior:
 
 ```bash [Terminal]
 npx @vite-hub/codemods result-tuples [dir] [--dry-run]
@@ -115,7 +119,7 @@ npx @vite-hub/codemods result-tuples [dir] [--dry-run]
  })
 ```
 
-`return startWorkflow(...)` in an async function and a call in an `if` test move to a `const` before the statement. The codemod reads imports from `vite-hub/workflow` and `@vite-hub/workflow`, and the Nuxt auto-imports in `server/`. The report lists the calls that it cannot change, such as a call in a function that is not `async`, a call without `await`, or a handle that another file creates.
+`return startWorkflow(...)` in an async function and a call in an `if` test move to a `const` before the statement. The codemod reads imports from `vite-hub/workflow`, `vite-hub/schedule`, and their `@vite-hub/*` forms. In Nuxt's `server/` directory, it also reads Workflow auto-imports. It only rewrites `runSchedule()` with a Schedule import, so it leaves app auto-imports with the same name alone. The report lists the calls that it cannot change, such as a call in a function that is not `async`, a call without `await`, or a handle that another file creates.
 
 ## one-entry-imports
 

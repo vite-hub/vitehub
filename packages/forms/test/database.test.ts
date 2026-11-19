@@ -92,6 +92,16 @@ describe.each([
     const [missing] = await inbox.get("nope")
     expect(missing?.message).toContain("No form submission has the id \"nope\"")
   })
+
+  it("deletes only the submissions of one user", async () => {
+    const store = await create()
+    await store.insert({ ...submission("mine", "contact", 1), user: { id: "user-1", email: "ana@example.com" } })
+    await store.insert({ ...submission("other", "contact", 2), user: { id: "user-10" } })
+    await store.insert(submission("anonymous", "contact", 3))
+    await store.deleteUser("user-1")
+    await store.deleteUser("user-without-submissions")
+    expect((await store.list()).map(row => row.id)).toEqual(["anonymous", "other"])
+  })
 })
 
 it("names the migration when the table is missing", async () => {
@@ -108,7 +118,7 @@ it("answers a form post without the Forms tables with the code and the fix", asy
   const store = createDrizzleFormsStore(drizzle({ client: createClient({ url: ":memory:" }) }))
   const log = vi.fn()
   const form = defineForm({ schema: v.object({ message: v.string() }) })
-  const request = (browser = false) => new Request("https://site.test/api/_vitehub/forms/review", {
+  const request = (browser = false) => new Request("https://site.test/_vitehub/forms/review", {
     method: "POST",
     headers: {
       "content-type": browser ? "application/x-www-form-urlencoded" : "application/json",

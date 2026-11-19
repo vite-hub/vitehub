@@ -191,7 +191,9 @@ A child Agent's `data` or `intercept` replaces the parent's; schemas and interce
 
 ## Choose hosted execution
 
-Discovered Agents use the active host's Workflow integration by default. On Node and Docker, that is OpenWorkflow: each turn is a durable run that any server's worker executes, and a queued turn survives a restart. Set `runtime: false` when a hosted Agent must complete inline, or select a named Workflow identity with `runtime: agentWorkflow('support')`.
+When Workflow is off, discovered Agents run inline: each turn runs in the server process that got the request, and a restart loses it. An Agent Definition does not turn Workflow on. Set `workflow: true` or add a Workflow Definition to use the host's [Workflow](/docs/workflows) integration.
+
+Agent turns are durable with OpenWorkflow (the default on Node and Docker) or Cloudflare Workflows. On Vercel's default driver, Agent turns still run inline and do not survive a restart. Other hosts may need an explicit `driver`; see [Workflow hosts](/docs/workflows/hosts). With Workflow on, set `runtime: false` when one Agent must still complete inline, or select a named Workflow identity with `runtime: agentWorkflow('support')`.
 
 `runAgent()` and `streamAgent()` run the Agent inline in the calling process, whatever its `runtime`. See [Run an Agent](/docs/agents/invocations#run-an-agent).
 

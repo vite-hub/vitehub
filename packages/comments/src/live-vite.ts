@@ -498,7 +498,7 @@ export default comments
 
 /**
  * Comments build integration. When the app has `server/comments.ts`, it serves the Comments API at
- * `/api/_vitehub/comments/**`, installs the runtime with its Database, adds the tables to that Database, serves the
+ * `/_vitehub/comments/**`, installs the runtime with its Database, adds the tables to that Database, serves the
  * overlay script, and adds it to pages in comment mode. `enabled: true` does the same without the file, with the default
  * `defineComments()`. Other apps without the file are unaffected.
  */

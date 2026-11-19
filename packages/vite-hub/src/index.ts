@@ -17,6 +17,7 @@ export type {
   BrowserOptions,
   CacheOptions,
   ChannelsOptions,
+  CloudflareOptions,
   ConnectionsOptions,
   ConsoleOptions,
   DatabaseOptions,

@@ -18,7 +18,7 @@ pnpm vitehub --help
 
 `@vite-hub/cli` has no binary of its own. A custom entry calls `runViteHubCliEntrypoint()`, as the `vitehub` binary of `vite-hub` does. It requires Vite, and Nuxt when the project has a Nuxt config but no Vite config.
 
-`@vite-hub/cli` requires Node.js 22.18 or newer. The current `vite-hub` distribution requires Node.js 22.22 or newer.
+`@vite-hub/cli` and `vite-hub` require Node.js 24.15 or newer.
 
 Print the installed CLI version without loading project config:
 
@@ -73,6 +73,15 @@ pnpm vitehub agent invocations --help
 The Agent integration contributes `info`, `dev`, and `invocations`, plus `channels history` and `channels sync`. It adds `eval` only when the project contains an Agent Eval file. Database contributes `generate` and `migrate`, and Workspace contributes `dev`. The Agent and Database integrations can disable their commands through their integration options.
 
 See the [complete command index](https://vitehub.dev/docs/development/cli#commands) for command availability and the task each command performs.
+
+## Update ViteHub packages
+
+`vitehub update` moves `vite-hub` and every `@vite-hub/*` package to one version: the latest npm release, or the pkg.pr.new build of a commit with `--preview <commit>`. It edits the dependencies of every workspace package, npm, Yarn, Bun, and pnpm overrides, and catalogs, then installs. With pnpm it adds `vite-hub` and `@vite-hub/*` to `minimumReleaseAgeExclude` for a release, and sets `blockExoticSubdeps: false` for a preview.
+
+```sh
+pnpm vitehub update
+pnpm vitehub update --preview 01898b8 --dry-run
+```
 
 ## Link and deploy several hosts
 

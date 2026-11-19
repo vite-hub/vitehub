@@ -36,7 +36,7 @@ export default defineAuth({
 | `access.routes` | `AuthAccessRoute[]` | `[]` | Routes that the generated access middleware guards. A route string, or an object with `route` and optional `method` and `authorize`. |
 | `access.public` | `string[]` | `[]` | Paths that no access route guards. With `routes: ['/**']`, the only paths a signed-out visitor can open. See [Make every route private](/docs/auth/server-api#make-every-route-private). |
 | `access.policy` | `{ allow, recheck? }` | None | Who can sign in and stay signed in, decided in code. For a list of people, set [`VITEHUB_MEMBERS`](#choose-who-can-sign-in). See [Decide who can stay signed in](/docs/auth/server-api#decide-who-can-stay-signed-in). |
-| `access.signIn` | `{ provider, callbackURL?, errorCallbackURL?, requestSignUp?, scopes? }` | None | Where to redirect HTML requests that `withAuth()` or `requireAuth()` rejects. |
+| `access.signIn` | `{ provider, callbackURL?, errorCallbackURL?, requestSignUp?, scopes? }` | None | Where to redirect HTML requests that `withAuth()` or `requireAuth()` rejects. Also serves `GET /api/auth/sign-in` and `GET /api/auth/sign-out`. See [Sign in and out with a link](/docs/auth/server-api#sign-in-and-out-with-a-link). |
 | `session.onRefresh` | `({ session, user, refresh, clear }) => void` | None | Runs when Better Auth refreshes a stored session. See [Session refresh](#session-refresh). |
 
 `baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback, never as static top-level fields. `access.routes` and `access.public` must be static so the Vite integration can register middleware.
@@ -63,7 +63,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    auth: true,
     env: {
       server: {
         auth: {
@@ -89,7 +88,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    auth: true,
     env: {
       server: {
         auth: {
@@ -114,7 +112,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    auth: true,
     env: {
       server: {
         auth: {
@@ -196,7 +193,7 @@ export default defineAuth(({ env, requestOrigin }) => ({
 }))
 ```
 
-With `vite-hub`, import it from `vite-hub/auth/presets`. `maxAge` is the session lifetime, in seconds or as `'30m'`, `'12h'`, `'7d'`, or `'2w'`. The default is 7 days. The preset sets these Better Auth options:
+With `vite-hub`, import it from `vite-hub/auth/presets`. `maxAge` is the session lifetime: a number of seconds, or a duration such as `'30m'`, `'12h'`, `'7 days'`, or `'2w'`. The default is 7 days. The preset sets these Better Auth options:
 
 | Better Auth option | Value |
 | --- | --- |
@@ -263,6 +260,68 @@ The hook runs on every Better Auth path that refreshes a stored session: `/get-s
 - With a cookie cache in front of a database, the hook runs only when Better Auth reads the database.
 - It does not run with `session.disableSessionRefresh`, or for a session created without "remember me".
 - With `session.deferSessionRefresh`, it runs on the `POST` that writes the refresh.
+
+## Let users delete their account
+
+Set `deleteAccount: true`. Better Auth then serves `deleteUser`, and Auth also deletes the rows that ViteHub Server Primitives keep for that user. Use stored Auth without `stateless()` or `session.cookieCache.enabled` so deletion can revoke existing sessions.
+
+```ts [server/auth.ts]
+import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
+
+export default defineAuth({
+  database: authDatabase(),
+  emailAndPassword: { enabled: true },
+  deleteAccount: true,
+})
+```
+
+In the browser, call `useAuthClient().deleteUser({ password })`. Without a password, Better Auth wants a session that started in the last day (`session.freshAge`).
+
+When a user deletes the account, this happens in order:
+
+1. Your `beforeDelete` runs, when you pass one.
+2. Each Server Primitive deletes the rows of the user. The table below lists them.
+3. Auth deletes the rows of the other Better Auth tables that name the user, such as passkeys, two-factor secrets, organization memberships, invitations that the user sent, and MCP tokens. It also deletes database-backed API keys for the user-owned configurations you list.
+4. Better Auth deletes the user, the sessions, and the accounts.
+
+| Owner | Rows that Auth deletes |
+| --- | --- |
+| [Comments](/docs/comments) | The messages of the user. A thread with no message left goes too. A thread that the user started keeps the replies of other people, without the user's name and image. A thread that the user resolved forgets who resolved it. |
+| [Forms](/docs/forms) | The submissions that the user sent while signed in. |
+| Auth | Each row of a Better Auth table with a field that references the user, and matching `apikey` rows in `deleteAccount.userApiKeyConfigIds`. An organization and its API keys stay, also when the user was its last member. |
+
+Set `deleteAccount: { userApiKeyConfigIds: ['personal'] }` if `apiKey()` uses the database and the `personal` configuration references users. Use `'default'` for an unnamed user-owned configuration. Do not list organization-owned configurations: Better Auth does not expose their ownership to Auth, and a user and an organization can have the same ID. With no IDs listed, Auth leaves API keys alone.
+
+Auth does not delete your own tables, files in Blob, or keys in KV, because it cannot know which ones belong to the user. Delete them in `beforeDelete`, one of the Better Auth `user.deleteUser` options supported by `deleteAccount`:
+
+```ts [server/auth.ts] fragment
+import { APIError } from 'better-auth/api'
+import { eq } from 'drizzle-orm'
+import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
+import { db } from 'vite-hub/database'
+import { invoices, teams } from './databases/default'
+
+export default defineAuth({
+  database: authDatabase(),
+  emailAndPassword: { enabled: true },
+  deleteAccount: {
+    async beforeDelete(user) {
+      const [team] = await db.select().from(teams).where(eq(teams.ownerId, user.id))
+      if (team) throw new APIError('BAD_REQUEST', { message: 'Give your team to someone else first.' })
+      await db.delete(invoices).where(eq(invoices.userId, user.id))
+    },
+  },
+})
+```
+
+- Throw an `APIError` in `beforeDelete` to keep the account. Nothing is deleted then.
+- When a Server Primitive fails, Auth keeps the account and fails with `AUTH_DELETE_ACCOUNT_FAILED`. The user can try again. Rows that were deleted before the failure stay deleted.
+- Auth Events keep their `user.removed` event and the earlier events of the user, as an audit log.
+- Better Auth `user.deleteUser` fails with `AUTH_DELETE_USER_UNSUPPORTED`. Use `deleteAccount`.
+- Removing a user with the `admin()` plugin does not run `beforeDelete`. Then only the `on delete cascade` foreign keys of the Database delete other rows.
+- API keys that `apiKey()` keeps in `secondaryStorage` stay there.
 
 ## Session marker cookie
 
@@ -487,7 +546,7 @@ export default defineAuth({
 
 An app with its own MCP server, such as `/mcp`, can use Better Auth as its OAuth 2.1 authorization server. An MCP client such as Claude Code, Codex, or Cursor then registers itself, opens the browser once, and sends a bearer token.
 
-With `vitehub({ auth: true, mcp: true })`, the [app MCP server](/docs/mcp/configure#sign-in-with-mcp-oauth) checks the token and answers the discovery documents for you. Add `mcpOAuth()` below. The other helpers are for an MCP server that you write yourself.
+With `server/auth.ts` and `vitehub({ mcp: true })`, the [app MCP server](/docs/mcp/configure#sign-in-with-mcp-oauth) checks the token and answers the discovery documents for you. Add `mcpOAuth()` below. The other helpers are for an MCP server that you write yourself.
 
 Install `@better-auth/oauth-provider` at the same version as ViteHub's `better-auth`, then add `mcpOAuth()`. It returns `jwt()`, `oauthProvider()`, and a registration guard:
 
@@ -579,7 +638,7 @@ It reads only the request URL and headers, so a Fetchable route's Request, H3's 
 - The OAuth client, which must still exist and be enabled.
 - The session, when the token names one in `sid`. It must still exist and be unexpired, so sign-out ends access. A token with the `offline_access` scope skips this: the person allowed access while signed out, and the client keeps it until its refresh token expires or the client is disabled or deleted.
 
-A token opens only the resource at the request's origin and path. To accept it on other routes, such as the app API, pass `resource`. Errors are `AUTH_MCP_TOKEN_MISSING` and `AUTH_MCP_TOKEN_INVALID`. See [Limits and errors](/docs/auth/limits-and-errors#auth_mcp_token_missing).
+A token opens only the resource at the request's origin and path. To accept it on the app API too, call [`requireCaller(event)`](/docs/auth/server-api#tell-a-person-from-an-agent) there: it accepts a session or a token. `resource` takes one resource or a list. Errors are `AUTH_MCP_TOKEN_MISSING` and `AUTH_MCP_TOKEN_INVALID`. See [Limits and errors](/docs/auth/limits-and-errors#auth_mcp_token_missing).
 
 ### Delete abandoned registrations
 

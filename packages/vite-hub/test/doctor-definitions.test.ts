@@ -17,7 +17,7 @@ import { codes, doctorTestTimeout, projectCodes } from "./doctor-helpers.ts"
 
 vi.setConfig({ testTimeout: doctorTestTimeout })
 
-const queue = 'import { defineQueue } from "vite-hub/queue"\nexport default defineQueue(async () => {})\n'
+const queue = 'import { defineQueue } from "vite-hub/queue"\nexport default defineQueue({ handler: async () => {} })\n'
 const workflow = 'import { defineWorkflow } from "vite-hub/workflow"\nexport default defineWorkflow("onboard", async () => {})\n'
 
 describe("vitehub/known-definition-names", () => {
@@ -352,11 +352,11 @@ describe("second review regressions", () => {
     })).toEqual(["VHUB0021"])
   })
 
-  it("names the Schedule Run status for runSchedule()", async () => {
+  it("accepts the tuple form of runSchedule()", async () => {
     const result = await codes(noDestructureNonTuples, {
       "server/api/run.post.ts": 'import { runSchedule } from "vite-hub/schedule"\nexport default defineEventHandler(async () => { const [error, run] = await runSchedule("digest") })\n',
     })
-    expect(result).toEqual(["VHUB0018"])
+    expect(result).toEqual([])
   })
 })
 

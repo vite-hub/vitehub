@@ -9,7 +9,7 @@ icon: i-lucide-rocket
 In this tutorial, you run the codemods on an app, read the report, and finish the manual follow-ups. At the end, the app uses the current ViteHub API.
 
 > [!NOTE] Before you start
-> You need Node.js 22.18 or newer. Commit your work first, so that `git diff` shows every edit of the codemods.
+> You need Node.js 24.15 or newer. Commit your work first, so that `git diff` shows every edit of the codemods.
 
 ## Preview the edits
 

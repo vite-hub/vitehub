@@ -17,7 +17,7 @@ The SDK runs the Claude Code binary as a local process. A ViteHub Agent with `cl
 
 ## Set up the Claude Agent SDK
 
-Start from the app of [Installation](/docs/getting-started/installation). You need Node.js 22.22 or newer on Linux or macOS, pnpm, and an Anthropic API key (see the [Agent SDK quickstart](https://code.claude.com/docs/en/agent-sdk/quickstart)).
+Start from the app of [Installation](/docs/getting-started/installation). You need Node.js 24.15 or newer on Linux or macOS, pnpm, and an Anthropic API key (see the [Agent SDK quickstart](https://code.claude.com/docs/en/agent-sdk/quickstart)).
 
 ### Install the packages
 
@@ -36,7 +36,6 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     agent: true,
-    workflow: false,
   },
 })
 ```
@@ -51,7 +50,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     agent: true,
-    workflow: false,
   }), nitro()],
 })
 ```
@@ -65,14 +63,13 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     agent: true,
-    workflow: false,
   })],
 })
 ```
 :::
 ::
 
-`workflow: false` fits because the Agent finishes inside the HTTP request. A provider Driver starts a local process, so it needs a Node.js host. See [Where the Claude Agent SDK can run](#where-the-claude-agent-sdk-can-run).
+The Agent runs inline and finishes inside the HTTP request. A provider Driver starts a local process, so it needs a Node.js host. See [Where the Claude Agent SDK can run](#where-the-claude-agent-sdk-can-run).
 
 ### Define the Agent
 

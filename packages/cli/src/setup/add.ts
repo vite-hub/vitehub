@@ -4,7 +4,7 @@ import process from "node:process"
 import { createInterface } from "node:readline/promises"
 
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
-import { featureIds, featurePackages, features, featureSupport, impliedFeatures, impliedInline } from "@vite-hub/internal/features"
+import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
 import { dirname, join, relative, resolve } from "pathe"
 
@@ -266,6 +266,7 @@ function nextValue(id: FeatureId, status: SetupStatus, project: SetupProject, op
 export interface SetupAddPlanned {
   plan: SetupAddPlan
   configFile?: { path: string, before: string, after: string }
+  restartRequired: boolean
   files: { path: string, content: string }[]
   install: { prod: string[], dev: string[] }
 }
@@ -304,10 +305,10 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   }
   // Implications and provider prerequisites need their inputs before any file can be written.
   // Database is mandatory for Comments and Connections.
-  const inputFeatures = [...args.features, ...impliedFeatures(args.features, host, keep.filter(id => id !== "database"))]
+  const inputFeatures = [...args.features, ...impliedFeatures(args.features, keep.filter(id => id !== "database"))]
   if (inputFeatures.includes("database") && keep.includes("database")) requires.push("database")
   const requireFeature = (required: FeatureId) => {
-    for (const id of [required, ...impliedFeatures([required], host, keep.filter(id => id !== "database"))]) {
+    for (const id of [required, ...impliedFeatures([required], keep.filter(id => id !== "database"))]) {
       if (!inputFeatures.includes(id)) inputFeatures.push(id)
       if ((id === required || keep.includes(id)) && !args.features.includes(id) && !requires.includes(id) && status.features.find(item => item.id === id)?.enabled !== "on") requires.push(id)
     }
@@ -349,11 +350,9 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     if (invocations === "database" || (isRecord(invocations) && invocations.store === "database")) {
       requireFeature("database")
     }
-    // A feature that only an implication turns on can run inline, such as the Workflow of an Agent on Node.
-    const inlineOnly = !args.features.includes(id) && !requires.includes(id) && impliedInline(id, inputFeatures, host)
     // Outside Netlify, Workflow storage options select OpenWorkflow without `workflow.driver`.
     const storageSelected = id === "workflow" && host !== "netlify" && selectsProvider(id, value, host)
-    if (support.level === "explicit" && !inlineOnly && !storageSelected) {
+    if (support.level === "explicit" && !storageSelected) {
       const key = support.option.slice(id.length + 1)
       if (!(options && key in options) && !setsOption(project, support.option)) {
         const choices = optionChoices[support.option]
@@ -374,7 +373,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
         missing.push({ choices: ["auto"], field: "schedule.providerOutput" })
         setPath(defaults.schedule ??= {}, ["providerOutput"], "auto")
       }
-      if (!isRecord(value) || !isRecord(value.runtime) || value.runtime.driver !== "process") {
+      // `schedule: true` on Node uses the Process Runtime. Only a `runtime` without its driver needs a choice.
+      if (isRecord(value) && value.runtime !== undefined && (!isRecord(value.runtime) || value.runtime.driver !== "process")) {
         missing.push({ choices: ["process"], field: "schedule.runtime.driver" })
         setPath(defaults.schedule ??= {}, ["runtime", "driver"], "process")
       }
@@ -402,15 +402,19 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
 
   const edits: ConfigEdit[] = []
   let expression = false
+  const site = project.config?.ok ? project.config.site : undefined
   const addedFeatures = [...args.features, ...requires]
   for (const id of new Set([...addedFeatures, ...inputFeatures.filter(id => args.options[id])])) {
     const next = nextValue(id, status, project, args.options[id])
     expression ||= next === "expression"
+    // The starter Definition turns the feature on, so `<feature>: true` would only repeat it.
+    if (next !== "expression" && next?.value === true && site && !site.spread && !site.keys[id] && args.name !== undefined && args.features.includes(id) && features[id].definition && features[id].enabledByDiscovery) continue
     if (next !== undefined) edits.push({ key: id, op: "set", value: next === "expression" ? mergeValue(true, args.options[id])! : next.value })
   }
 
   const changes: SetupChange[] = []
   const files: SetupAddPlanned["files"] = []
+  let addsDiscovery = false
   let configFile: SetupAddPlanned["configFile"]
   const serverDir = relative(project.root, project.serverDirs?.[0] ?? join(project.root, "server"))
   const nuxtRoot = project.config?.ok ? project.config.site.nuxt?.keys.rootDir : undefined
@@ -439,6 +443,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       if (conflict) throw setupFailure(cliErrorDiagnostics.SETUP_FILE_EXISTS({ definition: features[id].title, file: conflict, starter: path }), setupExitCodes.conflict)
       files.push({ content, path })
       changes.push({ after: content, diff: setupDiff(path, "", content), kind: "create", path })
+      const previous = status.features.find(item => item.id === id)
+      if (features[id].enabledByDiscovery && site && !site.spread && !site.keys[id] && (previous?.enabled !== "on" || previous.reason === "implied")) addsDiscovery = true
     }
   }
 
@@ -457,7 +463,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
 
   // The features that this command turns on, through the config or through an implication.
   const alreadyOn = new Set(status.features.filter(item => item.enabled === "on").map(item => item.id))
-  const implied = impliedFeatures([...new Set([...alreadyOn, ...addedFeatures])], host, keep.filter(id => !requires.includes(id))).filter(id => !addedFeatures.includes(id))
+  const implied = impliedFeatures([...new Set([...alreadyOn, ...addedFeatures])], keep.filter(id => !requires.includes(id))).filter(id => !addedFeatures.includes(id))
   const enabled = new Set([...alreadyOn, ...addedFeatures, ...implied])
   const packageFeatures = [...new Set([...addedFeatures, ...implied, ...inputFeatures, ...(enabled.has("console") ? ["console" as const] : [])])]
   const packages = packageFeatures.flatMap(id => featurePackages(id, valueFor(id), host, [...enabled]))
@@ -469,14 +475,12 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   install.dev = installSpecifiers(install.dev)
   const command = installCommand(project.packageManager, install.prod, install.dev)
 
-  const nextSteps: string[] = []
+  const restartRequired = addsDiscovery && !configFile
+  const nextSteps: string[] = restartRequired ? ["Restart the dev server to load the new feature configuration."] : []
   if (command && !args.install) nextSteps.push(`Install the packages: ${command}`)
   for (const id of implied) {
     const support = featureSupport(id, host)
     if (support.level === "unsupported") nextSteps.push(`${id} is turned on by ${args.features.join(", ")} but is not supported on ${host}: ${support.detail} Set \`${id}: false\` to turn it off.`)
-    else if (support.level === "explicit" && impliedInline(id, [...enabled], host)) {
-      if (!selectsProvider(id, valueFor(id), host) && !setsOption(project, support.option)) nextSteps.push(`${features[id].title} that ${args.features.join(", ")} turns on runs inline in the request process on ${host}, and a restart loses its runs. Set \`${support.option}\` for durable runs. ${support.detail}`)
-    }
     else if (support.level === "explicit" && !setsOption(project, support.option) && !(args.options[id] && support.option.slice(id.length + 1) in args.options[id])) nextSteps.push(`${id} is turned on by ${args.features.join(", ")}. Set \`${support.option}\` on ${host}, or set \`${id}: false\`. ${support.detail}`)
   }
   // Host defaults that build and run, but keep state in one process.
@@ -502,7 +506,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     root: project.root,
     status: changes.length || (command && args.install) ? "planned" : "unchanged",
   }
-  return { files, install, plan, ...(configFile ? { configFile } : {}) }
+  return { files, install, plan, restartRequired, ...(configFile ? { configFile } : {}) }
 }
 
 /** Applies a `vitehub add` plan: installs the packages, writes the starter Definitions, and writes the config last. */

@@ -4,7 +4,6 @@ export default defineNuxtConfig({
   buildDir: ".nuxt",
   modules: ["@nuxt/ui", [viteHub, {
     agent: true,
-    workflow: false,
     console: false,
   }]],
   css: ["~/assets/main.css"],

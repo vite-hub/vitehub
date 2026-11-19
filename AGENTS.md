@@ -50,7 +50,7 @@ Use the web platform before JavaScript, and JavaScript before a dependency. A na
 
 **Overlays.** Follow rule 6 in [docs/DESIGN.md](docs/DESIGN.md): Vue overlays use Nuxt UI, and plain-DOM code uses the native popover, `<dialog>`, and anchor positioning.
 
-**Server code** also runs on the Node floor in the root `package.json` `engines` (Node 22 today). Check a feature on [node.green](https://node.green) or the Node docs, not only on webstatus.dev. For example, Node 22 has no `Intl.DurationFormat`, so code that a server can render must not depend on it.
+**Server code** also runs on the Node floor in the root `package.json` `engines` (Node 24.15 today). Check a feature on [node.green](https://node.green) or the Node docs, not only on webstatus.dev.
 
 **Known exceptions.** Each one has a reason. Remove it when the reason goes away.
 
