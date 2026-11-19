@@ -5,7 +5,7 @@ import { cmsGitHubDefaults, cmsOptionKeys, cmsOptionProblem, cmsOptionsProblem, 
 
 import type { ContentAuthorize, ContentPreset } from "@vite-hub/content"
 
-/** Options of the `cms` Content preset. The build reads them from `server/content.ts`, so pass string literals. */
+/** Options of the `cms` Content preset. Use literal values, such as `roles: true`, so the build can read them. */
 export interface CmsPresetOptions {
   /** Opt into the CMS roles of `admin(cmsAccess)`. Without it, set `defineContent({ authorize })` to allow access. */
   roles?: true

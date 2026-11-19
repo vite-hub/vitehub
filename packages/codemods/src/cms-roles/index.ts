@@ -5,26 +5,51 @@ import { end, keyName, line, parseProgram, start, walk } from "@vite-hub/interna
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
-import { unwrapExpression } from "../shared/nuxt-config.ts"
+import { bindingResolver } from "../shared/binding-resolver.ts"
+import { literalValue, unwrapExpression } from "../shared/nuxt-config.ts"
 
-import type { File } from "@babel/types"
+import type { File, Identifier, Node } from "@babel/types"
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 
 const sourcePatterns = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"]
 const ignoredPatterns = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/.data/**", "**/.vitehub/**", "**/dist/**", "**/coverage/**"]
 const cmsModules = new Set(["vite-hub/cms", "@vite-hub/cms"])
 
-/** The local names of the `cms` preset that the file imports. */
-function cmsBindings(program: File): Set<string> {
-  const names = new Set<string>()
+const contentModules = new Set(["vite-hub/content", "@vite-hub/content"])
+
+function contentBindings(program: File) {
+  const presets = new Set<Identifier>()
+  const namespaces = new Set<Identifier>()
+  const definitions = new Set<Identifier>()
   for (const statement of program.program.body) {
-    if (statement.type !== "ImportDeclaration" || statement.importKind === "type" || !cmsModules.has(statement.source.value)) continue
+    if (statement.type !== "ImportDeclaration" || statement.importKind === "type") continue
+    const fromCms = cmsModules.has(statement.source.value)
+    const fromContent = contentModules.has(statement.source.value)
+    if (!fromCms && !fromContent) continue
     for (const specifier of statement.specifiers) {
-      if (specifier.type === "ImportDefaultSpecifier") names.add(specifier.local.name)
-      if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && keyName(specifier.imported) === "cms") names.add(specifier.local.name)
+      if (specifier.type === "ImportDefaultSpecifier" && fromCms) presets.add(specifier.local)
+      if (specifier.type === "ImportNamespaceSpecifier" && fromCms) namespaces.add(specifier.local)
+      if (specifier.type !== "ImportSpecifier" || specifier.importKind === "type") continue
+      const imported = keyName(specifier.imported)
+      if (fromCms && (imported === "cms" || imported === "default")) presets.add(specifier.local)
+      if (fromContent && imported === "defineContent") definitions.add(specifier.local)
     }
   }
-  return names
+  return { presets, namespaces, definitions }
+}
+
+function resolvesTo(node: Node, bindings: Set<Identifier>, resolve: ReturnType<typeof bindingResolver>): boolean {
+  if (node.type !== "Identifier") return false
+  const binding = resolve(node)
+  return binding !== undefined && bindings.has(binding)
+}
+
+function isCmsPreset(node: Node, bindings: ReturnType<typeof contentBindings>, resolve: ReturnType<typeof bindingResolver>): boolean {
+  const value = unwrapExpression(node)
+  if (value.type === "Identifier") return resolvesTo(value, bindings.presets, resolve)
+  return value.type === "MemberExpression" && !value.computed && value.property.type === "Identifier"
+    && (value.property.name === "cms" || value.property.name === "default")
+    && resolvesTo(value.object, bindings.namespaces, resolve)
 }
 
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
@@ -40,25 +65,32 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     catch {
       continue
     }
-    const presets = cmsBindings(program)
-    if (!presets.size) continue
+    const bindings = contentBindings(program)
+    if (!bindings.definitions.size || (!bindings.presets.size && !bindings.namespaces.size)) continue
+    const resolve = bindingResolver(program)
     const output = new MagicString(code)
     let changed = false
     walk(program, (node) => {
-      // `extends: [cms, { ... }]` selects the preset with options.
-      if (node.type !== "ArrayExpression" || node.elements.length !== 2) return
-      const [preset, options] = node.elements
-      if (preset?.type !== "Identifier" || !presets.has(preset.name) || !options) return
-      const object = unwrapExpression(options)
-      if (object.type !== "ObjectExpression") return
-      for (const property of object.properties) {
-        if (property.type !== "ObjectProperty" || property.computed || keyName(property.key) !== "access") continue
-        const value = unwrapExpression(property.value)
-        if (value.type === "StringLiteral" && value.value === "roles") {
-          output.overwrite(start(property), end(property), "roles: true")
-          changed = true
+      if (node.type !== "CallExpression" || !resolvesTo(node.callee, bindings.definitions, resolve)) return
+      const [argument] = node.arguments
+      const definition = argument && unwrapExpression(argument)
+      if (definition?.type !== "ObjectExpression") return
+      for (const selection of definition.properties) {
+        if (selection.type !== "ObjectProperty" || selection.computed || keyName(selection.key) !== "extends") continue
+        const tuple = unwrapExpression(selection.value)
+        if (tuple.type !== "ArrayExpression" || tuple.elements.length !== 2) continue
+        const [preset, options] = tuple.elements
+        if (!preset || !options || !isCmsPreset(preset, bindings, resolve)) continue
+        const object = unwrapExpression(options)
+        if (object.type !== "ObjectExpression") continue
+        for (const property of object.properties) {
+          if (property.type !== "ObjectProperty" || property.computed || keyName(property.key) !== "access") continue
+          if (literalValue(property.value) === "roles") {
+            output.overwrite(start(property), end(property), "roles: true")
+            changed = true
+          }
+          else followUps.push({ file, line: line(property), message: "The cms preset option `access` was renamed. Replace `access: \"roles\"` with `roles: true` by hand." })
         }
-        else followUps.push({ file, line: line(property), message: "The cms preset option `access` was renamed. Replace `access: \"roles\"` with `roles: true` by hand." })
       }
     })
     if (changed) edits.push({ path: file, before: code, after: output.toString() })

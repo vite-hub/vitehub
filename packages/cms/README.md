@@ -23,7 +23,7 @@ export default defineContent({
 
 [`vite-hub`](https://www.npmjs.com/package/vite-hub) then turns on `workspace`, `database`, and `blob` if you left them unset, and registers `hubCms()`. A setting you pass wins, and `false` keeps a feature off. Without `vite-hub`, import `cms` from `@vite-hub/cms` and add `hubCms()` from `@vite-hub/cms/vite` next to the Workspace, Database, and Blob plugins.
 
-At build time `hubCms()` reads `server/content.ts` without running it, so import the preset from `vite-hub/cms` or `@vite-hub/cms`, pass it as `extends: cms` or `extends: [cms, { ... }]`, and give string literal options. It then:
+At build time `hubCms()` reads `server/content.ts` without running it. Import the preset from `vite-hub/cms` or `@vite-hub/cms`, pass it as `extends: cms` or `extends: [cms, { ... }]`, and use literal options. Use the boolean literal `true` for `roles`. The build then:
 
 - writes the Workspace Definition to `.vitehub/content/workspace.mjs` and contributes it as the `content` Workspace (option `workspace`);
 - adds the `content-history` tables (Blob + Database store) and the `content-sessions` table to the default or only Database (option `database`);

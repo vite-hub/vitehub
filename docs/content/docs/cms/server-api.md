@@ -44,7 +44,7 @@ The build reads `server/content.ts` without running it, to add the Workspace and
 
 - import `cms` from `vite-hub/cms` or `@vite-hub/cms`, as a named or default import;
 - pass that import directly to `extends`, not a value built at runtime;
-- write each option as a string literal.
+- use literal options. Use the boolean literal `true` for `roles`.
 
 The build follows a re-export of the default export from a relative file, such as `export { default } from './content/index'`. When it cannot read the selection, the build fails with `CONTENT_B0001`. At runtime, `defineContent()` checks the same rules and throws `CONTENT_PRESET_INVALID`, `CONTENT_PRESET_OPTION_UNKNOWN`, or `CONTENT_CMS_OPTION_INVALID`.
 

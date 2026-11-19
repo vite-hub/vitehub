@@ -33,7 +33,7 @@ export default defineContent({
 | `root` | `''` | GitHub store: the repository folder that collection paths start from. `''` is the root. |
 | `publish` | `commit` | GitHub store: how a publish reaches `branch`. `commit` commits to it. `pr` opens a pull request ([Pull request mode](#pull-request-mode)). |
 
-The build reads `server/content.ts` without running it. So import the preset from `vite-hub/cms` or `@vite-hub/cms`, pass it directly as `extends: cms` or `extends: [cms, { ... }]`, and write each option as a string literal. The [Server API](/docs/cms/server-api#option-values) lists the accepted values.
+The build reads `server/content.ts` without running it. Import the preset from `vite-hub/cms` or `@vite-hub/cms`, pass it directly as `extends: cms` or `extends: [cms, { ... }]`, and use literal options. Use the boolean literal `true` for `roles`. The [Server API](/docs/cms/server-api#option-values) lists the accepted values.
 
 The preset sets `workspace` in `defineContent()`, so do not pass `workspace` next to `extends`.
 

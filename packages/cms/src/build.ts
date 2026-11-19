@@ -113,7 +113,7 @@ export function cmsRequirementError(file: string, projectRoot: string, message: 
 
 /**
  * Read how `server/content.ts` selects the `cms` preset. The build cannot run the Definition, so the preset must be
- * imported from `vite-hub/cms` or `@vite-hub/cms` and passed as `extends: cms` or `extends: [cms, { ... }]` with string
+ * imported from `vite-hub/cms` or `@vite-hub/cms` and passed as `extends: cms` or `extends: [cms, { ... }]` with
  * literal options. Returns undefined when the file does not import the preset.
  */
 export function readCmsPresetUsage(source: string, file: string, projectRoot: string, parseAst: ParseAst): CmsPresetUsage | undefined {
