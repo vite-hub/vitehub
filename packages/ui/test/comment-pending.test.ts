@@ -13,6 +13,8 @@ import { createMemoryTransport } from "@vite-hub/comments/testing";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { defineComponent, h } from "vue";
+import { CommentLayer } from "../src/components/comment-layer.ts";
+import { CommentPin } from "../src/components/comment-pin.ts";
 import { CommentPanel, CommentThread, provideComments, useComments, type CommentStatusSlotScope, type CommentsState } from "../src/index.ts";
 
 const ana: CommentUser = { id: "ana", name: "Ana Ruiz" };
@@ -132,7 +134,7 @@ describe("comments that wait in the outbox", () => {
     };
     const { browser, client } = setup(transport);
     const created = await client.create({ subject: pricing, anchor: { kind: "page" }, body: "A very long comment" });
-    let retry!: () => Promise<void>;
+    let retry: CommentStatusSlotScope["retry"];
     const { wrapper, state } = mountWithState(client, current => {
       const thread = current.threads.value.find(item => item.id === created.id || item.requestId === created.requestId);
       return thread
@@ -151,7 +153,8 @@ describe("comments that wait in the outbox", () => {
     expect(state().outbox.delivery(created.id)).toMatchObject({ status: "failed", error: { status: 400 } });
 
     refuse = false;
-    await retry();
+    expect(retry).toBeTypeOf("function");
+    await retry?.();
     await vi.waitFor(() => expect(state().outbox.queued.value).toHaveLength(0));
     await flushPromises();
     expect(wrapper.get("[data-slot='comment-thread']").attributes("data-failed")).toBeUndefined();
@@ -171,12 +174,79 @@ describe("comments that wait in the outbox", () => {
     expect(row.text()).toContain("Waiting row");
   });
 
+  it("names an unnumbered pin without saying undefined", () => {
+    const wrapper = mount(CommentPin, { props: { author: ana, excerpt: "Waiting" } });
+    mounted.push(wrapper);
+    expect(wrapper.attributes("aria-label")).toBe("Comment by Ana Ruiz: Waiting");
+  });
+
+  it.each([{ readOnly: true }, { preview: true }, { can: () => false }])("keeps delivery visible without forbidden actions (%o)", async (restrictions) => {
+    const { client } = setup();
+    const thread = await client.create({ subject: pricing, anchor: { kind: "page" }, body: "Waiting" });
+    const status = vi.fn((scope: CommentStatusSlotScope) => [h("span", scope.delivery.status)]);
+    const { wrapper } = mountWithState(client, () => h(CommentThread, { thread, ...restrictions }, { status }));
+    await flushPromises();
+    expect(wrapper.get("[data-slot='comment-reply-status']").text()).toBe("pending");
+    expect(status.mock.lastCall?.[0]).toMatchObject({ retry: undefined, dismiss: undefined, edit: undefined });
+  });
+
+  it.each(["panel", "layer"])("keeps the %s reply draft through confirmation and replies to the server ID", async (view) => {
+    const memory = createMemoryTransport({ user: ana, users: [ana] });
+    const reply = vi.fn(memory.reply);
+    const { browser, client } = setup({ ...memory, reply });
+    const thread = await client.create({ subject: pricing, anchor: { kind: "page" }, body: "Waiting" });
+    const { wrapper, state } = mountWithState(client, current => view === "panel"
+      ? h(CommentPanel, { comments: current, thread: thread.id })
+      : h(CommentLayer, { comments: current }));
+    if (view === "layer") state().open(thread);
+    await flushPromises();
+    const composer = "[data-slot='comment-thread'] textarea";
+    await wrapper.get(composer).setValue("Still writing");
+
+    browser.goOnline();
+    await vi.waitFor(() => expect(state().threads.value[0]?.n).toBe(1));
+    await flushPromises();
+    expect(wrapper.get("[data-slot='comment-thread-title']").text()).toBe("Comment 1");
+    expect(wrapper.get<HTMLTextAreaElement>(composer).element.value).toBe("Still writing");
+    await wrapper.get("[data-slot='comment-thread'] form").trigger("submit");
+    await vi.waitFor(() => expect(reply).toHaveBeenCalledWith(expect.objectContaining({ threadId: memory.threads[0]?.id, body: "Still writing" })));
+  });
+
+  it("does not offer files for a text-only outbox and still sends comments", async () => {
+    const memory = createMemoryTransport({ user: ana, users: [ana] });
+    const { browser, client } = setup(memory);
+    const { wrapper } = mountWithState(client, state => h(CommentPanel, { comments: state }));
+    expect(wrapper.find("input[type=file]").exists()).toBe(false);
+    await wrapper.get("textarea").setValue("Just text");
+    await wrapper.get("form").trigger("submit");
+    browser.goOnline();
+    await vi.waitFor(() => expect(memory.threads[0]?.messages[0]?.body).toBe("Just text"));
+  });
+
+  it("uses the supplied upload callback with an outbox", async () => {
+    const memory = createMemoryTransport({ user: ana, users: [ana] });
+    const create = vi.fn(memory.create);
+    const { browser, client } = setup({ ...memory, create });
+    const upload = vi.fn(async (_files: File[]) => ["uploaded-key"]);
+    const { wrapper } = mountWithState(client, state => h(CommentPanel, { comments: state, upload, queueFiles: true }));
+    const shot = new File(["png"], "shot.png", { type: "image/png" });
+    const input = wrapper.get<HTMLInputElement>("input[type=file]").element;
+    Object.defineProperty(input, "files", { configurable: true, value: [shot] });
+    input.dispatchEvent(new Event("change"));
+    await wrapper.get("textarea").setValue("File by key");
+    await wrapper.get("form").trigger("submit");
+    expect(upload).toHaveBeenCalledWith([shot]);
+    browser.goOnline();
+    await vi.waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ attachments: ["uploaded-key"] })));
+    expect(create.mock.calls[0]?.[0].files).toEqual([]);
+  });
+
   it("empties the composer once the comment is saved, while the server has not answered", async () => {
     const memory = createMemoryTransport({ user: ana, users: [ana] });
     const create = vi.fn((_input: CommentCreateInput & CommentFiles) => new Promise<never>(() => undefined));
     const { browser, client } = setup({ ...memory, create });
     browser.goOnline();
-    const { wrapper } = mountWithState(client, state => h(CommentPanel, { comments: state }));
+    const { wrapper } = mountWithState(client, state => h(CommentPanel, { comments: state, queueFiles: true }));
     await flushPromises();
     const shot = new File(["png"], "shot.png", { type: "image/png" });
     const input = wrapper.get("input[type=file]").element as HTMLInputElement;

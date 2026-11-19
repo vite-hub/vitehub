@@ -48,12 +48,12 @@ export interface CommentStatusSlotScope {
   message: CommentMessage;
   /** `pending` while it waits or goes out, `failed` when the server refused it, with `error` saying why. */
   delivery: CommentDelivery;
-  /** Sends it again now. */
-  retry: () => Promise<void>;
-  /** Throws it away. `false` while it is on its way. */
-  dismiss: () => Promise<boolean>;
-  /** Changes its text. A refused one goes back in the queue. `false` while it is on its way. */
-  edit: (body: string, mentions?: string[]) => Promise<boolean>;
+  /** Sends it again now. Only available with edit permission. */
+  retry?: () => Promise<void>;
+  /** Throws it away. Only available with delete permission. `false` while it is on its way. */
+  dismiss?: () => Promise<boolean>;
+  /** Changes its text. Only available with edit permission. A refused one goes back in the queue. */
+  edit?: (body: string, mentions?: string[]) => Promise<boolean>;
 }
 
 export type CommentReplySlots = {
@@ -243,12 +243,15 @@ export const CommentReply = defineComponent({
     const statusOf = (message: CommentMessage, delivery: CommentDelivery): VNode | null => {
       if (!slots.status) return null;
       const outbox = comments?.outbox;
+      const current = () => !props.compact && props.message.id === message.id && props.message.delivery !== undefined;
+      const mayEdit = () => current() && props.editable;
+      const mayDelete = () => current() && (props.deletable ?? props.editable);
       return h("div", { "data-slot": "comment-reply-status" }, slots.status({
         delivery,
-        dismiss: async () => (await outbox?.dismiss(message.id)) ?? false,
-        edit: async (body, mentions) => (await outbox?.edit(message.id, body, mentions)) ?? false,
+        dismiss: outbox?.enabled && mayDelete() ? async () => mayDelete() && await outbox.dismiss(message.id) : undefined,
+        edit: outbox?.enabled && mayEdit() ? async (body, mentions) => mayEdit() && await outbox.edit(message.id, body, mentions) : undefined,
         message,
-        retry: async () => outbox?.retry(message.id),
+        retry: outbox?.enabled && mayEdit() ? async () => { if (mayEdit()) await outbox.retry(message.id); } : undefined,
       }));
     };
 

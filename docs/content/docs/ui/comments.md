@@ -273,9 +273,9 @@ A composer takes files from paste, drop, and the file button. It sends them as `
 - `v-model:files` lets the parent clear the files after a send.
 - In the box, a picture shows as a small square with a round Remove button on its corner. Other files show their name.
 
-`CommentThread` passes the files to `onReply` as the third argument. `CommentLayer` and `CommentPanel` take files only with `upload`: a function that stores the files and returns their keys, such as Blob keys. They send the keys as the message `attachments`.
+`CommentThread` passes the files to `onReply` as the third argument. `CommentLayer` and `CommentPanel` accept an `upload` function that stores the files and returns their keys, such as Blob keys. They send the keys as the message `attachments`, even when the client has an outbox.
 
-With a client [outbox](/docs/comments/offline), the layer and panel need no `upload`: the files are saved with the comment and the transport stores them when it sends.
+If the server accepts raw file uploads, set `queue-files` on the layer or panel with a client [outbox](/docs/comments/offline). The outbox saves the files with the comment and the transport uploads them when it sends. An `upload` callback takes precedence if both are set. The outbox alone does not enable file controls.
 
 Transports accept attachment keys by default, including `createRestTransport()` and `createRpcTransport()`. A transport that cannot can set `supportsAttachments: false`. The layer and panel then disable file controls, even with `upload`.
 
@@ -314,14 +314,16 @@ The parts draw no words for it. The `status` slot renders below each waiting mes
     <template #status="{ delivery, retry, dismiss }">
       <p v-if="delivery.status === 'failed'">
         {{ delivery.error?.why }}
-        <button @click="retry()">Retry</button>
-        <button @click="dismiss()">Discard</button>
+        <button v-if="retry" @click="retry()">Retry</button>
+        <button v-if="dismiss" @click="dismiss()">Discard</button>
       </p>
       <p v-else class="text-muted">Waiting to send</p>
     </template>
   </CommentLayer>
 </template>
 ```
+
+In read-only threads and previews, the slot receives the delivery state but no actions. In a writable thread, `retry` and `edit` require edit permission and `dismiss` requires delete permission for that message.
 
 `comments.outbox` holds the same in code: `queued` and `failures` (computed lists of entries), `delivery(threadId, messageId?)`, and `retry`, `dismiss`, and `edit`.
 

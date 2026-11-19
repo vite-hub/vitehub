@@ -36,6 +36,7 @@ import {
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { createCommentVisibility, type CommentVisibility } from "./comment-visibility.ts";
 import { hasDirtyComposer, shakeDirtyComposers } from "../internal/comment-outside.ts";
+import { useSelectedComment } from "../internal/comment-selection.ts";
 import { repliedSinceResolved } from "../internal/comment-status.ts";
 import { commentsKey, injectComments } from "../internal/comments-context.ts";
 
@@ -126,7 +127,7 @@ export interface UseCommentsOptions {
  * `createCommentsClient()`, it is empty and its actions do nothing.
  */
 export interface CommentsOutboxState {
-  /** `true` when the client has an outbox. The parts then send files with the comment instead of uploading them first. */
+  /** `true` when the client has an outbox. */
   readonly enabled: boolean;
   /** The entries that wait or go out now, in order. */
   readonly queued: ComputedRef<readonly CommentsOutboxEntry[]>;
@@ -313,7 +314,10 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       resolved: scoped.filter(thread => thread.status === "resolved").length,
     };
   });
-  const opened = computed(() => threads.value.find(thread => thread.id === openId.value));
+  const opened = useSelectedComment(threads, openId);
+  watch(opened, thread => {
+    if (thread && thread.id !== openId.value) openId.value = thread.id;
+  }, { flush: "sync" });
 
   const visibility = isRef(options.visibility) ? options.visibility : ref<CommentVisibility>(options.visibility ?? "all");
   const seen = createCommentVisibility({ visibility: visibility.value, flashMs: options.flashMs });
