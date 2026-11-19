@@ -119,20 +119,16 @@ Each returns `[error, endpoint]`. An endpoint has `id`, `owner`, `name`, `kind`,
 ::details{summary="Turn on member endpoints from a Vite plugin"}
 A package that sends to members turns member endpoints on from its Vite plugin with `vitehub.webhooks`. Webhooks then adds the table and installs the endpoint store, with no `server/webhooks/` files and no Queue:
 
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
-import { vitehub } from 'vite-hub'
-
-const send = {
-  name: 'my-send',
-  vitehub: { webhooks: { memberEndpoints: true, reason: 'Sends waiting comments to each member\'s agent.' } },
+```ts [my-send/vite.ts]
+export function mySend() {
+  return {
+    name: 'my-send',
+    vitehub: { webhooks: { memberEndpoints: true, reason: 'Sends waiting comments to each member\'s agent.' } },
+  }
 }
-
-export default defineConfig({
-  plugins: [vitehub({ database: true }), nitro(), send],
-})
 ```
 
-`vitehub.webhooks` can also be a function that gets the project roots and returns `undefined` when the feature is off. Without `database`, the build fails with [`WEBHOOKS_DATABASE_OFF`](/docs/webhooks/diagnostics/webhooks_database_off) and names the plugin.
+The app adds `mySend()` to its Vite plugins next to `vitehub({ database: true })`.
+
+`vitehub.webhooks` can also be a function that gets the project roots and the sibling plugins, and returns `undefined` when the feature is off. Without `database`, the build fails with [`WEBHOOKS_DATABASE_OFF`](/docs/webhooks/diagnostics/webhooks_database_off) and names the plugin.
 ::

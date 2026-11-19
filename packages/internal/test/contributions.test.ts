@@ -39,7 +39,8 @@ describe("collectContributions", () => {
       { definition: { export: "alpha", module: "pkg/widgets" }, name: "alpha", plugin: "a-plugin", reason: "Adds alpha." },
       { definition: { export: "default", module: "/b/zeta.ts" }, name: "zeta", plugin: "b-plugin" },
     ])
-    expect(contexts).toEqual([context])
+    // The factory also gets the flat plugin list, so it can read what sibling plugins declare.
+    expect(contexts).toEqual([{ ...context, plugins }])
   })
 
   it("returns the same order when plugins are registered in another order", async () => {

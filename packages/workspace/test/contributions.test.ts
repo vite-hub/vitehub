@@ -77,7 +77,7 @@ describe("collectWorkspaceContributions", () => {
       false,
     ], { ...context, serverDirs: ["/app/server"] })
 
-    expect(factory).toHaveBeenCalledWith({ projectRoot: "/app", root: "/app", serverDirs: ["/app/server"] })
+    expect(factory).toHaveBeenCalledWith({ projectRoot: "/app", root: "/app", serverDirs: ["/app/server"], plugins: expect.any(Array) })
     expect(contributions).toEqual([
       { ...collected("content", "/abs/cms.ts", "cms"), reason: "Content documents." },
       collected("notes", "pkg/notes", "default", "notes/vite"),
