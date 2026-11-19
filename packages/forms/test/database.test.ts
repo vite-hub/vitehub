@@ -26,16 +26,18 @@ it("runs a keyed submission hook once across independent handlers sharing SQLite
     const { handleFormRequest: handleRetry } = await import("../src/handler.ts")
     const key = crypto.randomUUID()
     const request = () => new Request("https://site.test/form", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": key }, body: JSON.stringify({ message: "Hi" }) })
-    const started = Promise.withResolvers<void>()
-    const finish = Promise.withResolvers<void>()
+    let signalStarted!: () => void
+    const started = new Promise<void>(resolve => { signalStarted = resolve })
+    let releaseHook!: () => void
+    const finish = new Promise<void>(resolve => { releaseHook = resolve })
     const onSubmit = vi.fn<() => Promise<void>>(async () => {}).mockImplementationOnce(async () => {
-      started.resolve()
-      await finish.promise
+      signalStarted()
+      await finish
     })
     const email = vi.fn(async () => {})
     const form = defineForm({ schema: v.object({ message: v.string() }), onSubmit, notify: { email: { to: "owner@example.com" } } })
     const first = handleFormRequest("contact", form, request(), { store: firstStore, email })
-    await started.promise
+    await started
     let retry: Response
     try {
       expect(await secondStore.list()).toEqual([])
@@ -44,7 +46,7 @@ it("runs a keyed submission hook once across independent handlers sharing SQLite
       retry = await handleRetry("contact", form, request(), { store: secondStore, email })
     }
     finally {
-      finish.resolve()
+      releaseHook()
       await first
     }
     expect(onSubmit).toHaveBeenCalledOnce()
