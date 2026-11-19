@@ -48,6 +48,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `queue-workflow-verbs` | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
 | `result-tuples` | `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, the Workflow handle methods, and `runSchedule()` to `[error, data]` reads. `vitehub migrate` runs it. |
 | `nuxt-cron` | `nuxt-cron` jobs to ViteHub Schedule Definitions through `vite-hub/nuxt` |
+| `nuxt-better-auth` | A Nuxt app from `@nuxtjs/better-auth` to ViteHub Auth through `vite-hub/nuxt`: `server/auth.ts`, `app/auth.client.ts`, and `definePageMeta({ auth })` |
 | `runtime-contracts` | `vite-hub/runtime/h3` and `vite-hub/runtime/node` imports, Evlog names from `vite-hub/logs`, and `checkRateLimit()` calls to the new contracts |
 | `root-accessors` | `db`, `schema`, `useDatabase`, `email`, `runSchedule`, and the Env accessors to the root of their primitive |
 | `agent-surface` | A ViteHub app from the old Agent names to `invoker`, `loadAgent()`, `agentWorkflow()`, `extends`, and the merged Agent entries |
@@ -272,6 +273,23 @@ The codemod moves each `defineCronHandler()` job from `server/<jobsDir>` to `ser
 Jobs with six-field crons, computed times or time zones, or a shape the codemod cannot read stay with `nuxt-cron`, which stays installed, and the report says why. A computed module time zone keeps each job that does not override it with a literal. The report also lists `runOnInit`, which Schedule does not have.
 
 Jobs that map to the same Schedule name all stay unchanged, including names from existing files with another source extension or an `index` file. Configuration and module options must be object literals with explicit, unique property names. Opaque option objects, spreads, dynamic keys, or accessors stop the migration without edits; jobs with such options stay with `nuxt-cron`. Inline `vite-hub/nuxt` options take precedence over root `vitehub` options. Existing root or inline Schedule options require a manual migration; the codemod stops without edits. It also stops when the effective host or jobs directory is computed, or the host is `deno`, whose Nuxt integration cannot provide Schedule. On Node it enables KV when absent, and stops if KV is explicitly disabled: configure a default KV store before retrying.
+
+## `nuxt-better-auth`
+
+The codemod moves a Nuxt app from `@nuxtjs/better-auth` to ViteHub Auth. It reads the app and its local layers (`layers/*` and relative `extends` paths):
+
+- `server/auth.config.ts` becomes `server/auth.ts`, and `defineServerAuth()` becomes `defineAuth()` from `vite-hub/auth`. The Better Auth options stay. In a callback, `requestOrigin` stays and `runtimeConfig` becomes `useRuntimeConfig()` from `nitro/runtime-config`. When the app has a Database, or a NuxtHub one, the codemod adds `database: authDatabase()`.
+- `app/auth.config.ts` becomes `app/auth.client.ts`, and `defineClientAuth()` becomes `defineAuthClient()` from `vite-hub/auth/vue`. A config without options goes away.
+- A route rule with `auth` becomes `definePageMeta({ auth })` on each page it matches, the most specific rule first. A page that sets `auth` itself keeps it. A rule on an `/api` path becomes an `access.routes` entry.
+- `auth.redirects.login` and `auth.redirects.guest` move to `vitehub.auth.redirects`.
+- In server code, `serverAuth(event)` becomes `useAuth(event)`, `requireUserSession(event)` becomes `requireAuth(event)`, and `getUserSession(event)` and `getRequestSession(event)` become `useAuth(event).api.getSession({ headers: event.req.headers })`.
+- `package.json` loses `@nuxtjs/better-auth` and gets `vite-hub`, `@vite-hub/auth`, and `better-auth` `^1.7.15`.
+
+The report lists what it does not migrate: `user` matching in route rules and page meta, which the ViteHub page guard does not have, `requireUserSession()` with options, the module's client composables such as `useSignIn()`, `useSignUp()`, `useAuthClientAction()`, and `fetchSession()`, the other module options, the server helpers without a ViteHub equivalent, `#nuxt-better-auth` types, and `NUXT_BETTER_AUTH_SECRET` in env files. It stops without edits when no `server/auth.config.ts` with `defineServerAuth()` can move.
+
+```sh
+npx @vite-hub/codemods nuxt-better-auth [dir] [--dry-run]
+```
 
 ## `agent-surface`
 

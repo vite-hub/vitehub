@@ -1,6 +1,6 @@
 ---
 title: Move from a Nuxt module
-description: The codemods that move a Nuxt app from nuxt-safe-runtime-config, @t3-oss/env-nuxt, nuxt-resend, and nuxt-cron to ViteHub through vite-hub/nuxt.
+description: The codemods that move a Nuxt app from nuxt-safe-runtime-config, @t3-oss/env-nuxt, nuxt-resend, nuxt-cron, and @nuxtjs/better-auth to ViteHub through vite-hub/nuxt.
 navigation.title: Move from a Nuxt module
 navigation.order: 4
 icon: i-lucide-package
@@ -74,3 +74,27 @@ The codemod stops without edits when:
 - the app already has Schedule options,
 - the host or the jobs directory is computed, or the host is `deno`,
 - the host is Node and KV is turned off. Configure a default KV store before you retry.
+
+## nuxt-better-auth
+
+The codemod moves a Nuxt app from `@nuxtjs/better-auth` to ViteHub [Auth](/docs/auth). It reads the app and its local layers:
+
+- `server/auth.config.ts` becomes `server/auth.ts` with `defineAuth()` from `vite-hub/auth`. The Better Auth options stay. When the app has a Database, the codemod adds `database: authDatabase()`.
+- `app/auth.config.ts` becomes `app/auth.client.ts` with `defineAuthClient()` from `vite-hub/auth/vue`.
+- Each route rule with `auth` becomes `definePageMeta({ auth })` on the pages it matches. A rule on an `/api` path becomes an `access.routes` entry. See [Protect pages](/docs/auth/protect-pages).
+- `auth.redirects.login` and `auth.redirects.guest` move to `vitehub.auth.redirects`.
+- In server code, `serverAuth(event)` becomes `useAuth(event)`, and `requireUserSession(event)` becomes `requireAuth(event)`.
+
+```diff [server/auth.config.ts → server/auth.ts]
+-import { defineServerAuth } from '@nuxtjs/better-auth/config'
++import { defineAuth } from 'vite-hub/auth'
++import { authDatabase } from 'vite-hub/auth/database'
+
+-export default defineServerAuth({
++export default defineAuth({
++  database: authDatabase(),
+   emailAndPassword: { enabled: true },
+ })
+```
+
+The report lists what you change by hand: the module's client composables, such as `useSignIn()` and `fetchSession()`, `user` matching in route rules, `requireUserSession()` with options, and `NUXT_BETTER_AUTH_SECRET`. ViteHub Auth uses the same session cookie, so users stay signed in when the secret stays the same.

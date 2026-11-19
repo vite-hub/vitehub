@@ -2,6 +2,7 @@ import { accessSpellings } from "./access-spellings/index.ts"
 import { agentSurface } from "./agent-surface/index.ts"
 import { defineForms } from "./define-forms/index.ts"
 import { driverKey } from "./driver-key/index.ts"
+import { nuxtBetterAuth } from "./nuxt-better-auth/index.ts"
 import { nuxtCron } from "./nuxt-cron/index.ts"
 import { nuxtSafeRuntimeConfig } from "./nuxt-safe-runtime-config/index.ts"
 import { nuxthub } from "./nuxthub/index.ts"
@@ -33,6 +34,7 @@ export const codemods: readonly Codemod[] = [
   queueWorkflowVerbs,
   resultTuples,
   nuxtCron,
+  nuxtBetterAuth,
   runtimeContracts,
   defineForms,
   oneEntryImports,

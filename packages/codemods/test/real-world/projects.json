@@ -209,5 +209,21 @@
         "moved 4 cron jobs"
       ]
     }
+  },
+  {
+    "id": "nuxthub-better-auth",
+    "repo": "atinux/nuxthub-better-auth",
+    "commit": "708eea20f8510491f6c827fdfd157d118ef9abc1",
+    "install": false,
+    "expect": {
+      "codemods": [
+        "nuxthub",
+        "nuxt-better-auth"
+      ],
+      "report": [
+        "moved 1 Auth config to server/auth.ts and 4 auth route rules to page meta",
+        "The auth rule of /admin also matched user"
+      ]
+    }
   }
 ]
