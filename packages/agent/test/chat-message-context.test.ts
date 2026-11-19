@@ -193,12 +193,14 @@ describe("chat trigger message context", () => {
     const { invocations: [latest] } = await invocations.list()
     const record = await invocations.get(latest!.id)
     const observation = record?.observations?.find(item => item.name === "agent.input.attachments")
-    const image = (uniqueId: string, origin: string) => expect.objectContaining({ bytes: 3, mediaType: "image/jpeg", messageId: expect.stringContaining("109"), name: expect.stringContaining(uniqueId), origin })
+    const image = (messageId: number) => ({ bytes: 3, mediaType: "image/jpeg", messageId: `${harness.chat.id}:${messageId}`, origin: "history", partId: "attachment-1" })
     expect(observation?.attributes).toMatchObject({
-      "input.attachments.sent": [image("NACHOS", "history"), image("SANDWICH", "history"), image("LEMON", "history")],
+      // NACHOS, SANDWICH and LEMON.
+      "input.attachments.sent": [image(109313), image(109314), image(109315)],
       "input.attachments.sentBytes": 9,
       "input.attachments.sentCount": 3,
-      "input.attachments.skipped": [expect.objectContaining({ mediaType: "image/jpeg", origin: "history", reason: "max-images" })],
+      // BANANA, the oldest photo, is over `maxImages: 3`.
+      "input.attachments.skipped": [{ mediaType: "image/jpeg", messageId: `${harness.chat.id}:109312`, origin: "history", partId: "attachment-1", reason: "max-images" }],
       "input.attachments.skippedCount": 1,
     })
   })

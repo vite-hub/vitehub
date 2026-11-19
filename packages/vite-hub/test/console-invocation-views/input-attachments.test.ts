@@ -32,7 +32,8 @@ describe("Agent Invocation input attachments", () => {
     const row = wrapper.get('[data-kind="action"]');
     expect(row.get(".vh-invocation-event__title").text()).toBe("Sent 3 images (2.1 MB), skipped 1: byte-budget");
     await openDetails(row.get("details"));
-    const body = row.get(".vh-invocation-event__body").text();
+    // Ignore the Markdown code marks around names, ids and paths.
+    const body = row.get(".vh-invocation-event__body").text().replaceAll("`", "");
     expect(body).toContain("Sent: board.png · image/png · 1 MB · from history · message m-1");
     expect(body).toContain("/workspace/t3-provider-runtime-a/userdata/attachments/current.png");
     expect(body).toContain("Skipped (byte-budget): large.png · image/png · from history · message m-3");
