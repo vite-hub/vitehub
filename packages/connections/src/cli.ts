@@ -61,6 +61,7 @@ function parse(args: string[], context: CliContext): ParsedArgs {
     const separator = argument.indexOf("=")
     const flag = separator < 0 ? argument : argument.slice(0, separator)
     const inline = separator < 0 ? undefined : argument.slice(separator + 1)
+    if ((flag === "--yes" || flag === "-y") && inline !== undefined) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: `${flag} does not take a value.` })
     if (flag === "-h" || flag === "--help" || flag === "--json" || flag === "--yes" || flag === "-y") {
       flags.set(flag === "-h" ? "--help" : flag === "-y" ? "--yes" : flag, true)
       continue

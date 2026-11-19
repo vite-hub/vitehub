@@ -26,12 +26,11 @@ describe("cli-yes-flag", () => {
       "package.json": `${JSON.stringify({ scripts: {
         "db:fresh": "vitehub database reset --force && vitehub seed database",
         "db:drop": "pnpm vitehub database drop --remote --force",
-        "db:generate": "vitehub database generate --name init --non-interactive",
-        "logout:mail": "vitehub connections revoke mail --confirm mail --url https://app.example.com",
+        "logout:mail": 'vitehub connections revoke mail --confirm "mail" --url https://app.example.com',
         "clean": "rm -rf dist --force",
       } }, null, 2)}\n`,
       ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - run: pnpm vitehub database drop --force\n",
-      "scripts/reset.sh": "#!/bin/sh\nvitehub connections revoke mail --confirm=mail; vitehub database reset --force\n",
+      "scripts/reset.sh": '#!/bin/sh\nvitehub connections revoke mail --confirm=mail; vitehub database reset --force\npnpm vitehub database generate --name "add users" --non-interactive\n',
     })
     expect(upgradeCodemods.map(codemod => codemod.name)).toContain("cli-yes-flag")
     expect((await detectCodemods(cwd)).map(entry => entry.codemod.name)).toContain("cli-yes-flag")
@@ -40,13 +39,30 @@ describe("cli-yes-flag", () => {
     expect(JSON.parse(await readFile(join(cwd, "package.json"), "utf8")).scripts).toEqual({
       "db:fresh": "vitehub database reset --yes && vitehub seed database",
       "db:drop": "pnpm vitehub database drop --remote --yes",
-      "db:generate": "vitehub database generate --name init",
       "logout:mail": "vitehub connections revoke mail --yes --url https://app.example.com",
       "clean": "rm -rf dist --force",
     })
     expect(await readFile(join(cwd, ".github/workflows/ci.yml"), "utf8")).toContain("- run: pnpm vitehub database drop --yes\n")
-    expect(await readFile(join(cwd, "scripts/reset.sh"), "utf8")).toBe("#!/bin/sh\nvitehub connections revoke mail --yes; vitehub database reset --yes\n")
+    expect(await readFile(join(cwd, "scripts/reset.sh"), "utf8")).toBe('#!/bin/sh\nvitehub connections revoke mail --yes; vitehub database reset --yes\nCI=1 pnpm vitehub database generate --name "add users"\n')
     expect((await detectCodemods(cwd)).map(entry => entry.codemod.name)).not.toContain("cli-yes-flag")
+  })
+
+  it("reports manual migrations without removing safeguards or changing other manifest fields", async () => {
+    const manifest = JSON.stringify({
+      description: "vitehub database drop --force",
+      scripts: {
+        dynamic: "vitehub connections revoke $CONNECTION --confirm mail",
+        different: "vitehub connections revoke calendar --confirm mail",
+        generate: "vitehub database generate --non-interactive",
+        print: 'echo "vitehub connections revoke mail --confirm mail"',
+      },
+    })
+    const cwd = await project({ "package.json": manifest })
+    expect((await detectCodemods(cwd)).map(entry => entry.codemod.name)).toContain("cli-yes-flag")
+    const { result } = await runCodemod("cli-yes-flag", { cwd, dryRun: false })
+    expect(result.followUps.map(followUp => followUp.message).join("\n")).toContain("CI=1")
+    expect(result.followUps.map(followUp => followUp.message).join("\n")).toContain("same Connection")
+    expect(await readFile(join(cwd, "package.json"), "utf8")).toBe(manifest)
   })
 
   it("keeps --force where it overrides a check", async () => {

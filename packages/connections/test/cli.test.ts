@@ -299,7 +299,11 @@ describe("vitehub connections", () => {
     expect(harness.output.stderr).toContain("run it again with --yes")
     expect(await harness.run("revoke", ["mail", "--confirm", "mail"])).toBe(1)
     expect(harness.output.stderr).toContain("--confirm <name> is now --yes")
-    expect(await harness.run("revoke", ["mail", "--yes"])).toBe(0)
+    for (const flag of ["--yes=false", "--yes=", "-y=false"]) {
+      expect(await harness.run("revoke", ["mail", flag])).toBe(1)
+      expect(harness.output.stderr).toContain("does not take a value")
+    }
+    expect(await harness.run("revoke", ["mail", "-y"])).toBe(0)
     expect(harness.output.stdout).toContain("revoked")
   })
 
