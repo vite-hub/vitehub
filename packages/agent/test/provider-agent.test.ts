@@ -4473,8 +4473,9 @@ cli_auth_credentials_store = "keyring"
       ],
       "input.attachments.skippedCount": 3,
     })
-    const sent = provider.sendTurn.mock.calls[0]?.[0] as { attachments?: Array<{ id: string, name: string }> } | undefined
-    expect(sent?.attachments?.map(item => item.name)).toEqual(["screenshot.png", "current.png"])
+    expect(provider.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: [expect.objectContaining({ name: "screenshot.png" }), expect.objectContaining({ name: "current.png" })],
+    }))
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await rm(directory as string, { force: true, recursive: true })
   })
