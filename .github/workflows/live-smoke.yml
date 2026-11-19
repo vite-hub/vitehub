@@ -392,9 +392,12 @@ jobs:
         timeout-minutes: 10
         run: vp run rate-limit:e2e --mode live --provider cloudflare --url "$LIVE_SMOKE_URL"
 
+      # Each run deploys a new Worker, and Cloudflare can take up to 15 minutes to start a new Cron Trigger.
       - name: Schedule Live E2E (${{ matrix.provider }})
-        timeout-minutes: 7
-        run: vp run schedule:e2e --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL" --timeout 270000
+        timeout-minutes: 17
+        env:
+          SCHEDULE_TIMEOUT_MS: ${{ matrix.provider == 'cloudflare' && '900000' || '270000' }}
+        run: vp run schedule:e2e --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL" --timeout "$SCHEDULE_TIMEOUT_MS"
 
       - name: Sandbox Task Live E2E (${{ matrix.provider }})
         timeout-minutes: 10
