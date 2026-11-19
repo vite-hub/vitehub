@@ -61,6 +61,7 @@ import { providerSessionDecision, workspaceDecision, type PullRequestWorkspaceEn
 import type { BabysitterRepositories } from "./repositories.ts";
 import { createBabysitterCheckRuns } from "./check-run.ts";
 import { isTransientNetworkError, retryTransient } from "./transient.ts";
+import { babysitterQueueHealth } from "./queue-health.ts";
 import { isFailedBaseRun, mainRepairWorkerContext, repairBaseBranch, type MainRepairGitHub } from "./main-repair.ts";
 
 export type { PullRequestInboxStorage } from "./inbox/storage.ts";
@@ -126,6 +127,11 @@ export interface BabysitterRuntimeOptions {
   hostCapacity?: (context: { active: number; signal: AbortSignal }) => Promise<{ concurrency: number; reason?: string }>;
   /** One kept workspace per open PR. Without it, each pass clones and installs into temporary directories. */
   workspaces?: PullRequestWorkspaces;
+  /**
+   * How long one reconcile may wait before the runtime reports `babysitter.reconcile.stalled` and stops
+   * it, so the next reconcile can claim work. Defaults to 15 minutes.
+   */
+  stallMs?: number;
 }
 
 /** Inbox meta key of the review threads a worker declined while their reviewer labeled them P0 or P1. */
@@ -201,6 +207,10 @@ export interface BabysitterRuntime {
 export function createBabysitterRuntime(options: BabysitterRuntimeOptions): BabysitterRuntime {
   if (!Number.isInteger(options.concurrency) || options.concurrency < 1) {
     throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "concurrency", expected: "a positive integer" });
+  }
+  const stallMs = options.stallMs ?? 15 * 60_000;
+  if (!Number.isFinite(stallMs) || stallMs < 1 || stallMs > 2_147_483_647) {
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "stallMs", expected: "milliseconds from 1 to 2147483647" });
   }
   const baseAgent = options.agent;
   assertBabysitterAgent(baseAgent);
@@ -1358,8 +1368,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     return { ...createCheckWait(observed, waitPolicy), kind: "external" as const, reason, wake, ...otherPullRequest ? {} : { retryAt } };
   }
 
-  async function recoverFailedCiWaits() {
+  async function recoverFailedCiWaits(step: (name: string, subject?: string) => void) {
     for (const snapshot of await pullRequestInbox.waitsToEvaluate(false, true)) {
+      step("ci-recovery", `${snapshot.repository}#${snapshot.number}`);
       if (snapshot.generation > snapshot.handled || isWorkerBlocker(snapshot) || !hasFailedActions(snapshot)) continue;
       const head = snapshot.pr?.head?.sha;
       if (!head) continue;
@@ -1402,9 +1413,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   }
 
   /** Wakes a parked PR only when its new events need a model pass or a direct merge. */
-  async function evaluateWaits() {
+  async function evaluateWaits(step: (name: string, subject?: string) => void) {
     // Idle waits too: a parked stack child has no event, wake or retryAt that would list it.
     for (const snapshot of await pullRequestInbox.waitsToEvaluate(true, true)) {
+      step("waits", `${snapshot.repository}#${snapshot.number}`);
       const parentMerged = await stackParentMerged(snapshot);
       if (!parentMerged && snapshot.generation <= snapshot.handled && (snapshot.wait?.retryAt ?? Infinity) > Date.now() && !snapshot.wait?.wake) continue;
       const checks = await requiredCheckState(snapshot);
@@ -1501,10 +1513,80 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const hostOnlyChecked = new Map<string, string>();
   const hostOnlyStamp = (s: Snapshot) => `${s.generation}:${s.revision ?? 0}`;
 
+  /**
+   * What the running reconcile waits on: its step, the PR of that step, and since when. The process host runs
+   * one reconcile at a time, so one await that never settles stops every later claim.
+   */
+  interface ReconcileTick { reason: string; startedAt: number; step: string; subject?: string; stepAt: number; stopped: boolean }
+
+  async function stallSnapshot(tick: ReconcileTick) {
+    const now = Date.now();
+    // The inbox can be the part that hangs, so its queue counts get 5 seconds.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const queue = await Promise.race([
+      pullRequestInbox.summary().then(items => babysitterQueueHealth(items, now)),
+      new Promise<undefined>(resolve => { timer = setTimeout(() => resolve(undefined), 5_000); timer.unref?.(); }),
+    ]).catch(() => undefined).finally(() => clearTimeout(timer));
+    return {
+      reason: tick.reason,
+      step: tick.step,
+      ...tick.subject ? { subject: tick.subject } : {},
+      step_ms: now - tick.stepAt,
+      tick_ms: now - tick.startedAt,
+      active_owners: [...active],
+      model_passes: activeModelPasses,
+      executing_model_passes: executingModelPasses,
+      waiting_model_owners: [...waitingModelOwners],
+      host_preparations: activeHostPreparations,
+      main_repairs: [...mainRepairRunning],
+      ...queue ? { ready: queue.ready, working: queue.working, waiting: queue.waiting } : { queue: "unreadable" },
+    };
+  }
+
+  /**
+   * Runs one reconcile, and stops it when it waits longer than `stallMs`. The stall event names the step
+   * that did not settle. A stopped reconcile ends at its next step, so it never claims next to the one
+   * that replaced it.
+   */
   async function reconcile(
     reason: string,
-    { track }: ProcessReconcilerRunContext,
+    context: ProcessReconcilerRunContext,
     isAccepting: () => boolean = () => true,
+  ) {
+    const startedAt = Date.now();
+    const tick: ReconcileTick = { reason, startedAt, step: "start", stepAt: startedAt, stopped: false };
+    const stalledError = () => presetsErrorDiagnostics.PRESETS_BABYSITTER_RECONCILE_STALLED({ step: tick.subject ? `${tick.step} (${tick.subject})` : tick.step, minutes: Math.round((Date.now() - startedAt) / 60_000) });
+    const step = (name: string, subject?: string) => {
+      if (tick.stopped) throw stalledError();
+      tick.step = name;
+      tick.subject = subject;
+      tick.stepAt = Date.now();
+    };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stalled = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        tick.stopped = true;
+        const error = stalledError();
+        void stallSnapshot(tick).then(snapshot => {
+          schedulerEvent("babysitter.reconcile.stalled", snapshot);
+          reject(error);
+        });
+      }, stallMs);
+      timer.unref?.();
+    });
+    try {
+      await Promise.race([reconcileTick(reason, context, isAccepting, step, () => tick.stopped), stalled]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function reconcileTick(
+    reason: string,
+    { track }: ProcessReconcilerRunContext,
+    isAccepting: () => boolean,
+    step: (name: string, subject?: string) => void,
+    stopped: () => boolean,
   ) {
     const startedAt = new Date();
     const schedule = {
@@ -1516,11 +1598,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (!isAccepting()) return;
     // A GitHub rate limit stops every forge request until it resets. The breaker is durable inbox
     // metadata and the forge error paths below renew it.
+    step("forge-quota");
     const forgeBlockedUntil = await forgeQuota.blockedUntil();
     if (forgeBlockedUntil > Date.now()) {
       schedulerEvent("babysitter.forge.quota.waiting", { reason, blocked_until: new Date(forgeBlockedUntil).toISOString() });
       return;
     }
+    step("status-recovery");
     await statusRecovery.recover();
     void track(statusRecovery.flush().catch(failure => schedulerError("babysitter.status.flush.failed", failure)));
     let modelAdmission = true;
@@ -1528,6 +1612,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     let hostAdmission = true;
     let modelRetryAt: number | undefined;
     if (options.admission) {
+      step("admission");
       const admission = await options.admission();
       if (!admission.accepting) {
         modelAdmission = false;
@@ -1545,6 +1630,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     }
     const ownerLimit = options.concurrency;
     // An installation list that cannot be read keeps the last one; work in known repositories continues.
+    step("repositories");
     const repositories = await repositorySource.current().catch(async (error: unknown) => {
       await noteForgeQuota(error, "repositories");
       schedulerError("babysitter.repositories.failed", error, { source: repositorySource.source });
@@ -1558,6 +1644,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     // Failed reads stay retryable; they must never masquerade as empty success.
     for (const repository of repositories) {
       if (eventScopedBootstrap) continue;
+      step("bootstrap", repository);
       const key = `bootstrap-rest-v1:${repository}`;
       // SAFETY: This versioned key is written below only with an ISO timestamp object; absent keys return undefined.
       const previous = (await pullRequestInbox.meta(key)) as { at: string } | undefined;
@@ -1577,7 +1664,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         schedulerError("babysitter.bootstrap.failed", error, { repository });
       }
     }
+    step("main-repair");
     await checkMainRepairs(repositories, track);
+    step("snapshot-detect");
     try {
       // One open-PR query per repository and minute finds lost deliveries; only changed PRs are probed.
       await detectChangedPullRequests(pullRequestInbox, repository => readGraphql(repository), repositories, Date.now(), !eventScopedBootstrap, (repository, error) => {
@@ -1589,27 +1678,34 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       await noteForgeQuota(error, "snapshot-detect");
       schedulerError("babysitter.snapshot.detect.failed", error);
     }
+    step("snapshot-probe");
     try {
       await probeChangedSnapshots(pullRequestInbox, readRest, Date.now(), readThreads, activityAuthors);
       // The slow sweep remains for changes the fingerprint cannot see, such as edited comments.
+      step("snapshot-sweep");
       await reconcileOneSnapshot(pullRequestInbox, readRest, Date.now(), readThreads, activityAuthors);
     } catch (error) {
       await noteForgeQuota(error, "snapshot-reconcile");
       schedulerError("babysitter.snapshot.reconcile.failed", error);
     }
     // Recover leases that expired while the host was stopped before claiming work.
+    step("lease-recovery");
     await pullRequestInbox.recoverLeases();
+    step("waits");
     try {
       if ((await pullRequestInbox.metaNumber("idle-wait-sweep-next") ?? 0) <= Date.now()) {
         await pullRequestInbox.setMeta("idle-wait-sweep-next", Date.now() + 10 * 60_000);
-        await recoverFailedCiWaits();
+        await recoverFailedCiWaits(step);
       }
-      await evaluateWaits();
+      await evaluateWaits(step);
     } catch (error) {
+      // The reconcile that stopped ends here; its replacement evaluates the waits again.
+      if (stopped()) throw error;
       await noteForgeQuota(error, "wait-evaluate");
       schedulerError("babysitter.wait.evaluate.failed", error);
     }
     // Delivery IDs deduplicate redeliveries; their payloads only help inspection.
+    step("delivery-prune");
     if (((await pullRequestInbox.metaNumber("deliveries-prune-next")) ?? 0) <= Date.now()) {
       await pullRequestInbox.setMeta("deliveries-prune-next", Date.now() + 60 * 60_000);
       await pullRequestInbox.pruneDeliveries();
@@ -1618,6 +1714,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     // The durable inbox is the sole eligibility checkpoint. A second work
     // tracker checkpoint used to swallow new webhook generations and leak
     // their leases for two hours.
+    step("forge-quota");
     const forgeBlockedAfterReconcile = await forgeQuota.blockedUntil();
     if (forgeBlockedAfterReconcile > Date.now()) {
       schedulerEvent("babysitter.forge.quota.waiting", { reason, blocked_until: new Date(forgeBlockedAfterReconcile).toISOString() });
@@ -1625,6 +1722,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     }
     // A model cooldown pauses model passes only. Host work still merges ready PRs and retargets
     // stacks; PRs that need a model pass are released unchanged until their evidence changes.
+    step("provider-quota");
     const providerBlockedUntil = await providerQuota.blockedUntil();
     if (providerBlockedUntil > Date.now() && modelAdmission) {
       modelAdmission = false;
@@ -1638,11 +1736,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     // Every claimed owner occupies a host slot while it performs checkout,
     // placement, installation, or waits for model admission. Keep waiters in
     // this count so concurrent reconciles cannot claim past the owner limit.
+    step("placement");
     const hostActive = active.size;
     const placementAdmitted = presetOptions.placement?.admitted ? await presetOptions.placement.admitted() : Number.POSITIVE_INFINITY;
     // An invalid count claims nothing: claiming past the hosts only turns each PR away at placement.
     const placementLimit = typeof placementAdmitted === "number" && placementAdmitted >= 0 ? placementAdmitted : 0;
     const remainingCapacity = Math.max(0, Math.min(claimLimit, placementLimit) - hostActive);
+    step("claim");
     const lane = await pullRequestInbox.claim(Math.min(5, remainingCapacity), {
       only: snapshot => Boolean(snapshot.recoveryHead && snapshot.recoveryHead === snapshot.pr?.head?.sha),
       includeBlocked: true,
@@ -1660,6 +1760,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     });
     const jobs = [...lane, ...regular, ...exhausted];
     if (!jobs.length) return; // tracking an already-resolved batch creates wake loops
+    // A reconcile stopped while it claimed gives its claims back instead of starting passes next to its replacement.
+    if (stopped()) {
+      for (const claim of jobs) await pullRequestInbox.release(claim);
+      step("claim");
+    }
     for (const claim of jobs) active.add(`${claim.snapshot.repository}#${claim.snapshot.number}`);
     schedulerEvent("babysitter.queue.selected", {
       reason,
