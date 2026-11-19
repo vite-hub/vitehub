@@ -1,19 +1,29 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { detectStyle, end, isReference, line, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
+import { detectStyle, end, isReference, line, listItemRemoval, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
 import { parse as parseSfc } from "@vue/compiler-sfc"
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
 import { bindingResolver } from "../shared/binding-resolver.ts"
 
-import type { CallExpression, File, Identifier, ImportDeclaration } from "@babel/types"
+import type { CallExpression, File, Identifier, ImportDeclaration, StringLiteral } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 
 /** Modules that exported `http()`. `http(options)` is now `channelAdapter("http", options)`. */
 const httpModules = new Set(["vite-hub/agent/channels", "@vite-hub/agent/channels"])
+
+/**
+ * `vite-hub/agent/channels` is removed. Its adapters moved to `vite-hub/channels/adapters`, which re-exports
+ * `@vite-hub/agent/channels`, and the names that need no Agent moved to `vite-hub/channels`. The owner path
+ * `@vite-hub/agent/channels` stays.
+ */
+const movedPath = "vite-hub/agent/channels"
+const adaptersPath = "vite-hub/channels/adapters"
+const channelsPath = "vite-hub/channels"
+const channelNames = new Set(["defineChannelTrigger", "ignored", "rejected", "retryLater"])
 
 /** Calls whose first argument names a module, such as `vi.mock("vite-hub/agent/channels")`. */
 const moduleCalls = new Set(["mock", "doMock", "unmock", "doUnmock", "importActual", "importMock"])
@@ -185,6 +195,65 @@ function replaceHttp(context: FileContext) {
   }
 }
 
+function moveSource(context: FileContext, source: StringLiteral, to: string) {
+  overwrite(context, source, quoteString(to, context.style))
+}
+
+/**
+ * Moves imports of `vite-hub/agent/channels`. A named import of only `defineChannelTrigger`, `ignored`, `retryLater`,
+ * or `rejected` moves to `vite-hub/channels`. A mixed import moves to `vite-hub/channels/adapters`, and those names
+ * join an import of `vite-hub/channels`. Everything else moves to `vite-hub/channels/adapters`, which has every name.
+ */
+function moveImports(context: FileContext) {
+  const { block, output, program, style } = context
+  const semicolon = style.semicolons ? ";" : ""
+  const channelImports = new Map<string, ImportDeclaration>()
+  for (const statement of program.program.body) {
+    if (statement.type !== "ImportDeclaration" || statement.source.value !== channelsPath) continue
+    if (statement.specifiers.length && statement.specifiers.every(specifier => specifier.type === "ImportSpecifier")) {
+      channelImports.set(statement.importKind ?? "value", statement)
+    }
+  }
+  for (const statement of program.program.body) {
+    if ((statement.type === "ExportAllDeclaration" || statement.type === "ExportNamedDeclaration") && statement.source?.value === movedPath) {
+      moveSource(context, statement.source, adaptersPath)
+      continue
+    }
+    if (statement.type !== "ImportDeclaration" || statement.source.value !== movedPath) continue
+    const named = statement.specifiers.length > 0 && statement.specifiers.every(specifier => specifier.type === "ImportSpecifier")
+    const moved = named ? statement.specifiers.filter(specifier => channelNames.has(importedName(specifier) ?? "")) : []
+    if (moved.length && moved.length === statement.specifiers.length) {
+      moveSource(context, statement.source, channelsPath)
+      continue
+    }
+    moveSource(context, statement.source, adaptersPath)
+    if (!moved.length) continue
+    const names = moved.map(specifier => block.code.slice(start(specifier), end(specifier))).join(", ")
+    for (const specifier of moved) {
+      const [from, to] = listItemRemoval(block.code, specifier)
+      output.remove(block.offset + from, block.offset + to)
+    }
+    const kind = statement.importKind ?? "value"
+    const target = channelImports.get(kind)
+    if (target) {
+      output.appendLeft(block.offset + end(target.specifiers.at(-1)!), `, ${names}`)
+      continue
+    }
+    const keyword = kind === "type" ? "import type" : "import"
+    output.appendLeft(block.offset + end(statement), `\n${keyword} { ${names} } from ${quoteString(channelsPath, style)}${semicolon}`)
+  }
+  walk(program, (node) => {
+    const first = node.type === "ImportExpression" ? node.source : node.type === "CallExpression" ? node.arguments[0] : undefined
+    if (first?.type !== "StringLiteral" || first.value !== movedPath) return
+    const callee = node.type === "CallExpression" ? node.callee : undefined
+    const mock = callee?.type === "MemberExpression" && callee.property.type === "Identifier" && moduleCalls.has(callee.property.name)
+    const load = node.type === "ImportExpression" || callee?.type === "Import" || (callee?.type === "Identifier" && callee.name === "require")
+    if (!mock && !load) return
+    moveSource(context, first, adaptersPath)
+    if (mock) followUp(context, node, "This mock now replaces `vite-hub/channels/adapters`. `defineChannelTrigger`, `ignored`, `retryLater`, and `rejected` also come from `vite-hub/channels`: mock that path too when the code under test imports them from it.")
+  })
+}
+
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const files = (await glob(sourcePatterns, { cwd, ignore: ignoredPatterns, dot: false })).sort()
   const edits: FileEdit[] = []
@@ -205,13 +274,15 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
         continue
       }
       const before = output.toString()
-      replaceHttp({ block, file, followUps, output, program, style: detectStyle(block.code, program) })
+      const context: FileContext = { block, file, followUps, output, program, style: detectStyle(block.code, program) }
+      replaceHttp(context)
+      moveImports(context)
       changed = output.toString() !== before || changed
     }
     if (changed) edits.push({ path: file, before: source, after: output.toString() })
   }
   return {
-    summary: edits.length ? `replaced http() in ${edits.length} file(s)` : "no http() calls changed",
+    summary: edits.length ? `moved Channel imports and replaced http() in ${edits.length} file(s)` : "no Channel import or http() call changed",
     edits,
     followUps,
     notes: [],
@@ -221,12 +292,12 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
 
 export const channels: Codemod = {
   name: "channels",
-  description: "Replace the Agent `http()` adapter with `channelAdapter(\"http\")`",
+  description: "Move `vite-hub/agent/channels` imports to `vite-hub/channels/adapters` and `vite-hub/channels`, and replace `http()` with `channelAdapter(\"http\")`",
   usage: "[dir]",
   async detect({ cwd }) {
     const result = await migrate({ cwd })
     const [edit] = result.edits
-    if (edit) return { reason: `${edit.path} calls the Agent \`http()\` adapter` }
+    if (edit) return { reason: `${edit.path} imports \`vite-hub/agent/channels\` or calls the Agent \`http()\` adapter` }
     const [followUp] = result.followUps
     return followUp ? { reason: `${followUp.file} needs a manual Agent Channel migration` } : undefined
   },

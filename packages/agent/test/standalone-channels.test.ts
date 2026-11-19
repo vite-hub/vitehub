@@ -50,7 +50,8 @@ async function nitroApp(server: Awaited<ReturnType<typeof createServer>>) {
 }
 
 const intake = `import { defineChannelTrigger } from '@vite-hub/agent/channels'
-import { defineChannel, webhook } from '@vite-hub/channels'
+import { defineChannel } from '@vite-hub/channels'
+import { webhook } from '@vite-hub/channels/adapters'
 import { label } from './label'
 export default defineChannel({
   adapter: webhook({ kind: 'intake', path: '/api/intake/webhook', aliases: ['/hooks/intake'], header: 'x-test-secret', secret: 'secret', signature: 'token' }),
@@ -59,7 +60,8 @@ export default defineChannel({
 `
 
 // A helper that looks like a Channel. In a folder with an index module, it is not one.
-const label = `import { defineChannel, webhook } from '@vite-hub/channels'
+const label = `import { defineChannel } from '@vite-hub/channels'
+import { webhook } from '@vite-hub/channels/adapters'
 export const label = () => 'from helper'
 export default defineChannel({ adapter: webhook({ path: '/api/label/webhook', secret: false }) })
 `
@@ -85,7 +87,8 @@ describe('standalone Channel folders', () => {
   }, 30_000)
 
   it('serves a suffix Channel at its default route and adapter path', async () => {
-    const root = await app({ 'src/payments.channel.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
+    const root = await app({ 'src/payments.channel.ts': `import { defineChannel } from '@vite-hub/channels'
+    import { webhook } from '@vite-hub/channels/adapters'
 import { defineChannelTrigger } from '@vite-hub/agent/channels'
 export default defineChannel({
   adapter: webhook({ signature: 'bearer', secret: 'secret', path: '/hooks/payments' }),
@@ -108,7 +111,8 @@ export default defineChannel({
   it.each(['__proto__', 'toString', 'constructor'])('serves the prototype-like named Channel %s', async channelName => {
     const root = await app({
       [`server/channels/${channelName}.ts`]: `import { defineChannelTrigger } from '@vite-hub/agent/channels'
-import { defineChannel, webhook } from '@vite-hub/channels'
+import { defineChannel } from '@vite-hub/channels'
+import { webhook } from '@vite-hub/channels/adapters'
 export default defineChannel({ adapter: webhook({ secret: false }), on: { webhook: defineChannelTrigger({ invoke: context => Response.json({ agent: context.agentName }) }) } })`,
       'server/agents/support.ts': `import { defineAgent } from '@vite-hub/agent'
 export default defineAgent({ channels: [${JSON.stringify(channelName)}], runtime: false, driver: { run: () => 'ok' } })`,
@@ -124,7 +128,8 @@ export default defineAgent({ channels: [${JSON.stringify(channelName)}], runtime
 
   it('serves inherited named Channels through the listing child Agent', async () => {
     const channel = `import { defineChannelTrigger } from '@vite-hub/agent/channels'
-import { defineChannel, webhook } from '@vite-hub/channels'
+import { defineChannel } from '@vite-hub/channels'
+import { webhook } from '@vite-hub/channels/adapters'
 export default defineChannel({ adapter: webhook({ secret: false }), on: { webhook: defineChannelTrigger({ invoke: context => Response.json({ agent: context.agentName }) }) } })`
     const root = await app({
       'server/channels/inherited.ts': channel,
@@ -145,7 +150,8 @@ export default defineAgent({ extends: parent, channels: ['added'] })`,
   }, 30_000)
 
   it('rejects an adapter path that is not a string literal', async () => {
-    const root = await app({ 'server/channels/intake/index.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
+    const root = await app({ 'server/channels/intake/index.ts': `import { defineChannel } from '@vite-hub/channels'
+    import { webhook } from '@vite-hub/channels/adapters'
 const prefix = '/api'
 export default defineChannel({ adapter: webhook({ path: \`\${prefix}/intake\`, secret: false }) })
 ` })
@@ -163,7 +169,8 @@ export default defineChannel({ adapter: webhook({ path: \`\${prefix}/intake\`, s
     const channelName = name.replaceAll(' ', '-')
     const root = await app({
       [`server/channels/${channelName}.ts`]: `import { defineChannelTrigger } from '@vite-hub/agent/channels'
-import { defineChannel, webhook } from '@vite-hub/channels'
+import { defineChannel } from '@vite-hub/channels'
+import { webhook } from '@vite-hub/channels/adapters'
 export default defineChannel({
   adapter: webhook({ signature: 'bearer', secret: 'secret' }),
   on: { webhook: defineChannelTrigger({ invoke: context => Response.json({ agent: context.agentName, channel: context.trigger.channelId }) }) },
@@ -187,7 +194,7 @@ export default ${call}({ channels: ${channels.replace('hooks', channelName)}, ru
 
   it.each([false, true])('rejects an eager import of the owning Agent (helper: %s)', async (helper) => {
     const root = await app({
-      'server/channels/cycle.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
+      'server/channels/cycle.ts': `import { defineChannel } from '@vite-hub/channels'\nimport { webhook } from '@vite-hub/channels/adapters'
 import { defineChannelTrigger } from '@vite-hub/agent/channels'
 import owner from '${helper ? '../lib/owner' : '../agents/owner'}'
 export default defineChannel({ adapter: webhook({ secret: false }), on: { webhook: defineChannelTrigger({ tasks: { reply: { agent: owner } }, invoke: () => ({ task: 'reply', input: { prompt: 'reply' } }) }) } })`,
@@ -203,7 +210,7 @@ export default defineAgent({ name: 'owner', channels: ['cycle'], runtime: false,
 
   it.each(['@app/server', '#server'])('rejects an eager owner import through the %s alias', async (prefix) => {
     const root = await app({
-      'server/channels/cycle.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
+      'server/channels/cycle.ts': `import { defineChannel } from '@vite-hub/channels'\nimport { webhook } from '@vite-hub/channels/adapters'
 import { defineChannelTrigger } from '@vite-hub/agent/channels'
 import owner from '${prefix}/lib/owner'
 export default defineChannel({ adapter: webhook({ secret: false }), on: { webhook: defineChannelTrigger({ tasks: { reply: { agent: owner } }, invoke: () => ({ task: 'reply', input: { prompt: 'reply' } }) }) } })`,
@@ -224,7 +231,7 @@ export default defineAgent({ channels: ['cycle'], runtime: false, driver: { run:
 
   it.each(['agent', 'channel'])('loads an owning Agent task from the %s entry', async (entry) => {
     const root = await app({
-      'server/channels/owner-task.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
+      'server/channels/owner-task.ts': `import { defineChannel } from '@vite-hub/channels'\nimport { webhook } from '@vite-hub/channels/adapters'
 import { defineChannelTrigger } from '@vite-hub/agent/channels'
 export default defineChannel({
   adapter: webhook({ secret: false }),
@@ -250,7 +257,7 @@ export default defineAgent({ name: 'owner', channels: ['owner-task'], runtime: f
 
   it('ignores local, shadowed, and unrelated Agent factory calls', async () => {
     const root = await app({
-      'server/channels/hooks.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
+      'server/channels/hooks.ts': `import { defineChannel } from '@vite-hub/channels'\nimport { webhook } from '@vite-hub/channels/adapters'
 export default defineChannel({ adapter: webhook({ secret: false }) })`,
       'server/agents/support.ts': `import { defineAgent as makeAgent } from '@vite-hub/agent'
 import * as agent from '@vite-hub/agent'
@@ -288,15 +295,16 @@ export default defineChannel({ adapter: adapter(${args}) })
       'server/channels/intake/index.ts': intake,
       'server/channels/intake/label.ts': label,
       'server/channels/flat.ts': `import * as channels from 'vite-hub/channels'
+import * as adapters from 'vite-hub/channels/adapters'
 const options = { path: '/flat/one', aliases: ['/flat/old'], secret: false }
-const channel = channels.defineChannel({ adapter: channels.webhook({ ...options }) })
+const channel = channels.defineChannel({ adapter: adapters.webhook({ ...options }) })
 export default channel
 `,
       'server/channels/teams/index.ts': `import { teams } from '@vite-hub/agent/channels'
 import { defineChannel } from '@vite-hub/channels'
 export default defineChannel({ adapter: teams() })
 `,
-      'server/channels/factory/index.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
+      'server/channels/factory/index.ts': `import { defineChannel } from '@vite-hub/channels'\nimport { webhook } from '@vite-hub/channels/adapters'
 export default function factory() { return defineChannel({ adapter: webhook({ path: '/api/factory', secret: false }) }) }
 `,
     })
@@ -308,7 +316,8 @@ export default function factory() { return defineChannel({ adapter: webhook({ pa
   })
 
   it('rejects aliases that are not string literals', async () => {
-    const root = await app({ 'server/channels/intake/index.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
+    const root = await app({ 'server/channels/intake/index.ts': `import { defineChannel } from '@vite-hub/channels'
+    import { webhook } from '@vite-hub/channels/adapters'
 import { oldPath } from './paths'
 export default defineChannel({ adapter: webhook({ path: '/api/intake', aliases: [oldPath], secret: false }) })
 ` })
@@ -343,9 +352,9 @@ export default makeAgent({ channels: ['hooks'] as const, runtime: false, driver:
   it('still rejects the inbound Channel that no Agent lists', async () => {
     if (hosting === 'netlify') vi.stubEnv('VITEHUB_HOST', 'netlify')
     const root = await app({
-      'server/channels/claimed.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
+      'server/channels/claimed.ts': `import { defineChannel } from '@vite-hub/channels'\nimport { webhook } from '@vite-hub/channels/adapters'
 export default defineChannel({ adapter: webhook({ secret: false }) })`,
-      'server/channels/unclaimed.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
+      'server/channels/unclaimed.ts': `import { defineChannel } from '@vite-hub/channels'\nimport { webhook } from '@vite-hub/channels/adapters'
 export default defineChannel({ adapter: webhook({ secret: false }) })`,
       'server/agents/support.ts': `import { defineAgent } from '@vite-hub/agent'
 export default defineAgent({ channels: ['claimed'], runtime: false, driver: { run: () => 'ok' } })`,
