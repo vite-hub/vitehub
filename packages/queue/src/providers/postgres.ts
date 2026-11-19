@@ -5,6 +5,7 @@ import { invariant } from "@vite-hub/internal/invariant"
 import postgres from "postgres"
 import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 
+import { readQueueTimes } from "../duration.ts"
 import { createQueueMessageId, normalizeQueueEnqueueInput } from "../enqueue.ts"
 import { queueProviderResult, queueUnsupportedOptionsError } from "../errors.ts"
 import { createQueueDeliveryErrorReport, isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
@@ -529,8 +530,10 @@ export function createPostgresQueueClient(engine: PostgresQueueEngine, queue: st
       const normalized = normalizeQueueEnqueueInput(payload, options)
       const optionsError = queueUnsupportedOptionsError(normalized.options, "postgres", engine.rules.unsupportedOptions)
       if (optionsError) return [optionsError, undefined]
+      const [timeError, times] = readQueueTimes(normalized.options)
+      if (timeError) return [timeError, undefined]
       const [error, ids] = await queueProviderResult("postgres", "send", () => enqueue([{
-        delaySeconds: normalized.options.delaySeconds,
+        delaySeconds: times.delaySeconds,
         id: normalized.id,
         idempotencyKey: normalized.options.idempotencyKey,
         payload: normalized.payload,
@@ -539,12 +542,13 @@ export function createPostgresQueueClient(engine: PostgresQueueEngine, queue: st
       return [undefined, { messageId: ids[0], status: "queued" }]
     },
     async sendBatch(items, options) {
-      const [error, ids] = await queueProviderResult("postgres", "send-batch", () => enqueue(items.map(item => ({
-        delaySeconds: item.delaySeconds ?? options?.delaySeconds,
-        id: createQueueMessageId(),
-        idempotencyKey: item.idempotencyKey,
-        payload: item.body,
-      }))))
+      const entries: LocalQueueEntry[] = []
+      for (const item of items) {
+        const [timeError, times] = readQueueTimes({ delay: item.delay ?? options?.delay })
+        if (timeError) return [timeError, undefined]
+        entries.push({ delaySeconds: times.delaySeconds, id: createQueueMessageId(), idempotencyKey: item.idempotencyKey, payload: item.body })
+      }
+      const [error, ids] = await queueProviderResult("postgres", "send-batch", () => enqueue(entries))
       if (error) return [error, undefined]
       return [undefined, ids.map(messageId => ({ messageId, status: "queued" as const }))]
     },

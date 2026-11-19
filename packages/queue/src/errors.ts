@@ -6,8 +6,8 @@ import { queueErrorDiagnostics, type QueueProviderOperation } from "./error-diag
 
 export type { QueueProviderOperation }
 
-export const cloudflareUnsupportedEnqueueOptions = ["idempotencyKey", "region", "retentionSeconds"] as const
-export const localUnsupportedEnqueueOptions = ["contentType", "region", "retentionSeconds"] as const
+export const cloudflareUnsupportedEnqueueOptions = ["idempotencyKey", "region", "retention"] as const
+export const localUnsupportedEnqueueOptions = ["contentType", "region", "retention"] as const
 export const postgresUnsupportedEnqueueOptions = localUnsupportedEnqueueOptions
 
 const unsupportedEnqueueOptions = {
@@ -17,10 +17,13 @@ const unsupportedEnqueueOptions = {
   vercel: ["contentType"],
 } as const
 
+const removedEnqueueOptions = ["delaySeconds", "id", "retentionSeconds"] as const
+
 /** Shared pre-dispatch option validation for provider clients and the test backend. */
 export function queueUnsupportedOptionsError(options: QueueEnqueueOptions, provider: QueueDriver, names: readonly (keyof QueueEnqueueOptions)[] = unsupportedEnqueueOptions[provider]): ResultError<"QUEUE_UNSUPPORTED_OPTION"> | undefined {
-  // No provider takes a message ID from the caller. JavaScript callers can still pass the removed `id` option.
-  const unsupported = [...Object.hasOwn(options, "id") ? ["id"] : [], ...names.filter(option => options[option] !== undefined)]
+  // JavaScript callers can still pass removed options: `id`, and `delaySeconds` and `retentionSeconds`, which are now
+  // `delay` and `retention`. Reject them, so a job does not run at once or keep the default retention.
+  const unsupported = [...removedEnqueueOptions.filter(option => Object.hasOwn(options, option)), ...names.filter(option => options[option] !== undefined)]
   return unsupported.length
     ? queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: formatQueueOptionNames(unsupported), provider })
     : undefined
@@ -33,7 +36,7 @@ export function isQueueError<TCode extends QueueCatalogCode = QueueCatalogCode>(
   return queueErrorDiagnostics.is(error) && (!codes || codes.some(code => code === error.code))
 }
 
-/** Formats option names for an error `why`, for example `"region" and "retentionSeconds"`. */
+/** Formats option names for an error `why`, for example `"region" and "retention"`. */
 export function formatQueueOptionNames(names: readonly string[]): string {
   const quoted = names.map(name => `\`${name}\``)
   return quoted.length > 1 ? `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1)}` : quoted.join("")

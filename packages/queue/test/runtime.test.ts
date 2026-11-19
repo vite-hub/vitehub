@@ -165,8 +165,8 @@ describe("cloudflare queue runtime", () => {
     expect(send).not.toHaveBeenCalled()
     expect(sendBatch).not.toHaveBeenCalled()
 
-    expect((await client.send({ id: 3 }, { contentType: "json", delaySeconds: 1 }))[0]).toBeUndefined()
-    expect(await client.sendBatch([{ body: { id: 4 }, contentType: "json" }], { delaySeconds: 2 })).toEqual([undefined, [{ status: "queued" }]])
+    expect((await client.send({ id: 3 }, { contentType: "json", delay: "1s" }))[0]).toBeUndefined()
+    expect(await client.sendBatch([{ body: { id: 4 }, contentType: "json" }], { delay: "2s" })).toEqual([undefined, [{ status: "queued" }]])
     expect(send).toHaveBeenCalledWith({ id: 3 }, { contentType: "json", delaySeconds: 1 })
     expect(sendBatch).toHaveBeenCalledWith([{ body: { id: 4 }, contentType: "json", delaySeconds: 2 }])
   })
@@ -308,8 +308,8 @@ describe("cloudflare queue runtime", () => {
     ["ack", true, "ack"],
     ["retry", false, "retry"],
     ["retry", true, "retry"],
-    [{ retry: { delaySeconds: 30 } }, false, "retry"],
-    [{ retry: { delaySeconds: 30 } }, true, "retry"],
+    [{ retry: { delay: "30s" } }, false, "retry"],
+    [{ retry: { delay: "30s" } }, true, "retry"],
   ] as const)("preserves the message receiver for action %j with non-retryable error %s", async (action, nonRetryable, expected) => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     const message = { ack: vi.fn(), attempts: 1, body: "fail", id: "1", retry: vi.fn() }
@@ -328,8 +328,7 @@ describe("cloudflare queue runtime", () => {
     expect(message.retry).toHaveBeenCalledTimes(expected === "retry" ? 1 : 0)
     expect(message[expected].mock.contexts).toEqual([message])
     if (typeof action === "object") {
-      expect(message.retry).toHaveBeenCalledWith(action.retry)
-      expect(message.retry.mock.calls[0]![0]).toBe(action.retry)
+      expect(message.retry).toHaveBeenCalledWith({ delaySeconds: 30 })
     } else {
       expect(message[expected]).toHaveBeenCalledWith()
     }
@@ -382,9 +381,9 @@ describe("cloudflare queue runtime", () => {
   })
 
   it.each([
-    ["inherited", Object.create({ retry: { delaySeconds: 30 } })],
-    ["callable", Object.assign(() => undefined, { retry: { delaySeconds: 30 } })],
-    ["array", Object.assign([], { retry: { delaySeconds: 30 } })],
+    ["inherited", Object.create({ retry: { delay: "30s" } })],
+    ["callable", Object.assign(() => undefined, { retry: { delay: "30s" } })],
+    ["array", Object.assign([], { retry: { delay: "30s" } })],
   ].flatMap(([kind, action]) => [false, true].map(nonRetryable => ({ kind, action, nonRetryable }))))("ignores $kind Cloudflare retry directives with non-retryable error $nonRetryable", async ({ action, nonRetryable }) => {
     const ack = vi.fn()
     const retry = vi.fn()
@@ -922,8 +921,8 @@ describe("vercel provider", () => {
 
     await expect(client.sendBatch([
       { body: { email: "ava@example.com" } },
-      { body: { email: "ben@example.com" }, delaySeconds: 5, idempotencyKey: "welcome-ben" },
-    ], { delaySeconds: 60, retentionSeconds: 3600 })).resolves.toEqual([undefined, [
+      { body: { email: "ben@example.com" }, delay: "4500ms", idempotencyKey: "welcome-ben" },
+    ], { delay: "1m", retention: "1h" })).resolves.toEqual([undefined, [
       { messageId: "message-0", status: "queued" },
       { messageId: undefined, status: "queued" },
     ]])
