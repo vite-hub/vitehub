@@ -40,7 +40,7 @@ describe("Agent Invocation tool steps", () => {
         tool("start", "cat", "command_execution", { "tool.input": { command: "/bin/sh -lc 'cat AGENTS.md; echo '\\''done'\\'''", toolName: "command_execution" }, "tool.title": "cat AGENTS.md; echo 'done'" }),
         usage(),
         delta("assistant", "I’ll check the earlier conversation.", { "message.id": "progress", "message.phase": "final" }),
-        tool("start", "threads", "vitehub.mcp_productlane_threads_get"),
+        tool("start", "threads", "vitehub-invocation.mcp_productlane_threads_get"),
         tool("start", "resources", "codex.list_mcp_resources"),
         usage(),
         usage(181),

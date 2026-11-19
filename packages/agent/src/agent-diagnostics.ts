@@ -4531,7 +4531,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_MCP_BEARER_TOKEN_RENAMED: {
       why: "[vitehub] driver.env sets T3_MCP_BEARER_TOKEN. Codex now reads the token of the ViteHub tools MCP server from VITEHUB_MCP_BEARER_TOKEN, so the old variable has no effect.",
-      fix: "Rename T3_MCP_BEARER_TOKEN to VITEHUB_MCP_BEARER_TOKEN in driver.env and in the launch wrapper that forwards it.",
+      fix: "Remove `T3_MCP_BEARER_TOKEN` from `driver.env`. ViteHub sets `VITEHUB_MCP_BEARER_TOKEN`. Update any `launch` wrapper that hard-codes the old name to forward the new one. A wrapper that forwards `requiredEnvironment` needs no change.",
     },
     AGENT_MCP_RETRIES_INVALID: {
       why: "[vitehub] callMcpTool({ retries }) must be a non-negative integer.",

@@ -3550,14 +3550,14 @@ async function* runProvider<
       // reject them before the host receives the request. Shell policy stays intact.
       ...(nativeUnattendedTools && !gateway?.chatgpt
         ? [
-          ...(toolServer ? [`-c 'mcp_servers.vitehub.url=${JSON.stringify(toolServer.mcp.endpoint)}'`] : []),
-          '-c \'mcp_servers.vitehub.bearer_token_env_var="VITEHUB_MCP_BEARER_TOKEN"\'',
+          ...(toolServer ? [`-c 'mcp_servers.vitehub-invocation.url=${JSON.stringify(toolServer.mcp.endpoint)}'`] : []),
+          '-c \'mcp_servers.vitehub-invocation.bearer_token_env_var="VITEHUB_MCP_BEARER_TOKEN"\'',
           // Clear only this invocation's transport token in native shell tools.
           // Preserve the caller's existing environment exclusions.
           '-c \'shell_environment_policy.set.VITEHUB_MCP_BEARER_TOKEN=""\'',
           // CLI override paths split on dots without parsing quoted TOML keys.
           // An inline table preserves the exact tool names, including punctuation.
-          `-c '${(`mcp_servers.vitehub.tools={${Object.keys(context.tools ?? {}).map(name => `${JSON.stringify(name)}={approval_mode="approve"}`).join(",")}}`).replaceAll("'", "'\\''")}'`,
+          `-c '${(`mcp_servers.vitehub-invocation.tools={${Object.keys(context.tools ?? {}).map(name => `${JSON.stringify(name)}={approval_mode="approve"}`).join(",")}}`).replaceAll("'", "'\\''")}'`,
         ]
         : []),
       // A login shell reads /etc/profile, which sets PATH again on Debian. It drops the PATH that the run sets (managed

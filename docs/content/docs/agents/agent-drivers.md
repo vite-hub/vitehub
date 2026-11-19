@@ -219,7 +219,7 @@ ViteHub resolves `env` once, then calls `launch` with the environment, `command`
 
 With `launch`, a set `PATH` in `env`, a `toolchain`, or the managed browser, Codex runs its shell commands without a login shell (`allow_login_shell=false`). A login profile, such as Debian's `/etc/profile`, sets `PATH` again and hides commands such as `apply_patch`.
 
-When Codex runs unattended with Agent tools, it calls them through an MCP server named `vitehub`, and reads its token from `VITEHUB_MCP_BEARER_TOKEN`. ViteHub sets the variable for each Invocation and lists it in `requiredEnvironment`, so a wrapper that starts Codex on another host must forward it. Do not set it in `env`. `T3_MCP_BEARER_TOKEN`, the old name, in `env` fails with `AGENT_MCP_BEARER_TOKEN_RENAMED`.
+When Codex runs unattended with Agent tools, it calls them through the `vitehub-invocation` MCP server. This is separate from the Console's `vitehub` MCP server. ViteHub sets `VITEHUB_MCP_BEARER_TOKEN` for each Invocation and lists it in `requiredEnvironment`. Do not set it in `env`. If `env` sets only the old `T3_MCP_BEARER_TOKEN` key, ViteHub reports `AGENT_MCP_BEARER_TOKEN_RENAMED`. Remove the old key and update any wrapper that forwards it by name. Wrappers that forward `requiredEnvironment` need no change.
 
 Launch wrappers need a POSIX host. They change only process startup. Your app owns authorization, remote isolation, and wrapper credentials. Agent inspection shows whether `env` and `launch` are static or dynamic, without resolving them.
 

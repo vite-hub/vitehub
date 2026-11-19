@@ -42,7 +42,7 @@ async function relayInput() {
     }
     if (["thread/start", "thread/resume", "thread/fork"].includes(message?.method)) {
       const config = message.params?.config
-      // The provider runtime names the envelope's server "t3-code". Codex gets the tools as "vitehub".
+      // The provider runtime names the envelope's server "t3-code". Codex gets the tools as "vitehub-invocation".
       const envelope = config?.mcp_servers?.["t3-code"]
       if (envelope?.url !== "http://127.0.0.1/vitehub-chatgpt-configuration") return protocolFailure()
       let credentials
@@ -59,7 +59,7 @@ async function relayInput() {
         }
         stderrRetentionBytes = Math.max(stderrRetentionBytes, ${stderrMaxBytes} + Buffer.byteLength(secret))
       }
-      config.mcp_servers = credentials.mcp ? { vitehub: credentials.mcp } : {}
+      config.mcp_servers = credentials.mcp ? { "vitehub-invocation": credentials.mcp } : {}
       config["model_providers.openai_chatgpt_plan.http_headers"] = { Authorization: "Bearer " + credentials.key }
     }
     if (!child.stdin.write(JSON.stringify(message) + "\\n")) await once(child.stdin, "drain")

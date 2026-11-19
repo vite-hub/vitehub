@@ -474,7 +474,7 @@ describe("Provider Agent Driver", () => {
               const config = message.params.config
               const authorization = config["model_providers.openai_chatgpt_plan.http_headers"].Authorization
               const response = await fetch(${JSON.stringify(url)} + "/responses", { method: "POST", headers: { authorization } })
-              const mcp = config.mcp_servers.vitehub
+              const mcp = config.mcp_servers["vitehub-invocation"]
               process.stderr.write(authorization.slice(7) + "\\n" + (mcp?.http_headers.Authorization.slice(7) || "") + "\\n")
               console.log(JSON.stringify({ id: message.id, result: { status: response.status, authorization, mcp, environment: process.env } }))
             }
@@ -3034,8 +3034,10 @@ cli_auth_credentials_store = "keyring"
       tools: { pushRepair: { inputSchema: { type: "object", properties: {} }, execute: async () => ({ pushed: true }) } },
     }) as never);
     const args = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs);
-    expect(args).toContain('mcp_servers.vitehub.tools={"pushRepair"={approval_mode="approve"}}');
-    expect(args).toContain('bearer_token_env_var="VITEHUB_MCP_BEARER_TOKEN"');
+    expect(args).toMatch(/mcp_servers\.vitehub-invocation\.url="http:\/\/127\.0\.0\.1:\d+\/mcp"/);
+    expect(args).toContain('mcp_servers.vitehub-invocation.tools={"pushRepair"={approval_mode="approve"}}');
+    expect(args).toContain('mcp_servers.vitehub-invocation.bearer_token_env_var="VITEHUB_MCP_BEARER_TOKEN"');
+    expect(args).not.toContain("mcp_servers.vitehub.");
     expect(args).toContain('shell_environment_policy.set.VITEHUB_MCP_BEARER_TOKEN=""');
     expect(args).not.toContain("shell_environment_policy.exclude=");
     expect(createProviderRuntime.mock.lastCall?.[0].environment?.VITEHUB_MCP_BEARER_TOKEN).toEqual(expect.any(String));

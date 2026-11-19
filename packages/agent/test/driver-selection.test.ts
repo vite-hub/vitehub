@@ -185,7 +185,7 @@ describe("built-in Agent Driver selection", () => {
   it("names VITEHUB_MCP_BEARER_TOKEN when driver.env sets only the old T3_MCP_BEARER_TOKEN", () => {
     expect(() => normalizeAgentDriver({ driver: codexDriver({ env: { T3_MCP_BEARER_TOKEN: "token" } }) })).toThrow(expect.objectContaining({
       code: "AGENT_MCP_BEARER_TOKEN_RENAMED",
-      fix: expect.stringContaining("VITEHUB_MCP_BEARER_TOKEN"),
+      fix: expect.stringContaining("Remove `T3_MCP_BEARER_TOKEN` from `driver.env`. ViteHub sets `VITEHUB_MCP_BEARER_TOKEN`."),
     }))
     expect(normalizeAgentDriver({ driver: codexDriver({ env: { T3_MCP_BEARER_TOKEN: "token", VITEHUB_MCP_BEARER_TOKEN: "token" } }) })).toMatchObject({ kind: "provider" })
     expect(normalizeAgentDriver({ driver: claudeCodeDriver({ env: { T3_MCP_BEARER_TOKEN: "token" } }) })).toMatchObject({ kind: "provider" })

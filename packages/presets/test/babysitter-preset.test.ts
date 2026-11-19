@@ -373,7 +373,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { number?:
     let threadId = `pass-${passes.length}`;
     let finishTurn!: () => void;
     const turnSent = new Promise<void>(resolve => { finishTurn = resolve });
-    const configuredEndpoint = options.settings?.launchArgs?.match(/mcp_servers\.vitehub\.url=("[^"]+")/)?.[1];
+    const configuredEndpoint = options.settings?.launchArgs?.match(/mcp_servers\.vitehub-invocation\.url=("[^"]+")/)?.[1];
     let mcp: { endpoint: string; authorizationHeader: string } | undefined = configuredEndpoint
       ? { endpoint: JSON.parse(configuredEndpoint), authorizationHeader: `Bearer ${options.environment?.VITEHUB_MCP_BEARER_TOKEN}` }
       : undefined;
