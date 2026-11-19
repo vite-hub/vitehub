@@ -447,17 +447,21 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // from the live site. The Markdown copies are neither, so it is told that every page has one.
     // A build that prerenders only some routes, such as a bundle analysis, also has indexed pages that are not on the
     // live site yet, like a new section. The manifest has them, so they are valid too. Only the link checker module
-    // skips them: `checkDocsLinks()` reads the built pages and still checks their fragments.
-    const indexedPagePaths = new Set(docsManifestPages(manifest).filter(page => docsPageIndexed(page)).map(page => docsAppPath(page.path, config.appBase)))
+    // skips them, including links with queries or fragments: `checkDocsLinks()` still checks the built pages.
+    const indexedPagePaths = docsManifestPages(manifest).filter(docsPageIndexed).map(page => docsAppPath(page.path, config.appBase))
+    const indexedPageExclusions = new Set<string | RegExp>(indexedPagePaths)
+    if (indexedPagePaths.length)
+      indexedPageExclusions.add(new RegExp(`^(?:${indexedPagePaths.map(path => RegExp.escape(path)).join("|")})[?#]`))
     if (options.linkChecker !== false) {
       const linkChecker = (moduleOptions.linkChecker ??= {})
       linkChecker.excludeLinks = [
         ...linkChecker.excludeLinks ?? [],
         ...options.linkChecker?.excludeLinks ?? [],
+        ...config.mcp ? [/^(?:cursor:\/\/anysphere\.cursor-deeplink\/mcp\/install|vscode:mcp\/install)\?/] : [],
         ...docsManifestPages(manifest).map(page => docsAppPath(docsRawPath(page.path), config.appBase)),
         // A page with `seo.index: false` is not prerendered, but the manifest has it, so links to it are valid.
         ...docsManifestPages(manifest).filter(page => !docsPageIndexed(page)).map(page => docsAppPath(page.path, config.appBase)),
-        ...indexedPagePaths,
+        ...indexedPageExclusions,
       ]
     }
 
@@ -835,7 +839,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           const settings = options.linkChecker || {}
           const result = checkDocsLinks({ dir: nitro.options.output.publicDir, siteUrl: config.site.url || "https://docs.local", appBase: config.appBase, ...settings, isRuntimePath: docsRuntimePath(nitro.options, config.appBase, docsMount(manifest)), excludeLinks: [
             // Indexed pages stay checked here, with their fragments.
-            ...(moduleOptions.linkChecker?.excludeLinks ?? []).filter(link => typeof link !== "string" || !indexedPagePaths.has(link)),
+            ...(moduleOptions.linkChecker?.excludeLinks ?? []).filter(link => !indexedPageExclusions.has(link)),
             ...settings.excludeLinks ?? [],
             ...redirects.map(redirect => docsAppPath(redirect.from, config.appBase)),
             // The MCP endpoint is a server route, so the built output has no file for it.
@@ -943,7 +947,7 @@ function docsRuntimePath(nitro: NitroOptions, appBase: string, mount: string): (
 const shellIcons = [
   "i-lucide-arrow-left", "i-lucide-arrow-right", "i-lucide-book-open", "i-lucide-check", "i-lucide-chevron-down", "i-lucide-chevron-right", "i-lucide-copy", "i-lucide-file",
   "i-lucide-folder-open", "i-lucide-link", "i-lucide-panel-left", "i-lucide-plug", "i-lucide-search", "i-lucide-x",
-  "i-simple-icons-anthropic", "i-simple-icons-cursor",
+  "i-simple-icons-anthropic", "i-simple-icons-claude", "i-simple-icons-cursor", "i-simple-icons-windsurf",
   "i-simple-icons-github", "i-simple-icons-markdown", "i-simple-icons-openai", "i-simple-icons-visualstudiocode",
   "i-vscode-icons-file-type-dotenv", "i-vscode-icons-file-type-js", "i-vscode-icons-file-type-js-official", "i-vscode-icons-file-type-json", "i-vscode-icons-file-type-markdown",
   "i-vscode-icons-file-type-nuxt", "i-vscode-icons-file-type-node", "i-vscode-icons-file-type-text", "i-vscode-icons-file-type-typescript",

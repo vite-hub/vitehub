@@ -43,7 +43,6 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     agent: true,
-    workflow: false,
   },
 })
 ```
@@ -59,7 +58,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       agent: true,
-      workflow: false,
     }),
     nitro(),
   ],
@@ -76,7 +74,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       agent: true,
-      workflow: false,
     }),
   ],
 })
@@ -84,7 +81,7 @@ export default defineConfig({
 :::
 ::
 
-`workflow: false` runs each reply inline in the server process. If a reply must survive a restart, see [Workflow](/docs/workflows).
+The Agent runs each reply inline in the server process. If a reply must survive a restart, see [Workflow](/docs/workflows).
 
 ### Define the Agent
 
@@ -154,7 +151,6 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     agent: true,
-    workflow: false,
   },
   vite: {
     server: { allowedHosts: ['.trycloudflare.com'] },
@@ -174,7 +170,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       agent: true,
-      workflow: false,
     }),
     nitro(),
   ],
@@ -192,7 +187,6 @@ export default defineConfig({
   plugins: [
     vitehub({
       agent: true,
-      workflow: false,
     }),
   ],
 })
@@ -221,7 +215,7 @@ pnpm vitehub channels sync --stage development \
   --apply --confirm-origin https://your-tunnel.trycloudflare.com
 ```
 
-It reads the token and secret from the environment, checks that the route is live at that origin, and calls Telegram's `setWebhook`. It never prints the secrets. See [Synchronize Channel webhooks](/docs/development/cli#synchronize-channel-webhooks) for other flags.
+It reads the token and secret from the environment, checks that the route is live at that origin, and calls Telegram's `setWebhook`. It never prints the secrets. See [Synchronize Channel webhooks](/docs/cli/agents#synchronize-channel-webhooks) for other flags.
 
 Send the bot a direct message, and it replies to your message. In a group, mention it: `@acme_assistant_bot what is ViteHub?`.
 

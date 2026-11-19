@@ -1,10 +1,12 @@
 import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
+import { registerViteHubUserData } from "@vite-hub/internal/runtime/user-data"
 import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { commentsRoleGrants } from "../operations-core/define.ts"
 import { commentsErrorDiagnostics } from "../operations-core/errors.ts"
 import { installCommentsRuntime } from "../operations-core/server.ts"
 import { runtimeBuilds } from "../installed.ts"
+import { commentsTableNames } from "../table-names.ts"
 import { resolveCommentsIdentity, resolveCommentsPage } from "./session.ts"
 
 import type { Comments } from "../index.ts"
@@ -88,6 +90,16 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
     runtimeBuilds.set(options.comments, build)
     installCommentsRuntime(build)
     Reflect.set(globalThis, runtimeKey, options.comments)
+    // Auth `deleteAccount` deletes the messages of the user. An app without a Comments Database has none.
+    registerViteHubUserData(nitroApp, {
+      owner: "comments",
+      tables: [commentsTableNames.vitehubCommentThreads, commentsTableNames.vitehubCommentMessages],
+      async delete(userId) {
+        if (!await options.database()) return
+        const runtime = await build()
+        for (const threadId of await runtime.store.deleteUser(userId)) runtime.forge?.changed(threadId)
+      },
+    })
 
     // `overlay: false` leaves the page tool out; the API, the operations, and the Console stay.
     if (options.overlay === false) return

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 import { createEnvImportAliases, hubEnv } from "@vite-hub/env/vite"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 
-import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth, resolveAuthViteConfig } from "./vite.ts"
+import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth, resolveAuthViteConfig, writeNuxtAuthDefinition } from "./vite.ts"
 
 import { authAbilitiesCandidates } from "./discovery.ts"
 
@@ -140,7 +140,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
       if (authConfig) {
         nitroConfig.alias = {
           ...(nitroConfig.alias as Record<string, string> | undefined),
-          "#vitehub/auth/definition": authConfig.definition.handler,
+          "#vitehub/auth/definition": await writeNuxtAuthDefinition(viteRoot, authConfig),
           ...(authConfig.abilities ? { "#vitehub/auth/abilities": authConfig.abilities } : {}),
         }
       }

@@ -17,7 +17,7 @@ function read(path: string) {
 describe("docs page actions", () => {
   it("names the ViteHub site and MCP server in the docs options", () => {
     expect(config.docs?.site).toMatchObject(site);
-    expect(config.docs?.mcp).toEqual({ name: docsMcpServerName, guide: "/docs/getting-started/ai-resources/mcp-server" });
+    expect(config.docs?.mcp).toEqual({ name: docsMcpServerName, guide: "/docs/console/mcp" });
   });
 
   it("shows the page actions on article and landing pages", () => {
@@ -49,7 +49,7 @@ describe("docs page actions", () => {
   });
 
   it("uses the generated MCP endpoint and server name in every setup snippet", () => {
-    const guide = read("content/docs/getting-started/ai-resources/mcp-server.md");
+    const guide = read("content/docs/console/mcp.md");
     const endpoints = [...guide.matchAll(/https:\/\/vitehub\.dev\/mcp\b[^\s"'`)]*/g)].map(
       (match) => match[0],
     );

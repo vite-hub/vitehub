@@ -59,7 +59,9 @@ function assertTarget(name: string, key: string): void {
 }
 
 function limitersFor(target: RateLimitCounterTarget): RateLimiter[] | undefined {
-  return target.provider === "cloudflare" ? undefined : listRuntimeRateLimiters(target.name)
+  const limiters = listRuntimeRateLimiters(target.name)
+  // On Cloudflare, only a Rate Limit whose window counts in KV has a limiter in this process.
+  return target.provider === "cloudflare" && limiters.length === 0 ? undefined : limiters
 }
 
 /**

@@ -49,18 +49,16 @@ The module scans the server directory of the app and of each Nuxt layer.
 | I18n | `i18n` | None. Messages are collected from source files; translations live in `locales/` or the configured Workspace. | `getRequestI18n`, `useTranslations` |
 | KV | `kv` | None | `kv` |
 | Queue | `queue` | `server/queues/` | `defineQueue`, `deferQueue`, `useQueue`, `sendQueue` |
-| Rate Limit | `rateLimit` | None. The build reads the `requireRateLimit()` and `checkRateLimit()` calls in server files. | `checkRateLimit`, `peekRateLimit`, `requireRateLimit`, `resetRateLimit` |
+| Rate Limit | `rateLimit` | None. The build reads the `requireRateLimit()`, `checkRateLimit()`, and `refundRateLimit()` calls in server files. | `checkRateLimit`, `peekRateLimit`, `refundRateLimit`, `requireRateLimit`, `resetRateLimit` |
 | Realtime | `realtime` | `server/realtime/` | `defineRealtime`, `isRealtimeAvailable`, `refreshRealtimeDocument` |
 | Sandbox Task | `sandboxTask` | `server/sandbox-tasks/` | `runSandboxTask` |
 | Schedule | `schedule` | `server/schedules/` | `cancelSchedule`, `getSchedule`, `listSchedules`, `startSchedule` |
 | SEO | `seo: { sitemap }` | `server/sitemap.ts` | `defineSitemap` |
-| Workflow | `workflow`, or enabled through `agent` | `server/workflows/` | `cancelWorkflow`, `deferWorkflow`, `getWorkflowRun`, `resumeWorkflow`, `startWorkflow` |
+| Workflow | `workflow` | `server/workflows/` | `cancelWorkflow`, `deferWorkflow`, `getWorkflowRun`, `resumeWorkflow`, `startWorkflow` |
 | Workspace | `workspace` | `server/workspaces/` | `useWorkspace` |
 
 - A feature that is off adds no auto-imports. A host without the service adds
   none either. For example, `queue: true` on Netlify adds no Queue helpers.
-- Agent also enables Workflow unless `workflow: false`. On Netlify, Agent
-  does not enable Workflow by default.
 - [File conventions](/docs/reference/file-conventions) shows the file names in
   each folder and the suffix form, such as `<path>.queue.ts`.
 - `useServerEnv` comes from `vite-hub/env`. Its

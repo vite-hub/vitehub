@@ -74,6 +74,7 @@ export interface KVVitePluginAPI {
   /** The variables that the KV stores read on the deployed host. See `kvDeploymentEnv()`. */
   deploymentEnv: DeploymentEnvContribution
   getConfig: () => KVViteRuntimeConfig
+  getBuildConfig: () => KVViteRuntimeConfig
 }
 
 export type KVVitePlugin = Plugin & {
@@ -415,7 +416,11 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
   return {
     name: KV_VITE_PLUGIN_NAME,
     enforce: "post",
-    api: { deploymentEnv: () => kvDeploymentEnv(getConfig().kv), getConfig },
+    api: {
+      deploymentEnv: () => kvDeploymentEnv(getConfig().kv),
+      getBuildConfig: () => resolveKVViteConfig(options, { hosting: input.hosting, postgresDatabase: postgresDatabase() }),
+      getConfig,
+    },
     nitro: {
       name: "@vite-hub/kv/cloudflare-bindings",
       setup(nitro) {

@@ -106,3 +106,47 @@ it("inserts one thread when two creates with the same requestId race", async () 
   expect(await store.list({ limit: 10 })).toHaveLength(1)
   expect((await store.createThread({ ...thread("Other scope"), requestId: "draft-1", scope: "doc:guide" })).id).not.toBe(a.id)
 })
+
+it("deletes the messages of one person and keeps the replies of other people", async () => {
+  const { store } = await countedStore()
+  const alone = await store.createThread(thread("Only Ada wrote here"))
+  const replied = await store.createThread(thread("Ada asks"))
+  await store.addMessage(replied.id, message("Grace answers", grace))
+  const answered = await store.createThread({ ...thread("Grace asks"), author: grace })
+  await store.addMessage(answered.id, message("Ada answers"))
+  const unrelated = await store.createThread({ ...thread("Grace only"), author: grace })
+  await store.setStatus(unrelated.id, "resolved", ada, Date.now())
+
+  expect((await store.deleteUser("ada")).sort()).toEqual([alone.id, replied.id, answered.id, unrelated.id].sort())
+
+  expect(await store.getById(alone.id)).toBeNull()
+  const kept = await store.getById(replied.id)
+  expect(kept?.author).toEqual({ id: "ada" })
+  expect(kept?.messages.map(entry => entry.body)).toEqual(["Grace answers"])
+  expect((await store.getById(answered.id))?.messages.map(entry => entry.body)).toEqual(["Grace asks"])
+  const resolved = await store.getById(unrelated.id)
+  expect(resolved).toMatchObject({ status: "resolved", messages: [{ body: "Grace only" }] })
+  expect(resolved?.resolvedBy).toBeUndefined()
+  expect(await store.deleteUser("ada")).toEqual([])
+})
+
+it("checks for surviving replies and the current resolver after locking the thread", async () => {
+  const client = createClient({ url: ":memory:" })
+  try {
+    await client.executeMultiple(commentsMigration)
+    const store = createCommentsStore(drizzle({ client }))
+    const opened = await store.createThread(thread("Ada asks"))
+    await store.setStatus(opened.id, "resolved", ada, Date.now())
+    await client.execute(`CREATE TRIGGER reply_before_thread_lock BEFORE UPDATE OF id ON vitehub_comment_threads BEGIN
+      INSERT INTO vitehub_comment_messages (id, thread_id, body, author_id, mentions, attachments, created_at)
+      VALUES ('racing-reply', OLD.id, 'Grace answers', 'grace', '[]', '[]', 1);
+      UPDATE vitehub_comment_threads SET resolved_by = '{"id":"grace"}' WHERE id = OLD.id;
+    END`)
+
+    await expect(store.deleteUser("ada")).resolves.toEqual([opened.id])
+    expect(await store.getById(opened.id)).toMatchObject({ resolvedBy: { id: "grace" }, messages: [{ body: "Grace answers" }] })
+  }
+  finally {
+    client.close()
+  }
+})

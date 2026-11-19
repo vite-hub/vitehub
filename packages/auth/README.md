@@ -76,6 +76,24 @@ export default defineAuth({
 
 The plugin also adds a column for each `additionalFields` entry of `user`, `session`, `account`, and `verification`, and the tables and columns of `twoFactor()`, `username()`, `anonymous()`, `phoneNumber()`, `lastLoginMethod()`, `apiKey()` from `@better-auth/api-key`, and `stripe()` from `@better-auth/stripe` when the Definition module imports and calls them. It writes them to `.vitehub/auth/schema.ts` with `createAuthSqliteSchema()` or `createAuthPostgresSchema()`. Write `additionalFields` inline with a literal `type`, or Auth fails with `AUTH_C0055`. Tables of other plugins go in the Database Definition. When the SQLite Database has some of the tables already, for example an app that wrote the Better Auth tables itself, the plugin reads them from the snapshot of the latest migration, and `createAuthSqliteSchema(options, existing)` keeps their column defaults, unique keys, indexes, and foreign keys. The next migration then adds columns, tables, and indexes and rebuilds no table, so the drop of a rebuild cannot delete the rows that reference `user` or `organization`. The tables of `authSqliteSchema` and `authPostgresSchema` have typed columns. Before it opens the Database, the adapter compares the tables and columns that the options need with the Database, and fails with `AUTH_C0056` for a missing one or for model or field remapping.
 
+## Delete an account
+
+```ts
+// server/auth.ts
+import { defineAuth } from "@vite-hub/auth";
+import { authDatabase } from "@vite-hub/auth/database";
+
+export default defineAuth({
+  database: authDatabase(),
+  emailAndPassword: { enabled: true },
+  deleteAccount: true,
+});
+```
+
+`deleteAccount` turns on Better Auth `deleteUser`. Use stored Auth without `stateless()` or `session.cookieCache.enabled` so existing sessions can be revoked. Before Better Auth deletes the user, Auth deletes the user's Comments messages and Forms submissions in that app, then rows in Better Auth tables that reference the user, such as passkeys and MCP tokens, even without foreign keys. To delete database-backed API keys, list only the configurations that reference users in `deleteAccount.userApiKeyConfigIds`. Use `"default"` for an unnamed user-owned configuration. Unlisted configurations are left alone.
+
+Pass `deleteAccount: { beforeDelete }` to delete the app's own rows first, or throw an `APIError` there to keep the account. When a primitive fails, Auth keeps the account and fails with `AUTH_DELETE_ACCOUNT_FAILED`. Better Auth `user.deleteUser` fails with `AUTH_DELETE_USER_UNSUPPORTED`.
+
 ## First admin
 
 `VITEHUB_ADMINS` is a comma-separated list of social accounts, each `<provider>:<account id>`, such as `github:22072217`. When a listed account signs in or is linked, its user gets the first `adminRoles` entry of Better Auth's `admin()` plugin (`admin` by default), in place of the default role. Removing an entry does not remove the role. Without `admin()`, Auth fails with `AUTH_C0051`. The Auth Console lists the rule in its access notes. Emails are refused (`AUTH_C0058`), because a password sign-up does not prove email ownership. The removed `VITEHUB_ADMIN_EMAILS` fails with `AUTH_C0057`.
@@ -173,6 +191,8 @@ When `@vite-hub/env` is installed, the Auth Definition callback receives the typ
 Behind a proxy that ends TLS, set Better Auth's `advanced.trustedProxyHeaders: true`. `requestOrigin`, the default `baseURL`, and the `Origin` check then use the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. Set it only when a proxy you run sets these headers. Proxy trust uses the options of the Definition, or the object that its callback returns.
 
 Each Auth request or route guard runs its Definition callback once, then once more with the forwarded origin if the effective options trust proxy headers and that origin differs. If the second run disables trust, Auth keeps the request URL's origin and disables proxy trust. The guard uses the same resolved options for session lookup, route authorization, and automatic provider sign-in. A later request resolves fresh options. Requests with equal resolved options share one Better Auth instance. Plain values compare by value. Functions, adapters, and bindings compare by identity, so an instance never keeps an object that another request created. `authDatabase()` adapters compare by Database name. A change to a variable that the instance uses, such as `VITEHUB_SECRET`, `BETTER_AUTH_SECRET`, `VITEHUB_ADMINS`, or `VITEHUB_MEMBERS`, gives a new instance on the next request. A callback that creates plugins or other adapters on each call builds a new instance on each request, so create them outside the callback when they do not depend on the request. All guards of one request share one session lookup: access routes, `requireAuth()`, `requireAuthorization()`, `withAuth()`, `withAuthorization()`, and `withAnonymousAuthorization()`.
+
+With `access.signIn`, the Auth route also answers `GET /api/auth/sign-in?redirect=/docs` and `GET /api/auth/sign-out?redirect=/`, below the Auth Base Path. The sign-in path starts `access.signIn` and comes back to `redirect` (default: `access.signIn.callbackURL`, or `/`). A signed-in visitor goes to `redirect` at once. The sign-out path ends the session and goes to `redirect` (default `/`). It refuses a request from another site (`Sec-Fetch-Site` `cross-site` or `same-site`) and a prefetch or prerender (`Sec-Purpose`) with `403`. `redirect` must be a path of the app, below `app.baseURL` like the page guard's `?redirect=`, or the answer is `400`. Without `access.signIn`, Better Auth answers these paths with `404`.
 
 The generated Nitro middleware uses `access.signIn` when one of the configured `access.routes` needs a browser redirect. Route objects can add an `authorize` callback when a valid session is not sufficient:
 
@@ -364,7 +384,7 @@ export const session = useUserSession();
 
 `session.signOut()` calls Better Auth's `signOut()` and sets `user` and `session` to `null` at once, in every component that reads the session. It does not wait for Better Auth to read the session again. `signOut({ redirectTo: "/" })` then opens that page: a plain Vue app loads it with `location.assign()`, and Nuxt opens it with `navigateTo()`. Better Auth gets the other options, such as `fetchOptions`, and `signOut()` returns Better Auth's result. When the sign-out fails, the session and the page stay. When the server answers with the provider's sign-out page, such as with OpenID Connect logout, `signOut()` opens that page in place of `redirectTo`, after the `onSignOut()` listeners, and only when it is an `http:` or `https:` page. With `disableRedirect: true`, it returns that page in `data.url` and opens `redirectTo`.
 
-On the server, `signOut(event, { redirectTo })` from `@vite-hub/auth/server` ends the session of a request event or a Web `Request` and returns the response that clears the session cookies: a `303` redirect to `redirectTo`, or `204` without it. If Better Auth returns a provider logout URL, the response redirects there first and passes `redirectTo` as the return URL. Return it from a route such as `server/routes/logout.get.ts`. `redirectTo` must be a path of the app, or it throws `AUTH_SIGN_OUT_REDIRECT_INVALID`.
+On the server, `signOut(event, { redirectTo })` from `@vite-hub/auth/server` ends the session of a request event or a Web `Request` and returns the response that clears the session cookies: a `303` redirect to `redirectTo`, or `204` without it. If Better Auth returns a provider logout URL, the response redirects there first and passes `redirectTo` as the return URL. Return it from a route such as `server/routes/logout.get.ts`. With `access.signIn`, a link to `/api/auth/sign-out` does the same without a route of your own. `redirectTo` must be a path of the app, or it throws `AUTH_SIGN_OUT_REDIRECT_INVALID`.
 
 That default talks to `/api/auth` on the same origin. In a Nuxt app below `app.baseURL`, such as `/app/`, it talks to `/app/api/auth`, and the server serves Auth routes and OAuth callbacks below the same path.
 
@@ -547,7 +567,7 @@ export default defineAuth({
 });
 ```
 
-`@vite-hub/auth/mcp` makes Better Auth the OAuth 2.1 authorization server of an MCP server that the app owns, such as `/mcp`. `mcpOAuth({ resource, loginPage })` returns `jwt()`, `oauthProvider()` with open dynamic registration for native MCP clients, and a guard that bounds the registration body and its fields. `serveMcpOAuthDiscovery(request)` answers the protected resource, authorization server, and OpenID documents at the origin root, with CORS for any origin and `204` for an `OPTIONS` preflight, and returns `undefined` for other paths. `verifyMcpRequest(request)` returns `[error, caller]` with the user, scopes, and client name of a valid access token. `deleteUnusedMcpClients()` deletes registrations that never finished sign-in. Install `@better-auth/oauth-provider` with the version of `better-auth` that this package uses.
+`@vite-hub/auth/mcp` makes Better Auth the OAuth 2.1 authorization server of an MCP server that the app owns, such as `/mcp`. `mcpOAuth({ resource, loginPage })` returns `jwt()`, `oauthProvider()` with open dynamic registration for native MCP clients, and a guard that bounds the registration body and its fields. `serveMcpOAuthDiscovery(request)` answers the protected resource, authorization server, and OpenID documents at the origin root, with CORS for any origin and `204` for an `OPTIONS` preflight, and returns `undefined` for other paths. `verifyMcpRequest(request)` returns `[error, caller]` with the user, scopes, and client name of a valid access token. `requireCaller(event)` from `@vite-hub/auth/server` returns `[error, caller]` for a session (`kind: "browser"`) or an access token on any route of the app (`kind: "agent"`, with `client` and `scopes`), so a route can refuse an Agent. `requireAuth()` stays session-only. `deleteUnusedMcpClients()` deletes registrations that never finished sign-in. Install `@better-auth/oauth-provider` with the version of `better-auth` that this package uses.
 
 ```ts
 // server/auth.ts
@@ -589,7 +609,7 @@ import { ViteHubError } from "@vite-hub/runtime";
 const error = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in to use this Agent.");
 ```
 
-`error.toJSON()` includes `name`, `code`, and `message`, while omitting `cause` and stack data. If a default Better Auth request or session operation fails, `authenticated()`, `withAuth()`, and `withAuthorization()` throw the same shared error with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. Existing ViteHub errors and structural `AbortError` objects keep their identity. Missing APIs, malformed responses, invalid Auth configuration, and invalid custom callback results use package-owned `AUTH_C####`, `AUTH_B####`, or `AUTH_R####` Nostics codes.
+`error.toJSON()` includes `name`, `code`, and `message`, while omitting `cause` and stack data. If a default Better Auth request or session operation fails, `authenticated()`, `withAuth()`, and `withAuthorization()` throw the same shared error with code `AUTH_PROVIDER_OPERATION_FAILED` and safe operation details; raw provider diagnostics remain available only through `cause`. A Better Auth `4xx` refusal of the session read, such as an invalid key of the API Key plugin, is answered with its status, `data.code`, and headers instead: the wrappers return it, and the `require*` guards throw it as an H3 `HTTPError`. Existing ViteHub errors and structural `AbortError` objects keep their identity. Missing APIs, malformed responses, invalid Auth configuration, and invalid custom callback results use package-owned `AUTH_C####`, `AUTH_B####`, or `AUTH_R####` Nostics codes.
 
 ## Test a signed-in route
 

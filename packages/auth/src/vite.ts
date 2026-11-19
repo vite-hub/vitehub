@@ -162,12 +162,13 @@ interface InternalAuthModuleOptions {
   importBase?: string
 }
 
-function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, options: { importBase?: string, serverEnv: boolean } = { serverEnv: false }): string {
+function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, options: { importBase?: string, serverEnv: boolean, testMode?: boolean } = { serverEnv: false }): string {
   if (!config) {
-    return "export const definition = undefined\nexport default definition\n"
+    return "export const definition = undefined\nexport const getAuthApp = () => undefined\nexport default definition\n"
   }
   return [
     `import definition from ${JSON.stringify(config.definition.handler)}`,
+    options.testMode ? "export const getAuthApp = () => undefined" : 'export { useNitroApp as getAuthApp } from "nitro/app"',
     // The Auth server module imports this module, so the Env resolver is set before the first Auth instance.
     ...(options.serverEnv
       ? [
@@ -180,6 +181,12 @@ function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, 
     "export default definition",
     "",
   ].join("\n")
+}
+
+export async function writeNuxtAuthDefinition(root: string, config: ResolvedAuthViteConfig): Promise<string> {
+  const file = resolve(resolveViteHubProjectRoot(root), ".vitehub/auth/definition.ts")
+  await writeFileIfChanged(file, renderAuthDefinitionModule(config))
+  return file
 }
 
 /** Private Auth entries of the distribution. */
@@ -550,10 +557,9 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
       handler(id) {
         if (id === RESOLVED_AUTH_ABILITIES_ID) return renderAuthAbilitiesModule(runtimeConfig)
         if (id === RESOLVED_AUTH_CLIENT_ID) return "export default undefined\n"
-        if (id === RESOLVED_AUTH_DEFINITION_ID) return renderAuthDefinitionModule(runtimeConfig, { importBase, serverEnv })
+        if (id === RESOLVED_AUTH_DEFINITION_ID) return renderAuthDefinitionModule(runtimeConfig, { importBase, serverEnv, testMode: resolved?.mode === "test" })
         if (id === RESOLVED_AUTH_SERVER_ID) return renderAuthServerModule({ importBase })
       },
     },
   }
 }
-

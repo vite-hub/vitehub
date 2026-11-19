@@ -1,12 +1,12 @@
 ---
 title: Runtime events
 description: The event, policy, approval, stream, and usage records that ViteHub packages share.
-navigation.order: 57
-navigation.group: Runtime and output
+navigation.order: 4
+navigation.group: Reference
 icon: i-lucide-activity
 ---
 
-Runtime events record what happened across ViteHub packages. `@vite-hub/runtime` owns them, with capability handles and wait-until behavior. [Runtime Context](/docs/reference/runtime-context) carries them.
+Runtime events record what happened across ViteHub packages. `@vite-hub/runtime` owns them, with capability handles and wait-until behavior. [Runtime Context](/docs/runtime/context) carries them.
 
 ## Trace Event
 
@@ -96,5 +96,5 @@ Streams send it as `{ type: "usage", usageRecord }`. At the end, read it from `e
 ## Related
 
 - [Agent Evals](/docs/agents/evals)
-- [CLI inspection](/docs/development/cli)
+- [CLI inspection](/docs/cli)
 - [Errors and diagnostics](/docs/reference/errors-diagnostics)

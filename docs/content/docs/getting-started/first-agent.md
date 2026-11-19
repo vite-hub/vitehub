@@ -30,18 +30,13 @@ Install the Agent package:
 pnpm add @vite-hub/agent
 ```
 
-Set `workflow: false` in the ViteHub options, because this Agent finishes inside the
-HTTP request. Keep your other features. You do not add an `agent` option: the Agent
-file that you create next, in `server/agents/`, turns Agents on.
+The file you create next in `server/agents/` turns Agents on. You do not need to set `agent` or `workflow` for this inline Agent. Keep your other ViteHub options.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: {
-    workflow: false,
-  },
 })
 ```
 ::::
@@ -54,9 +49,7 @@ import { vitehub } from "vite-hub"
 
 export default defineConfig({
   plugins: [
-    vitehub({
-      workflow: false,
-    }),
+    vitehub(),
     nitro(),
   ],
 })
@@ -69,11 +62,7 @@ import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [
-    vitehub({
-      workflow: false,
-    }),
-  ],
+  plugins: [vitehub()],
 })
 ```
 ::::
@@ -134,7 +123,7 @@ run. It returns `[undefined, result]` on success or `[error, undefined]` on
 failure. Check the error before you read `result.text`.
 
 For request metadata or host bindings, pass the public
-[`getRuntimeContext(event)` adapter](/docs/reference/runtime-context) as
+[`getRuntimeContext(event)` adapter](/docs/runtime/context) as
 `runAgent(agent, input, { runtimeContext: getRuntimeContext(event) })`. The
 greeting needs only its prompt.
 

@@ -6799,12 +6799,11 @@ describe("Agent Invocations", () => {
         get(target, property) {
           if (property === "batch") {
             return async (...args: Parameters<Client["batch"]>) => {
-              const statements = args[0]
-              const firstStatement = statements[0]
-              if (typeof firstStatement === "object"
-                && "sql" in firstStatement && typeof firstStatement.sql === "string"
-                && firstStatement.sql.includes("SET search")) {
-                pageSizes.push(statements.length)
+              const searchUpdates = args[0].filter(statement =>
+                typeof statement === "object" && "sql" in statement && statement.sql.includes("SET search ="),
+              )
+              if (searchUpdates.length) {
+                pageSizes.push(searchUpdates.length)
                 if (--failPage === 0) throw new Error("migration interrupted")
               }
               return target.batch(...args)

@@ -383,7 +383,7 @@ one disk, so they do not work across several instances.
 | Rate Limit | `kv` when KV is on, else `memory`. | Yes when KV uses Postgres, Redis, or Upstash. `memory`, or `kv` on `fs-lite`, counts in one process and resets on restart. See [Share counts on Node](/docs/rate-limit/hosts#share-counts-on-node). |
 | Realtime | `auto`: Redis with `REDIS_URL`, else Postgres on the Default Database when it is on Postgres, else memory | With Redis or Postgres, each instance holds its rooms in memory and shares them with the other instances. Unsaved edits survive while an instance keeps the room open, except for a reset after an [interrupted normalizing save](/docs/realtime/server-api#interrupted-normalizing-saves). With memory, one process. See [Share rooms across Node instances](/docs/realtime/configure#share-rooms-across-node-instances). |
 | Schedule | The Process Runtime runs Schedules in the server process. Set `providerOutput: false` to wake Schedules yourself. | No. The Process Runtime has no distributed lock, so every instance runs each Schedule. |
-| Workflow | None. Set `workflow.postgres.url` or `workflow.sqlite.path` to select OpenWorkflow, or the build fails with `WORKFLOW_C0020`. The Workflow that only `agent` turns on runs inline in the request process. | Only with OpenWorkflow and `postgres.url`. ViteHub does not start the OpenWorkflow worker, so runs stay `queued` until you call [`startOpenWorkflowWorker()`](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker) in a server plugin. |
+| Workflow | None. Set `workflow.postgres.url` or `workflow.sqlite.path` to select OpenWorkflow, or the build fails with `WORKFLOW_C0020`. With Workflow off, Agents run inline in the request process. | Only with OpenWorkflow and `postgres.url`. ViteHub does not start the OpenWorkflow worker, so runs stay `queued` until you call [`startOpenWorkflowWorker()`](https://github.com/vite-hub/vitehub/tree/main/packages/workflow#run-an-openworkflow-worker) in a server plugin. |
 | Sandbox | None | `sandboxTask: true` fails the build. `sandboxTask: { driver: 'vercel' }` uses Vercel Sandbox with Vercel credentials. |
 
 A multi-instance deploy today needs one instance that owns Schedule.
@@ -456,7 +456,7 @@ that an environment variable or the Default Database selects at boot shows
 correctly. Agent state, the Agent Invocation journal, and Workspace files
 report too. Run
 `vitehub durability list` to read the same report from the dev server. It is
-the `durability.list` [operation](/docs/development/operations). On a
+the `durability.list` [operation](/docs/console/operations). On a
 deployment, `--url` works when the app enables the Console, with credentials
 for the `durability` section. Server code can read the report with
 `getDurabilityReport()` from `vite-hub/runtime/durability`.

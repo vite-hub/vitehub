@@ -215,7 +215,7 @@ export function createPostgresQueueEngine(options: PostgresQueueEngineOptions): 
     if (known !== undefined) return known
     const definition = await options.load(queue)
     if (!definition) return undefined
-    const limit = Number(definition.options?.concurrency ?? 1)
+    const limit = Number(definition.concurrency ?? 1)
     const value = Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : 1
     concurrency.set(queue, value)
     return value

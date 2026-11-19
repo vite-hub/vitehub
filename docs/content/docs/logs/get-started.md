@@ -31,11 +31,12 @@ Add `observability.logs` and `console` to the ViteHub options of your app. Keep 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
-const isDev = process.env.NODE_ENV === 'development'
-
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { observability: { logs: true }, console: isDev ? { auth: false } : false },
+  vitehub: { observability: { logs: false }, console: false },
+  $development: {
+    vitehub: { observability: { logs: true }, console: { auth: false } },
+  },
 })
 ```
 ::::
@@ -47,11 +48,12 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig(({ command }) => {
-  const isDev = command === 'serve'
-
   return {
     plugins: [
-      vitehub({ observability: { logs: true }, console: isDev ? { auth: false } : false }),
+      vitehub({
+        observability: { logs: command === 'serve' ? true : false },
+        console: command === 'serve' ? { auth: false } : false,
+      }),
       nitro(),
     ],
   }
@@ -65,11 +67,12 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig(({ command }) => {
-  const isDev = command === 'serve'
-
   return {
     plugins: [
-      vitehub({ observability: { logs: true }, console: isDev ? { auth: false } : false }),
+      vitehub({
+        observability: { logs: command === 'serve' ? true : false },
+        console: command === 'serve' ? { auth: false } : false,
+      }),
     ],
   }
 })
@@ -77,8 +80,8 @@ export default defineConfig(({ command }) => {
 ::::
 :::
 
-- `observability: { logs: true }` saves the log events on your computer while the dev server runs.
-- `auth: false` lets you open the Console with no sign-in while the dev server runs. These configs disable the Console in production. See [Console](/docs/development/console) before you deploy.
+- `observability: { logs: true }` saves log events on your computer only in development. The production configuration disables capture: each server process would otherwise keep its own short history. See [What happens when you deploy](#what-happens-when-you-deploy).
+- `auth: false` lets you open the Console with no sign-in while the dev server runs. These configs disable the Console in production. See [Console](/docs/console) before you deploy.
 
 ::
 
@@ -113,7 +116,7 @@ pnpm dev
 2. Open a second terminal, and run `pnpm vitehub logs list --json`. Find the event with the message `Status checked`. It has your `message` and `deployment` fields, and the `path` `/api/status`.
 3. Open `/api/status` again, and run the command again to see a new event.
 
-The Logs section of the [Console](/docs/development/console) reads the same events with the `logs.list` operation, in Explorer and Stream views.
+The Logs section of the [Console](/docs/console) reads the same events with the `logs.list` operation, in Explorer and Stream views.
 
 ::
 

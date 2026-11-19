@@ -133,7 +133,7 @@ cat .vercel/output/config.json
 
 Vercel deploys Vite and Nitro apps with [zero configuration](https://vercel.com/docs/frameworks/full-stack/vite-with-nitro). Connect the Git repository to a Vercel project, or run `vercel deploy` from the app root. Vercel calls the cron paths on production. The project **Settings** page lists them under **Cron Jobs**, with their logs.
 
-To run a schedule outside its cron time, use `vitehub schedule run daily-report --url https://your-app.vercel.app`. The deployment needs the [Console](/docs/development/console) with `invoke` enabled. The CLI [signs the call](/docs/development/console#sign-console-requests) with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`, so it needs no Console login.
+To run a schedule outside its cron time, use `vitehub schedule run daily-report --url https://your-app.vercel.app`. The deployment needs the [Console](/docs/console) with `invoke` enabled. The CLI [signs the call](/docs/console/signed-requests) with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`, so it needs no Console login.
 
 ## Vercel Cron Jobs limits
 
