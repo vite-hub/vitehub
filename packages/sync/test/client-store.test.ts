@@ -327,6 +327,18 @@ describe("writes", () => {
     expect(h.server.applied.map(mutation => mutation.op === "insert" && mutation.value.title)).toEqual(["1", "2", "3"])
   })
 
+  it("sends the rest of the queue when a push answers for its first writes only", async () => {
+    const h = setup()
+    h.server.pushSize = 3
+    const { store } = h.open()
+    await store.refresh()
+    const writes = Array.from({ length: 10 }, (_, index) => store.insert({ title: String(index) }))
+    await Promise.all(writes)
+    expect(h.server.applied.map(mutation => mutation.op === "insert" && mutation.value.title)).toEqual(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"])
+    expect(posts(h).map(request => request.body!.mutations.length)).toEqual([10, 7, 4, 1])
+    expect(store.getState().queued).toBe(0)
+  })
+
   it("merges two offline updates of one row, and sends the last value (farm.js: writes raced)", async () => {
     const h = setup()
     seed(h, [{ id: "a", ownerId: "ada", title: "Milk" }])
