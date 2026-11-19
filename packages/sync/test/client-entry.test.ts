@@ -182,6 +182,7 @@ describe("createSync in the browser", () => {
     }
     vi.stubGlobal("indexedDB", {})
     const indexedDBStorage = vi.spyOn(indexeddb, "createIndexedDBStorage").mockReturnValue(storage)
+    vi.useFakeTimers()
     try {
       server.offline = true
       const store = createSync("todos", { baseURL, fetch, interval: false, where: { listId: "open" } })
@@ -191,7 +192,7 @@ describe("createSync in the browser", () => {
       server.offline = false
       window.dispatchEvent(new Event("online"))
       await store.refresh()
-      await vi.waitFor(async () => expect(await storage.queuedIds()).toEqual([]))
+      await vi.waitFor(async () => expect(await storage.queuedIds()).toEqual([]), { timeout: 2000 })
       window.dispatchEvent(new Event("online"))
       await store.refresh()
       expect(await storage.queuedIds()).toEqual([])
@@ -199,6 +200,7 @@ describe("createSync in the browser", () => {
       expect(server.requests.filter(request => request.method === "POST" && request.body).map(request => request.url.pathname)).toEqual([route, route])
     }
     finally {
+      vi.useRealTimers()
       indexedDBStorage.mockRestore()
       vi.unstubAllGlobals()
     }

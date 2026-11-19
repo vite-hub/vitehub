@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { runViteHubCli } from "@vite-hub/cli"
@@ -20,9 +20,11 @@ afterEach(async () => {
 })
 
 export async function createProject(files: Record<string, string>): Promise<string> {
-  // Inside the package so the app resolves `vite-hub` and its dependencies like an installed app.
-  const root = await mkdtemp(join(import.meta.dirname, "..", ".content-cms-"))
+  const scratch = join(import.meta.dirname, "../../../../.cache")
+  await mkdir(scratch, { recursive: true })
+  const root = await mkdtemp(join(scratch, "content-cms-"))
   roots.push(root)
+  await symlink(join(import.meta.dirname, "../../node_modules"), join(root, "node_modules"), "junction")
   for (const [file, content] of Object.entries(files)) {
     await mkdir(join(root, file, ".."), { recursive: true })
     await writeFile(join(root, file), content.replaceAll("<root>", root))
@@ -102,4 +104,3 @@ export type RunResult = {
   ids: string[]
   published: Array<{ change: string, collection: string, id: string }>
 }
-
