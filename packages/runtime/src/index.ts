@@ -95,13 +95,25 @@ function captureWebAssemblyModule(): { constructor: unknown, exports: unknown } 
 // Each capture is pure, so a bundle that never checks trace values drops it.
 const webAssemblyModule = /* @__PURE__ */ captureWebAssemblyModule()
 
+declare global {
+  namespace ViteHub {
+    /** Generated declarations set `user` and `session` to the types of the app's Auth Definition. */
+    interface AuthRegistry {}
+  }
+}
+
+/** The user of the app's Auth Definition, with the fields of its plugins. Without generated types, a record with an `id`. */
+type AccessUser = ViteHub.AuthRegistry extends { user: infer TUser extends { id: string } } ? TUser : Record<string, unknown> & { id: string }
+/** The session of the app's Auth Definition. Without generated types, a record. */
+type AccessSession = ViteHub.AuthRegistry extends { session: infer TSession extends object } ? TSession : Record<string, unknown>
+
 /** `TEvent` is the input of the guard, such as the H3 event of a Nitro route. */
 export interface AccessAuthorizationContext<TEvent = ViteHubContext> {
   /** The input of the guard: the H3 event in a Nitro route, so `event.context` and helpers that take the event work. */
   event: TEvent
   request: Pick<Request, "body" | "headers" | "method" | "signal" | "url">
-  session: Record<string, unknown>
-  user: Record<string, unknown> & { id: string }
+  session: AccessSession
+  user: AccessUser
 }
 
 export type AccessAuthorizeResult = boolean | Response

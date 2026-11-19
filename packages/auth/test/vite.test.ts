@@ -284,6 +284,8 @@ describe("hubAuth", () => {
 
     const ambientTypes = await readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")
     expect(ambientTypes).toContain("interface AuthRegistry { definition: typeof import(\"../../server/auth.js\").default }")
+    const session = "import(\"@vite-hub/auth\").AuthFor<typeof import(\"../../server/auth.js\").default>[\"$Infer\"][\"Session\"]"
+    expect(ambientTypes).toContain(`interface AuthRegistry { user: ${session}["user"]; session: ${session}["session"] }`)
   })
 
   it("types useAuth(event).api with the plugins of server/auth.ts through the generated declarations", async () => {
@@ -297,7 +299,7 @@ describe("hubAuth", () => {
     const definitionFile = join(root, "server/auth.ts")
     await writeFile(definitionFile, `import { admin, organization } from 'better-auth/plugins'\n${await readFile(definitionFile, "utf8")}`)
     await writeFile(join(root, "server/route.ts"), [
-      "import { useAuth } from '@vite-hub/auth/server'",
+      "import { requireAuth, useAuth, withAuthorization } from '@vite-hub/auth/server'",
       "import type { H3Event } from 'h3'",
       "export async function handler(event: H3Event) {",
       "  const auth = useAuth(event)",
@@ -305,7 +307,14 @@ describe("hubAuth", () => {
       "  await auth.api.createOrganization({ body: { name: 'Acme', slug: 'acme' }, headers: event.req.headers })",
       "  // @ts-expect-error The Definition has no such plugin endpoint.",
       "  void auth.api.notAnEndpoint",
+      "  const { user, session } = await requireAuth(event)",
+      "  const role: string | null | undefined = user.role",
+      "  const impersonatedBy: string | null | undefined = session.impersonatedBy",
+      "  // @ts-expect-error The user has no such field.",
+      "  void user.notAField",
+      "  return [role, impersonatedBy]",
       "}",
+      "export const admins = withAuthorization(({ user }) => user.role === 'admin', () => 'ok')",
       "",
     ].join("\n"))
 
@@ -319,8 +328,9 @@ describe("hubAuth", () => {
         .map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))
     }
 
-    // Without the generated registry, the instance has no plugin endpoints.
+    // Without the generated registry, the instance has no plugin endpoints, and the user has no plugin fields.
     expect(diagnosticsFor([join(root, "server/route.ts")]).join("\n")).toMatch(/banUser/)
+    expect(diagnosticsFor([join(root, "server/route.ts")]).join("\n")).toMatch(/Type 'unknown' is not assignable/)
 
     await resolvePluginConfig(hubAuth(), root)
     expect(diagnosticsFor([join(root, ".vitehub/types/auth.d.ts"), join(root, "server/route.ts")])).toEqual([])

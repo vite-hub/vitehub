@@ -242,13 +242,18 @@ function authServerTypesPath(root: string): string {
   return resolve(root, ".vitehub", "types", "auth-server.d.ts")
 }
 
-function renderAuthAmbientTypes(options: { abilities?: string, client?: string, definition?: string, serverEnv: boolean } = { serverEnv: false }): string {
+function renderAuthAmbientTypes(options: { abilities?: string, client?: string, definition?: string, importBase?: string, serverEnv: boolean } = { serverEnv: false }): string {
   const entries = [
     ...options.definition ? [`definition: typeof import(${JSON.stringify(options.definition)}).default`] : [],
     ...options.abilities ? [`abilities: typeof import(${JSON.stringify(options.abilities)}).default`] : [],
     ...options.client ? [`client: typeof import(${JSON.stringify(options.client)}).default`] : [],
   ]
   const registry = entries.length ? [`interface AuthRegistry { ${entries.join("; ")} }`] : []
+  if (options.definition) {
+    // `requireAuth()`, `withAuth()`, and every `authorize` callback read `user` and `session` from `@vite-hub/runtime`.
+    const session = `import(${JSON.stringify(options.importBase ?? authPackageName)}).AuthFor<typeof import(${JSON.stringify(options.definition)}).default>["$Infer"]["Session"]`
+    registry.push(`interface AuthRegistry { user: ${session}["user"]; session: ${session}["session"] }`)
+  }
   // The ServerEnv import makes this file a module, so its global names need `declare global`.
   if (options.serverEnv) {
     return [
@@ -289,6 +294,7 @@ async function refreshAuthGeneratedFiles(root: string, config?: ResolvedAuthVite
       abilities: config?.abilities && typeImportSpecifier(dirname(authAmbientTypesPath(root)), config.abilities),
       client: options.client && typeImportSpecifier(dirname(authAmbientTypesPath(root)), options.client),
       definition: config && typeImportSpecifier(dirname(authAmbientTypesPath(root)), config.definition.handler),
+      importBase: options.importBase,
       serverEnv: Boolean(options.serverEnv),
     })),
     writeFileIfChanged(authServerTypesPath(root), renderAuthServerTypes(options.importBase)),
