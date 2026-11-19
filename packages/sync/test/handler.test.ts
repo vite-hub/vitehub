@@ -253,6 +253,42 @@ describe("push", () => {
     expect(app.calls() - before).toBeLessThanOrEqual(5)
   })
 
+  it("keeps a push of refused updates and an action that reads 16 rows under 40 Database calls", async () => {
+    const app = await setup({
+      actions: {
+        read: async ({ get }, { ids }: { ids: string[] }) => {
+          for (const id of ids) await get(id)
+          return ids.length
+        },
+      },
+    })
+    const alice = await app.start("alice")
+    let queue: SyncMutation[] = [
+      ...Array.from({ length: 33 }, (_, index) => update(`u${index}`, `gone${index}`, { title: "x" })),
+      { id: "a1", op: "action", name: "read", args: { ids: Array.from({ length: 16 }, (_, index) => `k${index}`) } },
+    ]
+    const calls: number[] = []
+    const results: string[] = []
+    while (queue.length && calls.length < 10) {
+      const before = app.calls()
+      const { status, body } = await app.push("alice", { ...as(alice), mutations: queue })
+      calls.push(app.calls() - before)
+      expect(status).toBe(200)
+      results.push(...body.results.map(result => result.status))
+      queue = queue.slice(body.results.length)
+    }
+    expect(queue).toEqual([])
+    expect(Math.max(...calls)).toBeLessThanOrEqual(40)
+    expect(results).toEqual([...Array.from({ length: 33 }, () => "rejected"), "applied"])
+  })
+
+  it("answers `duplicate` for an id that the same push applied before", async () => {
+    const app = await setup()
+    const alice = await app.start("alice")
+    const { body } = await app.push("alice", { ...as(alice), mutations: [insert("m1", { id: "a1", title: "Milk" }), insert("m1", { id: "a1", title: "Milk" })] })
+    expect(body.results).toEqual([{ id: "m1", status: "applied" }, { id: "m1", status: "duplicate" }])
+  })
+
   it("applies the first mutation of a push also when it passes `push.calls`", async () => {
     const app = await setup()
     const alice = await app.start("alice")
