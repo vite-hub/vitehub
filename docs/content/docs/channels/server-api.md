@@ -73,7 +73,7 @@ Channels passes the original options object to the adapter. It keeps object iden
 
 ## Receive webhooks
 
-A Channel with `webhook()` or `stripe()` receives webhooks at `/_vitehub/channels/<name>`, and at `path` when you set it. ViteHub checks the signature, stores the delivery, drops a delivery whose ID it already has, and runs the target of the event. Inbound Channels run on the Agent webhook route, so set `agent: true` next to `channels: true` in `vitehub()`.
+A Channel with `webhook()` or `stripe()` receives webhooks at `/_vitehub/channels/<name>`, and at `path` when you set it. ViteHub checks the signature, stores the delivery, drops a delivery whose ID it already has, and runs the target of the event. Inbound Channels run on the Agent webhook route. Such a Channel file turns it on, so install `@vite-hub/agent` and add no option. With `agent: false`, the build fails with [`CHANNELS_WEBHOOK_HOST_OFF`](/docs/channels/diagnostics/channels_webhook_host_off).
 
 ```ts [server/queues/fulfil.ts]
 import type { StripeEvent } from 'vite-hub/channels'

@@ -78,7 +78,7 @@ export default defineEventHandler(async () => {
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { agent: true, channels: true, queue: true },
+  vitehub: { queue: true },
 })
 ```
 :::
@@ -89,7 +89,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ agent: true, channels: true, queue: true }), nitro()],
+  plugins: [vitehub({ queue: true }), nitro()],
 })
 ```
 :::
@@ -99,7 +99,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ agent: true, channels: true, queue: true })],
+  plugins: [vitehub({ queue: true })],
 })
 ```
 :::
@@ -134,7 +134,7 @@ export default defineConfig({
 ::agent-only{skill="channels"}
 A Channel is one connection to a platform, defined once in `server/channels/<name>.ts` with `defineChannel({ adapter, on })` from `vite-hub/channels`. Use it for both directions: inbound webhooks go to the `on` targets (a handler, a Queue or Workflow through a handler, or a `defineChannelTrigger()`), or to the Agent that lists the Channel in `defineAgent({ channels: ['name'] })`. Outbound messages go through `useChannel(name).send()` from any server code. `sendChannelTrigger(name, trigger, input)` starts a trigger from code, such as a Schedule, with the same delivery rules as a webhook.
 
-Import every adapter from `vite-hub/channels`: `stripe()` or `webhook({ signature, secret })` for HTTP senders, and `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, or `gmail()` for chat, forge, and mail. Files in `server/channels/` turn Channels on. Inbound Channels need `agent: true`. Keep secrets in Server Env and never parse or verify a webhook by hand. To only check the signature in a plain route, without Agents, use `verifyWebhook(event, { provider: 'stripe', secret: 'STRIPE_WEBHOOK_SECRET' })` from `vite-hub/env`.
+Import every adapter from `vite-hub/channels`: `stripe()` or `webhook({ signature, secret })` for HTTP senders, and `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, or `gmail()` for chat, forge, and mail. Files in `server/channels/` turn Channels on. Install `@vite-hub/channels @vite-hub/agent`: a Channel that receives webhooks turns on the Agent webhook route, with no `agent: true`. Keep secrets in Server Env and never parse or verify a webhook by hand. To only check the signature in a plain route, without Agents, use `verifyWebhook(event, { provider: 'stripe', secret: 'STRIPE_WEBHOOK_SECRET' })` from `vite-hub/env`.
 
 Prove one signed delivery reaching its target, one duplicate that does not run twice, and one outbound send with its receipt.
 ::

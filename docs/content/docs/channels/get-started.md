@@ -18,50 +18,13 @@ In this tutorial, you make an `alerts` Channel that writes "Build finished." to 
 ::tutorial-step{title="Install and enable Channels"}
 ## Install and enable Channels
 
-Add Channels and the Agent and Workflow packages that receive webhooks:
+Add Channels and the Agent package, which serves the webhook route:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/channels @vite-hub/agent @vite-hub/workflow
+pnpm add @vite-hub/channels @vite-hub/agent
 ```
 
-Add `agent: true` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other options of your app.
-
-:::tabs{sync="framework"}
-::::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: { agent: true },
-})
-```
-::::
-
-::::tabs-item{label="Nitro"}
-```ts [vite.config.ts]
-import { nitro } from 'nitro/vite'
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ agent: true }), nitro()],
-})
-```
-::::
-
-::::tabs-item{label="Vite"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ agent: true })],
-})
-```
-::::
-:::
-
-- You do not add a `channels` option. The Channel files in `server/channels` turn on Channels.
-- `agent: true` serves the webhook route for Channels that receive messages.
+You add no option. The Channel files in `server/channels` turn on Channels, and a Channel that receives webhooks turns on the webhook route of the Agent package. Keep `vitehub()` in `vite.config.ts`, or `vite-hub/nuxt` in `nuxt.config.ts`, as in [Installation](/docs/getting-started/installation).
 
 
 :::details{summary="How ViteHub finds Channel files"}

@@ -36,6 +36,14 @@ export interface ChannelInspectionOptions {
   serverDirs?: string[]
 }
 
+/**
+ * The first Channel that receives webhooks, with `webhook()` or `stripe()`. The Agent package serves those webhooks, so
+ * `vitehub()` turns it on for this Channel.
+ */
+export function findWebhookChannel(options: ChannelInspectionOptions): DiscoveredChannelDefinition | undefined {
+  return discoverChannelDefinitions({ rootDir: options.projectRoot, serverDirs: options.serverDirs }).find(definition => receivesChannelWebhooks(definition.handler))
+}
+
 /** Lists Channel Definitions as serializable inspection summaries. */
 export function inspectChannelDefinitions(options: ChannelInspectionOptions): ViteHubDefinitionSummary[] {
   return summarizeDefinitions(options.projectRoot, discoverChannelDefinitions({ rootDir: options.projectRoot, serverDirs: options.serverDirs }), "channel")
@@ -157,7 +165,7 @@ export function hubChannels(options: ChannelsOptions = {}): ChannelsVitePlugin {
       await refreshGeneratedFiles()
       const inbound = definitions.find(definition => receivesChannelWebhooks(definition.handler))
       if (inbound && !config.plugins?.some(plugin => plugin.name === agentVitePluginName)) {
-        throw channelsErrorDiagnostics.CHANNELS_B0001({ message: `[vitehub] The Channel "${inbound.name}" receives webhooks, which the Agent webhook route serves. Set \`agent: true\` next to \`channels: true\` in vitehub(), and install @vite-hub/agent.` })
+        throw channelsErrorDiagnostics.CHANNELS_WEBHOOK_HOST_OFF({ channel: inbound.name })
       }
     },
     configEnvironment(name, config) {

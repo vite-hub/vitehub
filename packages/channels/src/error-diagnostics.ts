@@ -33,10 +33,6 @@ const dynamicError = {
 export const channelsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/channels/diagnostics",
   codes: {
-    CHANNELS_B0001: {
-      ...dynamicError,
-      fix: "Set `agent: true` next to `channels: true` in `vitehub()`, and install the Agent package with `pnpm add @vite-hub/agent`.",
-    },
     CHANNELS_C0001: {
       ...dynamicError,
       fix: "Pass an object with an `adapter` to `defineChannel()`, such as `export default defineChannel({ adapter: stripe() })` in server/channels/<name>.ts.",
@@ -68,6 +64,10 @@ export const channelsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     CHANNELS_R0003: {
       ...dynamicError,
       fix: "Pass a nonempty Channel name to `useChannel()`, such as `useChannel(\"alerts\")`.",
+    },
+    CHANNELS_WEBHOOK_HOST_OFF: {
+      why: ({ channel }: { channel: string }) => `[vitehub] The Channel "${channel}" receives webhooks, and the Agent package that serves them is off.`,
+      fix: "Remove `agent: false` from `vitehub()`: a Channel file that receives webhooks turns the webhook host on. Outside `vitehub()`, add `hubAgent()` from `@vite-hub/agent/vite` next to `hubChannels()`.",
     },
   },
 })

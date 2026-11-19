@@ -70,6 +70,36 @@ describe("resolveDefinitionFeatures", () => {
     expect(resolveDefinitionFeatures({}, { projectRoot, serverDirs: [join(projectRoot, "server"), join(projectRoot, "layers/base/server")] })).toEqual({ schedule: true })
   })
 
+  it("turns Agents on for a Channel file that receives webhooks", () => {
+    const stripe = "import { defineChannel, stripe } from 'vite-hub/channels'\nexport default defineChannel({ adapter: stripe() })\n"
+    const alerts = "import { defineChannel } from 'vite-hub/channels'\nexport default defineChannel({ adapter: { kind: 'log', send: () => ({}) } })\n"
+    expect(resolveDefinitionFeatures({}, { projectRoot: project({ "server/channels/payments.ts": stripe }) })).toEqual({ agent: true, channels: true })
+    expect(resolveDefinitionFeatures({ channels: {} }, { projectRoot: project({ "server/channels/payments.ts": stripe }) })).toEqual({ agent: true, channels: {} })
+    expect(resolveDefinitionFeatures({}, { projectRoot: project({ "server/channels/alerts.ts": alerts }) })).toEqual({ channels: true })
+    const off = { agent: false } as const
+    expect(resolveDefinitionFeatures(off, { projectRoot: project({ "server/channels/payments.ts": stripe }) })).toEqual({ agent: false, channels: true })
+    expect(resolveDefinitionFeatures({ channels: false }, { projectRoot: project({ "server/channels/payments.ts": stripe }) })).toEqual({ channels: false })
+  })
+
+  it("asks for the Agent package when a webhook Channel needs it", () => {
+    const projectRoot = project({ "server/channels/payments.ts": "import { defineChannel, webhook } from 'vite-hub/channels'\nexport default defineChannel({ adapter: webhook({ secret: false }) })\n" })
+    const restore = hidePackage("@vite-hub/agent")
+    let error: unknown
+    try {
+      resolveDefinitionFeatures({}, { projectRoot })
+    }
+    catch (caught) {
+      error = caught
+    }
+    finally {
+      restore()
+    }
+    expect(error).toMatchObject({
+      code: "VITE_HUB_DEFINITION_PACKAGE_MISSING",
+      message: expect.stringContaining("server/channels/payments.ts turns Agent on, but the app does not have @vite-hub/agent."),
+    })
+  })
+
   it("fails with the install command when the package of a Definition file is missing", () => {
     const projectRoot = project({ "server/auth.ts": "export default {}\n" })
     const restore = hidePackage("@vite-hub/auth")

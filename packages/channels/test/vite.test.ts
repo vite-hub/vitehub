@@ -83,7 +83,7 @@ describe("hubChannels", () => {
     await writeFile(join(root, path), source)
     const configure = (plugins: Array<{ name: string }>) => (hubChannels().configResolved as unknown as (config: { plugins: Array<{ name: string }>, root: string }) => Promise<void>)({ plugins, root })
 
-    await expect(configure([])).rejects.toMatchObject({ code: "CHANNELS_B0001", message: expect.stringContaining('The Channel "payments" receives webhooks') })
+    await expect(configure([])).rejects.toMatchObject({ code: "CHANNELS_WEBHOOK_HOST_OFF", message: expect.stringContaining('The Channel "payments" receives webhooks') })
     await expect(configure([{ name: "@vite-hub/agent/vite" }])).resolves.toBeUndefined()
   })
 

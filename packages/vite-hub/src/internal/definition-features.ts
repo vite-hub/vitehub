@@ -6,6 +6,7 @@ import { features } from "@vite-hub/internal/features"
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { forgetPackageChecks, installArguments, isPackageInstalled, optionalFeaturePackages } from "./optional-owners.ts"
+import { ownerModules } from "./owner-modules.ts"
 
 import type { Plugin } from "vite"
 
@@ -34,6 +35,15 @@ function discoverDefinitionFeatures(options: DefinitionFeatureOptions, project: 
     const file = serverDirs.flatMap(directory => (features[id].enabledByDiscovery ?? []).map(name => resolve(project.projectRoot, directory, name)))
       .find(candidate => hasDefinitionFiles(candidate))
     if (file) found.set(id, relative(project.projectRoot, file))
+  }
+  // The Agent package serves the route of a Channel that receives webhooks, so that Channel file turns Agents on too.
+  const channels = found.has("channels") || (options.channels !== undefined && options.channels !== false)
+  if (channels && options.agent === undefined && !found.has("agent")) {
+    const inbound = ownerModules.channelsVite?.findWebhookChannel({
+      projectRoot: project.projectRoot,
+      serverDirs: project.serverDirs?.map(directory => resolve(project.projectRoot, directory)),
+    })
+    if (inbound) found.set("agent", relative(project.projectRoot, inbound.handler))
   }
   return found
 }
