@@ -108,6 +108,8 @@ addEventListener('beforeunload', (event) => {
 
 A transport gets the `requestId`, the remaining `files`, and `outbox` in `create()` and `reply()`. It gets `subject` in `reply()` for the upload. On each upload and message write, the server must check that the current author matches `outbox.account`. A custom transport must await `outbox.uploaded(key)` after each successful upload, then send the keys in `attachments`. The next attempt gets those keys and skips the saved uploads, even after a reload. Send the first thread back for a repeated `requestId` on the same target.
 
+A reply with a `requestId` gets the message id `await replyMessageId(threadId, requestId)` from `vite-hub/comments/client`, on the server and in the memory transport. Use it to find the server copy of a waiting reply in your own list.
+
 Set `status` on a thrown error so the outbox knows whether to wait, and `retryAfter` in milliseconds to ask for a wait. An error without `status` counts as no answer.
 
 ## What it does not do
