@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, and `auth-sign-in`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, and `channels`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -369,3 +369,23 @@ npx @vite-hub/codemods auth-sign-in [dir] [--dry-run]
 ```
 
 The codemod removes legacy `auth.redirects` only after it can move the settings without changing their meaning. It leaves the files unchanged and reports values that need manual migration, such as conflicting environment overrides, URLs that are not app paths, dynamic Definition options, or a `redirects.login` page next to a provider in `access.signIn`. Keep one sign-in method: the path of your sign-in page, or the provider that the Auth route starts.
+
+## channels
+
+`channels` replaces the removed Agent `http()` adapter. Use `webhook()` from `vite-hub/channels` for an HTTP sender. Use `channelAdapter("http", options)` from `vite-hub/agent/channels` to keep the Channel kind and State.
+
+```bash [Terminal]
+npx @vite-hub/codemods channels [dir] [--dry-run]
+```
+
+```diff [server/agents/support.ts]
+-import { http, slack } from 'vite-hub/agent/channels'
++import { channelAdapter, slack } from 'vite-hub/agent/channels'
+
+ export default defineAgent({
+-  channels: { portal: http({ route: true }), slack: slack() },
++  channels: { portal: channelAdapter('http', { route: true }), slack: slack() },
+ })
+```
+
+The codemod rewrites direct calls without options or with a literal Boolean `route` option. Import paths stay the same. The report flags references, typed or complex calls, namespace imports, dynamic loads, re-exports of `http`, and mocks for manual review. To preserve the kind on a typed route, use `channelAdapter("http", options)` and type callback parameters explicitly. Use `webChat()` only if changing the kind is acceptable.
