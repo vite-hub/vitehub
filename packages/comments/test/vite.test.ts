@@ -10,7 +10,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { resolveConfig } from "vite"
 
 import { commentRoom, commentsApiRoute } from "../src/page.ts"
-import { comments, componentNames, githubRepository, hubComments, readCommentsBuild, readCommentsComponents, readCommentsDatabase } from "../src/vite.ts"
+import { commentSendsTableNames } from "../src/table-names.ts"
+import { comments, componentNames, githubRepository, hubComments, readCommentsBuild, readCommentsComponents, readCommentsDatabase, readCommentsSend } from "../src/vite.ts"
 
 import type { ConfigEnv, Plugin, UserConfig } from "vite"
 import type { NitroConfig } from "nitro/types"
@@ -374,6 +375,27 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     const root = await project({ "server/comments.ts": source })
     await expect(readCommentsDatabase(join(root, "server/comments.ts"))).rejects.toMatchObject({ code: "COMMENTS_B0004", fix: expect.stringContaining("string literal") })
     await expect(configure(hubComments(), root)).rejects.toMatchObject({ code: "COMMENTS_B0004" })
+  })
+
+  it.each([
+    ["export const comments = defineComments({ send: true })", true],
+    ["export const comments = defineComments({ send: { grant: false } })", true],
+    ["export const comments = defineComments({ send: process.env.SEND === \"1\" })", true],
+    ["export const comments = defineComments({ send: false })", false],
+    ["export const comments = defineComments({ send: undefined })", false],
+    ["const helper = { send: true }; export const comments = defineComments()", false],
+  ])("turns Send on from `send` of the exported definition: %s", async (source, send) => {
+    const root = await project({ "server/comments.ts": source })
+    expect(await readCommentsSend(join(root, "server/comments.ts"))).toBe(send)
+    const plugin = hubComments({ imports: { webhooks: "vite-hub/webhooks" } })
+    await configure(plugin, root)
+    const contributions = await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })
+    expect(contributions.map(contribution => contribution.name)).toEqual(send ? ["comments", "comment-sends"] : ["comments"])
+    if (send) expect(contributions[1]).toMatchObject({ definition: { export: "commentSendsSchema", module: "@vite-hub/comments/database" }, dialect: "sqlite", tables: commentSendsTableNames })
+    // Send turns on the member endpoints of Webhooks, and the plugin loads Webhooks on the first send.
+    expect(await plugin.vitehub.webhooks({ root, projectRoot: root })).toEqual(send ? { memberEndpoints: true, reason: expect.stringContaining("agent") } : undefined)
+    const generated = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(generated.includes("webhooks: () => import(\"vite-hub/webhooks\")")).toBe(send)
   })
 
   it("reads `database: undefined` as the default Database", async () => {

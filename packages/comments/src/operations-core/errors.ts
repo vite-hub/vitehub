@@ -140,5 +140,17 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ minimum }: { minimum: number }) => `[vitehub] VITEHUB_SECRET must be at least ${minimum} characters. Generate one with \`openssl rand -base64 32\`.`,
       fix: "Set `VITEHUB_SECRET` to the output of `openssl rand -base64 32`, which has 44 characters.",
     },
+    COMMENTS_SEND_POSTGRES: {
+      why: "`defineComments({ send })` keeps its sends in SQLite tables, and this app keeps comments in Postgres.",
+      fix: "Keep comments in a SQLite, libSQL, or D1 Database, or remove `send` from `defineComments()`.",
+    },
+    COMMENTS_SEND_TABLES_MISSING: {
+      why: ({ missing }: { missing: string }) => `\`defineComments({ send })\` needs the tables ${missing}, and the Database does not have them yet.`,
+      fix: "Run `vitehub database generate` and `vitehub database migrate`. `vite dev` applies the migration for you.",
+    },
+    COMMENTS_SEND_WEBHOOKS_OFF: {
+      why: ({ file }: { file: string }) => `${file} turns on Send, and Send delivers through the member endpoints of Webhooks, which this app does not have.`,
+      fix: "Use Comments through `vitehub()`, which adds Webhooks, and install `@vite-hub/webhooks` when you use the packages one by one. `comments()` without `vite-hub` has no Send.",
+    },
   },
 })

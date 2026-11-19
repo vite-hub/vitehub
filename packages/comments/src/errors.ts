@@ -52,5 +52,25 @@ export const commentsErrors = /*#__PURE__*/ defineErrors({
       why: ({ holder }: { holder: string }) => `${holder} holds the edit lease of this document in the Console.`,
       fix: "Wait until they close the document, or edit it together with them in the Console.",
     },
+    COMMENTS_SEND_CODE_EXPIRED: {
+      why: "The setup code of Send is older than 10 minutes, or it does not exist.",
+      fix: "Press Send in the comment pill again. It copies a setup prompt with a new code.",
+    },
+    COMMENTS_SEND_CODE_REFUSED: {
+      why: ({ reason }: { reason: string }) => `Send did not pair the agent. ${reason}`,
+      fix: "Pair with the `webhookUrl` that T3 Code's `schedule_task` returns, on `relay.t3.codes`, or add the host to `defineComments({ send: { hosts } })`. Then press Copy again for a new code.",
+    },
+    COMMENTS_SEND_CODE_USED: {
+      why: "An agent already used this setup code. A code pairs one agent, once.",
+      fix: "Press Send in the comment pill again for a new code.",
+    },
+    COMMENTS_SEND_GRANT_INVALID: {
+      why: "The read token does not open this send: it is wrong, older than 24 hours, or the app turned read tokens off.",
+      fix: "Use the `read.token` of the same delivery within 24 hours. With `send: { grant: false }`, read the threads through the app's MCP tools instead.",
+    },
+    COMMENTS_SEND_OFF: {
+      why: "Send is off: `defineComments()` has no `send` option, or the app has no Webhooks.",
+      fix: "Set `defineComments({ send: true })` in `server/comments.ts`, in a ViteHub app with `vitehub({ database: true })`.",
+    },
   },
 })

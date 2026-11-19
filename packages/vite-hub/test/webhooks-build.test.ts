@@ -185,6 +185,87 @@ describe("Webhooks in a built Nitro 3 app", () => {
     }
   }, 300_000)
 
+  it("runs Comments `send` in a built app: tables, pairing, and a signed delivery", async () => {
+    const received: Array<{ headers: IncomingHttpHeaders, body: string, url: string }> = []
+    const receiver = createServer((request, response) => {
+      const chunks: Buffer[] = []
+      request.on("data", chunk => chunks.push(chunk))
+      request.on("end", () => {
+        received.push({ headers: request.headers, body: Buffer.concat(chunks).toString("utf8"), url: request.url ?? "" })
+        response.statusCode = 202
+        response.end("ok")
+      })
+    })
+    await new Promise<void>(done => receiver.listen(0, "127.0.0.1", done))
+    const address = receiver.address()
+    if (!address || typeof address === "string") throw new TypeError("Expected a TCP address.")
+
+    const root = await createProject({
+      "index.html": "<!doctype html><title>Send</title>\n",
+      "package.json": JSON.stringify({ name: "comments-send", private: true, type: "module" }),
+      "server/routes/__vitehub_fixture_ready.ts": "export default () => 'ok'\n",
+      // The relay stands at a public test address. The plugin sends its requests to the local receiver.
+      "server/plugins/receiver.ts": [
+        "const realFetch = globalThis.fetch",
+        "globalThis.fetch = (input, init) => {",
+        "  const url = new URL(input instanceof Request ? input.url : String(input))",
+        "  return url.hostname === '203.0.113.10' ? realFetch(`${process.env.RECEIVER_ORIGIN}${url.pathname}${url.search}`, init) : realFetch(input, init)",
+        "}",
+        "export default () => {}",
+        "",
+      ].join("\n"),
+      "server/comments.ts": [
+        "import { defineComments } from 'vite-hub/comments'",
+        "",
+        "export const comments = defineComments({",
+        "  identify: ({ event }) => ({ id: event['~standard'].req.headers.get('x-user') ?? 'ana', name: 'Ana' }),",
+        "  authorize: () => true,",
+        "  send: { hosts: ['203.0.113.10'] },",
+        "})",
+        "",
+      ].join("\n"),
+    })
+    process.chdir(root)
+    process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
+    const options: ViteHubOptions = { database: true, host: "node" }
+    const generate = await runCli(root, vitehub(options), ["database", "generate"])
+    expect(generate.stderr).toBe("")
+    expect(generate.exitCode).toBe(0)
+    const migrations = join(root, "server/databases/default/migrations")
+    const migration = (await readdir(migrations)).find(file => /^\d{14}_/.test(file))!
+    const sql = await readFile(join(migrations, migration, "migration.sql"), "utf8")
+    for (const table of ["vitehub_comment_threads", "vitehub_comment_sends", "vitehub_comment_send_codes", "vitehub_webhook_endpoints"]) expect(sql).toContain(`CREATE TABLE \`${table}\``)
+    expect((await runCli(root, vitehub(options), ["database", "migrate"])).exitCode).toBe(0)
+
+    await build(root, options)
+    const key = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64")
+    const server = await startBuiltServer(root, { RECEIVER_ORIGIN: `http://127.0.0.1:${address.port}`, VITEHUB_WEBHOOKS_KEY: key })
+    try {
+      const origin = `http://127.0.0.1:${server.port}`
+      const api = (route: string, body?: unknown, headers: Record<string, string> = { origin }) => server.fetch(`/_vitehub/comments${route}`, { ...body === undefined ? {} : { body: JSON.stringify(body) }, headers: { "content-type": "application/json", ...headers }, method: "POST" })
+      expect((await api("/threads", { page: "/", body: "The intro is too long" })).status).toBe(200)
+      const started = await (await api("/send/start?page=/")).json() as { data: { code: string, prompt: string } }
+      expect(started.data.prompt).toContain(`${origin}/_vitehub/comments/send/pair`)
+      // The agent posts from its own machine, with no Origin of the site.
+      const paired = await api("/send/pair", { code: started.data.code, url: "https://203.0.113.10/hooks/abc?token=relay" }, { origin: "https://agent.example" })
+      expect(paired.status).toBe(200)
+      const allowed = await (await api("/send/allow?page=/", { code: started.data.code })).json() as { data: { status: string, id: string } }
+      expect(allowed.data).toEqual({ status: "sent", id: expect.stringMatching(/^send_/) })
+      expect(received).toHaveLength(1)
+      expect(received[0]!.url).toBe("/hooks/abc?token=relay")
+      expect(received[0]!.headers).toMatchObject({ "x-vitehub-event": "comments.send", "x-hub-signature-256": expect.stringMatching(/^sha256=[0-9a-f]{64}$/) })
+      const body = JSON.parse(received[0]!.body) as { send: string, count: number, text: string, read: { url: string, token: string } }
+      expect(body).toMatchObject({ send: allowed.data.id, count: 1 })
+      expect(body.text).not.toContain("intro")
+      const read = await server.fetch(new URL(body.read.url).pathname, { headers: { authorization: `Bearer ${body.read.token}` } })
+      expect(await read.json()).toMatchObject({ data: { threads: [expect.objectContaining({ role: "ask" })] } })
+    }
+    finally {
+      server.close()
+      await new Promise(done => receiver.close(done))
+    }
+  }, 300_000)
+
   it("contributes the vitehub-webhooks Queue to the Cloudflare output", async () => {
     const root = await createProject({
       ...files,

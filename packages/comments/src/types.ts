@@ -85,7 +85,46 @@ export interface CommentsPageSubject extends CommentSubject {
   revision?: number
 }
 
+/** What `send.payload` gets: one send, before Comments delivers it. */
+export interface CommentSendPayloadContext {
+  /** The id of the send, as `send` of the delivered body. */
+  send: string
+  /** The member who pressed Send. */
+  user: CommentsUser
+  /** The subject of the page that the member sent from. */
+  subject: CommentSubject
+  /** The threads of the send. `asks` and `quotes` split their ids. */
+  threads: readonly CommentThread[]
+  asks: readonly string[]
+  quotes: readonly string[]
+}
+
+/** A JSON value, as the delivered body holds it. */
+export type CommentSendData = string | number | boolean | null | CommentSendData[] | { [key: string]: CommentSendData }
+
+/**
+ * Send: a member hands the threads that wait for an answer to their own agent, such as a T3 Code thread. Each member
+ * pairs their agent once, in the comment pill.
+ */
+export interface CommentSendOptions {
+  /** Adds `data` to the delivered body, such as the id of a document that your own MCP reads. Default: `null`. */
+  payload?: (context: CommentSendPayloadContext) => CommentSendData | Promise<CommentSendData>
+  /**
+   * `false` sends no read token: the agent reads the threads through your own MCP server, as the member. Default: each
+   * send carries a token that reads its threads, as the member, for 24 hours.
+   */
+  grant?: false
+  /** The hosts that a paired agent URL may use. Default: `["relay.t3.codes"]`, the T3 Code relay. */
+  hosts?: readonly string[]
+}
+
 export interface DefineCommentsOptions extends CommentsDefinition {
+  /**
+   * `true` turns on **Send** in the comment pill, for signed-in people who may write. It needs Webhooks and a SQLite
+   * Database: ViteHub adds the `vitehub_comment_sends` tables and the member endpoints of Webhooks. See
+   * https://vitehub.dev/docs/comments/send
+   */
+  send?: boolean | CommentSendOptions
   /** Resolves the user of a request. Without it, Comments reads the ViteHub Auth session. Return `null` for anonymous. */
   identify?: (context: CommentsIdentifyContext) => CommentsUser | null | undefined | Promise<CommentsUser | null | undefined>
   /** Name of the Database that stores comments. Defaults to the `default` Database, or the only one. */
