@@ -102,7 +102,8 @@ export function replacesDocsPage(routes: DocsRoute[], mount: string): boolean {
   return routePaths(routes).some(path => /^(.*?)\/:\w+\(\.\*\)\*?$/.exec(path)?.[1] === prefix)
 }
 
-function routePaths(routes: DocsRoute[], parent = ""): string[] {
+/** Every route path of the app, with the paths of child routes joined to their parents. */
+export function routePaths(routes: DocsRoute[], parent = ""): string[] {
   return routes.flatMap((route) => {
     const path = route.path.startsWith("/") ? route.path : `${parent.replace(/\/+$/, "")}/${route.path}`
     return [path, ...routePaths(route.children ?? [], path)]
