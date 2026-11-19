@@ -891,7 +891,7 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
           nitro: (config as ResolvedConfig & { nitro?: unknown }).nitro,
           nitroOwnsPaths: hasNitroConfigContext(config),
           ...processStorageOptions(config.plugins),
-          hints: config,
+          hints: { root: roots.projectRoot, command: config.command, logger: config.logger ?? console },
           root: config.root,
           serverDirs,
         } as InternalScheduleNitroConfigOptions)

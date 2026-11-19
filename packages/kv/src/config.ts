@@ -26,6 +26,8 @@ import type {
 } from "./types.ts"
 import { kvErrorDiagnostics } from "./error-diagnostics.ts"
 
+import type { Diagnostic } from "nostics"
+
 export interface KVResolutionInput {
   /**
    * `vite dev`. A store is then local unless it sets `remote: true`: inference never selects Upstash, and a Cloudflare
@@ -217,7 +219,7 @@ export function kvInferredStoreNotice(name: string, store: ResolvedKVStoreConfig
  * The build hint for a Redis URL that KV does not use. Redis is never inferred, because a `REDIS_URL` often belongs to
  * another service, such as BullMQ or sessions. A NuxtHub app that kept its keys in Redis must select it.
  */
-export function kvRedisEnvHint(options: KVOptions | undefined, input: KVResolutionInput = {}): ReturnType<typeof kvErrorDiagnostics.KV_REDIS_URL_UNUSED> | undefined {
+export function kvRedisEnvHint(options: KVOptions | undefined, input: KVResolutionInput = {}): Diagnostic | undefined {
   if (options === false || input.dev || (options && ("stores" in options || options.driver))) return
   const env = input.env || process.env
   const name = readEnv(env, redisUrlEnvName) ? redisUrlEnvName : readEnv(env, "KV_URL")?.startsWith("rediss://") ? "KV_URL" : undefined
