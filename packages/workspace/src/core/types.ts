@@ -437,6 +437,20 @@ export interface WorkspaceRevisionView {
    * them from one archive of the commit. Stores without it read each file on its own.
    */
   preload?(paths: readonly string[]): Promise<void>
+  /**
+   * The last revision that changed each path on the first-parent history, including deletions. A null value means
+   * the path has no change. A missing key means the Store could not prove the answer. To resolve missing keys,
+   * or when a Store does not implement this method, compare each revision's files with those of its first parent.
+   */
+  lastChanged?(paths: readonly string[]): Promise<ReadonlyMap<string, WorkspaceLastChange | null>>
+}
+
+/** The revision that last changed a path, as `WorkspaceRevisionView.lastChanged()` answers. */
+export interface WorkspaceLastChange {
+  /** The revision id: the commit sha for the GitHub Store. */
+  id: string
+  /** When the revision was made, as an ISO date: the commit's author date for the GitHub Store. */
+  createdAt: string
 }
 
 /** An open pull request on a forge, for a Store whose refs are branches. */

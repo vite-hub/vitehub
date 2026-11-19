@@ -19,7 +19,7 @@ before `workspaceShell()`, so the shell gets the scoped Workspace.
 
 ```ts [server/agents/support/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { teams } from 'vite-hub/channels'
+import { teams } from 'vite-hub/agent/channels'
 import { access, workspaceShell } from 'vite-hub/agent/capabilities'
 import { glob } from 'vite-hub/workspace'
 

@@ -36,7 +36,7 @@ interface Store {
   threads: Map<string, CommentThread>
   listeners: Set<(event: CommentEvent) => void>
   counters: Map<string, number>
-  /** The thread id of each scope and `requestId`. */
+  /** The thread id of each scope and `requestId` of a create, and the message id of each thread and `requestId` of a reply. */
   requests: Map<string, string>
   users: CommentUser[]
   scope: (subject: CommentSubject) => string
@@ -173,7 +173,15 @@ function view(store: Store, user: CommentUser): MemoryTransport {
     },
     async reply(input) {
       const found = copy(thread(store, input.threadId))
-      found.messages.push(message(store, user, input))
+      const request = input.requestId === undefined ? undefined : JSON.stringify(["reply", input.threadId, input.requestId])
+      const earlier = request === undefined ? undefined : found.messages.find(entry => entry.id === store.requests.get(request))
+      if (earlier) {
+        if (earlier.author.id !== user.id) throw commentsErrorDiagnostics.COMMENTS_R0022()
+        return found
+      }
+      const added = message(store, user, input)
+      if (request !== undefined) store.requests.set(request, added.id)
+      found.messages.push(added)
       return save(found)
     },
     async edit(input) {
@@ -206,6 +214,7 @@ function view(store: Store, user: CommentUser): MemoryTransport {
       const found = copy(thread(store, input.threadId))
       found.status = "resolved"
       found.resolvedBy = copy(user)
+      delete found.resolvedActor
       found.resolvedAt = store.now()
       return save(found)
     },
@@ -213,6 +222,7 @@ function view(store: Store, user: CommentUser): MemoryTransport {
       const found = copy(thread(store, input.threadId))
       found.status = "open"
       delete found.resolvedBy
+      delete found.resolvedActor
       delete found.resolvedAt
       return save(found)
     },

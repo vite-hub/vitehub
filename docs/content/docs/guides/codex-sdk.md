@@ -175,7 +175,7 @@ A Channel starts an Invocation from a message, such as a GitHub pull request com
 
 ```ts [server/agents/reviewer.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
-import { github } from 'vite-hub/channels'
+import { github } from 'vite-hub/agent/channels'
 import { openai } from 'vite-hub/gateways'
 
 export default defineAgent({

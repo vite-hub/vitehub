@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 import { registerHooks } from "node:module"
 import { fileURLToPath } from "node:url"
+import { inspect } from "node:util"
 
 import { describe, expect, it, vi } from "vitest"
 
@@ -193,6 +194,29 @@ describe("assertFeaturePackages version check", () => {
     }
     finally {
       warn.mockRestore()
+      printed.mockRestore()
+    }
+  })
+
+  it("lets Vite print an unsupported version once with the fix last", async () => {
+    await withViteHubManifest(() => JSON.stringify({ peerDependencies: { "@vite-hub/kv": "9.9.9" }, version: "9.9.9" }))
+    const { vitehub } = await import("../src/index.ts")
+    const printed = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const configure = () => vitehub({ kv: true, console: false })
+      expect(configure).toThrow(expect.objectContaining({ code: "VITE_HUB_PACKAGE_VERSION_UNSUPPORTED" }))
+      expect(printed).not.toHaveBeenCalled()
+      try {
+        configure()
+      }
+      catch (error) {
+        const lines = inspect(error).split("\n")
+        expect(lines).toHaveLength(3)
+        expect(lines[1]).toContain("see: ")
+        expect(lines[2]).toContain("fix: ")
+      }
+    }
+    finally {
       printed.mockRestore()
     }
   })

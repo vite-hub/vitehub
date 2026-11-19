@@ -25,6 +25,7 @@ the same behavior.
 | `vite-hub/agent/vite` | Process Agent host and generated health and Workspace routes for Vite. |
 | `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Invoker APIs. |
 | `vite-hub/agent/capabilities` | Official Capability factories. |
+| `vite-hub/agent/channels` | Official Channel Kind helpers. |
 | `vite-hub/agent/eval` | Agent Eval helpers. Install Evalite and the test runner yourself. |
 | `vite-hub/agent/observability` | `useObservability()` for the instance configured by `vitehub({ observability })`. |
 | `vite-hub/logs` | The LogSource contract and `createLogBuffer()`. Import the Evlog logger API from `evlog`. |
@@ -103,7 +104,7 @@ the same behavior.
 | `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Advanced explicit provider selection for low-level Browser Clients. |
 | `vite-hub/bundle` | Read the [bundle report](/docs/bundle) of the last build: `readBundleReport()` and `explainBundleTarget()`. Re-exports `@vite-hub/bundle`. |
 | `vite-hub/cache` | Nitro's `defineCachedFunction()` and `defineCachedHandler()` with `tags`, `defineCachedFunction()` with `staleIfError`, and `invalidateTag()`. See [Cache server results](/docs/guides/cache-server-results). `invalidateTag()` is auto-imported in Nuxt when `cache` is on. |
-| `vite-hub/channels` and `vite-hub/channels/server` | Channels with `defineChannel()`, every adapter (`webhook()`, `stripe()`, `slack()`, `github()`, `channelAdapter()`, and the others), `defineChannelTrigger()`, and `useChannel()` for named sends. |
+| `vite-hub/channels` and `vite-hub/channels/server` | Channels with `defineChannel()`, the `webhook()` and `stripe()` adapters, and `useChannel()` for named sends. |
 | `vite-hub/comments` | `defineComments()` for `server/comments.ts`, as the `comments` export or the default export. One definition runs the overlay, Comments API, presence, MCP, and [comment operations](/docs/comments/operations/get-started). |
 | `vite-hub/comments/anchor`, `vite-hub/comments/database`, and `vite-hub/comments/runtime` | Browser pin anchors, the Comments tables, and the API handler and Nitro plugin that generated output imports. |
 | `vite-hub/comments/client`, `vite-hub/comments/rpc`, `vite-hub/comments/server`, and `vite-hub/comments/database/postgres` | The operations browser client and anchors, RPC transport, server runtime, and Postgres tables. |

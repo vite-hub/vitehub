@@ -508,7 +508,7 @@ function githubPullRequestRunContextFromUnknown(input: unknown): GitHubPullReque
   if (!isRecord(input)) return
   const value = isRecord(input.pullRequest) && isRecord(input.pullRequest.pullRequest) ? input.pullRequest : input
   if (!isRecord(value.pullRequest) || !isRecord(value.repository) || !isRecord(value.run) || !isRecord(value.trigger)) return
-  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: Required records are structurally validated above; optional fields are normalized before use.
+  // SAFETY: Required records are structurally validated above; optional fields are normalized before use.
   return value as unknown as GitHubPullRequestRunContext
 }
 

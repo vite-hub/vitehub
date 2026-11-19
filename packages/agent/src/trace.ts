@@ -3,6 +3,7 @@ import { emitTraceEvent } from "@vite-hub/runtime"
 
 import { redactCredentialText } from "./internal/credential-redaction.ts"
 import { agentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
+import type { InputAttachmentsReport } from "./internal/input-attachments.ts"
 
 import { agentErrorDetails } from "./agent-error.ts"
 import { agentInvokerInputReplayProvenance, agentInvokerLabel, hasReplayableAgentInvokerProfile, hasResolvedAgentInvokerInput, hasResolverDerivedAgentInvoker } from "./invoker.ts"
@@ -131,6 +132,14 @@ function invocationAttributes(
 }
 
 function eventAttributes(event: StreamEvent): Record<string, unknown> {
+  if (event.type === "reasoning-delta") {
+    return {
+      "message.content": event.text,
+      "message.id": event.id,
+      "message.phase": "reasoning",
+      "message.role": "assistant",
+    }
+  }
   if (event.type === "text-delta") {
     return {
       "message.content": event.text,
@@ -535,6 +544,30 @@ export async function traceAgentChannelDeliveryEffect<TRuntimeConfig extends Age
   })
 }
 
+/**
+ * Records which attachments a Driver prepared, and why it left out the others. Records nothing when the
+ * messages had no attachments.
+ */
+export async function traceAgentInputAttachments<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentTraceContext<TRuntimeConfig>,
+  report: InputAttachmentsReport,
+): Promise<void> {
+  if (!report.prepared.length && !report.skipped.length) return
+  await traceAgentEvent(context, {
+    attributes: {
+      "input.attachments.prepared": report.prepared,
+      "input.attachments.preparedBytes": report.prepared.reduce((total, item) => total + item.bytes, 0),
+      "input.attachments.preparedCount": report.prepared.length,
+      "input.attachments.skipped": report.skipped,
+      "input.attachments.skippedCount": report.skipped.length,
+      "vitehub.action.name": "input.attachments",
+      "vitehub.activity.kind": "action",
+    },
+    name: "agent.input.attachments",
+    type: "run",
+  })
+}
+
 export async function traceAgentChannelDeliveryReminder<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentTraceContext<TRuntimeConfig>,
   attributes: Record<string, unknown>,
@@ -577,6 +610,7 @@ export async function traceAgentStreamEvent<TRuntimeConfig extends AgentRuntimeC
     "tool-call": "agent.tool.start",
     "tool-input-start": "agent.tool.start",
     "tool-result": streamEvent.type === "tool-result" && streamEvent.error ? "agent.tool.error" : "agent.tool.finish",
+    "reasoning-delta": "agent.message.delta",
     "text-delta": "agent.message.delta",
     usage: "agent.usage.recorded",
   } as const
@@ -614,11 +648,18 @@ function createStreamTraceTiming<TRuntimeConfig extends AgentRuntimeConfig>(cont
   }
 }
 
+type TextStreamEvent = Extract<StreamEvent, { type: "reasoning-delta" | "text-delta" }>
+
+function sameTextStream(left: TextStreamEvent, right: TextStreamEvent): boolean {
+  if (left.type === "reasoning-delta" || right.type === "reasoning-delta") return left.type === right.type && left.id === right.id
+  return left.id === right.id && left.messageId === right.messageId && left.phase === right.phase && left.role === right.role
+}
+
 export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentTraceContext<TRuntimeConfig>,
 ) {
   const timing = createStreamTraceTiming(context)
-  let pendingText: Extract<StreamEvent, { type: "text-delta" }> | undefined
+  let pendingText: TextStreamEvent | undefined
   let pendingCommandOutput: AgentDataStreamEvent | undefined
   const flush = async () => {
     const events = [pendingText, pendingCommandOutput]
@@ -651,16 +692,12 @@ export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntime
         pendingCommandOutput = { ...event, data: { ...data, value: { ...value, delta: remaining } } }
         return
       }
-      if (event.type !== "text-delta" || typeof event.text !== "string") {
+      if ((event.type !== "text-delta" && event.type !== "reasoning-delta") || typeof event.text !== "string") {
         await flush()
         await timing.trace(tracedEvent)
         return
       }
-      if (pendingText
-        && pendingText.id === event.id
-        && pendingText.messageId === event.messageId
-        && pendingText.phase === event.phase
-        && pendingText.role === event.role) {
+      if (pendingText && sameTextStream(pendingText, event)) {
         let remaining = event.text
         while (pendingText && pendingText.text.length + remaining.length > MAX_TRACE_TEXT_EVENT_LENGTH) {
           const length = MAX_TRACE_TEXT_EVENT_LENGTH - pendingText.text.length

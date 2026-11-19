@@ -7,7 +7,7 @@ navigation.group: Chat bots
 icon: i-simple-icons-telegram
 ---
 
-Create a bot with BotFather, add `telegram()` from `vite-hub/channels` to the `channels` of a `defineAgent()` file, and set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET_TOKEN` on the server. ViteHub serves the webhook at `/_vitehub/agents/<agent>/webhooks/telegram`. Run `vitehub channels sync` once to point Telegram at it. The Agent then answers direct messages, and group messages that mention the bot.
+Create a bot with BotFather, add `telegram()` from `vite-hub/agent/channels` to the `channels` of a `defineAgent()` file, and set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET_TOKEN` on the server. ViteHub serves the webhook at `/_vitehub/agents/<agent>/webhooks/telegram`. Run `vitehub channels sync` once to point Telegram at it. The Agent then answers direct messages, and group messages that mention the bot.
 
 ## What a ViteHub Telegram bot is
 
@@ -87,7 +87,7 @@ The Agent runs each reply inline in the server process. If a reply must survive 
 
 ```ts [server/agents/assistant.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { telegram } from 'vite-hub/channels'
+import { telegram } from 'vite-hub/agent/channels'
 
 export default defineAgent({
   channels: {

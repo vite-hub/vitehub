@@ -1,5 +1,5 @@
 import type { AgentChannelTriggerContext, AgentTriggerInvokeResult } from 'vite-hub/agent'
-import { github } from 'vite-hub/channels'
+import { github } from 'vite-hub/agent/channels'
 import { githubApi, githubInstallationId } from './github-app.ts'
 
 const repository = 'example/portal'

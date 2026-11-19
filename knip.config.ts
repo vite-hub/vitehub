@@ -105,6 +105,7 @@ const packageEntries = [
 const bundledInternal: Record<string, string[]> = {
   agent: ["@sqlite.org/sqlite-wasm", "@valibot/to-json-schema", "@vercel/nft", "birpc"],
   blob: ["@valibot/to-json-schema", "birpc"],
+  bundle: ["@valibot/to-json-schema"],
   cli: ["@babel/parser", "birpc"],
   comments: ["@valibot/to-json-schema", "birpc"],
   content: ["@valibot/to-json-schema", "birpc"],

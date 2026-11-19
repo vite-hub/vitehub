@@ -66,7 +66,7 @@ async function configure(plugin: ReturnType<typeof hubQueue>, config: Record<str
 }
 
 describe("contributed Queue Definitions", () => {
-  it("builds a contributed Queue for a Node server and runs it with delaySeconds", async () => {
+  it("builds a contributed Queue for a Node server and runs it with a delay", async () => {
     const { module, root } = await createProject()
     const seen: QueueContributionContext[] = []
     const plugin = hubQueue()
@@ -93,7 +93,7 @@ describe("contributed Queue Definitions", () => {
 
     const queue = await dynamicQueue.use(queueName)
     const sentAt = Date.now()
-    const [error, sent] = await queue.send({ id: "hook_1", revision: 1 }, { delaySeconds: 0.3 })
+    const [error, sent] = await queue.send({ id: "hook_1", revision: 1 }, { delay: "300ms" })
     expect(error).toBeUndefined()
     expect(sent).toMatchObject({ status: "queued" })
     await new Promise(done => setTimeout(done, 100))

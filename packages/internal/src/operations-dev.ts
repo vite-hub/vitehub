@@ -88,7 +88,7 @@ export function createStandaloneOperationHandler(sources: { operations: unknown,
         if (bytes > (registry.get(call.m)?.maxRequestBytes ?? defaultLimit)) reject(413, "Operation request exceeds the byte limit.")
         const response: { status?: number } = {}
         const context: OperationContext = {
-          access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null, request, event: request, response,
+          access: { mode: "local", sections: "all" }, development: true, projectRoot: root, surface: "cli", user: null, request, event: request, response,
           env: requestEnv(request), waitUntil: requestWaitUntil(request),
         }
         const reply = await answerOperationRpc(call, {

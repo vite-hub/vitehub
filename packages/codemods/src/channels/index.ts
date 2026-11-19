@@ -1,23 +1,19 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { detectStyle, end, isReference, line, listItemRemoval, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
+import { detectStyle, end, isReference, line, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
 import { parse as parseSfc } from "@vue/compiler-sfc"
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
 import { bindingResolver } from "../shared/binding-resolver.ts"
 
-import type { File, Identifier, ImportDeclaration, StringLiteral } from "@babel/types"
+import type { CallExpression, File, Identifier, ImportDeclaration } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 
-/** `vite-hub/agent/channels` joined `vite-hub/channels`. The owner path `@vite-hub/agent/channels` stays. */
-const movedPath = "vite-hub/agent/channels"
-const channelsPath = "vite-hub/channels"
-
 /** Modules that exported `http()`. `http(options)` is now `channelAdapter("http", options)`. */
-const httpModules = new Set([movedPath, channelsPath, "@vite-hub/agent/channels"])
+const httpModules = new Set(["vite-hub/agent/channels", "@vite-hub/agent/channels"])
 
 /** Calls whose first argument names a module, such as `vi.mock("vite-hub/agent/channels")`. */
 const moduleCalls = new Set(["mock", "doMock", "unmock", "doUnmock", "importActual", "importMock"])
@@ -59,8 +55,6 @@ interface FileContext {
   output: MagicString
   program: File
   style: CodeStyle
-  /** The new text of an import specifier that `replaceHttp()` changed. `null` when it removed it. */
-  specifiers: Map<Node, string | null>
 }
 
 type Specifier = ImportDeclaration["specifiers"][number]
@@ -78,134 +72,105 @@ function importedName(specifier: Specifier): string | undefined {
   return specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value
 }
 
-function isNamedImport(statement: ImportDeclaration): boolean {
-  return statement.specifiers.length > 0 && statement.specifiers.every(specifier => specifier.type === "ImportSpecifier")
-}
+const manualHttp = '`http()` was removed. Use `channelAdapter("http", options)` from the same module to keep the Channel kind.'
 
-function replaceSource(context: FileContext, source: StringLiteral) {
-  overwrite(context, source, quoteString(channelsPath, context.style))
-}
-
-/**
- * Moves imports and re-exports of `vite-hub/agent/channels` to `vite-hub/channels`. A named import joins an earlier
- * named import of `vite-hub/channels` of the same kind, so a file ends with one import.
- */
-function moveImports(context: FileContext) {
-  const { block, output, program } = context
-  const targets = new Map<string, ImportDeclaration>()
-  const key = (statement: ImportDeclaration) => `${statement.importKind ?? "value"}`
-  for (const statement of program.program.body) {
-    if (statement.type === "ImportDeclaration" && statement.source.value === channelsPath && isNamedImport(statement) && !targets.has(key(statement))) {
-      targets.set(key(statement), statement)
-    }
-  }
-  for (const statement of program.program.body) {
-    if ((statement.type === "ExportNamedDeclaration" || statement.type === "ExportAllDeclaration") && statement.source?.value === movedPath) {
-      replaceSource(context, statement.source)
-      continue
-    }
-    if (statement.type !== "ImportDeclaration" || statement.source.value !== movedPath) continue
-    const target = isNamedImport(statement) ? targets.get(key(statement)) : undefined
-    if (!target) {
-      replaceSource(context, statement.source)
-      if (isNamedImport(statement)) targets.set(key(statement), statement)
-      continue
-    }
-    // `replaceHttp()` ran first, so take the names with its edits.
-    const names = statement.specifiers.flatMap((specifier) => {
-      const text = context.specifiers.get(specifier)
-      return text === null ? [] : [text ?? block.code.slice(start(specifier), end(specifier))]
-    }).join(", ")
-    if (names) output.appendLeft(block.offset + end(target.specifiers.at(-1)!), `, ${names}`)
-    const [from, to] = listItemRemoval(block.code, statement)
-    output.remove(block.offset + from, block.offset + to)
-  }
-  walk(program, (node) => {
-    if (node.type === "ImportExpression" && node.source.type === "StringLiteral" && node.source.value === movedPath) {
-      replaceSource(context, node.source)
+function reportIndirectUses(context: FileContext): Set<string> {
+  const mocked = new Set<string>()
+  walk(context.program, (node, ancestors) => {
+    if (node.type === "ExportAllDeclaration" && httpModules.has(node.source.value)) {
+      followUp(context, node, `Check consumers of this wildcard re-export. ${manualHttp}`)
       return
     }
-    if (node.type !== "CallExpression") return
-    const [first] = node.arguments
-    if (first?.type !== "StringLiteral" || first.value !== movedPath) return
-    const callee = node.callee
-    const name = callee.type === "Import" ? "import" : callee.type === "MemberExpression" && callee.property.type === "Identifier" ? callee.property.name : undefined
-    if (name === "import" || (name && moduleCalls.has(name))) replaceSource(context, first)
+    if (node.type === "ExportNamedDeclaration" && node.source && httpModules.has(node.source.value)) {
+      if (node.specifiers.some(specifier => specifier.type === "ExportNamespaceSpecifier" || (specifier.type === "ExportSpecifier" && specifier.local.name === "http"))) {
+        followUp(context, node, manualHttp)
+      }
+      return
+    }
+    if (node.type === "ImportDeclaration" && httpModules.has(node.source.value) && node.specifiers.some(specifier => specifier.type === "ImportNamespaceSpecifier")) {
+      followUp(context, node, `Check this namespace import for references to the removed http export. ${manualHttp}`)
+      return
+    }
+    if (node.type !== "CallExpression" && node.type !== "ImportExpression") return
+    const callee = node.type === "CallExpression" ? node.callee : undefined
+    const first = node.type === "CallExpression" ? node.arguments[0] : node.source
+    const source = first?.type === "ImportExpression" ? first.source
+      : first?.type === "CallExpression" && first.callee.type === "Import" ? first.arguments[0] : first
+    if (source?.type !== "StringLiteral" || !httpModules.has(source.value)) return
+    if (callee?.type === "MemberExpression" && callee.property.type === "Identifier" && moduleCalls.has(callee.property.name)) {
+      mocked.add(source.value)
+      followUp(context, node, `Check this mock for the removed http export. Update the mock and its callers together. ${manualHttp}`)
+      return
+    }
+    if (node.type === "ImportExpression" || callee?.type === "Import" || (callee?.type === "Identifier" && callee.name === "require")) {
+      const parent = ancestors.at(-1)
+      if (parent?.type === "CallExpression" && parent.callee.type === "MemberExpression"
+        && parent.callee.property.type === "Identifier" && moduleCalls.has(parent.callee.property.name)) return
+      followUp(context, node, `Check this module load for references to the removed http export. ${manualHttp}`)
+    }
   })
+  return mocked
 }
 
-/** `http(options)` becomes `channelAdapter("http", options)`, the same Channel with the generic adapter. */
+function isSimpleCall(call: CallExpression): boolean {
+  if (call.typeParameters || call.typeArguments) return false
+  const [options] = call.arguments
+  if (!options) return true
+  return call.arguments.length === 1 && options.type === "ObjectExpression" && options.properties.every(property =>
+    property.type === "ObjectProperty" && !property.computed
+    && (property.key.type === "Identifier" || property.key.type === "StringLiteral")
+    && (property.key.type === "Identifier" ? property.key.name : property.key.value) === "route"
+    && property.value.type === "BooleanLiteral")
+}
+
 function replaceHttp(context: FileContext) {
   const { block, output, program, style } = context
-  const imports = program.program.body.filter((statement): statement is ImportDeclaration =>
-    statement.type === "ImportDeclaration" && httpModules.has(statement.source.value) && statement.importKind !== "type")
-  const valueSpecifiers = imports.flatMap(statement => statement.specifiers.flatMap(specifier =>
-    specifier.type === "ImportSpecifier" && specifier.importKind !== "type" ? [{ statement, specifier }] : []))
-  const http = valueSpecifiers.filter(({ specifier }) => importedName(specifier) === "http")
-  if (!http.length) return
-  let adapterName = valueSpecifiers.find(({ specifier }) => importedName(specifier) === "channelAdapter")?.specifier.local.name
+  const mocked = reportIndirectUses(context)
+  const imports = program.program.body.flatMap(statement =>
+    statement.type === "ImportDeclaration" && httpModules.has(statement.source.value)
+      ? statement.specifiers.flatMap(specifier => importedName(specifier) === "http" ? [{ statement, specifier }] : []) : [])
+  if (!imports.length) return
   const resolve = bindingResolver(program)
-  const references = new Map<Identifier, Identifier[]>(http.map(({ specifier }) => [specifier.local, []]))
-  const parents = new Map<Identifier, Node | undefined>()
+  const references = new Map(imports.map(({ specifier }) => [specifier.local, new Map<Identifier, Node>()]))
   const names = new Set<string>()
   walk(program, (node, ancestors) => {
     if (node.type !== "Identifier") return
     names.add(node.name)
-    if (!isReference(node, ancestors.at(-1))) return
+    const parent = ancestors.at(-1)
+    if (!parent || !isReference(node, parent)) return
     const binding = resolve(node)
-    const list = binding && references.get(binding)
-    if (!list) return
-    list.push(node)
-    parents.set(node, ancestors.at(-1))
+    if (binding) references.get(binding)?.set(node, parent)
   })
   const kind = quoteString("http", style)
-  for (const { statement, specifier } of http) {
-    const calls = references.get(specifier.local)!
-    const other = calls.find((node) => {
-      const parent = parents.get(node)
-      return parent?.type !== "CallExpression" || parent.callee !== node
-    })
-    if (other) {
-      followUp(context, other, "`http()` was removed. Import `channelAdapter` from `vite-hub/channels`, and replace this reference with `(options) => channelAdapter(\"http\", options)`.")
+  for (const { statement, specifier } of imports) {
+    if (specifier.type !== "ImportSpecifier" || mocked.has(statement.source.value)) continue
+    if (statement.importKind === "type" || specifier.importKind === "type") {
+      followUp(context, specifier, manualHttp)
       continue
     }
-    let callee: string
-    if (adapterName) {
-      // The file already imports `channelAdapter`: drop `http` and call the existing name.
-      const [from, to] = listItemRemoval(block.code, statement.specifiers.length === 1 ? statement : specifier)
-      output.remove(block.offset + from, block.offset + to)
-      context.specifiers.set(specifier, null)
-      callee = adapterName
-    }
-    else if (specifier.local.name !== "http") {
-      overwrite(context, specifier.imported, "channelAdapter")
-      context.specifiers.set(specifier, `channelAdapter as ${specifier.local.name}`)
-      callee = specifier.local.name
-    }
-    else if (names.has("channelAdapter")) {
-      followUp(context, specifier, "`http()` was removed. Import `channelAdapter` from `vite-hub/channels`, and replace `http(options)` with `channelAdapter(\"http\", options)`. This file already has a `channelAdapter` name, so the codemod left it.")
+    const uses = references.get(specifier.local) ?? new Map<Identifier, Node>()
+    const unsafe = [...uses].find(([node, parent]) => parent.type !== "CallExpression" || parent.callee !== node || !isSimpleCall(parent))
+    if (unsafe) {
+      followUp(context, unsafe[0], `${manualHttp} Adapt references and typed calls by hand. For typed routes, type the callbacks explicitly, or use webChat() if changing the kind is acceptable.`)
       continue
     }
-    else {
-      overwrite(context, specifier, "channelAdapter")
-      context.specifiers.set(specifier, "channelAdapter")
-      callee = adapterName = "channelAdapter"
+    let callee = specifier.local.name
+    if (callee === "http") {
+      callee = "channelAdapter"
+      let suffix = 2
+      while (names.has(callee)) callee = `channelAdapter${suffix++}`
+      names.add(callee)
     }
-    for (const node of calls) {
-      const call = parents.get(node)
-      if (call?.type !== "CallExpression") continue
+    overwrite(context, specifier, callee === "channelAdapter" ? callee : `channelAdapter as ${callee}`)
+    for (const [node, call] of uses) {
+      if (call.type !== "CallExpression") continue
       if (callee !== node.name) overwrite(context, node, callee)
-      const open = block.code.indexOf("(", end(call.typeParameters ?? node))
-      output.appendLeft(block.offset + open + 1, call.arguments.length ? `${kind}, ` : kind)
+      const first = call.arguments[0]
+      const parenStart: unknown = first?.extra?.parenStart
+      const insertion = first ? typeof parenStart === "number" ? parenStart : start(first) : end(call) - 1
+      output.appendLeft(block.offset + insertion, first ? `${kind}, ` : kind)
     }
   }
-}
-
-function rewriteBlock(context: FileContext): boolean {
-  const before = context.output.toString()
-  replaceHttp(context)
-  moveImports(context)
-  return context.output.toString() !== before
 }
 
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
@@ -227,13 +192,14 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
         followUps.push({ file, message: `The codemod could not parse this file (${error instanceof Error ? error.message : String(error)}). Import Channel adapters from \`vite-hub/channels\`, and replace \`http(options)\` with \`channelAdapter("http", options)\` by hand.` })
         continue
       }
-      const context: FileContext = { block, file, followUps, output, program, specifiers: new Map(), style: detectStyle(block.code, program) }
-      changed = rewriteBlock(context) || changed
+      const before = output.toString()
+      replaceHttp({ block, file, followUps, output, program, style: detectStyle(block.code, program) })
+      changed = output.toString() !== before || changed
     }
     if (changed) edits.push({ path: file, before: source, after: output.toString() })
   }
   return {
-    summary: edits.length ? `moved Channel imports to vite-hub/channels in ${edits.length} file(s)` : "found no vite-hub/agent/channels import or http() Channel",
+    summary: edits.length ? `replaced http() in ${edits.length} file(s)` : "no http() calls changed",
     edits,
     followUps,
     notes: [],
@@ -243,14 +209,14 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
 
 export const channels: Codemod = {
   name: "channels",
-  description: "Import Channel adapters from `vite-hub/channels`, and replace `http()` with `channelAdapter(\"http\")`",
+  description: "Replace the Agent `http()` adapter with `channelAdapter(\"http\")`",
   usage: "[dir]",
   async detect({ cwd }) {
     const result = await migrate({ cwd })
     const [edit] = result.edits
-    if (edit) return { reason: `${edit.path} imports \`vite-hub/agent/channels\` or calls \`http()\`` }
+    if (edit) return { reason: `${edit.path} calls the Agent \`http()\` adapter` }
     const [followUp] = result.followUps
-    return followUp ? { reason: `${followUp.file} needs the \`vite-hub/channels\` change` } : undefined
+    return followUp ? { reason: `${followUp.file} needs a manual Agent Channel migration` } : undefined
   },
   run: migrate,
 }

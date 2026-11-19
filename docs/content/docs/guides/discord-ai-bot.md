@@ -7,7 +7,7 @@ navigation.group: Chat bots
 icon: i-lucide-bot
 ---
 
-Create a Discord application, turn on the Message Content intent, and add `discord({ adapter: true })` from `vite-hub/channels` to a `defineAgent()` file. Set `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, and `DISCORD_APPLICATION_ID`, and run with the `node` host. The server opens the Discord Gateway at start, and the Agent answers direct messages and mentions.
+Create a Discord application, turn on the Message Content intent, and add `discord({ adapter: true })` from `vite-hub/agent/channels` to a `defineAgent()` file. Set `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, and `DISCORD_APPLICATION_ID`, and run with the `node` host. The server opens the Discord Gateway at start, and the Agent answers direct messages and mentions.
 
 ## What a ViteHub Discord bot is
 
@@ -89,7 +89,7 @@ The `node` host starts the Gateway listener in the server process. The Agent run
 ```ts [server/agents/assistant.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { access } from 'vite-hub/agent/capabilities'
-import { discord } from 'vite-hub/channels'
+import { discord } from 'vite-hub/agent/channels'
 
 const allowedUsers = new Set(['discord:111111111111111111'])
 
