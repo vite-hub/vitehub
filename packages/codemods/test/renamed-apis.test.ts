@@ -56,6 +56,17 @@ describe("renamed-apis", () => {
     expect(await detectCodemods(current.cwd)).toEqual([])
   })
 
+  it("renames the Workspace fetch() Source to url()", async () => {
+    const { after } = await migrate({
+      "server/workspaces/status.ts": "import { defineWorkspace, fetch } from 'vite-hub/workspace'\nexport default defineWorkspace({ sources: { status: fetch({ url: 'https://status.example.com/api', workspacePath: 'status.json' }) } })\n",
+      "server/workspaces/inventory.ts": "import { fetch as source } from '@vite-hub/workspace'\nexport const inventory = source({ url: 'https://example.com/inventory' })\n",
+      "server/api/ping.ts": "export default () => fetch('https://example.com')\n",
+    })
+    expect(after["server/workspaces/status.ts"]).toBe("import { defineWorkspace, url } from 'vite-hub/workspace'\nexport default defineWorkspace({ sources: { status: url({ url: 'https://status.example.com/api', workspacePath: 'status.json' }) } })\n")
+    expect(after["server/workspaces/inventory.ts"]).toBe("import { url as source } from '@vite-hub/workspace'\nexport const inventory = source({ url: 'https://example.com/inventory' })\n")
+    expect(after["server/api/ping.ts"]).toBeUndefined()
+  })
+
   it("keeps the import name when the file declares it again", async () => {
     const { after, run } = await migrate({
       "vite.config.ts": "import { hubKv } from '@vite-hub/kv/vite'\nfunction local(hubKv: unknown) { return hubKv }\nexport default { plugins: [hubKv()], local }\n",

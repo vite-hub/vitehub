@@ -243,9 +243,9 @@ afterEach(async () => {
 
 describe("hubWorkspace", () => {
   it.each([
-    { options: { store: { driver: "github", repository: "acme/workspaces" } }, definition: '{ store: { driver: "memory" } }', env: {}, store: "memory", scope: "process" },
-    { options: { store: { driver: "github", repository: "acme/workspaces" } }, definition: '{ store: { driver: "local", root: "instance-data" } }', env: {}, store: "local", scope: "host" },
-    { options: { store: { driver: "github", repository: "acme/workspaces" } }, definition: '{}', env: {}, store: "github", scope: "shared" },
+    { options: { store: { driver: "github", repo: "acme/workspaces" } }, definition: '{ store: { driver: "memory" } }', env: {}, store: "memory", scope: "process" },
+    { options: { store: { driver: "github", repo: "acme/workspaces" } }, definition: '{ store: { driver: "local", root: "instance-data" } }', env: {}, store: "local", scope: "host" },
+    { options: { store: { driver: "github", repo: "acme/workspaces" } }, definition: '{}', env: {}, store: "github", scope: "shared" },
     { options: { root: ".vitehub/workspace-data" }, definition: '{}', env: { BLOB_READ_WRITE_TOKEN: "boot-token" }, store: "local", scope: "host" },
   ] as const)("reports each generated registry Definition with effective $store storage", async ({ options, definition, env, store, scope }) => {
     vi.stubEnv("BLOB_READ_WRITE_TOKEN", "")
@@ -749,7 +749,7 @@ describe("hubWorkspace", () => {
     await writeFile(join(root, "server", "workspaces", "mirror", "config.ts"), [
       `import { defineWorkspace } from "@vite-hub/workspace"`,
       `export default defineWorkspace({`,
-      `  store: { driver: "github", repository: "onmax/bitacora-de-vida", root: "/" },`,
+      `  store: { driver: "github", repo: "onmax/bitacora-de-vida", root: "/" },`,
       `})`,
       ``,
     ].join("\n"))
@@ -831,7 +831,7 @@ describe("hubWorkspace", () => {
 
     it("installs only the hosted store that a definition names", async () => {
       const pluginSource = await buildPlugin({
-        mirror: `import { defineWorkspace } from "@vite-hub/workspace"\nexport default defineWorkspace({ store: { driver: "github", repository: "onmax/bitacora-de-vida", root: "/" } })\n`,
+        mirror: `import { defineWorkspace } from "@vite-hub/workspace"\nexport default defineWorkspace({ store: { driver: "github", repo: "onmax/bitacora-de-vida", root: "/" } })\n`,
       })
 
       expect(pluginSource).toContain(`import { installHostedGitHubWorkspaceStore } from ${JSON.stringify(ownModule(import.meta.url, "hosted"))}`)
@@ -903,7 +903,7 @@ describe("hubWorkspace", () => {
     await writeFile(join(root, "server", "workspaces", "mirror", "config.ts"), [
       `import { defineWorkspace } from "@vite-hub/workspace"`,
       `export default defineWorkspace({`,
-      `  store: { driver: "github", repository: "onmax/bitacora-de-vida", root: "/" },`,
+      `  store: { driver: "github", repo: "onmax/bitacora-de-vida", root: "/" },`,
       `})`,
       ``,
     ].join("\n"))
@@ -1025,7 +1025,7 @@ describe("hubWorkspace", () => {
       store: {
         branch: "main",
         driver: "github",
-        repository: "onmax/quiver-airtable",
+        repo: "onmax/quiver-airtable",
         root: "app/server/workspaces/mirror",
       },
     })
@@ -1053,7 +1053,7 @@ describe("hubWorkspace", () => {
     expect(pluginSource).toContain("setWorkspaceRuntimeRegistry")
     expect(pluginSource).toContain("import registry from \"./registry.js\"")
     expect(pluginSource).toContain('"driver": "github"')
-    expect(pluginSource).toContain('"repository": "onmax/quiver-airtable"')
+    expect(pluginSource).toContain('"repo": "onmax/quiver-airtable"')
     await expect(readFile(join(root, "server", "plugins", "vitehub-workspace.ts"), "utf8")).rejects.toThrow()
   })
 
@@ -1063,7 +1063,7 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({
       projectRoot: "service",
-      store: { branch: "main", driver: "github", repository: "onmax/quiver-airtable" },
+      store: { branch: "main", driver: "github", repo: "onmax/quiver-airtable" },
     })
     const config = mergedConfigHook(plugin.config)
     const userConfig: UserConfig & { nitro?: { plugins?: string[] } } = { root }
@@ -1082,7 +1082,7 @@ describe("hubWorkspace", () => {
       hosting: "cloudflare-module",
       store: {
         driver: "github",
-        repository: () => process.env.WORKSPACE_REPO,
+        repo: () => process.env.WORKSPACE_REPO,
         root: "app/server/workspaces/mirror",
         token: () => process.env.WORKSPACE_TOKEN,
       },
@@ -1105,7 +1105,7 @@ describe("hubWorkspace", () => {
     expect(pluginSource).toContain("import { env as vitehubEnv } from 'cloudflare:workers'")
     expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv as unknown as Record<string, unknown>)")
     expect(pluginSource).toContain("configureHostedWorkspaceRuntime")
-    expect(pluginSource).toContain('"repository": () => process.env.WORKSPACE_REPO')
+    expect(pluginSource).toContain('"repo": () => process.env.WORKSPACE_REPO')
     expect(pluginSource).toContain('"token": () => process.env.WORKSPACE_TOKEN')
     expect(pluginSource).not.toContain('"token": "********"')
   })
@@ -1119,7 +1119,7 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     if (signal !== "nitro.preset") vi.stubEnv(signal, "cloudflare-module")
     const { hubWorkspace } = await import("../src/vite.ts")
-    const plugin = hubWorkspace({ store: { driver: "github", repository: "onmax/repo" } })
+    const plugin = hubWorkspace({ store: { driver: "github", repo: "onmax/repo" } })
     const config = mergedConfigHook(plugin.config) as (config: {
       nitro?: { preset?: string }
       root: string
@@ -1140,7 +1140,7 @@ describe("hubWorkspace", () => {
     vi.stubEnv("NITRO_PRESET", " ")
     vi.stubEnv("SERVER_PRESET", "cloudflare-module")
     const { hubWorkspace } = await import("../src/vite.ts")
-    const plugin = hubWorkspace({ store: { driver: "github", repository: "onmax/repo" } })
+    const plugin = hubWorkspace({ store: { driver: "github", repo: "onmax/repo" } })
     const config = mergedConfigHook(plugin.config) as (config: {
       root: string
     }, env: { command: "build", mode: string }) => Promise<{ nitro?: { rollupConfig?: { external?: unknown } } }>
@@ -1172,7 +1172,7 @@ describe("hubWorkspace", () => {
     expect(pluginSource).toContain('"driver": "github"')
     expect(pluginSource).not.toContain("vite-hub/build-repository")
     expect(pluginSource).not.toContain('"branch"')
-    expect(pluginSource).not.toContain('"repository"')
+    expect(pluginSource).not.toContain('"repo"')
     expect(pluginSource).not.toContain('".vitehub/workspaces/<workspace>"')
   })
 
@@ -1190,7 +1190,7 @@ describe("hubWorkspace", () => {
     }, { command: "build", mode: "production" })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain('"repository": "vite-hub/build-repository"')
+    expect(pluginSource).toContain('"repo": "vite-hub/build-repository"')
     expect(pluginSource).not.toContain("setActiveCloudflareEnv")
   })
 
@@ -1464,7 +1464,7 @@ describe("hubWorkspace", () => {
       store: {
         branch: "main",
         driver: "github",
-        repository: "onmax/quiver-airtable",
+        repo: "onmax/quiver-airtable",
         root: "server/workspaces/mirror",
       },
     })
@@ -1501,7 +1501,7 @@ describe("hubWorkspace", () => {
       store: {
         branch: "main",
         driver: "github",
-        repository: "onmax/quiver-airtable",
+        repo: "onmax/quiver-airtable",
         root: "server/workspaces/mirror",
       },
     })

@@ -942,8 +942,8 @@ export interface GitHubWorkspaceStoreOptions {
    */
   database?: unknown
   refs?: GitHubWorkspaceRefs
+  /** The repository, as `owner/name`. Defaults to `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`. */
   repo?: GitHubWorkspaceOption
-  repository?: GitHubWorkspaceOption
   /** The folder of the Workspace in the repository. An empty string is the repository root. Defaults to `.vitehub/workspaces/<workspace>`. */
   root?: GitHubWorkspaceOption
   token?: GitHubWorkspaceOption

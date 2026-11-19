@@ -17,6 +17,7 @@ import { shellDriver } from "./shell-driver/index.ts"
 import { t3Env } from "./t3-env/index.ts"
 import { tsconfigPaths } from "./tsconfig-paths/index.ts"
 import { vitehubOptions } from "./vitehub-options/index.ts"
+import { workspaceRepo } from "./workspace-repo/index.ts"
 
 import type { Codemod } from "./types.ts"
 
@@ -44,6 +45,7 @@ export const codemods: readonly Codemod[] = [
   tsconfigPaths,
   shellDriver,
   accessSpellings,
+  workspaceRepo,
 ]
 
 /**
@@ -70,4 +72,5 @@ export const upgradeCodemods: readonly Codemod[] = [
   tsconfigPaths,
   shellDriver,
   accessSpellings,
+  workspaceRepo,
 ]

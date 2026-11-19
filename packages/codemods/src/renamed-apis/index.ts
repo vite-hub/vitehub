@@ -19,6 +19,8 @@ const renamedExports = new Map<string, ReadonlyMap<string, string>>([
   ["@vite-hub/kv/vite", new Map([["hubKv", "hubKV"]])],
   ["@vite-hub/workspace/mountx", new Map([["createWorkspaceDriver", "createMountxDriver"]])],
   ["vite-hub/console/server", new Map([["console", "agentConsole"]])],
+  ["vite-hub/workspace", new Map([["fetch", "url"]])],
+  ["@vite-hub/workspace", new Map([["fetch", "url"]])],
 ])
 
 /** Modules that export `kv` or `blob`, whose `del()` became `delete()`. */
@@ -43,7 +45,7 @@ const renamedStrings = new Map([
 const sourcePatterns = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}"]
 const envPatterns = [".env", ".env.*", ".dev.vars", "wrangler.toml", "wrangler.json", "wrangler.jsonc", "**/.env", "**/.env.*", "**/.dev.vars", "**/wrangler.toml", "**/wrangler.json", "**/wrangler.jsonc"]
 const ignoredPatterns = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/.data/**", "**/.vitehub/**", "**/dist/**", "**/coverage/**"]
-const needle = /\bhubDb\b|\bhubKv\b|\bcreateWorkspaceDriver\b|vite-hub\/console\/server|\b(?:kv|blob)[._]del\b|\.del\b|deriveSecret\(/
+const needle = /\bhubDb\b|\bhubKv\b|\bcreateWorkspaceDriver\b|vite-hub\/workspace|vite-hub\/console\/server|\b(?:kv|blob)[._]del\b|\.del\b|deriveSecret\(/
 
 interface Block {
   code: string
@@ -400,13 +402,14 @@ const detections: [RegExp, string][] = [
   [/\bhubDb\b/, "hubDb"],
   [/\bhubKv\b/, "hubKv"],
   [/\bcreateWorkspaceDriver\b/, "createWorkspaceDriver"],
+  [/\bfetch\b[^;]*from ["']@?vite-hub\/workspace["']/, "fetch() from vite-hub/workspace"],
   [/\b(?:kv|blob)\.del\(/, "del()"],
   [/\bderiveSecret\([^),]+,/, "deriveSecret() with a positional event"],
 ]
 
 export const renamedApis: Codemod = {
   name: "renamed-apis",
-  description: "Rename hubDb, hubKv, createWorkspaceDriver, kv.del(), blob.del(), and the positional deriveSecret() event",
+  description: "Rename hubDb, hubKv, createWorkspaceDriver, the Workspace fetch() Source to url(), kv.del(), blob.del(), and the positional deriveSecret() event",
   usage: "[dir]",
   async detect({ cwd }) {
     // Reuse the edit planner so detection covers every supported migration form.

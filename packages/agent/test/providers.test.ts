@@ -2295,7 +2295,7 @@ describe("agent Vite plugin", () => {
           "export default defineAgent({",
           "  driver: { async run() { return 'ok' } },",
           "  workspace: {",
-          "    store: { driver: 'github', repository: 'onmax/bitacora-de-vida', root: '/' },",
+          "    store: { driver: 'github', repo: 'onmax/bitacora-de-vida', root: '/' },",
           "  },",
           "})",
           "",

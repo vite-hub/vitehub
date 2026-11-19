@@ -28,7 +28,7 @@ The command exits with `0` when every codemod completes, also when they report f
 vitehub migrate [dir] [--dry-run]
 ```
 
-`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, and `access-spellings`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
+`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, and `workspace-repo`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
 ## Run one codemod
 
@@ -59,6 +59,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `tsconfig-paths` | `#vitehub/*` entries of tsconfig `paths` that point into `.vitehub/` or `.nuxt/`, which ViteHub now types itself |
 | `shell-driver` | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()`. `vitehub migrate` runs it. |
 | `access-spellings` | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: "public"`. `vitehub migrate` runs it. |
+| `workspace-repo` | The GitHub Workspace Store option `repository` to `repo`. `vitehub migrate` runs it. |
 
 ## `runtime-contracts`
 
@@ -86,6 +87,7 @@ ViteHub renamed some APIs. `renamed-apis` rewrites the code of an app that uses 
 | `hubDb` from `@vite-hub/database/vite` or `@vite-hub/database/nuxt` | `hubDatabase` |
 | `hubKv` from `@vite-hub/kv/vite` | `hubKV` |
 | `createWorkspaceDriver` from `@vite-hub/workspace/mountx` | `createMountxDriver` |
+| `fetch` from `vite-hub/workspace` or `@vite-hub/workspace`, the URL Source | `url` |
 | `console` from `vite-hub/console/server` | `agentConsole` |
 | `kv.del()`, `blob.del()`, `kv.store(name).del()` | `.delete()` |
 | `deriveSecret(purpose, event)` | `deriveSecret(purpose, { event })` |
@@ -388,6 +390,26 @@ ViteHub types the `#vitehub/*` aliases itself, in `.vitehub/types/`. Older apps 
 ```sh
 npx @vite-hub/codemods tsconfig-paths [dir] [--dry-run]
 ```
+
+## `workspace-repo`
+
+`workspace-repo` renames the `repository` option of a GitHub Workspace Store to `repo`, the one spelling that the Store reads:
+
+```sh
+npx @vite-hub/codemods workspace-repo [dir] [--dry-run]
+```
+
+```diff [server/workspaces/handbook.ts]
+ export default defineWorkspace({
+   store: {
+     driver: 'github',
+-    repository: 'acme/handbook',
++    repo: 'acme/handbook',
+   },
+ })
+```
+
+The codemod changes only object literals with `driver: 'github'`. The report lists a Store that sets both keys. The Workspace `fetch()` Source is now `url()`; `renamed-apis` renames its imports.
 
 ## Add a codemod
 

@@ -17,7 +17,6 @@ export interface GitHubWorkspaceOptions {
   branch?: GitHubWorkspaceOption;
   refs?: GitHubWorkspaceRefs;
   repo?: GitHubWorkspaceOption;
-  repository?: GitHubWorkspaceOption;
   root?: GitHubWorkspaceOption;
   token?: GitHubWorkspaceOption;
 }
@@ -328,12 +327,16 @@ export function gitFileMode(value: unknown): GitFileMode {
   return value === "120000" || value === "100755" ? value : "100644";
 }
 
+/** Fails when a GitHub store sets the renamed `repository` key, which the store would not read. */
+export function assertNoGitHubRepositoryKey(options: object): void {
+  if (Object.hasOwn(options, "repository")) throw workspaceErrorDiagnostics.WORKSPACE_RENAMED_STORE_REPOSITORY_KEY();
+}
+
 export function resolveGitHubRepositoryOption(
   options: GitHubWorkspaceOptions,
   env: Record<string, string | undefined> = typeof process !== "undefined" ? process.env : {},
 ): string | undefined {
   return (
-    resolveGitHubOption(options.repository) ||
     resolveGitHubOption(options.repo) ||
     readLocationEnv("VITEHUB_WORKSPACE_GITHUB_REPOSITORY", env)
   );
