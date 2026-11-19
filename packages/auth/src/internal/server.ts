@@ -4,11 +4,13 @@ import abilities from "#vitehub/auth/abilities"
 import { toResultError } from "@vite-hub/runtime"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 import { betterAuth } from "better-auth"
+import { parseUserOutput } from "better-auth/db"
+import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { HTTPError } from "nitro/h3"
 import { canonicalAccessPath, resolveAuthMountPath } from "../application-path.ts"
 import { normalizeAuthBasePath } from "../shared.ts"
 import { authRequestEvent, unwrapAuthRequest } from "../request.ts"
-import { resolveAuthOptions } from "../runtime-options.ts"
+import { resolveAuthOptions, trustsProxyHeaders } from "../runtime-options.ts"
 import { authenticationRefusalError, authenticationRefusalResponse, getAuthenticationSession, type AuthenticationRefusal, type AuthenticationSessionSnapshot } from "../session.ts"
 import { prepareSessionCookies, sendSessionCookies } from "../session-cookies.ts"
 import { getAuthRuntimeState } from "../runtime-state.ts"
@@ -57,6 +59,9 @@ import { findAccessPolicyPlugin } from "../access-policy.ts"
 import { notMemberError } from "../members.ts"
 import type { AuthMemberErrorCode } from "../members.ts"
 import type { Result } from "@vite-hub/runtime"
+import { signedOutError } from "../caller.ts"
+import { mcpRegistrationPluginId } from "../mcp-config.ts"
+import type { AuthCaller, AuthCallerErrorCode, AuthCallerUser } from "../caller.ts"
 
 export { createBetterAuthOptions, getAuthForDefinition } from "../auth-instance.ts"
 export { resetAuth } from "../runtime-state.ts"
@@ -1014,6 +1019,66 @@ export function requireAuthorization<TInput extends AuthRequestInput>(
     throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
   }
   return requireCheck(event, checkAuthorizeRequest(event, authorize, definition ?? resolveDefaultDefinition()))
+}
+
+// One answer per request and Definition, so middleware and the handler share it.
+const callerReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<Result<AuthCaller, AuthCallerErrorCode>>>>()
+
+/**
+ * Return who calls: a person with an Auth Session (`kind: "browser"`), or an Agent with an MCP access token of
+ * `mcpOAuth()` (`kind: "agent"`), checked like `verifyMcpRequest()` for any `mcpOAuth()` resource of the origin.
+ * Returns `AUTH_SIGNED_OUT` without either, and `AUTH_MCP_TOKEN_INVALID` for a bearer token that fails a check.
+ * `requireAuth()` stays session-only.
+ *
+ * ```ts [server/api/notes.delete.ts]
+ * export default defineHandler(async (event) => {
+ *   const [error, caller] = await requireCaller(event)
+ *   if (error) throw new HTTPError({ status: 401, message: error.why })
+ *   if (caller.kind !== "browser") throw new HTTPError({ status: 403, message: "Only the person can delete notes." })
+ *   return deleteNotes(caller.user.id)
+ * })
+ * ```
+ */
+export function requireCaller(event: AuthRequestInput, definition: AuthDefinition = resolveDefaultDefinition()): Promise<Result<AuthCaller, AuthCallerErrorCode>> {
+  const request = unwrapAuthRequest(event)
+  let reads = callerReads.get(request)
+  if (!reads) callerReads.set(request, reads = new WeakMap())
+  let read = reads.get(definition)
+  if (!read) {
+    read = readCaller(event, definition)
+    // A failed read is not kept, so a later call reads again.
+    read.catch(() => reads.delete(definition))
+    reads.set(definition, read)
+  }
+  return read
+}
+
+async function readCaller(event: AuthRequestInput, definition: AuthDefinition): Promise<Result<AuthCaller, AuthCallerErrorCode>> {
+  const request = unwrapAuthRequest(event)
+  const token = /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1]
+  if (token) {
+    const auth = authForRequest(request, authRequestEvent(event), definition)
+    const { options } = await auth.$context
+    // Without `mcpOAuth()`, a bearer token is Better Auth's, such as a session token of `bearer()`.
+    if (options.plugins?.some(plugin => plugin.id === mcpRegistrationPluginId)) {
+      const { verifyAppAccessToken } = await import("../mcp-token.ts")
+      const url = new URL(request.url)
+      const origin = trustsProxyHeaders(options) ? forwardedRequestOrigin(request) : url.origin
+      const [error, caller] = await verifyAppAccessToken(token, origin, url.pathname, auth)
+      if (error) return [error, undefined]
+      return [undefined, Object.freeze({
+        client: { id: caller.clientId, name: caller.clientName },
+        kind: "agent",
+        scopes: caller.scopes,
+        // SAFETY: The token check read this record with `findUserById()`, so it is the Auth user row.
+        user: parseUserOutput(options, caller.user as AuthCallerUser),
+      })]
+    }
+  }
+  const { session } = await readRequestSession(event, definition)
+  if (!session) return [signedOutError(), undefined]
+  // SAFETY: Better Auth's `getSession()` returns the Auth user row of the session.
+  return [undefined, Object.freeze({ kind: "browser", session: session.session, user: session.user as AuthCallerUser })]
 }
 
 // One session read per request, however many abilities the handler checks.
