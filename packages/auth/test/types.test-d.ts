@@ -262,7 +262,7 @@ describe("types", () => {
     expectTypeOf<AuthAuthorization<{}>["user"]["email"]>().toEqualTypeOf<string>()
     // @ts-expect-error A field that no plugin adds is not on the user.
     void ({} as AuthAuthorization<{}>["user"]).team
-    expectTypeOf(requireAuth).returns.toEqualTypeOf<Promise<AuthAuthorization>>()
+    expectTypeOf(requireAuth(new Request("https://app.example.com/me"))).toEqualTypeOf<Promise<AuthAuthorization>>()
   })
 
   it("types session.onRefresh in static and callback definitions", () => {

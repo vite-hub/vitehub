@@ -237,7 +237,7 @@ export default defineHandler(async (event) => {
 
 `useAuth()`, `auth`, and `getAuth()` return the instance typed from your Auth Definition, with the endpoints and fields of its plugins. The Vite plugin registers the type of `server/auth.ts` in `.vitehub/types/auth.d.ts`, so `useAuth(event).api.listUsers` type-checks when the definition uses the `admin()` plugin, without a cast. `AuthFor<typeof definition>` from `vite-hub/auth` names the instance type of another definition.
 
-The `authorization` argument and the `requireAuth()` result are a frozen `{ request, session, user }` object. `user` and `session` have the types of your Auth Definition, with the fields of its plugins and `additionalFields`, such as `user.role` of `admin()`. Only the guards create it. A caller cannot pass its own value to the returned handler.
+The `authorization` argument and the `requireAuth()` result are a frozen `{ request, session, user }` object. With the default Auth Definition, the generated registry types plugin and custom fields such as `user.role` from `admin()`. Additional session fields are optional because API-key sessions can omit them. Passing an explicit Definition gives you Better Auth's core fields rather than the default Definition's custom fields. Only the guards create this object.
 
 ### GitHub organization membership
 
