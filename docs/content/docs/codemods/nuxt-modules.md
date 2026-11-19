@@ -1,6 +1,6 @@
 ---
 title: Move from a Nuxt module
-description: The codemods that move a Nuxt app from nuxt-safe-runtime-config, @t3-oss/env-nuxt, nuxt-resend, nuxt-cron, and @nuxtjs/better-auth to ViteHub through vite-hub/nuxt.
+description: Move a Nuxt app from nuxt-safe-runtime-config, @t3-oss/env-nuxt, nuxt-resend, nuxt-cron, or @nuxtjs/better-auth to ViteHub.
 navigation.title: Move from a Nuxt module
 navigation.order: 4
 icon: i-lucide-package
@@ -81,9 +81,9 @@ The codemod moves a Nuxt app from `@nuxtjs/better-auth` to ViteHub [Auth](/docs/
 
 - `server/auth.config.ts` becomes `server/auth.ts` with `defineAuth()` from `vite-hub/auth`. The Better Auth options stay. When the app has a Database, the codemod adds `database: authDatabase()`.
 - `app/auth.config.ts` becomes `app/auth.client.ts` with `defineAuthClient()` from `vite-hub/auth/vue`.
-- Each route rule with `auth` becomes `definePageMeta({ auth })` on the pages it matches. A rule on an `/api` path becomes an `access.routes` entry. See [Protect pages](/docs/auth/protect-pages).
+- Supported page rules with `auth` become `definePageMeta({ auth })`. Signed-in API rules become `access.routes` entries. The Auth endpoints and exact public exceptions stay outside those guards. See [Protect pages](/docs/auth/protect-pages).
 - `auth.redirects.login` and `auth.redirects.guest` move to `vitehub.auth.redirects`.
-- In server code, `serverAuth(event)` becomes `useAuth(event)`, and `requireUserSession(event)` becomes `requireAuth(event)`.
+- In server code, `serverAuth(event)` becomes `useAuth(event)` and `requireUserSession(event)` becomes `requireAuth(event)`. Optional session reads forward the cookies from Better Auth.
 
 ```diff [server/auth.config.ts → server/auth.ts]
 -import { defineServerAuth } from '@nuxtjs/better-auth/config'
@@ -97,4 +97,6 @@ The codemod moves a Nuxt app from `@nuxtjs/better-auth` to ViteHub [Auth](/docs/
  })
 ```
 
-The report lists what you change by hand: the module's client composables, such as `useSignIn()` and `fetchSession()`, `user` matching in route rules, `requireUserSession()` with options, and `NUXT_BETTER_AUTH_SECRET`. ViteHub Auth uses the same session cookie, so users stay signed in when the secret stays the same.
+The codemod stops without editing Auth when it cannot preserve the access policy or move the source configs. This includes user-field checks in route rules and page meta, overlapping page rules, and guest-only API rules. The error names the rule or config to migrate by hand.
+
+The report lists what you change by hand after a successful migration: the module's client composables, such as `useSignIn()` and `fetchSession()`, `requireUserSession()` with options, and `NUXT_BETTER_AUTH_SECRET`. ViteHub Auth uses the same session cookie, so users stay signed in when the secret stays the same.

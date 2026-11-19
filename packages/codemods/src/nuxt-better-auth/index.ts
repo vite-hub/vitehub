@@ -9,12 +9,12 @@ import packageJson from "../../package.json" with { type: "json" }
 import { addViteHubOptions, ConfigEditor, createLineResolver, findViteHubOption, removeModuleEntry, useViteHubModule } from "../shared/config-editor.ts"
 import { detectNuxtModule } from "../shared/detect.ts"
 import { localLayerDirectories } from "../shared/layers.ts"
-import { findModuleEntry, findNuxtConfigName, literalValue, objectProperty, readNuxtConfig, staticOptionsObject, unwrapExpression } from "../shared/nuxt-config.ts"
+import { findModuleEntry, findNuxtConfigName, literalValue, objectProperty, readNuxtConfig, staticOptionsObject } from "../shared/nuxt-config.ts"
 import { editPackageJson } from "../shared/package-json.ts"
 import { codemodError, isCodemodError } from "../error-diagnostics.ts"
 import { clientFollowUpsFor, rewriteServerFile } from "./call-sites.ts"
 import { moveClientDefinition, moveServerDefinition } from "./definitions.ts"
-import { editPage, pageMeta, pageRoute, ruleFor } from "./pages.ts"
+import { editPage, pageMeta, pageRoute, pathMatches, ruleFor } from "./pages.ts"
 
 import type { Node, ObjectExpression } from "@babel/types"
 import type { NuxtConfigFile } from "../shared/nuxt-config.ts"
@@ -56,7 +56,7 @@ interface ConfigPlan {
 }
 
 /** Every local layer with a nuxt.config. The app root comes first. */
-async function readLayers(cwd: string, root: NuxtConfigFile, followUps: FollowUp[]): Promise<LayerConfig[]> {
+async function readLayers(cwd: string, root: NuxtConfigFile): Promise<LayerConfig[]> {
   const layers: LayerConfig[] = [{ dir: ".", config: root, listsModule: Boolean(findModuleEntry(root, moduleName)) }]
   for (const dir of await localLayerDirectories(cwd, root)) {
     if (dir === "." || !findNuxtConfigName(join(cwd, dir))) continue
@@ -66,7 +66,7 @@ async function readLayers(cwd: string, root: NuxtConfigFile, followUps: FollowUp
     }
     catch (error) {
       if (!isCodemodError(error)) throw error
-      followUps.push({ file: posix.join(dir, "nuxt.config.ts"), message: `The codemod could not read this layer config, so it did not migrate it: ${error.message}` })
+      throw codemodError(`${dir}: The codemod could not read this layer config: ${error.message}`)
     }
   }
   return layers
@@ -77,9 +77,9 @@ function moduleOptions(layer: LayerConfig): Array<{ object: ObjectExpression, pr
   const options: Array<{ object: ObjectExpression, property?: Node }> = []
   const inline = findModuleEntry(layer.config, moduleName)?.inlineOptions
   const inlineObject = inline && staticOptionsObject(inline)
+  if (inline && !inlineObject) throw codemodError(`${layer.dir}/${layer.config.fileName}: Use literal module options before migrating Auth.`)
   if (inlineObject) options.push({ object: inlineObject })
-  // Another module may own a root `auth` key. Read it only where the module is in use.
-  const property = (layer.listsModule || layer.dir === ".") ? findProperty(layer.config.root, "auth") : undefined
+  const property = findProperty(layer.config.root, "auth")
   const object = property && staticOptionsObject(property.value)
   if (property && object) options.push({ object, property })
   else if (property) throw codemodError(`${layer.config.fileName} sets auth options that cannot be read completely. Use an object literal with explicit, unique property names, then run the codemod again.`)
@@ -87,42 +87,52 @@ function moduleOptions(layer: LayerConfig): Array<{ object: ObjectExpression, pr
 }
 
 /** Reads `routeRules` and `nitro.routeRules` entries with `auth`, and plans their removal. */
-function readRouteRules(layer: LayerConfig, plan: ConfigPlan, followUps: FollowUp[]): AuthRouteRule[] {
+function readRouteRules(layer: LayerConfig, plan: ConfigPlan): AuthRouteRule[] {
   const { config } = layer
   const style = detectStyle(config.code, config.program)
   const file = posix.join(layer.dir, config.fileName)
   const rules: AuthRouteRule[] = []
   const nitro = objectProperty(config.root, "nitro")
+  const unsupported = (message: string, node: Node) => codemodError(`${file}:${line(node)}: ${message} Migrate this rule by hand before removing ${moduleName}.`)
+  if (!staticOptionsObject(config.root)) throw codemodError(`${file}: Use explicit Nuxt config keys so the codemod can check the Auth policy.`)
+  const nitroProperty = findProperty(config.root, "nitro")
+  if (nitroProperty && !staticOptionsObject(nitroProperty.value)) throw unsupported("The Nitro options are not a static object.", nitroProperty)
   for (const owner of [config.root, nitro]) {
     const routeRulesProperty = owner && findProperty(owner, "routeRules")
-    const routeRules = routeRulesProperty && unwrapExpression(routeRulesProperty.value)
-    if (!routeRulesProperty || routeRules?.type !== "ObjectExpression") continue
+    if (!routeRulesProperty) continue
+    const routeRules = staticOptionsObject(routeRulesProperty.value)
+    if (!routeRules) throw unsupported("The routeRules are not a static object.", routeRulesProperty)
     let removed = 0
     const removals: Node[] = []
     for (const entry of routeRules.properties) {
       if (entry.type !== "ObjectProperty") continue
       const pattern = keyName(entry.key, entry.computed)
-      const rule = unwrapExpression(entry.value)
-      const auth = rule.type === "ObjectExpression" ? findProperty(rule, "auth") : undefined
-      if (!pattern || !auth || rule.type !== "ObjectExpression") continue
+      const rule = staticOptionsObject(entry.value)
+      if (!rule) throw unsupported("The route rule is not a static object.", entry)
+      const auth = findProperty(rule, "auth")
+      if (!auth) continue
+      if (!pattern || !/^\/(?:[\w.-]+(?:\/[\w.-]+)*(?:\/\*\*)?)?$/.test(pattern) || pattern.split("/").some(part => part === "." || part === "..")) {
+        throw unsupported(`Found an unsupported auth path: ${pattern}.`, entry)
+      }
       const { meta, user, dropped } = pageMeta(config.code, auth.value, style)
-      if (!meta) {
-        followUps.push({ file, line: line(auth), message: `The auth rule of ${pattern} is computed, so the codemod left it. ViteHub reads no auth route rules. Move it to definePageMeta({ auth }) by hand. See ${guide}.` })
-        continue
+      if (!meta || dropped.length) throw unsupported(`Found an unsupported auth rule for ${pattern}.`, auth)
+      const value = staticOptionsObject(auth.value)
+      const redirect = value && findProperty(value, "redirectTo")
+      if (redirect && typeof literalValue(redirect.value) !== "string") {
+        throw unsupported(`Use a literal redirectTo for ${pattern}.`, redirect)
       }
       if (rule.properties.length === 1) {
         removals.push(entry)
         removed++
       }
       else removals.push(auth)
-      if (dropped.length) followUps.push({ file, line: line(auth), message: `The auth rule of ${pattern} also matched ${dropped.join(", ")}. ViteHub guards pages by session only, so check that rule in the page, or in access.routes with authorize in server/auth.ts.` })
-      if (pattern === "/api" || pattern.startsWith("/api/")) {
-        if (!user) followUps.push({ file, line: line(auth), message: `The auth rule of ${pattern} let only signed-out visitors in. ViteHub has no such server guard. Check it in the handler.` })
-        rules.push({ pattern, meta, user: user === true, server: true })
-        continue
+      const server = pattern === "/api" || pattern.startsWith("/api/")
+      const isPublic = literalValue(auth.value) === false
+      if (server && !user && !isPublic) {
+        throw unsupported(`ViteHub cannot move the guest-only API rule for ${pattern}.`, auth)
       }
-      if (pattern === "/**" && user) followUps.push({ file, line: line(auth), message: `The auth rule of ${pattern} also guarded /api routes. The codemod moved it to the pages only. Add access.routes: ["/api/**"] and access.public: ["/api/auth/**"] in server/auth.ts to keep the API private.` })
-      rules.push({ pattern, meta, user: user === true, server: false })
+      if (server && redirect) throw unsupported(`The API rule for ${pattern} sets a redirect.`, auth)
+      rules.push({ pattern, meta, user: user === true, server, isPublic, file, line: line(auth) })
     }
     if (removed && removed === routeRules.properties.length) plan.removals.push(routeRulesProperty)
     else plan.removals.push(...removals)
@@ -148,19 +158,29 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const followUps: FollowUp[] = []
   const edits: FileEdit[] = []
   const notes: string[] = []
-  const layers = await readLayers(cwd, rootConfig, followUps)
+  const layers = await readLayers(cwd, rootConfig)
   const plans = new Map<LayerConfig, ConfigPlan>(layers.map(layer => [layer, { layer, removals: [] }]))
 
   // Module options.
   const redirects: Record<string, string> = {}
   for (const layer of layers) {
     const file = posix.join(layer.dir, layer.config.fileName)
+    if (["srcDir", "serverDir", "dir", "hooks"].some(key => findProperty(layer.config.root, key))) {
+      throw codemodError(`${file}: The codemod cannot verify Auth discovery with custom Nuxt directories or hooks. Migrate the Auth config by hand.`)
+    }
+    const vitehub = findProperty(layer.config.root, "vitehub")
+    if (vitehub && !staticOptionsObject(vitehub.value)) throw codemodError(`${file}: Use a static vitehub options object so the codemod can check whether Auth is enabled.`)
+    const auth = findViteHubOption(layer.config, "auth")
+    if (auth && literalValue(auth.value) !== true && !staticOptionsObject(auth.value)) throw codemodError(`${file}:${line(auth)}: Auth is disabled or computed in vitehub.auth. Enable it explicitly before migrating.`)
     for (const { object, property } of moduleOptions(layer)) {
       if (property) plans.get(layer)!.removals.push(property)
       for (const option of object.properties) {
         if (option.type !== "ObjectProperty") continue
         const key = keyName(option.key, option.computed)
         const nested = key === "redirects" ? staticOptionsObject(option.value) : undefined
+        if (["serverConfig", "clientConfig", "clientOnly", "serverPluginSources", "clientPluginSources"].includes(key ?? "") || (key === "redirects" && !nested)) {
+          throw codemodError(`${file}:${line(option)}: Move the source Auth option ${key} by hand before migrating.`)
+        }
         for (const [name, value] of nested ? nested.properties.flatMap(child => child.type === "ObjectProperty" ? [[`redirects.${keyName(child.key, child.computed)}`, child] as const] : []) : [[key ?? "", option] as const]) {
           const literal = literalValue(value.value)
           if ((name === "redirects.login" || name === "redirects.guest") && typeof literal === "string") {
@@ -176,9 +196,19 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   }
 
   // Route rules.
-  const rules = layers.flatMap(layer => readRouteRules(layer, plans.get(layer)!, followUps))
+  const rules = layers.flatMap(layer => readRouteRules(layer, plans.get(layer)!))
+  for (const [index, rule] of rules.entries()) {
+    for (const other of rules.slice(index + 1)) {
+      const [broad, narrow] = pathMatches(rule.pattern, other.pattern.replace(/\/\*\*$/, "")) ? [rule, other] : [other, rule]
+      if (!pathMatches(broad.pattern, narrow.pattern.replace(/\/\*\*$/, ""))) continue
+      if (broad.server && broad.user && broad.pattern.endsWith("/**") && narrow.isPublic && !narrow.pattern.endsWith("/**")) continue
+      throw codemodError(`${rule.file}:${rule.line}: Auth rules ${rule.pattern} and ${other.pattern} overlap. Migrate their combined policy by hand.`)
+    }
+  }
   const pageRules = rules.filter(rule => !rule.server)
-  const accessRoutes = rules.filter(rule => rule.server && rule.user).map(rule => rule.pattern)
+  const accessRoutes = rules.filter(rule => rule.server && rule.user && !pathMatches("/api/auth/**", rule.pattern)).map(rule => rule.pattern)
+  const publicRoutes = rules.filter(rule => rule.server && rule.isPublic && accessRoutes.some(route => pathMatches(route, rule.pattern))).map(rule => rule.pattern)
+  if (accessRoutes.some(route => pathMatches(route, "/api/auth"))) publicRoutes.push("/api/auth/**")
 
   // Pages.
   const style = detectStyle(rootConfig.code, rootConfig.program)
@@ -191,65 +221,68 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
       if (!existsSync(join(cwd, directory))) continue
       for (const relative of (await glob(["**/*.vue"], { cwd: join(cwd, directory), ignore: ignored })).sort()) {
         const file = posix.join(directory, relative)
-        const rule = ruleFor(pageRules, pageRoute(relative))
+        const route = pageRoute(relative)
+        if (pageRules.length && /[:*]/.test(route)) throw codemodError(`${file}: The codemod cannot prove that a dynamic page has one auth policy. Migrate its route rules by hand.`)
+        const rule = ruleFor(pageRules, route)
         if (rule) matched.add(rule)
         pageFiles.push(file)
         const before = await readText(cwd, file)
         const page = editPage(file, before, rule, style, typescript)
-        followUps.push(...page.followUps)
+        if (page.followUps.length) throw codemodError(page.followUps.map(entry => `${entry.file}${entry.line ? `:${entry.line}` : ""}: ${entry.message}`).join("\n"))
         if (page.after !== undefined) edits.push({ path: file, before, after: page.after })
       }
     }
   }
   for (const rule of pageRules) {
-    if (!matched.has(rule)) followUps.push({ file: rootConfig.fileName, message: `The auth rule of ${rule.pattern} matches no page file, so the codemod moved it nowhere. Add definePageMeta({ auth: ${rule.meta} }) to the page that serves it. See ${guide}.` })
+    if (!matched.has(rule)) throw codemodError(`${rule.file}:${rule.line}: The auth rule of ${rule.pattern} matches no page file. Migrate it by hand. See ${guide}.`)
   }
 
   // Auth Definitions.
   const database = hasDatabase(rootConfig)
-  let routesPlaced = !accessRoutes.length
+  const targetScripts = "{ts,mts,cts,js,mjs,cjs}"
+  for (const layer of layers) {
+    const patterns = [`server/auth.${targetScripts}`]
+    if (layer.dir === ".") patterns.push(`server.auth.${targetScripts}`, `app/auth.client.${targetScripts}`)
+    const [existing] = await glob(patterns, { cwd: join(cwd, layer.dir) })
+    if (existing) throw codemodError(`${posix.join(layer.dir, existing)}: An Auth Definition already exists. Merge the configs by hand.`)
+  }
+  let serverFile: string | undefined
   let servers = 0
+  let clients = 0
   for (const layer of layers) {
     const configs = await glob([`server/auth.config.${scripts}`], { cwd: join(cwd, layer.dir) })
     const [server] = configs
     if (server) {
       const file = posix.join(layer.dir, server)
       const target = posix.join(layer.dir, "server/auth.ts")
-      if (existsSync(join(cwd, target))) {
-        followUps.push({ file, message: `${target} exists already, so the codemod did not move this config. Merge it into ${target} by hand.` })
-      }
-      else {
-        const before = await readText(cwd, file)
-        const moved = moveServerDefinition({ file, code: before, database, accessRoutes: routesPlaced ? [] : accessRoutes })
-        followUps.push(...moved.followUps)
-        if (moved.moved) {
-          routesPlaced = true
-          servers++
-          edits.push({ path: file, before, after: null }, { path: target, before: undefined, after: moved.code ?? null })
-        }
+      if (serverFile || configs.length > 1) throw codemodError(`${file}: Multiple source server configs can change which Auth Definition is loaded. Keep only the effective config before migrating.`)
+      serverFile = file
+      const before = await readText(cwd, file)
+      const moved = moveServerDefinition({ file, code: before, database, accessRoutes, publicRoutes })
+      followUps.push(...moved.followUps)
+      if (moved.moved) {
+        servers++
+        edits.push({ path: file, before, after: null }, { path: target, before: undefined, after: moved.code ?? null })
       }
     }
     for (const candidate of ["app/auth.config", "auth.config"]) {
-      const [client] = await glob([`${candidate}.${scripts}`], { cwd: join(cwd, layer.dir) })
+      const configs = await glob([`${candidate}.${scripts}`], { cwd: join(cwd, layer.dir) })
+      const [client] = configs
       if (!client) continue
       const file = posix.join(layer.dir, client)
+      if (clients++ || configs.length > 1) throw codemodError(`${file}: Multiple source client configs can change which Auth Client Definition is loaded. Keep only the effective config before migrating.`)
       const target = posix.join(layer.dir, posix.dirname(client), "auth.client.ts")
-      if (existsSync(join(cwd, target))) {
-        followUps.push({ file, message: `${target} exists already, so the codemod did not move this config. Merge it into ${target} by hand.` })
-        break
-      }
       const before = await readText(cwd, file)
       const moved = moveClientDefinition(file, before)
-      followUps.push(...moved.followUps)
+      if (!moved.moved || moved.followUps.length) throw codemodError(`${file}: ${moved.followUps.map(entry => entry.message).join(" ")}`)
+      if (moved.code && (layer.dir !== "." || candidate !== "app/auth.config")) throw codemodError(`${file}: ViteHub loads only the app's app/auth.client.ts. Move the client config and adjust its imports by hand.`)
       if (moved.moved) {
         edits.push({ path: file, before, after: null })
         if (moved.code) edits.push({ path: target, before: undefined, after: moved.code })
       }
-      break
     }
   }
   if (!servers) throw codemodError(`No server/auth.config.ts with defineServerAuth() could be moved, so nothing was migrated. Create server/auth.ts with defineAuth() from vite-hub/auth, then run the codemod again.${followUps.length ? `\n${followUps.map(entry => `  ${entry.file}${entry.line ? `:${entry.line}` : ""} ${entry.message}`).join("\n")}` : ""}`)
-  if (!routesPlaced) followUps.push({ file: rootConfig.fileName, message: `Route rules guarded these server paths: ${accessRoutes.join(", ")}. Add them to access.routes in server/auth.ts by hand.` })
 
   // Server helpers and client composables.
   const edited = new Map(edits.map(edit => [edit.path, edit]))

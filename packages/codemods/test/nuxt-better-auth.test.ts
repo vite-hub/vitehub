@@ -1,11 +1,12 @@
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { runInNewContext } from "node:vm"
 
 import { afterAll, describe, expect, it } from "vitest"
 
 import { detectCodemods, formatMigrationReport, formatReport, runCodemod, runMigration } from "../src/index.ts"
-import { pageRoute, ruleFor } from "../src/nuxt-better-auth/pages.ts"
+import { pageRoute, pathMatches } from "../src/nuxt-better-auth/pages.ts"
 import { withVersionPlaceholder } from "./fixture-version.ts"
 
 const fixtures = fileURLToPath(new URL("./fixtures/", import.meta.url))
@@ -26,6 +27,83 @@ async function createApp(files: Record<string, string>) {
 const serverConfig = "import { defineServerAuth } from '@nuxtjs/better-auth/config'\n\nexport default defineServerAuth({ emailAndPassword: { enabled: true } })\n"
 
 describe("nuxt-better-auth", () => {
+  it.each([
+    ["routeRules: { '/api/reports': { auth: { user: { role: 'admin' } } } }", "unsupported auth rule"],
+    ["routeRules: { '/api/billing/*': { auth: 'user' } }", "unsupported auth path"],
+    ["routeRules: { '/api/reports': { auth: 'guest' } }", "guest-only"],
+    ["routeRules: { '/**': { auth: 'user' } }", "unsupported auth path"],
+    ["routeRules: { '/team/staff/*': { auth: 'guest' }, '/team/*/members': { auth: 'user' } }", "unsupported auth path"],
+    ["routeRules: { '/team/**': { auth: 'user' }, '/team/staff': { auth: { redirectTo: '/login' } } }", "overlap"],
+    ["routeRules: { '/team/staff': { auth: { only: 'user', redirectTo: loginPath } } }", "literal redirectTo"],
+    ["vitehub: { auth: false }", "Auth is disabled"],
+    ["routeRules: { [loginPath]: { auth: 'user' } }", "routeRules are not a static object"],
+  ])("leaves the app unchanged for %s", async (config, message) => {
+    const source = `const loginPath = '/sign-in'\nexport default defineNuxtConfig({ modules: ['@nuxtjs/better-auth'], ${config} })\n`
+    const cwd = await createApp({ "nuxt.config.ts": source, "server/auth.config.ts": serverConfig })
+    await expect(runCodemod("nuxt-better-auth", { cwd })).rejects.toThrow(message)
+    expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toBe(source)
+    expect(await readFile(join(cwd, "server/auth.config.ts"), "utf8")).toBe(serverConfig)
+  })
+
+  it.each([
+    ["app/pages/admin.vue", "<script setup>definePageMeta({ auth: { user: { role: 'admin' } } })</script>\n<template><div /></template>", "cannot preserve the page auth options user"],
+    ["app/pages/team/[section].vue", "<template><div /></template>", "dynamic page"],
+    ["server/auth.config.ts", "export default defineServerAuth({ database: customAdapter })", "return custom storage adapters"],
+    ["server/auth.config.ts", "export default defineServerAuth({ ...options })", "without spreads"],
+    ["server/auth.config.ts", "export default defineServerAuth(options)", "explicit Auth options"],
+    ["server/auth.config.ts", "export default defineServerAuth({ access: { routes: [] } })", "existing access option"],
+    ["layers/base/server/auth.config.ts", serverConfig, "Multiple source server configs"],
+    ["layers/base/app/auth.config.ts", "export default defineClientAuth({ plugins: [twoFactorClient()] })", "only the app's app/auth.client.ts"],
+  ])("does not edit an app with unsupported %s", async (file, source, message) => {
+    const config = "export default defineNuxtConfig({ modules: ['@nuxtjs/better-auth'], routeRules: { '/': { auth: 'guest' }, '/api/reports': { auth: 'user' } } })"
+    const cwd = await createApp({
+      "nuxt.config.ts": config,
+      "server/auth.config.ts": serverConfig,
+      "app/pages/index.vue": "<template><div /></template>",
+      "layers/base/nuxt.config.ts": "export default defineNuxtConfig({})",
+      [file]: source,
+    })
+    await expect(runCodemod("nuxt-better-auth", { cwd })).rejects.toThrow(message)
+    expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toBe(config)
+    expect(await readFile(join(cwd, file), "utf8")).toBe(source)
+  })
+
+  it("leaves sign-in, callbacks and the exact health route outside the API guard", async () => {
+    const cwd = await createApp({
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxtjs/better-auth'], routeRules: { '/api/health': { auth: false }, '/api/**': { auth: 'user' } } })",
+      "server/auth.config.ts": serverConfig,
+    })
+    const run = await runCodemod("nuxt-better-auth", { cwd, dryRun: true })
+    const definition = run.result.edits.find(edit => edit.path === "server/auth.ts")?.after
+    expect(definition).toContain("access: { routes: ['/api/**'], public: ['/api/health', '/api/auth/**'] }")
+    expect(run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after).not.toContain("routeRules")
+  })
+
+  it.each(["getUserSession", "getRequestSession"])("forwards cookies and preserves the optional result of %s", async (helper) => {
+    const cwd = await createApp({
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxtjs/better-auth'] })",
+      "server/auth.config.ts": serverConfig,
+      "server/api/session.js": `const readSession = (cookie) => ${helper}(cookie)`,
+    })
+    const run = await runCodemod("nuxt-better-auth", { cwd, dryRun: true })
+    const handler = run.result.edits.find(edit => edit.path === "server/api/session.js")?.after
+    expect(handler).toBeTypeOf("string")
+    const requestHeaders = new Headers()
+    const responseHeaders = new Headers({ "set-cookie": "existing=1" })
+    const sessionHeaders = new Headers()
+    sessionHeaders.append("set-cookie", "updated=1")
+    sessionHeaders.append("set-cookie", "other=1")
+    const result: unknown = await runInNewContext(`${handler}\nreadSession(event)`, {
+      event: { req: { headers: requestHeaders }, res: { headers: responseHeaders } },
+      useAuth: () => ({ api: { getSession: (options: unknown) => {
+        expect(options).toEqual({ headers: requestHeaders, returnHeaders: true })
+        return Promise.resolve({ headers: sessionHeaders, response: null })
+      } } }),
+    })
+    expect(result).toBeNull()
+    expect(responseHeaders.getSetCookie()).toEqual(["existing=1", "updated=1", "other=1"])
+  })
+
   it("migrates the Auth configs, route rules, pages, server helpers, and a layer", async () => {
     const input = join(fixtures, "nuxt-better-auth", "input")
     const run = await runCodemod("nuxt-better-auth", { cwd: input, dryRun: true })
@@ -103,13 +181,10 @@ describe("nuxt-better-auth route matching", () => {
     expect(pageRoute(file)).toBe(route)
   })
 
-  it("picks the most specific rule, as Nitro route rules do", () => {
-    const rule = (pattern: string) => ({ pattern, meta: pattern, user: true, server: false })
-    const rules = [rule("/**"), rule("/app/**"), rule("/app/public")]
-    expect(ruleFor(rules, "/")?.pattern).toBe("/**")
-    expect(ruleFor(rules, "/app")?.pattern).toBe("/app/**")
-    expect(ruleFor(rules, "/app/:id")?.pattern).toBe("/app/**")
-    expect(ruleFor(rules, "/app/public")?.pattern).toBe("/app/public")
-    expect(ruleFor([rule("/app")], "/app/settings")).toBeUndefined()
+  it("matches whole path segments", () => {
+    expect(pathMatches("/app/**", "/app")).toBe(true)
+    expect(pathMatches("/app/**", "/app/settings")).toBe(true)
+    expect(pathMatches("/app/**", "/apple")).toBe(false)
+    expect(pathMatches("/app", "/app/settings")).toBe(false)
   })
 })

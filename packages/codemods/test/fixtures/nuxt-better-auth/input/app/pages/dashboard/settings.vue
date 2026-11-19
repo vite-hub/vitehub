@@ -1,5 +1,5 @@
 <script setup lang="ts">
-definePageMeta({ auth: { only: 'user', user: { role: 'admin' } } })
+definePageMeta({ auth: { only: 'user' } })
 </script>
 
 <template>

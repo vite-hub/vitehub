@@ -280,12 +280,14 @@ The codemod moves a Nuxt app from `@nuxtjs/better-auth` to ViteHub Auth. It read
 
 - `server/auth.config.ts` becomes `server/auth.ts`, and `defineServerAuth()` becomes `defineAuth()` from `vite-hub/auth`. The Better Auth options stay. In a callback, `requestOrigin` stays and `runtimeConfig` becomes `useRuntimeConfig()` from `nitro/runtime-config`. When the app has a Database, or a NuxtHub one, the codemod adds `database: authDatabase()`.
 - `app/auth.config.ts` becomes `app/auth.client.ts`, and `defineClientAuth()` becomes `defineAuthClient()` from `vite-hub/auth/vue`. A config without options goes away.
-- A route rule with `auth` becomes `definePageMeta({ auth })` on each page it matches, the most specific rule first. A page that sets `auth` itself keeps it. A rule on an `/api` path becomes an `access.routes` entry.
+- A supported route rule with `auth` becomes `definePageMeta({ auth })` on each page it matches. A page that sets supported `auth` meta keeps it. Signed-in API rules become `access.routes` entries. Exact public exceptions and the Auth endpoints stay outside the generated API guard.
 - `auth.redirects.login` and `auth.redirects.guest` move to `vitehub.auth.redirects`.
-- In server code, `serverAuth(event)` becomes `useAuth(event)`, `requireUserSession(event)` becomes `requireAuth(event)`, and `getUserSession(event)` and `getRequestSession(event)` become `useAuth(event).api.getSession({ headers: event.req.headers })`.
+- In server code, `serverAuth(event)` becomes `useAuth(event)` and `requireUserSession(event)` becomes `requireAuth(event)`. Optional session reads use Better Auth's `getSession()` and forward its session cookies.
 - `package.json` loses `@nuxtjs/better-auth` and gets `vite-hub`, `@vite-hub/auth`, and `better-auth` `^1.7.15`.
 
-The report lists what it does not migrate: `user` matching in route rules and page meta, which the ViteHub page guard does not have, `requireUserSession()` with options, the module's client composables such as `useSignIn()`, `useSignUp()`, `useAuthClientAction()`, and `fetchSession()`, the other module options, the server helpers without a ViteHub equivalent, `#nuxt-better-auth` types, and `NUXT_BETTER_AUTH_SECRET` in env files. It stops without edits when no `server/auth.config.ts` with `defineServerAuth()` can move.
+The codemod stops without editing Auth when it cannot preserve the source policy. For example, it stops on user-field checks, overlapping page rules, path-dependent page rules, guest-only API rules, and computed route redirects. It also stops when ViteHub Auth is disabled or when it cannot move the source configs to Definitions that ViteHub can load.
+
+The report lists manual changes for `requireUserSession()` with options, client composables such as `useSignIn()` and `fetchSession()`, unsupported module options and helpers, `#nuxt-better-auth` types, and `NUXT_BETTER_AUTH_SECRET` in env files.
 
 ```sh
 npx @vite-hub/codemods nuxt-better-auth [dir] [--dry-run]

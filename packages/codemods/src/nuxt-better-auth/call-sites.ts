@@ -1,4 +1,4 @@
-import { end, isReference, line, parseProgram, start, walk } from "@vite-hub/internal/ast"
+import { detectStyle, end, indentAt, isReference, line, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
 import MagicString from "magic-string"
 
 import { bindingResolver } from "../shared/binding-resolver.ts"
@@ -9,7 +9,7 @@ import type { FollowUp } from "../types.ts"
 const serverFollowUps: Record<string, string> = {
   ensureServerAuth: "ViteHub Auth has no ensureServerAuth(). Use useAuth(event) in a request, or getAuth() outside one.",
   setRequestSession: "ViteHub Auth has no setRequestSession(). Sign MCP clients in with mcpOAuth(), or check service tokens with requireServiceToken() from vite-hub/env.",
-  refreshSessionCookieCache: "ViteHub Auth has no refreshSessionCookieCache(). Call useAuth(event).api.getSession({ headers: event.req.headers, query: { disableCookieCache: true } }) after the update.",
+  refreshSessionCookieCache: "ViteHub Auth has no refreshSessionCookieCache(). After the update, call getSession() with disableCookieCache and returnHeaders: true, and append each returned Set-Cookie header to the response.",
   createSession: "ViteHub Auth has no createSession(). Use Better Auth's internal adapter through useAuth(event).$context.",
   setSessionCookie: "ViteHub Auth has no setSessionCookie(). Use setSessionCookie() from better-auth/cookies in a Better Auth plugin endpoint.",
 }
@@ -70,9 +70,18 @@ export function rewriteServerFile(file: string, code: string): { after?: string,
     else if (name === "requireUserSession" && !options) output.overwrite(start(node.callee), end(node.callee), "requireAuth")
     else if (name === "requireUserSession") followUps.push({ ...at, message: "requireUserSession() with options matched user fields. Use requireAuthorization(event, ({ user }) => <your check>) from ViteHub Auth." })
     else if (event?.type === "Identifier" && !options) {
-      output.overwrite(start(node), end(node), `useAuth(${eventText}).api.getSession({ headers: ${eventText}.req.headers })`)
+      const style = detectStyle(code, program)
+      const indent = indentAt(code, start(node))
+      const inner = `${indent}${style.indent}`
+      const headers = eventText === "sessionHeaders" ? "headers" : "sessionHeaders"
+      const response = eventText === "sessionResponse" ? "response" : "sessionResponse"
+      const cookie = eventText === "cookie" ? "sessionCookie" : "cookie"
+      output.overwrite(start(node), end(node), `useAuth(${eventText}).api.getSession({ headers: ${eventText}.req.headers, returnHeaders: true }).then(({ headers: ${headers}, response: ${response} }) => {
+${inner}for (const ${cookie} of ${headers}.getSetCookie()) ${eventText}.res.headers.append(${quoteString("set-cookie", style)}, ${cookie})
+${inner}return ${response}
+${indent}})`)
     }
-    else followUps.push({ ...at, message: `Replace ${name}() with useAuth(event).api.getSession({ headers: event.req.headers }).` })
+    else followUps.push({ ...at, message: `Replace ${name}() with getSession({ headers: event.req.headers, returnHeaders: true }), forward each Set-Cookie header to the response, and return the session body.` })
   })
   return { after: output.hasChanged() ? output.toString() : undefined, followUps }
 }

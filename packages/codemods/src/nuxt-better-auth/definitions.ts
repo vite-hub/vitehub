@@ -1,7 +1,7 @@
 import { detectStyle, end, findProperty, indentAt, isReference, keyName, line, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
 import MagicString from "magic-string"
 
-import { unwrapExpression } from "../shared/nuxt-config.ts"
+import { literalValue, staticOptionsObject, unwrapExpression } from "../shared/nuxt-config.ts"
 
 import type { CallExpression, File, ObjectExpression } from "@babel/types"
 import type { Node } from "@vite-hub/internal/ast"
@@ -62,7 +62,7 @@ function swapImport(program: File, output: MagicString, name: string, importText
 }
 
 /** The options object of a define call: the argument, or the object a callback returns. */
-export function optionsObject(argument: Node): ObjectExpression | undefined {
+function optionsObject(argument: Node): ObjectExpression | undefined {
   const value = unwrapExpression(argument)
   if (value.type === "ObjectExpression") return value
   if (value.type !== "ArrowFunctionExpression" && value.type !== "FunctionExpression") return undefined
@@ -70,8 +70,14 @@ export function optionsObject(argument: Node): ObjectExpression | undefined {
     const body = unwrapExpression(value.body)
     return body.type === "ObjectExpression" ? body : undefined
   }
-  const returns = value.body.body.filter(statement => statement.type === "ReturnStatement")
-  const returned = returns.length === 1 && returns[0]?.type === "ReturnStatement" && returns[0].argument ? unwrapExpression(returns[0].argument) : undefined
+  const last = value.body.body.at(-1)
+  if (last?.type !== "ReturnStatement" || !last.argument) return undefined
+  let extraReturn = false
+  walk(value.body, (node, ancestors) => {
+    if (node.type === "ReturnStatement" && node !== last && !ancestors.some(parent => parent.type === "ArrowFunctionExpression" || parent.type === "FunctionExpression" || parent.type === "FunctionDeclaration" || parent.type === "ObjectMethod" || parent.type === "ClassMethod")) extraReturn = true
+  })
+  if (extraReturn) return undefined
+  const returned = unwrapExpression(last.argument)
   return returned?.type === "ObjectExpression" ? returned : undefined
 }
 
@@ -98,6 +104,7 @@ export interface ServerDefinitionInput {
   database: boolean
   /** `access.routes` entries from route rules on server paths. */
   accessRoutes: string[]
+  publicRoutes: string[]
 }
 
 /**
@@ -120,6 +127,18 @@ export function moveServerDefinition(input: ServerDefinitionInput): DefinitionMo
     follow(call, "This file does not export defineServerAuth(options) by default. Move it to server/auth.ts with defineAuth() from vite-hub/auth by hand.")
     return { followUps, moved: false }
   }
+  const callback = unwrapExpression(argument)
+  const returned = optionsObject(argument)
+  const options = returned && staticOptionsObject(returned)
+  const database = options && findProperty(options, "database")
+  if (!options || (callback.type === "ObjectExpression" && ((database && literalValue(database.value) !== "memory") || findProperty(options, "secondaryStorage")))) {
+    follow(call, "Use explicit Auth options without spreads and return custom storage adapters from a callback.")
+    return { followUps, moved: false }
+  }
+  if (input.accessRoutes.length && findProperty(options, "access")) {
+    follow(call, "Merge the API route rules with the existing access option by hand.")
+    return { followUps, moved: false }
+  }
   const style = detectStyle(code, program)
   const semicolon = style.semicolons ? ";" : ""
   const output = new MagicString(code)
@@ -127,7 +146,6 @@ export function moveServerDefinition(input: ServerDefinitionInput): DefinitionMo
   const defineImport = `import { defineAuth } from ${quoteString("vite-hub/auth", style)}${semicolon}`
   const imports = swapImport(program, output, "defineServerAuth", defineImport, follow) ? [] : [defineImport]
 
-  const callback = unwrapExpression(argument)
   let needsRuntimeConfig = false
   // Set when an expression body becomes a block, which indents it one level.
   let extraIndent = ""
@@ -179,26 +197,25 @@ export function moveServerDefinition(input: ServerDefinitionInput): DefinitionMo
       })
     }
   }
+  if (followUps.length) return { followUps, moved: false }
   if (needsRuntimeConfig) imports.push(`import { useRuntimeConfig } from ${quoteString("nitro/runtime-config", style)}${semicolon}`)
 
-  const options = optionsObject(argument)
   const entries: string[] = []
   if (input.database) {
-    if (options && !findProperty(options, "database")) {
+    if (!database) {
       entries.push("database: authDatabase()")
       imports.push(`import { authDatabase } from ${quoteString("vite-hub/auth/database", style)}${semicolon}`)
     }
-    else if (!options) follow(call, "The app has a Database, so keep Auth users in it: set database: authDatabase() from vite-hub/auth/database in the options.")
   }
-  else if (!options || !findProperty(options, "database")) {
+  else if (!database) {
     follow(call, "This config sets no database. ViteHub Auth then keeps users in memory in development, and a production build fails with AUTH_C0063. Set database: authDatabase() from vite-hub/auth/database, or preset: stateless() from vite-hub/auth/presets for social sign-in without a database.")
   }
   if (input.accessRoutes.length) {
-    const routes = `access: { routes: [${input.accessRoutes.map(route => quoteString(route, style)).join(", ")}] }`
-    if (options && !findProperty(options, "access")) entries.push(routes)
-    else follow(call, `Route rules guarded these server paths: ${input.accessRoutes.join(", ")}. Add them to access.routes in the options by hand.`)
+    const paths = (routes: string[]) => routes.map(route => quoteString(route, style)).join(", ")
+    const publicPaths = input.publicRoutes.length ? `, public: [${paths(input.publicRoutes)}]` : ""
+    entries.push(`access: { routes: [${paths(input.accessRoutes)}]${publicPaths} }`)
   }
-  if (options && entries.length) prependProperties(code, output, options, entries, extraIndent)
+  if (entries.length) prependProperties(code, output, options, entries, extraIndent)
   for (const name of ["secret", "baseURL", "basePath"]) {
     const property = options && findProperty(options, name)
     if (property) follow(property, `ViteHub Auth sets ${name} itself${name === "secret" ? " from VITEHUB_SECRET or BETTER_AUTH_SECRET" : ""}. Remove it unless you need another value.`)

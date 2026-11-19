@@ -2,9 +2,9 @@ import { end, findProperty, keyName, line, parseProgram, quoteString, start, wal
 import { parse as parseSfc } from "@vue/compiler-sfc"
 import MagicString from "magic-string"
 
-import { literalValue, unwrapExpression } from "../shared/nuxt-config.ts"
+import { literalValue, staticOptionsObject, unwrapExpression } from "../shared/nuxt-config.ts"
 
-import type { CallExpression, ObjectExpression, ObjectProperty } from "@babel/types"
+import type { CallExpression } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
 import type { FollowUp } from "../types.ts"
 
@@ -17,6 +17,9 @@ export interface AuthRouteRule {
   user: boolean
   /** `true` for a server path below `/api`, which `access.routes` guards. */
   server: boolean
+  isPublic: boolean
+  file: string
+  line: number
 }
 
 /** Source text of the ViteHub page meta for a module `auth` value, and what it drops. */
@@ -25,11 +28,12 @@ export function pageMeta(code: string, node: Node, style: CodeStyle): { meta?: s
   const literal = literalValue(value)
   if (literal === "user" || literal === true) return { meta: code.slice(start(value), end(value)), user: true, dropped: [] }
   if (literal === "guest" || literal === false) return { meta: code.slice(start(value), end(value)), user: false, dropped: [] }
-  if (value.type !== "ObjectExpression") return { dropped: [] }
+  const object = staticOptionsObject(value)
+  if (!object) return { dropped: [] }
   const kept: string[] = []
   const dropped: string[] = []
   let only: string | undefined = "user"
-  for (const property of value.properties) {
+  for (const property of object.properties) {
     const key = property.type === "ObjectProperty" ? keyName(property.key, property.computed) : undefined
     if (property.type !== "ObjectProperty" || (key !== "only" && key !== "redirectTo")) {
       dropped.push(key ?? code.slice(start(property), end(property)))
@@ -53,29 +57,15 @@ export function pageRoute(relative: string): string {
   return `/${segments.map(segment => segment.replace(/\[\.\.\.[^\]]*\]/, "**").replace(/\[\[?([^\]]+)\]?\]/g, ":$1")).join("/")}`
 }
 
-/** Specificity of `pattern` for `route`, or `undefined` when it does not match. Higher wins, as in Nitro route rules. */
-function matchScore(pattern: string, route: string): number | undefined {
-  if (pattern === route) return Number.MAX_SAFE_INTEGER
-  const wildcard = /^(.*?)\/\*\*$/.exec(pattern)
-  if (wildcard) {
-    const base = wildcard[1] ?? ""
-    if (/[*:]/.test(base)) return undefined
-    return route === (base || "/") || route.startsWith(`${base}/`) ? base.length + 1 : undefined
-  }
-  const parts = pattern.split("/")
-  const routeParts = route.split("/")
-  if (parts.length !== routeParts.length) return undefined
-  return parts.every((part, index) => part === "*" || part === routeParts[index]) ? pattern.length : undefined
+export function pathMatches(pattern: string, route: string): boolean {
+  if (!pattern.endsWith("/**")) return pattern === route
+  const prefix = pattern.slice(0, -3)
+  return route === prefix || route.startsWith(`${prefix}/`)
 }
 
-/** The rule that applies to `route`: the most specific match. */
+/** Page rules must be disjoint before any page is edited. */
 export function ruleFor(rules: readonly AuthRouteRule[], route: string): AuthRouteRule | undefined {
-  let best: { rule: AuthRouteRule, score: number } | undefined
-  for (const rule of rules) {
-    const score = matchScore(rule.pattern, route)
-    if (score !== undefined && (!best || score > best.score)) best = { rule, score }
-  }
-  return best?.rule
+  return rules.find(rule => pathMatches(rule.pattern, route))
 }
 
 /** The `definePageMeta()` call of a script, if any. */
@@ -93,12 +83,17 @@ export interface PageEdit {
 }
 
 /**
- * Gives one page the guard of its route rule with `definePageMeta({ auth })`, and drops the module-only parts of an
- * `auth` page meta, such as `user` matching. A page that sets `auth` itself keeps it, as with the module.
+ * Gives one page the guard of its route rule. A page that sets supported auth meta keeps it.
  */
 export function editPage(file: string, source: string, rule: AuthRouteRule | undefined, style: CodeStyle, typescript: boolean): PageEdit {
   const followUps: FollowUp[] = []
-  const { descriptor } = parseSfc(source, { filename: file })
+  const { descriptor, errors } = parseSfc(source, { filename: file })
+  if (errors.length || descriptor.scriptSetup?.src || descriptor.script?.src || (descriptor.script && /\bdefinePageMeta\b/.test(descriptor.script.content))) {
+    return { followUps: [{ file, message: "The codemod cannot verify auth page meta in this page. Migrate it by hand." }] }
+  }
+  if (/\bdefineRouteRules\s*\(/.test(source)) {
+    return { followUps: [{ file, message: "The page defines its own route rules. Migrate its effective Auth policy by hand." }] }
+  }
   const block = descriptor.scriptSetup
   const output = new MagicString(source)
   if (block && !block.src) {
@@ -113,21 +108,20 @@ export function editPage(file: string, source: string, rule: AuthRouteRule | und
     const lineOffset = block.loc.start.line - 1
     const call = pageMetaCall(program)
     const [argument] = call?.arguments ?? []
-    const object = argument && argument.type !== "SpreadElement" && argument.type !== "ArgumentPlaceholder" ? unwrapExpression(argument) : undefined
-    if (call && object?.type !== "ObjectExpression") {
+    const metaObject = argument && staticOptionsObject(argument)
+    if (call && !metaObject) {
       followUps.push({ file, line: line(call) + lineOffset, message: "definePageMeta() has no object literal, so the codemod cannot read its auth. Check it by hand." })
       return { followUps }
     }
-    const metaObject = object as ObjectExpression | undefined
-    const auth: ObjectProperty | undefined = metaObject ? findProperty(metaObject, "auth") : undefined
+    if (metaObject && ["path", "alias"].some(key => findProperty(metaObject, key))) {
+      return { followUps: [{ file, message: "The page has a custom path or alias. Migrate its route rules by hand." }] }
+    }
+    const auth = metaObject && findProperty(metaObject, "auth")
     if (auth) {
       const { meta, dropped } = pageMeta(block.content, auth.value, style)
       if (!meta) followUps.push({ file, line: line(auth) + lineOffset, message: "This auth page meta is computed. ViteHub reads 'user', 'guest', true, false, or { only, redirectTo }. Check it by hand." })
-      else if (dropped.length) {
-        output.overwrite(offset + start(auth.value), offset + end(auth.value), meta)
-        followUps.push({ file, line: line(auth) + lineOffset, message: `The ViteHub page guard reads only and redirectTo, so the codemod dropped ${dropped.join(", ")}. Check that rule in the page or in access.routes with authorize in server/auth.ts.` })
-      }
-      return { after: output.hasChanged() ? output.toString() : undefined, followUps }
+      else if (dropped.length) followUps.push({ file, line: line(auth) + lineOffset, message: `ViteHub cannot preserve the page auth options ${dropped.join(", ")}. Migrate the guard by hand.` })
+      return { followUps }
     }
     if (!rule) return { followUps }
     const semicolon = style.semicolons ? ";" : ""
@@ -145,7 +139,6 @@ export function editPage(file: string, source: string, rule: AuthRouteRule | und
     return { after: output.toString(), followUps }
   }
   if (!rule) return { followUps }
-  if (block?.src) return { followUps: [{ file, message: `<script setup> loads ${block.src}. Add definePageMeta({ auth: ${rule.meta} }) to this page by hand.` }] }
   const scriptLang = descriptor.script ? descriptor.script.lang : typescript ? "ts" : undefined
   const lang = scriptLang ? ` lang="${scriptLang}"` : ""
   output.prepend(`<script setup${lang}>\ndefinePageMeta({ auth: ${rule.meta} })\n</script>\n\n`)

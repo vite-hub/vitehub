@@ -218,11 +218,10 @@
     "expect": {
       "codemods": [
         "nuxthub",
-        "nuxt-better-auth"
+        "nuxt-better-auth (error)"
       ],
       "report": [
-        "moved 1 Auth config to server/auth.ts and 4 auth route rules to page meta",
-        "The auth rule of /admin also matched user"
+        "Found an unsupported auth rule for /admin"
       ]
     }
   }

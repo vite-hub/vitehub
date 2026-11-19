@@ -4,7 +4,7 @@ export default defineNuxtConfig({
   routeRules: {
     '/': { auth: { only: 'guest', redirectTo: '/dashboard' } },
     '/dashboard/**': { auth: 'user' },
-    '/admin': { auth: { only: 'user', user: { role: 'admin' } } },
+    '/admin': { auth: 'user' },
     '/api/notes/**': { auth: 'user' },
     '/blog/**': { prerender: true },
   },
