@@ -18,9 +18,9 @@ type ProvisionCommand = "run" | "status"
 
 /**
  * Loads the project config for a build on `host`, as `vitehub deploy --host` does, so a config that reads `detectHost()`
- * declares the resources of that host. Returns the Provision Steps and the config root that holds the Provision State.
+ * declares the resources of that host. Returns the Provision Steps, config root, and any environment loaded by discovery.
  */
-type LoadProvision = (host: ProvisionProvider) => Promise<ViteHubCliProvision>
+export type LoadProvision = (host: ProvisionProvider) => Promise<ViteHubCliProvision & { env?: NodeJS.ProcessEnv }>
 
 interface ParsedProvisionArgs {
   dryRun: boolean
@@ -289,8 +289,8 @@ async function runProvision(args: string[], cliContext: ProvisionFeatureContext,
   const resolved = resolveHost("run", parsed, cliContext)
   if ("exitCode" in resolved) return resolved.exitCode
   const { host: provider } = resolved
-  const { rootDir, steps } = await load(provider)
-  const context = await withHostCredentials(provider, { ...cliContext, rootDir })
+  const { env = cliContext.env, rootDir, steps } = await load(provider)
+  const context = await withHostCredentials(provider, { ...cliContext, env, rootDir })
 
   // Fail closed outside --dry-run: a credential-less run silently creating
   // nothing would mask missing CI secrets behind a green step.
@@ -353,8 +353,8 @@ async function runProvisionStatus(args: string[], cliContext: ProvisionFeatureCo
   const resolved = resolveHost("status", parsed, cliContext)
   if ("exitCode" in resolved) return resolved.exitCode
   const { host: provider } = resolved
-  const { rootDir, steps } = await load(provider)
-  const context = await withHostCredentials(provider, { ...cliContext, rootDir })
+  const { env = cliContext.env, rootDir, steps } = await load(provider)
+  const context = await withHostCredentials(provider, { ...cliContext, env, rootDir })
 
   const recorded = (await readProvisionState(context.rootDir))[provider] ?? {}
   const undeclared = findUndeclaredEntries(provider, recorded, steps, context.env)

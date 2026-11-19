@@ -919,6 +919,48 @@ export default ({ mode }) => ({
       .toEqual({ cloudflare: { test: { demo: "id" } } })
   })
 
+  it.each([
+    { args: ["run", "--dry-run"] },
+    { args: ["run"] },
+    { args: ["status"] },
+  ])("uses values from Nuxt .env for provision $args", { timeout: 30_000 }, async ({ args }) => {
+    const rootDir = await createTempDir()
+    await mkdir(join(rootDir, "node_modules"))
+    await symlink(resolve(import.meta.dirname, "../node_modules/nuxt"), join(rootDir, "node_modules/nuxt"), "dir")
+    await writeFile(join(rootDir, "package.json"), "{}\n")
+    await writeFile(join(rootDir, ".env"), "VERCEL_TOKEN=dotenv-token\nVERCEL_PROJECT_ID=dotenv-project\n")
+    await writeFile(join(rootDir, "nuxt.config.ts"), `
+export default {
+  vite: { plugins: process.env.VITEHUB_HOST === "vercel" ? [{
+    name: "fixture-vercel-provision",
+    vitehub: { cli: { namespaces: [], provision: [{
+      id: "test:vercel",
+      provider: "vercel",
+      plan: ({ env }) => {
+        if (env.VERCEL_TOKEN !== "dotenv-token" || env.VERCEL_PROJECT_ID !== "dotenv-project") throw new Error("Missing .env values")
+        if (env.VITEHUB_HOST !== "node" || env.VITEHUB_HOST_SOURCE !== undefined) throw new Error("Discovery host override leaked")
+        return [{ kind: "test-resource", name: "demo", exists: false, apply: () => ({}) }]
+      },
+    }] } },
+  }] : [] },
+}
+`)
+    const stdout = stream()
+    const originalToken = process.env.VERCEL_TOKEN
+
+    await expect(runViteHubCli({
+      args: ["provision", ...args, "--host", "vercel"],
+      cwd: rootDir,
+      env: { VITEHUB_HOST: "node" },
+      runHostCli: noHostCli,
+      stderr: stream(),
+      stdout,
+    })).resolves.toBe(0)
+
+    expect(stdout.output()).toContain("create\ttest-resource\tdemo")
+    expect(process.env.VERCEL_TOKEN).toBe(originalToken)
+  })
+
   it("provisions with the token and account of a wrangler login", async () => {
     const rootDir = await createTempDir()
     const plan = vi.fn(async (_context: ProvisionContext) => [])
