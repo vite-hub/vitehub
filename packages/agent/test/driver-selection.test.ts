@@ -182,6 +182,15 @@ describe("built-in Agent Driver selection", () => {
     expect(normalizeAgentDriver({ driver: codexDriver({ model: "gpt-5.6-sol", reasoningEffort: "ultra" }) })).toMatchObject({ reasoningEffort: "ultra" })
   })
 
+  it("names VITEHUB_MCP_BEARER_TOKEN when driver.env sets only the old T3_MCP_BEARER_TOKEN", () => {
+    expect(() => normalizeAgentDriver({ driver: codexDriver({ env: { T3_MCP_BEARER_TOKEN: "token" } }) })).toThrow(expect.objectContaining({
+      code: "AGENT_MCP_BEARER_TOKEN_RENAMED",
+      fix: expect.stringContaining("VITEHUB_MCP_BEARER_TOKEN"),
+    }))
+    expect(normalizeAgentDriver({ driver: codexDriver({ env: { T3_MCP_BEARER_TOKEN: "token", VITEHUB_MCP_BEARER_TOKEN: "token" } }) })).toMatchObject({ kind: "provider" })
+    expect(normalizeAgentDriver({ driver: claudeCodeDriver({ env: { T3_MCP_BEARER_TOKEN: "token" } }) })).toMatchObject({ kind: "provider" })
+  })
+
   it("preserves provider environment keys that overlap object prototype accessors", () => {
     const env = { ["__proto__"]: "literal" };
 
